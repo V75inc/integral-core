@@ -557,13 +557,20 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     from pathlib import Path
     from types import SimpleNamespace
 
-    from app.agentive.harness.contracts import ResolvedModelRoute
+    from app.agentive.harness.contracts import PhysicalModelRequest, ResolvedModelRoute
+    from app.agentive.services.work_model_admission import WorkModelAdmission
     from app.schemas.agentive.work import WorkExecutionContext
 
     scope_args = {}
     runtime_args = {}
     model_args = {}
     tool_args = {}
+    observed = []
+
+    async def observe(admission, observation):
+        observed.append((admission, observation))
+
+    monkeypatch.setattr(WorkModelAdmission, "observe", observe)
     work_context = WorkExecutionContext(
         work_item_id="work-item-1",
         attempt=1,
@@ -744,7 +751,20 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     )
     assert tool_args["work_execution_context"] == work_context
     boundary = model_args["admission"]
-    assert model_args["observer"] == boundary.observe
+    await model_args["observer"](
+        PhysicalModelRequest(
+            request_id="host-run-model-request",
+            scope=scope,
+            provider="test",
+            model="test:model",
+            attempt=1,
+            dispatched_at=datetime.now(timezone.utc),
+            outcome="dispatch_intent",
+        )
+    )
+    assert observed[0][0] is boundary
+    assert observed[0][1].scope == scope
+    assert observed[0][1].model_role == "heavy"
     assert boundary._context == work_context
     assert boundary._observer.keywords["work_execution_context"] == work_context
     assert _rest[-2] == work_context

@@ -29,6 +29,8 @@ class UserModelCredential(Object):
     base_url: str = attribute(default="")
     generation_settings: Dict[str, Any] = Field(default_factory=dict)
     active_profile_id: str = ""
+    routing_mode: str = "single"
+    light_profile_id: str = ""
     # Speech-to-text (voice input) slot. Opt-in: empty ``speech_model`` = off.
     speech_provider: str = attribute(default="")
     speech_model: str = attribute(default="")

@@ -16,6 +16,7 @@ from app.schemas.ai_configuration import (
     ConnectionWrite,
     ItemRequest,
     ProfileWrite,
+    RoutingWrite,
 )
 from app.services import ai_configuration as service
 from app.services.change_event import emit_change_event
@@ -55,6 +56,7 @@ async def _mutate(request: Request, operation, *, action: str) -> Any:
 async def get_configuration(request: Request) -> dict[str, Any]:
     """Describe personal profiles and the effective workspace funding configuration."""
     from app.config import settings
+    from app.services.model_credential_resolver import _credential_funds_byok
     from app.services.model_credentials import get_active_credential_for_user
     from app.services.permissions import get_user_node
     from app.services.request_scope import resolve_workspace_id_from_request
@@ -72,9 +74,17 @@ async def get_configuration(request: Request) -> dict[str, Any]:
         record = await service.profile_credential(
             owner_subject, record.active_profile_id, record
         )
-    personal = settings.INTEGRAL_AGENT_KEY_MODE != "platform_only" and bool(record)
+    personal = (
+        settings.INTEGRAL_AGENT_KEY_MODE != "platform_only"
+        and record is not None
+        and _credential_funds_byok(record)
+    )
     result = await service.configuration(user_id)
+    from app.agentive.harness.model_routing import effective_routing_summary
+
+    routing_summary = await effective_routing_summary(workspace_id)
     result["effective"] = {
+        "routing": routing_summary,
         "workspace_id": workspace_id,
         "source": (
             "workspace_owner"
@@ -97,7 +107,11 @@ async def get_configuration(request: Request) -> dict[str, Any]:
                 else os.getenv("INTEGRAL_NATIVE_MODEL", "")
             )
         ),
-        "generation_settings": record.generation_settings if personal else {},
+        "generation_settings": (
+            record.generation_settings
+            if personal
+            else routing_summary.get("heavy_generation_settings", {})
+        ),
     }
     return result
 
@@ -196,7 +210,7 @@ async def conversation_model(request: Request) -> dict[str, Any]:
     from app.schemas.ai_configuration import ConversationModelRequest
 
     body = await _body(request, ConversationModelRequest)
-    if body.profile_id is None:
+    if body.profile_id is None and body.routing_mode is None:
         try:
             return await service.conversation_model(
                 resolve_principal_id(request), body.thread_id
@@ -205,6 +219,19 @@ async def conversation_model(request: Request) -> dict[str, Any]:
             raise BadRequestError(str(exc)) from None
     return await _mutate(
         request,
-        lambda user: service.conversation_model(user, body.thread_id, body.profile_id),
+        lambda user: service.conversation_model(
+            user, body.thread_id, body.profile_id, routing_mode=body.routing_mode
+        ),
         action="ai_conversation_model.configure",
+    )
+
+
+@endpoint("/users/me/model-routing", methods=["POST"], auth=True, tags=["AI Models"])
+async def configure_routing(request: Request) -> dict[str, Any]:
+    """Atomically configure owned light/heavy model roles."""
+    body = await _body(request, RoutingWrite)
+    return await _mutate(
+        request,
+        lambda user: service.save_routing(user, body),
+        action="ai_model_routing.configure",
     )

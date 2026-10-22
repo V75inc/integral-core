@@ -49,7 +49,14 @@ export interface ModelCapabilities {
   context_window: boolean;
   verified: boolean;
 }
+export interface ModelRouting {
+  mode: "single" | "light_heavy";
+  heavy_profile_id: string;
+  light_profile_id: string;
+  revision: string;
+}
 export interface AIConfiguration {
+  routing?: ModelRouting;
   connections: ModelConnection[];
   profiles: ModelProfile[];
   default_profile_id: string;
@@ -61,6 +68,13 @@ export interface AIConfiguration {
     provider: string;
     model: string;
     generation_settings: GenerationSettings;
+    routing?: {
+      mode: "single" | "light_heavy";
+      heavy_model: string;
+      light_model: string;
+      heavy_generation_settings?: GenerationSettings;
+      light_generation_settings?: GenerationSettings;
+    };
   };
   harness_limits: {
     request_limit: number;
@@ -107,6 +121,9 @@ export const aiConfigurationApi = {
   async saveProfile(body: ProfileWrite) {
     return (await api.post("/users/me/model-profiles", body)).data;
   },
+  async saveRouting(body: ModelRouting) {
+    return (await api.post("/users/me/model-routing", body)).data;
+  },
   async activateProfile(id: string) {
     await api.post("/users/me/model-profiles/activate", { id });
   },
@@ -116,11 +133,17 @@ export const aiConfigurationApi = {
   async conversation(
     thread_id: string,
     profile_id?: string,
-  ): Promise<{ profile_id: string; editable: boolean }> {
+    routing_mode?: "inherit" | "heavy" | "profile",
+  ): Promise<{
+    profile_id: string;
+    editable: boolean;
+    routing_mode?: "inherit" | "heavy" | "profile";
+  }> {
     return (
       await api.post("/users/me/conversation-model", {
         thread_id,
         ...(profile_id !== undefined ? { profile_id } : {}),
+        ...(routing_mode !== undefined ? { routing_mode } : {}),
       })
     ).data;
   },

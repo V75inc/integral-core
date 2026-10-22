@@ -859,6 +859,7 @@ class ChatThread(Node):
     """
 
     model_profile_id: str = ""
+    model_routing_mode: str = "inherit"
     user_id: str = ""
     # Active workspace at thread creation. Empty for pre-migration rows;
     # backfilled by scripts/migrate_to_workspaces.py to the user's Personal.

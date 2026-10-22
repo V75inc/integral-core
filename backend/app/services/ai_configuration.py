@@ -12,7 +12,7 @@ from app.models.credentials import (
     UserModelCredential,
     UserModelProfile,
 )
-from app.schemas.ai_configuration import ConnectionWrite, ProfileWrite
+from app.schemas.ai_configuration import ConnectionWrite, ProfileWrite, RoutingWrite
 from app.services.credential_crypto import (
     decrypt_secret_from_storage,
     encrypt_secret_for_storage,
@@ -169,6 +169,12 @@ async def configuration(user_id: str) -> dict[str, Any]:
         "connections": [_connection_view(c) for c in connections],
         "profiles": [_profile_view(p) for p in profiles],
         "default_profile_id": default_id,
+        "routing": {
+            "mode": record.routing_mode if record else "single",
+            "light_profile_id": record.light_profile_id if record else "",
+            "heavy_profile_id": default_id,
+            "revision": record.updated_at or "" if record else "",
+        },
         "key_policy": settings.INTEGRAL_AGENT_KEY_MODE,
         "harness_limits": {
             "request_limit": settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT,
@@ -308,6 +314,12 @@ async def save_profile(user_id: str, body: ProfileWrite) -> dict[str, Any]:
         body.model.strip(),
     )
     profile.generation_settings, profile.updated_at = configured, utc_now_iso()
+    if (
+        record
+        and record.routing_mode == "light_heavy"
+        and profile.id in {default_id, record.light_profile_id}
+    ):
+        _require_structured_support(connection.provider, profile.model)
     await _save_revision(profile, previous)
     record = await get_credential_for_user(user_id)
     if record and record.is_active and default_id == profile.id:
@@ -316,7 +328,11 @@ async def save_profile(user_id: str, body: ProfileWrite) -> dict[str, Any]:
 
 
 async def activate_profile(
-    user_id: str, item_id: str, *, expected_profile_id: str | None = None
+    user_id: str,
+    item_id: str,
+    *,
+    expected_profile_id: str | None = None,
+    routing: RoutingWrite | None = None,
 ) -> None:
     """Select an owned default profile while preserving voice credentials."""
     _enabled()
@@ -331,6 +347,8 @@ async def activate_profile(
         raise ValueError("The saved key could not be read; replace it")
     record = await get_credential_for_user(user_id)
     previous = record.updated_at if record else None
+    if routing is not None and routing.revision != (previous or ""):
+        raise ValueError("Configuration changed while editing. Reload and try again.")
     if expected_profile_id is not None:
         if not record or not record.is_active:
             return
@@ -338,6 +356,19 @@ async def activate_profile(
         if current != expected_profile_id:
             return
     record = record or UserModelCredential(user_id=user_id)
+    if routing is not None:
+        record.routing_mode = routing.mode
+        record.light_profile_id = routing.light_profile_id
+    if record.routing_mode == "light_heavy":
+        if not record.light_profile_id:
+            raise ValueError("Choose a light model before enabling automatic routing")
+        light = await profile_credential(user_id, record.light_profile_id, record)
+        if light.api_key_enc and not decrypt_secret_from_storage(
+            light.api_key_enc, aad=user_id
+        ):
+            raise ValueError("The light provider key could not be read; replace it")
+        _require_structured_support(light.provider, light.model)
+        _require_structured_support(connection.provider, profile.model)
     if record.speech_model and not record.speech_api_key_enc:
         record.speech_provider = record.speech_provider or record.provider
         record.speech_api_key_enc = record.api_key_enc
@@ -367,6 +398,8 @@ async def activate_profile(
             "key_fingerprint",
             "generation_settings",
             "active_profile_id",
+            "routing_mode",
+            "light_profile_id",
             "is_active",
             "validated_at",
             "updated_at",
@@ -409,6 +442,10 @@ async def remove_item(user_id: str, item_id: str, *, connection: bool) -> None:
             raise ValueError(
                 "Choose another default model before removing this profile"
             )
+        if record and record.light_profile_id == item.id:
+            raise ValueError(
+                "Clear or reassign the light model before removing this profile"
+            )
         from app.models.nodes import ChatThread
 
         if await _find(
@@ -444,7 +481,11 @@ async def profile_credential(user_id: str, profile_id: str, record):
 
 
 async def conversation_model(
-    user_id: str, thread_id: str, profile_id: str | None = None
+    user_id: str,
+    thread_id: str,
+    profile_id: str | None = None,
+    *,
+    routing_mode: str | None = None,
 ) -> dict[str, Any]:
     """Read or change an owned idle conversation model selection."""
     from app.models.nodes import ChatThread
@@ -468,8 +509,12 @@ async def conversation_model(
         and owner.user_id == user_id
         and settings.INTEGRAL_AGENT_KEY_MODE != "platform_only"
     )
-    if profile_id is not None:
+    if profile_id is not None or routing_mode is not None:
         _enabled()
+        profile_id = profile_id or ""
+        selected_mode = routing_mode or ("profile" if profile_id else "inherit")
+        if (selected_mode == "profile") != bool(profile_id):
+            raise ValueError("Choose a profile for fixed model routing")
         if not editable:
             raise ValueError(
                 "This conversation uses its workspace owner's model settings"
@@ -500,14 +545,45 @@ async def conversation_model(
                     {"context.active_work_item_id": {"$exists": False}},
                 ],
             },
-            {"$set": {"context.model_profile_id": profile_id}},
+            {
+                "$set": {
+                    "context.model_profile_id": profile_id,
+                    "context.model_routing_mode": selected_mode,
+                }
+            },
         )
         if changed is None:
             raise ValueError(
                 "The conversation changed; wait for its current turn to finish"
             )
         thread.model_profile_id = profile_id
+        thread.model_routing_mode = selected_mode
     return {
         "profile_id": thread.model_profile_id if editable else "",
         "editable": editable,
+        "routing_mode": (
+            ("profile" if thread.model_profile_id else thread.model_routing_mode)
+            if editable
+            else "inherit"
+        ),
     }
+
+
+async def save_routing(user_id: str, body: RoutingWrite) -> None:
+    """Validate both role assignments and commit one credential revision."""
+    _enabled()
+    if body.light_profile_id:
+        record = await get_credential_for_user(user_id) or UserModelCredential(
+            user_id=user_id
+        )
+        await profile_credential(user_id, body.light_profile_id, record)
+    await activate_profile(user_id, body.heavy_profile_id, routing=body)
+
+
+def _require_structured_support(provider: str, model: str) -> None:
+    from app.services.model_settings import model_capabilities
+
+    if model_capabilities(provider, model).get("tool_calling") is False:
+        raise ValueError(
+            "Automatic routing requires structured tool support; choose another model or Single model"
+        )

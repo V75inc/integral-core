@@ -86,6 +86,7 @@ function identityConvertMessage(m: ThreadMessageLike): ThreadMessageLike {
 
 export type ObservabilityStep = {
   modelId?: string;
+  modelRole?: "light" | "heavy";
   provider?: string;
   providerCostUsd?: number;
   costSource?:
@@ -2171,6 +2172,7 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
         ...(draft.customSteps ?? []),
         {
           modelId: ev.modelId,
+          modelRole: ev.modelRole,
           provider: ev.provider,
           providerCostUsd: ev.providerCostUsd,
           costSource: ev.costSource,

@@ -32,6 +32,7 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
         "name",
         "status",
         "modelId",
+        "modelRole",
         "provider",
         "requestId",
         "attempt",
@@ -130,6 +131,9 @@ def normalize_public_event(
                 value = ModelRequestContextObservation.model_validate(
                     value
                 ).model_dump()
+            elif key == "modelRole":
+                if value not in {"light", "heavy"}:
+                    raise ValueError("unsupported model role")
             elif key == "contextMode":
                 if not isinstance(value, str) or value not in {
                     "conversation",

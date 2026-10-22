@@ -22,6 +22,7 @@ export interface ChatLatency {
   preparationMs?: number; providerFirstTokenMs?: number;
   firstToolRequestedMs?: number; firstToolStartedMs?: number;
   firstOperationalToolMs?: number; queueMs?: number;
+  lightPassMs?: number; lightResponseMs?: number; heavyStartedMs?: number; heavyFirstTokenMs?: number; escalationMs?: number;
   clientFirstTextMs?: number; clientFirstToolMs?: number; clientCompletionMs?: number;
 }
 
@@ -51,6 +52,7 @@ export type NormalizedEvent =
       outputTokensReported?: boolean;
       costComplete?: boolean;
       modelId?: string;
+      modelRole?: "light" | "heavy";
       provider?: string;
       providerCostUsd?: number;
       costSource?:

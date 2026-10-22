@@ -1486,3 +1486,56 @@ async def test_profile_generation_options_reach_actual_sdk_payload(
         assert captured[key] == value
     assert "max_completion_tokens" not in captured
     assert captured["tool_choice"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_shared_budget_guard_precedes_retry_admission_and_dispatch() -> None:
+    """A second physical attempt cannot spend beyond the shared turn cap."""
+    from app.agentive.harness.model_errors import NativeModelRequestError
+    from app.agentive.harness.pydantic_ai_compat import UsageLimitExceeded
+    from app.services.chat_latency import TurnLatency
+
+    timing = TurnLatency()
+    timing.freeze_budget({"model_request_limit": 1})
+    events = []
+
+    async def admission(_request):
+        events.append("admission")
+
+        async def ready():
+            events.append("ready")
+
+        return ready
+
+    async def completion(**_kwargs):
+        events.append("dispatch")
+        raise NativeModelRequestError("model_provider_unavailable")
+
+    transport = LiteLLMSDKTransport(
+        route=_route(),
+        scope=_scope(),
+        observer=_ignore_observation,
+        admission=admission,
+        dispatch_guard=timing.reserve_dispatch,
+        completion=completion,
+        max_attempts=2,
+    )
+    async with AsyncOpenAI(
+        api_key="bridge-placeholder",
+        base_url="http://litellm-sdk.invalid/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        max_retries=0,
+    ) as client:
+        with pytest.raises(APIConnectionError) as caught:
+            await client.chat.completions.create(
+                model=_route().model,
+                messages=[{"role": "user", "content": "budget check"}],
+            )
+    from app.agentive.harness.pydantic_ai_compat import (
+        classify_integral_harness_exception,
+    )
+
+    assert classify_integral_harness_exception(caught.value) == "harness_usage_limit"
+    assert isinstance(caught.value.__cause__, UsageLimitExceeded)
+    assert events == ["admission", "ready", "dispatch"]
+    assert timing.physical_requests == 1

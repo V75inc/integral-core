@@ -396,7 +396,11 @@ async def test_conversation_profile_select_reset_and_busy_guard(authenticated_cl
         json={"thread_id": thread_id, "profile_id": profile_id},
     )
     assert changed.status_code == 200, changed.text
-    assert changed.json() == {"profile_id": profile_id, "editable": True}
+    assert changed.json() == {
+        "profile_id": profile_id,
+        "editable": True,
+        "routing_mode": "profile",
+    }
     reset = await authenticated_client.post(
         "/api/users/me/conversation-model",
         json={"thread_id": thread_id, "profile_id": ""},

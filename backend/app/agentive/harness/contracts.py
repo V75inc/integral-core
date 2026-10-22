@@ -228,6 +228,7 @@ class PhysicalModelRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     request_id: str
+    model_role: Literal["light", "heavy"] | None = None
     scope: HarnessExecutionScope
     provider: str
     model: str

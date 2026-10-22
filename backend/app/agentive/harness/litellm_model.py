@@ -514,6 +514,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         timeout_seconds: float = 180.0,
         idle_timeout_seconds: float = 30.0,
         admission: ModelAdmission | None = None,
+        dispatch_guard: Callable[[], None] | None = None,
         request_validator: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         max_attempts: int = 1,
         retry_status: Callable[[int, int], Awaitable[None]] | None = None,
@@ -533,6 +534,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         self._timeout_seconds = timeout_seconds
         self._idle_timeout_seconds = min(idle_timeout_seconds, timeout_seconds)
         self._admission = admission
+        self._dispatch_guard = dispatch_guard
         self._request_validator = request_validator
 
     async def _sdk_completion(self, **kwargs: Any) -> Any:
@@ -702,6 +704,8 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             request_id = str(uuid4())
             started_at = datetime.now(timezone.utc)
             readiness = None
+            if self._dispatch_guard is not None:
+                self._dispatch_guard()
             if self._admission is not None:
                 # Use final mapped SDK kwargs, including tools, reasoning controls
                 # and enforced output settings. Do not pass credential material to
@@ -1025,6 +1029,7 @@ def build_litellm_sdk_model(
     timeout_seconds: float = 180.0,
     idle_timeout_seconds: float = 30.0,
     admission: ModelAdmission | None = None,
+    dispatch_guard: Callable[[], None] | None = None,
     request_validator: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     max_attempts: int = 1,
     retry_status: Callable[[int, int], Awaitable[None]] | None = None,
@@ -1038,6 +1043,7 @@ def build_litellm_sdk_model(
         timeout_seconds=timeout_seconds,
         idle_timeout_seconds=idle_timeout_seconds,
         admission=admission,
+        dispatch_guard=dispatch_guard,
         request_validator=request_validator,
         max_attempts=max_attempts,
         retry_status=retry_status,

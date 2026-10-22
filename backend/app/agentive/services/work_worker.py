@@ -755,6 +755,10 @@ async def _execute_chat_turn(
                             "firstToolRequestedMs",
                             "firstToolStartedMs",
                             "firstOperationalToolMs",
+                            "heavyStartedMs",
+                            "lightResponseMs",
+                            "heavyFirstTokenMs",
+                            "escalationMs",
                         ):
                             if key in timing:
                                 timing[key] += offset

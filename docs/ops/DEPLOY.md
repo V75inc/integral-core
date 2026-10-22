@@ -156,3 +156,23 @@ turn timeout limits. Operator settings remain ceilings: `INTEGRAL_NATIVE_TURN_RE
 `INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS`. Unset profile values inherit defaults.
 See [AI configuration and latency](../implementation/ai-model-settings-and-latency.md)
 for migration, routing, metrics and measurement limits.
+
+### Optional native light/heavy model roles
+
+Single-model execution remains the default. Workspace owners can opt into Automatic
+routing in **Settings → AI Models → Configure routing**, selecting an owned Light
+profile and the default Main/heavy profile. Providers and reasoning settings remain
+independent; both models share the effective turn limits and existing approval policy.
+
+For deployment-managed models, set `INTEGRAL_NATIVE_ROUTING_MODE=light_heavy` and
+`INTEGRAL_NATIVE_LIGHT_MODEL=provider/model`; `INTEGRAL_NATIVE_MODEL` remains Main/heavy.
+Optional `INTEGRAL_NATIVE_LIGHT_MODEL_SETTINGS` and
+`INTEGRAL_NATIVE_HEAVY_MODEL_SETTINGS` are typed JSON objects using the same bounded
+settings contract as profiles. Reasoning controls must be supported by that model.
+Update `INTEGRAL_NATIVE_CREDENTIAL_REF` when rotating operator credentials. Strict BYOK
+never falls back to deployment models. See the [integration review](../implementation/pydantic-harness-dual-model-review.md)
+for admission, recovery, measurement limitations and rollback to Single model.
+
+The AI Models page shows deployment roles and their validated tuning as read-only
+server-managed settings. ENV keys are not copied into personal Providers. Under
+`hybrid`, a usable owner BYOK profile takes precedence; `byo_strict` requires it.

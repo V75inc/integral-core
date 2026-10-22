@@ -1252,3 +1252,98 @@ async def test_cancel_terminalization_rejects_foreign_scope_or_stale_lease(
         await ChatThread.get(item.thread_id)
     ).active_work_item_id == item.work_item_id
     assert await load_work_item_assistant_result(context=context) is None
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_dual_model_budget_binding_is_fenced_and_survives_recovery(
+    postgres_graph_context,
+):
+    """A real worker fence protects pair selection and shared usage on Postgres."""
+    from datetime import datetime, timezone
+
+    from app.agentive.harness.contracts import (
+        HarnessExecutionScope,
+        ModelUsageObservation,
+        PhysicalModelRequest,
+        ResolvedModelRoute,
+    )
+    from app.agentive.harness.model_observations import (
+        persist_model_request_observation,
+    )
+    from app.agentive.harness.model_routing import TurnModelRoutes, bind_durable_routing
+    from app.agentive.services.work_execution import build_work_execution_context
+    from app.services.chat_latency import TurnLatency
+
+    item, owner_id = await _submitted_claimed_turn()
+    context = build_work_execution_context(
+        work_item=item, logical_step_key="provider:0"
+    )
+    await execution_runs.start_run(
+        thread_id=context.thread_id,
+        user_id=owner_id,
+        workspace_id=context.workspace_id,
+        provider_id="integral_native",
+        run_id=context.run_id,
+        work_item_id=context.work_item_id,
+        deadline_at=context.deadline_at or "",
+        metadata={"retained": "unchanged"},
+    )
+    scope = HarnessExecutionScope(
+        tenant_id=context.workspace_id,
+        workspace_id=context.workspace_id,
+        principal_id=owner_id,
+        thread_id=context.thread_id,
+        session_id="dual-budget-fixture",
+        run_id=context.run_id,
+        permission_revision="test",
+        capability_version="test",
+    )
+    heavy = ResolvedModelRoute(
+        provider="ollama_chat",
+        model="heavy",
+        credential_source="local",
+        generation_settings={"model_request_limit": 4},
+    )
+    light = heavy.model_copy(update={"model": "light"})
+    plan = TurnModelRoutes(heavy, light, "light_heavy")
+    await bind_durable_routing(scope, context, plan, TurnLatency())
+    now = datetime.now(timezone.utc)
+    observation = PhysicalModelRequest(
+        request_id="one-light-request",
+        scope=scope,
+        model_role="light",
+        provider="ollama_chat",
+        model="light",
+        attempt=1,
+        dispatched_at=now,
+        observed_at=now,
+        outcome="responded",
+        usage=ModelUsageObservation(
+            input_tokens=10, output_tokens=2, cost_source="unavailable", complete=True
+        ),
+    )
+    await persist_model_request_observation(
+        observation.model_copy(update={"outcome": "dispatch_intent", "usage": None}),
+        work_execution_context=context,
+    )
+    await persist_model_request_observation(observation, work_execution_context=context)
+    recovered = TurnLatency()
+    await bind_durable_routing(scope, context, plan, recovered)
+    assert (
+        recovered.physical_requests == 1
+        and sum(recovered.physical_tokens.values()) == 12
+    )
+    run = await execution_runs.AgentRun.find_one({"run_id": context.run_id})
+    assert run.metadata["retained"] == "unchanged"
+    with pytest.raises(WorkError, match="model_route_stale"):
+        await bind_durable_routing(
+            scope, context, TurnModelRoutes(light, heavy, "light_heavy"), TurnLatency()
+        )
+    with pytest.raises(WorkError, match="lease_lost"):
+        await bind_durable_routing(
+            scope,
+            context.model_copy(update={"lease_fence": context.lease_fence + 1}),
+            plan,
+            TurnLatency(),
+        )

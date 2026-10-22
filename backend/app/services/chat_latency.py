@@ -6,6 +6,7 @@ import asyncio
 import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from typing import Any
 
 LATENCY_FIELDS = frozenset(
     {
@@ -18,6 +19,11 @@ LATENCY_FIELDS = frozenset(
         "totalMs",
         "modelPassMs",
         "queueMs",
+        "lightPassMs",
+        "heavyStartedMs",
+        "lightResponseMs",
+        "heavyFirstTokenMs",
+        "escalationMs",
     }
 )
 
@@ -29,6 +35,65 @@ class TurnLatency:
 
     model_settings: dict = field(default_factory=dict)
     deadline: asyncio.Timeout | None = None
+    route_plan: Any = None
+    budget_settings: dict | None = None
+    physical_requests: int = 0
+    physical_tokens: dict[str, int] = field(default_factory=dict)
+    clients: list[Any] = field(default_factory=list)
+    roles: list[dict[str, str]] = field(default_factory=list)
+
+    def freeze_budget(self, value: dict) -> None:
+        """A later model can only tighten an already established turn ceiling."""
+        from app.config import settings
+
+        if self.budget_settings is None:
+            self.budget_settings = dict(value)
+        else:
+            for key, item in value.items():
+                self.budget_settings[key] = min(
+                    self.budget_settings.get(key, item), item
+                )
+        if self.deadline is not None:
+            limit = min(
+                settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS,
+                self.budget_settings.get(
+                    "turn_timeout", settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
+                ),
+            )
+            self.deadline.reschedule(
+                min(self.deadline.when() or float("inf"), self.started + limit)
+            )
+
+    def reserve_dispatch(self) -> None:
+        """Count physical retries as well as model switches before SDK entry."""
+        from app.agentive.harness.pydantic_ai_compat import UsageLimitExceeded
+        from app.config import settings
+
+        limits = self.budget_settings or self.model_settings
+        requests = min(
+            settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT,
+            limits.get(
+                "model_request_limit", settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT
+            ),
+        )
+        tokens = min(
+            settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
+            limits.get("turn_token_limit", settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT),
+        )
+        if (
+            self.physical_requests >= requests
+            or sum(self.physical_tokens.values()) >= tokens
+        ):
+            raise UsageLimitExceeded("The shared turn model budget is exhausted")
+        self.physical_requests += 1
+
+    def observe_usage(self, observation: Any) -> None:
+        usage = observation.usage
+        if usage is not None:
+            count = (usage.input_tokens or 0) + (usage.output_tokens or 0)
+            self.physical_tokens[observation.request_id] = max(
+                count, self.physical_tokens.get(observation.request_id, 0)
+            )
 
     def mark(self, name: str) -> None:
         if name not in LATENCY_FIELDS:
@@ -56,7 +121,15 @@ def turn_usage_limits(
     from app.config import settings
 
     timing = current_latency.get()
-    profile = timing.model_settings if timing else {}
+    profile = (
+        (
+            timing.budget_settings
+            if timing.budget_settings is not None
+            else timing.model_settings
+        )
+        if timing
+        else {}
+    )
     requests = min(
         settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT,
         profile.get("model_request_limit", settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT),
@@ -65,6 +138,9 @@ def turn_usage_limits(
         settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
         profile.get("turn_token_limit", settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT),
     )
+    if timing is not None and timing.budget_settings is not None:
+        adaptive_requests = max(adaptive_requests, timing.physical_requests)
+        adaptive_tokens = max(adaptive_tokens, sum(timing.physical_tokens.values()))
     return UsageLimits(
         request_limit=(
             min(1, requests) if light else max(0, requests - adaptive_requests)

@@ -17,6 +17,8 @@ import {
 } from "../../../api/modelCredentials";
 import { RECOMMENDED_MODELS } from "../../../api/modelPresets";
 import { errorMessageFromAxios } from "../../../api/helpers";
+import { profileSummary } from "./modelSettingsSummary";
+import { ModelRoutingSection } from "./ModelRoutingSection";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
 import {
   BrainCircuit,
@@ -56,43 +58,6 @@ const freshProfile = (): ProfileWrite => ({
   model: "",
   generation_settings: {},
 });
-
-function profileSummary(settings: GenerationSettings): string {
-  const parts = [
-    settings.reasoning_effort ? `${settings.reasoning_effort} reasoning` : "",
-    settings.max_tokens
-      ? `${settings.max_tokens.toLocaleString()} max output tokens`
-      : "",
-    settings.context_window
-      ? `${settings.context_window.toLocaleString()} context tokens`
-      : "",
-    settings.thinking_budget
-      ? `${settings.thinking_budget.toLocaleString()} thinking tokens`
-      : "",
-    settings.temperature != null ? `Temperature ${settings.temperature}` : "",
-    settings.top_p != null ? `Top-p ${settings.top_p}` : "",
-    settings.verbosity ? `${settings.verbosity} detail` : "",
-    settings.request_timeout
-      ? `${settings.request_timeout}s request limit`
-      : "",
-    settings.idle_timeout ? `${settings.idle_timeout}s idle limit` : "",
-    settings.model_request_limit
-      ? `${settings.model_request_limit} model requests per turn`
-      : "",
-    settings.tool_call_limit
-      ? `${settings.tool_call_limit} tool calls per turn`
-      : "",
-    settings.turn_token_limit
-      ? `${settings.turn_token_limit.toLocaleString()} total tokens per turn`
-      : "",
-    settings.turn_timeout ? `${settings.turn_timeout}s per turn` : "",
-  ].filter(Boolean);
-  return (
-    parts.slice(0, 3).join(" · ") +
-      (parts.length > 3 ? ` · +${parts.length - 3} more` : "") ||
-    "Provider defaults"
-  );
-}
 
 export function AiConfigurationSection() {
   const query = useAIConfiguration();
@@ -217,9 +182,10 @@ export function AiConfigurationSection() {
     );
   const data = query.data;
   const disabled = mutation.isPending || data.key_policy === "platform_only";
-  const defaultProfile = data.effective.editable
-    ? data.profiles.find((p) => p.id === data.default_profile_id)
-    : undefined;
+  const defaultProfile =
+    data.effective.editable && data.effective.source === "workspace_owner"
+      ? data.profiles.find((p) => p.id === data.default_profile_id)
+      : undefined;
   const defaultConnection = data.connections.find(
     (c) => c.id === defaultProfile?.connection_id,
   );
@@ -307,6 +273,18 @@ export function AiConfigurationSection() {
           </Text>
         )}
       </Surface>
+      <ModelRoutingSection
+        data={data}
+        onAddModel={() => {
+          setFailure("");
+          if (data.connections.length) addProfile();
+          else showConnection();
+        }}
+        onEdit={(p) => {
+          setFailure("");
+          editProfile(p);
+        }}
+      />
       <section aria-label="Your AI configuration">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-3">
           <div
@@ -475,9 +453,15 @@ export function AiConfigurationSection() {
                       title={
                         p.id === data.default_profile_id
                           ? "Choose another default before removing this model"
-                          : "Remove model"
+                          : p.id === data.routing?.light_profile_id
+                            ? "Reassign or clear the light model before removing it"
+                            : "Remove model"
                       }
-                      disabled={disabled || p.id === data.default_profile_id}
+                      disabled={
+                        disabled ||
+                        p.id === data.default_profile_id ||
+                        p.id === data.routing?.light_profile_id
+                      }
                       onClick={() =>
                         setRemoveTarget({
                           id: p.id,

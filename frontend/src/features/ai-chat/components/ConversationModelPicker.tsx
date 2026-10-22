@@ -26,7 +26,11 @@ export function ConversationModelPicker() {
   });
   const change = useMutation({
     mutationFn: (id: string) =>
-      aiConfigurationApi.conversation(activeThreadId!, id),
+      aiConfigurationApi.conversation(
+        activeThreadId!,
+        id === "__heavy" || id === "" ? "" : id,
+        id === "__heavy" ? "heavy" : id ? "profile" : "inherit",
+      ),
     onSuccess: (result) => {
       setFailure("");
       qc.setQueryData(key, result);
@@ -52,11 +56,15 @@ export function ConversationModelPicker() {
         This conversation
         <Select
           aria-label="Model for this conversation"
-          value={selection.data.profile_id}
+          value={
+            selection.data.profile_id ||
+            (selection.data.routing_mode === "heavy" ? "__heavy" : "")
+          }
           disabled={isRunning || change.isPending}
           onChange={(e) => change.mutate(e.target.value)}
         >
-          <option value="">Use default model</option>
+          <option value="">Use workspace routing</option>
+          <option value="__heavy">Heavy only</option>
           {configuration.data.profiles.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name} · {p.model}

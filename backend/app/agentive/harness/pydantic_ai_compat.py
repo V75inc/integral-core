@@ -873,6 +873,13 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
     """Translate Pydantic AI failures to Integral's stable error categories."""
     from app.agentive.harness.model_errors import classified_model_error
 
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, UsageLimitExceeded):
+            return "harness_usage_limit"
+        current = current.__cause__ or current.__context__
     model_code = classified_model_error(exc)
     if model_code:
         return model_code

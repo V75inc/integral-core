@@ -452,6 +452,8 @@ async def upsert_user_credential(
             or existing.generation_settings != configured_settings
         ):
             existing.active_profile_id = ""
+            existing.routing_mode = "single"
+            existing.light_profile_id = ""
         existing.provider = slug
         existing.model = model.strip()
         existing.generation_settings = configured_settings

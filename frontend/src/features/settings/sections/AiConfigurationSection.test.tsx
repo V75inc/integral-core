@@ -92,6 +92,7 @@ beforeEach(() => {
   fixture.isPending = false;
   fixture.isError = false;
   fixture.data.effective.editable = true;
+  fixture.data.effective.source = "workspace_owner";
   vi.mocked(aiConfigurationApi.capabilities).mockResolvedValue({
     reasoning_efforts: ["low", "medium", "high"],
     max_tokens: true,
@@ -233,4 +234,18 @@ it("supports arrow-key tab navigation", () => {
   expect(connections).toHaveFocus();
   expect(connections).toHaveAttribute("aria-selected", "true");
   expect(screen.getByRole("button", { name: "Test provider" })).toBeVisible();
+});
+
+it("opens a model override editor while the active configuration comes from ENV", async () => {
+  fixture.data.effective.source = "deployment";
+  show();
+  expect(screen.getByText("Managed by your deployment")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Add your own model" }));
+  const dialog = await screen.findByRole("dialog", { name: "Add a model" });
+  expect(
+    within(dialog).getByRole("textbox", { name: "Profile name" }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Model settings" }),
+  ).not.toBeInTheDocument();
 });

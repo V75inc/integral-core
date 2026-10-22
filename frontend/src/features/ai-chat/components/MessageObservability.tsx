@@ -210,7 +210,7 @@ export function MessageObservability() {
                 <td className="pr-3 py-0.5">{index + 1}</td>
                 <td className="pr-3 py-0.5 font-mono text-[10px]">
                   <span title={step.modelId ?? step.provider}>
-                    {step.modelId ?? step.provider ?? "unknown"}
+                    {step.modelRole ? `${step.modelRole === "light" ? "Light" : "Heavy"} · ` : ""}{step.modelId ?? step.provider ?? "unknown"}
                   </span>
                 </td>
                 <td className="pr-3 py-0.5 text-right">
@@ -305,7 +305,10 @@ export function MessageObservability() {
           {timeStr && <span>Total: {timeStr}</span>}
           {latency && ([
             ['queueMs', 'Queue'], ['preparationMs', 'Preparation'],
-            ['providerFirstTokenMs', 'Provider first token'],
+            ['providerFirstTokenMs', 'First provider output'],
+            ['lightPassMs', 'Light pass'],
+            ['escalationMs', 'Escalation'],
+            ['heavyFirstTokenMs', 'First heavy answer text'],
             ['firstToolRequestedMs', 'First tool requested'],
             ['firstToolStartedMs', 'First tool started'],
             ['firstOperationalToolMs', 'First operational tool'],

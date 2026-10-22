@@ -1,5 +1,7 @@
 """Private BYOK connection/profile management requests."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.model_credentials import ModelProvider
@@ -44,3 +46,13 @@ class ConversationModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     thread_id: str = Field(min_length=1, max_length=200)
     profile_id: str | None = Field(default=None, max_length=200)
+    routing_mode: Literal["inherit", "heavy", "profile"] | None = None
+
+
+class RoutingWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["single", "light_heavy"]
+    heavy_profile_id: str = Field(min_length=1, max_length=200)
+    light_profile_id: str = Field(default="", max_length=200)
+    revision: str = Field(max_length=200)
