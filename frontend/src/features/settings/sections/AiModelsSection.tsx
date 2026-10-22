@@ -3,7 +3,7 @@ import { PageMeta } from '../../../components/ui';
  * Settings tab — user AI model and API key configuration.
  */
 import { Text } from '../../../ui';
-import { ModelCredentialsSection } from './ModelCredentialsSection';
+import { AiConfigurationSection } from './AiConfigurationSection';
 
 export function AiModelsSection() {
   return (
@@ -13,11 +13,10 @@ export function AiModelsSection() {
           AI Models
         </Text>
         <PageMeta as="p">
-          Connect your AI provider and choose your primary chat model and optional
-          voice input.
+          Connect your providers and choose how Integral works with your models.
         </PageMeta>
       </div>
-      <ModelCredentialsSection />
+      <AiConfigurationSection />
     </div>
   );
 }

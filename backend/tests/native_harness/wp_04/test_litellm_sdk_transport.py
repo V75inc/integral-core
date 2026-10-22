@@ -1427,3 +1427,62 @@ async def test_image_revocation_blocks_sdk_dispatch():
         )
     assert calls == []
     assert [event.outcome for event in observations] == ["dispatch_intent", "failed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "configured, expected",
+    [
+        (
+            {"reasoning_effort": "high", "max_tokens": 4096},
+            {"reasoning_effort": "high", "max_tokens": 4096},
+        ),
+        (
+            {"thinking_budget": 2048, "max_tokens": 4096},
+            {
+                "thinking": {"type": "enabled", "budget_tokens": 2048},
+                "max_tokens": 4096,
+            },
+        ),
+    ],
+)
+async def test_profile_generation_options_reach_actual_sdk_payload(
+    configured, expected
+):
+    captured = {}
+
+    async def completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "request-settings",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "claude-sonnet",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    route = _route().model_copy(update={"generation_settings": configured})
+    transport = LiteLLMSDKTransport(
+        route=route, scope=_scope(), observer=_ignore_observation, completion=completion
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        response = await client.post(
+            "http://litellm-sdk.invalid/v1/chat/completions",
+            json={
+                "model": route.model,
+                "messages": [{"role": "user", "content": "fixture"}],
+                "max_completion_tokens": 12,
+                "tool_choice": "auto",
+            },
+        )
+    assert response.status_code == 200
+    for key, value in expected.items():
+        assert captured[key] == value
+    assert "max_completion_tokens" not in captured
+    assert captured["tool_choice"] == "auto"

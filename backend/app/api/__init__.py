@@ -36,6 +36,7 @@ for _mod in (
     "meta",
     "mission_control",
     "model_credentials",
+    "ai_configuration",
     "notification_preferences",  # Phase 9 Plan 09-04 — NOTIF-03 settings panel
     "notifications",
     "oauth_consent",  # M3b-1 — SPA-driven OAuth consent (CORE: completes the unconditional OAuth AS + /api/mcp mount regardless of AGENTIVE_ENABLED)

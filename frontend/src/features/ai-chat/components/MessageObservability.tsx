@@ -103,6 +103,7 @@ export function MessageObservability() {
       )?.finalPayload?.interaction?.observability_metrics ?? undefined,
   );
   const timing = useMessageTiming();
+  const latency = useAuiState(s => (s.message.metadata?.custom as { latency?: import('../providers/types').ChatLatency } | undefined)?.latency);
 
   if (role !== "assistant") return null;
   if (statusType === "running") return null;
@@ -299,9 +300,19 @@ export function MessageObservability() {
       {(hasTiming || totalTokens > 0 || totalIn != null || totalOut != null || steps.length > 0 || legacyEstimatedCost != null) && (
         <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-[var(--text-subtle)]">
           {timing?.firstTokenTime != null && timing.firstTokenTime > 0 && (
-            <span>TTFT: {formatTime(timing.firstTokenTime)}</span>
+            <span>First answer text: {formatTime(timing.firstTokenTime)}</span>
           )}
           {timeStr && <span>Total: {timeStr}</span>}
+          {latency && ([
+            ['queueMs', 'Queue'], ['preparationMs', 'Preparation'],
+            ['providerFirstTokenMs', 'Provider first token'],
+            ['firstToolRequestedMs', 'First tool requested'],
+            ['firstToolStartedMs', 'First tool started'],
+            ['firstOperationalToolMs', 'First operational tool'],
+            ['clientFirstTextMs', 'First text received'],
+            ['clientFirstToolMs', 'First tool received'],
+            ['clientCompletionMs', 'Completion received'],
+          ] as const).map(([key, label]) => latency[key] != null && <span key={key}>{label}: {formatTime(latency[key]) ?? '0s'}</span>)}
           {tpsStr && <span>{tpsStr}</span>}
           {totalIn != null && <span>Input {formatExactTokens(totalIn)} tokens{hasStepUsage ? ` (${inputCoverageCount}/${inputCoverageTotal} calls reported)` : ""}</span>}
           {totalOut != null && <span>Output {formatExactTokens(totalOut)} tokens{hasStepUsage ? ` (${outputCoverageCount}/${outputCoverageTotal} calls reported)` : ""}</span>}

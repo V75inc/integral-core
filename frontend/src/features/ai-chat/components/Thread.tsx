@@ -1,3 +1,4 @@
+import { ConversationModelPicker } from './ConversationModelPicker';
 import { ExpandableChatError } from "./ExpandableChatError";
 import { KebabMenu } from '../../../components/ui/KebabMenu';
 import './composer.css';
@@ -361,7 +362,7 @@ export function liveWorkSynopsis(
   if (latestTool?.trim()) return toolWorkSynopsis(latestTool);
   if (hasAnswerText) return "Writing your answer";
   if (completedTools > 0) return "Reviewing the results";
-  return "Preparing your response";
+  return "Working on that for you";
 }
 
 /** Describe observable operations, never model reasoning or tool arguments. */
@@ -467,7 +468,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
         <span role="status" aria-live="polite" title={label} className="inline-flex min-h-4 min-w-0 items-center leading-4"><span key={label} className="truncate animate-status-reveal motion-reduce:animate-none">{label}</span></span>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 flex max-h-80 flex-col gap-3 overflow-y-auto pl-5 text-xs">
-        <p className="text-xs text-[var(--text-muted)]">Activity, tool results, and model usage are shown here. Costs appear when available from the provider or a labelled estimate. Private model reasoning is not displayed.</p>
+        <p className="text-xs text-[var(--text-muted)]">Activity, tool results, and model usage are shown here.</p>
         <MessageObservability />
         {children}
       </CollapsibleContent>
@@ -1331,6 +1332,7 @@ export function Composer({ locked = false, home = false, onSendAttempt }: { lock
               outline-none focus:outline-none
             "
           />
+          <ConversationModelPicker />
           <ComposerAction home={home} />
         </div>
       </ComposerDictationProvider>

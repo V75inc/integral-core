@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     # setting this false is an explicit legacy-mode opt-out and gives up
     # process-restart recovery.
     INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED: bool = True
+    # Independent conversations may progress concurrently; per-thread admission
+    # and lease fencing still serialize effects within each turn.
+    INTEGRAL_CHAT_WORKERS: int = Field(default=4, ge=1, le=16)
     INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
     # Bound one provider request inside the longer multi-step chat-turn budget.
     # A stalled stream must not hold a browser turn open until the full harness

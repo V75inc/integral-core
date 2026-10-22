@@ -17,7 +17,7 @@ from app.services.chat_turn_events import normalize_public_event
 _PART_FIELDS = {
     "text": frozenset({"type", "text"}),
     "tool-call": frozenset(
-        {"type", "toolCallId", "toolName", "status", "isError", "diagnostic"}
+        {"type", "toolCallId", "toolName", "status", "isError", "diagnostic", "summary"}
     ),
     "source": frozenset({"type", "sourceType", "id", "url", "title"}),
     "error": frozenset({"type", "code", "message"}),
@@ -117,6 +117,10 @@ def _public_parts(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
             from app.services.chat_tool_diagnostics import normalize_tool_diagnostic
 
             normalize_tool_diagnostic(part["diagnostic"])
+        if kind == "tool-call" and "summary" in part:
+            from app.services.chat_tool_summary import normalize_tool_summary
+
+            normalize_tool_summary(part["summary"])
         result.append(dict(part))
     return result
 
@@ -197,6 +201,8 @@ def fold_chat_transcript(
             }
             if event.get("diagnostic") is not None:
                 summary["diagnostic"] = normalize_public_event(event)["diagnostic"]
+            if event.get("summary") is not None:
+                summary["summary"] = normalize_public_event(event)["summary"]
             # Start/result events describe one call, not two transcript parts.
             # Keep the first position and update it with the final receipt state.
             if call_id in tool_positions:

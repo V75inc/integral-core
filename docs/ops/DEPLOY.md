@@ -141,3 +141,18 @@ Continue with [configuration](CONFIGURATION.md), [security](SECURITY.md), [signi
 See [Session policy](SESSION_POLICY.md) for deployment timeout settings, longer
 defaults, renewal behavior, and the distinction between the browser idle lock and
 server token validity.
+
+### Chat concurrency and model profile ceilings
+
+`INTEGRAL_CHAT_WORKERS` controls the bounded durable chat worker pool (default 4,
+range 1–16 per API process). Independent conversations can execute concurrently;
+per-thread admission and work leases still serialize a conversation. Account for
+replica count, provider rate limits and local-model capacity when setting this.
+
+Settings → AI Models profiles can lower model request, tool-call, turn token and
+turn timeout limits. Operator settings remain ceilings: `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT`,
+`INTEGRAL_NATIVE_TURN_TOKEN_LIMIT`, `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS`,
+`INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` and
+`INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS`. Unset profile values inherit defaults.
+See [AI configuration and latency](../implementation/ai-model-settings-and-latency.md)
+for migration, routing, metrics and measurement limits.

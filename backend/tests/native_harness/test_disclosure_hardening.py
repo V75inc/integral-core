@@ -177,7 +177,12 @@ async def test_host_response_preserves_authority_without_model_or_resume(
             _ = [event async for event in provider.stream_turn(ctx)]
     else:
         events = [event async for event in provider.stream_turn(ctx)]
-        assert events == [
+        assert (
+            events[-1]["timing"]["totalMs"] >= events[-1]["timing"]["firstTokenMs"] >= 0
+        )
+        assert [
+            {k: v for k, v in event.items() if k != "timing"} for event in events
+        ] == [
             {"type": "text-delta", "delta": DISCLOSURE_RESPONSE},
             {"type": "message-finish"},
         ]

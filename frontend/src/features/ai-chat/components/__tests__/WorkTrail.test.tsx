@@ -65,6 +65,6 @@ describe('activity disclosure', () => {
     rerender(<WorkTrail><span>Tool receipt</span></WorkTrail>);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Tool receipt')).toBeVisible();
-    expect(screen.getByText(/Private model reasoning is not displayed/)).toBeVisible();
+    expect(screen.getByText('Activity, tool results, and model usage are shown here.')).toBeVisible();
   });
 });

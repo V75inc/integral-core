@@ -50,7 +50,6 @@ from app.agentive.harness.pydantic_ai_compat import (
     TextPart,
     ToolEffectRecord,
     ToolReturnPart,
-    UsageLimits,
     UserPromptPart,
     build_integral_host_turn,
     classify_integral_harness_exception,
@@ -70,6 +69,7 @@ from app.api.errors import (
 )
 from app.models.nodes import ChatMessage, ChatThread, HarnessSession
 from app.schemas.agentive.work import WorkError, WorkExecutionContext
+from app.services.chat_latency import turn_usage_limits
 from app.services.chat_providers.base import (
     AgentDescriptor,
     ChatProviderCapabilities,
@@ -1478,10 +1478,28 @@ class PydanticAIProvider:
         from app.config import settings
         from app.services.workspace_permissions import can_access_workspace
 
+        thread = await ChatThread.get(ctx.thread_id)
+        profile_id = getattr(thread, "model_profile_id", "")
         route = await resolve_native_model_route(
+            **({"profile_id": profile_id} if profile_id else {}),
             workspace_id=ctx.workspace_id,
             default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
         )
+        from app.services.chat_latency import current_latency
+
+        generation = getattr(route, "generation_settings", {})
+        timing = current_latency.get()
+        if timing is not None:
+            timing.model_settings = generation
+            if timing.deadline is not None:
+                limit = min(
+                    settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS,
+                    generation.get(
+                        "turn_timeout",
+                        settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS,
+                    ),
+                )
+                timing.deadline.reschedule(timing.started + limit)
         model_observer = (
             partial(
                 persist_model_request_observation,
@@ -1503,7 +1521,10 @@ class PydanticAIProvider:
                     )
                     if current_role == "none" or current_role != workspace_role:
                         raise WorkError("work.permission_stale")
+                    current_thread = await ChatThread.get(ctx.thread_id)
+                    current_profile = getattr(current_thread, "model_profile_id", "")
                     current_route = await resolve_native_model_route(
+                        **({"profile_id": current_profile} if current_profile else {}),
                         workspace_id=ctx.workspace_id,
                         default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
                     )
@@ -1535,8 +1556,23 @@ class PydanticAIProvider:
             observer=model_observer,
             admission=model_admission,
             request_validator=validate_images,
-            timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
-            idle_timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS,
+            timeout_seconds=min(
+                settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+                generation.get(
+                    "request_timeout",
+                    settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+                ),
+            ),
+            idle_timeout_seconds=min(
+                settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS,
+                generation.get(
+                    "idle_timeout", settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS
+                ),
+                generation.get(
+                    "request_timeout",
+                    settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+                ),
+            ),
             max_attempts=settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS,
             retry_status=emit_model_retry_status,
         )
@@ -1553,7 +1589,6 @@ class PydanticAIProvider:
             requires_operational_path,
         )
         from app.agentive.services.execution_runs import AgentRun
-        from app.config import settings
 
         if os.getenv("INTEGRAL_NATIVE_ADAPTIVE_CONTEXT", "1") != "1":
             return None
@@ -1647,10 +1682,7 @@ class PydanticAIProvider:
             ctx.text,
             message_history=public_dialogue(messages, exclude_id=accepted_id),
             cancellation_token=self._active_tokens.get(ctx.thread_id),
-            usage_limits=UsageLimits(
-                request_limit=1,
-                total_tokens_limit=settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
-            ),
+            usage_limits=turn_usage_limits(light=True),
         )
         from app.agentive.harness.events import is_serialized_tool_text
 
@@ -2235,18 +2267,55 @@ class PydanticAIProvider:
         )
 
     async def stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
+        from app.config import settings
+        from app.services.chat_latency import TurnLatency, current_latency
         from app.services.model_retry_status import stream_with_retry_status
 
+        timing = TurnLatency()
+        token = current_latency.set(timing)
         stream = stream_with_retry_status(self._stream_turn(ctx))
+        tool_started: dict[str, float] = {}
         try:
-            async for event in stream:
-                yield event
+            async with asyncio.timeout(
+                settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
+            ) as deadline:
+                timing.deadline = deadline
+                async for event in stream:
+                    if event.get("type") == "text-delta" and event.get("delta"):
+                        timing.mark("firstTokenMs")
+                    if (
+                        event.get("type") == "tool-call"
+                        and event.get("status") == "running"
+                    ):
+                        timing.mark("firstToolRequestedMs")
+                        tool_started[str(event.get("toolCallId"))] = time.monotonic()
+                    if event.get("type") == "tool-call" and event.get("summary"):
+                        began = tool_started.get(str(event.get("toolCallId")))
+                        if began is not None:
+                            event = {
+                                **event,
+                                "summary": {
+                                    **event["summary"],
+                                    "duration_ms": (time.monotonic() - began) * 1000,
+                                },
+                            }
+                    if event.get("type") == "message-finish":
+                        event = dict(event)
+                        timing.mark("totalMs")
+                        event["timing"] = {
+                            **(event.get("timing") or {}),
+                            **timing.markers,
+                        }
+                        # A buffered provider token is not a published answer token.
+                        if "firstTokenMs" not in timing.markers:
+                            event["timing"].pop("firstTokenMs", None)
+                    yield event
         finally:
             await stream.aclose()
+            current_latency.reset(token)
 
     async def _stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
         """Stream normalized chat events with Core-owned session identity."""
-        from app.config import settings
 
         active_task = asyncio.current_task()
         turn_started = time.monotonic()
@@ -2318,6 +2387,9 @@ class PydanticAIProvider:
                         self._active_tasks.pop(ctx.thread_id, None)
                 return
             prepared = await self._prepare(ctx)
+            from app.services.chat_latency import mark_latency
+
+            mark_latency("preparationMs")
         except BaseException:
             if self._active_tokens.get(ctx.thread_id) is cancellation:
                 self._active_tokens.pop(ctx.thread_id, None)
@@ -2531,18 +2603,9 @@ class PydanticAIProvider:
                     # Bound every run. Capability discovery can loop on models
                     # that ignore tool results; the limit is host-enforced and
                     # must not depend on brittle user-text intent detection.
-                    usage_limits=UsageLimits(
-                        request_limit=max(
-                            0,
-                            settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT
-                            - run_state.get("adaptive_requests", 0),
-                        ),
-                        tool_calls_limit=32,
-                        total_tokens_limit=max(
-                            0,
-                            settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT
-                            - run_state.get("adaptive_tokens", 0),
-                        ),
+                    usage_limits=turn_usage_limits(
+                        adaptive_requests=run_state.get("adaptive_requests", 0),
+                        adaptive_tokens=run_state.get("adaptive_tokens", 0),
                     ),
                     cancellation_token=cancellation,
                 ) as stream:
@@ -2572,6 +2635,9 @@ class PydanticAIProvider:
                                     and first_token_ms is None
                                 ):
                                     first_token_ms = (time.monotonic() - started) * 1000
+                                    from app.services.chat_latency import mark_latency
+
+                                    mark_latency("providerFirstTokenMs")
                                 continue
                             yield normalized
 

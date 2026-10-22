@@ -15,6 +15,7 @@ from app.models.harness_records import (
 )
 from app.schemas.agentive.chat_events import ChatEventReplayPage
 from app.schemas.agentive.work import WorkExecutionContext
+from app.services.chat_latency import LATENCY_FIELDS
 from app.services.credential_crypto import (
     CIPHER_PREFIX_V1,
     decrypt_secret_from_storage,
@@ -45,13 +46,14 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
         "providerCostUsd",
         "durationMs",
     ),
-    "tool-call": ("toolCallId", "name", "status", "diagnostic"),
+    "tool-call": ("toolCallId", "name", "status", "diagnostic", "summary"),
     "navigation": ("path", "thread_id", "workspace_id"),
     "source": ("title", "url"),
     "status": ("status", "text"),
     "error": ("code", "message"),
 }
-_TIMING_FIELDS = frozenset({"totalMs", "firstTokenMs", "modelPassMs"})
+
+_TIMING_FIELDS = LATENCY_FIELDS
 _USAGE_FIELDS = frozenset({"inputTokens", "outputTokens"})
 _USAGE_FLAG_FIELDS = frozenset(
     {"usageComplete", "inputTokensReported", "outputTokensReported", "costComplete"}
@@ -93,6 +95,10 @@ def normalize_public_event(
                 from app.services.chat_tool_diagnostics import normalize_tool_diagnostic
 
                 value = normalize_tool_diagnostic(value)
+            elif event_type == "tool-call" and key == "summary":
+                from app.services.chat_tool_summary import normalize_tool_summary
+
+                value = normalize_tool_summary(value)
             elif key in {"timing", "usage"}:
                 if not isinstance(value, dict):
                     raise ValueError(f"public event {key} must be an object")

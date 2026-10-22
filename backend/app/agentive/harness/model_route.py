@@ -15,12 +15,14 @@ from app.services.model_provider_endpoints import (
 
 
 async def resolve_native_model_route(
-    *, workspace_id: str, default_model: str
+    *, workspace_id: str, default_model: str, profile_id: str | None = None
 ) -> ResolvedModelRoute:
     """Reject malformed operator settings with a safe, actionable reason."""
     try:
         return await _resolve_native_model_route(
-            workspace_id=workspace_id, default_model=default_model
+            workspace_id=workspace_id,
+            default_model=default_model,
+            profile_id=profile_id,
         )
     except ValueError as exc:
         from app.api.errors import ServiceUnavailableError
@@ -108,7 +110,7 @@ def _local_ollama_clear_thinking() -> bool | None:
 
 
 async def _resolve_native_model_route(
-    *, workspace_id: str, default_model: str
+    *, workspace_id: str, default_model: str, profile_id: str | None = None
 ) -> ResolvedModelRoute:
     """Resolve workspace BYOK or deployment LiteLLM route for one turn.
 
@@ -122,7 +124,9 @@ async def _resolve_native_model_route(
     )
 
     override: dict[str, Any] | None = await resolve_native_model_override(
-        workspace_id, include_credential_identity=True
+        workspace_id,
+        include_credential_identity=True,
+        **({"profile_id": profile_id} if profile_id else {}),
     )
     if not override:
         if not default_model.strip():
@@ -236,6 +240,7 @@ async def _resolve_native_model_route(
         api_base=api_base,
         api_key=api_key if api_key else None,
         keyless_endpoint=override.get("keyless_endpoint") is True,
+        generation_settings=override.get("generation_settings") or {},
         ollama_num_ctx=ollama_num_ctx,
         ollama_num_predict=ollama_num_predict,
         ollama_think=ollama_think,

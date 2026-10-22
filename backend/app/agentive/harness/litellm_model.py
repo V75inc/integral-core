@@ -637,7 +637,12 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         request_context = _request_context(body)
         request_id = str(uuid4())
         started_at = datetime.now(timezone.utc)
+        from app.services.model_settings import provider_model_options
+
         kwargs = dict(body)
+        if "max_tokens" in self._route.generation_settings:
+            kwargs.pop("max_completion_tokens", None)
+        kwargs.update(provider_model_options(self._route.generation_settings))
         kwargs["num_retries"] = 0  # Core owns retry identity and accounting.
         # LiteLLM has provider-specific default timeouts, which can leave a
         # broken streaming response waiting far beyond Integral's intended
@@ -655,7 +660,9 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             ollama_options = (
                 dict(ollama_options) if isinstance(ollama_options, dict) else {}
             )
-            ollama_options["num_ctx"] = self._route.ollama_num_ctx
+            ollama_options["num_ctx"] = self._route.generation_settings.get(
+                "context_window", self._route.ollama_num_ctx
+            )
             extra_body["options"] = ollama_options
             kwargs["extra_body"] = extra_body
         if self._route.ollama_num_predict is not None:
@@ -665,7 +672,9 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             # let the smaller generic value win. Collapse the aliases to the
             # route-owned max_tokens, which LiteLLM maps to num_predict.
             kwargs.pop("max_completion_tokens", None)
-            kwargs["max_tokens"] = self._route.ollama_num_predict
+            kwargs["max_tokens"] = self._route.generation_settings.get(
+                "max_tokens", self._route.ollama_num_predict
+            )
         if (
             self._route.ollama_think is not None
             or self._route.ollama_clear_thinking is not None
@@ -809,6 +818,11 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                                         )
                                         for choice in choices
                                     ):
+                                        from app.services.chat_latency import (
+                                            mark_latency,
+                                        )
+
+                                        mark_latency("providerFirstTokenMs")
                                         break
                                     if any(
                                         choice.get("finish_reason")

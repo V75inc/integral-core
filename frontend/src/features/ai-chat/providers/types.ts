@@ -11,6 +11,20 @@ import type { ChatPageContextPayload } from "../../../types/chatPageContext";
  * See `.planning/initiatives/ai-chat/SPEC.md` § 6.3 for the full envelope.
  */
 
+export interface PublicToolSummary {
+  outcome: 'completed' | 'returned' | 'awaiting_approval' | 'failed';
+  returned_count?: number;
+  duration_ms?: number;
+}
+
+export interface ChatLatency {
+  firstTokenMs?: number; totalMs?: number; tps?: number;
+  preparationMs?: number; providerFirstTokenMs?: number;
+  firstToolRequestedMs?: number; firstToolStartedMs?: number;
+  firstOperationalToolMs?: number; queueMs?: number;
+  clientFirstTextMs?: number; clientFirstToolMs?: number; clientCompletionMs?: number;
+}
+
 export type NormalizedEvent =
   | { type: "navigation"; path: string; thread_id: string; workspace_id: string }
   | { type: "text-delta"; delta: string }
@@ -24,6 +38,7 @@ export type NormalizedEvent =
       status: "pending" | "running" | "complete" | "error";
       result?: unknown;
       diagnostic?: { code: string; message: string };
+      summary?: PublicToolSummary;
       error?: string;
     }
   | { type: "source"; sourceType: "url" | "graph"; ref: string; title?: string }
@@ -51,7 +66,7 @@ export type NormalizedEvent =
     }
   | {
       type: "message-finish";
-      timing?: { firstTokenMs?: number; totalMs?: number; tps?: number };
+      timing?: ChatLatency;
     }
   | { type: "error"; code: string; message: string }
   | { type: "interact-context"; payload: Record<string, unknown> }
