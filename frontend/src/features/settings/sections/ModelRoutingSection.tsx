@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { BrainCircuit } from "lucide-react";
+import { Brain } from "lucide-react";
 import { Modal, Badge } from "../../../components/ui";
 import { Button } from "../../../components/ui/Button";
 import { Stack, Text, Select, Surface } from "../../../ui";
@@ -21,11 +21,13 @@ function ModelRoleReadout({
   purpose,
   model,
   settings,
+  onEdit,
 }: {
   role: string;
   purpose: string;
   model: string;
   settings: GenerationSettings;
+  onEdit?: () => void;
 }) {
   const rows = [
     ["Reasoning", settings.reasoning_effort ?? "Provider default"],
@@ -82,6 +84,11 @@ function ModelRoleReadout({
               {model || "Not configured"}
             </Text>
           </Stack>
+          {onEdit && (
+            <Button variant="ghost" size="sm" onClick={onEdit}>
+              {role === "Light" ? "Light model settings" : "Model settings"}
+            </Button>
+          )}
           <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-2">
             {rows.map(([label, value]) => (
               <div key={label} className="contents">
@@ -108,15 +115,24 @@ export function ModelRoutingSection({
   data,
   onEdit,
   onAddModel,
+  profileEditorOpen = false,
 }: {
   data: AIConfiguration;
   onEdit: (profile: ModelProfile) => void;
   onAddModel?: () => void;
+  profileEditorOpen?: boolean;
 }) {
   const [draft, setDraft] = useState<ModelRouting | null>(null);
   const [failure, setFailure] = useState("");
   const [notice, setNotice] = useState("");
   const qc = useQueryClient();
+  const [editingProfile, setEditingProfile] = useState(false);
+  const returnToRouting = useRef<{
+    sawEditor: boolean;
+    mode: string;
+    light: string;
+    heavy: string;
+  } | null>(null);
   const save = useMutation({
     mutationFn: aiConfigurationApi.saveRouting,
     onSuccess: () => {
@@ -134,6 +150,43 @@ export function ModelRoutingSection({
     heavy_profile_id: data.default_profile_id,
     light_profile_id: "",
     revision: "",
+  };
+  useEffect(() => {
+    const back = returnToRouting.current;
+    if (!editingProfile || !back) return;
+    if (profileEditorOpen) {
+      back.sawEditor = true;
+      return;
+    }
+    if (!back.sawEditor) return;
+    // A profile edit can update the credential revision. Keep the user's
+    // unsaved pair, but never absorb a concurrent change of routing authority.
+    if (
+      back.mode === routing.mode &&
+      back.light === routing.light_profile_id &&
+      back.heavy === routing.heavy_profile_id
+    ) {
+      setDraft((value) => value && { ...value, revision: routing.revision });
+    }
+    returnToRouting.current = null;
+    setEditingProfile(false);
+  }, [
+    editingProfile,
+    profileEditorOpen,
+    routing.mode,
+    routing.light_profile_id,
+    routing.heavy_profile_id,
+    routing.revision,
+  ]);
+  const editFromRouting = (profile: ModelProfile) => {
+    returnToRouting.current = {
+      sawEditor: false,
+      mode: routing.mode,
+      light: routing.light_profile_id,
+      heavy: routing.heavy_profile_id,
+    };
+    setEditingProfile(true);
+    onEdit(profile);
   };
   const effective = data.effective.routing;
   const dual = effective?.mode === "light_heavy";
@@ -218,6 +271,11 @@ export function ModelRoutingSection({
               role="Light"
               purpose="Quick conversation"
               model={effective.light_model}
+              onEdit={
+                !disabled && selected(routing.light_profile_id)
+                  ? () => onEdit(selected(routing.light_profile_id)!)
+                  : undefined
+              }
               settings={effective.light_generation_settings ?? {}}
             />
           )}
@@ -229,27 +287,42 @@ export function ModelRoutingSection({
                 : "Conversation and operational work"
             }
             model={effective?.heavy_model || data.effective.model}
+            onEdit={
+              !disabled &&
+              selected(routing.heavy_profile_id) &&
+              data.effective.source === "workspace_owner"
+                ? () => onEdit(selected(routing.heavy_profile_id)!)
+                : undefined
+            }
             settings={
               effective?.heavy_generation_settings ??
               data.effective.generation_settings
             }
           />
         </div>
-        <Text variant="body-sm" tone="muted">
-          Shared turn limits:{" "}
-          {effectiveMinimum(
-            "model_request_limit",
-            data.harness_limits.request_limit,
-          )}{" "}
-          requests · {effectiveMinimum("tool_call_limit", 32)} tool calls ·{" "}
-          {effectiveMinimum(
-            "turn_token_limit",
-            data.harness_limits.token_limit,
-          ).toLocaleString()}{" "}
-          tokens ·{" "}
-          {effectiveMinimum("turn_timeout", data.harness_limits.run_seconds)}s.{" "}
-          {dual ? "Both roles share these limits." : "Applies to each turn."}
-        </Text>
+        <details>
+          <summary className="cursor-pointer rounded-[var(--radius-input)] py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
+            <Text as="span" variant="body-sm" tone="muted">
+              Shared run limits
+            </Text>
+          </summary>
+          <Text variant="body-sm" tone="muted">
+            Shared turn limits:{" "}
+            {effectiveMinimum(
+              "model_request_limit",
+              data.harness_limits.request_limit,
+            )}{" "}
+            requests · {effectiveMinimum("tool_call_limit", 32)} tool calls ·{" "}
+            {effectiveMinimum(
+              "turn_token_limit",
+              data.harness_limits.token_limit,
+            ).toLocaleString()}{" "}
+            tokens ·{" "}
+            {effectiveMinimum("turn_timeout", data.harness_limits.run_seconds)}
+            s.{" "}
+            {dual ? "Both roles share these limits." : "Applies to each turn."}
+          </Text>
+        </details>
         {data.effective.source === "deployment" && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Text variant="body-sm" tone="muted" className="min-w-0 flex-1">
@@ -280,10 +353,10 @@ export function ModelRoutingSection({
         )}
       </Stack>
       <Modal
-        open={!!draft}
+        open={!!draft && !editingProfile}
         placement="right"
         title="Model routing"
-        titleIcon={<BrainCircuit size={19} strokeWidth={LINE_ICON_STROKE} />}
+        titleIcon={<Brain size={19} strokeWidth={LINE_ICON_STROKE} />}
         onClose={() => {
           if (!save.isPending) setDraft(null);
         }}
@@ -378,10 +451,7 @@ export function ModelRoutingSection({
                             type="button"
                             variant="ghost"
                             disabled={save.isPending}
-                            onClick={() => {
-                              setDraft(null);
-                              onEdit(profile);
-                            }}
+                            onClick={() => editFromRouting(profile)}
                           >
                             Edit{" "}
                             {role === "light"
@@ -413,28 +483,35 @@ export function ModelRoutingSection({
                     Clear saved light assignment
                   </Button>
                 )}
-                <Text as="p" variant="body-sm" tone="muted">
-                  {draft.mode === "light_heavy"
-                    ? "Both passes share up to"
-                    : "Each turn allows up to"}{" "}
-                  {minimum(
-                    "model_request_limit",
-                    data.harness_limits.request_limit,
-                  )}{" "}
-                  requests, {minimum("tool_call_limit", 32)} tool calls,{" "}
-                  {minimum(
-                    "turn_token_limit",
-                    data.harness_limits.token_limit,
-                  ).toLocaleString()}{" "}
-                  total tokens and{" "}
-                  {minimum("turn_timeout", data.harness_limits.run_seconds)}{" "}
-                  seconds. Profile limits can only reduce deployment limits.
-                </Text>
-                <Text as="p" variant="body-sm" tone="muted">
-                  Known operational requests go straight to the heavy model. A
-                  light response may escalate once. Two profiles can use the
-                  same model with different reasoning settings.
-                </Text>
+                <details>
+                  <summary className="cursor-pointer rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
+                    <Text as="span" variant="body-sm" tone="muted">
+                      Run limits and routing details
+                    </Text>
+                  </summary>
+                  <Text as="p" variant="body-sm" tone="muted">
+                    {draft.mode === "light_heavy"
+                      ? "Both passes share up to"
+                      : "Each turn allows up to"}{" "}
+                    {minimum(
+                      "model_request_limit",
+                      data.harness_limits.request_limit,
+                    )}{" "}
+                    requests, {minimum("tool_call_limit", 32)} tool calls,{" "}
+                    {minimum(
+                      "turn_token_limit",
+                      data.harness_limits.token_limit,
+                    ).toLocaleString()}{" "}
+                    total tokens and{" "}
+                    {minimum("turn_timeout", data.harness_limits.run_seconds)}{" "}
+                    seconds. Profile limits can only reduce deployment limits.
+                  </Text>
+                  <Text as="p" variant="body-sm" tone="muted">
+                    Known operational requests go straight to the heavy model. A
+                    light response may escalate once. Two profiles can use the
+                    same model with different reasoning settings.
+                  </Text>
+                </details>
               </Stack>
             </Modal.Body>
             <Modal.Footer>

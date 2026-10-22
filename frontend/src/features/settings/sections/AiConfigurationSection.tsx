@@ -19,12 +19,12 @@ import { RECOMMENDED_MODELS } from "../../../api/modelPresets";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { profileSummary } from "./modelSettingsSummary";
 import { ModelRoutingSection } from "./ModelRoutingSection";
+import { useToast } from "../../../context/ToastContext";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
 import {
-  BrainCircuit,
+  Brain,
   KeyRound,
   Plus,
-  SlidersHorizontal,
   Check,
   AlertCircle,
   ChevronDown,
@@ -60,6 +60,7 @@ const freshProfile = (): ProfileWrite => ({
 });
 
 export function AiConfigurationSection() {
+  const { showToast } = useToast();
   const query = useAIConfiguration();
   const qc = useQueryClient();
   const [connection, setConnection] = useState<ConnectionWrite | null>(null);
@@ -108,6 +109,23 @@ export function AiConfigurationSection() {
     onError: (error) =>
       setFailure(
         errorMessageFromAxios(error, "Could not save this configuration."),
+      ),
+  });
+  const testProvider = useMutation({
+    mutationFn: (id: string) => aiConfigurationApi.testConnection(id),
+    onSuccess: async (result) => {
+      showToast(
+        result.valid
+          ? "Provider connection verified."
+          : result.message || "Provider test failed.",
+        result.valid ? "success" : "error",
+      );
+      await qc.invalidateQueries({ queryKey: AI_CONFIGURATION_QUERY_KEY });
+    },
+    onError: (error) =>
+      showToast(
+        errorMessageFromAxios(error, "Could not test this provider."),
+        "error",
       ),
   });
   const run = (work: () => Promise<unknown>) => mutation.mutate(work);
@@ -182,13 +200,6 @@ export function AiConfigurationSection() {
     );
   const data = query.data;
   const disabled = mutation.isPending || data.key_policy === "platform_only";
-  const defaultProfile =
-    data.effective.editable && data.effective.source === "workspace_owner"
-      ? data.profiles.find((p) => p.id === data.default_profile_id)
-      : undefined;
-  const defaultConnection = data.connections.find(
-    (c) => c.id === defaultProfile?.connection_id,
-  );
   const needle = search.trim().toLowerCase();
   const profiles = data.profiles.filter((p) =>
     `${p.name} ${p.model}`.toLowerCase().includes(needle),
@@ -216,65 +227,9 @@ export function AiConfigurationSection() {
         <Feedback kind="error">{failure}</Feedback>
       )}
       {notice && <Feedback kind="success">{notice}</Feedback>}
-      <Surface tone="panel" padding="lg" border="subtle" radius="card">
-        <div className="flex flex-col items-start justify-between gap-5 sm:flex-row">
-          <div className="flex w-full min-w-0 flex-1 items-start gap-4 sm:w-auto">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
-              <BrainCircuit size={22} strokeWidth={LINE_ICON_STROKE} />
-            </span>
-            <Stack gap="xs" className="min-w-0">
-              <Text variant="label" tone="muted">
-                IN USE IN THIS WORKSPACE
-              </Text>
-              <Text as="h3" variant="heading-md" className="break-words">
-                {data.effective.model || "Choose your first model"}
-              </Text>
-              <Text as="p" variant="body-sm" tone="muted">
-                {defaultProfile
-                  ? `${defaultProfile.name}${defaultConnection ? ` · ${defaultConnection.name}` : ""}`
-                  : data.effective.source === "deployment"
-                    ? "Managed by your deployment"
-                    : data.effective.source === "workspace_owner"
-                      ? "Managed by the workspace owner"
-                      : "Connect a provider, then choose a default model."}
-              </Text>
-              {!!data.effective.model && (
-                <Text
-                  as="p"
-                  variant="body-sm"
-                  tone="muted"
-                  className="break-words"
-                >
-                  {profileSummary(data.effective.generation_settings)}
-                </Text>
-              )}
-            </Stack>
-          </div>
-          {defaultProfile && (
-            <Button
-              variant="secondary"
-              className="min-h-11 sm:min-h-9"
-              icon={<SlidersHorizontal size={16} />}
-              disabled={disabled}
-              onClick={() => {
-                setFailure("");
-                editProfile(defaultProfile);
-              }}
-            >
-              Model settings
-            </Button>
-          )}
-        </div>
-        {!data.effective.editable && (
-          <Text as="p" variant="body-sm" tone="muted" className="mt-4">
-            {data.key_policy === "platform_only"
-              ? "Your deployment manages AI configuration. Personal changes are disabled."
-              : "Uses the workspace owner's model. Changes to your personal profiles do not change this workspace."}
-          </Text>
-        )}
-      </Surface>
       <ModelRoutingSection
         data={data}
+        profileEditorOpen={!!profile || mutation.isPending}
         onAddModel={() => {
           setFailure("");
           if (data.connections.length) addProfile();
@@ -386,7 +341,7 @@ export function AiConfigurationSection() {
                 >
                   <div className="flex w-full min-w-0 flex-1 items-start gap-3 sm:w-auto">
                     <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
-                      <BrainCircuit size={17} strokeWidth={LINE_ICON_STROKE} />
+                      <Brain size={17} strokeWidth={LINE_ICON_STROKE} />
                     </span>
                     <Stack gap="xs" className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -477,7 +432,7 @@ export function AiConfigurationSection() {
               ))}
               {!profiles.length && (
                 <EmptyState
-                  icon={<BrainCircuit size={25} />}
+                  icon={<Brain size={25} />}
                   title={
                     needle
                       ? "No matching models"
@@ -557,21 +512,12 @@ export function AiConfigurationSection() {
                       variant="secondary"
                       size="sm"
                       className="min-h-11 sm:min-h-9"
-                      disabled={disabled}
-                      onClick={() =>
-                        run(async () => {
-                          const result =
-                            await aiConfigurationApi.testConnection(c.id);
-                          if (!result.valid) throw new Error(result.message);
-                          setNotice(
-                            c.key_fingerprint
-                              ? "Provider verified using the saved key."
-                              : "Provider verified.",
-                          );
-                        })
-                      }
+                      disabled={disabled || testProvider.isPending}
+                      onClick={() => testProvider.mutate(c.id)}
                     >
-                      Test provider
+                      {testProvider.isPending && testProvider.variables === c.id
+                        ? "Testing…"
+                        : "Test provider"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -790,7 +736,7 @@ export function AiConfigurationSection() {
         open={!!profile}
         placement="right"
         title={profile?.id ? "Model settings" : "Add a model"}
-        titleIcon={<SlidersHorizontal size={19} />}
+        titleIcon={<Brain size={19} strokeWidth={LINE_ICON_STROKE} />}
         onClose={() => {
           if (!disabled) setProfile(null);
         }}
@@ -800,7 +746,10 @@ export function AiConfigurationSection() {
             onSubmit={(e) => {
               e.preventDefault();
               run(async () => {
-                await aiConfigurationApi.saveProfile(profile);
+                await aiConfigurationApi.saveProfile({
+                  ...profile,
+                  name: profile.name.trim() || profile.model,
+                });
                 setProfile(null);
                 setNotice(
                   profile.id === data.default_profile_id
@@ -816,7 +765,7 @@ export function AiConfigurationSection() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Profile name">
                     <Input
-                      required
+                      placeholder="Optional — uses the model name"
                       value={profile.name}
                       onChange={(e) =>
                         setProfile({ ...profile, name: e.target.value })
@@ -877,29 +826,6 @@ export function AiConfigurationSection() {
                     />
                   </Field>
                 )}
-                <div className="flex flex-wrap gap-2">
-                  <Badge>
-                    Tools:{" "}
-                    {caps.data?.tool_calling == null
-                      ? "unverified"
-                      : caps.data.tool_calling
-                        ? "supported"
-                        : "not advertised"}
-                  </Badge>
-                  <Badge>
-                    Images:{" "}
-                    {caps.data?.vision == null
-                      ? "unverified"
-                      : caps.data.vision
-                        ? "supported"
-                        : "not advertised"}
-                  </Badge>
-                  {caps.data?.native_context ? (
-                    <Badge>
-                      {caps.data.native_context.toLocaleString()} input tokens
-                    </Badge>
-                  ) : null}
-                </div>
                 {caps.isError && (
                   <Text as="p" variant="body-sm" tone="warn">
                     Model capabilities are unavailable. Keep provider defaults
@@ -966,12 +892,45 @@ export function AiConfigurationSection() {
                     </Field>
                   )}
                 </div>
-                <AdvancedOptions
-                  profile={profile}
-                  capabilities={caps.data}
-                  numeric={numeric}
-                  onChange={setProfile}
-                />
+                <details>
+                  <summary className="cursor-pointer rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
+                    <Text as="span" weight="medium">
+                      Advanced settings
+                    </Text>
+                  </summary>
+                  <Stack gap="md" className="pt-3">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge>
+                        Tools:{" "}
+                        {caps.data?.tool_calling == null
+                          ? "unverified"
+                          : caps.data.tool_calling
+                            ? "supported"
+                            : "not advertised"}
+                      </Badge>
+                      <Badge>
+                        Images:{" "}
+                        {caps.data?.vision == null
+                          ? "unverified"
+                          : caps.data.vision
+                            ? "supported"
+                            : "not advertised"}
+                      </Badge>
+                      {caps.data?.native_context ? (
+                        <Badge>
+                          {caps.data.native_context.toLocaleString()} input
+                          tokens
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <AdvancedOptions
+                      profile={profile}
+                      capabilities={caps.data}
+                      numeric={numeric}
+                      onChange={setProfile}
+                    />
+                  </Stack>
+                </details>
               </Stack>
             </Modal.Body>
             <Modal.Footer>

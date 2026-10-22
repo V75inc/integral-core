@@ -60,8 +60,25 @@ class TurnLatency:
                     "turn_timeout", settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
                 ),
             )
+            # asyncio deadlines use the running loop's clock. uvloop's epoch
+            # can differ from time.monotonic() (notably after macOS sleep).
+            elapsed = time.monotonic() - self.started
+            self.clamp_remaining_deadline(limit - elapsed)
+
+    def remaining_deadline_seconds(self) -> float | None:
+        """Read a timeout only in its owning event loop's clock domain."""
+        if self.deadline is None or self.deadline.when() is None:
+            return None
+        return self.deadline.when() - asyncio.get_running_loop().time()
+
+    def clamp_remaining_deadline(self, seconds: float) -> None:
+        """Tighten a loop-owned deadline without extending its allowance."""
+        if self.deadline is not None:
             self.deadline.reschedule(
-                min(self.deadline.when() or float("inf"), self.started + limit)
+                min(
+                    self.deadline.when() or float("inf"),
+                    asyncio.get_running_loop().time() + seconds,
+                )
             )
 
     def reserve_dispatch(self) -> None:

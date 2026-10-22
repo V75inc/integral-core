@@ -100,6 +100,7 @@ describe("Optional light/heavy model routing", () => {
     });
     expect(screen.getByText(/low reasoning/)).toBeVisible();
     expect(screen.getByText(/high reasoning/)).toBeVisible();
+    fireEvent.click(screen.getByText("Run limits and routing details"));
     expect(
       screen.getByText(/Both passes share up to 4 requests/),
     ).toBeVisible();
@@ -214,3 +215,56 @@ it("lets the owner add a personal model when ENV supplies the fallback", () => {
   expect(onAddModel).toHaveBeenCalledOnce();
   expect(aiConfigurationApi.saveRouting).not.toHaveBeenCalled();
 });
+
+it.each([false, true])(
+  "retains routing assignments after profile editing (concurrent change: %s)",
+  async (concurrent) => {
+    vi.mocked(aiConfigurationApi.saveRouting).mockResolvedValue({ ok: true });
+    const view = show();
+    fireEvent.click(screen.getByRole("button", { name: "Configure routing" }));
+    fireEvent.change(screen.getByLabelText("Routing mode"), {
+      target: { value: "light_heavy" },
+    });
+    fireEvent.change(screen.getByLabelText("Light model"), {
+      target: { value: "light" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit light model settings" }),
+    );
+    const redraw = (open: boolean) =>
+      view.rerender(
+        <QueryClientProvider client={view.client}>
+          <ModelRoutingSection
+            data={{
+              ...configuration,
+              routing: {
+                ...configuration.routing!,
+                revision: "profile-edited",
+                ...(concurrent ? { heavy_profile_id: "light" } : {}),
+              },
+            }}
+            onEdit={view.onEdit}
+            profileEditorOpen={open}
+          />
+        </QueryClientProvider>,
+      );
+    redraw(true);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    redraw(false);
+    expect(screen.getByLabelText("Routing mode")).toHaveValue("light_heavy");
+    expect(screen.getByLabelText("Light model")).toHaveValue("light");
+    expect(screen.getByLabelText("Heavy model (default)")).toHaveValue("heavy");
+    fireEvent.click(screen.getByRole("button", { name: "Save routing" }));
+    await waitFor(() =>
+      expect(aiConfigurationApi.saveRouting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: "light_heavy",
+          light_profile_id: "light",
+          heavy_profile_id: "heavy",
+          revision: concurrent ? "current-revision" : "profile-edited",
+        }),
+        expect.anything(),
+      ),
+    );
+  },
+);

@@ -462,3 +462,37 @@ async def test_strict_byok_does_not_advertise_deployment_fallback(
     assert result.status_code == 200
     assert result.json()["effective"]["source"] == "unavailable"
     assert result.json()["effective"]["model"] == ""
+
+
+@pytest.mark.asyncio
+async def test_saved_profile_replaces_warmed_lookup_before_next_dispatch():
+    from app.models.credentials import UserModelProfile
+
+    connection = await service.save_connection(
+        "owner",
+        ConnectionWrite(name="Account", provider="openai", api_key="synthetic-key"),
+    )
+    profile = await service.save_profile(
+        "owner",
+        ProfileWrite(name="Quick", connection_id=connection["id"], model="gpt-4o-mini"),
+    )
+    await UserModelProfile.get(profile["id"])
+    await service.save_profile(
+        "owner",
+        ProfileWrite(
+            id=profile["id"],
+            name="Quick",
+            connection_id=connection["id"],
+            model="gpt-4.1",
+            generation_settings={"max_tokens": 2048},
+        ),
+    )
+    resolved = await service.profile_credential(
+        "owner", profile["id"], UserModelCredential(user_id="owner")
+    )
+    assert resolved.model == "gpt-4.1"
+    assert resolved.generation_settings == {"max_tokens": 2048}
+    await service.activate_profile("owner", profile["id"])
+    active = await service.get_credential_for_user("owner")
+    assert active.model == "gpt-4.1"
+    assert active.generation_settings == {"max_tokens": 2048}

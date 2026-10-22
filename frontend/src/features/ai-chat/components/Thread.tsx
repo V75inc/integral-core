@@ -358,11 +358,11 @@ export function liveWorkSynopsis(
   hasAnswerText = false,
 ): string {
   const activityLine = activity?.replace(/\s+/g, " ").trim();
-  if (activityLine && !/^(working|thinking)[.…]*$/i.test(activityLine)) return clipStatus(activityLine);
+  if (activityLine && !/^(working(?: on that for you)?|thinking|responding)[.…]*$/i.test(activityLine)) return clipStatus(activityLine);
   if (latestTool?.trim()) return toolWorkSynopsis(latestTool);
-  if (hasAnswerText) return "Writing your answer";
+  if (hasAnswerText) return "Responding…";
   if (completedTools > 0) return "Reviewing the results";
-  return "Working on that for you";
+  return "Responding…";
 }
 
 /** Describe observable operations, never model reasoning or tool arguments. */
@@ -1310,17 +1310,19 @@ export function Composer({ locked = false, home = false, onSendAttempt }: { lock
             focus-within:shadow-[0_0_0_3px_var(--focus-ring-color)]
           "
         >
-          <ComposerPrimitive.Attachments
-            components={{
-              Image: AttachmentChip,
-              Document: AttachmentChip,
-              File: AttachmentChip,
-              Attachment: AttachmentChip,
-            }}
-          />
+          <div className="flex flex-wrap gap-2 px-2 empty:hidden">
+            <ComposerPrimitive.Attachments
+              components={{
+                Image: AttachmentChip,
+                Document: AttachmentChip,
+                File: AttachmentChip,
+                Attachment: AttachmentChip,
+              }}
+            />
+          </div>
           <AuiTaggableComposer
             autoFocus={!home}
-            rows={home ? 2 : 1}
+            rows={2}
             placeholder={home ? "Tell Integral what you need…" : "Ask Integral…"}
             aria-label={home ? "Draft for Integral AI" : "Message input"}
             acceptHandoff={!home}
@@ -1332,9 +1334,11 @@ export function Composer({ locked = false, home = false, onSendAttempt }: { lock
               outline-none focus:outline-none
             "
           />
-          <ConversationModelPicker />
           <ComposerAction home={home} />
         </div>
+        <Text as="p" variant="meta" tone="subtle" className="px-2 pt-1">
+          Use @ for people · # for Apps and Tracks
+        </Text>
       </ComposerDictationProvider>
     </ComposerPrimitive.Root>
     </>
@@ -1443,15 +1447,15 @@ function ComposerAction({ home = false }: { home?: boolean }) {
   const canSuggest = useAuiState(s => !s.thread.isRunning);
   const actionRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={actionRef} className="relative flex min-w-0 items-end gap-2">
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+    <div ref={actionRef} className="relative flex min-w-0 items-center gap-2" role="group" aria-label="Message actions">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
         <ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
             aria-label="Attach a file"
             title="Attach an image or file"
             className="
-              flex h-8 w-8 shrink-0 items-center justify-center rounded-full
+              flex h-10 w-10 shrink-0 items-center justify-center rounded-full
               text-[var(--text-subtle)]
               transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)]
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
@@ -1460,8 +1464,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
             <PaperclipIcon size={15} />
           </button>
         </ComposerPrimitive.AddAttachment>
-        <ComposerMicButton />
-        <KebabMenu portal ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
+        <KebabMenu size="md" portal ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
           key: suggestion.label, label: suggestion.label, description: suggestion.text, disabled: !canSuggest,
           onClick: () => {
             refs?.resetComposerEntityRefs();
@@ -1469,36 +1472,37 @@ function ComposerAction({ home = false }: { home?: boolean }) {
             actionRef.current?.parentElement?.querySelector('textarea')?.focus();
           },
         }))} />
-        <span className="chat-composer-mention-hint whitespace-nowrap px-1 text-[11px] text-[var(--text-subtle)]">
-          @people, #apps/tracks
-        </span>
+        <ConversationModelPicker />
       </div>
-      <AuiIf condition={(s) => !s.thread.isRunning}>
-        <ComposerSendWithRefs
-          aria-label={home ? "Ask Integral" : "Send message"}
-          className={home ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--cta-bg)] text-[var(--cta-fg)] hover:bg-[var(--cta-hover)] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]" : `
-            flex h-8 w-8 shrink-0 items-center justify-center rounded-full
-            bg-[var(--cta-bg)] text-[var(--cta-fg)]
-            transition-colors hover:bg-[var(--cta-hover)]
-            disabled:bg-[var(--badge-muted-bg)] disabled:text-[var(--text-subtle)]
-            disabled:cursor-not-allowed
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-          `}
-        />
-      </AuiIf>
-      <AuiIf condition={(s) => s.thread.isRunning}>
-        <ComposerPrimitive.Cancel
-          aria-label="Stop generating"
-          className="
-            flex h-8 w-8 shrink-0 items-center justify-center rounded-full
-            bg-[var(--cta-bg)] text-[var(--cta-fg)]
-            transition-colors hover:bg-[var(--cta-hover)]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-          "
-        >
-          <SquareIcon size={11} strokeWidth={2.5} fill="currentColor" />
-        </ComposerPrimitive.Cancel>
-      </AuiIf>
+      <div className="flex shrink-0 items-center gap-1">
+        <ComposerMicButton />
+        <AuiIf condition={(s) => !s.thread.isRunning}>
+          <ComposerSendWithRefs
+            aria-label={home ? "Ask Integral" : "Send message"}
+            className={home ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--cta-bg)] text-[var(--cta-fg)] hover:bg-[var(--cta-hover)] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]" : `
+              flex h-10 w-10 shrink-0 items-center justify-center rounded-full
+              bg-[var(--cta-bg)] text-[var(--cta-fg)]
+              transition-colors hover:bg-[var(--cta-hover)]
+              disabled:bg-[var(--badge-muted-bg)] disabled:text-[var(--text-subtle)]
+              disabled:cursor-not-allowed
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+            `}
+          />
+        </AuiIf>
+        <AuiIf condition={(s) => s.thread.isRunning}>
+          <ComposerPrimitive.Cancel
+            aria-label="Stop generating"
+            className="
+              flex h-10 w-10 shrink-0 items-center justify-center rounded-full
+              bg-[var(--cta-bg)] text-[var(--cta-fg)]
+              transition-colors hover:bg-[var(--cta-hover)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+            "
+          >
+            <SquareIcon size={11} strokeWidth={2.5} fill="currentColor" />
+          </ComposerPrimitive.Cancel>
+        </AuiIf>
+      </div>
     </div>
   );
 }

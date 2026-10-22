@@ -256,11 +256,9 @@ async def bind_durable_routing(scope, context, plan: TurnModelRoutes, timing) ->
             raise WorkError("work.policy_denied", "execution run mismatch")
         saved = (run.metadata or {}).get("model_routing")
         if saved is None:
-            remaining = (
-                (timing.deadline.when() - time.monotonic())
-                if timing.deadline and timing.deadline.when() is not None
-                else settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
-            )
+            remaining = timing.remaining_deadline_seconds()
+            if remaining is None:
+                remaining = settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
             saved = {
                 "fingerprint": fingerprint,
                 "deadline_epoch": time.time() + remaining,
@@ -284,12 +282,7 @@ async def bind_durable_routing(scope, context, plan: TurnModelRoutes, timing) ->
         remaining = saved.get("deadline_epoch", 0) - time.time()
         if remaining <= 0:
             raise UsageLimitExceeded("The shared turn deadline is exhausted")
-        if timing.deadline is not None:
-            timing.deadline.reschedule(
-                min(
-                    timing.deadline.when() or float("inf"), time.monotonic() + remaining
-                )
-            )
+        timing.clamp_remaining_deadline(remaining)
         observations = await list_run_model_request_observations(
             run_id=scope.run_id,
             principal_id=scope.principal_id,

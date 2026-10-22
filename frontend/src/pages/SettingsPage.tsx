@@ -16,7 +16,7 @@ import {
   Settings as SettingsIcon,
   Share2,
   ShieldCheck,
-  BrainCircuit,
+  Brain,
   UserCircle,
   Wrench,
 } from 'lucide-react';
@@ -141,7 +141,7 @@ const SECTIONS: Section[] = [
   {
     id: 'ai-models',
     label: 'AI Models',
-    icon: BrainCircuit,
+    icon: Brain,
     render: () => <AiModelsSection />,
   },
   {

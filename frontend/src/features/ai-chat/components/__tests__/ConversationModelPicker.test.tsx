@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationModelPicker } from "../ConversationModelPicker";
 import { aiConfigurationApi } from "../../../../api/aiConfiguration";
 
-const state = vi.hoisted(() => ({ running: false }));
+const state = vi.hoisted(() => ({ running: false, showToast: vi.fn() }));
 vi.mock("../../AIChatSurface", () => ({
   useChatActivity: () => ({
     activeThreadId: "thread",
@@ -30,6 +30,9 @@ vi.mock("../../../settings/hooks/useAIConfiguration", () => ({
 vi.mock("../../../../api/aiConfiguration", () => ({
   aiConfigurationApi: { conversation: vi.fn() },
 }));
+vi.mock("../../../../context/ToastContext", () => ({
+  useToast: () => ({ showToast: state.showToast }),
+}));
 function show() {
   return render(
     <QueryClientProvider
@@ -43,6 +46,9 @@ function show() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    x:0,y:0,left:0,top:0,right:288,bottom:100,width:288,height:100,toJSON:()=>({}),
+  });
   state.running = false;
   vi.mocked(aiConfigurationApi.conversation).mockResolvedValue({
     editable: true,
@@ -51,17 +57,18 @@ beforeEach(() => {
   });
 });
 describe("Conversation model routing", () => {
-  it("saves heavy-only, fixed-profile and inherited routing explicitly", async () => {
+  it("opens a brain menu and saves heavy-only, fixed and workspace choices", async () => {
     show();
-    const picker = await screen.findByRole("combobox", {
+    const trigger = await screen.findByRole("button", {
       name: "Model for this conversation",
     });
-    for (const [choice, profile, mode] of [
-      ["__heavy", "", "heavy"],
-      ["fixed", "fixed", "profile"],
-      ["", "", "inherit"],
+    for (const [label, profile, mode] of [
+      [/^Heavy only/, "", "heavy"],
+      [/^Deep/, "fixed", "profile"],
+      [/^Workspace default/, "", "inherit"],
     ] as const) {
-      fireEvent.change(picker, { target: { value: choice } });
+      fireEvent.click(trigger);
+      fireEvent.click(screen.getByRole("menuitemradio", { name: label }));
       await waitFor(() =>
         expect(aiConfigurationApi.conversation).toHaveBeenLastCalledWith(
           "thread",
@@ -69,17 +76,41 @@ describe("Conversation model routing", () => {
           mode,
         ),
       );
-      await waitFor(() => expect(picker).toBeEnabled());
+      await waitFor(() => expect(trigger).toBeEnabled());
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
     }
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
   it("prevents changes while the conversation is running", async () => {
     state.running = true;
     show();
     expect(
-      await screen.findByRole("combobox", {
+      await screen.findByRole("button", {
         name: "Model for this conversation",
       }),
     ).toBeDisabled();
     expect(aiConfigurationApi.conversation).toHaveBeenCalledTimes(1);
+  });
+  it("keeps the current model after a rejected change and shows a toast", async () => {
+    show();
+    const trigger = await screen.findByRole("button", {
+      name: "Model for this conversation",
+    });
+    fireEvent.click(trigger);
+    vi.mocked(aiConfigurationApi.conversation).mockRejectedValueOnce(
+      new Error("offline"),
+    );
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^Heavy only/ }));
+    await waitFor(() =>
+      expect(state.showToast).toHaveBeenCalledWith(
+        "Could not change the conversation model.",
+        "error",
+      ),
+    );
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole("menuitemradio", { name: /^Workspace default/ }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 });

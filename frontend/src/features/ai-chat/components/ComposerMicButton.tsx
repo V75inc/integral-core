@@ -34,7 +34,7 @@ export function ComposerMicButton() {
   const label = active ? `Stop dictation (${hotkeyLabel})` : `Dictate (${hotkeyLabel})`;
 
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex shrink-0 items-center gap-1">
       <IconButton
         label={label}
         title={label}

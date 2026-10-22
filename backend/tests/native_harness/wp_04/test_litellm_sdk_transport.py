@@ -321,7 +321,10 @@ async def test_bridge_routes_chat_completion_and_records_usage_without_network()
 
 
 @pytest.mark.asyncio
-async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
+@pytest.mark.parametrize("sampling", [{"temperature": 0.3}, {"top_p": 0.8}])
+async def test_local_ollama_context_is_forwarded_as_provider_option(
+    sampling: dict[str, float],
+) -> None:
     """The configured local context reaches LiteLLM without affecting others."""
     captured: dict[str, Any] = {}
 
@@ -349,6 +352,7 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
         ollama_num_predict=8192,
         ollama_think="low",
         ollama_clear_thinking=True,
+        generation_settings={"max_tokens": 4096, **sampling},
         credential_source="local",
     )
     model = build_litellm_sdk_model(
@@ -366,7 +370,10 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
     assert captured["extra_body"]["options"]["num_ctx"] == 32768
     assert captured["timeout"] == 37
     assert "num_ctx" not in captured
-    assert captured["max_tokens"] == 8192
+    assert captured["max_tokens"] == 4096
+    assert captured["extra_body"]["options"]["num_predict"] == 4096
+    for key, value in sampling.items():
+        assert captured["extra_body"]["options"][key] == value
     assert "max_completion_tokens" not in captured
     assert captured["extra_body"]["think"] == "low"
     assert captured["extra_body"]["clear_thinking"] is True

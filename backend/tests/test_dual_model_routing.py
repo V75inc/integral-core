@@ -185,7 +185,8 @@ async def test_shared_deadline_cannot_extend_and_physical_retries_exhaust_budget
             )
             original = deadline.when()
             timing.freeze_budget({"model_request_limit": 8, "turn_timeout": 120})
-            assert deadline.when() == original
+            assert deadline.when() <= original
+            assert original - deadline.when() < 0.01
             timing.reserve_dispatch()
             assert turn_usage_limits().request_limit == 1
             timing.reserve_dispatch()
@@ -560,3 +561,48 @@ async def test_deployment_summary_exposes_validated_role_settings_without_secret
         "request_timeout": 30,
     }
     assert "synthetic-must-not-be-exposed" not in str(summary)
+
+
+@pytest.mark.parametrize("clock_offset", [235353.944, -235353.944])
+def test_turn_deadlines_use_event_loop_clock_with_a_different_epoch(
+    monkeypatch, clock_offset
+):
+    """macOS uvloop and Python monotonic clocks need not share an epoch."""
+    from app.services import chat_latency
+
+    loop_now = 1_000_000 + clock_offset
+    expires = [loop_now + 900]
+    deadline = SimpleNamespace(
+        when=lambda: expires[0], reschedule=lambda value: expires.__setitem__(0, value)
+    )
+    timing = TurnLatency(started=999_990, deadline=deadline)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(chat_latency.time, "monotonic", lambda: 1_000_000)
+        scoped.setattr(
+            chat_latency.asyncio,
+            "get_running_loop",
+            lambda: SimpleNamespace(time=lambda: loop_now),
+        )
+        timing.freeze_budget({"turn_timeout": 30})
+        assert timing.remaining_deadline_seconds() == pytest.approx(20)
+        timing.clamp_remaining_deadline(5)
+        assert expires[0] == pytest.approx(loop_now + 5)
+        timing.clamp_remaining_deadline(60)
+        assert timing.remaining_deadline_seconds() == pytest.approx(5)
+
+
+def test_real_uvloop_does_not_immediately_expire_a_fresh_model_turn():
+    """Exercise the event loop used by the installed/local Uvicorn deployment."""
+    uvloop = pytest.importorskip("uvloop")
+
+    async def turn():
+        timing = TurnLatency()
+        async with asyncio.timeout(5) as deadline:
+            timing.deadline = deadline
+            timing.freeze_budget({"turn_timeout": 30})
+            assert 0 < timing.remaining_deadline_seconds() <= 5
+            await asyncio.sleep(0.01)
+            assert timing.remaining_deadline_seconds() > 0
+
+    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+        runner.run(turn())

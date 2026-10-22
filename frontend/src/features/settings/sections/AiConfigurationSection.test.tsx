@@ -14,6 +14,7 @@ const fixture = vi.hoisted(() => ({
   isPending: false,
   isError: false,
   refetch: vi.fn(),
+  showToast: vi.fn(),
   data: {
     connections: [
       {
@@ -76,6 +77,9 @@ vi.mock("../../../api/modelCredentials", async (original) => ({
   ...(await original<typeof import("../../../api/modelCredentials")>()),
   modelCredentialsApi: { get: vi.fn().mockResolvedValue(null) },
 }));
+vi.mock("../../../context/ToastContext", () => ({
+  useToast: () => ({ showToast: fixture.showToast }),
+}));
 function show() {
   return render(
     <QueryClientProvider
@@ -114,7 +118,15 @@ describe("AI connection and model configuration", () => {
     show();
     fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
     fireEvent.click(screen.getByRole("button", { name: "Test provider" }));
-    await screen.findByText("Provider verified using the saved key.");
+    await waitFor(() =>
+      expect(fixture.showToast).toHaveBeenCalledWith(
+        "Provider connection verified.",
+        "success",
+      ),
+    );
+    expect(
+      screen.queryByText("Provider connection verified."),
+    ).not.toBeInTheDocument();
     expect(aiConfigurationApi.testConnection).toHaveBeenCalledWith(
       "connection",
     );
@@ -148,11 +160,7 @@ describe("AI connection and model configuration", () => {
   it("explains workspace-owner configuration and keeps connection editing separate", async () => {
     fixture.data.effective.editable = false;
     show();
-    expect(
-      screen.getByText(
-        /Changes to your personal profiles do not change this workspace/,
-      ),
-    ).toBeVisible();
+    expect(screen.getByText("Managed by the workspace owner.")).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
     fireEvent.click(screen.getByRole("button", { name: "Edit provider" }));
     expect(screen.getByLabelText("Provider")).toBeDisabled();
@@ -239,7 +247,7 @@ it("supports arrow-key tab navigation", () => {
 it("opens a model override editor while the active configuration comes from ENV", async () => {
   fixture.data.effective.source = "deployment";
   show();
-  expect(screen.getByText("Managed by your deployment")).toBeVisible();
+  expect(screen.getByText("Server default")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Add your own model" }));
   const dialog = await screen.findByRole("dialog", { name: "Add a model" });
   expect(
@@ -248,4 +256,36 @@ it("opens a model override editor while the active configuration comes from ENV"
   expect(
     screen.queryByRole("button", { name: "Model settings" }),
   ).not.toBeInTheDocument();
+});
+
+it("reports provider failures through a toast without a page banner", async () => {
+  vi.mocked(aiConfigurationApi.testConnection).mockResolvedValue({
+    valid: false,
+    message: "Provider unavailable",
+  });
+  show();
+  fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Test provider" }));
+  await waitFor(() =>
+    expect(fixture.showToast).toHaveBeenCalledWith(
+      "Provider unavailable",
+      "error",
+    ),
+  );
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+it("reports provider transport failures through a toast", async () => {
+  vi.mocked(aiConfigurationApi.testConnection).mockRejectedValue(
+    new Error("offline"),
+  );
+  show();
+  fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Test provider" }));
+  await waitFor(() =>
+    expect(fixture.showToast).toHaveBeenCalledWith(
+      "Could not test this provider.",
+      "error",
+    ),
+  );
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

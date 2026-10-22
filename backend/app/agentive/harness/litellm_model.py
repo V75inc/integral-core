@@ -677,6 +677,21 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             kwargs["max_tokens"] = self._route.generation_settings.get(
                 "max_tokens", self._route.ollama_num_predict
             )
+        if self._route.ollama_num_ctx is not None:
+            # LiteLLM shallow-merges extra_body into the final Ollama payload.
+            # Preserve every generated native sampling option when supplying
+            # options.num_ctx, or that merge silently drops num_predict etc.
+            options = kwargs["extra_body"]["options"]
+            for parameter, native in {
+                "max_tokens": "num_predict",
+                "temperature": "temperature",
+                "top_p": "top_p",
+                "seed": "seed",
+                "frequency_penalty": "repeat_penalty",
+                "stop": "stop",
+            }.items():
+                if kwargs.get(parameter) is not None:
+                    options[native] = kwargs[parameter]
         if (
             self._route.ollama_think is not None
             or self._route.ollama_clear_thinking is not None
