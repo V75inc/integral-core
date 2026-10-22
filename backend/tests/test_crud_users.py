@@ -197,3 +197,24 @@ class TestUsersCRUD:
         data = response.json()
         assert "user" in data
         assert data["user"]["display_name"] == "My New Name"
+
+    async def test_saved_profile_name_is_the_next_chat_identity(
+        self, authenticated_client: AsyncClient, test_user
+    ):
+        """Settings readback and chat use the same current local profile."""
+        from app.services.user_identity import user_identity_context
+
+        for name in ("Owner", "Chosen Local Name", "Renamed Local Profile"):
+            response = await authenticated_client.put(
+                "/api/auth/update-profile", json={"display_name": name}
+            )
+            assert response.status_code == 200
+            current = await authenticated_client.get("/api/auth/me")
+            assert current.status_code == 200
+            profile = current.json()["user"]
+            assert profile["display_name"] == name
+            for principal in {profile["id"], profile["user_id"]}:
+                context = await user_identity_context(principal)
+                assert f'"display_name": "{name}"' in context
+                if name != "Owner":
+                    assert '"display_name": "Owner"' not in context

@@ -706,3 +706,15 @@ class HasGeneratedDocument(Edge):
 
 
 HAS_GENERATED_DOCUMENT = HasGeneratedDocument
+
+
+class ReactsTo(Edge):
+    """User → Entry/Comment; one current reaction per actor and target."""
+
+    emoji: str = "👍"
+    principal_id: str = ""
+    updated_at: Optional[str] = None
+    bidirectional: bool = False
+
+
+REACTS_TO = ReactsTo

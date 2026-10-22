@@ -236,23 +236,8 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
-        if (
-            call_state.get("pending_design")
-            and capability_op_class != "read"
-            and capability_name
-            not in {"integral_propose_design", "integral_build_approved_design"}
-        ):
-            return {
-                "error": True,
-                "error_code": "design_pending_action",
-                "message": (
-                    "A saved design is awaiting the user's response. Use the "
-                    "approved-build tool only when the latest reply authorizes "
-                    "this design, or propose a revision when the user changes "
-                    "its requirements. Do not perform unrelated writes."
-                ),
-                "retryable": False,
-            }
+        # A saved App design governs its build, not unrelated resource work.
+        # Ordinary tools retain skill, policy, scope and staging admission.
         if capability_name == "integral_propose_design":
             if call_state.get("approved_design_ready"):
                 return {

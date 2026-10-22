@@ -32,6 +32,18 @@ import pytest
 # the glob and that that test file (collectively, if multiple match)
 # asserts on all three required status-code classes.
 PHASE_2_7_ENDPOINTS: List[Dict[str, object]] = [
+    {
+        "path": "/api/agentive/staging/designs",
+        "methods": ["GET"],
+        "test_file_glob": "test_design_decision_endpoints",
+        "phase": "October QA",
+    },
+    {
+        "path": "/api/agentive/staging/designs/discard",
+        "methods": ["POST"],
+        "test_file_glob": "test_design_decision_endpoints",
+        "phase": "October QA",
+    },
     # Phase 2 ---------------------------------------------------------
     {
         "path": "/api/audit-log",

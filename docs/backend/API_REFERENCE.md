@@ -143,6 +143,8 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | Methods | Declared path | Handler |
 |---|---|---|
 | POST | `/agentive/staging/bless-token` | [bless_token_endpoint](../../backend/app/agentive/api/staging.py) |
+| GET | `/agentive/staging/designs` | [pending_designs_endpoint](../../backend/app/agentive/api/staging.py) |
+| POST | `/agentive/staging/designs/discard` | [discard_design_endpoint](../../backend/app/agentive/api/staging.py) |
 | GET | `/agentive/staging/pending` | [pending_endpoint](../../backend/app/agentive/api/staging.py) |
 | GET | `/agentive/staging/render-pending` | [render_pending_endpoint](../../backend/app/agentive/api/staging.py) |
 | GET | `/agentive/staging/render/{token}` | [render_token_endpoint](../../backend/app/agentive/api/staging.py) |
@@ -433,6 +435,9 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 |---|---|---|
 | DELETE | `/comments/{comment_id}` | [delete_comment](../../backend/app/api/comments.py) |
 | PUT | `/comments/{comment_id}` | [update_comment](../../backend/app/api/comments.py) |
+| POST | `/comments/{comment_id}/reactions` | [toggle_comment_reaction](../../backend/app/api/comments.py) |
+| PUT | `/comments/{comment_id}/reactions` | [select_comment_reaction](../../backend/app/api/comments.py) |
+| DELETE | `/comments/{comment_id}/reactions/{emoji}` | [remove_comment_reaction](../../backend/app/api/comments.py) |
 | GET | `/entries/{entry_id}/comments` | [get_entry_comments](../../backend/app/api/comments.py) |
 | POST | `/entries/{entry_id}/comments` | [create_comment](../../backend/app/api/comments.py) |
 
@@ -468,6 +473,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/entries/{entry_id}` | [get_entry](../../backend/app/api/entries.py) |
 | PUT | `/entries/{entry_id}` | [update_entry](../../backend/app/api/entries.py) |
 | POST | `/entries/{entry_id}/reactions` | [add_reaction](../../backend/app/api/entries.py) |
+| PUT | `/entries/{entry_id}/reactions` | [select_reaction](../../backend/app/api/entries.py) |
 | DELETE | `/entries/{entry_id}/reactions/{emoji}` | [remove_reaction](../../backend/app/api/entries.py) |
 | POST | `/entries/{entry_id}/tags` | [add_tag_to_entry](../../backend/app/api/entries.py) |
 | DELETE | `/entries/{entry_id}/tags/{tag_id}` | [remove_tag_from_entry](../../backend/app/api/entries.py) |

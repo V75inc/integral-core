@@ -537,3 +537,43 @@ async def text_approve_endpoint(
         "channel": channel,
         "results": results,
     }
+
+
+@endpoint("/agentive/staging/designs", methods=["GET"], auth=True, tags=["Agentive"])
+async def pending_designs_endpoint(request: Request) -> Dict[str, Any]:
+    """Current-workspace saved designs, independent of legacy staging tokens."""
+    from app.services.design_decisions import list_design_decisions
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = _resolve_user(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    return {
+        "designs": await list_design_decisions(
+            user_id=user_id, workspace_id=workspace_id
+        )
+    }
+
+
+@endpoint(
+    "/agentive/staging/designs/discard", methods=["POST"], auth=True, tags=["Agentive"]
+)
+async def discard_design_endpoint(request: Request) -> Dict[str, Any]:
+    """Discard an exact reviewed design; never execute or approve a build."""
+    from pydantic import ValidationError
+
+    from app.api.errors import BadRequestError
+    from app.schemas.agentive.staging import DiscardDesignRequest
+    from app.services.design_decisions import discard_design
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = _resolve_user(request)
+    try:
+        body = DiscardDesignRequest.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise BadRequestError(
+            message="Invalid design selection; refresh and select the saved design."
+        ) from exc
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    return await discard_design(
+        user_id=user_id, workspace_id=workspace_id, **body.model_dump()
+    )

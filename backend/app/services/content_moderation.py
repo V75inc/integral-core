@@ -148,7 +148,13 @@ def contains_profanity(text: str) -> bool:
     flt = _filter()
     if flt is None:
         return False
-    return bool(flt.contains_profanity(moderation_text(text)))
+    # A standalone number is a record/list label, not another word's letters.
+    # The library otherwise joins "Test 3" into its leetspeak match for
+    # "teste". Keep within-word obfuscation (sh1t, f*ck) and alphabetic
+    # separator detection, but never concatenate across independent numbers.
+    # This affects detection only; the caller persists the exact authored text.
+    parts = re.split(r"(?<!\w)\d+(?!\w)", moderation_text(text))
+    return any(flt.contains_profanity(part) for part in parts if part.strip())
 
 
 def validate_no_profanity(text: str, field_name: str) -> None:

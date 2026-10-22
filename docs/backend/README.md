@@ -11,6 +11,7 @@ The backend supplies the graph substrate, resource authority, App lifecycle, and
 | Resident | [Chat](ai-chat.md), [skills](skill-format-standard.md), [workspace overlay](workspace-agent-profile.md), [scaffold recovery](scaffold-recovery.md) |
 | Review and work | [Prompt queue](prompt-queue.md), [bounded-work contract](work-mandate-contract.md) |
 | Commercial hosts | [Entitlements, quotas and host extensions](../platform/commercial-host-integration.md) |
+| Collaboration | [Reaction selection](reaction-selection.md) |
 | Integrations | [Connectors](connectors.md), [files](attachment-agent-contract.md), [speech](speech-input.md) |
 | Search | [Declarative indexing and retrieval](semantic-indexing.md), [model discovery](operational-model-search-index.md) |
 | Tool evidence | [Source observations](tool-source-observations.md) |

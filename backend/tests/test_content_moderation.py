@@ -391,3 +391,67 @@ async def test_markdown_on_public_create_update_comment_paths(
     finally:
         if authorization:
             authenticated_client.headers["Authorization"] = authorization
+
+
+@pytest.mark.parametrize(
+    "text", ["Test 3", "**Test 3**", "Test 3 release", "Phase 5", "Part 1: draft"]
+)
+def test_numbered_labels_are_not_cross_token_leetspeak(text):
+    assert contains_profanity(text) is False
+
+
+@pytest.mark.parametrize(
+    "text", ["sh1t", "f*ck", "shit 3", "3 fucking tasks", "f u c k"]
+)
+def test_number_boundaries_do_not_disable_real_profanity(text):
+    assert contains_profanity(text) is True
+
+
+@pytest.mark.asyncio
+async def test_numbered_label_survives_authenticated_write_paths(authenticated_client):
+    track = (
+        await authenticated_client.post("/api/tracks", json={"title": "Label checks"})
+    ).json()["track"]["id"]
+    created = await authenticated_client.post(
+        "/api/entries", json={"track_id": track, "title": "Test 3", "body": "Test 3"}
+    )
+    assert created.status_code == 200, created.text
+    entry = created.json()["entry"]
+    assert entry["title"] == entry["body"] == "Test 3"
+    updated = await authenticated_client.put(
+        f"/api/entries/{entry['id']}",
+        json={"title": "Test 3 release", "body": "**Test 3**"},
+    )
+    assert updated.status_code == 200, updated.text
+    comment = await authenticated_client.post(
+        f"/api/entries/{entry['id']}/comments", json={"text": "Test 3"}
+    )
+    assert comment.status_code == 200, comment.text
+
+
+@pytest.mark.asyncio
+async def test_numbered_label_survives_public_write_paths(
+    authenticated_client, shared_track_setup
+):
+    track, et, _ = shared_track_setup
+    token = await _enable_public_share(authenticated_client, track.id)
+    authorization = authenticated_client.headers.pop("Authorization", None)
+    try:
+        route = f"/api/public-share/track/{token}/entries"
+        created = await authenticated_client.post(
+            route, json={"title": "Test 3", "body": "Test 3", "type_id": et.id}
+        )
+        assert created.status_code == 200, created.text
+        entry_id = created.json()["entry"]["id"]
+        updated = await authenticated_client.patch(
+            f"{route}/{entry_id}",
+            json={"title": "Test 3 release", "body": "**Test 3**"},
+        )
+        assert updated.status_code == 200, updated.text
+        comment = await authenticated_client.post(
+            f"{route}/{entry_id}/comments", json={"text": "Test 3"}
+        )
+        assert comment.status_code == 200, comment.text
+    finally:
+        if authorization:
+            authenticated_client.headers["Authorization"] = authorization

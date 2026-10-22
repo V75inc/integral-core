@@ -2450,7 +2450,9 @@ class PydanticAIProvider:
                             "reply authorizes that design; select "
                             "integral_propose_design only when the reply changes "
                             "its requirements; for questions, refusal, or "
-                            "uncertainty, answer without writes. Do not repeat an "
+                            "uncertainty, answer without building. A request for unrelated "
+                            "resource work uses its normal authorized tools and staging; "
+                            "the saved design does not block it. Do not repeat an "
                             "unchanged proposal or ask for approval a second time. "
                             "Core records approval before any build effect."
                         )

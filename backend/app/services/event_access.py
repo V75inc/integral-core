@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from typing import Any, Awaitable, Callable
 
 from app.middleware.permissions_cache import isolated_permissions_cache
@@ -38,6 +39,36 @@ async def _current_connector(resource_id: str) -> Any:
     context = get_default_context()
     row = await primary_node_record(context.database, Connector, resource_id)
     return None if row is None else await context._deserialize_entity(Connector, row)
+
+
+async def _notification_audience(user_id: str, event: ChangeEventEnvelope) -> Any:
+    """Require the current record and its unique canonical recipient edge."""
+    from jvspatial.core.context import get_default_context
+
+    from app.models.edges import HAS_NOTIFICATION
+    from app.models.nodes import Notification
+    from app.services.authority_facts import primary_node_record
+    from app.services.permissions import get_user_node
+
+    caller = await get_user_node(user_id)
+    if caller is None:
+        return None
+    own_ids = {value for value in (user_id, caller.id, caller.user_id) if value}
+    if event.scope not in {f"user:{identity}" for identity in own_ids}:
+        return None
+    context = get_default_context()
+    row = await primary_node_record(context.database, Notification, event.resource_id)
+    if row is None:
+        return None
+    notification = await context._deserialize_entity(Notification, row)
+    if notification.user_id not in own_ids:
+        return None
+    recipients = await notification.nodes(
+        edge=[HAS_NOTIFICATION], direction="in", node=["User"], limit=2
+    )
+    if len(recipients) != 1 or recipients[0].id != caller.id:
+        return None
+    return notification
 
 
 async def event_release_workspace(event: ChangeEventEnvelope) -> str | None:
@@ -98,6 +129,51 @@ async def prepare_event_payload(
         ):
             return None
         payload = event.to_wire_flat() if flat else event.to_wire()
+        if str(event.resource_type).casefold() == "notification":
+            # The event is an invalidation signal, not permission to replay
+            # arbitrary historical notification content or embedded resource IDs.
+            notification = await _notification_audience(user_id, event)
+            if notification is None:
+                return None
+            payload.update(before=None, details=None, after=None)
+            if include_snapshots:
+                payload["after"] = {
+                    "id": notification.id,
+                    "type": notification.type,
+                    "read": notification.read,
+                }
+                metadata = (notification.metadata or {}).get("payload")
+                entry_id = (
+                    metadata.get("entry_id") if isinstance(metadata, dict) else None
+                )
+                if notification.type == "mention" and isinstance(entry_id, str):
+                    from app.services.authorization_scope import authorization_scope
+                    from app.services.resource_location import locate_resource
+
+                    location = await locate_resource("entry", entry_id)
+                    if location is not None:
+                        # The account notification may outlive resource access.
+                        # Order this optional reference with workspace revocations
+                        # inside the already-open identity/graph admission. A
+                        # denied read is data, not a nested transaction failure.
+                        guard = (
+                            authorization_scope(location.workspace_id)
+                            if native
+                            else nullcontext()
+                        )
+                        async with guard:
+                            current = await locate_resource("entry", entry_id)
+                            decision = await evaluate(
+                                subject=Subject(kind="human", id=user_id),
+                                action="entry.read",
+                                resource=Resource(
+                                    kind="entry", id=entry_id, scope=f"entry:{entry_id}"
+                                ),
+                                _dry_run=True,
+                            )
+                            if current == location and decision.allowed:
+                                payload["after"]["entry_id"] = entry_id
+            return payload
         if include_snapshots:
             payload = await project_event_snapshots(
                 user_id, event, payload, evaluate=evaluate, workspace_id=workspace_id
@@ -161,6 +237,8 @@ async def _can_release_event_current(
         kind = str(event.resource_type or "").strip().casefold()
         kind = "app" if kind == "space" else kind
         resource_id = event.resource_id or ""
+        if kind == "notification":
+            return await _notification_audience(user_id, event) is not None
         if kind == "policy":
             from app.models.nodes import Policy
             from app.services.permissions import get_user_node
