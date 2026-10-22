@@ -32,6 +32,8 @@ import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useScope } from '../../context/ScopeContext';
+import { ImportPackageModal } from '../library/ImportPackageModal';
+import { usePlatformAdmin } from '../../hooks/usePlatformAdmin';
 import { useToast } from '../../context/ToastContext';
 import { isSamePrincipal } from '../../utils';
 import {
@@ -43,6 +45,7 @@ const LINE_STROKE = 1.5;
 
 
 export interface AppManagerDialogProps {
+  initialDetailId?: string;
   isOpen: boolean;
   onClose: () => void;
   apps: App[];
@@ -66,12 +69,16 @@ type DialogPhase = 'manage' | 'settings' | 'results';
 
 export function AppManagerDialog({
   isOpen,
+  initialDetailId,
   onClose,
   apps,
   onChanged,
   onCreateBlankApp,
 }: AppManagerDialogProps) {
   const { user } = useAuth();
+  const isPlatformAdmin = usePlatformAdmin();
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const { scope, workspaces } = useScope();
   const workspaceId = scope?.workspaceId;
   const workspaceName = workspaces?.find(workspace => workspace.id === workspaceId)?.name || 'this workspace';
@@ -415,7 +422,26 @@ export function AppManagerDialog({
       // again when the user returns to the Apps page.
       onChanged?.();
     }
+    setImportOpen(false);
     onClose();
+  };
+
+  const refreshLibrary = async () => {
+    if (!await confirm({
+      title: 'Refresh App library?',
+      message: 'Re-read available package bundles. Installed Apps change only when separately updated.',
+      confirmLabel: 'Refresh', variant: 'default',
+    })) return;
+    setRefreshing(true);
+    try {
+      const result = await operationalModelsApi.rescanPackages();
+      setLibraryRevision(value => value + 1);
+      toast.showToast(result.issues.length ? `Refresh found ${result.issues.length} issue(s)` : 'App library refreshed', result.issues.length ? 'error' : 'success');
+    } catch {
+      toast.showToast('Could not refresh App library', 'error');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   return (
@@ -434,6 +460,11 @@ export function AppManagerDialog({
           <ResultsView results={results} onClose={closeDialog} />
         ) : (
           <AppManagerLibrary key={workspaceId}
+            initialDetailId={initialDetailId}
+            libraryActions={<div className="flex flex-wrap gap-2 py-3">
+              {workspaceId && <Button variant="outline" size="sm" disabled={submitting} onClick={() => setImportOpen(true)}>Import package</Button>}
+              {isPlatformAdmin && <Button variant="ghost" size="sm" disabled={submitting || refreshing} onClick={() => void refreshLibrary()}> {refreshing ? 'Refreshing…' : 'Refresh library'}</Button>}
+            </div>}
             profiles={profiles} apps={apps} installedApps={bundleApps}
             selected={selectedInstall} loading={loading} submitting={submitting}
             workspaceName={workspaceName} includeSeedData={includeSeedData}
@@ -462,6 +493,7 @@ export function AppManagerDialog({
           />
         )}
       </Modal>
+      {workspaceId && <ImportPackageModal key={workspaceId} open={isOpen && importOpen} workspaceId={workspaceId} onClose={() => setImportOpen(false)} onSuccess={() => { setImportOpen(false); setLibraryRevision(value => value + 1); }} />}
 
       {uninstallTarget ? (
         <AppUninstallModal

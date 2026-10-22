@@ -1,13 +1,4 @@
-/**
- * LibrarySection (Settings → Operational Models) is now a slim explainer
- * panel — the full catalog lives at /models. The old card
- * list, filter input, and Import modal were retired by the
- * "settings becomes explainer" consolidation. These tests cover the
- * current contract:
- *   1. Renders the section header.
- *   2. Renders a count line when the API returns profiles.
- *   3. Renders a "Browse catalog" link pointing at /models.
- */
+/** Settings entry points converge on Manage Apps; Track models stay separate. */
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -65,8 +56,8 @@ describe('LibrarySection (explainer)', () => {
   it('renders a "Browse catalog" link to /models', () => {
     mockedList.mockResolvedValueOnce([]);
     renderPanel();
-    const link = screen.getByRole('link', { name: /browse catalog/i });
+    const link = screen.getByRole('link', { name: /browse Apps/i });
     expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute('href', '/models');
+    expect(link).toHaveAttribute('href', '/apps?manage=1');
   });
 });

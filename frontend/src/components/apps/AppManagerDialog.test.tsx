@@ -197,6 +197,38 @@ describe('AppManagerDialog', () => {
     expect(await screen.findByTestId('app-manager-row-hr-suite')).toBeInTheDocument();
   });
 
+  it('shows full package details without losing the installation selection', async () => {
+    mockListProfiles.mockResolvedValueOnce([{ ...LIB_AVAILABLE, description: 'Short overview', version: '2.4.0', manifest: {
+      scope: 'app', package: { description: 'Full description with all the details.' },
+      app: { tracks: [{ key: 'employees', name: 'Employees', description: 'Keep employee records together.',
+        entry_types: [{ key: 'person', name: 'Person', fields: [{ key: 'email', name: 'Email address', type: 'email' }] }],
+        taxonomy: { tag_groups: [{ name: 'Status', tags: [{ name: 'Active' }] }] },
+        views: [{ name: 'Directory', view_type: 'table', is_default: true }],
+      }] },
+    } }]);
+    renderDialog();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add HR Suite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View details for HR Suite' }));
+    expect(screen.getByText('Full description with all the details.')).toBeInTheDocument();
+    expect(screen.getByText('Keep employee records together.')).toBeInTheDocument();
+    expect(screen.getByText(/Version 2.4.0/)).toBeInTheDocument();
+    expect(screen.getByText(/Directory.*table.*default/)).toBeInTheDocument();
+    expect(screen.getByText('Status: Active')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Person · 1 field'));
+    expect(screen.getByText('Email address · email · email')).toBeInTheDocument();
+    expect(mockBatchInstall).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to library' }));
+    expect(screen.getByRole('button', { name: 'Remove HR Suite' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens a bookmarked package in the canonical manager detail view', async () => {
+    renderDialog({ initialDetailId: 'lib-hr' });
+    expect(await screen.findByTestId('app-package-details')).toHaveTextContent('HR bundle');
+    fireEvent.click(screen.getByRole('button', { name: 'Add to selection' }));
+    expect(screen.getByRole('button', { name: 'Remove from selection' })).toBeInTheDocument();
+    expect(mockBatchInstall).not.toHaveBeenCalled();
+  });
+
   it('lets users delete a workspace saved template from Manage Apps', async () => {
     renderDialog();
     fireEvent.click(await screen.findByRole('button', { name: 'View details for HR Suite' }));

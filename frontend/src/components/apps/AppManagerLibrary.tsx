@@ -7,7 +7,7 @@ import { Modal } from '../ui/Modal';
 import type { App, OperationalModelNode } from '../../types';
 import { extractPackageMeta, isPackageInstalled } from './appBundleMatching';
 import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
-import { countManifestSeedEntries } from '../../utils/manifestSeeds';
+import { AppPackageDetails } from './AppPackageDetails';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 
 export interface SelectedInstallRow {
@@ -19,6 +19,8 @@ export interface SelectedInstallRow {
 }
 
 interface Props {
+  initialDetailId?: string;
+  libraryActions?: ReactNode;
   profiles: OperationalModelNode[];
   apps: App[];
   installedApps: App[];
@@ -43,6 +45,8 @@ interface Props {
 
 export function AppManagerLibrary(props: Props) {
   const { profiles, apps, installedApps, selected, loading, submitting } = props;
+  const [detailId, setDetailId] = useState(props.initialDetailId);
+  const detail = profiles.find(profile => profile.id === detailId);
   const [tab, setTab] = useState<'browse' | 'installed'>('browse');
   const [search, setSearch] = useState('');
   const [mobileReview, setMobileReview] = useState(false);
@@ -80,6 +84,14 @@ export function AppManagerLibrary(props: Props) {
         {props.error && <div className="px-5 pt-4 sm:px-6">{props.error}<Button variant="ghost" size="sm" onClick={props.onRetry} disabled={submitting}>Retry library</Button></div>}
         <div className="grid min-h-[calc(100dvh-var(--system-bar-h,0px)-8.5rem)] sm:min-h-0 sm:h-[min(65dvh,42rem)] sm:grid-cols-[minmax(0,1fr)_19rem]">
           <section aria-label="App library" className={`${mobileReview ? 'hidden sm:block' : ''} min-w-0 px-5 pb-5 sm:overflow-y-auto sm:px-6`}>
+            {detail ? <>
+              <AppPackageDetails profile={detail} onBack={() => setDetailId(undefined)} />
+              <div className="flex flex-wrap gap-2 pb-5">
+                <Button variant="primary" disabled={submitting || isPackageInstalled(detail, apps)} onClick={() => toggle(detail)}>{isPackageInstalled(detail, apps) ? 'Installed' : selected.has(detail.id) ? 'Remove from selection' : 'Add to selection'}</Button>
+                {detail.workspace_id && <Button variant="ghost" aria-label={`Delete ${extractPackageMeta(detail).name} template`} disabled={submitting || props.deletingPackages.has(detail.id)} onClick={() => props.onDelete(detail)}>Delete saved template</Button>}
+              </div>
+            </> : <>
+            {props.libraryActions}
             <ViewTabs ariaLabel="App collection" value={tab} onChange={selectTab} options={[
               { value: 'browse', label: 'Browse library', count: profiles.length },
               { value: 'installed', label: 'Installed', count: installedApps.length },
@@ -96,9 +108,10 @@ export function AppManagerLibrary(props: Props) {
                   {query && <Button variant="ghost" size="sm" onClick={() => setSearch('')}>Clear search</Button>}
                 </Surface> : tab === 'installed' ? <ul className="space-y-3" data-testid="app-manager-installed">{visibleInstalled.map(app => <li key={app.id}>{props.renderInstalled(app)}</li>)}</ul>
                   : <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-testid="app-manager-available">
-                    {visibleProfiles.map(profile => <CatalogCard key={profile.id} profile={profile} installed={isPackageInstalled(profile, apps)} selected={selected.has(profile.id)} disabled={submitting} onToggle={() => toggle(profile)} canDelete={Boolean(profile.workspace_id)} deleting={props.deletingPackages.has(profile.id)} onDelete={() => props.onDelete(profile)} />)}
+                    {visibleProfiles.map(profile => <CatalogCard key={profile.id} profile={profile} installed={isPackageInstalled(profile, apps)} selected={selected.has(profile.id)} disabled={submitting} onToggle={() => toggle(profile)} onDetails={() => setDetailId(profile.id)} />)}
                   </ul>}
               </div>
+            </>}
             </>}
           </section>
           <Surface as="aside" tone="panel-2" padding="lg" radius="none" className={`${mobileReview ? 'flex' : 'hidden sm:flex'} min-w-0 flex-col border-l border-[var(--panel-border)] sm:overflow-y-auto`} aria-label="Installation selection">
@@ -143,11 +156,10 @@ export function AppManagerLibrary(props: Props) {
   </>;
 }
 
-function CatalogCard({ profile, installed, selected, disabled, onToggle, canDelete, deleting, onDelete }: {
+function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetails }: {
   profile: OperationalModelNode; installed: boolean; selected: boolean; disabled: boolean;
-  onToggle(): void; canDelete: boolean; deleting: boolean; onDelete(): void;
+  onDetails(): void; onToggle(): void;
 }) {
-  const [details, setDetails] = useState(false);
   const { name, description, slug } = extractPackageMeta(profile);
   const summary = summarizeLibraryManifest(profile.manifest);
   return <li data-testid={`app-manager-row-${slug || profile.id}`} className="min-w-0">
@@ -156,13 +168,8 @@ function CatalogCard({ profile, installed, selected, disabled, onToggle, canDele
       <Text as="p" variant="body-sm" tone="muted" className="my-3 flex-1">{description || 'An App template for your workspace.'}</Text>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button size="sm" variant={selected ? 'secondary' : 'outline'} disabled={installed || disabled} aria-label={installed ? `${name} installed` : `${selected ? 'Remove' : 'Add'} ${name}`} aria-pressed={selected} icon={selected || installed ? <Check size={14} /> : <Plus size={14} />} onClick={onToggle} className="min-h-11">{installed ? 'Installed' : selected ? 'Selected' : 'Add'}</Button>
-        <Button variant="ghost" size="xs" className="min-h-11" aria-label={`View details for ${name}`} aria-expanded={details} onClick={() => setDetails(!details)}>{details ? 'Hide details' : 'View details'}</Button>
+        <Button variant="ghost" size="xs" className="min-h-11" aria-label={`View details for ${name}`} onClick={onDetails}>View details</Button>
       </div>
-      {details && <div className="mt-3 space-y-2 border-t border-[var(--panel-border)] pt-3">
-        <Text as="p" variant="meta" tone="muted">{summary.skillCount} skills · {countManifestSeedEntries(profile.manifest || {})} optional example records</Text>
-        {slug && <Text as="p" variant="meta" tone="subtle" className="break-all">{slug}</Text>}
-        {canDelete && <Button variant="ghost" size="sm" aria-label={`Delete ${name} template`} disabled={deleting || disabled} onClick={onDelete}>{deleting ? 'Deleting…' : 'Delete saved template'}</Button>}
-      </div>}
     </Surface>
   </li>;
 }

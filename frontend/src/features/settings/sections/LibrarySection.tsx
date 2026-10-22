@@ -1,11 +1,5 @@
 import { PageMeta } from '../../../components/ui';
-/**
- * Settings → Operational Models — slim explainer.
- *
- * The full catalog lives at /models. This panel shows a brief
- * description and a count of installed profiles, then points the user
- * to the canonical catalog page.
- */
+/** Settings links to the single App catalog and reusable Track model tools. */
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -45,7 +39,7 @@ export function LibrarySection() {
 
       <SettingsSection
         title="Available models"
-        description="The catalog page lets you browse every available model or App Package and import one."
+        description="Manage Apps is the library for discovering, inspecting, importing, and installing Apps."
       >
         {isError ? <div role="alert"><Text as="p" variant="body-sm" tone="danger">Could not load available models.</Text><Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div> : isLoading ? <Skeleton className="h-6 w-40" /> : totalCount > 0 ? (
           <Text variant="body" tone="muted" as="p">
@@ -59,7 +53,7 @@ export function LibrarySection() {
 
         <div>
           <Link
-            to="/models"
+            to="/apps?manage=1"
             className="
               inline-flex items-center gap-1.5
               rounded-[var(--radius-input)]
@@ -70,9 +64,10 @@ export function LibrarySection() {
               transition-colors duration-fast
             "
           >
-            Browse catalog
+            Browse Apps
             <ArrowRight size={14} strokeWidth={1.5} />
           </Link>
+          <Link to="/models"><Text variant="body-sm">Manage reusable Track models</Text></Link>
         </div>
       </SettingsSection>
     </div>

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { Text } from '../ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -36,6 +37,7 @@ import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
 import { useConfirm } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
 import {
+  getManifestScopeKind,
   manifestKindLabel,
   summarizeLibraryManifest,
 } from '../lib/operationalModelManifest';
@@ -161,7 +163,7 @@ function OperationalModelCard({ cp }: { cp: OperationalModelNode }) {
 }
 
 export function OperationalModelsPage() {
-  useSetCrumbs([{ label: 'Operational Models' }]);
+  useSetCrumbs([{ label: 'Track models' }]);
   const [search, setSearch] = useState('');
   const [scopeFilter, setScopeFilter] = useState<string>('');
   const [importOpen, setImportOpen] = useState(false);
@@ -191,6 +193,7 @@ export function OperationalModelsPage() {
   const filtered = useMemo(() => {
     if (!profiles) return [];
     return profiles.filter(cp => {
+      if (getManifestScopeKind(cp.manifest) === 'app') return false;
       if (scopeFilter && cp.scope !== scopeFilter) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -277,14 +280,15 @@ export function OperationalModelsPage() {
     );
   }
 
-  const profileCount = profiles?.length ?? 0;
+  const profileCount = profiles?.filter(profile => getManifestScopeKind(profile.manifest) !== 'app').length ?? 0;
 
   return (
     <PageShell>
       <PageSection>
       <header className="mb-8 md:mb-10">
         <div className="flex items-start justify-between gap-4">
-          <PageHeading>Operational Models</PageHeading>
+          <PageHeading>Track models</PageHeading>
+          <Link to="/apps?manage=1" className="min-h-11 inline-flex items-center gap-2"><Text tone="brand" weight="medium">Browse Apps <ArrowRight size={14} className="inline" /></Text></Link>
           {scope?.workspaceId && (
             <Button
               type="button"
@@ -329,7 +333,7 @@ export function OperationalModelsPage() {
           <PageSearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search models…"
+            placeholder="Search Track models…"
           />
         </div>
         {scopes.length > 1 && (
@@ -376,7 +380,7 @@ export function OperationalModelsPage() {
           description={
             search || scopeFilter
               ? 'Try adjusting your search or filters.'
-              : 'Operational Models and App Packages will appear here when available.'
+              : 'Reusable Track models will appear here when available. Browse Apps to discover installable Apps.'
           }
         />
       ) : (

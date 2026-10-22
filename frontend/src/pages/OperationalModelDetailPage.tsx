@@ -1,6 +1,6 @@
 import { PageMeta } from '../components/ui';
 import { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -338,6 +338,8 @@ function OperationalModelDetailPage() {
       </div>
     );
   }
+
+  if (isAppPackage) return <Navigate replace to={`/apps?manage=1&package=${encodeURIComponent(profile.id)}`} />;
 
   const extraBlurb =
     inspection.packageDescription &&
