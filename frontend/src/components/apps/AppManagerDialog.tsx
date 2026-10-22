@@ -583,7 +583,7 @@ function InstalledRow({
                 title={uninstallTitle}
                 data-testid={`app-manager-uninstall-${app.id}`}
               >
-                <Text variant="body-sm" tone="danger">Uninstall…</Text>
+                <Text variant="body-sm" tone="danger">Uninstall</Text>
               </Button>
             ) : null}
           </div>

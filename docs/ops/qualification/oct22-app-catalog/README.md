@@ -1,6 +1,6 @@
 # Single App catalog qualification — October 22
 
-Manage Apps is the canonical discovery, inspection, import, and installation view for App packages. Settings links to `/apps?manage=1`. Legacy `/models/:id` links for App packages redirect to that same manager with the requested package open. `/models` retains reusable Track model tools, excludes App packages, and links to Browse Apps.
+Manage Apps is the canonical discovery, inspection, import, and installation view for App packages. Settings no longer exposes Operational Models. Both `/models` and `/operational-models` redirect to `/apps?manage=1`; detail bookmarks retain the requested package identifier. The initial consolidation kept standalone Track model tools; the follow-up below retires those screens as well.
 
 The manager uses the same operational-model library API and existing App-scope/workspace visibility filters. No backend or installation contract changes. Host install admission, required settings, owner uninstall checks, sample-data options, and the explicit installation confirmation remain in force.
 
@@ -8,7 +8,7 @@ The manager uses the same operational-model library API and existing App-scope/w
 
 The read-only detail pane retains the full profile description and any different package description; version, scope, and package identifier; optional sample record count; each prescribed Track and its description; expandable record types with field names, keys, and types; taxonomy groups/tags; views and default indicators; declared skills, agents, tools, and hook counts. Missing sections are shown as empty rather than invented. Add/remove selection is available from the detail view. Returning to the library preserves the search and pending selection.
 
-## Browser evidence
+## Initial consolidation browser evidence
 
 Verified against the disposable October QA PostgreSQL runtime on API 4469 and Vite 9149 using the synthetic QA Owner account and six QA package templates. The personal installation is not used.
 
@@ -25,4 +25,14 @@ Verified against the disposable October QA PostgreSQL runtime on API 4469 and Vi
 
 Regression coverage includes full description/Track/field/tag/view inspection, retained selection, direct package opening, close/reopen behavior, old App detail redirect, exclusion of Apps from Track model tools, and Settings linking to the manager. Existing installation, setup, uninstall, workspace visibility, and error-handling tests remain in the frontend suite.
 
-Final validation passed: frontend suite (346 files, 2,046 tests), production build, CI-faithful backend smoke lane (`make verify-ci`), and `make guards precommit format-check lint types`. ESLint reported zero errors and the existing warning backlog. The navigation regression caught a missing Text import during development; it was fixed before the successful final suite and build.
+Initial consolidation validation passed: frontend suite (346 files, 2,046 tests), production build, CI-faithful backend smoke lane (`make verify-ci`), and `make guards precommit format-check lint types`. ESLint reported zero errors and the existing warning backlog. The navigation regression caught a missing Text import during development; it was fixed before the successful final suite and build.
+
+## Follow-up: retire Operational Models UI
+
+At the user's request, the Operational Models Settings entry, standalone catalog/detail pages, and unused legacy detail dialog have been removed. Both `/models` and `/operational-models` (including detail bookmarks) now redirect to Manage Apps. The old Settings `#library` hash falls back to Profile. Library model pickers retain their configuration role but no longer link to retired management screens. APIs and stored models remain unchanged.
+
+Browser readback verified the legacy catalog redirect opens the six-App manager and the old Settings hash opens Profile. Settings menu evidence: [Operational Models removed](settings-without-models.jpg).
+
+Follow-up validation: frontend suite (344 files, 2,039 tests) and production build passed. Removed tests belonged to deleted UI; Settings and both legacy route aliases have updated regression coverage. Backend source is unchanged, so the successful CI-faithful smoke qualification from the preceding consolidation remains applicable.
+
+The installed-App action now reads “Uninstall” without an ellipsis. Browser readback confirms the full label; the existing confirmation flow is unchanged.
