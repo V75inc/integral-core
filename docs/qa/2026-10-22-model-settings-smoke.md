@@ -113,3 +113,35 @@ ownership is checked at dispatch; former owners can revoke their private
 provider after transfer. Platform-only policy uses deployment embeddings while
 preserving the inactive workspace override. Custom endpoints reuse the existing
 DNS-pinned outbound guard; responses and total request duration are bounded.
+
+## Light-to-Heavy handoff follow-up
+
+The live QA conversation exposed a routing miss: in Automatic mode, “can you help
+me prepare an app that tracks my todo list” received generic coding advice, and
+“build it for me” received a capability refusal from GPT-4.1 without a Heavy pass.
+
+Light now makes an explicit Pydantic AI output-tool choice: `answer_conversation`
+(with a bounded category), `request_operational_context`, or
+`propose_simple_reminder`. Free-form text is no longer an accepted Light outcome.
+A provider ignoring the required output protocol requests operational context;
+its original usage remains counted. App planning/building and operational
+follow-ups are explicit handoff cases in the routing instructions. Earlier
+assistant refusals are not capability evidence. No keyword classifier, extra
+routing inference call, tool authority or approval bypass was added.
+
+Live checks with the saved providers:
+
+- The affected “build it for me” follow-up used GPT-4.1 then DeepSeek V4.1 Flash,
+  checked the workspace and produced a reviewable To-Do App design in 17.7s.
+  The proposal was not approved or installed.
+- The original App-planning request also used GPT-4.1 then DeepSeek and produced
+  a reviewable design (24.8s), rather than generic coding advice.
+- A fresh greeting stayed on GPT-4.1 and completed in 1.8s.
+- Selecting Heavy only dispatched DeepSeek and returned the requested OK.
+- Returning that conversation to Automatic used GPT-4.1 for “Hello again” (3.8s).
+
+The native harness suite and dual-model routing run passed 841 tests (76
+PostgreSQL-only checks skipped in this SQLite lane). Regression tests
+exercise the real SDK bridge's required tool-choice payload, refusal-bearing
+history, typed and malformed output, usage preservation and governed escalation.
+CI-faithful smoke and precommit/guard checks were repeated before commit.

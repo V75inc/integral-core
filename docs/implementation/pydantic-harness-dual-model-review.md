@@ -131,3 +131,15 @@ lock advances only `opentelemetry-api` from 1.45.0 to 1.45.1. The current fronte
 audit also requires DOMPurify 3.4.17 instead of 3.4.16. These narrow security patches
 do not change the pinned Pydantic AI, Harness or jvspatial versions. No advisory
 suppression or additional policy exception is introduced.
+
+### Explicit Light outcome protocol
+
+Light selects one Pydantic AI output tool: a categorized conversational reply,
+a simple reminder proposal, or operational-context handoff. Tool choice is
+required; untyped provider prose is normalized to a context request while
+preserving physical usage. This prevents a provider ignoring the output protocol
+from terminating a turn with a generic capability refusal. The model still
+chooses semantic routing, so quality needs live evaluation as well as contract
+tests. App-building requests and operational follow-ups are explicit handoff
+examples. No server-side keyword classifier or extra inference pass is involved.
+The Heavy pass retains all existing scope, admission, staging and approval checks.
