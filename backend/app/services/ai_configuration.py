@@ -417,6 +417,30 @@ async def remove_item(user_id: str, item_id: str, *, connection: bool) -> None:
     cls = UserModelConnection if connection else UserModelProfile
     item = await _owned(cls, user_id, item_id)
     if connection:
+        from app.models.nodes import WorkspaceModelConfiguration
+
+        references = await _find(
+            WorkspaceModelConfiguration,
+            {
+                "$or": [
+                    {"context.embedding_settings.connection_id": item.id},
+                    {"context.voice_settings.connection_id": item.id},
+                ]
+            },
+            limit=1001,
+        )
+        from app.services.retrieval.embedding_configuration import owner_subject
+
+        # A former workspace owner must retain control of their private key.
+        # Stale references after transfer cannot fund requests and must not
+        # make revocation depend on the replacement owner's cooperation.
+        if len(references) > 1000:
+            raise ValueError("This provider has too many references to remove safely")
+        for reference in references:
+            if await owner_subject(reference.workspace_id) == user_id:
+                raise ValueError(
+                    "Reassign workspace embedding or voice models before removing this provider"
+                )
         profiles = await _find(
             UserModelProfile,
             {"context.user_id": user_id, "context.connection_id": item.id},

@@ -388,6 +388,7 @@ from app.models.nodes import (
     Views,
     Workspace,
     WorkspaceAuthorizationState,
+    WorkspaceModelConfiguration,
     Workspaces,
 )
 
@@ -1334,6 +1335,7 @@ server = Server(
         User,
         Workspace,
         WorkspaceAuthorizationState,
+        WorkspaceModelConfiguration,
         WorkspaceAccessGroup,
         AppActionBinding,
         OwnershipProposal,

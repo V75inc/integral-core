@@ -10,7 +10,8 @@ from jvspatial.core.context import get_default_context
 from app.api.errors import InsufficientPermissionsError, ResourceNotFoundError
 from app.services.agent_scope import active_workspace_id
 
-from .index_definition import IndexDefinition, digest, embedding_profile
+from .embedding_configuration import resolve_workspace_embedding_profile
+from .index_definition import IndexDefinition, digest
 
 
 async def admit_track(user_id: str, track_id: str, workspace_id: str | None = None):
@@ -46,8 +47,10 @@ async def request_reindex(
     user_id: str, track_id: str, workspace_id: str | None = None
 ) -> dict:
     """Retain a rebuild request attributed to its authorized actor."""
-    track = await admit_track(user_id, track_id, workspace_id)
-    profile = embedding_profile()
+    await admit_track(user_id, track_id, workspace_id)
+    profile = await resolve_workspace_embedding_profile(
+        workspace_id or active_workspace_id()
+    )
     identity = "o.TrackIndexRequest." + digest([track_id, profile.id])
     await get_default_context().database.save(
         "object",
@@ -56,7 +59,7 @@ async def request_reindex(
             "entity": "TrackIndexRequest",
             "context": {
                 "track_id": track_id,
-                "workspace_id": track.workspace_id,
+                "workspace_id": workspace_id or active_workspace_id(),
                 "requested_by": user_id,
                 "profile_id": profile.id,
                 "status": "pending",
@@ -164,8 +167,10 @@ async def index_status(
     track = await admit_track(user_id, track_id, workspace_id)
     driver = get_embedding_store()
     try:
-        profile = embedding_profile()
-    except ValueError:
+        profile = await resolve_workspace_embedding_profile(
+            workspace_id or active_workspace_id()
+        )
+    except (ValueError, RuntimeError):
         return {
             "track_id": track_id,
             "profile_id": None,
@@ -179,9 +184,9 @@ async def index_status(
     if isinstance(driver, PgVectorEmbeddingStore):
         try:
             await passage_store(driver, profile).ensure_schema()
-            from .embedding_model import encode_passages
+            from .profile_encoder import encode_profile
 
-            await encode_passages(["search readiness"], profile.dimensions)
+            await encode_profile(["search readiness"], profile)
             ready = True
         except Exception as exc:
             error = type(exc).__name__
@@ -294,7 +299,6 @@ async def process_reindex_requests(*, limit: int = 4) -> None:
                     "context.lease_until": {"$lte": time.time()},
                 },
             ],
-            "context.profile_id": embedding_profile().id,
         },
         limit=limit,
     )
@@ -330,6 +334,13 @@ async def process_reindex_requests(*, limit: int = 4) -> None:
         fence["context.lease"] = lease
         try:
             await admit_track(ctx["requested_by"], ctx["track_id"], ctx["workspace_id"])
+            if (
+                await resolve_workspace_embedding_profile(ctx["workspace_id"])
+            ).id != ctx["profile_id"]:
+                await database.find_one_and_update(
+                    "object", fence, {"$set": {"context.status": "superseded"}}
+                )
+                continue
         except (InsufficientPermissionsError, ResourceNotFoundError):
             await database.find_one_and_update(
                 "object", fence, {"$set": {"context.status": "revoked"}}

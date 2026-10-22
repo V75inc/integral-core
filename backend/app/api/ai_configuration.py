@@ -235,3 +235,88 @@ async def configure_routing(request: Request) -> dict[str, Any]:
         lambda user: service.save_routing(user, body),
         action="ai_model_routing.configure",
     )
+
+
+@endpoint(
+    "/users/me/embedding-configuration", methods=["GET"], auth=True, tags=["AI Models"]
+)
+async def get_embedding_configuration(request: Request) -> dict:
+    """Read the scoped workspace embedding configuration."""
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.retrieval.embedding_configuration import describe
+
+    user_id = resolve_principal_id(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    return await describe(user_id, workspace_id)
+
+
+@endpoint(
+    "/users/me/embedding-configuration", methods=["POST"], auth=True, tags=["AI Models"]
+)
+async def save_embedding_configuration(request: Request) -> dict:
+    """Save an owner-selected embedding model and durable rebuild intent."""
+    from app.schemas.embedding_configuration import EmbeddingModelWrite
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.retrieval.embedding_configuration import save
+
+    user_id = resolve_principal_id(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    body = await _body(request, EmbeddingModelWrite)
+    try:
+        return await save(user_id, workspace_id, body)
+    except ValueError as exc:
+        raise BadRequestError(str(exc)) from None
+
+
+@endpoint(
+    "/users/me/embedding-configuration/test",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Models"],
+)
+async def test_embedding_configuration(request: Request) -> dict:
+    """Test a draft embedding model using a synthetic phrase only."""
+    from app.schemas.embedding_configuration import EmbeddingModelChoice
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.retrieval.embedding_configuration import test
+
+    user_id = resolve_principal_id(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    body = await _body(request, EmbeddingModelChoice)
+    try:
+        return await test(user_id, workspace_id, body)
+    except (ValueError, RuntimeError) as exc:
+        raise BadRequestError(str(exc)) from None
+
+
+@endpoint(
+    "/users/me/voice-configuration", methods=["GET"], auth=True, tags=["AI Models"]
+)
+async def get_voice_configuration(request: Request) -> dict:
+    """Read the scoped workspace voice model configuration."""
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.voice_configuration import describe
+
+    user_id = resolve_principal_id(request)
+    return await describe(
+        user_id, await resolve_workspace_id_from_request(request, user_id)
+    )
+
+
+@endpoint(
+    "/users/me/voice-configuration", methods=["POST"], auth=True, tags=["AI Models"]
+)
+async def save_voice_configuration(request: Request) -> dict:
+    """Save an owned provider reference for workspace transcription."""
+    from app.schemas.voice_configuration import VoiceModelWrite
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.voice_configuration import save
+
+    user_id = resolve_principal_id(request)
+    body = await _body(request, VoiceModelWrite)
+    try:
+        return await save(
+            user_id, await resolve_workspace_id_from_request(request, user_id), body
+        )
+    except ValueError as exc:
+        raise BadRequestError(str(exc)) from None

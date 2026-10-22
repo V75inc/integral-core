@@ -307,6 +307,11 @@ async def resolve_speech_credential(
         return _platform_speech_credential()
 
     if workspace_id:
+        from app.services.voice_configuration import workspace_override
+
+        overridden, selected = await workspace_override(workspace_id)
+        if overridden:
+            return selected
         record = await _workspace_owner_credential(workspace_id)
         speech_model = (record.speech_model or "").strip() if record else ""
         if record and speech_model:

@@ -28,7 +28,7 @@ class CustomModelAsyncClient(httpx.AsyncClient):
         self,
         base_url: str,
         *,
-        timeout: float,
+        timeout: float | httpx.Timeout,
         omit_authorization: bool = False,
         **kwargs: Any,
     ) -> None:

@@ -161,8 +161,15 @@ async def _delete_admitted_workspace(
             standalone.append(track)
     tracks = standalone
     threads = await _collect_chat_threads(workspace)
-    from app.models.edges import HAS_AUTHORIZATION_STATE, HAS_LIBRARY_MODEL
-    from app.models.nodes import WorkspaceAuthorizationState
+    from app.models.edges import (
+        HAS_AUTHORIZATION_STATE,
+        HAS_LIBRARY_MODEL,
+        HAS_MODEL_CONFIGURATION,
+    )
+    from app.models.nodes import (
+        WorkspaceAuthorizationState,
+        WorkspaceModelConfiguration,
+    )
     from app.services.access_delegation import (
         delete_workspace_delegation_roots,
         workspace_delegation_roots,
@@ -229,6 +236,13 @@ async def _delete_admitted_workspace(
         limit=2,
     ):
         await state.delete()
+    for configuration in await workspace.nodes(
+        edge=[HAS_MODEL_CONFIGURATION],
+        node=[WorkspaceModelConfiguration._entity_name()],
+        direction="out",
+        limit=2,
+    ):
+        await configuration.delete()
     from app.services.app_deletion import delete_resource_side_cars
 
     await delete_resource_side_cars(workspace)

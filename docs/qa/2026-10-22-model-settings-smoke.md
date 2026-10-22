@@ -68,3 +68,48 @@ The transport preserves Ollama's selected native level instead of the pinned ada
 Sources: [Ollama thinking](https://docs.ollama.com/capabilities/thinking), [OpenRouter reasoning metadata](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens), [Anthropic effort](https://platform.claude.com/docs/en/build-with-claude/effort), [Anthropic extended thinking](https://platform.claude.com/docs/en/build-with-claude/extended-thinking), [OpenAI reasoning](https://developers.openai.com/api/docs/guides/reasoning). Paid-provider execution was exercised with the saved OpenAI/Ollama providers; other providers were validated with offline contract and transport tests, not live credentials.
 
 Follow-up validation: the full backend suite and no-env CI-style smoke run completed successfully; the final provider configuration/transport regressions passed91 tests after the provider refinements. The final frontend run passed345 files/2073 tests. Production build, public-wheel import qualification and an explicit wheel check for the336-model reasoning catalog passed. Provider-specific UI tests and real DeepSeek desktop/mobile rendering passed. Earlier CI for a257fe79 was fully green before these follow-ups; the new PR head requires its own CI run.
+
+## Workspace model categories, voice and embeddings
+
+The Models tab now uses aligned, single-open accordion categories for Language &
+multimodal, Embeddings and Voice. All may be collapsed. Providers is the single
+saved-connection catalog. Embedding and voice editors select compatible saved
+providers; Voice input and Search link to AI Models for model management. Voice
+preferences remain under Voice input. All mutation outcomes use toasts.
+
+Local embeddings remain the default, with byte-identical existing local profile
+IDs. Owner-managed optional BYOK embeds through OpenAI/OpenRouter/Ollama/custom
+native APIs only on a compatible PostgreSQL passage store, with explicit text
+processing consent, isolated model spaces and durable rebuilds. Voice can reuse a
+saved OpenAI key independently of chat setup; key rotation is resolved live.
+Implementation and invariants are documented in
+`docs/implementation/workspace-voice-and-embedding-models.md`.
+
+Final qualification:
+
+- `make verify` passed: guards, pinned formatters, types, wheel/import checks,
+  CI-faithful smoke and both full suites. Frontend: 346 files / 2,079 tests.
+- The final native transport and configuration regressions passed 99 tests.
+- The final real PostgreSQL transaction and pgvector lane passed 16 tests,
+  including rooted configuration creation/rollback, concurrent revisions,
+  synthetic BYOK indexing/query vectors and stale-job fencing.
+- Production frontend build passed. Final precommit/guard and wheel/import
+  qualification were repeated before commit.
+
+Desktop and 390x844 mobile rendering was inspected for accordion alignment,
+editor spacing and wrapping. Keyboard expansion, Escape and focus return were
+checked. UI tests cover category exclusivity, consent, provider compatibility,
+failed-draft retention and toast notifications.
+
+A live OpenAI `text-embedding-3-small` test on the final transport processed only
+`Integral embedding configuration test`, returned 1,536 dimensions and displayed
+an “Embedding model test passed.” toast. The unsaved draft was discarded and the
+local default (384 dimensions) was confirmed afterward. No workspace content was
+sent and no saved user chat, embedding or voice configuration was changed.
+
+Model choices live in a rooted `WorkspaceModelConfiguration` node, preventing
+ordinary cached Workspace saves from restoring obsolete settings. Provider
+ownership is checked at dispatch; former owners can revoke their private
+provider after transfer. Platform-only policy uses deployment embeddings while
+preserving the inactive workspace override. Custom endpoints reuse the existing
+DNS-pinned outbound guard; responses and total request duration are bounded.

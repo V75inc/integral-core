@@ -142,7 +142,7 @@ const SECTIONS: Section[] = [
     id: 'ai-models',
     label: 'AI Models',
     icon: Brain,
-    render: () => <AiModelsSection />,
+    render: (ctx) => <AiModelsSection navigateToSection={ctx.navigateToSection} />,
   },
   {
     id: 'skills',

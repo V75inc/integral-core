@@ -10,7 +10,6 @@ import {
   type ProfileWrite,
 } from "../../../api/aiConfiguration";
 import {
-  modelCredentialsApi,
   MODEL_CREDENTIALS_QUERY_KEY,
   PROVIDER_LABELS,
   type ModelProvider,
@@ -18,17 +17,21 @@ import {
 import { RECOMMENDED_MODELS } from "../../../api/modelPresets";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { profileSummary } from "./modelSettingsSummary";
+import { ModelCategory } from "./ModelCategory";
+import { VoiceConfiguration } from "./VoiceConfiguration";
+import { EmbeddingConfiguration } from "./EmbeddingConfiguration";
 import { ModelRoutingSection } from "./ModelRoutingSection";
 import { useToast } from "../../../context/ToastContext";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
 import {
   Brain,
+  Database,
+  Mic,
   KeyRound,
   Plus,
   Check,
   AlertCircle,
   ChevronDown,
-  Mic,
   ShieldCheck,
   Trash2,
   Pencil,
@@ -59,7 +62,9 @@ const freshProfile = (): ProfileWrite => ({
   generation_settings: {},
 });
 
-export function AiConfigurationSection() {
+export function AiConfigurationSection({
+  navigateToSection,
+}: { navigateToSection?: (id: string) => void } = {}) {
   const { showToast } = useToast();
   const query = useAIConfiguration();
   const qc = useQueryClient();
@@ -68,6 +73,9 @@ export function AiConfigurationSection() {
   const [profile, setProfile] = useState<ProfileWrite | null>(null);
   const [tab, setTab] = useState<"models" | "connections">("models");
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState<string | null>("language");
+  const toggleCategory = (name: string) =>
+    setCategory((current) => (current === name ? null : name));
   const [removeTarget, setRemoveTarget] = useState<{
     id: string;
     name: string;
@@ -221,17 +229,6 @@ export function AiConfigurationSection() {
   };
   return (
     <Stack gap="lg">
-      <ModelRoutingSection
-        data={data}
-        profileEditorOpen={!!profile || mutation.isPending}
-        onAddModel={() => {
-          if (data.connections.length) addProfile();
-          else showConnection();
-        }}
-        onEdit={(p) => {
-          editProfile(p);
-        }}
-      />
       <section aria-label="Your AI configuration">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-3">
           <div
@@ -273,27 +270,27 @@ export function AiConfigurationSection() {
                 }}
               >
                 {t === "models" ? "Models" : "Providers"}
-                <Badge>
-                  {t === "models"
-                    ? data.profiles.length
-                    : data.connections.length}
-                </Badge>
+                {t === "connections" && (
+                  <Badge>{data.connections.length}</Badge>
+                )}
               </Button>
             ))}
           </div>
-          <Button
-            icon={<Plus size={16} />}
-            disabled={disabled}
-            onClick={() => {
-              if (tab === "connections" || !data.connections.length)
-                showConnection();
-              else addProfile();
-            }}
-          >
-            {tab === "connections" || !data.connections.length
-              ? "Connect provider"
-              : "Add model"}
-          </Button>
+          {tab === "connections" && (
+            <Button
+              icon={<Plus size={16} />}
+              disabled={disabled}
+              onClick={() => {
+                if (tab === "connections" || !data.connections.length)
+                  showConnection();
+                else addProfile();
+              }}
+            >
+              {tab === "connections" || !data.connections.length
+                ? "Connect provider"
+                : "Add model"}
+            </Button>
+          )}
         </div>
         <div
           role="tabpanel"
@@ -302,272 +299,358 @@ export function AiConfigurationSection() {
           aria-labelledby={`ai-${tab}-tab`}
           className="pt-4"
         >
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <Text as="p" variant="body-sm" tone="muted">
-              {tab === "models"
-                ? "Choose a default or keep different model setups for different work."
-                : "Store a key once and use it across your models."}
-            </Text>
-            {(tab === "models"
-              ? data.profiles.length
-              : data.connections.length) > 3 && (
-              <Input
-                type="search"
-                aria-label="Search AI configuration"
-                placeholder={
-                  tab === "models" ? "Find a model…" : "Find a provider…"
-                }
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="sm:max-w-64"
-              />
-            )}
-          </div>
           {tab === "models" ? (
-            <div className="divide-y divide-[var(--border-subtle)]">
-              {profiles.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex flex-col items-stretch justify-between gap-4 py-5 first:pt-2 sm:flex-row sm:items-center"
-                >
-                  <div className="flex w-full min-w-0 flex-1 items-start gap-3 sm:w-auto">
-                    <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
-                      <Brain size={17} strokeWidth={LINE_ICON_STROKE} />
-                    </span>
-                    <Stack gap="xs" className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Text weight="medium" className="break-words">
-                          {p.name}
-                        </Text>
-                        {p.id === data.default_profile_id && (
-                          <Badge>Default</Badge>
-                        )}
-                      </div>
-                      <Text
-                        as="p"
-                        variant="body-sm"
-                        tone="muted"
-                        className="break-words"
-                      >
-                        {p.model}
-                      </Text>
-                      <Text
-                        as="p"
-                        variant="body-sm"
-                        tone="muted"
-                        className="break-words"
-                      >
-                        {profileSummary(p.generation_settings)}
-                      </Text>
-                    </Stack>
+            <div className="space-y-3">
+              <ModelCategory
+                id="language-models"
+                title="Language & multimodal"
+                description={`${data.profiles.length} saved ${data.profiles.length === 1 ? "model" : "models"} · Conversation, reasoning and images`}
+                icon={Brain}
+                open={category === "language"}
+                onToggle={() => toggleCategory("language")}
+              >
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Text as="p" variant="body-sm" tone="muted">
+                      Choose the models Integral uses to respond and work with
+                      you.
+                    </Text>
+                    <Button
+                      icon={<Plus size={16} />}
+                      disabled={disabled}
+                      onClick={() =>
+                        data.connections.length
+                          ? addProfile()
+                          : showConnection()
+                      }
+                    >
+                      {data.connections.length
+                        ? "Add model"
+                        : "Connect provider"}
+                    </Button>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {p.id !== data.default_profile_id && (
+                  <ModelRoutingSection
+                    data={data}
+                    profileEditorOpen={!!profile || mutation.isPending}
+                    onAddModel={() => {
+                      if (data.connections.length) addProfile();
+                      else showConnection();
+                    }}
+                    onEdit={(p) => {
+                      editProfile(p);
+                    }}
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
+                    <Text weight="medium">Saved language models</Text>
+                    {data.profiles.length > 3 && (
+                      <Input
+                        type="search"
+                        aria-label="Search AI configuration"
+                        placeholder="Find a model…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="sm:max-w-64"
+                      />
+                    )}
+                  </div>
+                  <div className="divide-y divide-[var(--border-subtle)]">
+                    {profiles.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex flex-col items-stretch justify-between gap-4 py-5 first:pt-2 sm:flex-row sm:items-center"
+                      >
+                        <div className="flex w-full min-w-0 flex-1 items-start gap-3 sm:w-auto">
+                          <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
+                            <Brain size={17} strokeWidth={LINE_ICON_STROKE} />
+                          </span>
+                          <Stack gap="xs" className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Text weight="medium" className="break-words">
+                                {p.name}
+                              </Text>
+                              {p.id === data.default_profile_id && (
+                                <Badge>Default</Badge>
+                              )}
+                            </div>
+                            <Text
+                              as="p"
+                              variant="body-sm"
+                              tone="muted"
+                              className="break-words"
+                            >
+                              {p.model}
+                            </Text>
+                            <Text
+                              as="p"
+                              variant="body-sm"
+                              tone="muted"
+                              className="break-words"
+                            >
+                              {profileSummary(p.generation_settings)}
+                            </Text>
+                          </Stack>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {p.id !== data.default_profile_id && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="min-h-11 sm:min-h-9"
+                              disabled={disabled}
+                              onClick={() =>
+                                run(async () => {
+                                  await aiConfigurationApi.activateProfile(
+                                    p.id,
+                                  );
+                                  notifySuccess("Default model updated.");
+                                })
+                              }
+                            >
+                              Use as default
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="min-h-11 sm:min-h-9"
+                            icon={<Pencil size={14} />}
+                            disabled={disabled}
+                            onClick={() => {
+                              editProfile(p);
+                            }}
+                          >
+                            Edit profile
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="min-h-11 sm:min-h-9"
+                            aria-label={`Remove ${p.name}`}
+                            title={
+                              p.id === data.default_profile_id
+                                ? "Choose another default before removing this model"
+                                : p.id === data.routing?.light_profile_id
+                                  ? "Reassign or clear the light model before removing it"
+                                  : "Remove model"
+                            }
+                            disabled={
+                              disabled ||
+                              p.id === data.default_profile_id ||
+                              p.id === data.routing?.light_profile_id
+                            }
+                            onClick={() =>
+                              setRemoveTarget({
+                                id: p.id,
+                                name: p.name,
+                                connection: false,
+                              })
+                            }
+                          >
+                            <Trash2 size={16} />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    {!profiles.length && (
+                      <EmptyState
+                        icon={<Brain size={25} />}
+                        title={
+                          needle
+                            ? "No matching models"
+                            : "Your next model starts here"
+                        }
+                        description={
+                          needle
+                            ? "Try a different name or model ID."
+                            : data.connections.length
+                              ? "Add a model to one of your providers, choose its settings, then make it your default."
+                              : "Connect a provider to start. You can use a local model or bring your own API key."
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
+              </ModelCategory>
+              <ModelCategory
+                id="embedding-models"
+                title="Embeddings"
+                description="Help search find related information"
+                icon={Database}
+                open={category === "embeddings"}
+                onToggle={() => toggleCategory("embeddings")}
+              >
+                <EmbeddingConfiguration
+                  connections={data.connections}
+                  embedded
+                />
+              </ModelCategory>
+              <ModelCategory
+                id="voice-models"
+                title="Voice"
+                description="Turn speech into text"
+                icon={Mic}
+                open={category === "voice"}
+                onToggle={() => toggleCategory("voice")}
+              >
+                <VoiceConfiguration
+                  connections={data.connections}
+                  navigateToSection={navigateToSection}
+                  embedded
+                />
+              </ModelCategory>
+              <Text as="p" variant="meta" tone="muted" className="px-1 pt-1">
+                Add providers once under Providers, then choose a model in each
+                category.
+              </Text>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <Text as="p" variant="body-sm" tone="muted">
+                  Store a key once and use it across your models.
+                </Text>
+                {data.connections.length > 3 && (
+                  <Input
+                    type="search"
+                    aria-label="Search AI configuration"
+                    placeholder="Find a provider…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="sm:max-w-64"
+                  />
+                )}
+              </div>
+              <div className="divide-y divide-[var(--border-subtle)]">
+                {connections.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex flex-col items-stretch justify-between gap-4 py-5 first:pt-2 sm:flex-row sm:items-center"
+                  >
+                    <div className="flex w-full min-w-0 flex-1 items-start gap-3 sm:w-auto">
+                      <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
+                        <KeyRound size={17} strokeWidth={LINE_ICON_STROKE} />
+                      </span>
+                      <Stack gap="xs" className="min-w-0">
+                        <Text weight="medium" className="break-words">
+                          {c.name}
+                        </Text>
+                        <Text as="p" variant="body-sm" tone="muted">
+                          {PROVIDER_LABELS[c.provider]} ·{" "}
+                          {c.key_fingerprint
+                            ? `Key ${c.key_fingerprint}`
+                            : "No key required"}
+                        </Text>
+                        {c.base_url && (
+                          <Text
+                            as="p"
+                            variant="body-sm"
+                            tone="muted"
+                            className="break-all"
+                          >
+                            {c.base_url}
+                          </Text>
+                        )}
+                        <Text
+                          as="p"
+                          variant="body-sm"
+                          tone={c.last_test_ok === false ? "warn" : "muted"}
+                          className="flex items-center gap-1.5"
+                        >
+                          {c.last_test_ok === false ? (
+                            <AlertCircle size={13} />
+                          ) : (
+                            <Check size={13} />
+                          )}{" "}
+                          {c.last_test_ok === false
+                            ? "Last test failed"
+                            : c.validated_at
+                              ? "Provider verified"
+                              : "Not tested"}{" "}
+                          ·{" "}
+                          {
+                            data.profiles.filter(
+                              (p) => p.connection_id === c.id,
+                            ).length
+                          }{" "}
+                          {data.profiles.filter((p) => p.connection_id === c.id)
+                            .length === 1
+                            ? "model"
+                            : "models"}
+                        </Text>
+                      </Stack>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
                       <Button
                         variant="secondary"
                         size="sm"
                         className="min-h-11 sm:min-h-9"
+                        disabled={disabled || testProvider.isPending}
+                        onClick={() => testProvider.mutate(c.id)}
+                      >
+                        {testProvider.isPending &&
+                        testProvider.variables === c.id
+                          ? "Testing…"
+                          : "Test provider"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="min-h-11 sm:min-h-9"
+                        icon={<Pencil size={14} />}
                         disabled={disabled}
+                        onClick={() => {
+                          editConnection(c);
+                        }}
+                      >
+                        Edit provider
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="min-h-11 sm:min-h-9"
+                        aria-label={`Remove ${c.name}`}
+                        title="Remove the models using this provider first"
+                        disabled={
+                          disabled ||
+                          data.profiles.some((p) => p.connection_id === c.id)
+                        }
                         onClick={() =>
-                          run(async () => {
-                            await aiConfigurationApi.activateProfile(p.id);
-                            notifySuccess("Default model updated.");
+                          setRemoveTarget({
+                            id: c.id,
+                            name: c.name,
+                            connection: true,
                           })
                         }
                       >
-                        Use as default
+                        <Trash2 size={16} />
                       </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="min-h-11 sm:min-h-9"
-                      icon={<Pencil size={14} />}
-                      disabled={disabled}
-                      onClick={() => {
-                        editProfile(p);
-                      }}
-                    >
-                      Edit profile
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="min-h-11 sm:min-h-9"
-                      aria-label={`Remove ${p.name}`}
-                      title={
-                        p.id === data.default_profile_id
-                          ? "Choose another default before removing this model"
-                          : p.id === data.routing?.light_profile_id
-                            ? "Reassign or clear the light model before removing it"
-                            : "Remove model"
-                      }
-                      disabled={
-                        disabled ||
-                        p.id === data.default_profile_id ||
-                        p.id === data.routing?.light_profile_id
-                      }
-                      onClick={() =>
-                        setRemoveTarget({
-                          id: p.id,
-                          name: p.name,
-                          connection: false,
-                        })
-                      }
-                    >
-                      <Trash2 size={16} />
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {!profiles.length && (
-                <EmptyState
-                  icon={<Brain size={25} />}
-                  title={
-                    needle
-                      ? "No matching models"
-                      : "Your next model starts here"
-                  }
-                  description={
-                    needle
-                      ? "Try a different name or model ID."
-                      : data.connections.length
-                        ? "Add a model to one of your providers, choose its settings, then make it your default."
-                        : "Connect a provider to start. You can use a local model or bring your own API key."
-                  }
-                />
-              )}
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border-subtle)]">
-              {connections.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex flex-col items-stretch justify-between gap-4 py-5 first:pt-2 sm:flex-row sm:items-center"
-                >
-                  <div className="flex w-full min-w-0 flex-1 items-start gap-3 sm:w-auto">
-                    <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
-                      <KeyRound size={17} strokeWidth={LINE_ICON_STROKE} />
-                    </span>
-                    <Stack gap="xs" className="min-w-0">
-                      <Text weight="medium" className="break-words">
-                        {c.name}
-                      </Text>
-                      <Text as="p" variant="body-sm" tone="muted">
-                        {PROVIDER_LABELS[c.provider]} ·{" "}
-                        {c.key_fingerprint
-                          ? `Key ${c.key_fingerprint}`
-                          : "No key required"}
-                      </Text>
-                      {c.base_url && (
-                        <Text
-                          as="p"
-                          variant="body-sm"
-                          tone="muted"
-                          className="break-all"
-                        >
-                          {c.base_url}
-                        </Text>
-                      )}
-                      <Text
-                        as="p"
-                        variant="body-sm"
-                        tone={c.last_test_ok === false ? "warn" : "muted"}
-                        className="flex items-center gap-1.5"
-                      >
-                        {c.last_test_ok === false ? (
-                          <AlertCircle size={13} />
-                        ) : (
-                          <Check size={13} />
-                        )}{" "}
-                        {c.last_test_ok === false
-                          ? "Last test failed"
-                          : c.validated_at
-                            ? "Provider verified"
-                            : "Not tested"}{" "}
-                        ·{" "}
-                        {
-                          data.profiles.filter((p) => p.connection_id === c.id)
-                            .length
-                        }{" "}
-                        {data.profiles.filter((p) => p.connection_id === c.id)
-                          .length === 1
-                          ? "model"
-                          : "models"}
-                      </Text>
-                    </Stack>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="min-h-11 sm:min-h-9"
-                      disabled={disabled || testProvider.isPending}
-                      onClick={() => testProvider.mutate(c.id)}
-                    >
-                      {testProvider.isPending && testProvider.variables === c.id
-                        ? "Testing…"
-                        : "Test provider"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="min-h-11 sm:min-h-9"
-                      icon={<Pencil size={14} />}
-                      disabled={disabled}
-                      onClick={() => {
-                        editConnection(c);
-                      }}
-                    >
-                      Edit provider
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="min-h-11 sm:min-h-9"
-                      aria-label={`Remove ${c.name}`}
-                      title="Remove the models using this provider first"
-                      disabled={
-                        disabled ||
-                        data.profiles.some((p) => p.connection_id === c.id)
-                      }
-                      onClick={() =>
-                        setRemoveTarget({
-                          id: c.id,
-                          name: c.name,
-                          connection: true,
-                        })
-                      }
-                    >
-                      <Trash2 size={16} />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {!connections.length && (
-                <EmptyState
-                  icon={<KeyRound size={25} />}
-                  title={
-                    needle
-                      ? "No matching providers"
-                      : "Connect once. Switch models freely."
-                  }
-                  description={
-                    needle
-                      ? "Try a different connection name."
-                      : "Add a provider account or local service. Your saved key stays private and can power several models."
-                  }
-                />
-              )}
-              <Text as="p" variant="meta" tone="muted" className="pt-4">
-                Testing checks provider access. Individual model availability is
-                confirmed when you use it.
-              </Text>
+                ))}
+                {!connections.length && (
+                  <EmptyState
+                    icon={<KeyRound size={25} />}
+                    title={
+                      needle
+                        ? "No matching providers"
+                        : "Connect once. Switch models freely."
+                    }
+                    description={
+                      needle
+                        ? "Try a different connection name."
+                        : "Add a provider account or local service. Your saved key stays private and can power several models."
+                    }
+                  />
+                )}
+                <Text as="p" variant="meta" tone="muted" className="pt-4">
+                  Testing checks provider access. Individual model availability
+                  is confirmed when you use it.
+                </Text>
+              </div>
             </div>
           )}
         </div>
       </section>
-      <VoiceConfiguration onError={notifyError} disabled={disabled} />
       <details className="group border-t border-[var(--border-subtle)] pt-4">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
           <span className="flex items-center gap-3">
@@ -1107,8 +1190,7 @@ function AdvancedOptions({
 }: {
   profile: ProfileWrite;
   capabilities:
-    | import("../../../api/aiConfiguration").ModelCapabilities
-    | undefined;
+    import("../../../api/aiConfiguration").ModelCapabilities | undefined;
   numeric: (key: keyof GenerationSettings, value: string) => void;
   onChange: (profile: ProfileWrite) => void;
 }) {
@@ -1225,123 +1307,5 @@ function AdvancedOptions({
         </details>
       ))}
     </div>
-  );
-}
-
-function VoiceConfiguration({
-  onError,
-  disabled,
-}: {
-  onError: (message: string) => void;
-  disabled: boolean;
-}) {
-  const { showToast } = useToast();
-  const qc = useQueryClient();
-  const current = useQuery({
-    queryKey: MODEL_CREDENTIALS_QUERY_KEY,
-    queryFn: modelCredentialsApi.get,
-  });
-  const [enabled, setEnabled] = useState(false);
-  const [model, setModel] = useState("gpt-4o-mini-transcribe");
-  const [key, setKey] = useState("");
-  useEffect(() => {
-    if (current.data) {
-      setEnabled(!!current.data.speech_model);
-      setModel(current.data.speech_model || "gpt-4o-mini-transcribe");
-    }
-  }, [current.data]);
-  const save = useMutation({
-    mutationFn: async () => {
-      const c = current.data;
-      if (!c) throw new Error("Choose a default chat model first.");
-      return modelCredentialsApi.upsert({
-        provider: c.provider,
-        model: c.model,
-        ...(c.base_url ? { base_url: c.base_url } : {}),
-        speech_model: enabled ? model : "",
-        ...(enabled
-          ? {
-              speech_provider: "openai" as const,
-              ...(key.trim() ? { speech_api_key: key.trim() } : {}),
-            }
-          : {}),
-      });
-    },
-    onSuccess: () => {
-      setKey("");
-      showToast("Voice settings saved.", "success");
-      qc.invalidateQueries({ queryKey: MODEL_CREDENTIALS_QUERY_KEY });
-    },
-    onError: (error) =>
-      onError(errorMessageFromAxios(error, "Could not save voice settings.")),
-  });
-  return (
-    <details className="group border-t border-[var(--border-subtle)] pt-4">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
-        <span className="flex items-center gap-3">
-          <Mic size={18} strokeWidth={LINE_ICON_STROKE} />
-          <span>
-            <Text as="span" weight="medium">
-              Voice input
-            </Text>
-            <Text as="span" variant="body-sm" tone="muted" className="ml-3">
-              {current.data?.speech_model
-                ? "Transcription enabled"
-                : "Optional transcription"}
-            </Text>
-          </span>
-        </span>
-        <ChevronDown
-          size={16}
-          className="transition-transform group-open:rotate-180"
-        />
-      </summary>
-      <div className="pt-4">
-        <Stack gap="md">
-          <Text variant="body-sm" tone="muted">
-            Optional OpenAI transcription is separate from your chat model.
-            Saved voice keys are retained when you edit a model.
-          </Text>
-          <Text
-            as="label"
-            variant="body-sm"
-            className="flex items-center gap-2"
-          >
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={disabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-            />
-            Use provider transcription
-          </Text>
-          {enabled && (
-            <>
-              <Field label="Transcription model">
-                <Input
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                />
-              </Field>
-              <Field label="Voice API key (leave blank to keep saved key)">
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  value={key}
-                  onChange={(e) => setKey(e.target.value)}
-                />
-              </Field>
-            </>
-          )}
-          <Button
-            variant="secondary"
-            disabled={disabled || !current.data || save.isPending}
-            onClick={() => save.mutate()}
-          >
-            Save voice settings
-          </Button>
-        </Stack>
-      </div>
-    </details>
   );
 }

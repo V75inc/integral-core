@@ -65,10 +65,20 @@ class EmbeddingProfile:
     overlap_tokens: int
     format_version: int = 2
     encoder_artifact: str = ""
+    provider: str = ""
+    connection_id: str = ""
+    owner_id: str = ""
+    workspace_id: str = ""
 
     @property
     def id(self) -> str:
-        return digest(asdict(self))
+        values = asdict(self)
+        if not self.provider:
+            # Additive workspace support must not invalidate existing local
+            # vector spaces or trigger a deployment-wide reindex.
+            for key in ("provider", "connection_id", "owner_id", "workspace_id"):
+                values.pop(key)
+        return digest(values)
 
 
 def embedding_profile() -> EmbeddingProfile:

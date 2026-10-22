@@ -19,7 +19,6 @@ from jvspatial.core.context import get_default_context
 from .index_definition import (
     IndexDefinition,
     digest,
-    embedding_profile,
     selected_text,
     split_passages,
 )
@@ -123,21 +122,22 @@ async def enqueue_entry(
 
     if not isinstance(get_embedding_store(), PgVectorEmbeddingStore):
         return
-    try:
-        profile_id = embedding_profile().id
-    except ValueError:
-        # A bad deployment model setting cannot reject a primary record write.
-        # Correct configuration creates the real profile's job on reconciliation.
-        profile_id = "unconfigured"
-        source_error = "InvalidEmbeddingProfile"
     database = get_default_context().database
-    identity = "o.EntryIndexJob." + digest([entry.id, profile_id])
     doc = None
     if not source_error:
         try:
             doc = await index_document(entry)
         except Exception as exc:
             source_error = type(exc).__name__
+    workspace_id = doc["workspace_id"] if doc else getattr(entry, "workspace_id", "")
+    try:
+        from .embedding_configuration import resolve_workspace_embedding_profile
+
+        profile_id = (await resolve_workspace_embedding_profile(workspace_id)).id
+    except (ValueError, RuntimeError):
+        profile_id = "unconfigured"
+        source_error = "InvalidEmbeddingProfile"
+    identity = "o.EntryIndexJob." + digest([entry.id, profile_id])
     source_hash = (
         ("unresolved:" + source_error)
         if source_error
@@ -148,6 +148,7 @@ async def enqueue_entry(
         return
     context = {
         "entry_id": entry.id,
+        "workspace_id": workspace_id,
         "profile_id": profile_id,
         "source_hash": source_hash,
         "error": source_error,
@@ -222,22 +223,22 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
     from app.models.nodes import Entry
 
     from . import get_embedding_store
-    from .embedding_model import encode_passages, passage_tokenizer
+    from .embedding_configuration import resolve_workspace_embedding_profile
+    from .embedding_model import passage_tokenizer
     from .passage_store import passage_store
     from .pgvector_driver import PgVectorEmbeddingStore
+    from .profile_encoder import encode_profile
 
     driver = get_embedding_store()
     stats = {"indexed": 0, "failed": 0, "superseded": 0}
     if not isinstance(driver, PgVectorEmbeddingStore):
         return stats
-    profile = embedding_profile()
     database = get_default_context().database
     now = time.time()
     rows = await database.find(
         "object",
         {
             "entity": ENTITY,
-            "context.profile_id": profile.id,
             "$or": [
                 {"context.status": "pending", "context.due": {"$lte": now}},
                 {"context.status": "working", "context.lease_until": {"$lte": now}},
@@ -245,7 +246,6 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
         },
         limit=limit,
     )
-    store = passage_store(driver, profile)
     tokenizer = None
     for row in rows:
         ctx = row["context"]
@@ -280,8 +280,28 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
         try:
             entry = await Entry.find_one({"id": ctx["entry_id"]})
             document = await index_document(entry) if entry else None
+            workspace_id = (
+                document["workspace_id"] if document else ctx.get("workspace_id", "")
+            )
+            profile = await resolve_workspace_embedding_profile(workspace_id)
+            if profile.id != ctx["profile_id"]:
+                await database.find_one_and_update(
+                    "object", fence, {"$set": {"context.status": "superseded"}}
+                )
+                if entry:
+                    await enqueue_entry(entry)
+                stats["superseded"] += 1
+                continue
+            store = passage_store(driver, profile)
 
-            async def publishable(row=row, ctx=ctx, lease=lease, document=document):
+            async def publishable(
+                row=row,
+                ctx=ctx,
+                lease=lease,
+                document=document,
+                workspace_id=workspace_id,
+                profile=profile,
+            ):
                 # Run UNDER the passage transaction's cross-worker entry lock.
                 # A replaced lease/generation cannot overwrite a newer delivery.
                 job = await database.get("object", row["id"])
@@ -292,6 +312,10 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
                     or data.get("lease") != lease
                     or data.get("lease_until", 0) <= time.time()
                 ):
+                    return False
+                if (
+                    await resolve_workspace_embedding_profile(workspace_id)
+                ).id != profile.id:
                     return False
                 fresh = await Entry.find_one({"id": ctx["entry_id"]})
                 latest = await index_document(fresh) if fresh else None
@@ -309,9 +333,7 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
                 for start in range(0, len(passages), 32):
                     # Batch memory is bounded even for a long document.
                     batch = passages[start : start + 32]
-                    vectors = await encode_passages(
-                        [p["text"] for p in batch], profile.dimensions
-                    )
+                    vectors = await encode_profile([p["text"] for p in batch], profile)
                     renewed = await database.find_one_and_update(
                         "object",
                         {
@@ -408,7 +430,9 @@ async def indexing_loop() -> None:
         try:
             if isinstance(get_embedding_store(), PgVectorEmbeddingStore):
                 from .index_management import process_reindex_requests
+                from .workspace_reindex import process_workspace_rebuilds
 
+                await process_workspace_rebuilds()
                 await process_reindex_requests()
                 await reconcile_page(limit=100)
                 await deliver_index_jobs(

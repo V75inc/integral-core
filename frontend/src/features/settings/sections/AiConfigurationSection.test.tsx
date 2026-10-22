@@ -376,3 +376,30 @@ it("reports provider transport failures through a toast", async () => {
   );
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
+
+it("groups language, embedding and voice models under Models, apart from Providers", () => {
+  show();
+  expect(screen.getByRole("heading", { name: "Language & multimodal" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Embeddings" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Voice" })).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
+  expect(screen.queryByRole("heading", { name: "Embeddings" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Voice" })).not.toBeInTheDocument();
+});
+
+it("opens one model category at a time and allows all categories to collapse", () => {
+  show();
+  const language = screen.getByRole("button", { name: "Language & multimodal" });
+  const embeddings = screen.getByRole("button", { name: "Embeddings" });
+  const voice = screen.getByRole("button", { name: "Voice" });
+  expect(language).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(embeddings);
+  expect(embeddings).toHaveAttribute("aria-expanded", "true");
+  expect(language).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByText(/Powers semantic search/)).toBeVisible();
+  fireEvent.click(voice);
+  expect(embeddings).toHaveAttribute("aria-expanded", "false");
+  expect(voice).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(voice);
+  expect(voice).toHaveAttribute("aria-expanded", "false");
+});

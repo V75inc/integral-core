@@ -150,3 +150,69 @@ export const aiConfigurationApi = {
     ).data;
   },
 };
+
+export const EMBEDDING_CONFIGURATION_QUERY_KEY = [
+  "embedding-configuration",
+] as const;
+export interface EmbeddingChoice {
+  mode: "deployment" | "provider";
+  connection_id: string;
+  model: string;
+  dimensions: number;
+  allow_workspace_text: boolean;
+}
+export interface EmbeddingConfiguration {
+  workspace_id: string;
+  editable: boolean;
+  provider_overrides_supported: boolean;
+  revision: number;
+  configuration: EmbeddingChoice;
+  effective_provider: string;
+  effective_model: string;
+  dimensions: number;
+  profile_id: string | null;
+  rebuild_status: string;
+  error: string;
+  changed?: boolean;
+}
+export const embeddingConfigurationApi = {
+  async get(): Promise<EmbeddingConfiguration> {
+    return (await api.get("/users/me/embedding-configuration")).data;
+  },
+  async save(
+    body: EmbeddingChoice & { revision: number },
+  ): Promise<EmbeddingConfiguration> {
+    return (await api.post("/users/me/embedding-configuration", body)).data;
+  },
+  async test(
+    body: EmbeddingChoice,
+  ): Promise<{ valid: boolean; message: string }> {
+    return (await api.post("/users/me/embedding-configuration/test", body))
+      .data;
+  },
+};
+
+export const VOICE_CONFIGURATION_QUERY_KEY = ["voice-configuration"] as const;
+export interface VoiceChoice {
+  mode: "inherit" | "provider" | "disabled";
+  connection_id: string;
+  model: string;
+}
+export interface VoiceConfigurationData {
+  workspace_id: string;
+  editable: boolean;
+  revision: number;
+  configuration: VoiceChoice;
+  effective_model: string;
+  effective_provider: string;
+}
+export const voiceConfigurationApi = {
+  async get(): Promise<VoiceConfigurationData> {
+    return (await api.get("/users/me/voice-configuration")).data;
+  },
+  async save(
+    body: VoiceChoice & { revision: number },
+  ): Promise<VoiceConfigurationData> {
+    return (await api.post("/users/me/voice-configuration", body)).data;
+  },
+};
