@@ -25,7 +25,7 @@ import {
 } from '../../utils';
 import { AppPackageDetails } from '../apps/AppPackageDetails';
 import { TrackDestinationPicker, type TrackDestinationKind } from './TrackDestinationPicker';
-import { OperationalModelPicker } from '../library/OperationalModelPicker';
+import { TrackTemplateCatalog } from './TrackTemplateCatalog';
 import type { OperationalModelPickerItem } from '../library/OperationalModelPicker';
 import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import { trackPath } from '../../utils/resourcePaths';
@@ -57,7 +57,7 @@ export function TrackModal({
   const { showToast } = useToast();
   const confirm = useConfirm();
   const [deletingModels, setDeletingModels] = useState<Set<string>>(new Set());
-  const { scope, activeWorkspace } = useScope();
+  const { scope } = useScope();
   const isEdit = !!editTrack;
   const [title, setTitle] = useState(editTrack?.title || '');
   const [purpose, setPurpose] = useState(
@@ -388,36 +388,28 @@ export function TrackModal({
       {step === 'profile' ? <>
         <Modal.Body noPadding noSpacing>
           <div className="grid min-w-0 sm:h-[min(65dvh,42rem)] sm:grid-cols-[minmax(0,1fr)_19rem]">
-            <section aria-label="Track library" className="min-w-0 space-y-4 p-5 sm:overflow-y-auto sm:p-6">
+            <section aria-label="Track library" className="min-w-0 px-5 pb-5 sm:overflow-y-auto sm:px-6">
               {needsAppSelection && <Text variant="body-sm" tone="muted" as="p">Choose an App in Your selection to see its available track templates.</Text>}
               {detailProfile ? <>
                 <AppPackageDetails profile={detailProfile} kind="track" onBack={() => setDetailId(null)} />
                 <Button variant="primary" onClick={() => { setOperationalModelChoice(`library:${detailProfile.id}`); setDetailId(null); }}>Use template</Button>
               </> : !needsAppSelection && <>
-              {<div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <Text variant="body" weight="medium">Start with a template or create your own</Text>
-                  <Text variant="body-sm" tone="muted" as="p" className="mt-1">
-                    Choose a template or start from scratch in {activeWorkspace?.name || 'your workspace'}.
-                  </Text>
-                </div>
+              <div className="flex flex-wrap items-center gap-2 py-3">
                 {!destinationAppId && scope?.workspaceId && <Button variant="outline" size="sm"
                   icon={<Upload size={16} strokeWidth={LINE_ICON_STROKE} />}
                   onClick={() => setImportOpen(true)}>Import template</Button>}
-              </div>}
-              {libraryLoading && <div role="status"><Text variant="body-sm" tone="muted" as="p">Loading templates…</Text></div>}
+              </div>
               {libraryError && <div role="alert" className="space-y-2">
                 <Text variant="body-sm" tone="danger">{libraryError}</Text>
                 <Button variant="outline" size="sm" onClick={() => setLibraryRevision(value => value + 1)}>Retry library</Button>
               </div>}
-              <OperationalModelPicker
+              <TrackTemplateCatalog key={destinationAppId || 'workspace'}
                 value={operationalModelChoice}
                 onChange={setOperationalModelChoice}
-                defaultLabel={destinationAppId ? 'App defaults' : 'Blank track'}
-                defaultDescription={destinationAppId ? 'Use the App baseline without an extra template.' : 'Use standard fields, then build the structure you need.'}
+                insideApp={Boolean(destinationAppId)}
+                loading={libraryLoading}
                 appSources={appSources}
                 libraryPackages={showLibraryRow ? libraryPackages : []}
-                scopeFilter="track"
                 onDetails={model => setDetailId(model.id)}
                 onDelete={model => void deleteLibraryModel(model)}
                 deletingIds={deletingModels}

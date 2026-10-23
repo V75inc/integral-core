@@ -53,3 +53,20 @@ claim that capability.
 Exports: the user chose configuration-only and full-data options for both Apps
 and Tracks. That data-portability implementation remains separate from this UI
 refinement; these dialogs do not yet claim Entries/attachments/relation export.
+
+## Catalog congruency follow-up
+
+App and Track templates now render the same `TemplateCatalogCard` component:
+identity tile, heading, structural summary, bounded description, Add/Selected
+control, View details and trash action inside the card. Both use the same
+responsive two-column catalog grid, search row, library tab and result-count
+presentation. Track App-provided choices use these cards too, under From this
+App. The old radio-list picker remains only in the separate legacy creation
+form; Manage Tracks no longer uses it. Create your own track stays in the footer,
+without a duplicate blank-template card in the library.
+
+Browser readback verified template selection, switching to an App and back,
+App-specific source tabs, the retained selection sidebar, and single-column cards
+at 390px (document width 390px; card grid one 344px column). No records were
+created or deleted. Desktop screenshot:
+`.local/design-review/track-catalog-congruent.png`.

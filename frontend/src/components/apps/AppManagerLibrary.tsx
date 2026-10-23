@@ -1,13 +1,14 @@
 /** Searchable App library and an explicit, non-destructive installation review. */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, Loader2, Package, Plus, Search, Trash2, X } from 'lucide-react';
-import { AppIcon, Input, Surface, Text, Textarea } from '../../ui';
+import { ArrowLeft, ArrowRight, Loader2, Package, Plus, Search, Trash2, X } from 'lucide-react';
+import { Input, Surface, Text, Textarea } from '../../ui';
 import { Button, ViewTabs } from '../ui';
 import { Modal } from '../ui/Modal';
 import type { App, OperationalModelNode } from '../../types';
 import { extractPackageMeta, isPackageInstalled } from './appBundleMatching';
 import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import { AppPackageDetails } from './AppPackageDetails';
+import { TemplateCatalogCard } from '../library/TemplateCatalogCard';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 
 export interface SelectedInstallRow {
@@ -170,19 +171,9 @@ function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetai
   const { name, description, slug } = extractPackageMeta(profile);
   const summary = summarizeLibraryManifest(profile.manifest);
   return <div data-testid={`app-manager-row-${slug || profile.id}`} className="min-w-0 flex-1">
-    <Surface border="subtle" radius="card" padding="md" className={`flex h-full flex-col ${selected ? 'ring-1 ring-[var(--brand-accent)]' : ''}`}>
-      <div className="flex items-start gap-3"><AppIcon name={name} /><div className="min-w-0"><Text as="h3" variant="body" weight="semibold" className="break-words">{name}</Text><Text as="p" variant="meta" tone="subtle">{summary.prescribedTrackCount} {summary.prescribedTrackCount === 1 ? 'track' : 'tracks'}</Text></div></div>
-      <Text as="p" variant="body-sm" tone="muted" className="my-3 flex-1">{description || 'An App template for your workspace.'}</Text>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button size="sm" variant={selected ? 'secondary' : 'outline'} disabled={installed || disabled} aria-label={installed ? `${name} installed` : `${selected ? 'Remove' : 'Add'} ${name}`} aria-pressed={selected} icon={selected || installed ? <Check size={14} /> : <Plus size={14} />} onClick={onToggle} className="min-h-11">{installed ? 'Installed' : selected ? 'Selected' : 'Add'}</Button>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="xs" className="min-h-11" aria-label={`View details for ${name}`} onClick={onDetails}>View details</Button>
-          {onDelete && <Button variant="ghost" size="sm" className="h-11 w-11 shrink-0 p-0"
-            aria-label={`Delete ${name} template`} title="Delete template" disabled={disabled || deleting} onClick={onDelete}>
-            <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
-          </Button>}
-        </div>
-      </div>
-    </Surface>
+    <TemplateCatalogCard name={name} description={description || 'An App template for your workspace.'}
+      summary={`${summary.prescribedTrackCount} ${summary.prescribedTrackCount === 1 ? 'track' : 'tracks'}`}
+      selected={selected} installed={installed} disabled={disabled} deleting={deleting}
+      onToggle={onToggle} onDetails={onDetails} onDelete={onDelete} />
   </div>;
 }

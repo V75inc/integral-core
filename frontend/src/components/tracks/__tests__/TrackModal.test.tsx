@@ -53,7 +53,7 @@ it('offers blank, library and YAML controls, and creates a standalone blank Trac
   show();
   expect(screen.getByRole('heading', { name: 'Manage Tracks' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Import template' })).toBeInTheDocument();
-  await screen.findByRole('button', { name: /^Reading List/ });
+  await screen.findByRole('button', { name: 'Add Reading List' });
   fireEvent.click(screen.getByRole('button', { name: 'Create your own track' }));
   fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'My standalone track' } });
   expect(mocks.create).not.toHaveBeenCalled();
@@ -67,7 +67,7 @@ it('uses only visible Track library models and leaves App assignment optional', 
     { ...model, id: 'app', name: 'App bundle', manifest: { scope: 'app', app: {} } },
   ]);
   show();
-  fireEvent.click(await screen.findByRole('button', { name: /^Reading List/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Reading List' }));
   expect(screen.queryByRole('button', { name: /Other workspace model|App bundle/ })).toBeNull();
   expect(within(screen.getByLabelText('Track starting point')).getByText('Reading List')).toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
@@ -81,7 +81,7 @@ it('uses only visible Track library models and leaves App assignment optional', 
 it('previews and imports .yml, selects the new model, and waits for Track confirmation', async () => {
   mocks.list.mockResolvedValueOnce([model]).mockResolvedValue([model, imported]);
   show();
-  await screen.findByRole('button', { name: /^Reading List/ });
+  await screen.findByRole('button', { name: 'Add Reading List' });
   fireEvent.click(screen.getByRole('button', { name: 'Import template' }));
   const file = new File(['scope: track'], 'reading.yml', { type: 'application/yaml' });
   fireEvent.change(screen.getByLabelText('Template file'), { target: { files: [file] } });
@@ -118,7 +118,7 @@ it('preserves the existing edit dialog', async () => {
 it('does not store selection help as the purpose of a model without a description', async () => {
   mocks.list.mockResolvedValue([{ ...model, description: '' }]);
   show();
-  fireEvent.click(await screen.findByRole('button', { name: /^Reading List/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Reading List' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   expect(screen.getByLabelText('Purpose / Description')).toHaveValue('');
@@ -139,7 +139,7 @@ it('preserves App-scoped creation and its parent assignment', async () => {
 it('confirms deletion of an uploaded model, removes it, and clears its selection without deleting Tracks', async () => {
   mocks.list.mockResolvedValue([{ ...model, workspace_id: 'ws-qa' }]);
   show();
-  fireEvent.click(await screen.findByRole('button', { name: /Reading List Books/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Reading List' }));
   fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List template' }));
   expect(await screen.findByRole('heading', { name: 'Delete Track template?' })).toBeInTheDocument();
   expect(screen.getByText(/Delete “Reading List”/)).toHaveTextContent('Existing Tracks and their data are kept');
@@ -169,7 +169,7 @@ it('keeps a model on cancellation or a server rejection and reports the failure 
 it('does not offer deletion for platform models or a model marked non-deletable', async () => {
   mocks.list.mockResolvedValue([model, { ...model, id: 'locked', workspace_id: 'ws-qa', can_delete: false }]);
   show();
-  await screen.findAllByRole('button', { name: /Reading List Books/ });
+  await screen.findAllByRole('button', { name: 'Add Reading List' });
   expect(screen.queryByRole('button', { name: /Delete .* template/ })).toBeNull();
 });
 
@@ -179,7 +179,7 @@ it('chooses an existing App before picking its Track template and submits both c
   show();
   fireEvent.click(screen.getByRole('radio', { name: 'Inside an App' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Select App Client Work' }));
-  await screen.findByRole('button', { name: /^Cases / });
+  await screen.findByRole('button', { name: 'Remove Cases' });
   await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Client cases' } });
@@ -193,7 +193,7 @@ it('can leave an App-scoped flow for top-level Tracks without retaining the App 
   mocks.apps.mockResolvedValue([{ id: 'app-one', name: 'Client Work' }]);
   mocks.getModel.mockResolvedValue({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases' }] } } });
   show({ appId: 'app-one' });
-  await screen.findByRole('button', { name: /^Cases / });
+  await screen.findByRole('button', { name: 'Remove Cases' });
   fireEvent.click(screen.getByRole('radio', { name: 'Top-level Tracks' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Create your own track' }));
   fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Independent notes' } });
@@ -252,5 +252,18 @@ it('previews a Track template without creating or selecting it, then explicitly 
   fireEvent.click(screen.getByRole('button', { name: 'View details for Reading List' }));
   fireEvent.click(screen.getByRole('button', { name: 'Use template' }));
   expect(within(screen.getByLabelText('Track starting point')).getByText('Reading List')).toBeInTheDocument();
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it('keeps catalog selection through search and supports the same Add/Selected card actions as Apps', async () => {
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Reading List' }));
+  expect(screen.getByRole('button', { name: 'Remove Reading List' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search Tracks' }), { target: { value: 'no matching track' } });
+  expect(screen.getByText('No Tracks match your search.')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Reading List')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Reading List' }));
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Blank track')).toBeInTheDocument();
   expect(mocks.create).not.toHaveBeenCalled();
 });
