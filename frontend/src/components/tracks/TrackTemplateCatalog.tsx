@@ -22,8 +22,13 @@ interface Props {
 
 export function TrackTemplateCatalog({ value, onChange, appSources, libraryPackages, insideApp, loading, onDetails, onDelete, deletingIds }: Props) {
   const [search, setSearch] = useState('');
-  const [chosenTab, setChosenTab] = useState<'library' | 'app' | null>(null);
-  const tab = insideApp ? chosenTab ?? 'app' : 'library';
+  const [chosenTab, setChosenTab] = useState<{ tab: 'library' | 'app'; selection: string } | null>(null);
+  const selectedTab = value.startsWith('library:') ? 'library'
+    : value.startsWith('manifest:') || value.startsWith('template:') ? 'app' : null;
+  // A newly imported choice reveals its card; ordinary tab browsing keeps selection intact.
+  const tab = insideApp
+    ? ((chosenTab?.selection === value || !selectedTab ? chosenTab?.tab : selectedTab) ?? selectedTab ?? 'app')
+    : 'library';
   const query = search.trim().toLocaleLowerCase();
   const library = libraryPackages.filter(profile => {
     if (summarizeLibraryManifest(profile.manifest).scopeKind !== 'track') return false;
@@ -37,7 +42,7 @@ export function TrackTemplateCatalog({ value, onChange, appSources, libraryPacka
   const summary = (types: number, views: number) => `${types} ${types === 1 ? 'record type' : 'record types'} · ${views} ${views === 1 ? 'view' : 'views'}`;
 
   return <>
-    <ViewTabs ariaLabel="Track collection" value={tab} onChange={setChosenTab} options={[
+    <ViewTabs ariaLabel="Track collection" value={tab} onChange={tab => setChosenTab({ tab, selection: value })} options={[
       { value: 'library', label: 'Browse library', count: libraryPackages.length },
       ...(insideApp ? [{ value: 'app' as const, label: 'From this App', count: appSources.length + 1 }] : []),
     ]} />
@@ -54,7 +59,7 @@ export function TrackTemplateCatalog({ value, onChange, appSources, libraryPacka
       </Surface> : <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {tab === 'app' ? appItems.map(item => <li key={item.value} className="min-w-0 flex flex-col">
           <TemplateCatalogCard name={item.name} description={item.description || 'A Track template from this App.'}
-            summary={summary(item.entryTypeCount, item.viewCount)} selected={value === item.value} onToggle={() => toggle(item.value)} />
+            summary={item.value ? summary(item.entryTypeCount, item.viewCount) : 'Standard setup'} selected={value === item.value} onToggle={() => toggle(item.value)} />
         </li>) : library.map(profile => {
           const meta = extractPackageMeta(profile);
           const counts = summarizeLibraryManifest(profile.manifest);

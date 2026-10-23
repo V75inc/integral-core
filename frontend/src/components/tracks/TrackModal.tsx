@@ -98,22 +98,15 @@ export function TrackModal({
     [appCp?.manifest]
   );
 
-  const showLibraryRow = useMemo(() => {
-    if (!destinationAppId) return true;
-    if (appDetail?.library_merge_source_id) return false;
-    if (manifestTracks.length > 0) return false;
-    return true;
-  }, [destinationAppId, appDetail?.library_merge_source_id, manifestTracks.length]);
-
   const appSources = useMemo((): OperationalModelPickerItem[] => {
     const items: OperationalModelPickerItem[] = [];
     for (const mt of manifestTracks) {
       items.push({
         value: `manifest:${mt.key}`,
         name: mt.name,
-        description: `Use this App's setup for ${mt.name}.`,
-        entryTypeCount: 0,
-        viewCount: 0,
+        description: mt.description || `Use this App's setup for ${mt.name}.`,
+        entryTypeCount: mt.entryTypeCount,
+        viewCount: mt.viewCount,
         source: 'app',
       });
     }
@@ -137,6 +130,7 @@ export function TrackModal({
       setStep('profile');
       setImportOpen(false);
       setDetailId(null);
+      setOperationalModelChoice('');
       setChosenParentAppId(appId || '');
       setDestinationKind(appId ? 'app' : 'top-level');
       if (!isEdit) { setTitle(''); setPurpose(''); }
@@ -165,7 +159,7 @@ export function TrackModal({
       ? appsApi.listTrackTemplates(destinationAppId).catch(() => [])
       : Promise.resolve([]);
     const pLib = operationalModelsApi.list().catch(() => {
-      if (!cancelled) setLibraryError('Could not load templates. You can retry or create a blank track.');
+      if (!cancelled) setLibraryError('Could not load templates. Retry or choose Create your own track.');
       return [];
     });
     Promise.all([pApp, pCp, pTpl, pLib]).then(([sp, cp, tpls, packs]) => {
@@ -185,9 +179,8 @@ export function TrackModal({
   useEffect(() => {
     if (!open || isEdit) return;
     if (destinationAppId && manifestTracks.length > 0) {
-      setOperationalModelChoice(`manifest:${manifestTracks[0].key}`);
-    } else {
-      setOperationalModelChoice('');
+      // A late library response must not replace an explicit custom/import choice.
+      setOperationalModelChoice(current => current || `manifest:${manifestTracks[0].key}`);
     }
   }, [open, isEdit, destinationAppId, manifestTracks]);
 
@@ -220,23 +213,33 @@ export function TrackModal({
 
   const selectedLibraryModel = libraryPackages.find(model => operationalModelChoice === `library:${model.id}`);
   const selectedAppSource = appSources.find(source => source.value === operationalModelChoice);
-  const selectedName = selectedLibraryModel?.name || selectedAppSource?.name || (destinationAppId ? 'App defaults' : step === 'details' ? 'Blank track' : 'Choose a template');
+  const selectedName = selectedLibraryModel?.name || selectedAppSource?.name || (operationalModelChoice === 'blank' ? 'Custom track' : destinationAppId ? 'App defaults' : 'Choose a template');
   const selectedCounts = selectedLibraryModel
     ? summarizeLibraryManifest(selectedLibraryModel.manifest ?? {}) : null;
 
   const needsStartingPoint = !destinationAppId && !operationalModelChoice;
 
+  const waitingForTemplates = libraryLoading && operationalModelChoice !== 'blank';
+
+  const createOwnTrack = () => {
+    if (needsAppSelection) return;
+    if (operationalModelChoice !== 'blank') { setTitle(''); setPurpose(''); }
+    setOperationalModelChoice('blank');
+    setDetailId(null);
+    setStep('details');
+  };
+
   const continueToDetails = () => {
-    if (needsAppSelection || needsStartingPoint || libraryLoading) return;
-    if (operationalModelChoice && !title.trim()) setTitle(selectedName);
-    if (operationalModelChoice && !purpose.trim()) {
+    if (needsAppSelection || needsStartingPoint || waitingForTemplates) return;
+    if (operationalModelChoice && operationalModelChoice !== 'blank' && !title.trim()) setTitle(selectedName);
+    if (operationalModelChoice && operationalModelChoice !== 'blank' && !purpose.trim()) {
       setPurpose(selectedLibraryModel?.description || selectedAppSource?.description || '');
     }
     setStep('details');
   };
 
   const continueAction = <Button variant="primary" className="min-h-11 w-full"
-    disabled={libraryLoading || needsAppSelection || needsStartingPoint} onClick={continueToDetails}>Continue</Button>;
+    disabled={waitingForTemplates || needsAppSelection || needsStartingPoint} onClick={continueToDetails}>Continue</Button>;
 
   const inheritHint = 'This existing Track uses legacy inherited visibility. It is preserved until you choose Private, Workspace, or Public.';
 
@@ -403,7 +406,7 @@ export function TrackModal({
                 <Button variant="primary" onClick={() => { setOperationalModelChoice(`library:${detailProfile.id}`); setDetailId(null); }}>Use template</Button>
               </> : !needsAppSelection && <>
               <div className="flex flex-wrap items-center gap-2 py-3">
-                {!destinationAppId && scope?.workspaceId && <Button variant="outline" size="sm"
+                {scope?.workspaceId && <Button variant="outline" size="sm"
                   icon={<Upload size={16} strokeWidth={LINE_ICON_STROKE} />}
                   onClick={() => setImportOpen(true)}>Import template</Button>}
               </div>
@@ -417,7 +420,7 @@ export function TrackModal({
                 insideApp={Boolean(destinationAppId)}
                 loading={libraryLoading}
                 appSources={appSources}
-                libraryPackages={showLibraryRow ? libraryPackages : []}
+                libraryPackages={libraryPackages}
                 onDetails={model => setDetailId(model.id)}
                 onDelete={model => void deleteLibraryModel(model)}
                 deletingIds={deletingModels}
@@ -461,10 +464,9 @@ export function TrackModal({
           </div>
         </Modal.Body>
         <Modal.Footer align="between">
-          {!destinationAppId && destinationKind === 'top-level' ? <Button variant="secondary" className="min-h-11"
+          <Button variant="secondary" className="min-h-11" disabled={needsAppSelection}
             icon={<Plus size={16} strokeWidth={LINE_ICON_STROKE} />}
-            onClick={() => { setOperationalModelChoice(''); setStep('details'); }}>Create your own track</Button>
-            : <Button variant="ghost" onClick={onClose}>Cancel</Button>}
+            onClick={createOwnTrack}>Create your own track</Button>
           {compact && <div className="min-w-0">{continueAction}</div>}
         </Modal.Footer>
       </> : <>
@@ -478,7 +480,7 @@ export function TrackModal({
         </Modal.Footer>
       </>}
     </StepDialog>
-    {!destinationAppId && scope?.workspaceId && <ImportPackageModal key={scope.workspaceId}
+    {scope?.workspaceId && <ImportPackageModal key={scope.workspaceId}
       open={open && importOpen} workspaceId={scope.workspaceId} expectedScope="track"
       onClose={() => setImportOpen(false)}
       onSuccess={result => {

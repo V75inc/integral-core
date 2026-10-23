@@ -129,7 +129,7 @@ it('does not store selection help as the purpose of a model without a descriptio
 it('preserves App-scoped creation and its parent assignment', async () => {
   show({ appId: 'app-one' });
   await screen.findByRole('button', { name: /App defaults/ });
-  expect(screen.queryByRole('button', { name: 'Import template' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Import template' })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'App track' } });
@@ -300,4 +300,97 @@ it('keeps the mobile template Continue action outside the scrolling selection pa
   expect(screen.getByRole('button', {name:'Continue'})).toBeEnabled();
   fireEvent.click(screen.getByRole('button', {name:'Continue'}));
   expect(screen.getByLabelText(/Track Name/)).toHaveValue('Reading List');
+});
+
+
+it.each([false, true])('creates a custom track inside the locked App on compact=%s without inheriting a selected template', async compact => {
+  mocks.compact = compact;
+  mocks.getApp.mockResolvedValue({ id: 'app-one', name: 'Client Work', library_merge_source_id: 'installed-app' });
+  mocks.getModel.mockResolvedValue({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases' }] } } });
+  show({ appId: 'app-one' });
+  await screen.findByRole('button', { name: 'Remove Cases' });
+  fireEvent.click(screen.getByRole('button', { name: 'Create your own track' }));
+  expect(screen.getByText('Starting point: Custom track')).toBeInTheDocument();
+  expect(screen.getByLabelText(/Track Name/)).toHaveValue('');
+  expect(screen.getByText('Add to: Client Work')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Create track' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'My own process' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Custom track')).toBeInTheDocument();
+  expect(screen.queryByRole('radio', { name: 'Top-level Tracks' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(screen.getByLabelText(/Track Name/)).toHaveValue('My own process');
+  fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith({ title: 'My own process', purpose: '', workspace_id: 'ws-qa', app_id: 'app-one', visibility: 'private' }));
+});
+
+it('requires a destination before custom creation from the main Tracks page', async () => {
+  mocks.apps.mockResolvedValue([{ id: 'app-one', name: 'Client Work' }]);
+  show();
+  fireEvent.click(screen.getByRole('radio', { name: 'Inside an App' }));
+  expect(screen.getByRole('button', { name: 'Create your own track' })).toBeDisabled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Select App Client Work' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create your own track' }));
+  fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Custom from Tracks' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Custom from Tracks', app_id: 'app-one' })));
+});
+
+it('keeps custom choice and draft when a late App template response arrives', async () => {
+  let finish!: (value: unknown) => void;
+  mocks.getModel.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  show({ appId: 'app-one' });
+  fireEvent.click(screen.getByRole('button', { name: 'Create your own track' }));
+  fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Custom during loading' } });
+  finish({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases' }] } } });
+  await waitFor(() => expect(mocks.getApp).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Custom track')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(screen.getByLabelText(/Track Name/)).toHaveValue('Custom during loading');
+  fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Custom during loading', app_id: 'app-one' })));
+  expect(mocks.create.mock.calls[0][0]).not.toHaveProperty('app_track_type_key');
+});
+
+it('offers custom creation when the App library is empty or fails to load', async () => {
+  mocks.list.mockRejectedValue(new Error('offline'));
+  show({ appId: 'app-one' });
+  await screen.findByText('Could not load templates. Retry or choose Create your own track.');
+  fireEvent.click(screen.getByRole('tab', { name: /Browse library/ }));
+  expect(screen.getByText('No Track templates available. Create your own track to get started.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Create your own track' }));
+  expect(screen.getByLabelText(/Track Name/)).toHaveValue('');
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it('imports a library template inside a packaged App and preserves the selection through library refresh', async () => {
+  mocks.getApp.mockResolvedValue({ id: 'app-one', name: 'Client Work', library_merge_source_id: 'installed-app' });
+  mocks.getModel.mockResolvedValue({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases' }] } } });
+  mocks.list.mockResolvedValueOnce([model]).mockResolvedValue([model, imported]);
+  show({ appId: 'app-one' });
+  await screen.findByRole('button', { name: 'Remove Cases' });
+  fireEvent.click(screen.getByRole('button', { name: 'Import template' }));
+  const file = new File(['scope: track'], 'reading.yml', { type: 'application/yaml' });
+  fireEvent.change(screen.getByLabelText('Template file'), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Import' }));
+  await screen.findByRole('button', { name: 'Remove Imported Reading List' });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Imported Reading List')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ app_id: 'app-one', library_operational_model_id: 'imported-model' })));
+  expect(mocks.create.mock.calls[0][0]).not.toHaveProperty('app_track_type_key');
+});
+
+
+it('shows actual App template counts and description instead of placeholder zeros', async () => {
+  mocks.getModel.mockResolvedValue({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases', description: 'Manage client cases.', entry_types: [{ key: 'case' }], views: [{ key: 'feed' }, { key: 'board' }] }] } } });
+  show({ appId: 'app-one' });
+  const selection = await screen.findByRole('button', { name: 'Remove Cases' });
+  const card = selection.closest('li')!;
+  expect(within(card).getByText('1 record type · 2 views')).toBeInTheDocument();
+  expect(within(card).getByText('Manage client cases.')).toBeInTheDocument();
 });

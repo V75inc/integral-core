@@ -29,6 +29,7 @@ export function AppHomePanel({ appId, workspaceId }: { appId: string; workspaceI
 export function AppHomeContent({ appId, workspaceId, result, onRefresh, refreshVersion = 0 }: { appId: string; workspaceId: string; result: AppHomeResponse; onRefresh: () => void; refreshVersion?: number }) {
   const home = result.home;
   if (!home) return <Text as="p" tone="muted">No home is available for this App.</Text>;
+  const showTitle = home.title.trim().toLowerCase() !== 'home';
   const actions = (home.actions || []).filter(action => {
     if (!action.when) return true;
     const widget = (home.widgets || []).find(item => item.id === action.when?.widget);
@@ -38,10 +39,10 @@ export function AppHomeContent({ appId, workspaceId, result, onRefresh, refreshV
   });
   return (
     <section aria-label={home.title} className="app-home-section space-y-5">
-      <div className="space-y-2">
-        <Text as="h2" variant="heading-md">{home.title}</Text>
+      {showTitle || home.description ? <div className="space-y-2">
+        {showTitle ? <Text as="h2" variant="heading-md">{home.title}</Text> : null}
         {home.description ? <Text as="p" tone="muted" variant="body-sm">{home.description}</Text> : null}
-      </div>
+      </div> : null}
       {actions.length ? <div className="flex flex-wrap gap-2">{actions.map(action => <Button key={action.label} variant="secondary" disabled={result.preview} onClick={() => requestOpenCompanionChat({ draftText: action.draft })}>{action.label}</Button>)}</div> : null}
       {home.renderer === 'native' && home.content ? <NativeHome appId={appId} workspaceId={workspaceId} node={home.content} preview={Boolean(result.preview)} liveData={!result.preview || Boolean(result.live_data)} refreshVersion={refreshVersion} onChanged={onRefresh} /> : <div className="app-home-grid grid grid-cols-1 gap-4">
         {(home.widgets || []).map(widget => <div key={widget.id} className="app-home-widget min-w-0" style={{

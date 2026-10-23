@@ -191,8 +191,8 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId, expe
                   {pkg.package_name || '(unnamed)'}
                 </Text>
                 <div className="flex items-center gap-2">
-                  <Text variant="body-sm" tone="muted">{pkg.entry_type_count} types</Text>
-                  <Text variant="body-sm" tone="muted">{pkg.view_count} views</Text>
+                  <Text variant="body-sm" tone="muted">{pkg.entry_type_count} {pkg.entry_type_count === 1 ? 'record type' : 'record types'}</Text>
+                  <Text variant="body-sm" tone="muted">{pkg.view_count} {pkg.view_count === 1 ? 'view' : 'views'}</Text>
                 </div>
               </div>
               {pkg.package_description && (

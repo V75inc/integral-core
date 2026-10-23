@@ -70,3 +70,46 @@ App-specific source tabs, the retained selection sidebar, and single-column card
 at 390px (document width 390px; card grid one 344px column). No records were
 created or deleted. Desktop screenshot:
 `.local/design-review/track-catalog-congruent.png`.
+
+## Contextual custom Track creation follow-up
+
+The footer previously hid **Create your own track** whenever an App was selected,
+while an empty library still suggested that action. The control is now available
+for both top-level and App destinations on desktop and mobile. Choosing Inside an
+App without selecting an App disables creation until the destination is chosen.
+Launching from an App still locks the destination, including after Back.
+
+Custom creation explicitly clears the template selection and starts with an empty
+name and purpose. It does not submit an App template key or library template ID.
+A late template response or retry cannot replace that choice. Back retains the
+custom draft; closing/reopening starts a new flow. No write happens until the
+user confirms Create track.
+
+App contexts also expose the workspace-visible Track library and Import template,
+including packaged Apps with prescribed Track templates. Imported choices reveal
+their library card and survive the subsequent library refresh. Workspace scope,
+Track-only import validation, and server authorization remain authoritative.
+App-provided cards now use actual record-type/view counts and descriptions;
+App defaults says Standard setup instead of claiming zero types and views.
+Import previews use singular/plural record type and view labels.
+
+Verification includes:
+
+- Track dialog regression cases covering custom creation on desktop/mobile,
+  App destination locking, late responses, empty/error states, imported selection
+  retention, destination search, confirmation, cancellation, and template deletion.
+- Real HTTP creation and readback for custom and imported Tracks under an App.
+- Real browser creation of **Custom Track Review QA** and YAML import/creation of
+  **App Track Import Review QA** inside the isolated **Reference SDK Home** App.
+  Both appeared in that App, and the imported Track exposed its Item record type.
+- Mobile walkthrough at 390 × 844: fixed creation controls, locked App, custom
+  details, and draft retained through Back/Continue. The viewport was restored.
+
+Synthetic records were added only to the isolated preview. No existing records
+were deleted. This follow-up is included in PR #170.
+
+Final checks: 351 frontend test files / **2,150 tests passed**, including 25 Track
+dialog cases; all seven Track import/creation HTTP tests passed. TypeScript and
+production build passed. Touched-file ESLint reported zero errors (seven existing
+hook warnings); backend test formatting and flake8 passed. The build retains the
+existing large-chunk advisory.
