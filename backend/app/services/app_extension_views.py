@@ -173,8 +173,11 @@ async def _compiled_app_manifest(app: App) -> Dict[str, Any]:
     from app.services.application_definitions import get_active_application_definition
 
     definition = await get_active_application_definition(app)
-    if definition is not None and getattr(definition, "canonical_manifest", None):
-        return dict(definition.canonical_manifest)
+    if definition is not None:
+        if definition.app_id != app.id or definition.status != "active":
+            raise BadRequestError(message="App definition is unavailable")
+        if getattr(definition, "canonical_manifest", None):
+            return dict(definition.canonical_manifest)
     cp = await get_app_attached_operational_model(app)
     if cp is None or not getattr(cp, "manifest", None):
         app_md = getattr(app, "metadata", None) or {}
@@ -200,6 +203,8 @@ def _view_descriptor(spec: Dict[str, Any]) -> Dict[str, Any]:
         "description": str(spec.get("description") or ""),
         "entry": entry,
         "scope": str(spec.get("scope") or "track"),
+        "props_schema": spec.get("props_schema")
+        or {"type": "object", "additionalProperties": False},
     }
 
 
@@ -312,8 +317,23 @@ class _InlineScriptHashes(HTMLParser):
         super().__init__(convert_charrefs=False)
         self.scripts: List[str] = []
         self.current: Optional[str] = None
+        self.external_assets = False
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
+        attributes = dict(attrs)
+        if (
+            (tag == "script" and attributes.get("src"))
+            or (tag == "link" and attributes.get("href"))
+            or (
+                tag in {"img", "source", "video", "audio", "iframe", "object", "embed"}
+                and any(
+                    value and not str(value).startswith("data:")
+                    for key, value in attrs
+                    if key in {"src", "srcset", "data", "poster"}
+                )
+            )
+        ):
+            self.external_assets = True
         if tag == "script" and not dict(attrs).get("src"):
             self.current = ""
 
@@ -397,6 +417,10 @@ async def render_extension_view_frame(token: str) -> Tuple[str, str]:
     html = file_path.read_text(encoding="utf-8")
     parser = _InlineScriptHashes()
     parser.feed(html)
+    if parser.external_assets:
+        raise BadRequestError(
+            message="View assets must be bundled into self-contained HTML. Use the UI SDK build tool."
+        )
     scripts = " ".join(parser.scripts) or "'none'"
     # FRONTEND_ORIGIN is the OAuth consent host. Hosted deploys also set
     # APP_BASE_URL to the public SPA and can leave FRONTEND_ORIGIN at the
@@ -409,7 +433,7 @@ async def render_extension_view_frame(token: str) -> Tuple[str, str]:
         "sandbox allow-scripts; default-src 'none'; base-uri 'none'; "
         f"form-action 'none'; frame-ancestors {ancestors}; object-src 'none'; "
         f"script-src {scripts}; style-src 'unsafe-inline'; "
-        "img-src data:; connect-src 'none'"
+        "img-src data:; font-src data:; connect-src 'none'"
     )
     return html, policy
 

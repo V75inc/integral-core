@@ -109,6 +109,7 @@ interface CollabRow {
 
 export function AppDetailPage() {
   const { collaboration } = useDeployment();
+  const { scope: activeHomeScope } = useScope();
   const { appId } = useParams<{ appId: string }>();
   const navigate = useNavigate();
   const { user: me } = useAuth();
@@ -178,10 +179,10 @@ export function AppDetailPage() {
   });
   const dashboardCount = dashboardsQuery.data?.length ?? 0;
   const homeQuery = useQuery({
-    queryKey: ['app-home-definition', appId],
+    queryKey: ['app-home-definition', appId, activeHomeScope?.workspaceId],
     queryFn: () => dashboardsApi.home(appId!, false),
     refetchInterval: 15_000,
-    enabled: Boolean(appId),
+    enabled: Boolean(appId && app?.id === appId && app.workspace_id === activeHomeScope?.workspaceId),
   });
   const hasHome = Boolean(homeQuery.data?.home);
   useEffect(() => {

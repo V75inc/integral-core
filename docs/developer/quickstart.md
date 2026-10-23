@@ -88,3 +88,12 @@ Verify in the browser: install, open Notes, create and reload a Note, render its
 Change package identity only when creating a different App; its directory and slug must agree. Increment versions deliberately. Review installed-definition changes, schema impact, migrations, dependencies, and customizations before upgrade. A new library version does not automatically rewrite every installed instance.
 
 Use [Operational Models](../operational-models/README.md), [bundle architecture](../backend/app-bundles-v1.md), [extension contracts](../platform/extension-contract-v1.md), and [qualification](../ops/QUALIFICATION.md) as the next references.
+
+## Custom App Home screens
+
+Use the [Home UI SDK guide](../platform/app-home-sdk.md) for full custom Homes,
+mixed native/custom widgets, typed presentation properties, preview, installed
+customizations and upgrade behavior. The independent TypeScript package is in
+`sdk/ui`; editable source and a reproducible external bundle example are in
+`examples/reference-sdk-home`. Developer and resident edits share the same Home
+contract and revision checks.

@@ -3547,12 +3547,25 @@ async def _stage_update_app(args: Dict[str, Any]) -> Dict[str, Any]:
         fields["home"] = await validate_home_composition(
             user_id=principal, app_id=args["app_id"], home=fields["home"]
         )
+        from app.models.nodes import App
+        from app.services.app_home import home_revision_token
+
+        app = await App.get(args["app_id"])
+        if app is None:
+            raise ValueError("App not found")
+        observed = home_revision_token(app)
+        supplied = args.get("expected_home_revision", observed)
+        if isinstance(supplied, bool) or supplied != observed:
+            raise ValueError("Home changed. Read it again before proposing an edit.")
+        fields["expected_home_revision"] = observed
     if not fields:
         raise ValueError("update_app: supply at least one field to change")
     current = await _sd.load_app_record(args["app_id"])
     app_label = _sd.app_display_label(current or {}, args["app_id"])
     lines = [f"**Update app** *{app_label}*", ""]
     for key, value in fields.items():
+        if key == "expected_home_revision":
+            continue
         lines.append(
             await _sd.format_scalar_change_line(key, value, (current or {}).get(key))
         )
@@ -3812,6 +3825,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     ),
     "integral_describe_dashboard_substrate": ToolBinding(
         _h("app.api.apps_dashboards", "get_dashboard_widget_substrate")
+    ),
+    "integral_preview_app_home": ToolBinding(
+        service_ref=_h("app.services.app_home", "preview_home_for_agent"),
+        service_param_map=_pick("app_id", "home", "include_data"),
     ),
     "integral_read_app_home": ToolBinding(
         _h("app.api.apps_dashboards", "get_app_home"), _pick("app_id")

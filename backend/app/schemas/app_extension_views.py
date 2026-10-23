@@ -13,6 +13,7 @@ class ExtensionViewDescriptor(BaseModel):
     description: str = ""
     entry: str
     scope: str = "track"
+    props_schema: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ExtensionViewsListResponse(BaseModel):

@@ -221,6 +221,30 @@
       ],
       "trust_tier": "trusted",
       "version": "1.0.0"
+    },
+    {
+      "class": "community_app",
+      "operations": [
+        {
+          "key": "echo",
+          "kind": "read",
+          "policy_action": "app.read"
+        }
+      ],
+      "queries": [
+        {
+          "key": "notes",
+          "policy_action": ""
+        }
+      ],
+      "skills": [],
+      "slug": "reference-sdk-home",
+      "source": "examples/reference-sdk-home",
+      "tracks": [
+        "notes"
+      ],
+      "trust_tier": "trusted",
+      "version": "1.0.0"
     }
   ],
   "capability_descriptors": [
@@ -333,6 +357,7 @@
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
+        "integral_preview_app_home",
         "integral_read_app_home",
         "integral_read_dashboard_data",
         "integral_suggest_dashboard",
@@ -346,6 +371,7 @@
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
+        "integral_preview_app_home",
         "integral_read_app_home",
         "integral_read_dashboard_data",
         "integral_suggest_dashboard",
@@ -986,15 +1012,15 @@
     }
   ],
   "counts": {
-    "advertised": 128,
-    "apps": 5,
+    "advertised": 129,
+    "apps": 6,
     "by_op_class": {
       "execute": 1,
       "propose": 71,
-      "read": 56
+      "read": 57
     },
     "core_skills": 17,
-    "tools": 130
+    "tools": 131
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -2689,6 +2715,25 @@
       "http": "GET /api/apps/{app_id}/home",
       "mcp_min_scope": "integral:read",
       "name": "integral_read_app_home",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral-dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.app_home.preview_home_for_agent"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "POST /api/apps/{app_id}/home/preview",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_preview_app_home",
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [

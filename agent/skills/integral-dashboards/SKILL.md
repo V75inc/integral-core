@@ -1,7 +1,7 @@
 ---
 name: integral-dashboards
 description: Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.
-allowed-tools: integral_describe_dashboard_substrate integral_list_dashboards integral_read_dashboard_data integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_update_app integral_read_app_home integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
+allowed-tools: integral_preview_app_home integral_describe_dashboard_substrate integral_list_dashboards integral_read_dashboard_data integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_update_app integral_read_app_home integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
 ---
 
 # Integral dashboards — SOP
@@ -16,6 +16,24 @@ activity summaries, or a full layout of widgets across the app's tracks.
 - Saving a **track view** (kanban, table, feed) — delegate to the
   `integral-insights` skill for operational surfaces on one track.
 - Schema changes — delegate to the `integral-models` skill.
+
+## Shared native Home authoring
+
+Developers and the resident agent share one installed-App Home contract.
+Read `integral_read_app_home` before editing and record `home_revision`. Its
+`components` expose the native component schema; `bindings` list the owning
+App's declared queries and operations. Preserve unrelated sections and IDs.
+
+Use dashboard widgets, mixed `type: native_component` blocks with `content`, or
+a complete `renderer: native` Home with a `content` tree. Compose stack/grid,
+cards, headings/text/markdown, metrics/charts/records, forms/actions and
+tabs/accordions. Forms name declared operation input fields; data components
+use declared query keys. Do not use iframes, HTML, scripts or arbitrary CSS.
+Preview with `integral_preview_app_home`; data is opt-in and actions disabled.
+Stage `integral_update_app` with the observed `expected_home_revision`. Approval
+persists separately from package defaults. On conflict reread and reconcile.
+`{}` restores the package Home. Read back after approval and link the App Home.
+Never claim a proposed change was saved or execute an action while rendering.
 
 ## App Home is a separate surface
 

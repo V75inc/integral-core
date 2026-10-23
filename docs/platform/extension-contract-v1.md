@@ -166,3 +166,11 @@ operation discovery exposes the effective `agent_invocation` value.
 ## App-owned computed relation updates
 
 The owning App mutation facade may maintain readonly relation fields after active-App ownership, workspace, principal, policy, revision and protected-state admission. Readonly continues to block direct record edits. A changed relation target still requires current read access and canonical declared containment; the unchanged-legacy-reference exception does not authorize new bindings.
+
+## App Home UI SDK
+
+[App Home SDK](app-home-sdk.md) defines full and mixed custom Homes, typed
+component properties, installed overrides, previews, coauthor revisions and
+upgrade compatibility. The sandbox and canonical operation boundary remain in
+force. The independent TypeScript client lives in `sdk/ui`; background-job
+facade typing is also available in the Python SDK.

@@ -439,6 +439,16 @@ that needs the effective contract resolves the active definition first. This
 preserves package provenance and gives upgrades a stable base for a later
 three-way merge.
 
+Installed Home customizations are presentation overrides, separately persisted
+from package defaults. Custom Home content is a validated native component tree. Data and operation
+bindings must belong to that App's active definition. Home content cannot mount
+iframes, executable scripts, arbitrary HTML or styles. Custom Home edits carry an
+observed revision checked inside the workspace write fence; staged approval
+cannot overwrite a newer edit. Compatible definition upgrades preserve the
+override; incompatible component/schema changes refuse activation. Preview does
+not persist layouts or grant operation authority. UI operations retain canonical
+policy, receipt and effect identity; presentation refresh never implies success.
+
 ### I-APP-01 — Canonical runtime schema v2
 
 The runtime compiler requires schema version 2 and rejects version 1. Disk authoring v3 compiles into this shape; compatibility input handling does not authorize obsolete runtime manifests. Keep seeded-package compile/round-trip tests.

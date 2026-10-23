@@ -1999,7 +1999,19 @@ domains:
         http: "GET /api/apps/{app_id}/home"
         policy_action: app.read
         params: { app_id: {type: string, required: true} }
-        returns: { home: object }
+        returns: { home: object, home_revision: string, source: string, components: list, bindings: object }
+      - name: integral_preview_app_home
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Validate a proposed Home without saving it. Native component schemas and declared query/operation bindings come from integral_read_app_home. Live data is opt-in. Business operations are disabled in previews."
+        http: "POST /api/apps/{app_id}/home/preview"
+        policy_action: app.read
+        params:
+          app_id: {type: string, required: true}
+          home: {type: object, required: true}
+          include_data: {type: boolean, optional: true}
+        returns: { home: object, home_revision: string, preview: boolean, live_data: boolean }
       - name: integral_list_dashboards
         status: existing
         op_class: read
@@ -2192,7 +2204,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Update App metadata or its distinct Home tab. Use home {title, description, widgets} to create/update the App Home, never create a dashboard named Home. Home uses validated dashboard widget/source contracts and ordinary approval; home {} restores the package Home."
+        summary: "Update App metadata or its distinct Home tab. Use home {title, description, widgets} to create/update the App Home, never create a dashboard named Home. Home supports dashboard widgets, mixed native_component blocks, or renderer native with a content tree. Discover native component schemas and declared query/operation keys with integral_read_app_home. No iframe, scripts or HTML. Read, preview, then propose with expected_home_revision and ordinary approval; home {} restores the package Home."
         http: "PUT /api/apps/{app_id}"
         policy_action: app.update
         staging_kind: update_app
@@ -2203,6 +2215,7 @@ domains:
           visibility: {type: string, optional: true}
           accent_color: {type: string, optional: true}
           home: {type: object, optional: true}
+          expected_home_revision: {type: string, optional: true, desc: "Observed home_revision from integral_read_app_home; stale proposals are rejected."}
         returns: { staged_token: str }
       - name: integral_delete_app
         status: existing
@@ -2698,11 +2711,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 130
-  existing_tools: 128    # status: existing
+  total_tools: 131
+  existing_tools: 129    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 56, propose: 73, execute: 1 }
-  by_priority: { P0: 17, P1: 44, P2: 69 }
+  by_op_class: { read: 57, propose: 73, execute: 1 }
+  by_priority: { P0: 17, P1: 44, P2: 70 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

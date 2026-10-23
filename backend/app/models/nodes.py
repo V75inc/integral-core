@@ -426,6 +426,7 @@ class App(Node):
     icon: str = ""  # built-in icon key or bounded inline raster logo
     owner_user_id: Optional[str] = None
     home_composition: Optional[Dict[str, Any]] = None
+    home_revision: int = 0
     description: str = ""
     visibility: str = "private"  # private, workspace, public
     # Every App lives in exactly one Workspace (Personal or Organization).

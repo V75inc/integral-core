@@ -20,6 +20,7 @@ from app.schemas.app_extension_views import (
     ExtensionViewHandshakeResponse,
     ExtensionViewsListResponse,
 )
+from app.schemas.app_home import ExtensionNavigationRequest
 from app.schemas.app_operations import (
     AppOperationInvokeRequest,
     AppOperationInvokeResponse,
@@ -316,4 +317,30 @@ async def serve_extension_view_asset_route(
         path=str(file_path),
         media_type=media_type,
         headers={"Cache-Control": "private, max-age=60"},
+    )
+
+
+@endpoint(
+    "/extensions/{app_id}/navigate",
+    methods=["POST"],
+    auth=True,
+    tags=["App Extensions"],
+)
+async def resolve_view_navigation(request: Request, app_id: str) -> Dict[str, Any]:
+    """Resolve a resource reference; frames cannot supply arbitrary host URLs."""
+    from app.services.extension_navigation import resolve_extension_navigation
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    body = ExtensionNavigationRequest.model_validate(await request.json())
+    scope = await resolve_execution_scope_from_request(
+        request, user_id, origin="http_extension_navigation"
+    )
+    return await resolve_extension_navigation(
+        user_id=scope.principal_id,
+        workspace_id=scope.workspace_id,
+        app_id=app_id,
+        kind=body.kind,
+        resource_id=body.id,
     )

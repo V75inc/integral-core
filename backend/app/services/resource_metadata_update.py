@@ -8,6 +8,7 @@ from jvspatial.core.context import get_default_context
 from app.api.errors import (
     BadRequestError,
     InsufficientPermissionsError,
+    ResourceConflictError,
     ResourceNotFoundError,
 )
 from app.api.utils import export_node
@@ -96,6 +97,7 @@ async def update_app_metadata(
     accent_color: str | None = None,
     icon: str | None = None,
     home: dict | None = None,
+    expected_home_revision: str | None = None,
 ) -> dict:
     """Update generic App metadata; never move its workspace or bypass Home checks."""
     async with _metadata_scope(user_id, "app", app_id, request) as (
@@ -106,6 +108,40 @@ async def update_app_metadata(
         sp = await App.get(app_id)
         if sp is None:
             raise ResourceNotFoundError(message="App not found")
+        # The workspace write fence serializes Home authors. Read the primary
+        # record inside that fence rather than trusting an earlier graph cache.
+        if home is not None:
+            from app.services.authority_facts import primary_node_record
+
+            graph = get_default_context()
+            row = await primary_node_record(graph.database, App, app_id)
+            if row is None:
+                raise ResourceNotFoundError(message="App not found")
+            sp = await graph._deserialize_entity(App, row)
+            from app.services.app_home import home_revision_token
+
+            revision = home_revision_token(sp)
+            if expected_home_revision is not None and (
+                isinstance(expected_home_revision, bool)
+                or expected_home_revision != revision
+            ):
+                raise ResourceConflictError(
+                    message="Home changed. Read the current Home before applying this edit."
+                )
+            current_home = sp.home_composition or {}
+
+            def custom(value):
+                return value.get("renderer") in {"native", "extension"} or any(
+                    widget.get("type") in {"native_component", "extension_view"}
+                    for widget in value.get("widgets", [])
+                )
+
+            if expected_home_revision is None and (
+                custom(home) or custom(current_home)
+            ):
+                raise BadRequestError(
+                    message="Custom Home edits require expected_home_revision from the Home readback"
+                )
         normalized_home = None
         if home is not None:
             from app.services.app_home_override import validate_home_composition
@@ -120,6 +156,7 @@ async def update_app_metadata(
 
         if normalized_home is not None:
             sp.home_composition = normalized_home or None
+            sp.home_revision = int(getattr(sp, "home_revision", 0) or 0) + 1
         if name is not None:
             safe_name = non_empty_after_strip(name, "name")
             if len(safe_name) > 200:

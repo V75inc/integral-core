@@ -2453,7 +2453,15 @@ async def _x_update_app(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
     fields = {
         k: v
         for k, v in payload.items()
-        if k in ("name", "description", "visibility", "accent_color", "home")
+        if k
+        in (
+            "name",
+            "description",
+            "visibility",
+            "accent_color",
+            "home",
+            "expected_home_revision",
+        )
         and v is not None
     }
     return await _call_endpoint(handler, user_id, app_id=app_id, **fields)

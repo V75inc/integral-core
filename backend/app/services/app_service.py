@@ -180,6 +180,7 @@ async def create_app_for_user(
             include_seed_data=include_seed_data,
             visibility=resolved_visibility,
             icon_override=safe_icon if icon is not None else None,
+            _change_event_sink=change_event_sink,
         )
         installed = await App.get(result["app_id"])
         if not installed:
