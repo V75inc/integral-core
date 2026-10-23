@@ -26,6 +26,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     IntegralContextLifecycle,
     IntegralLimitWarnings,
     IntegralToolDisclosure,
+    LocalWorkspaceBackend,
     PublicConversationHistorySource,
     Skills,
     SnapshotHistorySource,
@@ -200,8 +201,11 @@ def build_native_runtime(
     if selected_skills:
         capabilities.append(
             Skills(
-                directories=list(skill_directories),
+                directories=[path.resolve() for path in skill_directories],
                 include=selected_skills,
+                # Attach a backend only to Skills. No filesystem or shell
+                # capability is added to the resident agent.
+                workspace=LocalWorkspaceBackend(skill_directories[0].resolve()),
             )
         )
 

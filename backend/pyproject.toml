@@ -46,7 +46,7 @@ classifiers = [
 dependencies = [
     # Local launcher: isolated Python provisioning, lifecycle locking, PID identity.
     "uv>=0.13.4,<1",
-    "filelock>=3.16,<4",
+    "filelock>=4.2.1,<5",
     "psutil>=6,<8",
     "fastapi>=0.100.0",
     "anyio>=4,<5",
@@ -109,12 +109,12 @@ dependencies = [
     "pynacl>=1.5.0",
     # Native Integral harness. Keep the 0.x capability API exact-pinned and
     # upgrade only with the native-harness compatibility/evaluation gates.
-    "pydantic-ai-harness[skills]==0.36.0",
+    "pydantic-ai-harness[skills]==0.59.0",
     # The wheel must use the same typed capability/history API qualified by
     # uv.lock. Harness alone permits future, unqualified Pydantic AI versions.
     # Provider transport/SDK dependencies are supplied by Core's LiteLLM
     # bridge below; the upstream openai extra selects a different SDK major.
-    "pydantic-ai-slim==2.54.0",
+    "pydantic-ai-slim==2.59.0",
     # Shared provider routing and immutable usage observations.
     "litellm>=1.101.0,<1.102",
     # HTML extraction for the native standard skill library.

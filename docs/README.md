@@ -29,7 +29,7 @@ Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups,
 
 The [contributor guide](developer/CONTRIBUTING.md) explains repository discipline. [Invariants](INVARIANTS.md) preserve the substrate's access, graph, extension, and execution contracts.
 
-The [access contract](product/ACCESS_CONTROL_CONTRACT.md) defines workspace/resource authority and declarative App permissions. [Resource visibility](product/RESOURCE_VISIBILITY.md) covers private defaults and legacy read compatibility. Use [scope migration guidance](ops/qualification/access-control-review/VIEW_SCOPE_MIGRATION.md) before changing existing resource identities.
+The [access contract](product/ACCESS_CONTROL_CONTRACT.md) defines workspace/resource authority and declarative App permissions. [Resource visibility](product/RESOURCE_VISIBILITY.md) covers private defaults and legacy read compatibility. Use [scope migration guidance](ops/view-scope-migration.md) before changing existing resource identities.
 
 Use the [current release qualification](ops/RELEASE_QUALIFICATION.md) and [hardening follow-up](product/HARDENING_FOLLOW_UP.md) for candidate results and remaining work. Retired reports remain in Git history; retained candidate-specific evidence is linked from its current topic guide and does not establish release acceptance. Maintain one current guide per topic and regenerate source-derived references after route or capability changes.
 

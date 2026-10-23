@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pydantic_ai import BinaryContent, ModelRequestNode, UsageLimitExceeded
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import (
+    CapabilityInstructionSource,
     InstructionPart,
     LoadCapabilityCallPart,
     ModelMessagesTypeAdapter,
@@ -267,13 +268,12 @@ class IntegralContextLifecycle(AbstractCapability):
 
     async def before_model_request(self, ctx, request_context):
         # Native Skills renders the whole deferred description catalogue in an
-        # unaddressed dynamic instruction. Core already exposes authorized
+        # addressed dynamic instruction. Core already exposes authorized
         # paged search, so listing every installed App is redundant. This exact
-        # generated header is pinned by integration tests; no user text or
+        # typed source is pinned by integration tests; no user text or
         # procedure body is interpreted, and no capability is registered here.
         if "search_capabilities" in ctx.tools:
             parameters = request_context.model_request_parameters
-            prefix = "The following capabilities are deferred and can be loaded using the `load_capability` tool."
             parts = [
                 (
                     replace(
@@ -285,8 +285,9 @@ class IntegralContextLifecycle(AbstractCapability):
                         ),
                     )
                     if part.dynamic
-                    and part.id is None
-                    and part.content.startswith(prefix)
+                    and part.id is not None
+                    and isinstance(part.id.source, CapabilityInstructionSource)
+                    and part.id.source.id == "deferred_capabilities"
                     else part
                 )
                 for part in parameters.instruction_parts or ()

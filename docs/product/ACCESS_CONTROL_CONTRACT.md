@@ -1,8 +1,8 @@
 # Integral access-control contract
 
 Status: normative implementation target for the authorized access-control work.
-The [closure ledger](../ops/qualification/access-control-review/closure.json)
-records actual qualification. This contract does not claim that every path
+The [qualification guide](../ops/QUALIFICATION.md) defines how to record actual
+candidate results. This contract does not claim that every path
 already implements it.
 
 ## Ownership and governance

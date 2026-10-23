@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from pydantic_ai import (
@@ -54,6 +55,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.compaction import (
     ClearToolResults,
@@ -128,12 +130,11 @@ def final_response_reserved(ctx: RunContext[Any]) -> bool:
 
 
 class IntegralLimitWarnings(AbstractCapability):
-    """Use upstream usage warnings without fabricating a human conversation turn.
+    """Project native usage warnings into dynamic instructions.
 
-    WarnNearLimits normally injects UserPromptPart and strips marker-bearing
-    messages. Generate its usage-only warning on a disposable empty projection,
-    then attach it as a dynamic instruction. Real user messages remain exact;
-    neither warning prose nor model output can establish a new turn boundary.
+    Capture public queued system parts on a disposable projection. The native
+    provider lowering can otherwise turn them into extra user input, which
+    must never become a task/compaction boundary in Integral's working history.
     """
 
     async def before_model_request(self, ctx, request_context):
@@ -144,18 +145,19 @@ class IntegralLimitWarnings(AbstractCapability):
         tokens = tokens if isinstance(tokens, int) and tokens > 0 else None
         if requests is None and tokens is None:
             return request_context
-        upstream = WarnNearLimits(
-            max_iterations=requests, max_total_tokens=tokens, warning_threshold=0.6
+        captured = []
+        projection = SimpleNamespace(
+            usage=ctx.usage,
+            enqueue=lambda part, **options: captured.append(part),
         )
-        projected = await upstream.before_model_request(
-            ctx, replace(request_context, messages=[])
+        await WarnNearLimits(
+            max_iterations=requests, max_total_tokens=tokens, warning_threshold=0.6
+        ).before_model_request(
+            projection,
+            replace(request_context, messages=[ModelRequest(parts=[])]),
         )
         warning = "\n".join(
-            part.content
-            for message in projected.messages
-            if isinstance(message, ModelRequest)
-            for part in message.parts
-            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+            part.content for part in captured if isinstance(part, SystemPromptPart)
         )
         if warning:
             parameters = request_context.model_request_parameters
@@ -921,7 +923,60 @@ class IntegralHistorySummary(SummarizingCompaction):
             ),
             clear_tool_inputs=True,
         ).compact(history, ctx)
-        compacted = await super().compact(history, ctx)
+        # Native 0.59 keeps an indivisible recent message even when it exceeds
+        # its retained-token floor. This history contains completed work only:
+        # summarize an oversized message rather than retaining it beside its
+        # summary. Current work and pending effects were separated above.
+        summarizer = (
+            replace(
+                self,
+                keep_tokens=None,
+                keep_messages=0,
+                keep_user_messages=False,
+                preserve_first_user_message=True,
+            )
+            if any(
+                len(ModelMessagesTypeAdapter.dump_json([message]))
+                > self.max_history_bytes
+                for message in history
+            )
+            else (
+                replace(self, keep_tokens=None)
+                if self.max_messages is not None and len(messages) > self.max_messages
+                else self
+            )
+        )
+        compacted = await SummarizingCompaction.compact(summarizer, history, ctx)
+        # Native message-count cutoffs can retain a retry after summarizing its
+        # original call. Remove only that settled historical validation pair's
+        # orphan feedback; never synthesize a result or alter an open effect.
+        settled_retries = {
+            part.tool_call_id
+            for message in history
+            for part in message.parts
+            if isinstance(part, RetryPromptPart) and part.tool_name is not None
+        }
+        retained_calls = {
+            part.tool_call_id
+            for message in compacted
+            for part in message.parts
+            if isinstance(part, ToolCallPart)
+        }
+        orphan_retries = settled_retries - retained_calls
+        if orphan_retries:
+            normalized = []
+            for message in compacted:
+                parts = [
+                    part
+                    for part in message.parts
+                    if not (
+                        isinstance(part, RetryPromptPart)
+                        and part.tool_call_id in orphan_retries
+                    )
+                ]
+                if parts or not message.parts:
+                    normalized.append(replace(message, parts=parts))
+            compacted = normalized
         if compacted == history:
             return [*history, *active_turn]
         calls = {}
@@ -1000,13 +1055,20 @@ class IntegralWorkingContext(TieredCompaction):
         )
         trigger = min(self.policy.trigger_tokens, limit)
         estimate = request_estimate(request_context)
+        # Native 0.59 compaction reads the public working history. Make the
+        # cheap projection authoritative before invoking its tier scheduler.
+        ctx.messages[:] = request_context.messages
         if (
             estimate > trigger or len(request_context.messages) > 40
         ) and not final_response_reserved(ctx):
             # Message count is an independent trigger when provider usage is
             # absent or a reused anchor is optimistic. Force the native tier
             # chain to consider summarization even below the token target.
-            target = min(self.policy.target_tokens, limit, max(1, estimate - 1))
+            target = (
+                1
+                if len(request_context.messages) > 40
+                else min(self.policy.target_tokens, limit, max(1, estimate - 1))
+            )
             pipeline = replace(self, target_tokens=target)
             request_context = await TieredCompaction.before_model_request(
                 pipeline, ctx, request_context
@@ -1096,6 +1158,7 @@ __all__ = [
     "RunRecord",
     "SchemaValidator",
     "Skills",
+    "LocalWorkspaceBackend",
     "SnapshotHistorySource",
     "StepEvent",
     "StepPersistence",

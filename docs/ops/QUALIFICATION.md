@@ -44,8 +44,8 @@ corpus size, context budget, repetitions and p50/p95 HTTP latency. Compare actua
 provider input/output tokens and complete chat time for identical fresh-chat
 tasks; embedding-token passage counts are not total provider usage. A small wiki
 or 1000-passage SQL probe does not establish production-scale recall or latency.
-Use the [retained PR #162 evidence](qualification/semantic-search-2026-10-20/REPORT.md)
-as a local observation and reproduction example, not a live release gate.
+Keep synthetic corpora and machine-readable measurements with the candidate’s CI
+or review artifacts. Do not add dated screenshots and raw run logs to the reader guides.
 
 ## Artifact gates
 

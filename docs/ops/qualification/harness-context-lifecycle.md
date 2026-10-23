@@ -1,7 +1,9 @@
 # Resident context lifecycle qualification
 
 Date: 2026-10-23. Base: PR #171 (`e6d15099` before these changes).
-Pydantic AI Slim 2.54.0 / Harness 0.36.0; neither dependency was upgraded.
+The initial context qualification below used Pydantic AI Slim 2.54.0 / Harness
+0.36.0 at `533fdaad`. The maintenance update uses Slim 2.59.0 / Harness 0.59.0
+and requalifies the native boundary; see dependency compatibility below.
 
 ## Reproduction and correction
 
@@ -89,3 +91,45 @@ The generated native deferred-catalogue projection and history/disclosure APIs
 are qualified against the pinned library. Dependency changes must rerun these
 tests. Use `INTEGRAL_CONTEXT_SOAK_RUNS=500` for the extended probe. No new
 worktree, destructive migration, hosted deployment or merge is part of this fix.
+
+## Dependency compatibility
+
+The maintenance update raises the published runtime pins to Pydantic AI Slim
+2.59.0 and Harness 0.59.0, and the filelock floor to 4.2.1 (lock resolves 4.2.4).
+These address the backend advisory gate without suppressions. The relevant
+upstream records are [Harness 0.59.0](https://pypi.org/project/pydantic-ai-harness/0.59.0/)
+and the [filelock advisory](https://github.com/tox-dev/filelock/security/advisories/GHSA-v4x8-3wr5-3wq8).
+
+Skills now receive a host-selected `LocalWorkspaceBackend` only for reading the
+authorized skill libraries. No filesystem/shell capability is added to the
+resident agent. Regression fixtures use the public async `Skills.load` catalog
+instead of private deferred-capability fields.
+
+The bounded catalog projection selects the native typed deferred-capability
+instruction source. Native queued usage warnings are captured on a disposable
+projection and attached as dynamic instructions, preserving real user text and
+task boundaries. When the upstream retained-token floor would retain an
+indivisible oversized completed response, Core asks native compaction to summarize
+that completed history, preserving the first user constraint and restoring typed
+skill evidence. Current work and pending effects are excluded from that history;
+summary and final-request admission remain enforced.
+
+Completed implementation plans and raw QA artifacts have been retired from the
+reader tree. Git preserves their history; maintained behavior belongs to the
+[chat contract](../../backend/ai-chat.md), [model configuration](../../backend/model-credentials-byok.md)
+and [native Home SDK](../../platform/app-home-sdk.md).
+
+The updated 100-run probes preserve exact checkpoint/result equality and bound
+actual serialized provider requests:
+
+| Workload | Runs | Maximum projected characters | Final provider bytes | Retained skill bodies |
+| --- | ---: | ---: | ---: | ---: |
+| Same skill | 100 | 30,268 | 32,685 | 1 |
+| Rotating skills | 100 | 92,155 | 53,123 | 2 |
+
+Native message-count compaction is synchronized with the public working history
+before the tier scheduler runs. Settled historical retry feedback whose original
+call was summarized is removed with that call; Core never invents a successful
+tool outcome. This keeps the native provider-valid checkpoint equal to the
+returned working history. The original 500-run measurements above describe the
+initial dependency versions, not this maintenance update.

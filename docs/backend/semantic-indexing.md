@@ -224,6 +224,7 @@ isolated. Transaction qualification uses `INTEGRAL_TEST_DB=postgres` and
 `tests/contract/test_semantic_index_transactions_postgres.py`; that test fixture
 creates/resets its own `integral_test` database, so use an isolated cluster.
 
-See the [PR #162 qualification report](../ops/qualification/semantic-search-2026-10-20/REPORT.md) for actual accuracy, latency and
-provider-reported token observations. A synthetic corpus is not a production
+Use the [qualification guide](../ops/QUALIFICATION.md#retrieval-qualification)
+for actual accuracy, latency and provider-token measurement. Retain raw corpora
+and run outputs with review artifacts. A synthetic corpus is not a production
 recall or scale guarantee.

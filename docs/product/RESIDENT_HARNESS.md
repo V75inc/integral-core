@@ -37,5 +37,5 @@ retention policy expires old disclosures at settled step boundaries, preserves
 current work and pending effects, and admits the final request against the
 selected model's usable budget. Expired procedures can be rediscovered. Existing
 sessions normalize on valid resume; no chat deletion is required. See the
-working-context contract in `docs/backend/ai-chat.md` and the qualification
-report in `docs/ops/qualification/harness-context-lifecycle.md`.
+[working-context contract](../backend/ai-chat.md#working-context-and-long-conversations) and the
+[qualification report](../ops/qualification/harness-context-lifecycle.md).

@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Skills
 
 from app.agentive.harness.pydantic_ai_compat import (
@@ -202,7 +203,11 @@ async def test_native_skills_loader_remains_available_after_integral_catalog_sea
         tools=[search_capabilities],
         capabilities=[
             IntegralToolDisclosure(),
-            Skills(tmp_path, include={"integral-workspace"}),
+            Skills(
+                tmp_path,
+                include={"integral-workspace"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
         ],
     )
     result = await agent.run("What workspace and tracks do I have?")
@@ -678,7 +683,11 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
     agent = Agent(
         FunctionModel(respond, profile=ModelProfile(context_window=200_000)),
         capabilities=[
-            Skills(tmp_path, include={"record-work"}),
+            Skills(
+                tmp_path,
+                include={"record-work"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
             build_integral_history_compaction(),
         ],
     )
@@ -692,7 +701,11 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
     fresh_agent = Agent(
         FunctionModel(respond, profile=ModelProfile(context_window=200_000)),
         capabilities=[
-            Skills(tmp_path, include={"record-work"}),
+            Skills(
+                tmp_path,
+                include={"record-work"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
             build_integral_history_compaction(),
         ],
     )
@@ -981,7 +994,11 @@ async def test_discovered_workflow_must_be_loaded_before_text_completion(tmp_pat
             IntegralToolDisclosure(
                 workflow_skill_ids=frozenset({"workspace-insights"})
             ),
-            Skills(tmp_path, include={"workspace-insights"}),
+            Skills(
+                tmp_path,
+                include={"workspace-insights"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
         ],
     )
     result = await agent.run("What could hold up our next delivery?")

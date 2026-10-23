@@ -25,6 +25,7 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.usage import RequestUsage
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Skills, StepPersistence
 from pydantic_ai_harness.step_persistence import InMemoryStepStore, continue_run
 
@@ -474,7 +475,7 @@ async def test_existing_bloated_checkpoint_normalizes_without_losing_archive(tmp
         legacy = Agent(
             FunctionModel(respond),
             capabilities=[
-                Skills(tmp_path),
+                Skills(tmp_path, workspace=LocalWorkspaceBackend(tmp_path)),
                 StepPersistence(
                     store=scoped, run_id=scope.framework_run_id, agent_name="legacy"
                 ),
@@ -565,9 +566,12 @@ async def test_oversized_summary_stops_before_inference_instead_of_retrying():
         ModelRequest(parts=[UserPromptPart("A later completed task")]),
         ModelResponse(parts=[TextPart("Completed")]),
     ]
-    agent = Agent(
-        FunctionModel(respond), capabilities=[build_integral_history_compaction()]
-    )
+    summary = build_integral_history_compaction()
+    # Force a nested summary request: native 0.59 otherwise preserves an
+    # indivisible large recent message in the configured retained suffix.
+    summary.keep_tokens = 0
+    summary.keep_messages = 1
+    agent = Agent(FunctionModel(respond), capabilities=[summary])
     with pytest.raises(IntegralContextOverflow):
         await agent.run("Next task", message_history=history)
     assert called == []

@@ -1,31 +1,24 @@
-# Current qualification records
+# Release qualification
 
-Qualification belongs to an exact source, artifact and configuration. This index
-is not a package-publication or deployment status page. Read the source version
-from `backend/pyproject.toml`; verify the release index and deployment separately.
+Qualification applies to an exact source, artifact and configuration. Read the
+package version from `backend/pyproject.toml`; verify publication and deployment
+independently. Merged source, a healthy preview and green CI are separate facts.
 
-## Work under review
+## Candidate under review
 
-- **rc28 / PR #162 — App ownership, durable collection updates, Track loading and
-  semantic retrieval.** [Owner/batch/performance evidence](../qa/2026-10-20-owner-batch-performance.md)
-  and [semantic indexing evidence](qualification/semantic-search-2026-10-20/REPORT.md)
-  record the local checks and limits. The [rc28 release update](qualification/release-rc28.md) records version consistency, artifact identity and CI findings. Semantic evidence includes the labelled
-  corpus, real encoder/pgvector, browser source readback, latency and actual
-  provider token observations. It does not qualify a production deployment.
-- **rc27 / PR #160 — chat, authoring and usability.** The
-  [rc27 record](qualification/release-rc27.md) retains that candidate's exact
-  baseline and validation. Its results do not qualify later PR #162 changes.
+PR #171 bounds resident model working context across restored runs and exposes
+the running Core version. The [context lifecycle evidence](qualification/harness-context-lifecycle.md)
+records its reproduction, deterministic limits, cloud-model browser checks and
+qualification scope. Source and dependency updates require fresh checks; earlier
+results do not qualify a later revision automatically.
 
-## Historical evidence
-
-The [rc20 qualification](qualification/release-rc20.md) preserves its original
-wheel digest, Business/browser readback and limitations. It is historical evidence
-rather than the current release gate. Other retired reports remain in Git history.
-
-## Promote a candidate
+## Promotion record
 
 Follow [qualification](QUALIFICATION.md) and [releasing](../../RELEASING.md).
-Record source and artifact identity, lock/install provenance, actual database
-and provider configuration, browser outcomes, limitations and recovery. Use
-[hardening follow-up](../product/HARDENING_FOLLOW_UP.md) for open acceptance work.
-A green local test, remote CI, publication and deployment remain separate facts.
+Record source/lock identity, artifact digest and install provenance, database
+adapter, non-secret provider configuration, test/browser outcomes, limits and
+recovery. Keep raw logs and screenshots in CI/review artifacts. Preserve
+unresolved acceptance work in [hardening follow-up](../product/HARDENING_FOLLOW_UP.md).
+
+Older release reports and completed implementation plans remain in Git history;
+they are not live instructions or current release acceptance.

@@ -6,6 +6,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.capabilities import Instrumentation, ToolSearch
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.step_persistence import InMemoryStepStore, continue_run
 
@@ -22,7 +23,11 @@ async def test_core_capabilities_compose_stream_and_persist_history() -> None:
             Instrumentation(),
             ToolSearch(max_results=4),
             Planning(tools=["write_plan"]),
-            Skills(core_skills, include={"integral-identity"}),
+            Skills(
+                core_skills,
+                include={"integral-identity"},
+                workspace=LocalWorkspaceBackend(core_skills),
+            ),
             StepPersistence(store=store, agent_name="integral-contract"),
         ],
     )

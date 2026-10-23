@@ -86,10 +86,9 @@ server work or raw-record size. Core permission resolution adds its own reads.
 
 ## Dependency and database adoption
 
-This isolated work qualifies JV Spatial `dev` commit
-`621b77998c1a459dbb1158791e28e57c2fb438fa`. `backend/uv.lock` pins that immutable
-Git source. The local clone beside the Core worktree was also installed into
-this worktree's own venv. Reproduce the pinned environment with:
+Core pins the published `jvspatial==0.2.2` package in
+`backend/pyproject.toml` and `backend/uv.lock`; it does not use a sibling clone
+or Git source override. Reproduce the frozen environment with:
 
 ```bash
 cd backend
@@ -112,18 +111,13 @@ an appropriate bounded database call. Existing session collision checks were
 preserved. Database-level bounded `find`, `find_one`, native ID pages and graph
 pages, or public entity iterators with proper cleanup, are the applicable APIs.
 
-The public JV Spatial 0.1.1 wheel does not yet include projections. Public-wheel
-Core boot remains compatible through a lazy import; this endpoint explicitly
-reports unavailable there. A future release must first qualify and pin the
-published JV Spatial version that supplies this API. The dev source pin is an
-integration lane, not a release or deployment qualification.
+Projection and adapter APIs must stay compatible with the pinned published
+version. Qualify dependency changes against the selected database adapters;
+a local source checkout is not evidence for a distributable Core wheel.
 
-Evidence and reproduction: [current qualification](../ops/QUALIFICATION.md),
-[current qualification](../ops/QUALIFICATION.md),
-[local SQLite probe](../ops/qualification/ontology-context/sqlite-probe.json),
-and `backend/tests/test_graph_context.py`. The probe compares a legacy duplicate
-mapping lookup on 5,000 raw disposable records, plus 200 serial and native batch
-writes to separate fresh collections. Timings describe this host only. All 26 targeted context and database-adoption
-tests also passed against a disposable PostgreSQL 16 database. The complete
-PostgreSQL suite, live-provider inference quality and production load remain
-separate qualification lanes.
+Qualification follows the [current gates](../ops/QUALIFICATION.md) and
+`backend/tests/test_graph_context.py`. Use isolated, populated fixtures for each
+adapter and measure query shape, writes, authorization and recovery. Historical
+SQLite/PostgreSQL probes remain in Git history; their timings do not establish
+current production performance. Full PostgreSQL, live-provider and production
+load acceptance remain separate lanes.

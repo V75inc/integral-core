@@ -44,3 +44,13 @@ hook checks their exact account email identities when local hooks are enabled.
 It does not remove provider support or change existing history. See the
 [history cutover plan](../ops/CONTRIBUTOR_ATTRIBUTION.md) for the separate GitHub
 Contributors cleanup and verification requirements.
+
+## Checkout hygiene
+
+Use the primary checkout for new work. Obtain explicit permission before creating
+another worktree. Keep only active task branches locally; remove merged task
+branches after verifying their remote tips and preserving any uncommitted work.
+Do not retire another contributor's active branch or change a development database
+as part of source cleanup. Runtime secrets, recovery snapshots and raw QA evidence
+belong outside tracked documentation. Maintain the existing topic guides and keep
+candidate evidence in the release record or PR/CI artifacts.
