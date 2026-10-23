@@ -681,6 +681,8 @@ async def build_dashboard_drilldown_spec(
         filters.append({"field": "created_at", "op": "lte", "value": source["until"]})
 
     select = ["id", "title", "track_id"]
+    if source.get("status") or source.get("statuses"):
+        select.append("status")
     for raw_filter in source.get("filters") or []:
         item = (
             raw_filter.model_dump()
@@ -695,8 +697,31 @@ async def build_dashboard_drilldown_spec(
         elif op == "exists":
             op, value = "is_null", not bool(value)
         filters.append({"field": field, "op": op, "value": value})
-        if field.startswith("custom_fields.") and field not in select:
+        if field and field not in select:
             select.append(field)
+
+    # The all-records action needs the grouping values just as a selected
+    # slice does. Select them without introducing a group filter.
+    group_by = str(source.get("group_by") or "")
+    if group_by:
+        group_field = {
+            "track": "track_id",
+            "entry_type": "type_id",
+            "tag": "tags",
+            "date": "created_at",
+            "status": "status",
+        }.get(group_by, group_by.removeprefix("date:"))
+        if not group_field.startswith("custom_fields.") and group_field not in {
+            "track_id",
+            "type_id",
+            "tags",
+            "status",
+            "created_at",
+            "updated_at",
+        }:
+            group_field = f"custom_fields.{group_field}"
+        if group_field not in select:
+            select.append(group_field)
 
     if group_key is not None:
         group_by = str(source.get("group_by") or "")

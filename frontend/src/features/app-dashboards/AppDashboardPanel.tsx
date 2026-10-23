@@ -618,8 +618,15 @@ export function AppDashboardPanel({
                       <td>{String(item.title || 'Untitled record')}</td>
                       <td>{String(item.track_title || 'Track')}</td>
                       <td>{Object.entries(item)
-                        .filter(([key]) => key.startsWith('custom_fields.'))
-                        .map(([key, value]) => `${key.slice('custom_fields.'.length)}: ${typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)}`)
+                        .filter(([key]) => key.startsWith('custom_fields.') || ['status', 'created_at', 'updated_at', 'tags'].includes(key))
+                        .map(([key, value]) => {
+                          const name = key.replace(/^custom_fields\./, '').replace(/_/g, ' ');
+                          const label = name.charAt(0).toUpperCase() + name.slice(1);
+                          const text = value === null || value === undefined || value === ''
+                            ? '—'
+                            : typeof value === 'object' ? JSON.stringify(value) : String(value);
+                          return `${label}: ${text}`;
+                        })
                         .join(' · ') || '—'}</td>
                     </tr>
                   ))}

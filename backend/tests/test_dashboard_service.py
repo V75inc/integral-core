@@ -1126,3 +1126,61 @@ async def test_activity_digest_honors_declared_multi_track_scope(monkeypatch):
     assert result["total_tracks"] == 2
     assert result["total_entries"] == 4
     assert [row["track_id"] for row in result["tracks"]] == ["track-a", "track-b"]
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "group_by, expected",
+    [
+        ("status", "status"),
+        ("priority", "custom_fields.priority"),
+        ("custom_fields.region", "custom_fields.region"),
+        ("date:due_date", "custom_fields.due_date"),
+        ("date", "created_at"),
+    ],
+)
+async def test_all_dashboard_contributors_include_group_values(
+    monkeypatch, group_by, expected
+):
+    from app.services import dashboard_service as ds
+
+    async def tracks(_app, _source):
+        return ["track-a"]
+
+    monkeypatch.setattr(ds, "_data_source_track_ids", tracks)
+    spec = await ds.build_dashboard_drilldown_spec(
+        app=object(),
+        widget={"data_source": {"op": "count", "group_by": group_by}},
+        group_key=None,
+        cursor=None,
+    )
+    assert expected in spec.select
+    assert [item.field for item in spec.filters] == ["track_id"]
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_dashboard_contributors_include_platform_filter_values(monkeypatch):
+    from app.services import dashboard_service as ds
+
+    async def tracks(_app, _source):
+        return ["track-a"]
+
+    monkeypatch.setattr(ds, "_data_source_track_ids", tracks)
+    spec = await ds.build_dashboard_drilldown_spec(
+        app=object(),
+        widget={
+            "data_source": {
+                "op": "count",
+                "status": "open",
+                "filters": [
+                    {"field": "created_at", "op": "gte", "value": "2026-01-01"}
+                ],
+            }
+        },
+        group_key=None,
+        cursor=None,
+    )
+    assert "status" in spec.select
+    assert "created_at" in spec.select

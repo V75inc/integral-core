@@ -131,6 +131,7 @@ async def test_suggest_dashboard(authenticated_client):
     assert body.get("name")
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_dashboard_drillthrough_returns_fixed_governed_membership(
     authenticated_client,
@@ -208,6 +209,14 @@ async def test_dashboard_drillthrough_returns_fixed_governed_membership(
         "track_id": track_id,
         "filters": [],
     }
+
+    all_statuses = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+        json={"widget_id": "status"},
+    )
+    assert all_statuses.status_code == 200, all_statuses.text
+    assert all_statuses.json()["items"][0]["status"] == "active"
+    assert all_statuses.json()["track_navigation"]["filters"] == []
 
     grouped = await authenticated_client.post(
         f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
