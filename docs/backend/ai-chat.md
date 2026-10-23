@@ -148,3 +148,40 @@ permission authority. Missing names and legacy email-shaped names are omitted;
 the assistant must not infer a name from an email address. No identity discovery
 tool or additional model call is needed just to use the name, and later replies
 must not repeatedly greet the user or repeat their name mechanically.
+
+### Working context and long conversations
+
+The native harness expires older skill-load pairs and tool discoveries before
+preparing the next model step. It retains the current and immediately preceding
+task plus a 32 KiB historical skill allowance and 16 recent tool disclosures.
+Unsettled tool calls and pending staging proposals protect their source task;
+these protections can exceed the normal working-set allowance and are subject
+to final input admission. Expired skills remain discoverable and can be loaded
+again. Discovery uses the authorized Core search rather than sending every
+installed skill description with each model request.
+
+A single native tiered pipeline cheaply clears classified read results and then
+summarizes older dialogue when required. Recent oversized read results become
+explicitly truncated previews; mutation receipts, current user input and
+pending proposals are never cheap-cleared. Summary calls retain native usage
+accounting. The normalized working history is checkpointed, and older encrypted
+snapshots remain available through scoped conversation search. Existing bloated
+sessions receive this policy on their next valid resume.
+
+Default pressure/target estimates are 24,576/16,384 input tokens. Final admission
+reserves configured output and 10% model-window headroom (at least 1,024 tokens),
+caps input at 65,536 tokens, and assumes a 32,768-token window when the native
+model profile/registry has no window. These are operational estimates, not
+provider billing measurements. Image input reserves an additional estimated
+4,096 tokens per image rather than counting compressed bytes as text. Existing
+upload byte/pixel and permission checks still apply. Protected input that cannot
+fit returns the existing context-limit outcome before inference. Smaller
+models, or many unresolved proposals, may require narrowing the task.
+
+The adapter keeps projected instruction parts and the recorded current request
+in agreement for native estimation. Measured history reclaim corrects the old
+usage anchor without changing its reported token counts or billing records.
+New provider responses establish fresh anchors. Content-free context metrics
+are logged alongside native compaction spans and existing physical-request
+component sizes; diagnostics must never retain prompt/record/key contents.
+See I-CONTEXT-02 and the context lifecycle qualification report.

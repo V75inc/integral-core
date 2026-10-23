@@ -22,6 +22,8 @@ from app.agentive.harness.pydantic_ai_compat import (
     ConversationSearch,
     InstructionDisclosureGuard,
     Instrumentation,
+    IntegralContextAdmission,
+    IntegralContextLifecycle,
     IntegralLimitWarnings,
     IntegralToolDisclosure,
     PublicConversationHistorySource,
@@ -30,9 +32,8 @@ from app.agentive.harness.pydantic_ai_compat import (
     StepPersistence,
     StepStore,
     ToolSearch,
-    build_integral_context_compaction,
-    build_integral_history_compaction,
     build_integral_run_instructions,
+    build_integral_working_context,
 )
 from app.agentive.harness.scoped_store import ScopedStepStore
 from app.agentive.harness.turn_progress import TurnProgress
@@ -129,6 +130,7 @@ def build_native_runtime(
 
     capabilities: list[Any] = [
         Instrumentation(),
+        IntegralContextLifecycle(),
         IntegralLimitWarnings(),
         # Pydantic AI owns deferred tool discovery; its supported callable
         # strategy uses Integral's tenant-authorized semantic catalog rather
@@ -174,7 +176,7 @@ def build_native_runtime(
         # Bound repeated read payloads even within a long active turn. Only
         # tools explicitly marked read-only in the Core catalogue may be
         # compacted; capability loading, skills, staging, and writes stay exact.
-        build_integral_context_compaction(
+        build_integral_working_context(
             clearable_tools=frozenset(
                 tool.name
                 for tool in tools
@@ -182,7 +184,6 @@ def build_native_runtime(
                 == "read"
             )
         ),
-        build_integral_history_compaction(),
         # Search only this server-assigned Pydantic conversation. The source
         # is the exact tenant/principal/thread/session-scoped StepStore used by
         # StepPersistence; never use the library's store-wide search scope.
@@ -205,6 +206,7 @@ def build_native_runtime(
         )
 
     capabilities.append(InstructionDisclosureGuard(protected_instructions=protected))
+    capabilities.append(IntegralContextAdmission())
 
     agent = Agent(
         model,

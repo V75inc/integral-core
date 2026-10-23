@@ -35,3 +35,15 @@ After approval or rejection, verify the recorded result and give one or two
 short sentences. State what changed or remains unresolved; omit workflow
 recaps, repeated proposals and unsolicited offers. Keep exact technical facts
 in diagnostics. Do not truncate an uncertain outcome into a success claim.
+
+### Skill context lifetime
+
+The authorized workspace skill library is a discovery catalogue, not a list of
+procedures to resend forever. Native runtime context policy retains the active
+and recent task's procedures, expires older complete load pairs under a byte
+allowance, and bounds historical tool disclosures. The agent can reload an
+expired skill using the normal authorized discovery/load flow. A skill is never
+left marked active after its required instruction body is discarded. Pending
+staging/effect continuations protect their task, and final context admission
+stops oversized protected work safely. App uninstall, permission checks and
+profile invalidation remain Core authorities; context retention grants none.

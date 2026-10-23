@@ -337,7 +337,7 @@ def test_application_code_uses_integral_adapter_for_pydantic_imports() -> None:
     direct_imports: list[str] = []
 
     for source_path in app_root.rglob("*.py"):
-        if source_path == adapter_path:
+        if source_path in {adapter_path, adapter_path.with_name("pydantic_context.py")}:
             continue
         tree = ast.parse(
             source_path.read_text(encoding="utf-8"), filename=str(source_path)
@@ -463,7 +463,9 @@ def test_integral_compaction_preserves_the_recent_working_set() -> None:
 @pytest.mark.asyncio
 async def test_compaction_keeps_skill_and_working_set_and_clears_old_payloads() -> None:
     """Compact model-visible history without mutating the durable source list."""
-    compaction = build_integral_context_compaction()
+    compaction = build_integral_context_compaction(
+        clearable_tools=frozenset({"search_capabilities", "read"})
+    )
     messages = [
         ModelResponse(
             parts=[ToolCallPart("search_capabilities", {"query": "q" * 4000}, "search")]
@@ -529,9 +531,9 @@ async def test_receipt_filing_compaction_retains_source_destination_and_schema()
             ]
         )
 
-    compacted = await build_integral_context_compaction().compact(
-        messages, SimpleNamespace()
-    )
+    compacted = await build_integral_context_compaction(
+        clearable_tools=frozenset({"read"})
+    ).compact(messages, SimpleNamespace())
 
     assert compacted == messages
     assert [
@@ -628,6 +630,7 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
     tmp_path,
 ):
     """Use the real library across a resumed long chat, including summary usage."""
+    from pydantic_ai.profiles import ModelProfile
     from pydantic_ai.usage import RequestUsage
 
     from app.agentive.harness.pydantic_ai_compat import (
@@ -673,7 +676,7 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
         return ModelResponse(parts=[TextPart("Ana remains the only customer.")])
 
     agent = Agent(
-        FunctionModel(respond),
+        FunctionModel(respond, profile=ModelProfile(context_window=200_000)),
         capabilities=[
             Skills(tmp_path, include={"record-work"}),
             build_integral_history_compaction(),
@@ -687,7 +690,7 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
     assert observations == ["load", "first", "summary", "resumed"]
     assert second.usage.requests == 2
     fresh_agent = Agent(
-        FunctionModel(respond),
+        FunctionModel(respond, profile=ModelProfile(context_window=200_000)),
         capabilities=[
             Skills(tmp_path, include={"record-work"}),
             build_integral_history_compaction(),
@@ -884,9 +887,9 @@ async def test_compaction_clears_completed_turn_but_preserves_new_task():
                 ),
             ]
         )
-    compacted = await build_integral_context_compaction().compact(
-        messages + active, SimpleNamespace()
-    )
+    compacted = await build_integral_context_compaction(
+        clearable_tools=frozenset({"read"})
+    ).compact(messages + active, SimpleNamespace())
     assert compacted[-len(active) :] == active
     assert compacted[2].parts[0].content == "[tool result cleared]"
     assert messages[2].parts[0].content == {"record_id": "0"}

@@ -17,6 +17,7 @@ from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
 from app.agentive.harness.capability_search import pydantic_tool_search_strategy
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.pydantic_ai_compat import IntegralWorkingContext
 from app.agentive.harness.runtime import build_native_runtime
 
 
@@ -50,9 +51,13 @@ def test_runtime_uses_zero_cost_compaction_and_session_scoped_search() -> None:
         agent_name="integral-core",
     )
 
-    compaction = next(
-        item for item in _capabilities(agent) if isinstance(item, ClearToolResults)
+    pipeline = next(
+        item
+        for item in _capabilities(agent)
+        if isinstance(item, IntegralWorkingContext)
     )
+    compaction = pipeline.tiers[0]
+    assert isinstance(compaction, ClearToolResults)
     search = next(
         item for item in _capabilities(agent) if isinstance(item, ConversationSearch)
     )

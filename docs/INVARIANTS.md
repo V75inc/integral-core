@@ -976,6 +976,23 @@ directives remain outside canonical user message content.
 and dispatcher-level changed-message cases in
 `backend/tests/native_harness/wp_03/test_chat_turn_worker_postgres.py`.
 
+### I-CONTEXT-02 — Bounded resident working context
+
+Conversation age and previously visited skills/tools must not cause unbounded
+growth in model requests for a fixed-size task. Expire complete historical
+disclosures under a bounded policy, preserve current task constraints and
+unresolved effects, and resolve instructions, tool visibility and dispatch from
+the same projected history. Normalized history must survive checkpoint resume;
+prior encrypted evidence remains scoped and recoverable. Context projection
+never edits provider billing usage or grants authority. Required input that
+cannot fit the selected model's safe budget fails before dispatch rather than
+silently losing an approval/effect or looping through model retries.
+
+Verification: `tests/native_harness/wp_07/test_context_lifecycle.py` exercises
+100-run checkpoint round trips, actual provider JSON, rotating skills/tools,
+old bloated sessions, explicit overflow, media accounting and pending effects.
+Set `INTEGRAL_CONTEXT_SOAK_RUNS=500` for the longer qualification workload.
+
 ## Verification and change discipline
 
 The invariant IDs are stable references. Retired A2A IDs impose no runtime contract and are removed from the active catalog; historical records remain in Git. Active authority and admission clauses are not weakened by removing milestone prose.

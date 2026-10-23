@@ -11,6 +11,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     AbstractCapability,
     Agent,
     InstructionDisclosureGuard,
+    IntegralContextAdmission,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -254,5 +255,6 @@ def build_light_agent(
         capabilities=[
             LightRoutingProtocol(),
             InstructionDisclosureGuard(protected_instructions=LIGHT_INSTRUCTIONS),
+            IntegralContextAdmission(),
         ],
     )
