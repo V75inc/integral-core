@@ -1754,8 +1754,9 @@ async def get_user_accessible_entry_page(
     sort: Optional[List[Tuple[str, int]]] = None,
     candidate_query: Optional[Dict[str, Any]] = None,
     workspace_id: Optional[str] = None,
+    include_total: bool = True,
 ) -> Dict[str, Any]:
-    """Return an admitted offset page and its exact current audience total."""
+    """Return an admitted offset page; optional exact audience total."""
     from app.services.entry_access_projection import candidate_query as discover
     from app.services.entry_access_projection import merge_queries, select_page
 
@@ -1771,7 +1772,7 @@ async def get_user_accessible_entry_page(
         limit=limit,
         offset=offset,
         sort=sort,
-        include_total=True,
+        include_total=include_total,
         **scope,
     )
     return {

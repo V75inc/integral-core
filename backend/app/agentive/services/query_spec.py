@@ -118,6 +118,124 @@ class QuerySpecError(ValueError):
 QuerySpecExecutionError = QuerySpecError
 
 MAX_AUTHORIZED_SCAN = 1000
+COUNT_BUDGET = 2000
+PUSHDOWN_FILTER_OPS = frozenset({"eq", "ne", "in", "is_null"})
+
+
+def _track_id_from_spec(spec: QuerySpec) -> Optional[str]:
+    for query_filter in spec.filters:
+        if (
+            query_filter.field == "track_id"
+            and query_filter.op == "eq"
+            and isinstance(query_filter.value, str)
+            and query_filter.value.startswith("n.")
+        ):
+            return query_filter.value
+    return None
+
+
+def _pushdown_storage_path(field_name: str) -> Optional[str]:
+    if field_name == "track_id":
+        return None
+    if field_name == "id":
+        return "id"
+    if field_name.startswith("custom_fields."):
+        return f"context.custom_fields.{field_name.split('.', 1)[1]}"
+    if field_name == "title":
+        return "context.title"
+    if field_name in {"created_at", "updated_at", "status", "type_id", "author_id"}:
+        return f"context.{field_name}"
+    return None
+
+
+def _compile_pushdown_filter_clause(query_filter: Any) -> Optional[Dict[str, Any]]:
+    path = _pushdown_storage_path(query_filter.field)
+    if path is None:
+        return None
+    op = query_filter.op
+    value = query_filter.value
+    if op == "eq":
+        return {path: value}
+    if op == "ne":
+        return {path: {"$ne": value}}
+    if op == "in":
+        return {path: {"$in": list(value)}}
+    if op == "is_null":
+        if value:
+            return {"$or": [{path: {"$exists": False}}, {path: None}]}
+        return {path: {"$exists": True, "$ne": None}}
+    return None
+
+
+def _entry_pushdown_eligible(spec: QuerySpec) -> bool:
+    if spec.resource != "entry" or spec.traversal or spec.cursor:
+        return False
+    if _track_id_from_spec(spec) is None:
+        return False
+    for query_filter in spec.filters:
+        if query_filter.field == "track_id":
+            continue
+        if query_filter.op not in PUSHDOWN_FILTER_OPS:
+            return False
+        if _compile_pushdown_filter_clause(query_filter) is None:
+            return False
+    return True
+
+
+def _compile_pushdown_query(spec: QuerySpec) -> Dict[str, Any]:
+    from app.services.entry_access_projection import merge_queries
+
+    parts = []
+    for query_filter in spec.filters:
+        if query_filter.field == "track_id":
+            continue
+        clause = _compile_pushdown_filter_clause(query_filter)
+        if clause:
+            parts.append(clause)
+    if not parts:
+        return {}
+    return merge_queries(*parts)
+
+
+def _compile_pushdown_sort(spec: QuerySpec) -> List[Tuple[str, int]]:
+    sort_fields: List[Tuple[str, int]] = []
+    for query_sort in spec.sort:
+        path = _pushdown_storage_path(query_sort.field)
+        if path is None:
+            continue
+        direction = -1 if query_sort.direction == "desc" else 1
+        sort_fields.append((path, direction))
+    if not sort_fields:
+        sort_fields.append(("id", 1))
+    return sort_fields
+
+
+async def _count_admitted_with_budget(
+    user_id: str,
+    candidate_query: Dict[str, Any],
+    *,
+    track_id: str,
+    workspace_id: str,
+    budget: int,
+) -> Tuple[int, bool]:
+    from app.services.entry_access_projection import candidate_query as discover
+    from app.services.entry_access_projection import iter_records, merge_queries
+
+    scope_query = await discover(user_id, track_id=track_id, workspace_id=workspace_id)
+    if scope_query is None:
+        return 0, False
+    merged = merge_queries(scope_query, candidate_query)
+    total = 0
+    async for records in iter_records(
+        user_id,
+        merged,
+        track_id=track_id,
+        workspace_id=workspace_id,
+    ):
+        total += len(records)
+        if total >= budget:
+            return budget, True
+    return total, False
 
 
 RESOURCE_FIELDS = QUERY_RESOURCE_FIELDS
@@ -481,6 +599,20 @@ async def execute_query_spec(
                 entry_kwargs = {"workspace_id": workspace_id, "strict": True}
                 if scoped_app is not None:
                     entry_kwargs["app_id"] = declared_app_id
+                track_scope = next(
+                    (
+                        query_filter.value
+                        for query_filter in spec.filters
+                        if query_filter.field == "track_id"
+                        and query_filter.op == "eq"
+                        and isinstance(query_filter.value, str)
+                        and query_filter.value.startswith("n.")
+                    ),
+                    None,
+                )
+                if track_scope:
+                    entry_kwargs["track_id"] = track_scope
+                    entry_kwargs["app_id"] = None
                 items = list(
                     await get_user_accessible_entries(principal_id, **entry_kwargs)
                 )
@@ -537,16 +669,104 @@ async def execute_query_spec(
         if scope.get("error"):
             raise QuerySpecError(f"result_set.{scope['error']}: {scope['detail']}")
 
-    roots = await authorized_items(spec.resource)
     boundary_counts = {
         "excluded_tracks": 0,
         "excluded_target_tracks": 0,
         "excluded_relations": 0,
     }
-    if spec.resource == "entry" and scoped_app is None:
-        roots, boundary_counts["excluded_tracks"] = await keep_open_entries(roots)
     scope_meta = None
-    if scope is not None:
+    pushdown_used = False
+    pushdown_total_truncated = False
+    page: List[Any] = []
+    total_estimate = 0
+    next_cursor = None
+
+    if spec.resource == "entry" and scope is None and _entry_pushdown_eligible(spec):
+        from app.services.entry_access_projection import candidate_query as discover
+        from app.services.entry_access_projection import merge_queries, select_page
+
+        track_scope = _track_id_from_spec(spec)
+        assert track_scope is not None
+        candidate_query = _compile_pushdown_query(spec)
+        sort_fields = _compile_pushdown_sort(spec)
+        scope_query = await discover(
+            principal_id, track_id=track_scope, workspace_id=workspace_id
+        )
+        if scope_query is not None:
+            merged = merge_queries(scope_query, candidate_query)
+            pushdown_used = True
+            page, response = await select_page(
+                principal_id,
+                merged,
+                limit=spec.limit,
+                offset=0,
+                sort=sort_fields,
+                include_total=False,
+                workspace_id=workspace_id,
+                track_id=track_scope,
+            )
+            if spec.sort:
+                total_estimate = len(page)
+                pushdown_total_truncated = bool(response.get("has_more"))
+            else:
+                total_estimate, pushdown_total_truncated = (
+                    await _count_admitted_with_budget(
+                        principal_id,
+                        candidate_query,
+                        track_id=track_scope,
+                        workspace_id=workspace_id,
+                        budget=COUNT_BUDGET,
+                    )
+                )
+            dynamic_base_cost = spec.limit * base_work_per_candidate
+            if dynamic_base_cost > spec.cost_ceiling:
+                raise QuerySpecError(
+                    f"dynamic estimated cost {dynamic_base_cost} exceeds cost ceiling "
+                    f"{spec.cost_ceiling}"
+                )
+            has_more = bool(response.get("has_more"))
+            if has_more and page:
+                last_item = page[-1]
+                next_payload = {
+                    "fingerprint": plan_fingerprint,
+                    "last_sort": [
+                        encode_sort_value(
+                            field_value(spec.resource, last_item, query_sort.field)
+                        )
+                        for query_sort in spec.sort
+                    ],
+                    "id": str(last_item.id),
+                }
+                signed_bytes = json.dumps(
+                    next_payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ).encode("utf-8")
+                cursor_json = json.dumps(
+                    {
+                        "payload": next_payload,
+                        "signature": hmac.new(
+                            settings.SECRET_KEY.encode("utf-8"),
+                            signed_bytes,
+                            hashlib.sha256,
+                        ).hexdigest(),
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                )
+                next_cursor = (
+                    base64.urlsafe_b64encode(cursor_json.encode("utf-8"))
+                    .decode("ascii")
+                    .rstrip("=")
+                )
+
+    if not pushdown_used:
+        roots = await authorized_items(spec.resource)
+        if spec.resource == "entry" and scoped_app is None:
+            roots, boundary_counts["excluded_tracks"] = await keep_open_entries(roots)
+    if scope is not None and not pushdown_used:
         from app.models.nodes import Entry
         from app.services.result_set_scope import classify_missing, schema_drift
 
@@ -566,144 +786,152 @@ async def execute_query_spec(
             "absent_ids": classified["absent_ids"],
             "excluded_ids": classified["excluded_ids"],
         }
-    dynamic_base_cost = len(roots) * base_work_per_candidate
-    if dynamic_base_cost > spec.cost_ceiling:
-        raise QuerySpecError(
-            f"dynamic estimated cost {dynamic_base_cost} exceeds cost ceiling "
-            f"{spec.cost_ceiling}"
-        )
 
-    def matches_filters(item: Any) -> bool:
-        for query_filter in spec.filters:
-            actual = field_value(spec.resource, item, query_filter.field)
-            expected = query_filter.value
-            if query_filter.op == "eq" and actual != expected:
-                return False
-            if query_filter.op == "ne" and actual == expected:
-                return False
-            if query_filter.op == "gt":
-                try:
-                    if actual <= expected:
-                        return False
-                except TypeError:
+    if not pushdown_used:
+
+        dynamic_base_cost = len(roots) * base_work_per_candidate
+        if dynamic_base_cost > spec.cost_ceiling:
+            raise QuerySpecError(
+                f"dynamic estimated cost {dynamic_base_cost} exceeds cost ceiling "
+                f"{spec.cost_ceiling}"
+            )
+
+        def matches_filters(item: Any) -> bool:
+            for query_filter in spec.filters:
+                actual = field_value(spec.resource, item, query_filter.field)
+                expected = query_filter.value
+                if query_filter.op == "eq" and actual != expected:
                     return False
-            if query_filter.op == "gte":
-                try:
-                    if actual < expected:
-                        return False
-                except TypeError:
+                if query_filter.op == "ne" and actual == expected:
                     return False
-            if query_filter.op == "lt":
-                try:
-                    if actual >= expected:
+                if query_filter.op == "gt":
+                    try:
+                        if actual <= expected:
+                            return False
+                    except TypeError:
                         return False
-                except TypeError:
-                    return False
-            if query_filter.op == "lte":
-                try:
-                    if actual > expected:
+                if query_filter.op == "gte":
+                    try:
+                        if actual < expected:
+                            return False
+                    except TypeError:
                         return False
-                except TypeError:
-                    return False
-            if query_filter.op == "in" and actual not in expected:
-                return False
-            if query_filter.op == "not_in" and actual in expected:
-                return False
-            if query_filter.op == "contains":
-                try:
-                    if expected not in actual:
+                if query_filter.op == "lt":
+                    try:
+                        if actual >= expected:
+                            return False
+                    except TypeError:
                         return False
-                except TypeError:
+                if query_filter.op == "lte":
+                    try:
+                        if actual > expected:
+                            return False
+                    except TypeError:
+                        return False
+                if query_filter.op == "in" and actual not in expected:
                     return False
-            if query_filter.op == "is_null" and (
-                (actual is None) != query_filter.value
-            ):
-                return False
-        return True
+                if query_filter.op == "not_in" and actual in expected:
+                    return False
+                if query_filter.op == "contains":
+                    try:
+                        if expected not in actual:
+                            return False
+                    except TypeError:
+                        return False
+                if query_filter.op == "is_null" and (
+                    (actual is None) != query_filter.value
+                ):
+                    return False
+            return True
 
-    roots = [item for item in roots if matches_filters(item)]
+        roots = [item for item in roots if matches_filters(item)]
 
-    # Seed a deterministic tie-breaker before applying the user sort keys.
-    roots.sort(key=lambda item: str(getattr(item, "id", "")))
+        # Seed a deterministic tie-breaker before applying the user sort keys.
+        roots.sort(key=lambda item: str(getattr(item, "id", "")))
 
-    for query_sort in reversed(spec.sort):
-        non_null = [
-            item
-            for item in roots
-            if field_value(spec.resource, item, query_sort.field) is not None
-        ]
-        nulls = [
-            item
-            for item in roots
-            if field_value(spec.resource, item, query_sort.field) is None
-        ]
-        sort_field = query_sort.field
-        non_null.sort(
-            key=lambda item: native_sort_key(
-                field_value(spec.resource, item, sort_field)
-            ),
-            reverse=query_sort.direction == "desc",
-        )
-        roots = non_null + nulls
+        for query_sort in reversed(spec.sort):
+            non_null = [
+                item
+                for item in roots
+                if field_value(spec.resource, item, query_sort.field) is not None
+            ]
+            nulls = [
+                item
+                for item in roots
+                if field_value(spec.resource, item, query_sort.field) is None
+            ]
+            sort_field = query_sort.field
+            non_null.sort(
+                key=lambda item: native_sort_key(
+                    field_value(spec.resource, item, sort_field)
+                ),
+                reverse=query_sort.direction == "desc",
+            )
+            roots = non_null + nulls
 
-    total_estimate = len(roots)
-    if cursor_payload is not None:
+        total_estimate = len(roots)
+        if cursor_payload is not None:
 
-        def is_after_cursor(item: Any) -> bool:
-            for index, query_sort in enumerate(spec.sort):
-                item_key = native_sort_key(
-                    field_value(spec.resource, item, query_sort.field)
-                )
-                cursor_key = cursor_last_sort[index]
-                if item_key == cursor_key:
-                    continue
-                if item_key[0] == 6 or cursor_key[0] == 6:
+            def is_after_cursor(item: Any) -> bool:
+                for index, query_sort in enumerate(spec.sort):
+                    item_key = native_sort_key(
+                        field_value(spec.resource, item, query_sort.field)
+                    )
+                    cursor_key = cursor_last_sort[index]
+                    if item_key == cursor_key:
+                        continue
+                    if item_key[0] == 6 or cursor_key[0] == 6:
+                        return item_key > cursor_key
+                    if query_sort.direction == "desc":
+                        return item_key < cursor_key
                     return item_key > cursor_key
-                if query_sort.direction == "desc":
-                    return item_key < cursor_key
-                return item_key > cursor_key
-            return str(getattr(item, "id", "")) > cursor_payload["id"]
+                return str(getattr(item, "id", "")) > cursor_payload["id"]
 
-        roots = [item for item in roots if is_after_cursor(item)]
+            roots = [item for item in roots if is_after_cursor(item)]
 
-    page = roots[: spec.limit]
-    next_cursor = None
-    if len(roots) > spec.limit:
-        last_item = page[-1]
-        next_payload = {
-            "fingerprint": plan_fingerprint,
-            "last_sort": [
-                encode_sort_value(
-                    field_value(spec.resource, last_item, query_sort.field)
-                )
-                for query_sort in spec.sort
-            ],
-            "id": str(last_item.id),
-        }
-        signed_bytes = json.dumps(
-            next_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("utf-8")
-        cursor_json = json.dumps(
-            {
-                "payload": next_payload,
-                "signature": hmac.new(
-                    settings.SECRET_KEY.encode("utf-8"),
-                    signed_bytes,
-                    hashlib.sha256,
-                ).hexdigest(),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        )
-        next_cursor = (
-            base64.urlsafe_b64encode(cursor_json.encode("utf-8"))
-            .decode("ascii")
-            .rstrip("=")
-        )
+        page = roots[: spec.limit]
+        next_cursor = None
+        if len(roots) > spec.limit:
+            last_item = page[-1]
+            next_payload = {
+                "fingerprint": plan_fingerprint,
+                "last_sort": [
+                    encode_sort_value(
+                        field_value(spec.resource, last_item, query_sort.field)
+                    )
+                    for query_sort in spec.sort
+                ],
+                "id": str(last_item.id),
+            }
+            signed_bytes = json.dumps(
+                next_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("utf-8")
+            cursor_json = json.dumps(
+                {
+                    "payload": next_payload,
+                    "signature": hmac.new(
+                        settings.SECRET_KEY.encode("utf-8"),
+                        signed_bytes,
+                        hashlib.sha256,
+                    ).hexdigest(),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            )
+            next_cursor = (
+                base64.urlsafe_b64encode(cursor_json.encode("utf-8"))
+                .decode("ascii")
+                .rstrip("=")
+            )
+
+    if pushdown_used:
+        normalized_plan.setdefault("cost_model", {})["pushdown"] = True
+        if pushdown_total_truncated:
+            normalized_plan["cost_model"]["total_estimate_truncated"] = True
 
     target_sets: Dict[str, Dict[str, Any]] = {}
     traversal_target_work = 0
