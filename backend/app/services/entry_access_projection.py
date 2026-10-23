@@ -29,6 +29,23 @@ from app.services.resource_location import (
 
 WINDOW = 500
 
+_KEYSET_SORT_FIELDS = frozenset(
+    {"id", "context.created_at", "context.updated_at", "context.title"}
+)
+
+
+def _sort_uses_portable_page(fields: list[tuple[str, int]]) -> bool:
+    """Portable heap sort scans the full candidate set — avoid for indexed datetimes."""
+    for field, _ in fields:
+        if field in _KEYSET_SORT_FIELDS:
+            continue
+        if field.startswith("context.custom_fields.") and field.rsplit(".", 1)[
+            -1
+        ].endswith("_at"):
+            continue
+        return True
+    return False
+
 
 def _encode_position(record: dict, fields: list[tuple[str, int]]) -> str:
     if len(fields) <= 2:
@@ -595,10 +612,7 @@ async def select_page(
     fields = keyset_sort_fields(sort)
     # The portable comparator is needed for custom/numeric values and
     # labels whose database collation can differ from native ordering.
-    if any(
-        field not in {"id", "context.created_at", "context.updated_at"}
-        for field, _ in fields
-    ):
+    if _sort_uses_portable_page(fields):
         return await _select_portable_page(
             user_id,
             query,
@@ -613,6 +627,9 @@ async def select_page(
         )
     selected: list[dict[str, Any]] = []
     visible = 0
+    batch_size = WINDOW
+    if not include_total:
+        batch_size = min(WINDOW, max(limit + offset + 1, 8))
     async for records in iter_records(
         user_id,
         query,
@@ -621,6 +638,7 @@ async def select_page(
         app_id=app_id,
         sort=fields,
         cursor=cursor,
+        batch_size=batch_size,
     ):
         for record in records:
             if visible >= offset and len(selected) <= limit:

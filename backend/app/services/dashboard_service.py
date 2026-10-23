@@ -1445,7 +1445,7 @@ async def _resolve_declared_query_data(
         or isinstance(total, bool)
         or not isinstance(total, int)
         or total < 0
-        or len(rows) != total
+        or len(rows) > total
     ):
         return {"value": None, "error": "incomplete_declared_query"}
     if total > int(data_source.get("budget", 5000)):

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import time
 from typing import Any, Dict, Optional
 
 from app.models.nodes import App, ApplicationDefinition
@@ -118,17 +117,14 @@ async def read_app_home(
         return {"home": result, **metadata}
     if not workspace_id or workspace_id != app.workspace_id:
         raise PermissionError("Home workspace is not active")
-    deadline = time.monotonic() + 5
-    for widget in result.get("widgets", []):
+    per_widget_timeout = 10.0
+
+    async def _resolve_one(widget: Dict[str, Any]) -> None:
         if widget.get("type") in {"native_component", "extension_view"}:
-            continue
+            return
         if app.lifecycle_state != "active":
             widget["data"] = {"error": "app_not_active"}
-            continue
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            widget["data"] = {"error": "home_read_budget_exceeded"}
-            continue
+            return
         try:
             widget["data"] = await asyncio.wait_for(
                 resolve_widget_data(
@@ -137,10 +133,16 @@ async def read_app_home(
                     workspace_id=workspace_id,
                     widget=widget,
                 ),
-                timeout=remaining,
+                timeout=per_widget_timeout,
             )
+        except asyncio.TimeoutError:
+            widget["data"] = {"error": "home_read_budget_exceeded"}
         except Exception:
             widget["data"] = {"error": "home_query_unavailable"}
+
+    widgets = result.get("widgets", [])
+    if widgets:
+        await asyncio.gather(*(_resolve_one(widget) for widget in widgets))
     return {"home": result, **metadata}
 
 

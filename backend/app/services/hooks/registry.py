@@ -345,6 +345,63 @@ class ToolContext:
                 scoped.extend(await hydrate_records(records))
         return scoped
 
+    async def find_entries_page(
+        self,
+        query: Dict[str, Any],
+        *,
+        limit: int,
+        sort: Optional[List[Tuple[str, str]]] = None,
+        track_id: Optional[str] = None,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Bounded entry read for bundle hot paths (prefer over ``find_entries``)."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.permissions import get_user_accessible_entry_page
+        from app.services.workspace_governance import ordinary_authority_only
+
+        resolved_track = track_id or query.get("context.track_id")
+        if not isinstance(resolved_track, str) or not resolved_track.startswith("n."):
+            raise ValueError("find_entries_page requires a track_id")
+        sort_tuples: List[Tuple[str, int]] = []
+        for item in sort or []:
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                continue
+            field_name, direction = item
+            if field_name.startswith("context."):
+                path = field_name
+            elif field_name.startswith("custom_fields."):
+                path = f"context.{field_name}"
+            elif field_name == "id":
+                path = "id"
+            else:
+                path = f"context.{field_name}"
+            sort_tuples.append((path, -1 if str(direction).lower() == "desc" else 1))
+        if not sort_tuples:
+            sort_tuples = [("id", 1)]
+        with ordinary_authority_only(), isolated_permissions_cache():
+            page = await get_user_accessible_entry_page(
+                self.user_id,
+                resolved_track,
+                limit=max(1, limit),
+                offset=max(0, offset),
+                sort=sort_tuples,
+                candidate_query=query,
+                workspace_id=self.workspace_id,
+                include_total=False,
+            )
+        entries = list(page.get("entries") or [])
+        total = page.get("total")
+        if total is None:
+            total = len(entries)
+        else:
+            total = int(total)
+        return {
+            "entries": entries,
+            "total": total,
+            "next_cursor": page.get("next_cursor"),
+            "truncated": bool(page.get("next_cursor")),
+        }
+
     async def _tracks_by_title(self, track_type: str) -> List[Any]:
         """Tracks matching ``track_type`` by title-slug, scoped to this
         workspace, EXCLUDING tracks whose parent App has been uninstalled.
@@ -618,6 +675,53 @@ class ToolContext:
             custom_fields,
             expected_record_revision=expected_record_revision,
         )
+
+    async def delete_entry(self, entry_id: str) -> bool:
+        """Delete an Entry owned by this bundle's active App in this workspace."""
+        if getattr(self, "read_only", False):
+            return False
+        entry_id = str(entry_id or "").strip()
+        if not entry_id.startswith("n."):
+            return False
+        app = await self._bundle_app_owning(entry_id) or await self._own_bundle_app()
+        if app is None:
+            return False
+        from app.models.nodes import Entry
+        from app.schemas.policy import Resource, Subject
+        from app.services.entry_writer import delete_entry_internal
+        from app.services.policy_engine import evaluate as policy_evaluate
+
+        entry = await Entry.get(entry_id)
+        if entry is None:
+            return False
+        if str(getattr(entry, "track_id", "") or "") and self.workspace_id:
+            from app.services.resource_location import locate_resource
+
+            location = await locate_resource("entry", entry_id)
+            if location is None or str(location.workspace_id) != self.workspace_id:
+                return False
+        decision = await policy_evaluate(
+            subject=Subject(kind="human", id=self.user_id),
+            action="entry.delete",
+            resource=Resource(
+                kind="entry",
+                id=entry_id,
+                scope=f"track:{entry.track_id or ''}",
+            ),
+            payload={"entry_id": entry_id},
+        )
+        if not decision.allowed:
+            return False
+        try:
+            await delete_entry_internal(
+                actor_kind="human",
+                actor_id=self.user_id,
+                payload={"entry_id": entry_id},
+            )
+        except Exception:  # noqa: BLE001 — facade returns False on any refusal
+            logger.exception("delete_entry failed (entry_id=%s)", entry_id)
+            return False
+        return True
 
     async def update_entry_fields_in_workspace(
         self,

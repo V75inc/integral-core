@@ -169,6 +169,77 @@ async def test_declared_app_query_rejects_unavailable_app(monkeypatch) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_track_scoped_pushdown_avoids_full_authorize_hydrate(
+    monkeypatch,
+) -> None:
+    """Pushdown reads a page without loading the whole track into memory."""
+    hydrate_all: list[bool] = []
+    node = _QueryNode(
+        id="entry-1",
+        track_id="n.Track.pushdown",
+        custom_fields={"processing_status": "analyzed"},
+    )
+
+    async def accessible_entries(_user_id, **_kwargs):
+        hydrate_all.append(True)
+        return [_QueryNode(id=f"entry-{index}") for index in range(1500)]
+
+    async def fake_select_page(_user_id, _query, **kwargs):
+        assert kwargs.get("track_id") == "n.Track.pushdown"
+        assert kwargs.get("limit") == 5
+        return [node], {"has_more": False, "total": None}
+
+    async def fake_count(*_args, **_kwargs):
+        return 12, False
+
+    async def discover(_user_id, **kwargs):
+        assert kwargs.get("track_id") == "n.Track.pushdown"
+        return {"context.track_id": kwargs["track_id"]}
+
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.get_user_accessible_entries",
+        accessible_entries,
+    )
+    monkeypatch.setattr(
+        "app.services.entry_access_projection.select_page",
+        fake_select_page,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec._count_admitted_with_budget",
+        fake_count,
+    )
+    monkeypatch.setattr(
+        "app.services.entry_access_projection.candidate_query",
+        discover,
+    )
+
+    result = await execute_query_spec(
+        principal_id="user-pushdown",
+        workspace_id="ws-pushdown",
+        spec=QuerySpec(
+            resource="entry",
+            select=["id"],
+            filters=[
+                {"field": "track_id", "op": "eq", "value": "n.Track.pushdown"},
+                {
+                    "field": "custom_fields.processing_status",
+                    "op": "eq",
+                    "value": "analyzed",
+                },
+            ],
+            limit=5,
+            cost_ceiling=1000,
+        ),
+    )
+
+    assert not hydrate_all
+    assert result.total_estimate == 12
+    assert result.items == [{"id": "entry-1"}]
+    assert result.normalized_plan["cost_model"].get("pushdown") is True
+
+
+@pytest.mark.unit
 def test_query_spec_accepts_explicit_business_field_paths_without_status_fallback() -> (
     None
 ):
@@ -491,6 +562,7 @@ class _QueryNode:
     status: str = "active"
     track_id: str = ""
     name: str = ""
+    custom_fields: dict[str, Any] = field(default_factory=dict)
     neighbors: dict[str, list["_QueryNode"]] = field(default_factory=dict)
     graph_calls: list[tuple[Any, str, Any, int]] = field(default_factory=list)
     edge_queries: list[tuple[Any, dict[str, Any]]] = field(default_factory=list)
