@@ -88,7 +88,7 @@ export function AppManagerLibrary(props: Props) {
               <AppPackageDetails profile={detail} onBack={() => setDetailId(undefined)} />
               <div className="flex flex-wrap gap-2 pb-5">
                 <Button variant="primary" disabled={submitting || isPackageInstalled(detail, apps)} onClick={() => toggle(detail)}>{isPackageInstalled(detail, apps) ? 'Installed' : selected.has(detail.id) ? 'Remove from selection' : 'Add to selection'}</Button>
-                {detail.workspace_id && detail.can_delete !== false && <Button variant="ghost" aria-label={`Delete ${extractPackageMeta(detail).name} template`} disabled={submitting || props.deletingPackages.has(detail.id)} onClick={() => props.onDelete(detail)}>Delete saved template</Button>}
+                {detail.workspace_id && detail.can_delete !== false && <Button variant="ghost" aria-label={`Delete ${extractPackageMeta(detail).name} template`} disabled={submitting || props.deletingPackages.has(detail.id)} title="Delete model" className="h-11 w-11 p-0" onClick={() => props.onDelete(detail)}><Trash2 size={16} strokeWidth={1.5} aria-hidden="true" /></Button>}
               </div>
             </> : <>
             {props.libraryActions}
@@ -109,11 +109,9 @@ export function AppManagerLibrary(props: Props) {
                 </Surface> : tab === 'installed' ? <ul className="space-y-3" data-testid="app-manager-installed">{visibleInstalled.map(app => <li key={app.id}>{props.renderInstalled(app)}</li>)}</ul>
                   : <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-testid="app-manager-available">
                     {visibleProfiles.map(profile => <li key={profile.id} className="min-w-0 flex flex-col gap-1">
-                      <CatalogCard profile={profile} installed={isPackageInstalled(profile, apps)} selected={selected.has(profile.id)} disabled={submitting} onToggle={() => toggle(profile)} onDetails={() => setDetailId(profile.id)} />
-                      {profile.workspace_id && profile.can_delete !== false && <Button variant="ghost" size="sm"
-                        aria-label={`Delete ${extractPackageMeta(profile).name} operational model`}
-                        icon={<Trash2 size={14} strokeWidth={1.5} />} disabled={submitting || props.deletingPackages.has(profile.id)}
-                        onClick={() => props.onDelete(profile)}>Delete model</Button>}
+                      <CatalogCard profile={profile} installed={isPackageInstalled(profile, apps)} selected={selected.has(profile.id)} disabled={submitting} onToggle={() => toggle(profile)} onDetails={() => setDetailId(profile.id)}
+                        onDelete={profile.workspace_id && profile.can_delete !== false ? () => props.onDelete(profile) : undefined}
+                        deleting={props.deletingPackages.has(profile.id)} />
                     </li>)}
                   </ul>}
               </div>
@@ -162,9 +160,9 @@ export function AppManagerLibrary(props: Props) {
   </>;
 }
 
-function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetails }: {
+function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetails, onDelete, deleting }: {
   profile: OperationalModelNode; installed: boolean; selected: boolean; disabled: boolean;
-  onDetails(): void; onToggle(): void;
+  onDetails(): void; onToggle(): void; onDelete?: () => void; deleting?: boolean;
 }) {
   const { name, description, slug } = extractPackageMeta(profile);
   const summary = summarizeLibraryManifest(profile.manifest);
@@ -174,7 +172,13 @@ function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetai
       <Text as="p" variant="body-sm" tone="muted" className="my-3 flex-1">{description || 'An App template for your workspace.'}</Text>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button size="sm" variant={selected ? 'secondary' : 'outline'} disabled={installed || disabled} aria-label={installed ? `${name} installed` : `${selected ? 'Remove' : 'Add'} ${name}`} aria-pressed={selected} icon={selected || installed ? <Check size={14} /> : <Plus size={14} />} onClick={onToggle} className="min-h-11">{installed ? 'Installed' : selected ? 'Selected' : 'Add'}</Button>
-        <Button variant="ghost" size="xs" className="min-h-11" aria-label={`View details for ${name}`} onClick={onDetails}>View details</Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="xs" className="min-h-11" aria-label={`View details for ${name}`} onClick={onDetails}>View details</Button>
+          {onDelete && <Button variant="ghost" size="sm" className="h-11 w-11 shrink-0 p-0"
+            aria-label={`Delete ${name} operational model`} title="Delete model" disabled={disabled || deleting} onClick={onDelete}>
+            <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
+          </Button>}
+        </div>
       </div>
     </Surface>
   </div>;

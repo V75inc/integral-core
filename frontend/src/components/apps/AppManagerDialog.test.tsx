@@ -19,6 +19,7 @@ import type { App, OperationalModelNode } from '../../types';
 const mockListProfiles = vi.fn();
 const mockDeleteProfile = vi.fn();
 const mockToast = vi.fn();
+const mockConfirm = vi.fn();
 const mockBatchInstall = vi.fn();
 const mockUninstall = vi.fn();
 const mockUninstallPreflight = vi.fn();
@@ -32,7 +33,7 @@ vi.mock('../../api/operationalModels', () => ({
 }));
 
 vi.mock('../../context/ConfirmContext', () => ({
-  useConfirm: () => vi.fn().mockResolvedValue(true),
+  useConfirm: () => mockConfirm,
 }));
 vi.mock('../../context/ToastContext', () => ({
   useToast: () => ({ showToast: mockToast }),
@@ -143,6 +144,8 @@ describe('AppManagerDialog', () => {
     mockListProfiles.mockReset();
     mockDeleteProfile.mockReset();
     mockToast.mockClear();
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(true);
     mockDeleteProfile.mockResolvedValue(undefined);
     mockBatchInstall.mockReset();
     mockUninstall.mockReset();
@@ -634,6 +637,12 @@ it('offers deletion directly in the App library for user templates only', async 
   renderDialog();
   fireEvent.click(await screen.findByRole('button', { name: 'Delete HR Suite operational model' }));
   await waitFor(() => expect(mockDeleteProfile).toHaveBeenCalledWith('lib-hr'));
+  expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+    title: 'Delete App operational model?',
+    message: expect.stringContaining('Permanently delete “HR Suite”'),
+  }));
+  expect(mockConfirm.mock.calls[0][0].message).toContain('Existing Apps, Tracks, Entries, and attachments');
+  expect(mockConfirm.mock.calls[0][0].message).toContain('cannot be undone');
   await waitFor(() => expect(screen.queryByTestId('app-manager-row-hr-suite')).toBeNull());
   expect(screen.queryByRole('button', { name: 'Delete Content Factory operational model' })).toBeNull();
   expect(mockUninstall).not.toHaveBeenCalled();

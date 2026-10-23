@@ -138,6 +138,8 @@ it('confirms deletion of an uploaded model, removes it, and clears its selection
   fireEvent.click(await screen.findByRole('button', { name: /Reading List Books/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List operational model' }));
   expect(await screen.findByRole('heading', { name: 'Delete operational model?' })).toBeInTheDocument();
+  expect(screen.getByText(/Permanently delete “Reading List”/)).toHaveTextContent('Existing Tracks, Entries, and attachments');
+  expect(screen.getByText(/Permanently delete “Reading List”/)).toHaveTextContent('cannot be undone');
   expect(mocks.remove).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Delete model' }));
   await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('model-one'));

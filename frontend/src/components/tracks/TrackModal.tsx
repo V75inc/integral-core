@@ -292,7 +292,7 @@ export function TrackModal({
   const deleteLibraryModel = async (model: OperationalModelNode) => {
     if (!await confirm({
       title: 'Delete operational model?',
-      message: `Remove “${model.name}” from the Track library? Tracks already created from a copy will remain unchanged.`,
+      message: `Permanently delete “${model.name}” from the Track library? This removes its saved fields, entry types, tags, and views, so it can no longer be used to create new Tracks. Existing Tracks, Entries, and attachments created from it will remain unchanged. Models attached by reference cannot be deleted until detached. This action cannot be undone. You would need to upload or recreate the model to use it again.`,
       confirmLabel: 'Delete model', variant: 'danger',
     })) return;
     setDeletingModels(previous => new Set(previous).add(model.id));

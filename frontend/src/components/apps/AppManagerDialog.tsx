@@ -209,8 +209,8 @@ export function AppManagerDialog({
 
   async function deleteTemplate(profile: OperationalModelNode) {
     const ok = await confirm({
-      title: 'Delete saved template?',
-      message: `Remove “${profile.name}” from Manage Apps? Apps already installed from it will remain installed.`,
+      title: 'Delete App operational model?',
+      message: `Permanently delete “${extractPackageMeta(profile).name}” from the App library? This removes its saved configuration, including Track definitions, fields, tags, and views, so it can no longer be used for new installations. Existing Apps, Tracks, Entries, and attachments created from it will remain unchanged. Models attached by reference cannot be deleted until detached. This action cannot be undone. You would need to upload or recreate the model to use it again.`,
       confirmLabel: 'Delete template',
       variant: 'danger',
     });

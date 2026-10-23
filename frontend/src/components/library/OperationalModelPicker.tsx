@@ -218,13 +218,12 @@ export function OperationalModelPicker({
             </p>
             {filteredLib.map(item => {
               const model = libraryPackages.find(pkg => item.value === `library:${pkg.id}`);
-              return <div key={item.value} className="space-y-1">
-                <PickerRow item={item} />
+              return <div key={item.value} className="flex items-center gap-1">
+                <div className="min-w-0 flex-1"><PickerRow item={item} /></div>
                 {onDelete && model?.workspace_id && model.can_delete !== false && (
-                  <Button variant="ghost" size="sm" aria-label={`Delete ${item.name} operational model`}
-                    icon={<Trash2 size={14} strokeWidth={LINE_STROKE} />}
-                    disabled={deletingIds?.has(model.id)} onClick={() => onDelete(model)}>
-                    Delete model
+                  <Button variant="ghost" size="sm" className="h-11 w-11 shrink-0 p-0" aria-label={`Delete ${item.name} operational model`}
+                    title="Delete model" disabled={deletingIds?.has(model.id)} onClick={() => onDelete(model)}>
+                    <Trash2 size={16} strokeWidth={LINE_STROKE} aria-hidden="true" />
                   </Button>
                 )}
               </div>;
