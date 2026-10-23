@@ -240,3 +240,60 @@ async def test_tag_filter_runs_before_pagination_and_keeps_track_tag_identity(
         assert response.status_code == 200, response.text
         assert [entry["id"] for entry in response.json()["entries"]] == [entry_ids[0]]
         assert response.json()["has_more"] is False
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_multiple_tag_filters_intersect_before_pagination(authenticated_client):
+    client = authenticated_client
+    response = await client.post("/api/tracks", json={"title": "Multi tag records"})
+    assert response.status_code == 200, response.text
+    track_id = response.json()["track"]["id"]
+    tags = []
+    for name in ["Urgent", "Team"]:
+        response = await client.post(
+            "/api/tags", json={"track_id": track_id, "name": name}
+        )
+        assert response.status_code == 200, response.text
+        tags.append(response.json()["tag"]["id"])
+    both = []
+    for title, selection in [
+        ("Both A", tags),
+        ("Both B", tags),
+        ("Only one", tags[:1]),
+        ("Neither", []),
+    ]:
+        response = await client.post(
+            "/api/entries",
+            json={"track_id": track_id, "title": title, "tags": selection},
+        )
+        assert response.status_code == 200, response.text
+        if len(selection) == 2:
+            both.append(response.json()["entry"]["id"])
+    for path in ["/api/feed", "/api/feed_entries", "/api/entries"]:
+        params = {"tag_ids": ",".join(tags), "track_id": track_id, "limit": 1}
+        response = await client.get(path, params=params)
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 2
+        assert page["has_more"] is True
+        response = await client.get(
+            path, params={**params, "cursor": page["next_cursor"]}
+        )
+        assert response.status_code == 200, response.text
+        assert {
+            entry["id"] for entry in page["entries"] + response.json()["entries"]
+        } == set(both)
+        assert response.json()["has_more"] is False
+        response = await client.get(
+            path, params={"tag_id": tags[0], "tag_ids": tags[1]}
+        )
+        assert response.status_code == 200, response.text
+        assert {entry["id"] for entry in response.json()["entries"]} == set(both)
+        response = await client.get(path, params={"tag_ids": f"{tags[0]},missing"})
+        assert response.status_code == 200, response.text
+        assert response.json()["entries"] == []
+        response = await client.get(
+            path, params={"tag_ids": ",".join(f"tag-{i}" for i in range(21))}
+        )
+        assert response.status_code == 400
