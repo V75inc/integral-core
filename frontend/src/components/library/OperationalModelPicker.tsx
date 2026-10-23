@@ -28,6 +28,7 @@ interface Props {
   libraryPackages: OperationalModelNode[];
   /** Filter library to only 'track' or 'app' scope packages */
   scopeFilter?: 'track' | 'app';
+  onDetails?: (model: OperationalModelNode) => void;
   onDelete?: (model: OperationalModelNode) => void;
   deletingIds?: ReadonlySet<string>;
 }
@@ -57,6 +58,7 @@ export function OperationalModelPicker({
   libraryPackages,
   scopeFilter,
   onDelete,
+  onDetails,
   deletingIds,
 }: Props) {
   const [search, setSearch] = useState('');
@@ -101,14 +103,14 @@ export function OperationalModelPicker({
     );
   }, [libraryItems, q]);
 
-  function PickerRow({ item }: { item: OperationalModelPickerItem }) {
+  function PickerRow({ item, hasAction = false }: { item: OperationalModelPickerItem; hasAction?: boolean }) {
     const selected = value === item.value;
     return (
       <button
         type="button"
         onClick={() => onChange(item.value)}
         className={`
-          w-full text-left rounded-[var(--radius-card)] border px-3 py-2.5
+          w-full text-left rounded-[var(--radius-card)] border px-3 py-2.5 ${hasAction ? 'pb-14'  : ''}
           flex items-start gap-3 transition-colors duration-fast
           ${selected
             ? 'border-[var(--brand-accent-line)] bg-[var(--brand-accent-soft)]'
@@ -218,14 +220,18 @@ export function OperationalModelPicker({
             </p>
             {filteredLib.map(item => {
               const model = libraryPackages.find(pkg => item.value === `library:${pkg.id}`);
-              return <div key={item.value} className="flex items-center gap-1">
-                <div className="min-w-0 flex-1"><PickerRow item={item} /></div>
-                {onDelete && model?.workspace_id && model.can_delete !== false && (
-                  <Button variant="ghost" size="sm" className="h-11 w-11 shrink-0 p-0" aria-label={`Delete ${item.name} template`}
-                    title="Delete template" disabled={deletingIds?.has(model.id)} onClick={() => onDelete(model)}>
+              const canDelete = !!onDelete && !!model?.workspace_id && model.can_delete !== false;
+              return <div key={item.value} className="relative min-w-0">
+                <PickerRow item={item} hasAction={canDelete || !!onDetails} />
+                <div className="absolute bottom-1 right-2 flex items-center gap-1">
+                {onDetails && model && <Button variant="ghost" size="sm" className="min-h-11" aria-label={`View details for ${item.name}`} onClick={() => onDetails(model)}>View details</Button>}
+                {canDelete && model && (
+                  <Button variant="ghost" size="sm" className="h-11 w-11 p-0" aria-label={`Delete ${item.name} template`}
+                    title="Delete template" disabled={deletingIds?.has(model.id)} onClick={() => onDelete?.(model)}>
                     <Trash2 size={16} strokeWidth={LINE_STROKE} aria-hidden="true" />
                   </Button>
                 )}
+                </div>
               </div>;
             })}
           </>

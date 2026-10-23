@@ -104,7 +104,7 @@ export function AppManagerLibrary(props: Props) {
               <Text as="p" variant="meta" tone="muted" className="mb-3">{count} {count === 1 ? 'App' : 'Apps'} {tab === 'browse' ? 'in library' : `installed in ${props.workspaceName}`}</Text>
               <div id={panelId} role="region" aria-label={tab === 'browse' ? 'Browse library' : 'Installed Apps'}>
                 {count === 0 ? <Surface tone="panel-2" border="subtle" padding="lg" radius="card">
-                  <Text tone="muted" variant="body-sm">{query ? 'No Apps match your search.' : tab === 'installed' ? 'No library Apps installed in this workspace.' : 'No app packages available.'}</Text>
+                  <Text tone="muted" variant="body-sm">{query ? 'No Apps match your search.' : tab === 'installed' ? 'No Apps in this workspace yet.' : 'No app packages available.'}</Text>
                   {query && <Button variant="ghost" size="sm" onClick={() => setSearch('')}>Clear search</Button>}
                 </Surface> : tab === 'installed' ? <ul className="space-y-3" data-testid="app-manager-installed">{visibleInstalled.map(app => <li key={app.id}>{props.renderInstalled(app)}</li>)}</ul>
                   : <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-testid="app-manager-available">
@@ -119,8 +119,9 @@ export function AppManagerLibrary(props: Props) {
             </>}
           </section>
           <Surface as="aside" tone="panel-2" padding="lg" radius="none" className={`${mobileReview ? 'flex' : 'hidden sm:flex'} min-w-0 flex-col border-l border-[var(--panel-border)] sm:overflow-y-auto`} aria-label="Installation selection">
-            <div ref={heading} tabIndex={-1}><Text as="h3" variant="heading-sm" weight="semibold">{reviewing ? 'Review installation' : 'Your selection'}{rows.length ? ` (${rows.length})` : ''}</Text></div>
-            <Text as="p" variant="body-sm" tone="muted" className="mb-5 mt-2">{reviewing ? `These Apps will be added to ${props.workspaceName}.` : 'Review names and options before installing.'}</Text>
+            <div ref={heading} tabIndex={-1}><Text as="h3" variant="heading-sm" weight="semibold">{tab === 'installed' ? 'Installed Apps' : reviewing ? 'Review installation' : 'Your selection'}{tab === 'browse' && rows.length ? ` (${rows.length})` : ''}</Text></div>
+            <Text as="p" variant="body-sm" tone="muted" className="mb-5 mt-2">{tab === 'installed' ? 'Open an App or manage its installation.' : reviewing ? `Add these Apps to ${props.workspaceName}.` : 'Choose Apps, then review before installing.'}</Text>
+            {tab === 'installed' ? <Text as="p" variant="body-sm" tone="muted">{installedApps.length} {installedApps.length === 1 ? 'App installed' : 'Apps installed'} in {props.workspaceName}.</Text> : <>
             {!rows.length ? <div className="rounded-lg border border-dashed border-[var(--panel-border)] p-5 text-center">
               <Package size={24} className="mx-auto mb-3" aria-hidden />
               <Text as="p" variant="body-sm" weight="medium">No Apps selected</Text><Text as="p" variant="meta" tone="muted" className="mt-1">Choose Add on any App to build your selection.</Text>
@@ -129,33 +130,35 @@ export function AppManagerLibrary(props: Props) {
                 <div className="flex items-center justify-between gap-2"><Text as="p" variant="body-sm" weight="medium" className="break-words min-w-0">{row.name || row.default_name}</Text>
                   {!reviewing && <Button variant="ghost" size="sm" className="min-h-11 min-w-11 shrink-0" aria-label={`Remove ${row.default_name} from selection`} onClick={() => { const profile = profiles.find(p => p.id === row.library_cp_id); if (profile) toggle(profile); }} disabled={submitting}><X size={16} /></Button>}
                 </div>
-                {reviewing ? <Text as="p" variant="meta" tone="muted" className="mt-1">{row.description || 'No description'}</Text> : <>
+                {reviewing && <Text as="p" variant="meta" tone="muted" className="mt-1">{row.description || 'No description'}</Text>}
+                <>
                   <Button variant="ghost" size="xs" className="min-h-11 px-0" aria-expanded={editing === row.library_cp_id} onClick={() => setEditing(editing === row.library_cp_id ? null : row.library_cp_id)} disabled={submitting}>Customize details</Button>
                   {editing === row.library_cp_id && <div className="space-y-3 pb-2">
                     <label className="block"><Text as="span" variant="meta" tone="muted">App name</Text><Input autoFocus aria-label={`App name for ${row.default_name}`} value={row.name} onChange={event => props.onUpdate(row.library_cp_id, { name: event.target.value })} disabled={submitting} /></label>
                     <label className="block"><Text as="span" variant="meta" tone="muted">Description</Text><Textarea aria-label={`App description for ${row.default_name}`} rows={3} value={row.description} onChange={event => props.onUpdate(row.library_cp_id, { description: event.target.value })} disabled={submitting} /></label>
                   </div>}
-                </>}
+                </>
               </li>)}
             </ul>}
-            {rows.length > 0 && <div className="mt-5">{reviewing ? <Text as="p" variant="meta" tone="muted">{props.includeSeedData ? 'Include example data' : 'Start without example data'} · {props.seedEntryCount} example {props.seedEntryCount === 1 ? 'entry' : 'entries'}</Text> : <IncludeSeedDataToggle checked={props.includeSeedData} onChange={props.onSeedDataChange} seedEntryCount={props.seedEntryCount} disabled={submitting} />}</div>}
+            {rows.length > 0 && props.seedEntryCount > 0 && <div className="mt-5"><IncludeSeedDataToggle checked={props.includeSeedData} onChange={props.onSeedDataChange} seedEntryCount={props.seedEntryCount} disabled={submitting} /></div>}
             <div className="mt-auto pt-6">
               {reviewing ? <>
-                <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={returnToSelection} disabled={submitting} className="mb-3">Back to selection</Button>
+                <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={() => { returnToSelection(); setMobileReview(false); }} disabled={submitting} className="mb-3 hidden sm:inline-flex">Back to selection</Button>
                 <Button variant="primary" icon={<Package size={16} />} loading={submitting} disabled={!rows.length || submitting || rows.some(row => !row.name.trim())} onClick={props.onInstall} className="w-full min-h-11" data-testid="app-manager-apply">{submitting ? 'Installing…' : `Install selected (${rows.length})`}</Button>
               </> : <Button variant="primary" icon={<ArrowRight size={16} />} disabled={!rows.length || loading || submitting || rows.some(row => !row.name.trim())} onClick={() => setReviewing(true)} className="w-full min-h-11" data-testid="app-manager-review">Review installation</Button>}
               <Text as="p" variant="meta" tone="subtle" className="mt-2">{reviewing ? 'Confirm to install these Apps in this workspace.' : 'Your workspace changes only after you confirm.'}</Text>
             </div>
+            </>}
           </Surface>
         </div>
       </div>
     </Modal.Body>
     <Modal.Footer align="between">
       <div className="flex items-center gap-3">
-        {props.onCreateBlankApp ? <Button variant="secondary" icon={<Plus size={16} />} className="min-h-11" onClick={props.onCreateBlankApp} disabled={submitting} data-testid="app-manager-blank-app">Create your own app</Button> : <Button variant="outline" onClick={props.onClose} disabled={submitting}>Done</Button>}
+        {props.onCreateBlankApp && !reviewing ? <Button variant="secondary" icon={<Plus size={16} />} className="min-h-11" onClick={props.onCreateBlankApp} disabled={submitting} data-testid="app-manager-blank-app">Create your own app</Button> : <Button variant="outline" onClick={props.onClose} disabled={submitting}>{reviewing ? 'Cancel' : 'Done'}</Button>}
       </div>
-      <Text variant="meta" tone="muted" className="hidden sm:block">{rows.length ? `${rows.length} ${rows.length === 1 ? 'App' : 'Apps'} selected` : 'Nothing selected'}</Text>
-      <Button variant="outline" className="sm:hidden" disabled={submitting || (!mobileReview && !rows.length)} onClick={() => setMobileReview(!mobileReview)}>{mobileReview ? 'Back to library' : `Review (${rows.length})`}</Button>
+      {tab === 'browse' && <Text variant="meta" tone="muted" className="hidden sm:block">{rows.length ? `${rows.length} ${rows.length === 1 ? 'App' : 'Apps'} selected` : 'Nothing selected'}</Text>}
+      {tab === 'browse' && <Button variant="outline" className="sm:hidden" disabled={submitting || (!mobileReview && !rows.length)} onClick={() => { setReviewing(!mobileReview); setMobileReview(!mobileReview); }}>{mobileReview ? 'Back to library' : `Review (${rows.length})`}</Button>}
     </Modal.Footer>
   </>;
 }

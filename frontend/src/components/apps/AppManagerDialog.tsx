@@ -210,7 +210,7 @@ export function AppManagerDialog({
   async function deleteTemplate(profile: OperationalModelNode) {
     const ok = await confirm({
       title: 'Delete App template?',
-      message: `Permanently delete “${extractPackageMeta(profile).name}” from the App library? This removes its saved configuration, including Track definitions, fields, tags, and views, so it can no longer be used for new installations. Existing Apps, Tracks, Entries, and attachments created from it will remain unchanged. Templates linked directly to an existing App or Track must be unlinked before deletion. This action cannot be undone. You would need to upload or recreate the template to use it again.`,
+      message: `Delete “${extractPackageMeta(profile).name}” and its saved configuration? Existing Apps and their data are kept. This cannot be undone.`,
       confirmLabel: 'Delete template',
       variant: 'danger',
     });
@@ -462,10 +462,10 @@ export function AppManagerDialog({
           <AppManagerLibrary key={workspaceId}
             initialDetailId={initialDetailId}
             libraryActions={<div className="flex flex-wrap gap-2 py-3">
-              {workspaceId && <Button variant="outline" size="sm" disabled={submitting} onClick={() => setImportOpen(true)}>Import package</Button>}
+              {workspaceId && <Button variant="outline" size="sm" disabled={submitting} onClick={() => setImportOpen(true)}>Import template</Button>}
               {isPlatformAdmin && <Button variant="ghost" size="sm" disabled={submitting || refreshing} onClick={() => void refreshLibrary()}> {refreshing ? 'Refreshing…' : 'Refresh library'}</Button>}
             </div>}
-            profiles={profiles} apps={apps} installedApps={bundleApps}
+            profiles={profiles} apps={apps} installedApps={apps.filter(app => app.lifecycle_state !== 'uninstalled')}
             selected={selectedInstall} loading={loading} submitting={submitting}
             workspaceName={workspaceName} includeSeedData={includeSeedData}
             seedEntryCount={selectedSeedEntryCount} onSeedDataChange={setIncludeSeedData}
@@ -484,7 +484,7 @@ export function AppManagerDialog({
                 ...(pf?.blocking_dependents || []).map(d => d.app_name || 'Untitled app'),
                 ...(pf?.blocking_references || []).map(r => r.source_app_name || 'Untitled app'),
               ];
-              return <InstalledRow app={app} canUninstall={canUninstallApp(app, user)}
+              return <InstalledRow app={app} canUninstall={isBundleBackedApp(app) && canUninstallApp(app, user)}
                 uninstallBlocked={Boolean(pf?.blocking_dependents?.length || pf?.blocking_references?.length)}
                 blockerNames={[...new Set(blockers)]}
                 onUninstall={() => setUninstallTarget({ appId: app.id, appName: app.name })}
