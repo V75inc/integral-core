@@ -167,8 +167,21 @@ async def validate_my_model_credential(request: Request) -> Dict[str, Any]:
     except Exception as exc:
         raise BadRequestError(str(exc)) from exc
 
-    _ = resolve_principal_id(request)
-    valid, message = await validate_provider_api_key(
-        body.provider, body.api_key, body.base_url
-    )
+    user_id = resolve_principal_id(request)
+    key = body.api_key
+    base = body.base_url
+    if not key:
+        from app.services.model_credentials import decrypt_credential_api_key
+
+        stored = await get_active_credential_for_user(user_id)
+        if stored and stored.provider == body.provider:
+            stored_base = (stored.base_url or "").rstrip("/")
+            if (
+                body.provider != "custom_openai"
+                or not base
+                or base.rstrip("/") == stored_base
+            ):
+                key = decrypt_credential_api_key(stored)
+                base = base or stored_base or None
+    valid, message = await validate_provider_api_key(body.provider, key, base)
     return ModelCredentialValidateResponse(valid=valid, message=message).model_dump()

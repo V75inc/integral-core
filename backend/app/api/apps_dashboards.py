@@ -17,6 +17,7 @@ from app.api.errors import (
 )
 from app.api.utils import export_node, resolve_principal_id
 from app.models.nodes import App
+from app.schemas.app_home import HomePreviewRequest
 from app.schemas.dashboards import (
     DashboardCreateRequest,
     DashboardDrilldownRequest,
@@ -480,3 +481,29 @@ async def get_dashboard_widget_substrate(request: Request) -> Dict[str, Any]:
         "widget_types": [_payload(s) for s in dwt.iter_specs()],
         "registry_version": dwt.registry_version(),
     }
+
+
+@endpoint(
+    "/apps/{app_id}/home/preview", methods=["POST"], auth=True, tags=["Dashboards"]
+)
+async def preview_app_home(request: Request, app_id: str) -> Dict[str, Any]:
+    """Validate/read a proposed Home without changing the active composition."""
+    from app.services.app_home import read_app_home
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    body = HomePreviewRequest.model_validate(await request.json())
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    try:
+        return await read_app_home(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            preview_home=body.home,
+            include_data=body.include_data,
+        )
+    except PermissionError:
+        raise InsufficientPermissionsError(message="Access denied")
+    except ValueError:
+        raise BadRequestError(message="Invalid or unavailable Home preview")

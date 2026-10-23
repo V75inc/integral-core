@@ -450,6 +450,7 @@ async def update_app(
     accent_color: Optional[str] = None,
     icon: Optional[str] = None,
     home: Optional[Dict[str, Any]] = None,
+    expected_home_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Update an App (editor or owner only).
 
@@ -471,6 +472,7 @@ async def update_app(
         accent_color=accent_color,
         icon=icon,
         home=home,
+        expected_home_revision=expected_home_revision,
     )
 
 

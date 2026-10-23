@@ -1,5 +1,10 @@
 # Build with Integral Core
 
+App authors MUST put all App-specific settings controls in the standard App
+settings dialog, declared through `app.settings_schema`. Home, dashboards,
+Tracks, Entries and extension views must not duplicate configuration editors.
+See the [App settings UI contract](../platform/app-settings-ui.md).
+
 Core is the public Apache-2.0 foundation for Integral. Contribute improvements,
 extend the neutral engine/UI and build independent Apps, including commercial
 Apps. No Integral account, Business subscription or marketplace listing is

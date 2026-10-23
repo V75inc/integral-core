@@ -70,19 +70,6 @@ class ModelCredentialUpsertRequest(BaseModel):
             )
         return self
 
-    @model_validator(mode="after")
-    def _speech_provider_requires_key(self) -> "ModelCredentialUpsertRequest":
-        if (
-            (self.speech_model or "").strip()
-            and self.speech_provider
-            and self.speech_provider != self.provider
-            and not (self.speech_api_key or "").strip()
-        ):
-            raise ValueError(
-                "speech_api_key is required when speech_provider differs from provider"
-            )
-        return self
-
 
 class ModelCredentialResponse(BaseModel):
     provider: ModelProvider

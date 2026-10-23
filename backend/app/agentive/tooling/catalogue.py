@@ -187,7 +187,10 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
         schema["$defs"] = graph_schema.pop("$defs", {})
         properties["spec"] = graph_schema
         schema["additionalProperties"] = False
-    if spec.name == "integral_update_app" and "home" in properties:
+    if (
+        spec.name in {"integral_update_app", "integral_preview_app_home"}
+        and "home" in properties
+    ):
         from app.services.app_home_override import AppHomeComposition
 
         home_schema = AppHomeComposition.model_json_schema()
@@ -196,13 +199,33 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
         # Keep the canonical properties visible to argument normalization and
         # providers. An empty object is the existing package-Home reset contract.
         home_schema["anyOf"] = [
-            {"required": required_home},
             {"maxProperties": 0},
+            {
+                "required": required_home,
+                "oneOf": [
+                    {
+                        "properties": {
+                            "renderer": {"const": "native"},
+                            "widgets": {"maxItems": 0},
+                            "actions": {"maxItems": 0},
+                        },
+                        "required": ["renderer", "content"],
+                    },
+                    {
+                        "properties": {
+                            "renderer": {"const": "widgets"},
+                            "widgets": {"minItems": 1},
+                        },
+                        "required": ["widgets"],
+                        "not": {"required": ["content"]},
+                    },
+                ],
+            },
         ]
         home_schema["description"] = (
             "Distinct App Home tab; {} restores package Home. Supply title and "
-            "1-12 widgets with string id/type, nonoverlapping grid and authorized "
-            "data_source. Discover renderer/source contracts with "
+            "1-12 native widgets with nonoverlapping grid, or renderer=native "
+            "with a content tree using integral_read_app_home components and bindings. "
             "integral_describe_dashboard_substrate and integral_suggest_dashboard."
         )
         properties["home"] = home_schema

@@ -601,6 +601,11 @@ def build_integral_run_instructions(
             "verified timezone requires another local date. Historical record "
             "dates and model memory do not establish today's date. Do not "
             "invent a user timezone or shift the date without a verified basis.",
+            "After creating or updating resources, include the canonical result_links "
+            "in the completion response. Use an App link for a multi-Track App, "
+            "its sole Track for a single-Track App, the specific dashboard or Home "
+            "tab when changed, and an Entry link only for exactly one affected "
+            "Entry; for several Entries link their containing Track(s). "
             "Integral navigation: resource IDs are opaque. When linking saved "
             "Apps, Tracks or Entries, copy the canonical url returned by Core "
             "tools exactly. Do not split an ID, replace its dots with slashes, "
@@ -873,9 +878,26 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
     """Translate Pydantic AI failures to Integral's stable error categories."""
     from app.agentive.harness.model_errors import classified_model_error
 
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, UsageLimitExceeded):
+            return "harness_usage_limit"
+        current = current.__cause__ or current.__context__
     model_code = classified_model_error(exc)
     if model_code:
         return model_code
+    from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+    # Provider classification is content-free; raw model/guard text stays private.
+    current = exc
+    seen.clear()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, UnexpectedModelBehavior):
+            return "model_response_invalid"
+        current = current.__cause__ or current.__context__
     if isinstance(exc, UsageLimitExceeded):
         return "harness_usage_limit"
     exception_text = str(getattr(exc, "message", exc)).lower()

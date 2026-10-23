@@ -609,7 +609,12 @@ async def verify_loaded(
             # permission-checked readback. Blueprint item ids are references,
             # never routes. Reuse this read instead of making the agent discover
             # the just-created objects again merely to obtain their links.
-            route = {"app": "apps", "track": "tracks", "seed": "entries"}.get(kind)
+            route = {
+                "app": "apps",
+                "track": "tracks",
+                "seed": "entries",
+                "dashboard": "apps",
+            }.get(kind)
             object_id = locator.get("object_id")
             if route and isinstance(object_id, str) and object_id:
                 resources.append(
@@ -618,7 +623,14 @@ async def verify_loaded(
                         "kind": "entry" if kind == "seed" else kind,
                         "id": object_id,
                         "name": _label(snap),
-                        "url": f"/{route}/{quote(object_id, safe='')}",
+                        "url": (
+                            "/apps/"
+                            + quote(str(locator.get("app_id") or ""), safe="")
+                            + "?section=dashboards&dashboard_id="
+                            + quote(object_id, safe="")
+                            if kind == "dashboard"
+                            else f"/{route}/{quote(object_id, safe='')}"
+                        ),
                     }
                 )
         elif kind == "platform_default":

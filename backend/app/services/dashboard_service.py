@@ -681,6 +681,8 @@ async def build_dashboard_drilldown_spec(
         filters.append({"field": "created_at", "op": "lte", "value": source["until"]})
 
     select = ["id", "title", "track_id"]
+    if source.get("status") or source.get("statuses"):
+        select.append("status")
     for raw_filter in source.get("filters") or []:
         item = (
             raw_filter.model_dump()
@@ -695,8 +697,31 @@ async def build_dashboard_drilldown_spec(
         elif op == "exists":
             op, value = "is_null", not bool(value)
         filters.append({"field": field, "op": op, "value": value})
-        if field.startswith("custom_fields.") and field not in select:
+        if field and field not in select:
             select.append(field)
+
+    # The all-records action needs the grouping values just as a selected
+    # slice does. Select them without introducing a group filter.
+    group_by = str(source.get("group_by") or "")
+    if group_by:
+        group_field = {
+            "track": "track_id",
+            "entry_type": "type_id",
+            "tag": "tags",
+            "date": "created_at",
+            "status": "status",
+        }.get(group_by, group_by.removeprefix("date:"))
+        if not group_field.startswith("custom_fields.") and group_field not in {
+            "track_id",
+            "type_id",
+            "tags",
+            "status",
+            "created_at",
+            "updated_at",
+        }:
+            group_field = f"custom_fields.{group_field}"
+        if group_field not in select:
+            select.append(group_field)
 
     if group_key is not None:
         group_by = str(source.get("group_by") or "")
@@ -1091,7 +1116,16 @@ async def _resolve_grouped_chart(
             workspace_id=workspace_id,
         )
         series = [
-            {"label": g.get("label") or g.get("key"), "value": g.get("count", 0)}
+            {
+                "label": g.get("label") or g.get("key"),
+                "value": g.get("count", 0),
+                **(
+                    {"key": g["key"]}
+                    if g.get("key") is not None
+                    and g["key"] != (g.get("label") or g.get("key"))
+                    else {}
+                ),
+            }
             for g in raw.get("groups", [])
         ]
         if not series and app_id:
@@ -1117,23 +1151,6 @@ async def _resolve_grouped_chart(
             data_source=data_source,
         )
         groups = _group_entries(entries, group_by)
-        if group_by == "track":
-            from app.models.nodes import Track
-
-            track_titles: Dict[str, str] = {}
-            for group in groups:
-                tid = group["key"]
-                if tid == "(unknown)":
-                    continue
-                try:
-                    track = await Track.get(tid)
-                    if track:
-                        track_titles[tid] = getattr(track, "title", tid)
-                except Exception:  # noqa: BLE001
-                    continue
-            for group in groups:
-                tid = group["key"]
-                group["label"] = track_titles.get(tid, tid)
         raw = {
             "groups": groups,
             "total_matched": total,
@@ -1162,6 +1179,12 @@ async def _resolve_grouped_chart(
         {
             "label": (g.get("label") or g.get("key")) if isinstance(g, dict) else "",
             "value": g.get("count", 0) if isinstance(g, dict) else 0,
+            **(
+                {"key": g["key"]}
+                if g.get("key") is not None
+                and g["key"] != (g.get("label") or g.get("key"))
+                else {}
+            ),
         }
         for g in groups
         if isinstance(g, dict)
@@ -1505,6 +1528,71 @@ async def _resolve_declared_query_data(
     }
 
 
+async def _chart_display_data(
+    result: Dict[str, Any],
+    user_id: str,
+    workspace_id: Optional[str],
+    app: Optional[App],
+    source: Dict[str, Any],
+    widget_type: str,
+) -> Dict[str, Any]:
+    """Name declared reference groups without changing their execution identity."""
+    if widget_type not in {"chart_pie", "chart_bar", "chart_line"}:
+        return result
+    from app.services.id_resolver import find_ids, resolve_id_labels
+
+    series = result.get("series") or []
+    identities = list(
+        dict.fromkeys(
+            identity
+            for point in series
+            for identity in find_ids(str(point.get("label", "")))
+        )
+    )
+    if not identities:
+        return result
+    group = str(source.get("group_by") or "")
+    reference = group in {"id", "entry_id", "track", "track_id"}
+    # Ordinary text/fingerprints are never reinterpreted as relationships.
+    if not reference and app is not None and source.get("kind") != "declared_query":
+        from app.services.permissions import can_view_track
+
+        for track_id in await _data_source_track_ids(app, source):
+            if not await can_view_track(user_id, track_id):
+                continue
+            track = await Track.get(track_id)
+            if track and any(
+                field["key"] == group.removeprefix("custom_fields.")
+                and field["type"] in {"relation", "member"}
+                for field in await _track_dashboard_fields(track)
+            ):
+                reference = True
+                break
+    if not reference:
+        return result
+    try:
+        labels = await resolve_id_labels(
+            identities[:100],
+            user_id=user_id,
+            workspace_id=workspace_id or getattr(app, "workspace_id", None),
+        )
+    except Exception:  # noqa: BLE001 — values remain usable if label admission fails
+        labels = {}
+    display = []
+    for point in series:
+        label = str(point.get("label", ""))
+        for identity in find_ids(label):
+            kind = identity.split(".")[1]
+            resolved = labels.get(identity)
+            if not resolved or resolved == f"{kind} …{identity[-4:]}":
+                resolved = f"{kind} label unavailable"
+            label = label.replace(identity, resolved)
+        display.append(
+            {**point, "key": point.get("key", point.get("label")), "label": label}
+        )
+    return {**result, "series": display}
+
+
 async def resolve_widget_data(
     *,
     user_id: str,
@@ -1544,20 +1632,22 @@ async def resolve_widget_data(
             max_records=config.get("max_records", 3),
         )
     if ds.get("kind") == "declared_query":
-        return await _resolve_declared_query_data(
+        result = await _resolve_declared_query_data(
             user_id=user_id,
             app_id=app_id,
             workspace_id=workspace_id,
             data_source=ds,
         )
+        return await _chart_display_data(result, user_id, workspace_id, app, ds, wtype)
 
     if ds.get("kind") == "aggregate":
-        return await _resolve_aggregate_data_source(
+        result = await _resolve_aggregate_data_source(
             user_id=user_id,
             app_id=app_id,
             workspace_id=workspace_id,
             data_source=ds,
         )
+        return await _chart_display_data(result, user_id, workspace_id, app, ds, wtype)
 
     if wtype == "metric_card":
         if ds.get("metric") == "track_count":
@@ -1591,12 +1681,13 @@ async def resolve_widget_data(
         # chart_line is time-series only — coerce any categorical group_by.
         if wtype == "chart_line":
             ds["group_by"] = "date"
-        return await _resolve_grouped_chart(
+        result = await _resolve_grouped_chart(
             user_id=user_id,
             workspace_id=workspace_id,
             data_source=ds,
             app_id=app_id,
         )
+        return await _chart_display_data(result, user_id, workspace_id, app, ds, wtype)
 
     if wtype == "activity_digest":
         raw = await _resolve_activity_digest(

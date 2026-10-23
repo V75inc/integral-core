@@ -119,7 +119,7 @@ def _created_ref_from_result(
     return None
 
 
-def extract_consumed_nav(
+def _extract_consumed_nav(
     execute_result: Any,
     staged: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -203,3 +203,13 @@ def extract_consumed_nav(
         "trackId": (diff or {}).get("track_id"),
         "appId": (diff or {}).get("app_id"),
     }
+
+
+def extract_consumed_nav(execute_result: Any, staged: Dict[str, Any]) -> Dict[str, Any]:
+    """Preserve canonical destinations alongside legacy transcript navigation."""
+    nav = _extract_consumed_nav(execute_result, staged)
+    if isinstance(execute_result, dict) and isinstance(
+        execute_result.get("result_links"), list
+    ):
+        nav["resultLinks"] = execute_result["result_links"]
+    return nav

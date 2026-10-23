@@ -469,3 +469,79 @@ async def test_invalid_embedding_configuration_preserves_primary_writes(
     monkeypatch.setenv("EMBEDDING_MODEL_DIMENSIONS", "384")
     await indexing.reconcile_page()
     assert (await indexing.deliver_index_jobs())["indexed"] == 2
+
+
+async def test_workspace_byok_indexes_and_queries_same_space_then_fences_switch(
+    vector_driver, monkeypatch
+):
+    import json
+
+    import httpx
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.models.credentials import UserModelConnection
+    from app.schemas.embedding_configuration import EmbeddingModelWrite
+    from app.services.retrieval import embedding_configuration as config
+    from app.services.retrieval.workspace_reindex import process_workspace_rebuilds
+
+    user, workspace, app, track, entry = await graph()
+    identity = await AuthUser.create(
+        email=f"vectors-{uuid.uuid4().hex}@example.com", password_hash="fixture-only"
+    )
+    user.user_id = identity.id
+    await user.save()
+    connection = UserModelConnection(
+        user_id=identity.id,
+        name="Fixture",
+        provider="custom_openai",
+        base_url="http://localhost:8080/v1",
+    )
+    await connection.save()
+    calls = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        calls.extend(payload["input"])
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": i, "embedding": [1.0] + [0.0] * 15}
+                    for i, _ in enumerate(payload["input"])
+                ]
+            },
+        )
+
+    from tests.test_embedding_configuration import mock_embedding_http
+
+    mock_embedding_http(monkeypatch, httpx.MockTransport(respond))
+    remote = await config.save(
+        identity.id,
+        workspace.id,
+        EmbeddingModelWrite(
+            mode="provider",
+            connection_id=connection.id,
+            model="fixture-embedding",
+            dimensions=16,
+            allow_workspace_text=True,
+            revision=0,
+        ),
+    )
+    await process_workspace_rebuilds()
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    found, *_ = await search(
+        user, workspace, app, vector_driver, query="Scope QA", mode="semantic"
+    )
+    assert found and found[0].entry_id == entry.id
+    assert calls[-1] == "Scope QA"
+    profile = await config.resolve_workspace_embedding_profile(workspace.id)
+    assert profile.id == remote["profile_id"]
+    # Leave old-space work pending, switch, and prove it cannot send text or publish.
+    await indexing.enqueue_entry(entry, force=True)
+    before = len(calls)
+    await config.save(identity.id, workspace.id, EmbeddingModelWrite(revision=1))
+    stats = await indexing.deliver_index_jobs()
+    assert stats["superseded"] == 1 and len(calls) == before
+    assert (
+        await config.resolve_workspace_embedding_profile(workspace.id)
+    ).id == embedding_profile().id

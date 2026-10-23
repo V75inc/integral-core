@@ -233,10 +233,23 @@ async def finalize_retrieval(
         from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
 
         if isinstance(get_embedding_store(), PgVectorEmbeddingStore):
-            from app.services.retrieval.index_definition import embedding_profile
+            from app.services.agent_scope import active_workspace_id
+            from app.services.resource_location import locate_resource
+            from app.services.retrieval.embedding_configuration import (
+                resolve_workspace_embedding_profile,
+            )
 
+            workspace_id = active_workspace_id()
+            scope = payload.scope or ""
+            if scope.startswith("workspace:"):
+                workspace_id = scope.split(":", 1)[1]
+            elif scope.startswith(("app:", "track:")):
+                kind, identity = scope.split(":", 1)
+                location = await locate_resource(kind, identity)
+                workspace_id = location.workspace_id if location else workspace_id
+            profile = await resolve_workspace_embedding_profile(workspace_id or "")
             index = {
-                "profile_id": embedding_profile().id,
+                "profile_id": profile.id,
                 "coverage": "not_asserted",
                 "passage_tokens": sum(
                     p.tokens for result in results for p in result.passages
@@ -322,16 +335,8 @@ async def _dispatch_retrieve_modes(
             and not degraded
             and effective_mode != "graph"
         ):
-            from app.services.retrieval.embedding_store import EmbeddingStoreUnavailable
-            from app.services.retrieval.index_definition import embedding_profile
             from app.services.retrieval.search_service import retrieve_passages
 
-            try:
-                embedding_profile()
-            except ValueError as exc:
-                raise EmbeddingStoreUnavailable(
-                    "The search profile needs a configuration update"
-                ) from exc
             return await retrieve_passages(
                 subject, payload, driver=driver, k=k, top_n=top_n
             )
@@ -354,7 +359,10 @@ async def _dispatch_retrieve_modes(
             "hybrid",
         ) or not _is_vector_store_unavailable(exc):
             raise
-        disable_semantic_retrieval_runtime(type(exc).__name__)
+        from app.services.retrieval.profile_encoder import WorkspaceEmbeddingUnavailable
+
+        if not isinstance(exc, WorkspaceEmbeddingUnavailable):
+            disable_semantic_retrieval_runtime(type(exc).__name__)
         _warn_degraded_once(requested_mode)
         results, dropped, examined = await _retrieve_graph(
             subject, payload, k=k, top_n=top_n

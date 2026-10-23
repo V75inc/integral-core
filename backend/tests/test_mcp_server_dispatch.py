@@ -140,8 +140,8 @@ async def test_list_tools_returns_catalogue():
     # 124 -> 125: distinct App Home read capability.
     # 125 -> 124: retire the Enhance recommendation tool.
     # 124 -> 127: index status and two approval-gated maintenance capabilities.
-    # 127 -> 128: permission-checked browser navigation.
-    assert len(tools) == 128, len(tools)
+    # 128 -> 129: read-only native App Home preview.
+    assert len(tools) == 129, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

@@ -171,11 +171,24 @@ async def start_work_kernel_background(
     background_tasks.append(
         asyncio.create_task(
             work_worker.worker_loop(
-                worker_id="work-worker-0", exclude_kinds=work_worker.APP_JOB_KINDS
+                worker_id="work-worker-0",
+                exclude_kinds=work_worker.APP_JOB_KINDS | frozenset({"chat_turn"}),
             ),
             name="work-worker",
         )
     )
+    from app.config import settings
+
+    for index in range(settings.INTEGRAL_CHAT_WORKERS):
+        background_tasks.append(
+            asyncio.create_task(
+                work_worker.worker_loop(
+                    worker_id=f"chat-worker-{index}",
+                    kinds=frozenset({"chat_turn"}),
+                ),
+                name=f"chat-worker-{index}",
+            )
+        )
     # App jobs can run for minutes; their own worker keeps chat turns and
     # lifecycle work from queueing behind them.
     background_tasks.append(

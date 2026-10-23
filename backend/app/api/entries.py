@@ -42,7 +42,7 @@ from app.services.entry_context import (
     prefetch_tags_for_entries,
     prefetch_tracks_and_spaces_for_entries,
 )
-from app.services.entry_listing import fetch_accessible_entries_page
+from app.services.entry_listing import fetch_accessible_entries_page, tag_filter_clauses
 from app.services.mentions import resolve_mentions
 from app.services.notification_paths import entry_path
 from app.services.operational_model_derived_fields import (
@@ -344,6 +344,7 @@ async def list_entries(
     q: Optional[str] = None,
     include_total: bool = True,
     tag_id: Optional[str] = None,
+    tag_ids: Optional[str] = None,
 ) -> Dict[str, Any]:
     """List all entries accessible to the current user (cursor pagination).
 
@@ -374,9 +375,7 @@ async def list_entries(
         cursor=cursor,
         limit=limit,
         include_total=include_total,
-        filters=(
-            [{"field": "tags", "operator": "eq", "value": tag_id}] if tag_id else None
-        ),
+        filters=tag_filter_clauses(tag_id, tag_ids),
     )
     response["entries"] = await enrich_entry_page_for_response(page_entries)
     return response

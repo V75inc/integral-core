@@ -16,32 +16,30 @@ def _schema_path(schema: Dict[str, Any], path: str) -> Dict[str, Any]:
 
 
 def normalize_app_home(
-    raw: Any, queries: List[Dict[str, Any]]
+    raw: Any,
+    queries: List[Dict[str, Any]],
+    operations: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Validate bounded home content; no graph writes or inferred data sources."""
     if raw is None or raw == {}:
         return None
-    if not isinstance(raw, dict) or set(raw) - {
-        "title",
-        "description",
-        "widgets",
-        "actions",
-    }:
-        raise ValueError("app.home contains unsupported fields")
-    title = raw.get("title")
-    description = raw.get("description", "")
-    if not isinstance(title, str) or not title.strip() or len(title) > 100:
-        raise ValueError("app.home.title must contain 1 to 100 characters")
-    if not isinstance(description, str) or len(description) > 500:
-        raise ValueError("app.home.description must be text up to 500 characters")
-    widgets = raw.get("widgets")
-    if not isinstance(widgets, list) or not 1 <= len(widgets) <= 6:
-        raise ValueError("app.home requires 1 to 6 widgets")
+    from app.schemas.app_home import AppHomeComposition
+
+    raw = AppHomeComposition.model_validate(raw).model_dump(
+        mode="json", exclude_none=True
+    )
+    if raw["renderer"] == "native":
+        validate_home_components(raw, queries=queries, operations=operations or [])
+        return raw
+    widgets = raw["widgets"]
     declarations = {item["key"]: item for item in queries}
     normalized = []
     seen = set()
     occupied: set[tuple[int, int]] = set()
     for raw_widget in widgets:
+        if raw_widget["type"] == "native_component":
+            normalized.append(raw_widget)
+            continue
         widget = DashboardWidgetSpec.model_validate(raw_widget).model_dump()
         identity = widget["id"]
         if not identity or len(identity) > 128 or identity in seen:
@@ -99,42 +97,20 @@ def normalize_app_home(
             raise ValueError("app.home widget placements must not overlap")
         occupied.update(cells)
         normalized.append(widget)
-    actions = raw.get("actions", [])
-    if not isinstance(actions, list) or len(actions) > 3:
-        raise ValueError("app.home supports at most 3 draft-chat actions")
-    action_labels = set()
-    for action in actions:
-        if (
-            not isinstance(action, dict)
-            or not {"label", "draft"} <= set(action)
-            or set(action) - {"label", "draft", "when"}
-        ):
-            raise ValueError("app.home action requires label and draft")
-        if (
-            not isinstance(action["label"], str)
-            or not action["label"].strip()
-            or len(action["label"]) > 80
-            or not isinstance(action["draft"], str)
-            or not action["draft"].strip()
-            or len(action["draft"]) > 500
-        ):
-            raise ValueError("app.home action text is empty or out of bounds")
-        if action["label"] in action_labels:
-            raise ValueError("app.home action labels must be unique")
-        action_labels.add(action["label"])
-        condition = action.get("when")
-        if condition is not None and (
-            not isinstance(condition, dict)
-            or set(condition) != {"widget", "state"}
-            or condition.get("widget") not in seen
-            or condition.get("state") not in {"empty", "has_records"}
-        ):
-            raise ValueError(
-                "app.home action condition must name a widget and empty/has_records state"
-            )
-    return {
-        "title": title.strip(),
-        "description": description,
-        "widgets": normalized,
-        "actions": actions,
-    }
+    raw["widgets"] = normalized
+    validate_home_components(raw, queries=queries, operations=operations or [])
+    return raw
+
+
+def validate_home_components(
+    home: Dict[str, Any],
+    *,
+    queries: Optional[List[Dict[str, Any]]] = None,
+    operations: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    """Compatibility entry point for definition-upgrade presentation checks."""
+    from app.services.home_native import validate_native_home
+
+    validate_native_home(
+        home, {"app": {"queries": queries or [], "operations": operations or []}}
+    )

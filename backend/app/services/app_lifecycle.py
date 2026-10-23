@@ -47,6 +47,7 @@ import logging
 import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from app.api.errors import InsufficientPermissionsError
 from app.api.utils import export_node
 from app.exceptions import (
     AppInstallError,
@@ -410,6 +411,7 @@ async def install_app(
     icon_override: Optional[str] = None,
     include_seed_data: Optional[bool] = None,
     visibility: Optional[str] = None,
+    _change_event_sink=None,
 ) -> Dict[str, Any]:
     """Atomic install transaction — 12 steps per app_bundles_v1.md §9.1.
 
@@ -833,22 +835,26 @@ async def install_app(
 
         invalidate_workspace_profile(workspace_id)
 
-        await emit_change_event(
-            actor_kind="human" if actor_user else "system",
-            actor_id=actor_id or "system",
-            action="app.installed",
-            resource_type="App",
-            resource_id=app_node.id,
-            before=None,
-            after=await export_node(app_node),
-            scope=f"app:{app_node.id}",
-            details={
+        event = {
+            "actor_kind": "human" if actor_user else "system",
+            "actor_id": actor_id or "system",
+            "action": "app.installed",
+            "resource_type": "App",
+            "resource_id": app_node.id,
+            "before": None,
+            "after": await export_node(app_node),
+            "scope": f"app:{app_node.id}",
+            "details": {
                 "library_source_id": library_cp_id,
                 "version": app_node.version,
                 "skills_registered": len(registered_skills),
                 "agents_registered": len(registered_agents),
             },
-        )
+        }
+        if _change_event_sink is not None:
+            _change_event_sink(event)
+        else:
+            await emit_change_event(**event)
         logger.info(
             "install_app: app %s installed (workspace=%s, library=%s, "
             "skills=%d, agents=%d)",
@@ -1585,12 +1591,45 @@ async def update_app_from_library(
     version: Optional[str] = None,
     actor_id: str,
 ) -> Dict[str, Any]:
+    """Serialize package upgrades with Home edits and recheck current edit access."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.authority_facts import primary_node_record
+    from app.services.membership_write_scope import membership_write_scope
+    from app.services.permissions import can_edit_app
+
+    app = await App.get(app_id)
+    if app is None:
+        raise BadRequestError(message="App not found")
+    async with membership_write_scope(app.workspace_id, principal_ids=[actor_id]):
+        graph = get_default_context()
+        row = await primary_node_record(graph.database, App, app_id)
+        if row is None:
+            raise BadRequestError(message="App not found")
+        current = await graph._deserialize_entity(App, row)
+        if not await can_edit_app(actor_id, app_id):
+            raise InsufficientPermissionsError(message="App update access required")
+        return await _update_app_from_library(
+            _app_node=current,
+            app_id=app_id,
+            version=version,
+            actor_id=actor_id,
+        )
+
+
+async def _update_app_from_library(
+    *,
+    _app_node: App,
+    app_id: str,
+    version: Optional[str] = None,
+    actor_id: str,
+) -> Dict[str, Any]:
     """Re-merge the originating library package into the App's attached CP.
 
     Plan 10-05 ships the basic "re-run merge_library_manifest_into_operational_model"
     path. Migrations / version-bump diff is Plan 10-06's concern.
     """
-    app_node = await App.get(app_id)
+    app_node = _app_node
     if not app_node:
         raise BadRequestError(message=f"App {app_id!r} not found")
     lib_id = app_node.installed_from_library_id
@@ -1629,6 +1668,16 @@ async def update_app_from_library(
     migration_safety = await assert_package_upgrade_migration_safe(
         attached_profile=attached_cp, library_profile=library_cp, user_id=actor_id
     )
+    from app.services.home_native import validate_native_home
+
+    try:
+        validate_native_home(
+            app_node.home_composition or {}, migration_safety["candidate_manifest"]
+        )
+    except ValueError as exc:
+        raise BadRequestError(
+            message="Reconcile this App's customized Home before upgrading its components"
+        ) from exc
     version_before = app_node.version
     fingerprint_before = getattr(app_node, "installed_artifact_fingerprint", None)
     manifest_snapshot = dict(getattr(attached_cp, "manifest", None) or {})

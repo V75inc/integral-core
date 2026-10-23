@@ -324,6 +324,22 @@ class Workspace(Node):
     applied_profiles: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class WorkspaceModelConfiguration(Node):
+    """Workspace-attached model selection, isolated from ordinary settings saves.
+
+    Only model services perform revision-bound field updates. Provider keys
+    remain in private credentials; this node stores owned references only.
+    """
+
+    workspace_id: str = attribute(default="", indexed=True)
+    # Workspace search-model choice. Provider keys stay in owned credentials;
+    # this declaration only selects an isolated derived embedding space.
+    embedding_settings: Dict[str, Any] = Field(default_factory=dict)
+    embedding_settings_revision: int = Field(default=0, ge=0)
+    voice_settings: Dict[str, Any] = Field(default_factory=dict)
+    voice_settings_revision: int = Field(default=0, ge=0)
+
+
 class WorkspaceAuthorizationState(Node):
     """Workspace-attached authorization revision, written only by atomic updates.
 
@@ -410,6 +426,7 @@ class App(Node):
     icon: str = ""  # built-in icon key or bounded inline raster logo
     owner_user_id: Optional[str] = None
     home_composition: Optional[Dict[str, Any]] = None
+    home_revision: int = 0
     description: str = ""
     visibility: str = "private"  # private, workspace, public
     # Every App lives in exactly one Workspace (Personal or Organization).
@@ -858,6 +875,9 @@ class ChatThread(Node):
     ChatThread → ChatMessage via ``CONTAINS``.
     """
 
+    model_profile_id: str = ""
+    model_routing_mode: str = "inherit"
+    model_reasoning_efforts: Dict[str, str] = Field(default_factory=dict)
     user_id: str = ""
     # Active workspace at thread creation. Empty for pre-migration rows;
     # backfilled by scripts/migrate_to_workspaces.py to the user's Personal.

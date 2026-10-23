@@ -514,6 +514,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         timeout_seconds: float = 180.0,
         idle_timeout_seconds: float = 30.0,
         admission: ModelAdmission | None = None,
+        dispatch_guard: Callable[[], None] | None = None,
         request_validator: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         max_attempts: int = 1,
         retry_status: Callable[[int, int], Awaitable[None]] | None = None,
@@ -533,6 +534,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         self._timeout_seconds = timeout_seconds
         self._idle_timeout_seconds = min(idle_timeout_seconds, timeout_seconds)
         self._admission = admission
+        self._dispatch_guard = dispatch_guard
         self._request_validator = request_validator
 
     async def _sdk_completion(self, **kwargs: Any) -> Any:
@@ -637,7 +639,12 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         request_context = _request_context(body)
         request_id = str(uuid4())
         started_at = datetime.now(timezone.utc)
+        from app.services.model_settings import provider_model_options
+
         kwargs = dict(body)
+        if "max_tokens" in self._route.generation_settings:
+            kwargs.pop("max_completion_tokens", None)
+        kwargs.update(provider_model_options(self._route.generation_settings))
         kwargs["num_retries"] = 0  # Core owns retry identity and accounting.
         # LiteLLM has provider-specific default timeouts, which can leave a
         # broken streaming response waiting far beyond Integral's intended
@@ -655,7 +662,9 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             ollama_options = (
                 dict(ollama_options) if isinstance(ollama_options, dict) else {}
             )
-            ollama_options["num_ctx"] = self._route.ollama_num_ctx
+            ollama_options["num_ctx"] = self._route.generation_settings.get(
+                "context_window", self._route.ollama_num_ctx
+            )
             extra_body["options"] = ollama_options
             kwargs["extra_body"] = extra_body
         if self._route.ollama_num_predict is not None:
@@ -665,7 +674,24 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             # let the smaller generic value win. Collapse the aliases to the
             # route-owned max_tokens, which LiteLLM maps to num_predict.
             kwargs.pop("max_completion_tokens", None)
-            kwargs["max_tokens"] = self._route.ollama_num_predict
+            kwargs["max_tokens"] = self._route.generation_settings.get(
+                "max_tokens", self._route.ollama_num_predict
+            )
+        if self._route.ollama_num_ctx is not None:
+            # LiteLLM shallow-merges extra_body into the final Ollama payload.
+            # Preserve every generated native sampling option when supplying
+            # options.num_ctx, or that merge silently drops num_predict etc.
+            options = kwargs["extra_body"]["options"]
+            for parameter, native in {
+                "max_tokens": "num_predict",
+                "temperature": "temperature",
+                "top_p": "top_p",
+                "seed": "seed",
+                "frequency_penalty": "repeat_penalty",
+                "stop": "stop",
+            }.items():
+                if kwargs.get(parameter) is not None:
+                    options[native] = kwargs[parameter]
         if (
             self._route.ollama_think is not None
             or self._route.ollama_clear_thinking is not None
@@ -680,6 +706,49 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             if self._route.ollama_clear_thinking is not None:
                 extra_body["clear_thinking"] = self._route.ollama_clear_thinking
             kwargs["extra_body"] = extra_body
+        if (
+            self._route.provider == "ollama_chat"
+            and "reasoning_effort" in self._route.generation_settings
+        ):
+            # The pinned LiteLLM adapter turns non-GPT-OSS effort levels into
+            # bools (and "max" into false). Preserve verified native levels;
+            # the saved profile overrides the deployment's think default.
+            effort = kwargs.pop("reasoning_effort")
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body["think"] = False if effort == "none" else effort
+            kwargs["extra_body"] = extra_body
+        if (
+            self._route.provider == "ollama_chat"
+            and "thinking_enabled" in self._route.generation_settings
+        ):
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body["think"] = self._route.generation_settings["thinking_enabled"]
+            kwargs["extra_body"] = extra_body
+        if (
+            self._route.provider == "anthropic"
+            and self._route.generation_settings.get("reasoning_effort") == "none"
+        ):
+            # Omitting thinking can restore an adaptive model's on default.
+            # An explicit Off choice must reach Anthropic as disabled.
+            kwargs.pop("reasoning_effort", None)
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body["thinking"] = {"type": "disabled"}
+            kwargs["extra_body"] = extra_body
+        if self._route.provider == "openrouter":
+            # OpenRouter's native reasoning object preserves model-defined
+            # effort names and budgets; the pinned adapter rewrites max to xhigh.
+            reasoning = {}
+            if "reasoning_effort" in self._route.generation_settings:
+                reasoning["effort"] = kwargs.pop("reasoning_effort")
+            if "thinking_budget" in self._route.generation_settings:
+                kwargs.pop("thinking", None)
+                reasoning["max_tokens"] = self._route.generation_settings[
+                    "thinking_budget"
+                ]
+            if reasoning:
+                extra_body = dict(kwargs.get("extra_body") or {})
+                extra_body["reasoning"] = reasoning
+                kwargs["extra_body"] = extra_body
         if self._route.api_base is not None:
             kwargs["api_base"] = self._route.api_base
         else:
@@ -693,6 +762,8 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             request_id = str(uuid4())
             started_at = datetime.now(timezone.utc)
             readiness = None
+            if self._dispatch_guard is not None:
+                self._dispatch_guard()
             if self._admission is not None:
                 # Use final mapped SDK kwargs, including tools, reasoning controls
                 # and enforced output settings. Do not pass credential material to
@@ -809,6 +880,11 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                                         )
                                         for choice in choices
                                     ):
+                                        from app.services.chat_latency import (
+                                            mark_latency,
+                                        )
+
+                                        mark_latency("providerFirstTokenMs")
                                         break
                                     if any(
                                         choice.get("finish_reason")
@@ -1011,6 +1087,7 @@ def build_litellm_sdk_model(
     timeout_seconds: float = 180.0,
     idle_timeout_seconds: float = 30.0,
     admission: ModelAdmission | None = None,
+    dispatch_guard: Callable[[], None] | None = None,
     request_validator: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     max_attempts: int = 1,
     retry_status: Callable[[int, int], Awaitable[None]] | None = None,
@@ -1024,6 +1101,7 @@ def build_litellm_sdk_model(
         timeout_seconds=timeout_seconds,
         idle_timeout_seconds=idle_timeout_seconds,
         admission=admission,
+        dispatch_guard=dispatch_guard,
         request_validator=request_validator,
         max_attempts=max_attempts,
         retry_status=retry_status,

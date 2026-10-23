@@ -17,6 +17,11 @@ Integral must provide a shared operational foundation in which people and AI can
 
 ## Human experience
 
+Every App uses its standard App settings dialog for all App-specific settings
+controls. Developers and agents must not scatter configuration editors across
+Home, dashboards, Tracks, Entries or custom views. Operational forms remain
+on their relevant surfaces. See the [settings UI contract](../platform/app-settings-ui.md).
+
 People should recognize resources by name, navigate authorized relationships, understand where they are working, and distinguish a proposal from an applied change. UI hiding cannot supply privacy. Generation should produce inspectable artifacts and respect design-only intent.
 
 ## Boundary requirements

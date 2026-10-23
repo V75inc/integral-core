@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -114,6 +114,7 @@ class ResolvedModelRoute(BaseModel):
     api_base: str | None = None
     api_key: SecretStr | None = None
     keyless_endpoint: bool = Field(default=False, exclude=True)
+    generation_settings: dict[str, Any] = Field(default_factory=dict)
     ollama_num_ctx: int | None = Field(default=None, ge=512, le=131072)
     ollama_num_predict: int | None = Field(default=None, ge=1, le=131072)
     ollama_think: str | bool | None = None
@@ -227,6 +228,7 @@ class PhysicalModelRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     request_id: str
+    model_role: Literal["light", "heavy"] | None = None
     scope: HarnessExecutionScope
     provider: str
     model: str

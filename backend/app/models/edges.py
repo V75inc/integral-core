@@ -37,6 +37,15 @@ class HasAuthorizationState(Edge):
 HAS_AUTHORIZATION_STATE = HasAuthorizationState
 
 
+class HasModelConfiguration(Edge):
+    """Workspace → its single revision-bound model selection record."""
+
+    bidirectional: bool = False
+
+
+HAS_MODEL_CONFIGURATION = HasModelConfiguration
+
+
 class HasView(Edge):
     """Track → its saved View; canonical scope independent of shared models.
 

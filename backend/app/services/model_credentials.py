@@ -283,6 +283,7 @@ async def upsert_user_credential(
     speech_model: Optional[str] = None,
     speech_provider: Optional[str] = None,
     speech_api_key: Optional[str] = None,
+    generation_settings: Optional[Dict[str, Any]] = None,
 ) -> UserModelCredential:
     """Validate + (re)persist a user's primary-model and voice-input credentials."""
     if settings.INTEGRAL_AGENT_KEY_MODE == "platform_only":
@@ -294,8 +295,25 @@ async def upsert_user_credential(
 
     if clear_api_key and (slug != "custom_openai" or (api_key or "").strip()):
         raise ValueError("clear_api_key is only supported for keyless custom endpoints")
+    from app.services.model_settings import validate_model_settings
+
     local_ollama = slug == "ollama_local"
     existing = await get_credential_for_user(user_id)
+    configured_settings = validate_model_settings(
+        slug,
+        model.strip(),
+        (
+            generation_settings
+            if generation_settings is not None
+            else (
+                getattr(existing, "generation_settings", {})
+                if existing
+                and existing.provider == slug
+                and existing.model == model.strip()
+                else {}
+            )
+        ),
+    )
     # Encryption is required only when a secret is stored or retained. Keyless
     # custom endpoints persist no secret, so they work without vault config
     # (same exemption local Ollama enjoys).
@@ -403,8 +421,18 @@ async def upsert_user_credential(
             label="speech",
             provider_slug=speech_slug,
             incoming_key=speech_api_key,
-            existing_enc=existing.speech_api_key_enc if existing else "",
-            existing_fingerprint=existing.speech_key_fingerprint if existing else "",
+            existing_enc=(
+                existing.speech_api_key_enc
+                if existing
+                and (existing.speech_provider or existing.provider) == speech_slug
+                else ""
+            ),
+            existing_fingerprint=(
+                existing.speech_key_fingerprint
+                if existing
+                and (existing.speech_provider or existing.provider) == speech_slug
+                else ""
+            ),
         )
     else:
         speech_slug, speech_encrypted, speech_fingerprint = slug, "", ""
@@ -415,8 +443,20 @@ async def upsert_user_credential(
         encrypt_secret_for_storage(api_key_plain, aad=user_id) if api_key_plain else ""
     )
     if existing:
+        if (
+            existing.provider != slug
+            or existing.base_url != base_normalized
+            or bool((api_key or "").strip())
+            or clear_api_key
+            or existing.model != model.strip()
+            or existing.generation_settings != configured_settings
+        ):
+            existing.active_profile_id = ""
+            existing.routing_mode = "single"
+            existing.light_profile_id = ""
         existing.provider = slug
         existing.model = model.strip()
+        existing.generation_settings = configured_settings
         existing.base_url = base_normalized
         existing.speech_provider = speech_slug if speech_slug != slug else ""
         existing.speech_model = speech_model_clean
@@ -434,6 +474,7 @@ async def upsert_user_credential(
         user_id=user_id,
         provider=slug,
         model=model.strip(),
+        generation_settings=configured_settings,
         base_url=base_normalized,
         speech_provider=speech_slug if speech_slug != slug else "",
         speech_model=speech_model_clean,
@@ -481,15 +522,45 @@ def decrypt_credential_speech_api_key(record: UserModelCredential) -> str:
 
 async def touch_credential_last_used(record: UserModelCredential) -> None:
     """Stamp ``last_used_at`` on the credential (best-effort usage marker)."""
-    record.last_used_at = utc_now_iso()
-    await record.save()
+    from datetime import datetime, timezone
+
+    from jvspatial.core.context import get_default_context
+
+    now = utc_now_iso()
+    if record.last_used_at:
+        try:
+            previous = datetime.fromisoformat(
+                record.last_used_at.replace("Z", "+00:00")
+            )
+            if (datetime.now(timezone.utc) - previous).total_seconds() < 60:
+                return
+        except (ValueError, TypeError):
+            pass
+    # Field-only telemetry: saving a hydrated credential here can overwrite a
+    # concurrent key rotation or persist a conversation's transient model route.
+    await get_default_context().database.find_one_and_update(
+        "object",
+        {"id": record.id, "context.user_id": record.user_id},
+        {"$set": {"context.last_used_at": now}},
+    )
+    record.last_used_at = now
 
 
 async def delete_credentials_for_user(user_id: str) -> int:
     """Hard-delete all credential rows for ``user_id``; return the count removed."""
-    rows = await UserModelCredential.find({"context.user_id": user_id})
+    from jvspatial.core.context import get_default_context
+
+    from app.models.credentials import UserModelConnection, UserModelProfile
+
+    context = get_default_context()
     count = 0
-    for row in rows:
-        await row.delete()
-        count += 1
+    for cls in (UserModelProfile, UserModelConnection, UserModelCredential):
+        await context.ensure_indexes(cls)
+        while True:
+            rows = await context.find(cls, {"context.user_id": user_id}, limit=100)
+            if not rows:
+                break
+            for row in rows:
+                await row.delete()
+                count += 1
     return count

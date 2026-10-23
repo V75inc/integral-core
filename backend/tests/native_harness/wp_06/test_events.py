@@ -85,6 +85,7 @@ def test_tool_result_uses_pydantic_return_part_content() -> None:
             "toolCallId": "call-1",
             "name": "integral_list_tracks",
             "result": {"items": [], "_receipt": None},
+            "summary": {"outcome": "returned", "returned_count": 0},
             "status": "complete",
         }
     ]

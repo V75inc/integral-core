@@ -321,7 +321,10 @@ async def test_bridge_routes_chat_completion_and_records_usage_without_network()
 
 
 @pytest.mark.asyncio
-async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
+@pytest.mark.parametrize("sampling", [{"temperature": 0.3}, {"top_p": 0.8}])
+async def test_local_ollama_context_is_forwarded_as_provider_option(
+    sampling: dict[str, float],
+) -> None:
     """The configured local context reaches LiteLLM without affecting others."""
     captured: dict[str, Any] = {}
 
@@ -349,6 +352,7 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
         ollama_num_predict=8192,
         ollama_think="low",
         ollama_clear_thinking=True,
+        generation_settings={"max_tokens": 4096, **sampling},
         credential_source="local",
     )
     model = build_litellm_sdk_model(
@@ -366,7 +370,10 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
     assert captured["extra_body"]["options"]["num_ctx"] == 32768
     assert captured["timeout"] == 37
     assert "num_ctx" not in captured
-    assert captured["max_tokens"] == 8192
+    assert captured["max_tokens"] == 4096
+    assert captured["extra_body"]["options"]["num_predict"] == 4096
+    for key, value in sampling.items():
+        assert captured["extra_body"]["options"][key] == value
     assert "max_completion_tokens" not in captured
     assert captured["extra_body"]["think"] == "low"
     assert captured["extra_body"]["clear_thinking"] is True
@@ -1427,3 +1434,179 @@ async def test_image_revocation_blocks_sdk_dispatch():
         )
     assert calls == []
     assert [event.outcome for event in observations] == ["dispatch_intent", "failed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "configured, expected",
+    [
+        (
+            {"reasoning_effort": "high", "max_tokens": 4096},
+            {"reasoning_effort": "high", "max_tokens": 4096},
+        ),
+        (
+            {"thinking_budget": 2048, "max_tokens": 4096},
+            {
+                "thinking": {"type": "enabled", "budget_tokens": 2048},
+                "max_tokens": 4096,
+            },
+        ),
+    ],
+)
+async def test_profile_generation_options_reach_actual_sdk_payload(
+    configured, expected
+):
+    captured = {}
+
+    async def completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "request-settings",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "claude-sonnet",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    route = _route().model_copy(update={"generation_settings": configured})
+    transport = LiteLLMSDKTransport(
+        route=route, scope=_scope(), observer=_ignore_observation, completion=completion
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        response = await client.post(
+            "http://litellm-sdk.invalid/v1/chat/completions",
+            json={
+                "model": route.model,
+                "messages": [{"role": "user", "content": "fixture"}],
+                "max_completion_tokens": 12,
+                "tool_choice": "auto",
+            },
+        )
+    assert response.status_code == 200
+    for key, value in expected.items():
+        assert captured[key] == value
+    assert "max_completion_tokens" not in captured
+    assert captured["tool_choice"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_shared_budget_guard_precedes_retry_admission_and_dispatch() -> None:
+    """A second physical attempt cannot spend beyond the shared turn cap."""
+    from app.agentive.harness.model_errors import NativeModelRequestError
+    from app.agentive.harness.pydantic_ai_compat import UsageLimitExceeded
+    from app.services.chat_latency import TurnLatency
+
+    timing = TurnLatency()
+    timing.freeze_budget({"model_request_limit": 1})
+    events = []
+
+    async def admission(_request):
+        events.append("admission")
+
+        async def ready():
+            events.append("ready")
+
+        return ready
+
+    async def completion(**_kwargs):
+        events.append("dispatch")
+        raise NativeModelRequestError("model_provider_unavailable")
+
+    transport = LiteLLMSDKTransport(
+        route=_route(),
+        scope=_scope(),
+        observer=_ignore_observation,
+        admission=admission,
+        dispatch_guard=timing.reserve_dispatch,
+        completion=completion,
+        max_attempts=2,
+    )
+    async with AsyncOpenAI(
+        api_key="bridge-placeholder",
+        base_url="http://litellm-sdk.invalid/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        max_retries=0,
+    ) as client:
+        with pytest.raises(APIConnectionError) as caught:
+            await client.chat.completions.create(
+                model=_route().model,
+                messages=[{"role": "user", "content": "budget check"}],
+            )
+    from app.agentive.harness.pydantic_ai_compat import (
+        classify_integral_harness_exception,
+    )
+
+    assert classify_integral_harness_exception(caught.value) == "harness_usage_limit"
+    assert isinstance(caught.value.__cause__, UsageLimitExceeded)
+    assert events == ["admission", "ready", "dispatch"]
+    assert timing.physical_requests == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider,configured,expected",
+    [
+        ("ollama_chat", {"reasoning_effort": "max"}, {"think": "max"}),
+        ("ollama_chat", {"reasoning_effort": "none"}, {"think": False}),
+        ("ollama_chat", {"thinking_enabled": False}, {"think": False}),
+        ("ollama_chat", {"thinking_enabled": True}, {"think": True}),
+        ("anthropic", {"reasoning_effort": "none"}, {"thinking": {"type": "disabled"}}),
+        ("openrouter", {"reasoning_effort": "max"}, {"reasoning": {"effort": "max"}}),
+        (
+            "openrouter",
+            {"thinking_budget": 2048, "max_tokens": 4096},
+            {"reasoning": {"max_tokens": 2048}},
+        ),
+    ],
+)
+async def test_provider_native_reasoning_settings_are_preserved(
+    provider, configured, expected
+):
+    captured = {}
+
+    async def completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "reasoning-settings",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "fixture",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    route = _route().model_copy(
+        update={
+            "provider": provider,
+            "model": f"{provider}/fixture",
+            "generation_settings": configured,
+            **({"ollama_think": "low"} if provider == "ollama_chat" else {}),
+        }
+    )
+    transport = LiteLLMSDKTransport(
+        route=route, scope=_scope(), observer=_ignore_observation, completion=completion
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        response = await client.post(
+            "http://litellm-sdk.invalid/v1/chat/completions",
+            json={
+                "model": route.model,
+                "messages": [{"role": "user", "content": "fixture"}],
+            },
+        )
+    assert response.status_code == 200
+    for key, value in expected.items():
+        assert captured["extra_body"][key] == value
+    assert "reasoning_effort" not in captured
+    assert "thinking_enabled" not in captured

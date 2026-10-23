@@ -4,20 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
+from app.schemas.app_home import AppHomeComposition
 from app.schemas.dashboards import DashboardWidgetSpec
 from app.services.dashboard_service import validate_dashboard_field_bindings
 from app.services.dashboard_widget_validation import validate_widget_specs
-
-
-class AppHomeComposition(BaseModel):
-    """Neutral Home content, separate from named analytics dashboards."""
-
-    model_config = ConfigDict(extra="forbid")
-    title: str = Field(min_length=1, max_length=100)
-    description: str = Field(default="", max_length=500)
-    widgets: List[DashboardWidgetSpec] = Field(min_length=1, max_length=12)
+from app.services.home_native import validate_native_home
 
 
 async def validate_home_composition(
@@ -35,8 +28,12 @@ async def validate_home_composition(
         # data. Only canonical schema field names and numeric indices may leave
         # this boundary; extra keys and custom validator text are untrusted.
         known_fields = _home_schema_fields()
-        issues = []
-        for error in exc.errors(include_input=False, include_context=False)[:8]:
+        issues = (
+            ["widgets: required field"]
+            if home.get("renderer", "widgets") == "widgets" and "widgets" not in home
+            else []
+        )
+        for error in exc.errors(include_input=False, include_context=True)[:8]:
             path = ".".join(
                 (
                     str(segment)
@@ -44,6 +41,7 @@ async def validate_home_composition(
                     else "<extra field>"
                 )
                 for segment in error["loc"]
+                if segment not in {"HomeComponentWidget", "HomeNativeWidget"}
             )
             reason = {
                 "missing": "required field",
@@ -56,40 +54,43 @@ async def validate_home_composition(
                 "too_short": "too few items or characters",
                 "too_long": "too many items or characters",
             }.get(error["type"], "value does not match the declared schema")
+            canonical = str((error.get("ctx") or {}).get("error", ""))
+            if canonical in {
+                "Home widgets must not overlap",
+                "Home widget IDs must be unique and bounded",
+                "Home widget placement is out of bounds",
+                "Home title is required",
+            }:
+                reason = canonical
             issues.append(f"{path or 'home'}: {reason}")
         raise ValueError("Invalid Home arguments: " + "; ".join(issues)) from exc
-    if not normalized["title"].strip():
-        raise ValueError("Home title is required")
-    errors = validate_widget_specs(normalized["widgets"])
+    native = [
+        widget
+        for widget in normalized["widgets"]
+        if widget["type"] != "native_component"
+    ]
+    errors = validate_widget_specs(native)
     if errors:
         raise ValueError("Invalid Home widgets: " + "; ".join(errors))
-    ids: set[str] = set()
-    placements: List[Dict[str, int]] = []
-    for widget in normalized["widgets"]:
-        if widget["id"] in ids:
-            raise ValueError("Home widget IDs must be unique")
-        ids.add(widget["id"])
-        g = widget["grid"]
-        if not (
-            0 <= g["x"] < 12
-            and 0 <= g["y"] <= 100
-            and 1 <= g["w"] <= 12
-            and 1 <= g["h"] <= 12
-            and g["x"] + g["w"] <= 12
-        ):
-            raise ValueError("Home widget placement is out of bounds")
-        if any(
-            g["x"] < p["x"] + p["w"]
-            and p["x"] < g["x"] + g["w"]
-            and g["y"] < p["y"] + p["h"]
-            and p["y"] < g["y"] + g["h"]
-            for p in placements
-        ):
-            raise ValueError("Home widgets must not overlap")
-        placements.append(g)
-    await validate_dashboard_field_bindings(
-        user_id=user_id, app_id=app_id, widgets=normalized["widgets"]
-    )
+    if native:
+        await validate_dashboard_field_bindings(
+            user_id=user_id, app_id=app_id, widgets=native
+        )
+    if normalized["renderer"] == "native" or len(native) != len(normalized["widgets"]):
+        from app.models.nodes import App
+        from app.services.app_extension_views import (
+            _compiled_app_manifest,
+            _ensure_app_access,
+        )
+
+        app = await App.get(app_id)
+        if app is None:
+            raise ValueError("App not found")
+        await _ensure_app_access(app, user_id, app.workspace_id)
+        if not getattr(app, "active_definition_id", ""):
+            raise ValueError("Custom Home requires an active App definition")
+        canonical = await _compiled_app_manifest(app)
+        validate_native_home(normalized, canonical)
     return normalized
 
 
@@ -148,5 +149,9 @@ async def prepare_suggested_home(
         if len(selected) == 12:
             break
     return (
-        {"title": "Home", "description": "", "widgets": selected} if selected else None
+        AppHomeComposition(title="Home", widgets=selected).model_dump(
+            mode="json", exclude_none=True
+        )
+        if selected
+        else None
     )

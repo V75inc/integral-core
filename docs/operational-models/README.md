@@ -19,6 +19,9 @@ Current package YAML uses `integral_operational_model_version: 3`; compiled mani
 
 ## Reading path
 
+- [App settings UI contract](../platform/app-settings-ui.md): one standard dialog
+  for all App-specific settings controls.
+
 - [Composition patterns](COMPOSITION_PATTERNS.md)
 - [Field presentation](FIELD_LAYOUT.md)
 - [Package discovery and indexing](../backend/operational-model-search-index.md)

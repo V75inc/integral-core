@@ -545,6 +545,15 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
         work_item_id=work_item_id,
     )
 
+    from app.services.chat_latency import mark_latency
+
+    mark_latency("firstToolStartedMs")
+    if inv.capability_key not in {
+        "search_capabilities",
+        "integral_describe_capabilities",
+        "integral_describe_substrate",
+    }:
+        mark_latency("firstOperationalToolMs")
     try:
         data = await _call_adapter(inv, cap)
     except AdapterError as exc:

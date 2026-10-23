@@ -447,6 +447,53 @@ def _make_handler(
                     arguments=arguments,
                 )
         model_result = _resource_links_for_model(result.for_model())
+        executed = model_result.get("execute_result")
+        if (
+            not isinstance(executed, dict)
+            and model_result.get("_kind") == "unstaged_write"
+        ):
+            executed = model_result.get("result")
+        if not isinstance(executed, dict) and capability_op_class == "execute":
+            executed = model_result
+        if result.ok and (
+            isinstance(executed, dict) or capability_name == "integral_verify_build"
+        ):
+            from app.services.completion_links import completion_links, completion_refs
+
+            completed = completion_refs(
+                (
+                    model_result
+                    if capability_name == "integral_verify_build"
+                    else executed
+                ),
+                str(
+                    model_result.get("kind")
+                    or capability_name.removeprefix("integral_")
+                ),
+                arguments,
+            )
+            prior = call_state.get("completed_resource_refs") or []
+            refs = {
+                (r.get("kind"), r.get("id")): r
+                for r in [*prior, *completed]
+                if isinstance(r, dict)
+            }
+            call_state["completed_resource_refs"] = list(refs.values())
+            try:
+                links = await completion_links(
+                    {"resources": list(refs.values())},
+                    kind="completed",
+                    arguments={},
+                    user_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                )
+            except (
+                Exception
+            ):  # noqa: BLE001 — presentation cannot invalidate a committed action
+                links = []
+            model_result["result_links"] = links
+            call_state["completed_resource_links"] = links
+
         if (
             capability_source == "connector"
             and capability_op_class == "read"

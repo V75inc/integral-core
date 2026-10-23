@@ -1,5 +1,10 @@
 # Package and migration responsibilities
 
+All App-specific settings UI MUST use the standard App settings dialog via
+`app.settings_schema`. Package and agent authoring must not add parallel
+configuration panels on operational surfaces. Follow the
+[settings UI contract](../platform/app-settings-ui.md).
+
 Keep disk package, catalog model, attached model, App instance, and active definition distinct. Disk YAML v3 compiles to runtime schema v2; an installed App's immutable active definition establishes the effective application contract.
 
 Schema changes use draft validation, impact checks, and supported declarative migration operations. A forced publish is separately authorized and does not migrate existing records. Runtime migration work has durable identity, progress, and failed-item diagnostics.

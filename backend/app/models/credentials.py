@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from jvspatial.core import Object
 from jvspatial.core.annotations import attribute, compound_index
+from pydantic import Field
 
 
 @compound_index(
@@ -26,6 +27,10 @@ class UserModelCredential(Object):
     # Custom OpenAI-compatible base URL (plaintext, not a secret). Only set
     # when ``provider == "custom_openai"``; passed as LiteLLM ``api_base``.
     base_url: str = attribute(default="")
+    generation_settings: Dict[str, Any] = Field(default_factory=dict)
+    active_profile_id: str = ""
+    routing_mode: str = "single"
+    light_profile_id: str = ""
     # Speech-to-text (voice input) slot. Opt-in: empty ``speech_model`` = off.
     speech_provider: str = attribute(default="")
     speech_model: str = attribute(default="")
@@ -38,3 +43,29 @@ class UserModelCredential(Object):
     last_used_at: Optional[str] = attribute(default=None)
     created_at: Optional[str] = attribute(default=None)
     updated_at: Optional[str] = attribute(default=None)
+
+
+class UserModelConnection(Object):
+    """Scalar-keyed private provider connection; never a graph participant."""
+
+    user_id: str = attribute(default="", indexed=True)
+    name: str = ""
+    provider: str = ""
+    base_url: str = ""
+    api_key_enc: str = ""
+    key_fingerprint: str = ""
+    validated_at: str = ""
+    last_test_ok: Optional[bool] = None
+    last_tested_at: str = ""
+    updated_at: str = ""
+
+
+class UserModelProfile(Object):
+    """Private model configuration referencing a same-user connection."""
+
+    user_id: str = attribute(default="", indexed=True)
+    connection_id: str = ""
+    name: str = ""
+    model: str = ""
+    generation_settings: Dict[str, Any] = Field(default_factory=dict)
+    updated_at: str = ""

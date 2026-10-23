@@ -423,6 +423,20 @@ Compute existing-record validation impact before destructive reapplication. Bloc
 
 ## Packages and extension boundaries
 
+### I-APP-SETTINGS-01 — One App settings surface
+
+All App-specific settings UI controls live in the standard App settings dialog
+opened from the App header. Developers and agents declare configuration through
+`app.settings_schema` and canonical settings persistence. Home, dashboard,
+Track, Entry and extension views must not introduce alternative settings
+editors. Operational record forms are distinct from App configuration. Core's
+required install-time collection reuses the same schema; subsequent editing
+uses the standard dialog. Unsupported controls require a reviewed shared
+renderer/contract extension. This is an authoring and review invariant, not a
+claim that the compiler can infer every form's purpose. See the
+[App settings UI contract](platform/app-settings-ui.md).
+
+
 ### I-APP-DEF-01 — Active-Definition-Authority
 
 Every App materialized through the package lifecycle has one active
@@ -438,6 +452,16 @@ sole authorization or execution authority for an installed App: an operation
 that needs the effective contract resolves the active definition first. This
 preserves package provenance and gives upgrades a stable base for a later
 three-way merge.
+
+Installed Home customizations are presentation overrides, separately persisted
+from package defaults. Custom Home content is a validated native component tree. Data and operation
+bindings must belong to that App's active definition. Home content cannot mount
+iframes, executable scripts, arbitrary HTML or styles. Custom Home edits carry an
+observed revision checked inside the workspace write fence; staged approval
+cannot overwrite a newer edit. Compatible definition upgrades preserve the
+override; incompatible component/schema changes refuse activation. Preview does
+not persist layouts or grant operation authority. UI operations retain canonical
+policy, receipt and effect identity; presentation refresh never implies success.
 
 ### I-APP-01 — Canonical runtime schema v2
 

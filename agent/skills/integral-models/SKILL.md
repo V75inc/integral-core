@@ -10,6 +10,17 @@ This skill is for **substrate authoring** — shaping the schema a track
 or app exposes (its EntryTypes, Tags, Views), or composing a new
 library Operational Model that other tracks can pick up.
 
+## App settings placement (required)
+
+All App-specific settings controls MUST use the standard App settings dialog
+opened from the App header. Declare configuration in `app.settings_schema`;
+never create settings editors on Home, dashboards, Tracks, Entries or extension
+views. Keep record-entry and other operational forms on their working surfaces.
+Preserve settings values when revising an App. If the shared settings renderer
+cannot express a control, identify the required contract extension rather than
+inventing a separate UI or unsupported settings-write tool. Use available
+canonical authoring/approval paths and verify saved values before claiming success.
+
 ## When to use
 
 The user wants to **inspect, attach, merge, or reshape** a track or app's

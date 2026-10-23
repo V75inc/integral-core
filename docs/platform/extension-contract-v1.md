@@ -125,6 +125,18 @@ The frozen hook catalog contains `entry.transform`, `entry.public_share`, `entry
 
 ## Presentation
 
+### App-specific settings (mandatory)
+
+All App-specific settings controls MUST use the standard App settings dialog
+available from the App header. Declare them in `app.settings_schema`; do not
+embed settings editors in Home, dashboards, Tracks, Entries or extension views.
+Operational record forms remain on their relevant surfaces. Developers and
+agents follow the [App settings UI contract](app-settings-ui.md), including
+canonical persistence, permission checks and review evidence. Unsupported
+controls require an extension to the shared settings renderer, not a separate
+settings UI.
+
+
 App-owned declarative composites use registered Core primitives. Sandboxed iframe extension views use declared assets, hosted paths, and the view handshake; a view's `config.min_height` lets a compact view size below the default frame height. This is an implemented extension surface; arbitrary remote React plugins or inline executable manifest code are not substitutes.
 
 Frame responses permit embedding by the API origin (`'self'`) and the explicit
@@ -166,3 +178,11 @@ operation discovery exposes the effective `agent_invocation` value.
 ## App-owned computed relation updates
 
 The owning App mutation facade may maintain readonly relation fields after active-App ownership, workspace, principal, policy, revision and protected-state admission. Readonly continues to block direct record edits. A changed relation target still requires current read access and canonical declared containment; the unchanged-legacy-reference exception does not authorize new bindings.
+
+## App Home UI SDK
+
+[App Home SDK](app-home-sdk.md) defines full and mixed custom Homes, typed
+component properties, installed overrides, previews, coauthor revisions and
+upgrade compatibility. The sandbox and canonical operation boundary remain in
+force. The independent TypeScript client lives in `sdk/ui`; background-job
+facade typing is also available in the Python SDK.

@@ -139,8 +139,9 @@ async def resolve_native_model_override(
     workspace_id: Optional[str],
     *,
     include_credential_identity: bool = False,
+    profile_id: str | None = None,
 ) -> Optional[Dict[str, Any]]:
-    """Return the native model route model and credential identity for this turn for this turn."""
+    """Return the native model route model and credential identity for this turn."""
     mode = (settings.INTEGRAL_AGENT_KEY_MODE or "hybrid").strip().lower()
     if mode == "platform_only":
         return None
@@ -170,6 +171,12 @@ async def resolve_native_model_override(
             raise ModelKeyRequiredError("model_key_required")
         return None
 
+    if profile_id or record.active_profile_id:
+        from app.services.ai_configuration import profile_credential
+
+        record = await profile_credential(
+            owner.user_id, profile_id or record.active_profile_id, record
+        )
     default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
     if (
@@ -188,8 +195,10 @@ async def resolve_native_model_override(
         return None
 
     override: Dict[str, Any] = {
-        "model": litellm_model_id(default_provider, record.model)
+        "model": litellm_model_id(default_provider, record.model),
     }
+    if getattr(record, "generation_settings", None):
+        override["generation_settings"] = record.generation_settings
     if default_key:
         override["api_key"] = default_key
     if (default_provider or "").strip().lower() == "custom_openai":
@@ -298,6 +307,11 @@ async def resolve_speech_credential(
         return _platform_speech_credential()
 
     if workspace_id:
+        from app.services.voice_configuration import workspace_override
+
+        overridden, selected = await workspace_override(workspace_id)
+        if overridden:
+            return selected
         record = await _workspace_owner_credential(workspace_id)
         speech_model = (record.speech_model or "").strip() if record else ""
         if record and speech_model:

@@ -389,6 +389,7 @@ def translate_event(event: Any) -> Iterator[dict[str, Any]]:
         call_id = getattr(part, "tool_call_id", None)
         if isinstance(name, str) and name and isinstance(call_id, str) and call_id:
             from app.services.chat_tool_diagnostics import tool_diagnostic
+            from app.services.chat_tool_summary import tool_summary
 
             content = getattr(part, "content", None)
             failed = isinstance(part, RetryPromptPart) or (
@@ -410,6 +411,7 @@ def translate_event(event: Any) -> Iterator[dict[str, Any]]:
                 # attribute (getattr returned None and hid real results in
                 # Integral's trace UI).
                 "result": getattr(part, "content", None),
+                "summary": tool_summary(name, content, failed=failed),
                 "status": "error" if failed else "complete",
                 **({"diagnostic": diagnostic} if diagnostic else {}),
             }

@@ -1,0 +1,156 @@
+integral_operational_model_version: 3
+operational_model_schema_version: 2
+scope: app
+package:
+  name: Reference SDK Home
+  slug: reference-sdk-home
+  class: community_app
+  version: 1.0.0
+  trust_tier: trusted
+  publisher: Integral Foundation
+  description: 'Public SDK example: full custom Home, typed props, queries, actions
+    and navigation.'
+  tags:
+  - reference
+  - hello
+  - contract-test
+app:
+  description: One track, one entry type, one declarative hook, one tool, one skill,
+    App-owned views.
+  tracks:
+  - key: notes
+    name: Notes
+    description: Simple notes for the reference App contract test.
+    entry_types:
+    - key: note
+      name: Note
+      icon: sticky-note
+      fields:
+      - key: body
+        name: Body
+        type: markdown
+      base_fields:
+        title:
+          label: Title
+          order: 0
+    views:
+    - key: notes_feed
+      name: Notes
+      view_type: feed
+      entry_type_keys:
+      - note
+      default_entry_type: note
+      is_default: true
+  tools:
+  - key: echo
+    name: Echo
+    description: Echoes a message back — contract-test tool surface.
+    handler_ref: tools.hello:echo
+    parameters_schema:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+      - message
+  operations:
+  - key: echo
+    kind: read
+    name: Echo message
+    description: Run the echo tool via the typed operation surface.
+    policy_action: app.read
+    staging_level: none
+    tool: echo
+    input_schema:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+      - message
+  home:
+    title: Home
+    renderer: native
+    content:
+      id: overview
+      type: stack
+      gap: lg
+      children:
+      - id: intro
+        type: stack
+        gap: sm
+        children:
+        - id: heading
+          type: heading
+          text: Your notes at a glance
+        - id: welcome
+          type: text
+          text: A custom Home composed with Integral’s native UI.
+      - id: overview-grid
+        type: grid
+        columns: 2
+        children:
+        - id: count
+          type: metric
+          title: Recent notes
+          query_key: notes
+          value_path: total_estimate
+        - id: chart
+          type: chart
+          title: Notes overview
+          query_key: notes
+          chart_type: bar
+          label_field: title
+      - id: details-grid
+        type: grid
+        columns: 2
+        children:
+        - id: records
+          type: records
+          title: Pick up where you left off
+          query_key: notes
+        - id: message-card
+          type: card
+          children:
+          - id: message-form
+            type: form
+            title: Try an App action
+            operation_key: echo
+            submit_label: Send message
+            fields:
+            - name: message
+              label: Message
+              required: true
+  queries:
+  - key: notes
+    handler_key: notes
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    query_template:
+      resource: entry
+      select:
+      - id
+      - title
+      limit: 10
+      cost_ceiling: 1000
+    output_schema:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              title:
+                type: string
+        total_estimate:
+          type: integer
+    dashboard:
+      rows_path: items
+      total_path: total_estimate
+      params: {}
+migrations: []

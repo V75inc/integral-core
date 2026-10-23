@@ -2408,6 +2408,22 @@ MAX_EXTENSION_VIEWS_PER_APP = 64
 _VALID_EXTENSION_VIEW_SCOPES = frozenset({"track", "entry", "app", "both"})
 
 
+def _validate_local_props_schema(value: Any) -> None:
+    """A component schema must never cause network resolution during validation."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in {"$ref", "$dynamicRef"} and (
+                not isinstance(child, str) or not child.startswith("#/")
+            ):
+                raise ValueError("component schemas require local references")
+            if key == "$id":
+                raise ValueError("component schemas cannot change resolution scope")
+            _validate_local_props_schema(child)
+    elif isinstance(value, list):
+        for child in value:
+            _validate_local_props_schema(child)
+
+
 def _parse_manifest_extension_views(
     raw_views: Any,
     *,
@@ -2451,8 +2467,27 @@ def _parse_manifest_extension_views(
             raise OperationalModelValidationError(
                 message=f"{where}[{key!r}].entry is required"
             )
+        props_schema = ed.get("props_schema") or {
+            "type": "object",
+            "additionalProperties": False,
+        }
+        try:
+            if (
+                not isinstance(props_schema, dict)
+                or props_schema.get("type") != "object"
+            ):
+                raise ValueError("component props must be an object schema")
+            if len(json.dumps(props_schema).encode("utf-8")) > 32768:
+                raise ValueError("component props schema exceeds 32 KiB")
+            jsonschema.Draft202012Validator.check_schema(props_schema)
+            _validate_local_props_schema(props_schema)
+        except (jsonschema.SchemaError, ValueError) as exc:
+            raise OperationalModelValidationError(
+                message="Invalid local component props schema"
+            ) from exc
         out.append(
             {
+                "props_schema": props_schema,
                 "key": key,
                 "name": str(ed.get("name") or key),
                 "description": str(ed.get("description") or ""),
@@ -4191,7 +4226,11 @@ def compile_canonical_manifest(
             from app.services.app_home_contract import normalize_app_home
 
             try:
-                app_home = normalize_app_home(app_node.get("home"), app_queries)
+                app_home = normalize_app_home(
+                    app_node.get("home"),
+                    app_queries,
+                    operations=app_operations,
+                )
             except ValueError as exc:
                 raise BadRequestError(message=str(exc)) from exc
             operation_keys = {str(item.get("key") or "") for item in app_operations}

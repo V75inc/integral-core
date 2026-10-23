@@ -455,6 +455,9 @@ async def _execute_chat_turn(
     lease_seconds: float,
 ) -> WorkItem:
     """Execute one native turn, committing each public event before replay."""
+    from datetime import datetime, timezone
+    from time import monotonic
+
     from app.agentive.services.execution_runs import AgentRun, start_run
     from app.agentive.services.work_items import authorized_work_item_effect
     from app.services.chat_providers import ChatTurnContext, get_registry
@@ -475,6 +478,16 @@ async def _execute_chat_turn(
         load_claimed_chat_turn_input,
     )
 
+    worker_started = monotonic()
+    queue_ms = None
+    try:
+        enqueued = datetime.fromisoformat(item.created_at.replace("Z", "+00:00"))
+        if enqueued.tzinfo is not None:
+            age = (datetime.now(timezone.utc) - enqueued).total_seconds() * 1000
+            if age >= 0:
+                queue_ms = age
+    except (ValueError, TypeError):
+        pass
     await _recheck_principal_workspace(item)
     ctx = work_execution.build_work_execution_context(
         work_item=item,
@@ -726,10 +739,33 @@ async def _execute_chat_turn(
         # Cancellation can arrive while persisting a yielded event, with the
         # provider paused at yield. Close it in this task so Harness resources
         # and ContextVar tokens are released before terminalizing the turn.
+        provider_offset = (monotonic() - worker_started) * 1000
         async with aclosing(
             cast(AsyncGenerator[dict[str, Any], None], provider.stream_turn(turn))
         ) as stream:
             async for event in stream:
+                if event.get("type") == "message-finish":
+                    timing = dict(event.get("timing") or {})
+                    if queue_ms is not None:
+                        offset = queue_ms + provider_offset
+                        timing["queueMs"] = queue_ms
+                        for key in (
+                            "firstTokenMs",
+                            "providerFirstTokenMs",
+                            "firstToolRequestedMs",
+                            "firstToolStartedMs",
+                            "firstOperationalToolMs",
+                            "heavyStartedMs",
+                            "lightResponseMs",
+                            "heavyFirstTokenMs",
+                            "escalationMs",
+                        ):
+                            if key in timing:
+                                timing[key] += offset
+                        timing["totalMs"] = (
+                            queue_ms + (monotonic() - worker_started) * 1000
+                        )
+                    event = {**event, "timing": timing}
                 await work_execution.assert_effect_boundary_allowed(ctx)
                 # Provider session identifiers are adapter state, not public
                 # events. Reasoning is intentionally excluded from chat replay.

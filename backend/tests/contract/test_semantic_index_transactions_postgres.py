@@ -81,3 +81,105 @@ async def test_index_configuration_and_audit_intent_share_commit(postgres_raw_db
         events = await postgres_raw_db.find("object", predicate)
         assert len(events) == 1
         assert events[0]["context"]["event"]["after"]["search_index_revision"] == 1
+
+
+async def test_workspace_embedding_config_rebuild_and_audit_rollback_together(
+    postgres_raw_db, monkeypatch
+):
+    from app.schemas.embedding_configuration import EmbeddingModelWrite
+    from app.services.retrieval import embedding_configuration as service
+    from tests.test_embedding_configuration import fixture
+
+    monkeypatch.setattr(service, "overrides_supported", lambda: True)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        user, workspace, connection, body = await fixture()
+        with pytest.raises(RuntimeError, match="rollback"):
+            async with entry_write_scope(workspace.id):
+                await service.save(user.user_id, workspace.id, body)
+                raise RuntimeError("rollback")
+        from app.services.workspace_model_configuration import configuration_record
+
+        fresh = await configuration_record(workspace.id)
+        assert fresh.embedding_settings_revision == 0
+        assert (
+            await postgres_raw_db.find(
+                "node", {"entity": "WorkspaceModelConfiguration"}
+            )
+            == []
+        )
+        assert (
+            await postgres_raw_db.find("edge", {"entity": "HasModelConfiguration"})
+            == []
+        )
+        assert (
+            await postgres_raw_db.find(
+                "object",
+                {"entity": service.REBUILD, "context.workspace_id": workspace.id},
+            )
+            == []
+        )
+        assert (
+            await postgres_raw_db.find(
+                "object",
+                {
+                    "entity": "OperationEventOutbox",
+                    "context.event.resource_id": workspace.id,
+                },
+            )
+            == []
+        )
+        result = await service.save(user.user_id, workspace.id, body)
+        assert result["revision"] == 1
+        assert (
+            len(
+                await postgres_raw_db.find(
+                    "object",
+                    {"entity": service.REBUILD, "context.workspace_id": workspace.id},
+                )
+            )
+            == 1
+        )
+        events = await postgres_raw_db.find(
+            "object",
+            {
+                "entity": "OperationEventOutbox",
+                "context.event.resource_id": workspace.id,
+            },
+        )
+        assert (
+            len(events) == 1
+            and events[0]["context"]["event"]["after"]["embedding_settings_revision"]
+            == 1
+        )
+
+
+async def test_first_model_configuration_creation_serializes_revisions(
+    postgres_raw_db, monkeypatch
+):
+    import asyncio
+
+    from app.api.errors import ResourceConflictError
+    from app.models.nodes import WorkspaceModelConfiguration
+    from app.services.retrieval import embedding_configuration as service
+    from tests.test_embedding_configuration import fixture
+
+    monkeypatch.setattr(service, "overrides_supported", lambda: True)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        user, workspace, connection, body = await fixture()
+        results = await asyncio.gather(
+            service.save(user.user_id, workspace.id, body),
+            service.save(user.user_id, workspace.id, body),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(value, dict) for value in results) == 1, results
+        assert (
+            sum(isinstance(value, ResourceConflictError) for value in results) == 1
+        ), results
+        rows = await postgres_raw_db.find(
+            "node", {"entity": WorkspaceModelConfiguration._entity_name()}
+        )
+        assert len(rows) == 1 and rows[0]["context"]["embedding_settings_revision"] == 1
+        edges = await postgres_raw_db.find(
+            "edge", {"entity": "HasModelConfiguration", "source": workspace.id}
+        )
+        assert len(edges) == 1

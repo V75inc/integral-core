@@ -369,6 +369,55 @@ async def compile_application_definition(
     local_overrides: Optional[Dict[str, Any]] = None,
     activate: bool = True,
 ) -> ApplicationDefinition:
+    """Order definition activation with installed-Home authors in the workspace."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.authority_facts import primary_node_record
+    from app.services.membership_write_scope import membership_write_scope
+
+    outer_context = get_default_context()
+    try:
+        async with membership_write_scope(app_node.workspace_id):
+            await app_node.set_context(get_default_context())
+            row = await primary_node_record(
+                get_default_context().database, App, app_node.id
+            )
+            if row is not None:
+                persisted = row["context"]
+                # The caller may hold unsaved package metadata. Refresh only the
+                # separately governed Home and definition pointers before save.
+                app_node.home_composition = persisted.get("home_composition")
+                app_node.home_revision = int(persisted.get("home_revision") or 0)
+                app_node.active_definition_id = persisted.get("active_definition_id")
+                app_node.active_definition_revision = int(
+                    persisted.get("active_definition_revision") or 0
+                )
+            result = await _compile_application_definition(
+                app_node=app_node,
+                manifest=manifest,
+                source_operational_model_id=source_operational_model_id,
+                source_kind=source_kind,
+                base_package_manifest=base_package_manifest,
+                local_overrides=local_overrides,
+                activate=activate,
+            )
+    finally:
+        await app_node.set_context(outer_context)
+    # Returned nodes outlive the activation transaction for later verification.
+    await result.set_context(outer_context)
+    return result
+
+
+async def _compile_application_definition(
+    *,
+    app_node: App,
+    manifest: Dict[str, Any],
+    source_operational_model_id: str = "",
+    source_kind: str = "package",
+    base_package_manifest: Optional[Dict[str, Any]] = None,
+    local_overrides: Optional[Dict[str, Any]] = None,
+    activate: bool = True,
+) -> ApplicationDefinition:
     """Append a compiler-validated App definition, reusing equal revisions.
 
     The App → definition structural edge satisfies I-GRAPH-01. A changed
@@ -399,6 +448,13 @@ async def compile_application_definition(
         )
         if current_base_fingerprint == package_base_fingerprint:
             return current
+
+    if activate and getattr(app_node, "home_composition", None):
+        from app.services.home_native import validate_native_home
+
+        # Instance edits survive upgrades; incompatible component removals or
+        # property changes must be explicitly reviewed before activation.
+        validate_native_home(app_node.home_composition, canonical)
 
     prior_definitions = await app_node.nodes(
         edge=[HAS_APPLICATION_DEFINITION],

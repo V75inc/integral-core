@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc31 — 2026-10-23
+
+- Simplify provider setup and chat model controls, improve model settings feedback, and make lengthy messages and usage details easier to read.
+- Improve model routing, clarify tool activity, and preserve the responsive layout across chat sizes.
+
 ## 0.1.1rc30 — 2026-10-22
 
 - Consolidate App discovery, installation review and full package details in Manage Apps; retire the duplicate Operational Models Settings and catalog screens.

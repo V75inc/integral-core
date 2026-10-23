@@ -50,7 +50,6 @@ from app.agentive.harness.pydantic_ai_compat import (
     TextPart,
     ToolEffectRecord,
     ToolReturnPart,
-    UsageLimits,
     UserPromptPart,
     build_integral_host_turn,
     classify_integral_harness_exception,
@@ -70,6 +69,7 @@ from app.api.errors import (
 )
 from app.models.nodes import ChatMessage, ChatThread, HarnessSession
 from app.schemas.agentive.work import WorkError, WorkExecutionContext
+from app.services.chat_latency import turn_usage_limits
 from app.services.chat_providers.base import (
     AgentDescriptor,
     ChatProviderCapabilities,
@@ -198,29 +198,31 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                 # the model's final response ignores tool_choice=none. Use
                 # only the current permission-checked readback, never history.
                 resources = run_state["verified_build_resources"]
-                targets = [
-                    item
-                    for item in resources
-                    if isinstance(item, dict) and item.get("kind") == "track"
-                ] or [
-                    item
-                    for item in resources
-                    if isinstance(item, dict) and item.get("kind") == "app"
-                ]
-                links = []
-                for item in targets[:3]:
-                    url = str(item.get("url") or "")
-                    if not url.startswith(("/tracks/", "/apps/")):
-                        continue
-                    label = re.sub(
-                        r"([\\`*{}\[\]()<>_])",
-                        r"\\\1",
-                        str(item.get("name") or "Open setup"),
-                    )
-                    links.append(f"[{label}]({url})")
-                return "Your setup is ready." + (
-                    " " + " · ".join(links) if links else ""
-                )
+                from app.services.completion_links import append_completion_links
+
+                links = run_state.get("completed_resource_links")
+                if links is None:
+                    # Legacy adapter fixtures retain their permission-checked links.
+                    apps = [
+                        r
+                        for r in resources
+                        if isinstance(r, dict) and r.get("kind") == "app"
+                    ]
+                    tracks = [
+                        r
+                        for r in resources
+                        if isinstance(r, dict) and r.get("kind") == "track"
+                    ]
+                    targets = tracks if len(tracks) == 1 else apps or tracks
+                    links = [
+                        {
+                            "label": r.get("name") or "Open setup",
+                            "url": r.get("url") or "",
+                        }
+                        for r in targets
+                    ]
+                return append_completion_links("Your setup is ready.", links)
+
             if not run_state.get("verification_succeeded"):
                 status = run_state.get("verification_status")
                 if status in {"partial", "blocked", "failed"}:
@@ -335,6 +337,8 @@ def _model_observability_events(
                 else "unavailable"
             ),
         }
+        if observation.model_role is not None:
+            call_event["modelRole"] = observation.model_role
         summary = summarize_model_usage(transitions[observation.request_id])
         known_usage = any(
             item.usage is not None for item in transitions[observation.request_id]
@@ -1472,16 +1476,52 @@ class PydanticAIProvider:
         return thread, workspace_role
 
     async def _build_turn_model(
-        self, ctx, scope, work_execution_context, workspace_role
+        self, ctx, scope, work_execution_context, workspace_role, *, model_role="heavy"
     ):
         """One funding, metering and current-authority contract for both modes."""
         from app.config import settings
         from app.services.workspace_permissions import can_access_workspace
 
-        route = await resolve_native_model_route(
-            workspace_id=ctx.workspace_id,
-            default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
+        thread = await ChatThread.get(ctx.thread_id)
+        profile_id = getattr(thread, "model_profile_id", "")
+        from app.agentive.harness.model_routing import (
+            conversation_turn_routes as resolve_turn_routes,
         )
+        from app.services.chat_latency import current_latency
+
+        timing = current_latency.get()
+        plan = await resolve_turn_routes(
+            workspace_id=ctx.workspace_id,
+            profile_id=profile_id,
+            reasoning_efforts=getattr(thread, "model_reasoning_efforts", {}),
+            heavy_only=getattr(thread, "model_routing_mode", "inherit") == "heavy",
+            resolver=resolve_native_model_route,
+        )
+        if timing is not None:
+            if timing.route_plan is not None and plan != timing.route_plan:
+                raise WorkError("work.model_route_stale")
+            initial_plan = timing.route_plan is None
+            timing.freeze_budget(plan.budget_settings)
+            if initial_plan:
+                from app.agentive.harness.model_routing import bind_durable_routing
+
+                await bind_durable_routing(scope, work_execution_context, plan, timing)
+            timing.route_plan = plan
+        route = plan.light if model_role == "light" else plan.heavy
+        generation = getattr(route, "generation_settings", {})
+        if timing is not None:
+            timing.model_settings = generation
+            role = (
+                "light"
+                if model_role == "light" and plan.mode == "light_heavy"
+                else "heavy"
+            )
+            if not timing.roles or timing.roles[-1]["role"] != role:
+                timing.roles.append(
+                    {"role": role, "model": getattr(route, "model", "")}
+                )
+            if model_role == "heavy":
+                timing.mark("heavyStartedMs")
         model_observer = (
             partial(
                 persist_model_request_observation,
@@ -1503,11 +1543,25 @@ class PydanticAIProvider:
                     )
                     if current_role == "none" or current_role != workspace_role:
                         raise WorkError("work.permission_stale")
-                    current_route = await resolve_native_model_route(
+                    current_thread = await ChatThread.get(ctx.thread_id)
+                    current_profile = getattr(current_thread, "model_profile_id", "")
+                    current_plan = await resolve_turn_routes(
                         workspace_id=ctx.workspace_id,
-                        default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
+                        profile_id=current_profile,
+                        reasoning_efforts=getattr(
+                            current_thread, "model_reasoning_efforts", {}
+                        ),
+                        heavy_only=getattr(
+                            current_thread, "model_routing_mode", "inherit"
+                        )
+                        == "heavy",
+                        resolver=resolve_native_model_route,
                     )
-                    if current_route != route:
+                    if current_plan != plan or (
+                        current_thread is not None
+                        and getattr(current_thread, "model_routing_mode", "inherit")
+                        != getattr(thread, "model_routing_mode", "inherit")
+                    ):
                         raise WorkError("work.model_route_stale")
 
             model_admission = WorkModelAdmission(
@@ -1516,6 +1570,17 @@ class PydanticAIProvider:
                 observer=model_observer,
             )
             model_observer = model_admission.observe
+        durable_observer = model_observer
+
+        async def observe_model(observation):
+            observation = observation.model_copy(update={"model_role": model_role})
+            if timing is not None:
+                if model_role == "light" and observation.outcome == "responded":
+                    timing.mark("lightResponseMs")
+                    timing.mark("providerFirstTokenMs")
+                timing.observe_usage(observation)
+            await durable_observer(observation)
+
         from app.services.chat_image_inputs import assert_model_image_access
         from app.services.model_retry_status import emit_model_retry_status
 
@@ -1526,20 +1591,41 @@ class PydanticAIProvider:
             with isolated_permissions_cache():
                 try:
                     await assert_model_image_access(scope, payload)
+
                 except WorkError as exc:
                     raise NativeModelRequestError("image_access_denied") from exc
 
-        return build_litellm_sdk_model(
+        model = build_litellm_sdk_model(
             route=route,
             scope=scope,
-            observer=model_observer,
+            observer=observe_model,
             admission=model_admission,
+            dispatch_guard=timing.reserve_dispatch if timing is not None else None,
             request_validator=validate_images,
-            timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
-            idle_timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS,
+            timeout_seconds=min(
+                settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+                generation.get(
+                    "request_timeout",
+                    settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+                ),
+            ),
+            idle_timeout_seconds=min(
+                settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS,
+                generation.get(
+                    "idle_timeout", settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS
+                ),
+                generation.get(
+                    "request_timeout",
+                    settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+                ),
+            ),
             max_attempts=settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS,
             retry_status=emit_model_retry_status,
         )
+
+        if timing is not None and getattr(model, "client", None) is not None:
+            timing.clients.append(model.client)
+        return model
 
     async def _try_light_turn(self, ctx, thread, workspace_role, work_context):
         from app.agentive.harness.adaptive import (
@@ -1548,14 +1634,17 @@ class PydanticAIProvider:
             OperationalContextRequest,
             SimpleReminderRequest,
             build_light_agent,
+            is_printed_context_request,
             public_dialogue,
             recent_public_messages,
             requires_operational_path,
         )
         from app.agentive.services.execution_runs import AgentRun
-        from app.config import settings
 
-        if os.getenv("INTEGRAL_NATIVE_ADAPTIVE_CONTEXT", "1") != "1":
+        if (
+            getattr(thread, "model_routing_mode", "inherit") == "heavy"
+            or os.getenv("INTEGRAL_NATIVE_ADAPTIVE_CONTEXT", "1") != "1"
+        ):
             return None
         active = (
             await HarnessSession.get(thread.active_harness_session_id)
@@ -1600,6 +1689,10 @@ class PydanticAIProvider:
                 # Mandates, scheduled work and child/recovery execution are
                 # host-owned operations even when their utterance is short.
                 return None
+        if (run.metadata or {}).get("model_routing"):
+            # A recovered invocation resumes the operational path, never reruns
+            # a prior conversational pass or resets its physical allowance.
+            return None
         accepted_id = (run.metadata or {}).get("chat_message_id")
         if not accepted_id:
             return None
@@ -1633,7 +1726,9 @@ class PydanticAIProvider:
             ),
             capability_version=run.capability_version or "conversation-v1",
         )
-        model = await self._build_turn_model(ctx, scope, work_context, workspace_role)
+        model = await self._build_turn_model(
+            ctx, scope, work_context, workspace_role, model_role="light"
+        )
         from app.services.user_timezone import user_time_context
 
         time_context = await user_time_context(ctx.user_id)
@@ -1647,15 +1742,16 @@ class PydanticAIProvider:
             ctx.text,
             message_history=public_dialogue(messages, exclude_id=accepted_id),
             cancellation_token=self._active_tokens.get(ctx.thread_id),
-            usage_limits=UsageLimits(
-                request_limit=1,
-                total_tokens_limit=settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
-            ),
+            usage_limits=turn_usage_limits(light=True),
         )
         from app.agentive.harness.events import is_serialized_tool_text
 
         if isinstance(result.output, OperationalContextRequest) or (
-            isinstance(result.output, str) and is_serialized_tool_text(result.output)
+            isinstance(result.output, str)
+            and (
+                is_serialized_tool_text(result.output)
+                or is_printed_context_request(result.output)
+            )
         ):
             # Some providers print an output-tool protocol instead of emitting
             # the typed routing result. Escalate with the original user input;
@@ -1700,6 +1796,12 @@ class PydanticAIProvider:
         if not public_text.strip():
             raise ServiceUnavailableError(
                 message="The assistant returned no usable answer"
+            )
+        if is_printed_context_request(public_text):
+            # Check normalized envelopes too; route using the original input.
+            usage = result.usage
+            return EscalatedTurn(
+                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
             )
         return LightTurnResult(
             text=public_text,
@@ -1779,11 +1881,30 @@ class PydanticAIProvider:
                     elapsed_ms=0,
                 )
 
-        light = await self._try_light_turn(
-            ctx, thread, workspace_role, work_execution_context
-        )
         from app.agentive.harness.adaptive import EscalatedTurn
+        from app.agentive.harness.model_routing import may_escalate_light_failure
+        from app.services.chat_latency import current_latency
 
+        light_started = time.monotonic()
+        try:
+            light = await self._try_light_turn(
+                ctx, thread, workspace_role, work_execution_context
+            )
+        except Exception as exc:
+            timing = current_latency.get()
+            if not may_escalate_light_failure(
+                exc, timing.route_plan if timing else None
+            ):
+                raise
+            light = EscalatedTurn(input_tokens=0, output_tokens=0)
+        timing = current_latency.get()
+        if timing is not None and timing.roles:
+            if timing.roles[-1]["role"] == "light":
+                timing.markers["lightPassMs"] = (
+                    time.monotonic() - light_started
+                ) * 1000
+            if isinstance(light, EscalatedTurn):
+                timing.mark("escalationMs")
         if light is not None and not isinstance(light, EscalatedTurn):
             return light
 
@@ -2153,6 +2274,20 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
             )
             agent.output_validator(_scaffold_completion_validator(run_state))
+
+            @agent.output_validator
+            async def completion_destinations(ctx, output: str) -> str:
+                from app.services.completion_links import append_completion_links
+
+                entry_ids = {
+                    ref["id"]
+                    for ref in run_state.get("completed_resource_refs", [])
+                    if ref.get("kind") == "entry"
+                }
+                return append_completion_links(
+                    output, run_state.get("completed_resource_links") or [], entry_ids
+                )
+
         except BaseException:
             skill_temp.cleanup()
             raise
@@ -2235,18 +2370,66 @@ class PydanticAIProvider:
         )
 
     async def stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
+        from app.config import settings
+        from app.services.chat_latency import TurnLatency, current_latency
         from app.services.model_retry_status import stream_with_retry_status
 
+        timing = TurnLatency()
+        token = current_latency.set(timing)
         stream = stream_with_retry_status(self._stream_turn(ctx))
+        tool_started: dict[str, float] = {}
         try:
-            async for event in stream:
-                yield event
+            async with asyncio.timeout(
+                settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
+            ) as deadline:
+                timing.deadline = deadline
+                async for event in stream:
+                    if event.get("type") == "text-delta" and event.get("delta"):
+                        timing.mark("firstTokenMs")
+                    if (
+                        event.get("type") == "tool-call"
+                        and event.get("status") == "running"
+                    ):
+                        timing.mark("firstToolRequestedMs")
+                        tool_started[str(event.get("toolCallId"))] = time.monotonic()
+                    if event.get("type") == "tool-call" and event.get("summary"):
+                        began = tool_started.get(str(event.get("toolCallId")))
+                        if began is not None:
+                            event = {
+                                **event,
+                                "summary": {
+                                    **event["summary"],
+                                    "duration_ms": (time.monotonic() - began) * 1000,
+                                },
+                            }
+                    if event.get("type") == "message-finish":
+                        event = dict(event)
+                        timing.mark("totalMs")
+                        event["timing"] = {
+                            **(event.get("timing") or {}),
+                            **timing.markers,
+                        }
+                        # A buffered provider token is not a published answer token.
+                        if "firstTokenMs" not in timing.markers:
+                            event["timing"].pop("firstTokenMs", None)
+                    yield event
         finally:
-            await stream.aclose()
+            try:
+                await stream.aclose()
+            finally:
+                try:
+                    if timing.clients:
+                        results = await asyncio.gather(
+                            *(client.close() for client in timing.clients),
+                            return_exceptions=True,
+                        )
+                        if any(isinstance(result, BaseException) for result in results):
+                            logger.warning("Native model client cleanup was incomplete")
+                finally:
+                    current_latency.reset(token)
 
     async def _stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
         """Stream normalized chat events with Core-owned session identity."""
-        from app.config import settings
 
         active_task = asyncio.current_task()
         turn_started = time.monotonic()
@@ -2318,6 +2501,14 @@ class PydanticAIProvider:
                         self._active_tasks.pop(ctx.thread_id, None)
                 return
             prepared = await self._prepare(ctx)
+            from app.services.chat_latency import mark_latency
+
+            mark_latency("preparationMs")
+            from app.services.chat_latency import current_latency
+
+            active_timing = current_latency.get()
+            if active_timing is not None and "escalationMs" in active_timing.markers:
+                yield {"type": "status", "text": "Taking a closer look"}
         except BaseException:
             if self._active_tokens.get(ctx.thread_id) is cancellation:
                 self._active_tokens.pop(ctx.thread_id, None)
@@ -2531,18 +2722,9 @@ class PydanticAIProvider:
                     # Bound every run. Capability discovery can loop on models
                     # that ignore tool results; the limit is host-enforced and
                     # must not depend on brittle user-text intent detection.
-                    usage_limits=UsageLimits(
-                        request_limit=max(
-                            0,
-                            settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT
-                            - run_state.get("adaptive_requests", 0),
-                        ),
-                        tool_calls_limit=32,
-                        total_tokens_limit=max(
-                            0,
-                            settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT
-                            - run_state.get("adaptive_tokens", 0),
-                        ),
+                    usage_limits=turn_usage_limits(
+                        adaptive_requests=run_state.get("adaptive_requests", 0),
+                        adaptive_tokens=run_state.get("adaptive_tokens", 0),
                     ),
                     cancellation_token=cancellation,
                 ) as stream:
@@ -2572,6 +2754,10 @@ class PydanticAIProvider:
                                     and first_token_ms is None
                                 ):
                                     first_token_ms = (time.monotonic() - started) * 1000
+                                    from app.services.chat_latency import mark_latency
+
+                                    mark_latency("providerFirstTokenMs")
+                                    mark_latency("heavyFirstTokenMs")
                                 continue
                             yield normalized
 

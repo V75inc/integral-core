@@ -69,10 +69,19 @@ async def test_one_model_pass_can_answer_without_workspace_tools():
         calls.append(info)
         assert info.function_tools == []
         assert [t.name for t in info.output_tools] == [
+            "answer_conversation",
             "request_operational_context",
             "propose_simple_reminder",
         ]
-        return ModelResponse(parts=[TextPart("Hello! What can I help with?")])
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "answer_conversation",
+                    {"text": "Hello! What can I help with?", "category": "social"},
+                    "answer",
+                )
+            ]
+        )
 
     result = await build_light_agent(FunctionModel(answer)).run("hello there")
     assert result.output == "Hello! What can I help with?"
@@ -84,7 +93,15 @@ async def test_light_pass_receives_verified_clock_without_lookup_tools():
     def answer(messages, info):
         assert "Trusted clock: 2044-01-01 America/Guyana" in str(messages)
         assert not info.function_tools
-        return ModelResponse(parts=[TextPart("1 January 2044.")])
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "answer_conversation",
+                    {"text": "1 January 2044.", "category": "general_knowledge"},
+                    "answer",
+                )
+            ]
+        )
 
     result = await build_light_agent(
         FunctionModel(answer), time_context="Trusted clock: 2044-01-01 America/Guyana"
@@ -187,7 +204,15 @@ async def setup_turn(monkeypatch, *, escalation=False, origin="http"):
                 ]
             )
             if escalation
-            else ModelResponse(parts=[TextPart("Hello!")])
+            else ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "answer_conversation",
+                        {"text": "Hello!", "category": "social"},
+                        "answer",
+                    )
+                ]
+            )
         )
 
     async def route(**kwargs):
@@ -308,8 +333,13 @@ async def test_light_answer_retains_private_envelope_normalization(monkeypatch):
         lambda **kwargs: FunctionModel(
             lambda m, i: ModelResponse(
                 parts=[
-                    TextPart(
-                        '{"thought":"PRIVATE_REASONING", "role":"assistant", "content":"Hello!"}'
+                    ToolCallPart(
+                        "answer_conversation",
+                        {
+                            "text": '{"thought":"PRIVATE_REASONING", "role":"assistant", "content":"Hello!"}',
+                            "category": "social",
+                        },
+                        "answer",
                     )
                 ]
             )
@@ -408,6 +438,10 @@ async def test_upload_context_survives_recent_text_window(monkeypatch):
         "<function=request_operational_context></function>",
         '<tool_call>{"name":"some_tool","arguments":{"ignored":true}}</tool_call>',
         '{"function_call":{"name":"some_tool","arguments":{}}}',
+        "OperationalContextRequest",
+        "`OperationalContextRequest()`",
+        "request_operational_context",
+        '{"thought":"PRIVATE", "content":"OperationalContextRequest"}',
     ],
 )
 async def test_printed_routing_protocol_escalates_without_becoming_an_answer(
@@ -423,3 +457,135 @@ async def test_printed_routing_protocol_escalates_without_becoming_an_answer(
     )
     result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
     assert isinstance(result, EscalatedTurn)
+
+
+@pytest.mark.asyncio
+async def test_explaining_a_routing_type_is_still_a_conversational_answer(monkeypatch):
+    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    answer = "OperationalContextRequest is an internal routing type."
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider.build_litellm_sdk_model",
+        lambda **kwargs: FunctionModel(
+            lambda m, i: ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "answer_conversation",
+                        {"text": answer, "category": "general_knowledge"},
+                        "answer",
+                    )
+                ]
+            )
+        ),
+    )
+    result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
+    assert isinstance(result, LightTurnResult)
+    assert result.text == answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I can't build or deploy an app directly for you.",
+        "Here is some sample code instead.",
+        "",
+    ],
+)
+async def test_untyped_light_answer_cannot_bypass_routing_or_lose_usage(text):
+    result = await build_light_agent(
+        FunctionModel(lambda m, i: ModelResponse(parts=[TextPart(text)]))
+    ).run("build it for me")
+    assert isinstance(result.output, OperationalContextRequest)
+    assert result.usage.requests == 1
+
+
+@pytest.mark.asyncio
+async def test_light_bridge_requires_routing_choice_with_followup_history(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    from app.agentive.harness.litellm_model import build_litellm_sdk_model
+    from tests.native_harness.wp_04.test_litellm_sdk_transport import (
+        _ignore_observation,
+        _route,
+        _scope,
+    )
+
+    captured = {}
+
+    async def completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "light-route",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "claude-sonnet",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "route",
+                                "type": "function",
+                                "function": {
+                                    "name": "request_operational_context",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 5, "total_tokens": 55},
+        }
+
+    model = build_litellm_sdk_model(
+        route=_route(),
+        scope=_scope(),
+        observer=_ignore_observation,
+        completion=completion,
+    )
+    try:
+        history = public_dialogue(
+            [
+                SimpleNamespace(
+                    id="u",
+                    role="user",
+                    parts=[{"type": "text", "text": "prepare a todo app"}],
+                ),
+                SimpleNamespace(
+                    id="a",
+                    role="assistant",
+                    parts=[
+                        {
+                            "type": "text",
+                            "text": "I cannot build apps, but can show sample code.",
+                        }
+                    ],
+                ),
+            ]
+        )
+        result = await build_light_agent(model).run(
+            "build it for me", message_history=history
+        )
+        assert isinstance(result.output, OperationalContextRequest)
+        assert captured["tool_choice"] == "required"
+        assert {t["function"]["name"] for t in captured["tools"]} == {
+            "answer_conversation",
+            "request_operational_context",
+            "propose_simple_reminder",
+        }
+        assert captured["messages"][-1]["content"] == "build it for me"
+        assert any(
+            m["role"] in {"system", "developer"}
+            and "Prior assistant refusals" in m["content"]
+            for m in captured["messages"]
+        )
+        assert result.usage.input_tokens == 50 and result.usage.output_tokens == 5
+    finally:
+        await model.client.close()

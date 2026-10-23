@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import math
 import re
-from collections import Counter
+from collections import Counter, OrderedDict
 from pathlib import Path
 from typing import Annotated, Any, Sequence
 
@@ -510,6 +511,27 @@ async def _embed_text_for_capability_search(text: str) -> list[float]:
     return await embed_query_text(text)
 
 
+# Immutable vectors only: candidate membership and ranking remain per invocation.
+# No query, plaintext document, permission decision or search result is cached.
+_DEFINITION_VECTORS: OrderedDict[tuple[str, str], tuple[float, ...]] = OrderedDict()
+
+
+async def _definition_vector(text: str) -> list[float]:
+    from app.services.retrieval.embedding_model import DEFAULT_MODEL_NAME
+
+    key = (DEFAULT_MODEL_NAME, hashlib.sha256(text.encode()).hexdigest())
+    cached = _DEFINITION_VECTORS.get(key)
+    if cached is not None:
+        _DEFINITION_VECTORS.move_to_end(key)
+        return list(cached)
+    vector = await _embed_text_for_capability_search(text)
+    _DEFINITION_VECTORS[key] = tuple(vector)
+    _DEFINITION_VECTORS.move_to_end(key)
+    while len(_DEFINITION_VECTORS) > 512:
+        _DEFINITION_VECTORS.popitem(last=False)
+    return vector
+
+
 async def pydantic_tool_search_strategy(
     _ctx: Any, queries: Sequence[str], tool_definitions: Sequence[Any]
 ) -> list[str]:
@@ -523,6 +545,9 @@ async def pydantic_tool_search_strategy(
     gate. If embeddings are unavailable, lexical ranking is a degraded-search
     fallback, never an authorization decision.
     """
+    from app.services.chat_latency import mark_latency
+
+    mark_latency("firstToolStartedMs")
     query = " ".join(str(value).strip() for value in queries if str(value).strip())
     definitions = [
         item
@@ -546,7 +571,7 @@ async def pydantic_tool_search_strategy(
     try:
         vectors = await asyncio.gather(
             _embed_text_for_capability_search(query),
-            *(_embed_text_for_capability_search(text) for _, text in documents),
+            *(_definition_vector(text) for _, text in documents),
         )
         query_vector, *document_vectors = vectors
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0

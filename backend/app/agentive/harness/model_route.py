@@ -15,12 +15,14 @@ from app.services.model_provider_endpoints import (
 
 
 async def resolve_native_model_route(
-    *, workspace_id: str, default_model: str
+    *, workspace_id: str, default_model: str, profile_id: str | None = None
 ) -> ResolvedModelRoute:
     """Reject malformed operator settings with a safe, actionable reason."""
     try:
         return await _resolve_native_model_route(
-            workspace_id=workspace_id, default_model=default_model
+            workspace_id=workspace_id,
+            default_model=default_model,
+            profile_id=profile_id,
         )
     except ValueError as exc:
         from app.api.errors import ServiceUnavailableError
@@ -108,7 +110,7 @@ def _local_ollama_clear_thinking() -> bool | None:
 
 
 async def _resolve_native_model_route(
-    *, workspace_id: str, default_model: str
+    *, workspace_id: str, default_model: str, profile_id: str | None = None
 ) -> ResolvedModelRoute:
     """Resolve workspace BYOK or deployment LiteLLM route for one turn.
 
@@ -122,7 +124,9 @@ async def _resolve_native_model_route(
     )
 
     override: dict[str, Any] | None = await resolve_native_model_override(
-        workspace_id, include_credential_identity=True
+        workspace_id,
+        include_credential_identity=True,
+        **({"profile_id": profile_id} if profile_id else {}),
     )
     if not override:
         if not default_model.strip():
@@ -136,60 +140,10 @@ async def _resolve_native_model_route(
                 ),
                 details={"reason": "native_model_not_configured"},
             )
-        provider = _provider_for_model(default_model)
-        local_route = provider == "ollama"
-        model = default_model
-        api_base = None
-        ollama_num_ctx = ollama_num_predict = None
-        ollama_think = ollama_clear_thinking = None
-        if local_route:
-            # The `ollama/` LiteLLM adapter flattens Gemma's native reasoning
-            # and tool-call parts into content text. That makes valid native
-            # tool calls look like malformed assistant JSON to Core's
-            # translator. Use `ollama_chat/` for deployment routes too, so
-            # Pydantic AI receives typed parts regardless of credential source.
-            model = f"ollama_chat/{default_model.split('/', 1)[1]}"
-            api_base = (
-                os.getenv("OLLAMA_API_BASE", "http://localhost:11434").strip()
-                or "http://localhost:11434"
-            ).rstrip("/")
-            ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
-            ollama_think = _local_ollama_think_setting()
-            ollama_clear_thinking = _local_ollama_clear_thinking()
-        elif provider != "ollama":
-            # Deployment-level custom OpenAI-compatible endpoint. Pair with
-            # INTEGRAL_NATIVE_MODEL=openai/<model>; auth (when the endpoint
-            # needs it) comes from the route's standard provider env key, or
-            # any placeholder value for unauthenticated servers. Ollama routes
-            # stay governed by OLLAMA_API_BASE / OLLAMA_CLOUD_API_BASE.
-            raw_base = os.getenv("INTEGRAL_NATIVE_API_BASE", "").strip()
-            if raw_base:
-                api_base = normalize_custom_base_url(raw_base)
         from app.services.host_hooks import assert_platform_quota
 
-        # Funding follows the selected credential plane, not the transport.
-        # An operator's Ollama daemon can forward to a paid cloud model and
-        # is still deployment-funded when no workspace override was selected.
-        # Standalone Core's host hook is a no-op; the host owns its allowance.
         await assert_platform_quota(workspace_id)
-        return ResolvedModelRoute(
-            provider="ollama_chat" if local_route else provider,
-            model=model,
-            api_base=api_base,
-            ollama_num_ctx=ollama_num_ctx,
-            ollama_num_predict=ollama_num_predict,
-            ollama_think=ollama_think,
-            ollama_clear_thinking=ollama_clear_thinking,
-            credential_source="local" if local_route else "platform",
-            # The operator supplies a versioned nonsecret reference for the
-            # environment/remote daemon credential generation. Missing means
-            # unattributed; never invent identity from a provider/model name.
-            credential_ref=(
-                _local_credential_ref("deployment", api_base)
-                if local_route
-                else _deployment_credential_ref()
-            ),
-        )
+        return resolve_deployment_model_route(default_model)
 
     model = str(override.get("model") or "").strip()
     if not model:
@@ -236,6 +190,7 @@ async def _resolve_native_model_route(
         api_base=api_base,
         api_key=api_key if api_key else None,
         keyless_endpoint=override.get("keyless_endpoint") is True,
+        generation_settings=override.get("generation_settings") or {},
         ollama_num_ctx=ollama_num_ctx,
         ollama_num_predict=ollama_num_predict,
         ollama_think=ollama_think,
@@ -269,3 +224,54 @@ def _local_credential_ref(profile_ref: str | None, api_base: str | None) -> str 
         return None
     identity = json.dumps([profile_ref, deployment, api_base], separators=(",", ":"))
     return "local-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
+
+
+def resolve_deployment_model_route(default_model: str) -> ResolvedModelRoute:
+    """Construct an operator-owned route; funding admission remains with the caller."""
+    provider = _provider_for_model(default_model)
+    local_route = provider in {"ollama", "ollama_chat"}
+    model = default_model
+    api_base = None
+    ollama_num_ctx = ollama_num_predict = None
+    ollama_think = ollama_clear_thinking = None
+    if local_route:
+        # The `ollama/` LiteLLM adapter flattens Gemma's native reasoning
+        # and tool-call parts into content text. That makes valid native
+        # tool calls look like malformed assistant JSON to Core's
+        # translator. Use `ollama_chat/` for deployment routes too, so
+        # Pydantic AI receives typed parts regardless of credential source.
+        model = f"ollama_chat/{default_model.split('/', 1)[1]}"
+        api_base = (
+            os.getenv("OLLAMA_API_BASE", "http://localhost:11434").strip()
+            or "http://localhost:11434"
+        ).rstrip("/")
+        ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
+        ollama_think = _local_ollama_think_setting()
+        ollama_clear_thinking = _local_ollama_clear_thinking()
+    elif provider != "ollama":
+        # Deployment-level custom OpenAI-compatible endpoint. Pair with
+        # INTEGRAL_NATIVE_MODEL=openai/<model>; auth (when the endpoint
+        # needs it) comes from the route's standard provider env key, or
+        # any placeholder value for unauthenticated servers. Ollama routes
+        # stay governed by OLLAMA_API_BASE / OLLAMA_CLOUD_API_BASE.
+        raw_base = os.getenv("INTEGRAL_NATIVE_API_BASE", "").strip()
+        if raw_base:
+            api_base = normalize_custom_base_url(raw_base)
+    return ResolvedModelRoute(
+        provider="ollama_chat" if local_route else provider,
+        model=model,
+        api_base=api_base,
+        ollama_num_ctx=ollama_num_ctx,
+        ollama_num_predict=ollama_num_predict,
+        ollama_think=ollama_think,
+        ollama_clear_thinking=ollama_clear_thinking,
+        credential_source="local" if local_route else "platform",
+        # The operator supplies a versioned nonsecret reference for the
+        # environment/remote daemon credential generation. Missing means
+        # unattributed; never invent identity from a provider/model name.
+        credential_ref=(
+            _local_credential_ref("deployment", api_base)
+            if local_route
+            else _deployment_credential_ref()
+        ),
+    )

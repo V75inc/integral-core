@@ -712,3 +712,63 @@ def test_negative_host_continuation_never_requests_a_retry(status):
     )
     assert "not applied" in directive
     assert "without a fresh user request" in directive
+
+
+def test_completion_receipt_uses_specific_home_and_dashboard_destinations():
+    queue = {
+        "items": [
+            {
+                "kind": pq.ITEM_STAGED_WRITE,
+                "status": pq.STATUS_APPROVED,
+                "summary": "Updated overview",
+                "consumed_nav": {
+                    "resultLinks": [
+                        {
+                            "kind": "home",
+                            "id": "a",
+                            "label": "My App Home",
+                            "url": "/apps/a?section=home",
+                        },
+                        {
+                            "kind": "dashboard",
+                            "id": "d",
+                            "label": "Overview",
+                            "url": "/apps/a?section=dashboards&dashboard_id=d",
+                        },
+                    ]
+                },
+            }
+        ]
+    }
+    text = pq.build_resume_summary(queue)
+    assert "[My App Home](/apps/a?section=home)" in text
+    assert "[Overview](/apps/a?section=dashboards&dashboard_id=d)" in text
+
+
+def test_approval_episode_multiple_entries_links_parent_once():
+    queue = {
+        "items": [
+            {
+                "kind": pq.ITEM_STAGED_WRITE,
+                "status": pq.STATUS_APPROVED,
+                "summary": "Updated task",
+                "consumed_nav": {
+                    "resultLinks": [
+                        {
+                            "kind": "entry",
+                            "id": entry,
+                            "label": entry,
+                            "url": f"/tracks/t?entry={entry}",
+                            "parent_id": "t",
+                            "parent_url": "/tracks/t",
+                            "parent_label": "Tasks",
+                        }
+                    ]
+                },
+            }
+            for entry in ("e1", "e2")
+        ]
+    }
+    text = pq.build_resume_summary(queue)
+    assert text.count("[Tasks](/tracks/t)") == 1
+    assert "?entry=" not in text

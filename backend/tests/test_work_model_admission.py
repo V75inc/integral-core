@@ -208,7 +208,10 @@ async def test_actual_mapped_payload_and_price_precede_sdk(physical_boundary):
     payload = json.loads(dispatch.sdk_payload_json)
     assert payload["max_tokens"] == 128
     assert "max_completion_tokens" not in payload
-    assert payload["extra_body"] == {"options": {"num_ctx": 32768}, "think": False}
+    assert payload["extra_body"] == {
+        "options": {"num_ctx": 32768, "num_predict": 128},
+        "think": False,
+    }
     assert payload["tools"][0]["function"]["name"] == "read"
     assert payload["num_retries"] == 0
     assert "api_key" not in payload and "api_base" not in payload

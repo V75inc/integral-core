@@ -163,7 +163,7 @@ async def test_home_reads_owned_definition_and_scoped_query_without_mutating_it(
 async def test_home_metadata_does_not_execute_queries(home_runtime):
     _, _, _, resolve = home_runtime
     result = await read_app_home(
-        user_id="u1", app_id="a1", workspace_id=None, include_data=False
+        user_id="u1", app_id="a1", workspace_id="ws1", include_data=False
     )
     assert "data" not in result["home"]["widgets"][0]
     resolve.assert_not_awaited()
@@ -184,9 +184,10 @@ async def test_home_rejects_wrong_scope_and_revoked_access(home_runtime):
 async def test_home_rejects_foreign_definition_and_paused_execution(home_runtime):
     app, definition, _, resolve = home_runtime
     definition.app_id = "other"
-    assert await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1") == {
-        "home": None
-    }
+    result = await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")
+    assert result["home"] is None
+    assert result["components"] == []
+    assert result["definition_revision"] is None
     definition.app_id = "a1"
     app.lifecycle_state = "paused"
     result = await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")

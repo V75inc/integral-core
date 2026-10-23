@@ -69,6 +69,15 @@ async def test_scripted_home_turn_repairs_validation_and_stages_once(monkeypatch
     """
     from app.services import app_home_override
 
+    monkeypatch.setattr(
+        "app.models.nodes.App.get",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="app-1", home_revision=0, active_definition_id=None
+            )
+        ),
+    )
+
     for path in (
         "app.services.prompt_queue.session_queue_is_open",
         "app.services.chat_threads.design_awaiting_user_response",

@@ -480,6 +480,16 @@ Full rationale and pattern catalogue: [docs/operational-models/README.md](docs/o
 
 ### App configuration and collection changes
 
+**App-specific settings UI MUST use the standard App settings dialog** reached
+from the App header. Declare controls in `app.settings_schema`; never add
+settings editors to Home, dashboards, Tracks, Entries or extension views.
+Operational record forms remain distinct. Unsupported controls require a
+reviewed extension to the shared settings renderer, not another panel. This
+binds coding agents, resident-agent designs and external App developers. See
+[the App settings UI contract](docs/platform/app-settings-ui.md) and
+[I-APP-SETTINGS-01](docs/INVARIANTS.md#i-app-settings-01--one-app-settings-surface).
+
+
 Preserve the explicit [App-owner configuration exception](docs/INVARIANTS.md#i-role-02--inherited-role-cap-at-editor-inherited-role-caps-to-editor)
 without raising inherited collaborator roles or granting library publication.
 Current membership, canonical containment, exclusions and all affected model

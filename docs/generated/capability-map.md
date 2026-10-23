@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-128 of 130 manifest tools are advertised (56 read, 71 propose, 1 execute) across 17 core skills.
+129 of 131 manifest tools are advertised (57 read, 71 propose, 1 execute) across 17 core skills.
 
 ## Skills → tools
 
@@ -13,7 +13,7 @@ The JSON beside it carries every field.
 | --- | --- | --- | --- |
 | `integral-artifacts` | Maintains session working artifacts — upsert, get, and list harness-agnostic blueprints, checklists, and notes keyed on the conversation for multi-turn fidelity without Integral UI cards. | 3 | `integral-scaffold` |
 | `integral-attachments` | Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including “file this where it belongs”. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing. | 22 | `integral-entries`, `integral-filing`, `integral-insights`, `integral-scaffold` |
-| `integral-dashboards` | Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App. | 14 | `integral-insights`, `integral-models` |
+| `integral-dashboards` | Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App. | 15 | `integral-insights`, `integral-models` |
 | `integral-entries` | Handles explicit record requests in an existing Track or list: find records by name, ID, or serial number; answer questions about their status or fields; create, update, delete, tag, comment on, or link entries. Batch compatible records supplied together into one review. Use integral-scaffold for a new App; integral-filing for unstructured content with an unknown destination; integral-organize for bulk reorganization. | 26 | `integral-attachments`, `integral-filing`, `integral-insights`, `integral-models`, `integral-navigation`, `integral-workspace` |
 | `integral-filing` | Files user-typed unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval. | 5 | `integral-attachments`, `integral-entries`, `integral-insights`, `integral-models`, `integral-workspace` |
 | `integral-identity` | Resolves the acting Integral user's identity (id, display name, email). For workspace orientation maps (apps/tracks), activate integral-workspace. | 1 | — |
@@ -115,6 +115,7 @@ The JSON beside it carries every field.
 | `integral_delete_view` | propose | stager: `app.agentive.tooling.bindings._stage_delete_view` | DELETE /api/views/{view_id} | `integral:propose` | integral-review |
 | `integral_describe_dashboard_substrate` | read | handler: `app.api.apps_dashboards.get_dashboard_widget_substrate` | GET /api/dashboard-widget-substrate | `integral:read` | integral-dashboards |
 | `integral_read_app_home` | read | handler: `app.api.apps_dashboards.get_app_home` | GET /api/apps/{app_id}/home | `integral:read` | integral-dashboards |
+| `integral_preview_app_home` | read | service: `app.services.app_home.preview_home_for_agent` | POST /api/apps/{app_id}/home/preview | `integral:read` | integral-dashboards |
 | `integral_list_dashboards` | read | handler: `app.api.apps_dashboards.list_app_dashboards` | GET /api/apps/{app_id}/dashboards | `integral:read` | integral-dashboards |
 | `integral_read_dashboard_data` | read | handler: `app.api.apps_dashboards.get_app_dashboard_data` | GET /api/apps/{app_id}/dashboards/{dashboard_id}/data | `integral:read` | integral-dashboards |
 | `integral_suggest_dashboard` | read | handler: `app.api.apps_dashboards.suggest_app_dashboard` | GET /api/apps/{app_id}/dashboards/suggest | `integral:read` | integral-dashboards |
@@ -195,6 +196,11 @@ in the same App's context; public ones resolve workspace-wide.
 | `hello_world` | not_required | — | — | — | — | — |
 
 ### reference-review-queue 1.0.0 (`examples/reference-review-queue`)
+
+| Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
+| --- | --- | --- | --- | --- | --- | --- |
+
+### reference-sdk-home 1.0.0 (`examples/reference-sdk-home`)
 
 | Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -10,7 +10,7 @@ from app.schemas.policy import Resource, Subject
 from app.schemas.retrieve import RetrievedEntry, RetrievedPassage
 from app.services.policy_engine import evaluate
 
-from .index_definition import embedding_profile
+from .embedding_configuration import resolve_workspace_embedding_profile
 from .indexing import index_document
 from .passage_store import passage_store
 
@@ -150,7 +150,8 @@ async def retrieve_passages(subject, payload, *, driver, k: int, top_n: int):
     from app.services.agent_scope import active_workspace_id
     from app.services.resource_location import DATA_APP_STATES, locate_resource
 
-    from .embedding_model import encode_passages, passage_tokenizer
+    from .embedding_model import passage_tokenizer
+    from .profile_encoder import encode_profile
 
     scope = payload.scope or ""
     workspace_id = active_workspace_id()
@@ -177,7 +178,14 @@ async def retrieve_passages(subject, payload, *, driver, k: int, top_n: int):
         )
     tracks = await scoped_tracks(subject, workspace_id, scope)
     granted_entries = await direct_entries(subject, workspace_id, scope)
-    profile = embedding_profile()
+    try:
+        profile = await resolve_workspace_embedding_profile(workspace_id)
+    except ValueError:
+        from .embedding_store import EmbeddingStoreUnavailable
+
+        raise EmbeddingStoreUnavailable(
+            "The search profile needs a configuration update"
+        ) from None
     store = passage_store(driver, profile)
     tokenizer = await passage_tokenizer()
     query_tokens = tokenizer.encode(payload.query, add_special_tokens=False)
@@ -186,7 +194,7 @@ async def retrieve_passages(subject, payload, *, driver, k: int, top_n: int):
     query_vec = (
         [1.0] + [0.0] * (profile.dimensions - 1)
         if payload.mode == "graph"
-        else (await encode_passages([payload.query], profile.dimensions))[0]
+        else (await encode_profile([payload.query], profile))[0]
     )
     candidates = await store.search(
         query_vec,

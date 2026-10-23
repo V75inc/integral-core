@@ -16,6 +16,26 @@ from app.services.query_filters import FILTER_OPS, canonical_filter_op
 from app.services.relative_date_filters import resolve_relative_date
 
 
+def tag_filter_clauses(
+    tag_id: Optional[str], tag_ids: Optional[str]
+) -> List[Dict[str, Any]]:
+    """Match every selected tag before pagination; retain single-tag clients."""
+    from app.api.errors import BadRequestError
+
+    if len(tag_ids or "") > 4096:
+        raise BadRequestError(message="Tag filters are too long")
+    ids = list(
+        dict.fromkeys(
+            value.strip()
+            for value in [tag_id or "", *(tag_ids or "").split(",")]
+            if value.strip()
+        )
+    )
+    if len(ids) > 20:
+        raise BadRequestError(message="Select at most 20 tag filters")
+    return [{"field": "tags", "operator": "eq", "value": ids}] if ids else []
+
+
 def _resolve_filter_value(value: Any) -> Any:
     if isinstance(value, list):
         return [resolve_relative_date(item) for item in value]

@@ -1140,7 +1140,10 @@ async def persist_consumed_nav_in_transcript(
 
     consumed_nav = extract_consumed_nav(execute_result, sc.to_dict())
     exec_record = execute_result if isinstance(execute_result, dict) else None
-    if not any(consumed_nav.get(k) for k in ("trackId", "entryId", "appId", "created")):
+    if not any(
+        consumed_nav.get(k)
+        for k in ("trackId", "entryId", "appId", "created", "resultLinks")
+    ):
         if exec_record:
             await _persist_staged_envelope_patch(
                 session_id=sc.session_id or "",
