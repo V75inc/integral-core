@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 from fastapi import Request
 from jvspatial.api import endpoint
+from pydantic import ValidationError
 
 from app.api.errors import (
     BadRequestError,
@@ -34,7 +35,11 @@ from app.models.nodes import (
     OperationalModels,
     Track,
 )
-from app.schemas.operational_models import ImportPreviewResponse, PackagePreviewItem
+from app.schemas.operational_models import (
+    ImportOperationalModelOptions,
+    ImportPreviewResponse,
+    PackagePreviewItem,
+)
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
     create_track_view,
@@ -2469,6 +2474,7 @@ def _build_package_preview_item(
     return PackagePreviewItem(
         package_name=package_name,
         package_description=package_description,
+        scope_kind=str(canonical.get("scope") or "") or None,
         entry_type_count=stats["entry_type_count"],
         view_count=stats["view_count"],
         tag_count=stats["tag_count"],
@@ -2557,9 +2563,6 @@ async def _publish_single_manifest(
 )
 async def import_operational_model(
     request: Request,
-    workspace_id: Optional[str] = None,
-    preview: bool = False,
-    manifest: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Import OperationalModel manifests from a YAML/JSON file, or a ZIP archive.
 
@@ -2590,6 +2593,28 @@ async def import_operational_model(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    # Request-only binding keeps multipart uploads out of jvspatial's JSON
+    # parameter model. Validate options explicitly for both supported transports.
+    content_type = request.headers.get("content-type", "")
+    body: Dict[str, Any] = {}
+    if "application/json" in content_type:
+        try:
+            parsed = await request.json()
+        except Exception as exc:
+            raise BadRequestError(message=f"Could not parse JSON body: {exc}")
+        if not isinstance(parsed, dict) or "manifest" not in parsed:
+            raise BadRequestError(message="JSON body must have a 'manifest' key")
+        body = parsed
+    option_values = dict(body)
+    for key in ("workspace_id", "preview"):
+        if key in request.query_params:
+            option_values[key] = request.query_params[key]
+    try:
+        options = ImportOperationalModelOptions.model_validate(option_values)
+    except ValidationError:
+        raise BadRequestError(message="Invalid import options or manifest")
+    workspace_id = options.workspace_id
+    preview = options.preview
     if not workspace_id:
         raise BadRequestError(message="workspace_id is required")
     workspace_id = (
@@ -2620,13 +2645,13 @@ async def import_operational_model(
 
         upload = file_parts[0]
         filename = getattr(upload, "filename", "") or ""
-        is_yaml = filename.endswith(".yaml")
+        is_yaml = filename.lower().endswith((".yaml", ".yml"))
         is_json = filename.endswith(".json")
         is_zip = filename.endswith(".zip")
 
         if not (is_yaml or is_json or is_zip):
             raise BadRequestError(
-                message="Only .yaml, .json, and .zip files are accepted"
+                message="Only .yaml, .yml, .json, and .zip files are accepted"
             )
 
         raw_bytes = await upload.read()  # type: ignore[union-attr]
@@ -2665,24 +2690,9 @@ async def import_operational_model(
                     raise BadRequestError(message="JSON file must be an object")
 
     elif "application/json" in content_type:
-        # jvspatial @endpoint injects the ``manifest`` param directly from the
-        # body when the caller sends ``{"manifest": {...}, "workspace_id": ...}``.
-        # Use it when present; fall back to manual body read for callers that
-        # don't go through jvspatial's param-model pipeline.
-        if manifest is not None:
-            manifest_dict = manifest
-            if not isinstance(manifest_dict, dict):
-                raise BadRequestError(message="'manifest' must be an object")
-        else:
-            try:
-                body = await request.json()
-            except Exception as e:  # noqa: BLE001
-                raise BadRequestError(message=f"Could not parse JSON body: {e}")
-            if not isinstance(body, dict) or "manifest" not in body:
-                raise BadRequestError(message="JSON body must have a 'manifest' key")
-            manifest_dict = body["manifest"]
-            if not isinstance(manifest_dict, dict):
-                raise BadRequestError(message="'manifest' must be an object")
+        manifest_dict = options.manifest
+        if manifest_dict is None:
+            raise BadRequestError(message="'manifest' must be an object")
 
     else:
         raise BadRequestError(

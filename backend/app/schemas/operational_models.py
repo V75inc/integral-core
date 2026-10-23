@@ -1,6 +1,6 @@
 """OperationalModel Pydantic schemas."""
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -10,6 +10,7 @@ class PackagePreviewItem(BaseModel):
 
     package_name: str
     package_description: Optional[str] = None
+    scope_kind: Optional[str] = None
     entry_type_count: int
     view_count: int
     tag_count: int
@@ -39,3 +40,11 @@ class RecommendCustomizationsResponse(BaseModel):
     suggestions: List[PatchSuggestion]
     entry_count_analyzed: int
     profile_summary: Dict[str, object]
+
+
+class ImportOperationalModelOptions(BaseModel):
+    """Validated import options shared by JSON and multipart transports."""
+
+    workspace_id: Optional[str] = None
+    preview: bool = False
+    manifest: Optional[Dict[str, Any]] = None

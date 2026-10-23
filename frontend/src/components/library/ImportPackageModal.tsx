@@ -20,17 +20,19 @@ import { FormDialog } from '../../templates';
 import { useToast } from '../../context/ToastContext';
 import { operationalModelsApi } from '../../api/operationalModels';
 import type { ImportPreviewResponse } from '../../api/operationalModels';
+import type { OperationalModelNode } from '../../types';
 
 type Step = 'pick' | 'review' | 'done';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (result: { operational_model?: OperationalModelNode }) => void;
+  expectedScope?: 'track' | 'app';
   workspaceId: string;
 }
 
-export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Props) {
+export function ImportPackageModal({ open, onClose, onSuccess, workspaceId, expectedScope }: Props) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -79,14 +81,14 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
   };
 
   const handlePublish = async () => {
-    if (!file) return;
+    if (!file || !preview?.packages.length || preview.packages.some(p => p.validation_errors.length > 0 || (expectedScope && p.scope_kind !== expectedScope))) return;
     setIsPublishing(true);
     try {
       const data = await operationalModelsApi.importPublish(file, workspaceId);
       const count = data.published ?? 1;
       setPublishedCount(count);
       setStep('done');
-      onSuccess();
+      onSuccess(data);
     } catch (err) {
       toast.showToast(
         err instanceof Error ? err.message : 'Import failed',
@@ -98,7 +100,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
   };
 
   const hasAnyErrors =
-    (preview?.packages ?? []).some(p => p.validation_errors.length > 0);
+    (preview?.packages ?? []).some(p => p.validation_errors.length > 0 || (expectedScope && p.scope_kind !== expectedScope));
   const packageCount = preview?.packages.length ?? 0;
 
   if (step === 'pick') {
@@ -113,7 +115,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
         submitLoading={isPreviewing}
       >
         <Text variant="body" tone="muted" as="p">
-          Upload a <code>.yaml</code> or <code>.json</code> profile, or a{' '}
+          Upload a <code>.yaml</code>, <code>.yml</code> or <code>.json</code> profile, or a{' '}
           <code>.zip</code> archive containing one or more{' '}
           <code>operational-model.yaml</code> bundles.
         </Text>
@@ -122,7 +124,8 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
           <input
             ref={fileRef}
             type="file"
-            accept=".yaml,.json,.zip"
+            aria-label="Manifest file"
+            accept=".yaml,.yml,.json,.zip"
             onChange={handleFileChange}
             className="
               block w-full text-sm
@@ -167,7 +170,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
               size="sm"
               onClick={handlePublish}
               loading={isPublishing}
-              disabled={hasAnyErrors || isPublishing}
+              disabled={hasAnyErrors || !packageCount || isPublishing}
             >
               {packageCount > 1 ? `Publish ${packageCount} operational models` : 'Publish'}
             </Button>
@@ -199,6 +202,9 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
                   {pkg.package_description}
                 </Text>
               )}
+              {expectedScope && pkg.scope_kind !== expectedScope && <Text variant="body-sm" tone="danger" as="p">
+                This file must contain a {expectedScope === 'track' ? 'Track' : 'App'} operational model. Choose a compatible file before publishing.
+              </Text>}
               {pkg.validation_errors.length > 0 && (
                 <ul className="mt-1 flex flex-col gap-0.5">
                   {pkg.validation_errors.map((e, j) => (

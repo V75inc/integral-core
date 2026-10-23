@@ -175,6 +175,7 @@ async def test_preview_single_yaml_via_json_body(authenticated_client: AsyncClie
     assert body["archive_type"] == "single"
     assert len(body["packages"]) == 1
     pkg = body["packages"][0]
+    assert pkg["scope_kind"] == "track"
     assert pkg["package_name"] == "test-profile"
     assert pkg["entry_type_count"] == 1
     assert pkg["view_count"] == 1  # compile injects default feed view
