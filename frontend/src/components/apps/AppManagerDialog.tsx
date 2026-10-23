@@ -381,7 +381,21 @@ export function AppManagerDialog({
     }
   }
 
-  function handleSettingsComplete() {
+  function updateSetupStatus(appId: string, status: string) {
+    setResults(current => current?.batch ? {
+      ...current,
+      batch: {
+        ...current.batch,
+        installed: current.batch.installed.map(row =>
+          row.app_id === appId ? { ...row, status } : row
+        ),
+      },
+    } : current);
+  }
+
+  function handleSettingsComplete(appId: string) {
+    if (settingsQueue[settingsIndex]?.appId !== appId) return;
+    updateSetupStatus(appId, 'active');
     const nextIndex = settingsIndex + 1;
     if (nextIndex < settingsQueue.length) {
       setSettingsIndex(nextIndex);
@@ -449,8 +463,10 @@ export function AppManagerDialog({
       <Modal open={isOpen} onClose={closeDialog} title={title} width="max-w-dialog-wide" tall={phase === 'manage'}>
         {phase === 'settings' && settingsQueue[settingsIndex] ? (
           <AppSettingsFinalizeStep
+            key={settingsQueue[settingsIndex].appId}
             pending={settingsQueue[settingsIndex]}
-            onComplete={() => handleSettingsComplete()}
+            onComplete={handleSettingsComplete}
+            onQueued={appId => updateSetupStatus(appId, 'installing')}
             onFinishLater={() => {
               setPhase(results ? 'results' : 'manage');
             }}
@@ -716,7 +732,7 @@ function ResultsView({
                         {row.name || 'Untitled app'}
                         {row.status === 'awaiting_settings'
                           ? ' (needs settings)'
-                          : ''}
+                          : row.status === 'installing' ? ' (finishing setup)' : ''}
                       </Text>
                     </li>
                   ))}

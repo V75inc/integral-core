@@ -1,3 +1,4 @@
+import { accessControlApi } from '../api/accessControl';
 import { useDeployment } from '../hooks/useDeployment';
 import { AppIcon } from '../ui';
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -386,6 +387,19 @@ export function AppDetailPage() {
   const isWorkspaceOwner = workspaces.find(w => w.id === app?.workspace_id)?.your_role === 'owner';
   const canAdmin = isWorkspaceOwner || isAppOwner || isAdminInCollab;
   const canManageCollaborators = canAdmin;
+  const hasConfigurableSettings = Boolean(app?.settings_schema && Object.keys(app.settings_schema.properties || {}).length);
+  const functionSettings = useQuery({
+    queryKey: ['app-function-settings', appId, app?.workspace_id, homeQuery.data?.definition_revision],
+    queryFn: () => accessControlApi.bindings(appId!),
+    enabled: Boolean(isWorkspaceOwner && appId && app?.id === appId && app.workspace_id === activeHomeScope?.workspaceId),
+    retry: false,
+  });
+  // Retain existing grants for review/revocation, even if the new definition
+  // no longer declares roles. Failed discovery stays reachable for retry.
+  const hasFunctionSettings = isWorkspaceOwner && (functionSettings.isError ||
+    Boolean(Object.keys(functionSettings.data?.role_actions || {}).length || functionSettings.data?.bindings?.length));
+  const hasAppSettings = hasConfigurableSettings || hasFunctionSettings;
+
   // Adding or linking a track is app.update, not the workspace create flag.
   // A workspace owner can open this App as a commenter and still holds
   // canCreateTracks; showing New track in that case returns 403.
@@ -664,7 +678,7 @@ export function AppDetailPage() {
                 Edit
               </Button>
             ) : null}
-            {canAdmin ? (
+            {canAdmin && hasAppSettings ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -1064,10 +1078,12 @@ export function AppDetailPage() {
           open={showAppSettingsModal}
           appId={appId}
           appName={app.name}
-          functionAccessWorkspaceId={isWorkspaceOwner ? app.workspace_id : undefined}
+          functionAccessWorkspaceId={hasFunctionSettings ? app.workspace_id : undefined}
+          initialSection={hasConfigurableSettings ? 'settings' : 'access'}
           onClose={() => setShowAppSettingsModal(false)}
           onSaved={() => {
-            showToast('Settings saved', 'success');
+            void queryClient.invalidateQueries({ queryKey: ['app-home-query', appId] });
+            void queryClient.invalidateQueries({ queryKey: ['app-home-data', appId] });
           }}
         />
       ) : null}

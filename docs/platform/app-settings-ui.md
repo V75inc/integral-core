@@ -88,3 +88,7 @@ does not establish UI compliance; record browser evidence separately.
 See the [extension contract](extension-contract-v1.md),
 [Home SDK](app-home-sdk.md) and
 [agent authoring contract](../operational-models/AGENT_CONTRACT.md).
+
+### Settings entry visibility
+
+Show the App header Settings control only when there are configurable fields or applicable function-access controls. Existing function grants remain manageable even if the current App definition no longer declares roles. Hide the control when neither exists. When only function access is available, open that section directly without an empty Settings tab.

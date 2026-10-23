@@ -7,9 +7,10 @@ import { ConfirmProvider } from '../../../context/ConfirmContext';
 import type { Track } from '../../../types';
 
 const mocks = vi.hoisted(() => ({
-  remove: vi.fn(), create: vi.fn(), update: vi.fn(), list: vi.fn(), apps: vi.fn(), getApp: vi.fn(),
+  compact: false, remove: vi.fn(), create: vi.fn(), update: vi.fn(), list: vi.fn(), apps: vi.fn(), getApp: vi.fn(),
   getModel: vi.fn(), templates: vi.fn(), preview: vi.fn(), publish: vi.fn(), toast: vi.fn(),
 }));
+vi.mock('../../../hooks/useMediaQuery', () => ({ useMatchesMedia: () => mocks.compact }));
 vi.mock('../../../api', () => ({
   tracksApi: { create: mocks.create, update: mocks.update },
   appsApi: { list: mocks.apps, get: mocks.getApp, getOperationalModel: mocks.getModel, listTrackTemplates: mocks.templates },
@@ -37,6 +38,7 @@ function show(props: Partial<React.ComponentProps<typeof TrackModal>> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.compact = false;
   mocks.remove.mockResolvedValue(undefined);
   mocks.list.mockResolvedValue([model]);
   mocks.apps.mockResolvedValue([]);
@@ -148,7 +150,7 @@ it('confirms deletion of an uploaded model, removes it, and clears its selection
   fireEvent.click(screen.getByRole('button', { name: 'Delete template' }));
   await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('model-one'));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete Reading List template' })).toBeNull());
-  expect(within(screen.getByLabelText('Track starting point')).getByText('Blank track')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Choose a template')).toBeInTheDocument();
   expect(mocks.toast).toHaveBeenCalledWith('Template deleted.', 'success');
   expect(mocks.create).not.toHaveBeenCalled();
 });
@@ -266,7 +268,7 @@ it('previews a Track template without creating or selecting it, then explicitly 
   expect(screen.getByRole('heading', { name: 'Records and views' })).toBeInTheDocument();
   expect(screen.getByText('Books and reading progress.')).toBeInTheDocument();
   expect(screen.getByText('Book · 0 fields')).toBeInTheDocument();
-  expect(within(screen.getByLabelText('Track starting point')).getByText('Blank track')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Choose a template')).toBeInTheDocument();
   expect(mocks.create).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Back to library' }));
   fireEvent.click(screen.getByRole('button', { name: 'View details for Reading List' }));
@@ -284,6 +286,18 @@ it('keeps catalog selection through search and supports the same Add/Selected ca
   expect(within(screen.getByLabelText('Track starting point')).getByText('Reading List')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
   fireEvent.click(screen.getByRole('button', { name: 'Remove Reading List' }));
-  expect(within(screen.getByLabelText('Track starting point')).getByText('Blank track')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Choose a template')).toBeInTheDocument();
   expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it('keeps the mobile template Continue action outside the scrolling selection panel', async () => {
+  mocks.compact = true;
+  show();
+  await screen.findByRole('button', {name:'Add Reading List'});
+  expect(screen.getByRole('button', {name:'Continue'})).toBeDisabled();
+  expect(within(screen.getByLabelText('Track starting point')).queryByRole('button', {name:'Continue'})).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name:'Add Reading List'}));
+  expect(screen.getByRole('button', {name:'Continue'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', {name:'Continue'}));
+  expect(screen.getByLabelText(/Track Name/)).toHaveValue('Reading List');
 });

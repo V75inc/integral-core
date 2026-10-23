@@ -14,6 +14,7 @@ import {
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AppManagerDialog } from './AppManagerDialog';
+import { appsApi } from '../../api/apps';
 import type { App, OperationalModelNode } from '../../types';
 
 const mockListProfiles = vi.fn();
@@ -395,6 +396,12 @@ describe('AppManagerDialog', () => {
     );
     expect(screen.getByText('Region')).toBeInTheDocument();
     expect(screen.getByText('Finish app setup')).toBeInTheDocument();
+    vi.mocked(appsApi.finalizeInstall).mockResolvedValueOnce({
+      app_id: 'app-pending', status: 'active',
+    });
+    fireEvent.click(screen.getByTestId('settings-submit'));
+    await screen.findByText('App change results');
+    expect(screen.queryByText(/HR Suite \(needs settings\)/)).not.toBeInTheDocument();
   });
 
   it('shows Needs settings badge for awaiting_settings apps', async () => {

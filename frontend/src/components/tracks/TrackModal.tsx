@@ -29,6 +29,7 @@ import { TrackTemplateCatalog } from './TrackTemplateCatalog';
 import type { OperationalModelPickerItem } from '../library/OperationalModelPicker';
 import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import { trackPath } from '../../utils/resourcePaths';
+import { useMatchesMedia } from '../../hooks/useMediaQuery';
 
 function normalizeTrackVisibility(v: string | undefined): VisibilityChoice {
   if (!v) return 'private';
@@ -55,6 +56,7 @@ export function TrackModal({
   appId,
 }: TrackModalProps) {
   const { showToast } = useToast();
+  const compact = useMatchesMedia('(max-width: 639px)');
   const confirm = useConfirm();
   const [deletingModels, setDeletingModels] = useState<Set<string>>(new Set());
   const { scope } = useScope();
@@ -218,17 +220,23 @@ export function TrackModal({
 
   const selectedLibraryModel = libraryPackages.find(model => operationalModelChoice === `library:${model.id}`);
   const selectedAppSource = appSources.find(source => source.value === operationalModelChoice);
-  const selectedName = selectedLibraryModel?.name || selectedAppSource?.name || (destinationAppId ? 'App defaults' : 'Blank track');
+  const selectedName = selectedLibraryModel?.name || selectedAppSource?.name || (destinationAppId ? 'App defaults' : step === 'details' ? 'Blank track' : 'Choose a template');
   const selectedCounts = selectedLibraryModel
     ? summarizeLibraryManifest(selectedLibraryModel.manifest ?? {}) : null;
 
+  const needsStartingPoint = !destinationAppId && !operationalModelChoice;
+
   const continueToDetails = () => {
+    if (needsAppSelection || needsStartingPoint || libraryLoading) return;
     if (operationalModelChoice && !title.trim()) setTitle(selectedName);
     if (operationalModelChoice && !purpose.trim()) {
       setPurpose(selectedLibraryModel?.description || selectedAppSource?.description || '');
     }
     setStep('details');
   };
+
+  const continueAction = <Button variant="primary" className="min-h-11 w-full"
+    disabled={libraryLoading || needsAppSelection || needsStartingPoint} onClick={continueToDetails}>Continue</Button>;
 
   const inheritHint = 'This existing Track uses legacy inherited visibility. It is preserved until you choose Private, Workspace, or Public.';
 
@@ -388,7 +396,7 @@ export function TrackModal({
       {step === 'profile' ? <>
         <Modal.Body noPadding noSpacing>
           <div className="grid min-w-0 sm:h-[min(65dvh,42rem)] sm:grid-cols-[minmax(0,1fr)_19rem]">
-            <section aria-label="Track library" className="min-w-0 px-5 pb-5 sm:overflow-y-auto sm:px-6">
+            <section aria-label="Track library" className="order-2 min-w-0 px-5 pb-5 sm:order-1 sm:overflow-y-auto sm:px-6">
               {needsAppSelection && <Text variant="body-sm" tone="muted" as="p">Choose an App in Your selection to see its available track templates.</Text>}
               {detailProfile ? <>
                 <AppPackageDetails profile={detailProfile} kind="track" onBack={() => setDetailId(null)} />
@@ -417,10 +425,10 @@ export function TrackModal({
               </>}
             </section>
             {<Surface as="aside" tone="panel-2" padding="lg" radius="none"
-              className="flex min-w-0 flex-col border-b border-[var(--panel-border)] sm:overflow-hidden sm:border-b-0 sm:border-l"
+              className="order-1 flex min-w-0 flex-col border-b border-[var(--panel-border)] sm:order-2 sm:overflow-hidden sm:border-b-0 sm:border-l"
               aria-label="Track starting point">
               <div className="min-h-0 space-y-5 sm:flex-1 sm:overflow-y-auto">
-              <Text as="h3" variant="heading-sm" weight="semibold">Your selection</Text>
+              <Text as="h3" variant="heading-sm" weight="semibold" className="hidden sm:block">Your selection</Text>
               {appId ? <section aria-label="Track destination" className="space-y-3">
                 <Text variant="label">Add track to</Text>
                 <Surface border="subtle" radius="card" padding="sm">
@@ -437,18 +445,18 @@ export function TrackModal({
                   setChosenParentAppId(value); setOperationalModelChoice(''); setAppCp(null);
                   setAppDetail(null); setTemplates([]); setImportOpen(false); setDetailId(null);
                 }} />}
-              <div className="border-t border-[var(--panel-border)] pt-4">
+              <div className="hidden border-t border-[var(--panel-border)] pt-4 sm:block">
                 <Text variant="label">Starting point</Text>
                 <Text variant="body" weight="medium" as="p" className="mt-3">{needsAppSelection ? 'Choose an App' : selectedName}</Text>
               </div>
-              {selectedCounts && <Text variant="body-sm" tone="muted" as="p">
+              {selectedCounts && <Text variant="body-sm" tone="muted" as="p" className="hidden sm:block">
                 {selectedCounts.entryTypeCount} {selectedCounts.entryTypeCount === 1 ? 'record type' : 'record types'} · {selectedCounts.viewCount} {selectedCounts.viewCount === 1 ? 'view' : 'views'}
               </Text>}
               </div>
-              <div className="mt-4 shrink-0 border-t border-[var(--panel-border)] pt-4">
-                <Button variant="primary" className="min-h-11 w-full" disabled={libraryLoading || needsAppSelection} onClick={continueToDetails}>Continue</Button>
-                <Text variant="meta" tone="subtle" as="p" className="mt-2">Name and review your track before creating it.</Text>
-              </div>
+              {!compact && <div className="mt-4 shrink-0 border-t border-[var(--panel-border)] pt-4">
+                {continueAction}
+                <Text variant="meta" tone="subtle" as="p" className="mt-2">{needsStartingPoint ? 'Choose a template, or create your own track.' : 'Name and review your track before creating it.'}</Text>
+              </div>}
             </Surface>}
           </div>
         </Modal.Body>
@@ -457,6 +465,7 @@ export function TrackModal({
             icon={<Plus size={16} strokeWidth={LINE_ICON_STROKE} />}
             onClick={() => { setOperationalModelChoice(''); setStep('details'); }}>Create your own track</Button>
             : <Button variant="ghost" onClick={onClose}>Cancel</Button>}
+          {compact && <div className="min-w-0">{continueAction}</div>}
         </Modal.Footer>
       </> : <>
         <Modal.Body>
