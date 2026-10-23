@@ -1,3 +1,4 @@
+import { CollapsibleUserMessage } from './CollapsibleUserMessage';
 import { ConversationModelPicker } from './ConversationModelPicker';
 import { ExpandableChatError } from "./ExpandableChatError";
 import { HoverTooltip } from '../../../components/ui/HoverTooltip';
@@ -451,7 +452,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       open={open}
       onOpenChange={setOpen}
       data-slot="aui_work-trail"
-      className="mt-4 mb-3"
+      className="mt-4 mb-3 min-w-0 max-w-full"
     >
       <CollapsibleTrigger
         title="Show activity, timing, token usage, and cost when available"
@@ -470,7 +471,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
         </span>
         <span role="status" aria-live="polite" title={label} className="inline-flex min-h-4 min-w-0 items-center leading-4"><span key={label} className="break-words animate-status-reveal motion-reduce:animate-none">{label}</span></span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-2 flex max-h-80 flex-col gap-3 overflow-y-auto pl-5 text-xs">
+      <CollapsibleContent className="mt-2 flex max-h-80 min-w-0 max-w-full flex-col gap-3 overflow-y-auto pl-5 text-xs">
         <p className="text-xs text-[var(--text-muted)]">Activity, tool results, and model usage are shown here.</p>
         <MessageObservability />
         {children}
@@ -1103,11 +1104,13 @@ function UserMessageParts() {
       )}
 
       {text.trim() ? (
-        <TaggedMessageContent
-          text={text}
-          entityRefs={entityRefsFromMetadata(metadata)}
-          className="text-sm leading-relaxed"
-        />
+        <CollapsibleUserMessage>
+          <TaggedMessageContent
+            text={text}
+            entityRefs={entityRefsFromMetadata(metadata)}
+            className="text-sm leading-relaxed"
+          />
+        </CollapsibleUserMessage>
       ) : null}
     </div>
   );

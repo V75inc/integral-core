@@ -129,3 +129,21 @@ it("keeps reasoning collapsed and applies a conversation-only level or profile d
   fireEvent.click(section);
   expect(screen.queryByRole("combobox", { name: "Heavy reasoning" })).not.toBeInTheDocument();
 });
+
+it("does not reveal a tooltip when closing restores trigger focus", async () => {
+  show();
+  const trigger = await screen.findByRole("button", { name: "Model for this conversation" });
+  expect(trigger).not.toHaveAttribute("title");
+  fireEvent.click(trigger);
+  expect(screen.queryByRole("tooltip", { hidden: true })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close model settings" }));
+  expect(trigger).toHaveFocus();
+  expect(screen.queryByRole("tooltip", { hidden: true })).not.toBeInTheDocument();
+  fireEvent.pointerLeave(trigger.parentElement!);
+  fireEvent.pointerEnter(trigger.parentElement!);
+  expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("Choose model and reasoning");
+  fireEvent.click(trigger);
+  fireEvent.keyDown(screen.getByRole("combobox", { name: "Use model" }), { key: "Escape" });
+  expect(trigger).toHaveFocus();
+  expect(screen.queryByRole("tooltip", { hidden: true })).not.toBeInTheDocument();
+});

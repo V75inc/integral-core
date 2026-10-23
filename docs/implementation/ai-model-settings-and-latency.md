@@ -190,3 +190,55 @@ Final local validation on this branch:
   Escape/return focus and saved configuration reload verified.
 
 The required CI-faithful smoke gate is checked again immediately before push.
+
+
+### Simple provider setup
+
+AI Models opens with a provider/key setup card; Advanced configuration starts
+collapsed. New cloud-provider setup selects the curated recommended model and
+Single routing with provider-default generation settings, through the existing
+connection, profile and revision-checked routing endpoints. The connection is
+validated before activation. Failed activation is surfaced through a toast;
+partial saves are refreshed and reused on retry. Key input is cleared after
+successful storage and when changing providers.
+
+Default models for new setup are GPT-5.4 mini for OpenAI, Claude Sonnet 4.6 for
+Anthropic, OpenAI GPT-5.4 mini through OpenRouter, and DeepSeek V4.1 Flash for
+Ollama Cloud. These are product presets, not a runtime model-discovery promise.
+Existing active profiles, reasoning settings and Light/Heavy routing are retained
+when updating the current provider's key. Environment-provided AI can be
+replaced by a personal provider in owner-editable deployments. Platform-only and
+member workspaces keep their existing authority restrictions.
+
+Local services and custom endpoints remain in Advanced configuration, together
+with model selection, dual routing, reasoning, voice, embeddings and run limits.
+Sonnet 4.6 is the Anthropic compatibility choice: Sonnet 5.5's forced-tool API
+change needs separate harness qualification before it can become the default.
+Provider references: [OpenAI](https://developers.openai.com/api/docs/models/gpt-5.4-mini),
+[Anthropic](https://platform.claude.com/docs/en/models/sonnet-4-6/overview),
+[OpenRouter](https://openrouter.ai/openai/gpt-5.4-mini),
+[Ollama](https://ollama.com/library/deepseek-v4.1-flash),
+[Sonnet 5.5 compatibility](https://platform.claude.com/docs/en/models/sonnet-5-5/overview).
+
+### Chat readability and setup follow-up qualification — 2026-10-23
+
+- Models shows the saved language-profile count; model categories start collapsed.
+- Closing the chat model menu retains keyboard focus without reopening its tooltip.
+- Long user text is height-measured and folded into a preview capped at 16rem or
+  40vh, whichever is smaller. Show more/less preserves the original text and links;
+  attachments remain outside the text fold.
+- Model-call and legacy step tables retain readable typography, row spacing and
+  unwrapped columns inside their own horizontal scroll regions. Overflowing tables
+  show a scroll hint and support keyboard scrolling.
+- Full frontend suite: 354 files, 2,172 tests passed. Production build and types
+  passed; changed-file lint has no errors (existing warnings remain).
+- Live local chat smoke: submitted a separate synthetic long-message conversation
+  using the existing cloud configuration. GPT-4.1 replied successfully. The 1,548px
+  message folded to 256px, expanded and collapsed correctly, and retained identical
+  text after reload. No provider or routing settings were changed.
+- Narrow-dock table smoke: a 704px table scrolls within a 423px region, with the
+  rightmost Cost/Time/State columns accessible by scrolling, including keyboard
+  navigation. Numerical totals and cost provenance remain unchanged.
+
+The four provider setup presets are covered by configuration tests and local
+capability metadata; this is not an all-provider live inference qualification.

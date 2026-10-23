@@ -18,6 +18,7 @@ export function ConversationModelPicker() {
   const { showToast } = useToast();
   const [openThread, setOpenThread] = useState<string | null>(null);
   const open = Boolean(activeThreadId && openThread === activeThreadId);
+  const [tooltipDismissed, setTooltipDismissed] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const anchor = useRef<HTMLDivElement>(null);
@@ -124,11 +125,15 @@ export function ConversationModelPicker() {
   const lightModel = configuration.data.effective.routing?.light_model;
   const profileName = (model: string | undefined) => configuration.data?.profiles.find(profile => profile.model === model)?.name || model;
   return (
-    <div ref={anchor} className="relative">
-      <HoverTooltip label="Choose model and reasoning" placement="top">
-        <IconButton label="Model for this conversation" title="Choose model and reasoning"
+    <div ref={anchor} className="relative"
+      onPointerEnter={() => { if (!open) setTooltipDismissed(false); }}
+      onBlur={event => {
+        if (!open && !event.currentTarget.contains(event.relatedTarget)) setTooltipDismissed(false);
+      }}>
+      <HoverTooltip label="Choose model and reasoning" placement="top" disabled={open || tooltipDismissed}>
+        <IconButton label="Model for this conversation"
           aria-haspopup="dialog" aria-expanded={open} disabled={isRunning}
-          onClick={() => setOpenThread(value => value === activeThreadId ? null : activeThreadId)} size="md">
+          onClick={() => { setTooltipDismissed(true); setOpenThread(value => value === activeThreadId ? null : activeThreadId); }} size="md">
           <Brain size={17} strokeWidth={LINE_ICON_STROKE} aria-hidden />
         </IconButton>
       </HoverTooltip>

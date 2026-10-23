@@ -14,9 +14,10 @@ import {
   PROVIDER_LABELS,
   type ModelProvider,
 } from "../../../api/modelCredentials";
-import { RECOMMENDED_MODELS } from "../../../api/modelPresets";
+import { defaultModel, RECOMMENDED_MODELS } from "../../../api/modelPresets";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { profileSummary } from "./modelSettingsSummary";
+import { QuickProviderSetup } from "./QuickProviderSetup";
 import { ModelCategory } from "./ModelCategory";
 import { VoiceConfiguration } from "./VoiceConfiguration";
 import { EmbeddingConfiguration } from "./EmbeddingConfiguration";
@@ -68,12 +69,14 @@ export function AiConfigurationSection({
   const { showToast } = useToast();
   const query = useAIConfiguration();
   const qc = useQueryClient();
+  const [advanced, setAdvanced] = useState(false);
+  const [quickPending, setQuickPending] = useState(false);
   const [connection, setConnection] = useState<ConnectionWrite | null>(null);
   const [customModel, setCustomModel] = useState(false);
   const [profile, setProfile] = useState<ProfileWrite | null>(null);
   const [tab, setTab] = useState<"models" | "connections">("models");
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<string | null>("language");
+  const [category, setCategory] = useState<string | null>(null);
   const toggleCategory = (name: string) =>
     setCategory((current) => (current === name ? null : name));
   const [removeTarget, setRemoveTarget] = useState<{
@@ -166,7 +169,7 @@ export function AiConfigurationSection({
         p && {
           ...p,
           connection_id: id,
-          model: models[0]?.id ?? "",
+          model: source ? defaultModel(source.provider) : "",
           generation_settings: {},
         },
     );
@@ -206,7 +209,7 @@ export function AiConfigurationSection({
       </Feedback>
     );
   const data = query.data;
-  const disabled = mutation.isPending || data.key_policy === "platform_only";
+  const disabled = mutation.isPending || quickPending || data.key_policy === "platform_only";
   const needle = search.trim().toLowerCase();
   const profiles = data.profiles.filter((p) =>
     `${p.name} ${p.model}`.toLowerCase().includes(needle),
@@ -221,7 +224,7 @@ export function AiConfigurationSection({
     setProfile({
       ...freshProfile(),
       connection_id: source?.id ?? "",
-      model: models[0]?.id ?? "",
+      model: source ? defaultModel(source.provider) : "",
     });
   };
   const showConnection = () => {
@@ -229,6 +232,15 @@ export function AiConfigurationSection({
   };
   return (
     <Stack gap="lg">
+      <QuickProviderSetup key={data.effective.workspace_id} data={data} disabled={mutation.isPending} onBusyChange={setQuickPending} />
+      <div>
+        <Button variant="ghost" aria-expanded={advanced} aria-controls={advanced ? "advanced-ai-configuration" : undefined} disabled={quickPending}
+          icon={<ChevronDown size={16} className={advanced ? "rotate-180" : ""} aria-hidden />} onClick={() => setAdvanced(value => !value)}>
+          {advanced ? "Hide advanced configuration" : "Show advanced configuration"}
+        </Button>
+        {!advanced && <Text as="p" variant="meta" tone="muted" className="mt-1">More control over models and other AI features.</Text>}
+      </div>
+      {advanced && <div id="advanced-ai-configuration" className="space-y-6">
       <section aria-label="Your AI configuration">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-3">
           <div
@@ -269,10 +281,8 @@ export function AiConfigurationSection({
                   setSearch("");
                 }}
               >
-                {t === "models" ? "Models" : "Providers"}
-                {t === "connections" && (
-                  <Badge>{data.connections.length}</Badge>
-                )}
+                {t === "models" ? "Models" : "Providers"}{" "}
+                <Badge>{t === "models" ? data.profiles.length : data.connections.length}</Badge>
               </Button>
             ))}
           </div>
@@ -672,6 +682,7 @@ export function AiConfigurationSection({
           </Text>
         </div>
       </details>
+      </div>}
       <Modal
         open={!!connection}
         placement="right"

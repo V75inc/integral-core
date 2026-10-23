@@ -150,8 +150,8 @@ vi.mock("../../../api/modelCredentials", async (original) => ({
 vi.mock("../../../context/ToastContext", () => ({
   useToast: () => ({ showToast: fixture.showToast }),
 }));
-function show() {
-  return render(
+function show({ advanced = true, language = true } = {}) {
+  const result = render(
     <QueryClientProvider
       client={
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -160,6 +160,9 @@ function show() {
       <AiConfigurationSection />
     </QueryClientProvider>,
   );
+  if (advanced && screen.queryByRole("button", { name: "Show advanced configuration" })) fireEvent.click(screen.getByRole("button", { name: "Show advanced configuration" }));
+  if (advanced && language && screen.queryByRole("button", { name: "Language & multimodal" })) fireEvent.click(screen.getByRole("button", { name: "Language & multimodal" }));
+  return result;
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -387,11 +390,14 @@ it("groups language, embedding and voice models under Models, apart from Provide
   expect(screen.queryByRole("heading", { name: "Voice" })).not.toBeInTheDocument();
 });
 
-it("opens one model category at a time and allows all categories to collapse", () => {
-  show();
+it("starts categories collapsed and opens one at a time", () => {
+  show({ language: false });
   const language = screen.getByRole("button", { name: "Language & multimodal" });
   const embeddings = screen.getByRole("button", { name: "Embeddings" });
   const voice = screen.getByRole("button", { name: "Voice" });
+  expect(language).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("tab", { name: "Models 1" })).toBeVisible();
+  fireEvent.click(language);
   expect(language).toHaveAttribute("aria-expanded", "true");
   fireEvent.click(embeddings);
   expect(embeddings).toHaveAttribute("aria-expanded", "true");
@@ -402,4 +408,17 @@ it("opens one model category at a time and allows all categories to collapse", (
   expect(voice).toHaveAttribute("aria-expanded", "true");
   fireEvent.click(voice);
   expect(voice).toHaveAttribute("aria-expanded", "false");
+});
+
+
+it("starts with simple provider setup and keeps expert controls out of the default view", () => {
+  show({ advanced: false });
+  expect(screen.getByText("Your AI is connected")).toBeVisible();
+  expect(screen.queryByRole("tablist", { name: "AI configuration" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Deployment limits")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show advanced configuration" }));
+  expect(screen.getByRole("tablist", { name: "AI configuration" })).toBeVisible();
+  expect(screen.getByText("Deployment limits")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Hide advanced configuration" }));
+  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
 });
