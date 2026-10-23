@@ -183,6 +183,96 @@ async def resolve_turn_routes(
     return TurnModelRoutes(heavy, heavy)
 
 
+def _reasoning_identity(route: Any) -> tuple[str, str]:
+    """Keep custom endpoint and Cloud/local Ollama capability contracts distinct."""
+    from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+
+    provider = route.provider
+    model = route.model.removeprefix(f"{provider}/")
+    if provider in {"ollama", "ollama_chat"}:
+        provider = (
+            "ollama" if route.api_base == OLLAMA_CLOUD_API_BASE else "ollama_local"
+        )
+    elif (
+        provider == "openai"
+        and route.api_base
+        and route.credential_source != "platform"
+    ):
+        provider = "custom_openai"
+    return provider, model
+
+
+def reasoning_choices(plan: TurnModelRoutes) -> dict[str, dict[str, Any]]:
+    """Expose supported efforts without exposing route credentials."""
+    from app.services.model_settings import model_capabilities
+
+    result = {}
+    for role, route in (("heavy", plan.heavy), ("light", plan.light)):
+        if role == "light" and plan.mode != "light_heavy":
+            continue
+        provider, model = _reasoning_identity(route)
+        efforts = model_capabilities(provider, model)["reasoning_efforts"]
+        if efforts:
+            result[role] = {
+                "model": model,
+                "efforts": efforts,
+                "default_effort": route.generation_settings.get("reasoning_effort"),
+            }
+    return result
+
+
+def apply_conversation_reasoning(
+    plan: TurnModelRoutes, efforts: dict[str, str]
+) -> TurnModelRoutes:
+    """Apply validated per-conversation effort without changing shared profiles or budgets."""
+    from dataclasses import replace
+
+    from app.services.model_settings import validate_model_settings
+
+    choices = reasoning_choices(plan) if efforts else {}
+    routes = {"heavy": plan.heavy, "light": plan.light}
+    for role, effort in efforts.items():
+        choice = choices.get(role)
+        if not choice or effort not in choice["efforts"]:
+            raise ValueError(
+                "Reasoning effort is not supported for this conversation model"
+            )
+        route = routes[role]
+        provider, model = _reasoning_identity(route)
+        generation = dict(route.generation_settings)
+        # The quick effort control replaces other mutually exclusive reasoning controls.
+        generation.pop("thinking_enabled", None)
+        generation.pop("thinking_budget", None)
+        generation["reasoning_effort"] = effort
+        generation = validate_model_settings(provider, model, generation)
+        routes[role] = route.model_copy(update={"generation_settings": generation})
+    if plan.mode != "light_heavy":
+        routes["light"] = routes["heavy"]
+    return replace(plan, heavy=routes["heavy"], light=routes["light"])
+
+
+def applicable_reasoning_efforts(
+    plan: TurnModelRoutes, efforts: dict[str, str]
+) -> dict[str, str]:
+    """Ignore saved preferences no longer supported after a shared model change."""
+    choices = reasoning_choices(plan) if efforts else {}
+    return {
+        role: effort
+        for role, effort in efforts.items()
+        if role in choices and effort in choices[role]["efforts"]
+    }
+
+
+async def conversation_turn_routes(
+    *, reasoning_efforts: dict[str, str] | None = None, **kwargs
+) -> TurnModelRoutes:
+    """Resolve current authority, then bind the conversation's presentation settings."""
+    plan = await resolve_turn_routes(**kwargs)
+    return apply_conversation_reasoning(
+        plan, applicable_reasoning_efforts(plan, reasoning_efforts or {})
+    )
+
+
 def may_escalate_light_failure(
     exc: BaseException, plan: TurnModelRoutes | None
 ) -> bool:

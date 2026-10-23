@@ -598,3 +598,28 @@ def test_legacy_claude_alias_keeps_its_thinking_budget(monkeypatch):
         assert caps["reasoning_efforts"] == []
     finally:
         model_capabilities.cache_clear()
+
+
+@pytest.mark.parametrize("model", ["deepseek-v4.1-flash", "gpt-oss:120b"])
+def test_verified_ollama_tool_contract_supersedes_stale_sdk_metadata(
+    monkeypatch, model
+):
+    """Known tool-capable models remain usable; unknown refusals stay enforced."""
+    import litellm
+
+    from app.services.model_settings import model_capabilities
+
+    monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **_: [])
+    monkeypatch.setattr(
+        litellm, "get_model_info", lambda **_: {"supports_function_calling": False}
+    )
+    model_capabilities.cache_clear()
+    try:
+        assert model_capabilities("ollama", model)["tool_calling"] is True
+        assert (
+            model_capabilities("ollama", "unsupported-model")["tool_calling"] is False
+        )
+        with pytest.raises(ValueError, match="structured tool support"):
+            service._require_structured_support("ollama", "unsupported-model")
+    finally:
+        model_capabilities.cache_clear()

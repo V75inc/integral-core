@@ -136,9 +136,12 @@ export const aiConfigurationApi = {
     thread_id: string,
     profile_id?: string,
     routing_mode?: "inherit" | "heavy" | "profile",
+    reasoning_efforts?: Partial<Record<"heavy" | "light", string | null>>,
   ): Promise<{
     profile_id: string;
     editable: boolean;
+    reasoning_efforts?: Partial<Record<"heavy" | "light", string>>;
+    reasoning_choices?: Partial<Record<"heavy" | "light", { model: string; efforts: string[]; default_effort?: string | null }>>;
     routing_mode?: "inherit" | "heavy" | "profile";
   }> {
     return (
@@ -146,6 +149,7 @@ export const aiConfigurationApi = {
         thread_id,
         ...(profile_id !== undefined ? { profile_id } : {}),
         ...(routing_mode !== undefined ? { routing_mode } : {}),
+        ...(reasoning_efforts !== undefined ? { reasoning_efforts } : {}),
       })
     ).data;
   },

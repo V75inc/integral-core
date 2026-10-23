@@ -915,3 +915,20 @@ async def test_discovered_workflow_must_be_loaded_before_text_completion(tmp_pat
     result = await agent.run("What could hold up our next delivery?")
     assert result.output == "The workflow is active."
     assert requests == 5
+
+
+def test_invalid_model_response_keeps_provider_and_usage_error_precedence():
+    """Retry failures are actionable without exposing internal instructions."""
+    from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+    from app.agentive.harness.model_errors import NativeModelRequestError
+
+    invalid = UnexpectedModelBehavior("private retry instructions")
+    assert classify_integral_harness_exception(invalid) == "model_response_invalid"
+    outer = RuntimeError("private wrapper")
+    outer.__cause__ = invalid
+    assert classify_integral_harness_exception(outer) == "model_response_invalid"
+    invalid.__cause__ = NativeModelRequestError("model_authentication_failed")
+    assert classify_integral_harness_exception(outer) == "model_authentication_failed"
+    invalid.__cause__ = UsageLimitExceeded("private usage detail")
+    assert classify_integral_harness_exception(outer) == "harness_usage_limit"

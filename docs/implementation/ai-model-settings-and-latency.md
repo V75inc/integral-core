@@ -25,10 +25,19 @@ workspace. Platform-only deployments disable personal changes. Strict BYOK witho
 an active credential displays missing setup rather than claiming platform fallback.
 
 A workspace owner can select an owned profile for an idle conversation or reset it
-to the account default. The thread stores only a profile ID. Field-only atomic
-CAS protects the existing active-work admission pointer. Routing resolves the
-profile server-side, rechecks the workspace role and route before physical model
-dispatch, and never saves a transient conversation override as the account default.
+to workspace routing. The brain menu also offers supported reasoning levels for
+the selected model, or separate Heavy/Light controls in Automatic mode. Reasoning
+controls sit in a collapsed section that shows the current level in its summary.
+The brain button opens a compact per-chat panel with one grouped model selector
+and a Light/Heavy readout, rather than a long list of actions. Model
+default removes that conversation's override. The thread stores profile/routing
+selection and per-role reasoning preferences, never credentials. Switching models
+clears these preferences; a shared configuration change ignores preferences the
+new model no longer supports. New unsupported choices are rejected server-side.
+Field-only atomic CAS protects the existing active-work admission pointer. Routing
+resolves profiles server-side, rechecks the workspace role, generation settings and
+route before physical model dispatch, and never changes shared profiles or funding
+and usage ceilings through conversation controls.
 Key usage timestamps use throttled field-only updates. Account deletion purges
 connections and profiles alongside the legacy credential. Configuration edits use
 revision checks so concurrent validation cannot restore stale secrets.

@@ -1484,13 +1484,16 @@ class PydanticAIProvider:
 
         thread = await ChatThread.get(ctx.thread_id)
         profile_id = getattr(thread, "model_profile_id", "")
-        from app.agentive.harness.model_routing import resolve_turn_routes
+        from app.agentive.harness.model_routing import (
+            conversation_turn_routes as resolve_turn_routes,
+        )
         from app.services.chat_latency import current_latency
 
         timing = current_latency.get()
         plan = await resolve_turn_routes(
             workspace_id=ctx.workspace_id,
             profile_id=profile_id,
+            reasoning_efforts=getattr(thread, "model_reasoning_efforts", {}),
             heavy_only=getattr(thread, "model_routing_mode", "inherit") == "heavy",
             resolver=resolve_native_model_route,
         )
@@ -1545,6 +1548,9 @@ class PydanticAIProvider:
                     current_plan = await resolve_turn_routes(
                         workspace_id=ctx.workspace_id,
                         profile_id=current_profile,
+                        reasoning_efforts=getattr(
+                            current_thread, "model_reasoning_efforts", {}
+                        ),
                         heavy_only=getattr(
                             current_thread, "model_routing_mode", "inherit"
                         )

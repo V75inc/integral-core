@@ -47,6 +47,7 @@ class ConversationModelRequest(BaseModel):
     thread_id: str = Field(min_length=1, max_length=200)
     profile_id: str | None = Field(default=None, max_length=200)
     routing_mode: Literal["inherit", "heavy", "profile"] | None = None
+    reasoning_efforts: dict[Literal["heavy", "light"], str | None] | None = None
 
 
 class RoutingWrite(BaseModel):

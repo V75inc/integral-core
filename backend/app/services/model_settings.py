@@ -22,6 +22,21 @@ _OLLAMA_REASONING = {
 }
 
 
+# Explicit tool contracts verified with Ollama /api/show and the publisher pages:
+# https://ollama.com/library/deepseek-v4.1-flash
+# https://ollama.com/library/gpt-oss:120b-cloud
+# Do not infer tool support from reasoning support for arbitrary models.
+_OLLAMA_TOOL_CALLING = frozenset(
+    {
+        "deepseek-v4.1-flash",
+        "deepseek-v4.1-flash:cloud",
+        "deepseek-v4.1-flash:1017-cloud",
+        "gpt-oss:120b",
+        "gpt-oss:120b-cloud",
+    }
+)
+
+
 @lru_cache(maxsize=1)
 def _gateway_reasoning_catalog() -> dict[str, Any]:
     """Pinned public provider metadata; discovery adds no network wait to turns."""
@@ -165,7 +180,11 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         or (known and info.get("supports_reasoning") is not None),
         "output_limit": info.get("max_output_tokens"),
         "native_context": info.get("max_input_tokens"),
-        "tool_calling": info.get("supports_function_calling") if known else None,
+        "tool_calling": (
+            True
+            if provider in {"ollama", "ollama_local"} and model in _OLLAMA_TOOL_CALLING
+            else info.get("supports_function_calling") if known else None
+        ),
         "vision": info.get("supports_vision") if known else None,
     }
 

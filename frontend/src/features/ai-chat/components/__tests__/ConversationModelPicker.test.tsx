@@ -56,61 +56,76 @@ beforeEach(() => {
     routing_mode: "inherit",
   });
 });
-describe("Conversation model routing", () => {
-  it("opens a brain menu and saves heavy-only, fixed and workspace choices", async () => {
+describe("Conversation model settings", () => {
+  it("organizes model choices in a compact panel and applies them immediately", async () => {
     show();
-    const trigger = await screen.findByRole("button", {
-      name: "Model for this conversation",
-    });
-    for (const [label, profile, mode] of [
-      [/^Heavy only/, "", "heavy"],
-      [/^Deep/, "fixed", "profile"],
-      [/^Workspace default/, "", "inherit"],
+    const trigger = await screen.findByRole("button", { name: "Model for this conversation" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Chat model settings" })).toBeInTheDocument();
+    const picker = screen.getByRole("combobox", { name: "Use model" });
+    expect(picker).toHaveFocus();
+    for (const [value, profile, mode] of [
+      ["__heavy", "", "heavy"], ["fixed", "fixed", "profile"], ["", "", "inherit"],
     ] as const) {
-      fireEvent.click(trigger);
-      fireEvent.click(screen.getByRole("menuitemradio", { name: label }));
-      await waitFor(() =>
-        expect(aiConfigurationApi.conversation).toHaveBeenLastCalledWith(
-          "thread",
-          profile,
-          mode,
-        ),
-      );
-      await waitFor(() => expect(trigger).toBeEnabled());
-      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-      expect(trigger).toHaveFocus();
+      fireEvent.change(picker, { target: { value } });
+      await waitFor(() => expect(aiConfigurationApi.conversation).toHaveBeenLastCalledWith("thread", profile, mode));
+      await waitFor(() => expect(picker).toBeEnabled());
     }
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.keyDown(picker, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
   it("prevents changes while the conversation is running", async () => {
     state.running = true;
     show();
-    expect(
-      await screen.findByRole("button", {
-        name: "Model for this conversation",
-      }),
-    ).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Model for this conversation" })).toBeDisabled();
     expect(aiConfigurationApi.conversation).toHaveBeenCalledTimes(1);
   });
   it("keeps the current model after a rejected change and shows a toast", async () => {
     show();
-    const trigger = await screen.findByRole("button", {
-      name: "Model for this conversation",
-    });
-    fireEvent.click(trigger);
-    vi.mocked(aiConfigurationApi.conversation).mockRejectedValueOnce(
-      new Error("offline"),
-    );
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /^Heavy only/ }));
-    await waitFor(() =>
-      expect(state.showToast).toHaveBeenCalledWith(
-        "Could not change the conversation model.",
-        "error",
-      ),
-    );
-    fireEvent.click(trigger);
-    expect(
-      screen.getByRole("menuitemradio", { name: /^Workspace default/ }),
-    ).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(await screen.findByRole("button", { name: "Model for this conversation" }));
+    vi.mocked(aiConfigurationApi.conversation).mockRejectedValueOnce(new Error("offline"));
+    const picker = screen.getByRole("combobox", { name: "Use model" });
+    fireEvent.change(picker, { target: { value: "__heavy" } });
+    await waitFor(() => expect(state.showToast).toHaveBeenCalledWith("Could not change the conversation model.", "error"));
+    expect(picker).toHaveValue("");
   });
+  it("closes on outside click and the close control", async () => {
+    show();
+    const trigger = await screen.findByRole("button", { name: "Model for this conversation" });
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "Close model settings" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+});
+
+it("keeps reasoning collapsed and applies a conversation-only level or profile default", async () => {
+  const choices = { heavy: { model: "gpt-5", efforts: ["low", "high"], default_effort: "medium" } };
+  vi.mocked(aiConfigurationApi.conversation).mockImplementation(async (_thread, _profile, _mode, efforts) => ({
+    editable: true, profile_id: "", routing_mode: "inherit", reasoning_choices: choices,
+    reasoning_efforts: efforts?.heavy ? { heavy: efforts.heavy } : {},
+  }));
+  show();
+  fireEvent.click(await screen.findByRole("button", { name: "Model for this conversation" }));
+  expect(screen.queryByRole("combobox", { name: "Heavy reasoning" })).not.toBeInTheDocument();
+  const section = screen.getByRole("button", { name: /^Reasoning/ });
+  expect(section).toHaveAttribute("aria-expanded", "false");
+  expect(section).toHaveTextContent("Medium · Default");
+  fireEvent.click(section);
+  const effort = screen.getByRole("combobox", { name: "Heavy reasoning" });
+  fireEvent.change(effort, { target: { value: "high" } });
+  await waitFor(() => expect(aiConfigurationApi.conversation).toHaveBeenLastCalledWith("thread", undefined, undefined, { heavy: "high" }));
+  await waitFor(() => expect(effort).toHaveValue("high"));
+  expect(state.showToast).toHaveBeenCalledWith("Reasoning updated for this conversation.", "success");
+  expect(section).toHaveTextContent("High");
+  fireEvent.change(effort, { target: { value: "" } });
+  await waitFor(() => expect(aiConfigurationApi.conversation).toHaveBeenLastCalledWith("thread", undefined, undefined, { heavy: null }));
+  await waitFor(() => expect(effort).toHaveValue(""));
+  fireEvent.click(section);
+  expect(screen.queryByRole("combobox", { name: "Heavy reasoning" })).not.toBeInTheDocument();
 });

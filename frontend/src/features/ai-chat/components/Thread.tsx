@@ -1,5 +1,6 @@
 import { ConversationModelPicker } from './ConversationModelPicker';
 import { ExpandableChatError } from "./ExpandableChatError";
+import { HoverTooltip } from '../../../components/ui/HoverTooltip';
 import { KebabMenu } from '../../../components/ui/KebabMenu';
 import './composer.css';
 import { useChatEntityRefsOptional } from '../../../context/ChatEntityRefsContext';
@@ -1451,7 +1452,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
   return (
     <div ref={actionRef} className="relative flex min-w-0 items-center gap-2" role="group" aria-label="Message actions">
       <div className="flex min-w-0 flex-1 items-center gap-1">
-        <ComposerPrimitive.AddAttachment asChild>
+        <HoverTooltip label="Attach an image or file" placement="top"><ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
             aria-label="Attach a file"
@@ -1465,15 +1466,15 @@ function ComposerAction({ home = false }: { home?: boolean }) {
           >
             <PaperclipIcon size={15} />
           </button>
-        </ComposerPrimitive.AddAttachment>
-        <KebabMenu size="md" portal ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
+        </ComposerPrimitive.AddAttachment></HoverTooltip>
+        <HoverTooltip label="Suggestions" placement="top"><KebabMenu size="md" portal ariaLabel="Suggestions" title="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
           key: suggestion.label, label: suggestion.label, description: suggestion.text, disabled: !canSuggest,
           onClick: () => {
             refs?.resetComposerEntityRefs();
             aui.composer().setText(suggestion.text);
             actionRef.current?.parentElement?.querySelector('textarea')?.focus();
           },
-        }))} />
+        }))} /></HoverTooltip>
         <ConversationModelPicker />
       </div>
       <div className="flex shrink-0 items-center gap-1">
@@ -1494,6 +1495,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
         <AuiIf condition={(s) => s.thread.isRunning}>
           <ComposerPrimitive.Cancel
             aria-label="Stop generating"
+            title="Stop generating"
             className="
               flex h-10 w-10 shrink-0 items-center justify-center rounded-full
               bg-[var(--cta-bg)] text-[var(--cta-fg)]

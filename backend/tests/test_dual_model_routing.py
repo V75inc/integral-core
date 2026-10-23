@@ -606,3 +606,182 @@ def test_real_uvloop_does_not_immediately_expire_a_fresh_model_turn():
 
     with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
         runner.run(turn())
+
+
+@pytest.mark.parametrize(
+    "provider,model,base,expected",
+    [
+        ("openai", "openai/gpt-5", None, "openai"),
+        ("anthropic", "anthropic/claude-sonnet", None, "anthropic"),
+        ("openrouter", "openrouter/anthropic/claude-sonnet", None, "openrouter"),
+        ("ollama_chat", "ollama_chat/gpt-oss:120b", "https://ollama.com", "ollama"),
+        (
+            "ollama_chat",
+            "ollama_chat/gpt-oss:120b",
+            "http://localhost:11434",
+            "ollama_local",
+        ),
+        (
+            "openai",
+            "openai/private-model",
+            "https://example.invalid/v1",
+            "custom_openai",
+        ),
+    ],
+)
+def test_reasoning_overrides_keep_provider_contracts_and_saved_budgets(
+    monkeypatch, provider, model, base, expected
+):
+    """All provider choices retain their own capability contract and immutable defaults."""
+    from app.services import model_settings
+
+    seen = []
+
+    def capabilities(p, m):
+        seen.append((p, m))
+        return {"reasoning_efforts": ["low", "high"]}
+
+    monkeypatch.setattr(model_settings, "model_capabilities", capabilities)
+    original = ResolvedModelRoute(
+        provider=provider,
+        model=model,
+        api_base=base,
+        credential_source="workspace_byok",
+        api_key="synthetic-test-key",
+        generation_settings={"model_request_limit": 4},
+    )
+    plan = model_routing.TurnModelRoutes(original, original)
+    changed = model_routing.apply_conversation_reasoning(plan, {"heavy": "high"})
+    assert changed.heavy.generation_settings["reasoning_effort"] == "high"
+    assert changed.light == changed.heavy
+    assert changed.budget_settings == plan.budget_settings == {"model_request_limit": 4}
+    assert original.generation_settings == {"model_request_limit": 4}
+    assert all(p == expected for p, _ in seen)
+    with pytest.raises(ValueError, match="not supported"):
+        model_routing.apply_conversation_reasoning(plan, {"light": "low"})
+    with pytest.raises(ValueError, match="not supported"):
+        model_routing.apply_conversation_reasoning(plan, {"heavy": "max"})
+
+
+@pytest.mark.asyncio
+async def test_conversation_reasoning_roundtrip_reset_and_busy_guard(
+    authenticated_client, monkeypatch
+):
+    """Conversation tuning never mutates profiles and cannot race an active turn."""
+    from app.models.nodes import ChatThread
+    from app.services import model_settings
+
+    monkeypatch.setattr(
+        model_settings,
+        "model_capabilities",
+        lambda *_: {"reasoning_efforts": ["low", "high"]},
+    )
+    created = await authenticated_client.post(
+        "/api/chat/threads",
+        json={"provider_id": "integral_native", "title": "Reasoning QA"},
+    )
+    thread_id = created.json()["id"]
+    heavy = ResolvedModelRoute(
+        provider="openai",
+        model="openai/gpt-5",
+        credential_source="platform",
+        generation_settings={"reasoning_effort": "low"},
+    )
+    light = ResolvedModelRoute(
+        provider="openai", model="openai/small", credential_source="platform"
+    )
+    plan = model_routing.TurnModelRoutes(heavy, light, "light_heavy")
+    monkeypatch.setattr(
+        model_routing, "resolve_turn_routes", AsyncMock(return_value=plan)
+    )
+    endpoint = "/api/users/me/conversation-model"
+    changed = await authenticated_client.post(
+        endpoint, json={"thread_id": thread_id, "reasoning_efforts": {"heavy": "high"}}
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["reasoning_efforts"] == {"heavy": "high"}
+    assert changed.json()["reasoning_choices"]["heavy"]["default_effort"] == "low"
+    assert heavy.generation_settings == {"reasoning_effort": "low"}
+    readback = await authenticated_client.post(endpoint, json={"thread_id": thread_id})
+    assert readback.json()["reasoning_efforts"] == {"heavy": "high"}
+    invalid = await authenticated_client.post(
+        endpoint, json={"thread_id": thread_id, "reasoning_efforts": {"light": "max"}}
+    )
+    assert invalid.status_code == 400
+    assert (await ChatThread.get(thread_id)).model_reasoning_efforts == {
+        "heavy": "high"
+    }
+    reset = await authenticated_client.post(
+        endpoint, json={"thread_id": thread_id, "reasoning_efforts": {"heavy": None}}
+    )
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["reasoning_efforts"] == {}
+    thread = await ChatThread.get(thread_id)
+    thread.active_work_item_id = "active-turn"
+    await thread.save()
+    busy = await authenticated_client.post(
+        endpoint, json={"thread_id": thread_id, "reasoning_efforts": {"heavy": "high"}}
+    )
+    assert busy.status_code == 400
+    assert (await ChatThread.get(thread_id)).model_reasoning_efforts == {}
+
+
+@pytest.mark.asyncio
+async def test_stale_conversation_efforts_follow_current_model_contract(monkeypatch):
+    """Shared routing changes cannot strand a conversation on unsupported settings."""
+    from app.services import model_settings
+
+    monkeypatch.setattr(
+        model_settings,
+        "model_capabilities",
+        lambda *_: {"reasoning_efforts": ["low", "high"]},
+    )
+    route = ResolvedModelRoute(
+        provider="openai", model="openai/o3", credential_source="platform"
+    )
+    plan = model_routing.TurnModelRoutes(route, route)
+
+    async def resolve(**_):
+        return plan
+
+    monkeypatch.setattr(model_routing, "resolve_turn_routes", resolve)
+    current = await model_routing.conversation_turn_routes(
+        reasoning_efforts={"light": "low", "heavy": "max"}
+    )
+    assert current == plan
+    with pytest.raises(ValueError, match="not supported"):
+        model_routing.apply_conversation_reasoning(plan, {"heavy": "max"})
+    current = await model_routing.conversation_turn_routes(
+        reasoning_efforts={"heavy": "high", "light": "low"}
+    )
+    assert current.heavy.generation_settings == {"reasoning_effort": "high"}
+    assert current.light == current.heavy
+    assert route.generation_settings == {}
+
+
+@pytest.mark.asyncio
+async def test_conversation_reasoning_cannot_bypass_owner_or_platform_policy(
+    authenticated_client, monkeypatch
+):
+    """The new preference body uses the existing thread and funding perimeter."""
+    from app.models.nodes import ChatThread
+    from app.services import ai_configuration
+
+    created = await authenticated_client.post(
+        "/api/chat/threads",
+        json={"provider_id": "integral_native", "title": "Reasoning authority QA"},
+    )
+    thread_id = created.json()["id"]
+    with pytest.raises(ValueError, match="Conversation is unavailable"):
+        await ai_configuration.conversation_model(
+            "another-user", thread_id, reasoning_efforts={"heavy": "high"}
+        )
+    monkeypatch.setattr(
+        ai_configuration.settings, "INTEGRAL_AGENT_KEY_MODE", "platform_only"
+    )
+    denied = await authenticated_client.post(
+        "/api/users/me/conversation-model",
+        json={"thread_id": thread_id, "reasoning_efforts": {"heavy": "high"}},
+    )
+    assert denied.status_code == 400
+    assert (await ChatThread.get(thread_id)).model_reasoning_efforts == {}

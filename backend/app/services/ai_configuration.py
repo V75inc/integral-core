@@ -510,6 +510,7 @@ async def conversation_model(
     profile_id: str | None = None,
     *,
     routing_mode: str | None = None,
+    reasoning_efforts: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
     """Read or change an owned idle conversation model selection."""
     from app.models.nodes import ChatThread
@@ -533,10 +534,15 @@ async def conversation_model(
         and owner.user_id == user_id
         and settings.INTEGRAL_AGENT_KEY_MODE != "platform_only"
     )
-    if profile_id is not None or routing_mode is not None:
+    selection_change = profile_id is not None or routing_mode is not None
+    if selection_change or reasoning_efforts is not None:
         _enabled()
-        profile_id = profile_id or ""
-        selected_mode = routing_mode or ("profile" if profile_id else "inherit")
+        profile_id = (profile_id or "") if selection_change else thread.model_profile_id
+        selected_mode = (
+            (routing_mode or ("profile" if profile_id else "inherit"))
+            if selection_change
+            else ("profile" if thread.model_profile_id else thread.model_routing_mode)
+        )
         if (selected_mode == "profile") != bool(profile_id):
             raise ValueError("Choose a profile for fixed model routing")
         if not editable:
@@ -550,6 +556,40 @@ async def conversation_model(
                     "Choose a default model before setting a conversation override"
                 )
             await profile_credential(user_id, profile_id, record)
+        from app.agentive.harness.model_route import resolve_native_model_route
+        from app.agentive.harness.model_routing import (
+            applicable_reasoning_efforts,
+            apply_conversation_reasoning,
+            resolve_turn_routes,
+        )
+
+        efforts = {} if selection_change else dict(thread.model_reasoning_efforts)
+        if reasoning_efforts is not None:
+            for role, effort in reasoning_efforts.items():
+                if role not in {"heavy", "light"}:
+                    raise ValueError("Unknown conversation model role")
+                if effort is None:
+                    efforts.pop(role, None)
+                else:
+                    efforts[role] = effort
+        if efforts:
+            plan = await resolve_turn_routes(
+                workspace_id=thread.workspace_id,
+                profile_id=profile_id,
+                heavy_only=selected_mode == "heavy",
+                resolver=resolve_native_model_route,
+            )
+            # New choices are strict; older preferences fall back to the current
+            # profile when the workspace owner changes models or routing mode.
+            apply_conversation_reasoning(
+                plan,
+                {
+                    role: effort
+                    for role, effort in (reasoning_efforts or {}).items()
+                    if effort is not None
+                },
+            )
+            efforts = applicable_reasoning_efforts(plan, efforts)
         # Field-only CAS: never overwrite an admission pointer from a stale
         # hydrated thread while another request starts a turn.
         from jvspatial.core.context import get_default_context
@@ -573,6 +613,7 @@ async def conversation_model(
                 "$set": {
                     "context.model_profile_id": profile_id,
                     "context.model_routing_mode": selected_mode,
+                    "context.model_reasoning_efforts": efforts,
                 }
             },
         )
@@ -582,7 +623,42 @@ async def conversation_model(
             )
         thread.model_profile_id = profile_id
         thread.model_routing_mode = selected_mode
+        thread.model_reasoning_efforts = efforts
+    choices = {}
+    active_efforts = {}
+    if editable:
+        from app.agentive.harness.model_route import resolve_native_model_route
+        from app.agentive.harness.model_routing import (
+            applicable_reasoning_efforts,
+            reasoning_choices,
+            resolve_turn_routes,
+        )
+        from app.api.errors import ServiceUnavailableError
+        from app.services.model_credential_resolver import ModelKeyRequiredError
+
+        try:
+            plan = await resolve_turn_routes(
+                workspace_id=thread.workspace_id,
+                profile_id=thread.model_profile_id,
+                heavy_only=thread.model_routing_mode == "heavy",
+                resolver=resolve_native_model_route,
+            )
+            choices = reasoning_choices(plan)
+            active_efforts = applicable_reasoning_efforts(
+                plan, thread.model_reasoning_efforts
+            )
+        except (ValueError, ServiceUnavailableError, ModelKeyRequiredError):
+            # Optional controls must not prevent model selection/reset when setup needs repair.
+            choices = {}
     return {
+        **(
+            {
+                "reasoning_efforts": active_efforts,
+                "reasoning_choices": choices,
+            }
+            if editable and (choices or thread.model_reasoning_efforts)
+            else {}
+        ),
         "profile_id": thread.model_profile_id if editable else "",
         "editable": editable,
         "routing_mode": (

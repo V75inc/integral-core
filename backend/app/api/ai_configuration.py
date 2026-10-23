@@ -210,7 +210,11 @@ async def conversation_model(request: Request) -> dict[str, Any]:
     from app.schemas.ai_configuration import ConversationModelRequest
 
     body = await _body(request, ConversationModelRequest)
-    if body.profile_id is None and body.routing_mode is None:
+    if (
+        body.profile_id is None
+        and body.routing_mode is None
+        and body.reasoning_efforts is None
+    ):
         try:
             return await service.conversation_model(
                 resolve_principal_id(request), body.thread_id
@@ -220,7 +224,11 @@ async def conversation_model(request: Request) -> dict[str, Any]:
     return await _mutate(
         request,
         lambda user: service.conversation_model(
-            user, body.thread_id, body.profile_id, routing_mode=body.routing_mode
+            user,
+            body.thread_id,
+            body.profile_id,
+            routing_mode=body.routing_mode,
+            reasoning_efforts=body.reasoning_efforts,
         ),
         action="ai_conversation_model.configure",
     )

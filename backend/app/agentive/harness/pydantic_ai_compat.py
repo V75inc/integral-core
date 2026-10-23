@@ -888,6 +888,16 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
     model_code = classified_model_error(exc)
     if model_code:
         return model_code
+    from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+    # Provider classification is content-free; raw model/guard text stays private.
+    current = exc
+    seen.clear()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, UnexpectedModelBehavior):
+            return "model_response_invalid"
+        current = current.__cause__ or current.__context__
     if isinstance(exc, UsageLimitExceeded):
         return "harness_usage_limit"
     exception_text = str(getattr(exc, "message", exc)).lower()
