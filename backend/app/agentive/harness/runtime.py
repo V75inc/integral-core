@@ -171,9 +171,17 @@ def build_native_runtime(
             agent_name=agent_name,
             run_id=scope.framework_run_id,
         ),
-        # Adapter-owned policy bounds repeated tool-call arguments and results
-        # without discarding the newest outcome or active skill state.
-        build_integral_context_compaction(),
+        # Bound repeated read payloads even within a long active turn. Only
+        # tools explicitly marked read-only in the Core catalogue may be
+        # compacted; capability loading, skills, staging, and writes stay exact.
+        build_integral_context_compaction(
+            clearable_tools=frozenset(
+                tool.name
+                for tool in tools
+                if (getattr(tool, "metadata", None) or {}).get("integral_op_class")
+                == "read"
+            )
+        ),
         build_integral_history_compaction(),
         # Search only this server-assigned Pydantic conversation. The source
         # is the exact tenant/principal/thread/session-scoped StepStore used by

@@ -450,10 +450,10 @@ def test_run_instructions_surface_current_core_outcomes_over_old_proposal_text()
 
 
 def test_integral_compaction_preserves_the_recent_working_set() -> None:
-    """Keep the live outcome and skill state while compacting bulky history."""
+    """Keep a small recent window and never clear capability activation."""
     compaction = build_integral_context_compaction()
 
-    assert compaction.max_tokens == 16_384
+    assert compaction.max_tokens == 8_192
     assert compaction.max_fraction is None
     assert compaction.keep_pairs == 5
     assert compaction.exclude_tools == frozenset({"load_capability"})
@@ -753,36 +753,105 @@ async def test_history_summary_never_distills_active_batch_receipts(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_compaction_preserves_active_multi_record_grounding():
+async def test_compaction_clears_only_stale_active_reads():
     messages = [ModelRequest(parts=[UserPromptPart("Prepare the related records")])]
     for index in range(12):
+        name = "write" if index == 5 else "read"
         messages.extend(
             [
-                ModelResponse(
-                    parts=[ToolCallPart("read", {"index": index}, str(index))]
-                ),
+                ModelResponse(parts=[ToolCallPart(name, {"index": index}, str(index))]),
                 ModelRequest(
                     parts=[
-                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                        ToolReturnPart(
+                            name,
+                            {"record_id": str(index), "details": "x" * 256},
+                            str(index),
+                        )
                     ]
                 ),
             ]
         )
-    compacted = await build_integral_context_compaction().compact(
-        messages, SimpleNamespace()
+    compacted = await build_integral_context_compaction(
+        clearable_tools=frozenset({"read"})
+    ).compact(messages, SimpleNamespace())
+    returns = [
+        part
+        for message in compacted
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert len(returns) == 12
+    assert [part.content for part in returns[:5]] == ["[tool result cleared]"] * 5
+    assert returns[5].content == {
+        "record_id": "5",
+        "details": "x" * 256,
+    }  # write receipt retained
+    assert [part.content for part in returns[6:10]] == ["[tool result cleared]"] * 4
+    assert [part.content for part in returns[-2:]] == [
+        {"record_id": str(index), "details": "x" * 256} for index in range(10, 12)
+    ]
+    first_read_call = next(
+        part
+        for message in compacted
+        for part in message.parts
+        if isinstance(part, ToolCallPart) and part.tool_name == "read"
     )
-    assert compacted == messages
-    assert (
-        len(
-            [
-                p
-                for m in compacted
-                for p in m.parts
-                if isinstance(p, ToolReturnPart) and isinstance(p.content, dict)
-            ]
-        )
-        == 12
+    assert "index" in str(first_read_call.args)  # refetch arguments stay available
+    assert compacted[0] == messages[0]  # exact user task remains available
+    assert messages[2].parts[0].content == {
+        "record_id": "0",
+        "details": "x" * 256,
+    }  # source untouched
+
+
+@pytest.mark.asyncio
+async def test_active_read_compaction_does_not_wait_for_history_threshold():
+    call_index = 0
+
+    async def read_1():
+        return {"record_id": "1", "details": "x" * 2048}
+
+    async def read_2():
+        return {"record_id": "2", "details": "x" * 2048}
+
+    async def read_3():
+        return {"record_id": "3", "details": "x" * 2048}
+
+    def respond(messages, info):
+        nonlocal call_index
+        call_index += 1
+        if call_index <= 3:
+            return ModelResponse(
+                parts=[ToolCallPart(f"read_{call_index}", {}, str(call_index))]
+            )
+        return ModelResponse(parts=[TextPart("Done")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        tools=[read_1, read_2, read_3],
+        capabilities=[
+            build_integral_context_compaction(
+                clearable_tools=frozenset({"read_1", "read_2", "read_3"})
+            )
+        ],
     )
+    result = await agent.run("Read these three sources and summarize them.")
+    seen_returns = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+
+    assert result.output == "Done"
+    assert [part.tool_name for part in seen_returns] == [
+        "read_1",
+        "read_2",
+        "read_3",
+    ]
+    assert seen_returns[0].content == "[tool result cleared]"
+    assert seen_returns[1].content == {"record_id": "2", "details": "x" * 2048}
+    assert seen_returns[2].content == {"record_id": "3", "details": "x" * 2048}
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from importlib import metadata
 from typing import Any, Dict
 
 from fastapi import Request
@@ -80,7 +81,15 @@ async def build_meta() -> Dict[str, Any]:
     """
     from app.config import settings
 
-    return {"asset_version": settings.WEB_ASSET_VERSION}
+    try:
+        core_version = metadata.version("integral-core")
+    except metadata.PackageNotFoundError:
+        core_version = None
+
+    return {
+        "asset_version": settings.WEB_ASSET_VERSION,
+        "core_version": core_version,
+    }
 
 
 @endpoint("/meta/deployment", methods=["GET"], auth=False, tags=["Meta"])

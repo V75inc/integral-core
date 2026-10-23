@@ -713,39 +713,87 @@ def _active_turn_start(messages) -> int | None:
 
 @dataclass
 class IntegralToolResultCompaction(ClearToolResults):
-    """Clear completed-turn payloads without erasing the active task's inputs.
+    """Bound read-only payloads in the active turn and completed history.
 
-    A five-pair window cannot retain a task that needs several record reads
-    plus destination schemas before staging. Clearing those reads mid-turn
-    causes the model to repeat them instead of completing the task. Keep the
-    active user turn exact; the native run's usage and tool limits still bound
-    it. Completed turns retain only the library's bounded recent window.
+    The current task and recent read receipts remain available. Older read-only
+    results can be fetched again if needed, while non-read tools (including
+    staging and writes) and their receipts remain untouched. This prevents a
+    long multi-step turn from repeatedly resending every prior read to the
+    heavy model. Completed turns retain the library's bounded recent window.
     """
+
+    clearable_tools: frozenset[str] = frozenset()
 
     async def before_model_request(self, ctx, request_context):
         # Request-only projection must also become the checkpoint working
         # history. Otherwise later runs resurrect the completed-turn payloads.
         before = list(request_context.messages)
         processed = await super().before_model_request(ctx, request_context)
+        # The upstream threshold counts message history but omits the large
+        # system instructions and tool schemas sent alongside it. Bound active
+        # read receipts on every request so those omitted costs cannot hide an
+        # ever-growing sequence of results.
+        if self.clearable_tools:
+            processed.messages = await self._compact_active_turn(
+                list(processed.messages), ctx
+            )
         if processed.messages != before:
             ctx.messages[:] = processed.messages
         return processed
+
+    async def _compact_active_turn(self, messages, ctx):
+        turn_start = _active_turn_start(messages)
+        if turn_start is None:
+            return messages
+        active_turn = messages[turn_start:]
+        if not self.clearable_tools:
+            return messages
+
+        # Fail closed for tools without an explicit read-only classification.
+        # Generated skill tools, capability discovery, staging, and writes are
+        # therefore protected by default; the caller supplies only Core tools
+        # classified as reads in the authoritative tool catalogue.
+        protected_tools = {
+            part.tool_name
+            for message in active_turn
+            if isinstance(message, ModelResponse)
+            for part in message.parts
+            if isinstance(part, ToolCallPart)
+            and part.tool_name not in self.clearable_tools
+        }
+        active_compaction = ClearToolResults(
+            max_tokens=1,
+            keep_pairs=2,
+            exclude_tools=self.exclude_tools | frozenset(protected_tools),
+            # Retain read arguments so the model can repeat a query whose
+            # earlier receipt was compacted.
+            clear_tool_inputs=False,
+            min_clear_tokens=256,
+            placeholder=self.placeholder,
+            tokenizer=self.tokenizer,
+        )
+        compacted = await active_compaction.compact(active_turn, ctx)
+        return [*messages[:turn_start], *compacted]
 
     async def compact(self, messages, ctx):
         turn_start = _active_turn_start(messages)
         if turn_start is None:
             return await super().compact(messages, ctx)
         history = await super().compact(messages[:turn_start], ctx)
-        return [*history, *messages[turn_start:]]
+        active_turn = await self._compact_active_turn(messages[turn_start:], ctx)
+        return [*history, *active_turn]
 
 
-def build_integral_context_compaction() -> ClearToolResults:
-    """Bound completed-turn payloads while preserving active task grounding."""
+def build_integral_context_compaction(
+    *, clearable_tools: frozenset[str] = frozenset()
+) -> ClearToolResults:
+    """Bound old reads while preserving active task and effect receipts."""
     return IntegralToolResultCompaction(
-        max_tokens=16_384,
+        max_tokens=8_192,
         keep_pairs=5,
         exclude_tools=frozenset({"load_capability"}),
         clear_tool_inputs=True,
+        clearable_tools=clearable_tools,
     )
 
 
