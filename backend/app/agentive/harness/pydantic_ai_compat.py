@@ -601,6 +601,11 @@ def build_integral_run_instructions(
             "verified timezone requires another local date. Historical record "
             "dates and model memory do not establish today's date. Do not "
             "invent a user timezone or shift the date without a verified basis.",
+            "After creating or updating resources, include the canonical result_links "
+            "in the completion response. Use an App link for a multi-Track App, "
+            "its sole Track for a single-Track App, the specific dashboard or Home "
+            "tab when changed, and an Entry link only for exactly one affected "
+            "Entry; for several Entries link their containing Track(s). "
             "Integral navigation: resource IDs are opaque. When linking saved "
             "Apps, Tracks or Entries, copy the canonical url returned by Core "
             "tools exactly. Do not split an ID, replace its dots with slashes, "

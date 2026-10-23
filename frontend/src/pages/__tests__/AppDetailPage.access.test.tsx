@@ -34,6 +34,10 @@ vi.mock('../../features/app-dashboards/AppDashboardPanel', () => ({
   AppDashboardPanel: ({ canEdit }: { canEdit: boolean }) => <div data-testid="dashboard-rights">{canEdit ? 'editable' : 'read-only'}</div>,
 }));
 
+vi.mock('../../features/app-dashboards/AppHomePanel', () => ({
+  AppHomePanel: () => <div data-testid="app-home">App Home</div>,
+}));
+
 import { AppDetailPage } from '../AppDetailPage';
 
 afterEach(() => {
@@ -86,4 +90,18 @@ it('keeps Collaborators focused on people and places access details in its foote
   expect(screen.queryByRole('dialog', { name: 'Collaborators' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Back to collaborators' }));
   expect(await screen.findByRole('dialog', { name: 'Collaborators' })).toBeInTheDocument();
+});
+
+
+it('opens an explicit Home destination ahead of the remembered Dashboards tab', async () => {
+  mocks.get.mockImplementation(async (url: string) => {
+    if (url === '/apps/app') return { data: { app: { id: 'app', name: 'Shared app', workspace_id: 'ws' } } };
+    if (url.includes('home')) return { data: { home: { sections: [] } } };
+    if (url.includes('collaborators')) return { data: { collaborators: [], caller_role: 'viewer' } };
+    return { data: { tracks: [], dashboards: [] } };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/apps/app?section=home']}><Routes><Route path="/apps/:appId" element={<AppDetailPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByTestId('app-home')).toBeInTheDocument();
+  expect(screen.queryByTestId('dashboard-rights')).not.toBeInTheDocument();
 });

@@ -198,29 +198,31 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                 # the model's final response ignores tool_choice=none. Use
                 # only the current permission-checked readback, never history.
                 resources = run_state["verified_build_resources"]
-                targets = [
-                    item
-                    for item in resources
-                    if isinstance(item, dict) and item.get("kind") == "track"
-                ] or [
-                    item
-                    for item in resources
-                    if isinstance(item, dict) and item.get("kind") == "app"
-                ]
-                links = []
-                for item in targets[:3]:
-                    url = str(item.get("url") or "")
-                    if not url.startswith(("/tracks/", "/apps/")):
-                        continue
-                    label = re.sub(
-                        r"([\\`*{}\[\]()<>_])",
-                        r"\\\1",
-                        str(item.get("name") or "Open setup"),
-                    )
-                    links.append(f"[{label}]({url})")
-                return "Your setup is ready." + (
-                    " " + " · ".join(links) if links else ""
-                )
+                from app.services.completion_links import append_completion_links
+
+                links = run_state.get("completed_resource_links")
+                if links is None:
+                    # Legacy adapter fixtures retain their permission-checked links.
+                    apps = [
+                        r
+                        for r in resources
+                        if isinstance(r, dict) and r.get("kind") == "app"
+                    ]
+                    tracks = [
+                        r
+                        for r in resources
+                        if isinstance(r, dict) and r.get("kind") == "track"
+                    ]
+                    targets = tracks if len(tracks) == 1 else apps or tracks
+                    links = [
+                        {
+                            "label": r.get("name") or "Open setup",
+                            "url": r.get("url") or "",
+                        }
+                        for r in targets
+                    ]
+                return append_completion_links("Your setup is ready.", links)
+
             if not run_state.get("verification_succeeded"):
                 status = run_state.get("verification_status")
                 if status in {"partial", "blocked", "failed"}:
@@ -2266,6 +2268,20 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
             )
             agent.output_validator(_scaffold_completion_validator(run_state))
+
+            @agent.output_validator
+            async def completion_destinations(ctx, output: str) -> str:
+                from app.services.completion_links import append_completion_links
+
+                entry_ids = {
+                    ref["id"]
+                    for ref in run_state.get("completed_resource_refs", [])
+                    if ref.get("kind") == "entry"
+                }
+                return append_completion_links(
+                    output, run_state.get("completed_resource_links") or [], entry_ids
+                )
+
         except BaseException:
             skill_temp.cleanup()
             raise

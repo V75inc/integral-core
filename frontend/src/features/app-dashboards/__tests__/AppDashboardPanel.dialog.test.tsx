@@ -101,6 +101,22 @@ describe('AppDashboardPanel drill-through dialog', () => {
     });
   });
 
+  it('opens the dashboard named in the URL and updates the URL when switching', async () => {
+    listMock.mockResolvedValue([
+      { id: 'd1', name: 'First', app_id: 'app-1', widgets: [], is_default: true },
+      { id: 'd2', name: 'Second', app_id: 'app-1', widgets: [], is_default: false },
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<MemoryRouter initialEntries={['/apps/app-1?section=dashboards&dashboard_id=d2']}>
+      <QueryClientProvider client={queryClient}><AppDashboardPanel appId="app-1" canEdit={false} /><LocationProbe /></QueryClientProvider>
+    </MemoryRouter>);
+    const picker = await screen.findByRole('combobox', { name: 'Dashboard' });
+    await waitFor(() => expect(picker).toHaveValue('d2'));
+    fireEvent.change(picker, { target: { value: 'd1' } });
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('dashboard_id=d1'));
+    expect(picker).toHaveValue('d1');
+  });
+
   it('uses the standard padded Modal.Body for chart record results', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

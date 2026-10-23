@@ -145,3 +145,24 @@ PostgreSQL-only checks skipped in this SQLite lane). Regression tests
 exercise the real SDK bridge's required tool-choice payload, refusal-bearing
 history, typed and malformed output, usage preservation and governed escalation.
 CI-faithful smoke and precommit/guard checks were repeated before commit.
+
+## Completion destinations
+
+The App-creation smoke in the agent-created QA conversation completed with a
+named Tasks link. Clicking it opened the created Track while retaining the chat.
+A single synthetic Task was renamed through the approval UI; its completion link
+opened the updated Entry detail. A second synthetic Task was added, and a joint
+priority update completed with only one containing-Track link.
+The original user's To-Do App was preserved; this smoke used the separate design
+in the routing-test conversation.
+
+Focused backend tests cover exactly-one versus several actual Tracks, one versus
+several Entries, forged parent IDs, cross-workspace and revoked targets, Home,
+dashboards, failed/proposed/deleted outcomes, labels, duplicate links and output
+normalization. The focused browser-component run passed 27 tests, including
+persisted completion destinations, explicit Home overriding remembered tabs and
+opening/switching a particular dashboard by URL. All verification components passed: guards, pinned formatting and lint, types,
+CI-style smoke, wheel/import qualification and both full suites. The final
+backend run used `PYTEST_ADDOPTS="-n auto --dist loadfile" make test-backend`
+after stopping the slower serial run. The latest frontend suite passed
+347 files / 2,092 tests; the production build also passed.

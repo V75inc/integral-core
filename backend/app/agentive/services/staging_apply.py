@@ -284,6 +284,28 @@ async def execute_blessed_change(
             )
         except Exception:  # noqa: BLE001
             pass
+    if isinstance(result, dict):
+        try:
+            from app.services.completion_links import completion_links
+
+            result = {
+                **result,
+                "result_links": await completion_links(
+                    result,
+                    kind=sc.kind,
+                    arguments=sc.payload,
+                    user_id=user_id,
+                    workspace_id=sc.workspace_id,
+                ),
+            }
+        except (
+            Exception
+        ):  # noqa: BLE001 — a link read must not invalidate a committed effect
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "completion destinations unavailable", exc_info=True
+            )
     response["execute_result"] = result
 
     if operation_application is not None and operation_application.staged is not None:

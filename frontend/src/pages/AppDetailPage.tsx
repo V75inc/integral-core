@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
 import { usePhantomClickGuard } from '../hooks/usePhantomClickGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Users,
   Plus,
@@ -143,24 +143,33 @@ export function AppDetailPage() {
   const [collaboratorTotal, setCollaboratorTotal] = useState<number | null>(null);
   const [collaboratorDirectoryVisible, setCollaboratorDirectoryVisible] = useState(true);
   const [accessDetailsOpen, setAccessDetailsOpen] = useState(false);
+  const [sectionParams, setSectionParams] = useSearchParams();
+  const requestedSection = sectionParams.get('section');
+  const explicitSection = requestedSection === 'home' || requestedSection === 'tracks' || requestedSection === 'dashboards' ? requestedSection : null;
   const [appSection, setAppSection] = useState<AppDetailSection>(() =>
-    appId ? readAppDetailSection(appId) : 'tracks'
+    explicitSection ?? (appId ? readAppDetailSection(appId) : 'tracks')
   );
   const { setPageContext, clearPageContext } = useChatPageFocus();
 
   const selectAppSection = useCallback(
     (section: AppDetailSection) => {
       setAppSection(section);
+      setSectionParams(previous => {
+        const next = new URLSearchParams(previous);
+        next.set('section', section);
+        if (section !== 'dashboards') next.delete('dashboard_id');
+        return next;
+      }, { replace: true });
       if (appId) writeAppDetailSection(appId, section);
     },
-    [appId]
+    [appId, setSectionParams]
   );
 
   // Restore last section when navigating between apps without remounting.
   useEffect(() => {
     if (!appId) return;
-    setAppSection(readAppDetailSection(appId));
-  }, [appId]);
+    setAppSection(explicitSection ?? readAppDetailSection(appId));
+  }, [appId, explicitSection]);
 
   const dashboardsQuery = useQuery({
     queryKey: ['dashboards', appId],
@@ -176,8 +185,8 @@ export function AppDetailPage() {
   });
   const hasHome = Boolean(homeQuery.data?.home);
   useEffect(() => {
-    if (appId && homeQuery.data) setAppSection(readAppDetailSection(appId, hasHome ? 'home' : 'tracks'));
-  }, [appId, homeQuery.data, hasHome]);
+    if (appId && homeQuery.data) setAppSection(explicitSection === 'home' && !hasHome ? 'tracks' : explicitSection ?? readAppDetailSection(appId, hasHome ? 'home' : 'tracks'));
+  }, [appId, homeQuery.data, hasHome, explicitSection]);
 
   // Publish breadcrumb trail to the TopBar.
   // When the App is workspace-scoped, lead the trail with the {WorkspaceName}

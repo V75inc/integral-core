@@ -418,6 +418,11 @@ def _receipt_links(item: Dict[str, Any]) -> List[str]:
     diff = item.get("diff_machine") or {}
     if not isinstance(nav, dict) or not isinstance(diff, dict):
         return []
+    if isinstance(nav.get("resultLinks"), list):
+        from app.services.completion_links import append_completion_links
+
+        text = append_completion_links("", nav["resultLinks"])
+        return [text.strip()] if text.strip() else []
     deleting = str(diff.get("op") or item.get("write_kind") or "").startswith("delete_")
     refs = [] if deleting else list(nav.get("created") or [])
     if not refs:
@@ -493,10 +498,26 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     lines = [RESUME_MARKER, title]
     if bullets:
         lines.extend(f"• {b}" for b in bullets)
+    from app.services.completion_links import (
+        append_completion_links,
+        collapse_completion_links,
+    )
+
+    canonical = []
+    legacy = []
+    for item in queue.get("items") or []:
+        if item.get("status") != STATUS_APPROVED:
+            continue
+        nav = item.get("consumed_nav") or {}
+        if isinstance(nav, dict) and isinstance(nav.get("resultLinks"), list):
+            canonical.extend(nav["resultLinks"])
+        else:
+            legacy.extend(_receipt_links(item))
+    canonical_text = append_completion_links(
+        "", collapse_completion_links(canonical)
+    ).strip()
     links = list(
-        dict.fromkeys(
-            link for item in queue.get("items") or [] for link in _receipt_links(item)
-        )
+        dict.fromkeys([*legacy, *([canonical_text] if canonical_text else [])])
     )
     if links:
         lines.append("• " + " · ".join(links))
