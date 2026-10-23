@@ -635,16 +635,16 @@ describe('AppManagerDialog', () => {
 it('offers deletion directly in the App library for user templates only', async () => {
   mockListProfiles.mockResolvedValue([LIB_AVAILABLE, LIB_INSTALLED]);
   renderDialog();
-  fireEvent.click(await screen.findByRole('button', { name: 'Delete HR Suite operational model' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete HR Suite template' }));
   await waitFor(() => expect(mockDeleteProfile).toHaveBeenCalledWith('lib-hr'));
   expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
-    title: 'Delete App operational model?',
+    title: 'Delete App template?',
     message: expect.stringContaining('Permanently delete “HR Suite”'),
   }));
   expect(mockConfirm.mock.calls[0][0].message).toContain('Existing Apps, Tracks, Entries, and attachments');
   expect(mockConfirm.mock.calls[0][0].message).toContain('cannot be undone');
   await waitFor(() => expect(screen.queryByTestId('app-manager-row-hr-suite')).toBeNull());
-  expect(screen.queryByRole('button', { name: 'Delete Content Factory operational model' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Delete Content Factory template' })).toBeNull();
   expect(mockUninstall).not.toHaveBeenCalled();
 });
 
@@ -652,7 +652,7 @@ it('preserves a rejected App model deletion and uses a toast instead of an inlin
   mockListProfiles.mockResolvedValue([LIB_AVAILABLE]);
   mockDeleteProfile.mockRejectedValue({ response: { data: { detail: 'Model is attached by reference.' } } });
   renderDialog();
-  fireEvent.click(await screen.findByRole('button', { name: 'Delete HR Suite operational model' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete HR Suite template' }));
   await waitFor(() => expect(mockToast).toHaveBeenCalledWith('Model is attached by reference.', 'error'));
   expect(screen.getByTestId('app-manager-row-hr-suite')).toBeInTheDocument();
   expect(screen.queryByText('Model is attached by reference.')).toBeNull();

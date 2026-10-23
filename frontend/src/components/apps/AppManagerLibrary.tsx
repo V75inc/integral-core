@@ -88,7 +88,7 @@ export function AppManagerLibrary(props: Props) {
               <AppPackageDetails profile={detail} onBack={() => setDetailId(undefined)} />
               <div className="flex flex-wrap gap-2 pb-5">
                 <Button variant="primary" disabled={submitting || isPackageInstalled(detail, apps)} onClick={() => toggle(detail)}>{isPackageInstalled(detail, apps) ? 'Installed' : selected.has(detail.id) ? 'Remove from selection' : 'Add to selection'}</Button>
-                {detail.workspace_id && detail.can_delete !== false && <Button variant="ghost" aria-label={`Delete ${extractPackageMeta(detail).name} template`} disabled={submitting || props.deletingPackages.has(detail.id)} title="Delete model" className="h-11 w-11 p-0" onClick={() => props.onDelete(detail)}><Trash2 size={16} strokeWidth={1.5} aria-hidden="true" /></Button>}
+                {detail.workspace_id && detail.can_delete !== false && <Button variant="ghost" aria-label={`Delete ${extractPackageMeta(detail).name} template`} disabled={submitting || props.deletingPackages.has(detail.id)} title="Delete template" className="h-11 w-11 p-0" onClick={() => props.onDelete(detail)}><Trash2 size={16} strokeWidth={1.5} aria-hidden="true" /></Button>}
               </div>
             </> : <>
             {props.libraryActions}
@@ -175,7 +175,7 @@ function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetai
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="xs" className="min-h-11" aria-label={`View details for ${name}`} onClick={onDetails}>View details</Button>
           {onDelete && <Button variant="ghost" size="sm" className="h-11 w-11 shrink-0 p-0"
-            aria-label={`Delete ${name} operational model`} title="Delete model" disabled={disabled || deleting} onClick={onDelete}>
+            aria-label={`Delete ${name} template`} title="Delete template" disabled={disabled || deleting} onClick={onDelete}>
             <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
           </Button>}
         </div>

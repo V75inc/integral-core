@@ -70,6 +70,7 @@ it('uses only visible Track library models and leaves App assignment optional', 
   fireEvent.click(await screen.findByRole('button', { name: /Reading List/ }));
   expect(screen.queryByRole('button', { name: /Other workspace model|App bundle/ })).toBeNull();
   expect(within(screen.getByLabelText('Track starting point')).getByText('Reading List')).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   expect(screen.getByLabelText(/Track Name/)).toHaveValue('Reading List');
   fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
@@ -83,12 +84,13 @@ it('previews and imports .yml, selects the new model, and waits for Track confir
   await screen.findByRole('button', { name: /Reading List/ });
   fireEvent.click(screen.getByRole('button', { name: 'Import YAML' }));
   const file = new File(['scope: track'], 'reading.yml', { type: 'application/yaml' });
-  fireEvent.change(screen.getByLabelText('Manifest file'), { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText('Template file'), { target: { files: [file] } });
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Publish' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Import' }));
   await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(file, 'ws-qa'));
   await waitFor(() => expect(within(screen.getByLabelText('Track starting point')).getByText('Imported Reading List')).toBeInTheDocument());
   expect(mocks.create).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
   await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ library_operational_model_id: 'imported-model' })));
@@ -98,10 +100,10 @@ it('blocks App-scoped uploads before publishing into the Track flow', async () =
   mocks.preview.mockResolvedValue({ archive_type: 'single', packages: [{ package_name: 'App bundle', scope_kind: 'app', entry_type_count: 0, view_count: 0, tag_count: 0, validation_errors: [] }] });
   show();
   fireEvent.click(screen.getByRole('button', { name: 'Import YAML' }));
-  fireEvent.change(screen.getByLabelText('Manifest file'), { target: { files: [new File(['scope: app'], 'app.yml')] } });
+  fireEvent.change(screen.getByLabelText('Template file'), { target: { files: [new File(['scope: app'], 'app.yml')] } });
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-  expect(await screen.findByText(/must contain a Track operational model/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+  expect(await screen.findByText(/must contain a Track template/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
   expect(mocks.publish).not.toHaveBeenCalled();
 });
 
@@ -117,6 +119,7 @@ it('does not store selection help as the purpose of a model without a descriptio
   mocks.list.mockResolvedValue([{ ...model, description: '' }]);
   show();
   fireEvent.click(await screen.findByRole('button', { name: /Reading List/ }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   expect(screen.getByLabelText('Purpose / Description')).toHaveValue('');
 });
@@ -125,6 +128,7 @@ it('preserves App-scoped creation and its parent assignment', async () => {
   show({ appId: 'app-one' });
   await screen.findByRole('button', { name: /App defaults/ });
   expect(screen.queryByRole('button', { name: 'Import YAML' })).toBeNull();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'App track' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
@@ -136,16 +140,16 @@ it('confirms deletion of an uploaded model, removes it, and clears its selection
   mocks.list.mockResolvedValue([{ ...model, workspace_id: 'ws-qa' }]);
   show();
   fireEvent.click(await screen.findByRole('button', { name: /Reading List Books/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List operational model' }));
-  expect(await screen.findByRole('heading', { name: 'Delete operational model?' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List template' }));
+  expect(await screen.findByRole('heading', { name: 'Delete Track template?' })).toBeInTheDocument();
   expect(screen.getByText(/Permanently delete “Reading List”/)).toHaveTextContent('Existing Tracks, Entries, and attachments');
   expect(screen.getByText(/Permanently delete “Reading List”/)).toHaveTextContent('cannot be undone');
   expect(mocks.remove).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Delete model' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete template' }));
   await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('model-one'));
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete Reading List operational model' })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete Reading List template' })).toBeNull());
   expect(within(screen.getByLabelText('Track starting point')).getByText('Blank track')).toBeInTheDocument();
-  expect(mocks.toast).toHaveBeenCalledWith('Operational model deleted.', 'success');
+  expect(mocks.toast).toHaveBeenCalledWith('Template deleted.', 'success');
   expect(mocks.create).not.toHaveBeenCalled();
 });
 
@@ -153,18 +157,62 @@ it('keeps a model on cancellation or a server rejection and reports the failure 
   mocks.list.mockResolvedValue([{ ...model, workspace_id: 'ws-qa' }]);
   mocks.remove.mockRejectedValue({ response: { data: { detail: 'Model is attached by reference.' } } });
   show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Delete Reading List operational model' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete Reading List template' }));
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(mocks.remove).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List operational model' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Delete model' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List template' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete template' }));
   await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('Model is attached by reference.', 'error'));
-  expect(screen.getByRole('button', { name: 'Delete Reading List operational model' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Delete Reading List template' })).toBeInTheDocument();
 });
 
 it('does not offer deletion for platform models or a model marked non-deletable', async () => {
   mocks.list.mockResolvedValue([model, { ...model, id: 'locked', workspace_id: 'ws-qa', can_delete: false }]);
   show();
   await screen.findAllByRole('button', { name: /Reading List Books/ });
-  expect(screen.queryByRole('button', { name: /Delete .* operational model/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Delete .* template/ })).toBeNull();
+});
+
+it('chooses an existing App before picking its Track template and submits both choices', async () => {
+  mocks.apps.mockResolvedValue([{ id: 'app-one', name: 'Client Work', lifecycle_state: 'active' }]);
+  mocks.getModel.mockResolvedValue({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases' }] } } });
+  show();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add track to' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Add track to' }));
+  fireEvent.click(await screen.findByRole('option', { name: /Client Work/ }));
+  await screen.findByRole('button', { name: /^Cases / });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Client cases' } });
+  expect(screen.getByText('Add to: Client Work')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ app_id: 'app-one', app_track_type_key: 'cases', title: 'Client cases' })));
+  expect(mocks.create.mock.calls[0][0]).not.toHaveProperty('library_operational_model_id');
+});
+
+it('can leave an App-scoped flow for top-level Tracks without retaining the App or its template key', async () => {
+  mocks.apps.mockResolvedValue([{ id: 'app-one', name: 'Client Work' }]);
+  mocks.getModel.mockResolvedValue({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases' }] } } });
+  show({ appId: 'app-one' });
+  await screen.findByRole('button', { name: /^Cases / });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add track to' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Add track to' }));
+  fireEvent.click(await screen.findByRole('option', { name: /Top-level Tracks/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Create your own track' }));
+  fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Independent notes' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+  expect(mocks.create.mock.calls[0][0]).not.toHaveProperty('app_id');
+  expect(mocks.create.mock.calls[0][0]).not.toHaveProperty('app_track_type_key');
+});
+
+it('always shows the top-level destination and retries a failed App lookup', async () => {
+  mocks.apps.mockRejectedValueOnce(new Error('offline')).mockResolvedValue([{ id: 'app-one', name: 'Client Work' }]);
+  show();
+  expect(screen.getByRole('button', { name: 'Add track to' })).toHaveTextContent('Top-level Tracks');
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry Apps' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add track to' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Add track to' }));
+  expect(await screen.findByRole('option', { name: /Client Work/ })).toBeInTheDocument();
+  expect(screen.queryByText(/operational model/i)).toBeNull();
 });

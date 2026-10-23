@@ -71,12 +71,16 @@ export function TrackModal({
   const [templates, setTemplates] = useState<OperationalModelNode[]>([]);
   const [libraryPackages, setLibraryPackages] = useState<OperationalModelNode[]>([]);
   const [operationalModelChoice, setOperationalModelChoice] = useState('');
-  const [chosenParentAppId, setChosenParentAppId] = useState('');
+  const [chosenParentAppId, setChosenParentAppId] = useState(appId || '');
   const [importOpen, setImportOpen] = useState(false);
   const [libraryRevision, setLibraryRevision] = useState(0);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [parentAppOptions, setParentAppOptions] = useState<App[]>([]);
+  const [appsLoading, setAppsLoading] = useState(false);
+  const [appsError, setAppsError] = useState(false);
+  const [appsRevision, setAppsRevision] = useState(0);
+  const destinationAppId = chosenParentAppId;
 
   type TrackModalStep = 'details' | 'profile';
   const [step, setStep] = useState<TrackModalStep>('profile');
@@ -87,11 +91,11 @@ export function TrackModal({
   );
 
   const showLibraryRow = useMemo(() => {
-    if (!appId) return true;
+    if (!destinationAppId) return true;
     if (appDetail?.library_merge_source_id) return false;
     if (manifestTracks.length > 0) return false;
     return true;
-  }, [appId, appDetail?.library_merge_source_id, manifestTracks.length]);
+  }, [destinationAppId, appDetail?.library_merge_source_id, manifestTracks.length]);
 
   const appSources = useMemo((): OperationalModelPickerItem[] => {
     const items: OperationalModelPickerItem[] = [];
@@ -99,7 +103,7 @@ export function TrackModal({
       items.push({
         value: `manifest:${mt.key}`,
         name: mt.name,
-        description: `Track type "${mt.key}" from this App's Operational Model.`,
+        description: `Use this App's setup for ${mt.name}.`,
         entryTypeCount: 0,
         viewCount: 0,
         source: 'app',
@@ -110,7 +114,7 @@ export function TrackModal({
       const { entryTypeCount, viewCount } = summarizeLibraryManifest(manifest);
       items.push({
         value: `template:${tpl.id}`,
-        name: tpl.name || 'Untitled model',
+        name: tpl.name || 'Untitled template',
         description: tpl.description?.trim().slice(0, 140) || 'App-defined track template.',
         entryTypeCount,
         viewCount,
@@ -124,9 +128,10 @@ export function TrackModal({
     if (open) {
       setStep('profile');
       setImportOpen(false);
+      setChosenParentAppId(appId || '');
       if (!isEdit) { setTitle(''); setPurpose(''); }
     }
-  }, [open, isEdit, scope?.workspaceId]);
+  }, [open, isEdit, appId, scope?.workspaceId]);
 
   useEffect(() => {
     if (!open || isEdit) {
@@ -140,17 +145,17 @@ export function TrackModal({
     let cancelled = false;
     setLibraryLoading(true);
     setLibraryError(null);
-    const pApp = appId
-      ? appsApi.get(appId).catch(() => null)
+    const pApp = destinationAppId
+      ? appsApi.get(destinationAppId).catch(() => null)
       : Promise.resolve(null);
-    const pCp = appId
-      ? appsApi.getOperationalModel(appId).catch(() => null)
+    const pCp = destinationAppId
+      ? appsApi.getOperationalModel(destinationAppId).catch(() => null)
       : Promise.resolve(null);
-    const pTpl = appId
-      ? appsApi.listTrackTemplates(appId).catch(() => [])
+    const pTpl = destinationAppId
+      ? appsApi.listTrackTemplates(destinationAppId).catch(() => [])
       : Promise.resolve([]);
     const pLib = operationalModelsApi.list().catch(() => {
-      if (!cancelled) setLibraryError('Could not load operational models. You can retry or create a blank track.');
+      if (!cancelled) setLibraryError('Could not load templates. You can retry or create a blank track.');
       return [];
     });
     Promise.all([pApp, pCp, pTpl, pLib]).then(([sp, cp, tpls, packs]) => {
@@ -165,36 +170,29 @@ export function TrackModal({
     return () => {
       cancelled = true;
     };
-  }, [open, isEdit, appId, scope?.workspaceId, libraryRevision]);
+  }, [open, isEdit, destinationAppId, scope?.workspaceId, libraryRevision]);
 
   useEffect(() => {
     if (!open || isEdit) return;
-    if (appId && manifestTracks.length > 0) {
+    if (destinationAppId && manifestTracks.length > 0) {
       setOperationalModelChoice(`manifest:${manifestTracks[0].key}`);
     } else {
       setOperationalModelChoice('');
     }
-  }, [open, isEdit, appId, manifestTracks]);
+  }, [open, isEdit, destinationAppId, manifestTracks]);
 
   useEffect(() => {
-    if (!open || isEdit || appId) {
-      setParentAppOptions([]);
-      setChosenParentAppId('');
-      return;
-    }
+    if (!open || isEdit) return;
     let cancelled = false;
-    appsApi
-      .list()
-      .then(list => {
-        if (!cancelled) setParentAppOptions(Array.isArray(list) ? list : []);
-      })
-      .catch(() => {
-        if (!cancelled) setParentAppOptions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, isEdit, appId, scope?.workspaceId]);
+    setAppsLoading(true);
+    setAppsError(false);
+    appsApi.list().then(list => {
+      if (!cancelled) setParentAppOptions(Array.isArray(list) ? list.filter(app => app.lifecycle_state !== 'uninstalled') : []);
+    }).catch(() => {
+      if (!cancelled) { setAppsError(true); setParentAppOptions([]); }
+    }).finally(() => { if (!cancelled) setAppsLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, isEdit, scope?.workspaceId, appsRevision]);
 
   useEffect(() => {
     if (open && !isEdit) {
@@ -212,7 +210,7 @@ export function TrackModal({
 
   const selectedLibraryModel = libraryPackages.find(model => operationalModelChoice === `library:${model.id}`);
   const selectedAppSource = appSources.find(source => source.value === operationalModelChoice);
-  const selectedName = selectedLibraryModel?.name || selectedAppSource?.name || 'Blank track';
+  const selectedName = selectedLibraryModel?.name || selectedAppSource?.name || (destinationAppId ? 'App defaults' : 'Blank track');
   const selectedDescription = selectedLibraryModel?.description || selectedAppSource?.description
     || 'Start with the standard fields and add your own structure as you go.';
   const selectedCounts = selectedLibraryModel
@@ -254,7 +252,7 @@ export function TrackModal({
           ...(visibilityChoice !== 'inherit' ? { visibility: visibilityChoice } : {}),
         });
       } else {
-        const effectiveAppId = appId || chosenParentAppId || '';
+        const effectiveAppId = destinationAppId;
         const body: CreateTrackBody = {
           title: title.trim(),
           purpose: purpose.trim(),
@@ -291,20 +289,20 @@ export function TrackModal({
 
   const deleteLibraryModel = async (model: OperationalModelNode) => {
     if (!await confirm({
-      title: 'Delete operational model?',
-      message: `Permanently delete “${model.name}” from the Track library? This removes its saved fields, entry types, tags, and views, so it can no longer be used to create new Tracks. Existing Tracks, Entries, and attachments created from it will remain unchanged. Models attached by reference cannot be deleted until detached. This action cannot be undone. You would need to upload or recreate the model to use it again.`,
-      confirmLabel: 'Delete model', variant: 'danger',
+      title: 'Delete Track template?',
+      message: `Permanently delete “${model.name}” from the Track template library? This removes its saved fields, entry types, tags, and views, so it can no longer be used to create new Tracks. Existing Tracks, Entries, and attachments created from it will remain unchanged. Templates linked directly to an existing App or Track must be unlinked before deletion. This action cannot be undone. You would need to upload or recreate the template to use it again.`,
+      confirmLabel: 'Delete template', variant: 'danger',
     })) return;
     setDeletingModels(previous => new Set(previous).add(model.id));
     try {
       await operationalModelsApi.delete(model.id);
       setLibraryPackages(previous => previous.filter(item => item.id !== model.id));
       setOperationalModelChoice(previous => previous === `library:${model.id}` ? '' : previous);
-      showToast('Operational model deleted.', 'success');
+      showToast('Template deleted.', 'success');
     } catch (error: unknown) {
       const detail = (error as { response?: { data?: { detail?: string | { message?: string } } }; message?: string });
       const reason = detail.response?.data?.detail;
-      showToast((typeof reason === 'string' ? reason : reason?.message) || detail.message || 'Failed to delete operational model.', 'error');
+      showToast((typeof reason === 'string' ? reason : reason?.message) || detail.message || 'Failed to delete template.', 'error');
     } finally {
       setDeletingModels(previous => { const next = new Set(previous); next.delete(model.id); return next; });
     }
@@ -338,34 +336,10 @@ export function TrackModal({
           noResize
         />
       </div>
-      {!isEdit && !appId && parentAppOptions.length > 0 ? (
-        <div>
-          <label
-            htmlFor="track-parent-app"
-            className="text-sm font-medium text-[var(--text)] mb-1.5 block"
-          >
-            Parent App <span className="text-[var(--text-subtle)] font-normal">(optional)</span>
-          </label>
-          <AppSelect
-            value={chosenParentAppId}
-            onValueChange={v => setChosenParentAppId(v)}
-            options={[
-              { value: '', label: 'Standalone (no parent App)' },
-              ...parentAppOptions.map(a => ({
-                value: a.id,
-                label: a.name?.trim() || 'Untitled app',
-              })),
-            ]}
-            aria-label="Parent App"
-            className="app-input"
-          />
-          <p className="mt-1 text-xs text-[var(--text-subtle)]">
-            Tracks under an App inherit its collaborators and content
-            profile. Leave standalone to manage access directly on the
-            track.
-          </p>
-        </div>
-      ) : null}
+      {!isEdit && <Text variant="body-sm" tone="muted" as="p">
+        Add to: {destinationAppId ? (parentAppOptions.find(app => app.id === destinationAppId)?.name || appDetail?.name || 'Selected App') : 'Top-level Tracks'}
+      </Text>}
+
       <div className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel-2)]/25 p-4 space-y-3">
         <label className="text-sm font-medium text-[var(--text)] block">Visibility</label>
         <VisibilityField
@@ -395,33 +369,45 @@ export function TrackModal({
     );
   }
 
-  // App-provided Track types retain their existing creation path. Standalone
-  // Tracks get the same library/import/blank starting points as Manage Apps.
+  // The destination determines the available App-provided and library templates.
   return <>
     <StepDialog
       open={open}
       onClose={() => { if (!loading) onClose(); }}
       title="Manage Tracks"
-      size={!appId && step === 'profile' ? 'wide' : 'form'}
+      size={step === 'profile' ? 'wide' : 'form'}
       steps={['Choose a starting point', 'Track details']}
       activeIndex={step === 'profile' ? 0 : 1}
     >
       {step === 'profile' ? <>
         <Modal.Body noPadding noSpacing>
-          <div className={appId ? 'p-5 sm:p-6' : 'grid min-w-0 sm:grid-cols-[minmax(0,1fr)_19rem]'}>
-            <section aria-label="Track library" className={appId ? 'space-y-4' : 'min-w-0 space-y-4 p-5 sm:p-6'}>
-              {!appId && <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid min-w-0 sm:grid-cols-[minmax(0,1fr)_19rem]">
+            <section aria-label="Track library" className="min-w-0 space-y-4 p-5 sm:p-6">
+              <div className="space-y-2">
+                <label htmlFor="track-destination" className="text-sm font-medium text-[var(--text)]">Add track to</label>
+                <AppSelect id="track-destination" aria-label="Add track to" value={destinationAppId}
+                  disabled={appsLoading} onValueChange={value => {
+                    setOperationalModelChoice(''); setAppCp(null); setAppDetail(null); setTemplates([]);
+                    setChosenParentAppId(value); setImportOpen(false);
+                  }} options={[
+                    { value: '', label: 'Top-level Tracks', description: 'Keep this track directly in your workspace.' },
+                    ...parentAppOptions.map(app => ({ value: app.id, label: app.name || 'Untitled App', description: app.lifecycle_state && app.lifecycle_state !== 'active' ? 'This App is not ready for new tracks.' : 'Add this track inside the App.', disabled: !!app.lifecycle_state && app.lifecycle_state !== 'active' })),
+                  ]} placeholder={appDetail?.name || 'Selected App'} />
+                {appsLoading && <Text variant="body-sm" tone="muted" as="p">Loading Apps…</Text>}
+                {appsError && <div role="alert" className="space-y-2"><Text variant="body-sm" tone="danger">Could not load Apps. Retry to choose an App, or keep this track at the top level.</Text><Button variant="outline" size="sm" onClick={() => setAppsRevision(value => value + 1)}>Retry Apps</Button></div>}
+              </div>
+              {<div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <Text variant="body" weight="medium">Start with a model or create your own</Text>
+                  <Text variant="body" weight="medium">Start with a template or create your own</Text>
                   <Text variant="body-sm" tone="muted" as="p" className="mt-1">
-                    Tracks can live directly in {activeWorkspace?.name || 'your workspace'}. No App is required.
+                    Choose a template or start from scratch in {activeWorkspace?.name || 'your workspace'}.
                   </Text>
                 </div>
-                {scope?.workspaceId && <Button variant="outline" size="sm"
+                {!destinationAppId && scope?.workspaceId && <Button variant="outline" size="sm"
                   icon={<Upload size={16} strokeWidth={LINE_ICON_STROKE} />}
                   onClick={() => setImportOpen(true)}>Import YAML</Button>}
               </div>}
-              {libraryLoading && <div role="status"><Text variant="body-sm" tone="muted" as="p">Loading operational models…</Text></div>}
+              {libraryLoading && <div role="status"><Text variant="body-sm" tone="muted" as="p">Loading templates…</Text></div>}
               {libraryError && <div role="alert" className="space-y-2">
                 <Text variant="body-sm" tone="danger">{libraryError}</Text>
                 <Button variant="outline" size="sm" onClick={() => setLibraryRevision(value => value + 1)}>Retry library</Button>
@@ -429,8 +415,8 @@ export function TrackModal({
               <OperationalModelPicker
                 value={operationalModelChoice}
                 onChange={setOperationalModelChoice}
-                defaultLabel={appId ? 'App defaults' : 'Blank track'}
-                defaultDescription={appId ? 'Use the App baseline without an extra model.' : 'Use standard fields, then build the structure you need.'}
+                defaultLabel={destinationAppId ? 'App defaults' : 'Blank track'}
+                defaultDescription={destinationAppId ? 'Use the App baseline without an extra template.' : 'Use standard fields, then build the structure you need.'}
                 appSources={appSources}
                 libraryPackages={showLibraryRow ? libraryPackages : []}
                 scopeFilter="track"
@@ -438,7 +424,7 @@ export function TrackModal({
                 deletingIds={deletingModels}
               />
             </section>
-            {!appId && <Surface as="aside" tone="panel-2" padding="lg" radius="none"
+            {<Surface as="aside" tone="panel-2" padding="lg" radius="none"
               className="min-w-0 space-y-4 border-t border-[var(--panel-border)] sm:border-l sm:border-t-0"
               aria-label="Track starting point">
               <div>
@@ -447,22 +433,22 @@ export function TrackModal({
                 <Text variant="body-sm" tone="muted" as="p" className="mt-2">{selectedDescription}</Text>
               </div>
               {selectedCounts && <Text variant="body-sm" tone="muted" as="p">
-                {selectedCounts.entryTypeCount} entry types · {selectedCounts.viewCount} views
+                {selectedCounts.entryTypeCount} {selectedCounts.entryTypeCount === 1 ? 'record type' : 'record types'} · {selectedCounts.viewCount} {selectedCounts.viewCount === 1 ? 'view' : 'views'}
               </Text>}
               <Text variant="body-sm" tone="subtle" as="p">Next, name your track and choose who can see it. Nothing is created until you confirm.</Text>
             </Surface>}
           </div>
         </Modal.Body>
         <Modal.Footer align="between">
-          {!appId ? <Button variant="secondary" className="min-h-11"
+          {!destinationAppId ? <Button variant="secondary" className="min-h-11"
             icon={<Plus size={16} strokeWidth={LINE_ICON_STROKE} />}
             onClick={() => { setOperationalModelChoice(''); setStep('details'); }}>Create your own track</Button>
             : <Button variant="ghost" onClick={onClose}>Cancel</Button>}
-          <Button variant="primary" onClick={continueToDetails}>Continue</Button>
+          <Button variant="primary" disabled={libraryLoading || appsLoading} onClick={continueToDetails}>Continue</Button>
         </Modal.Footer>
       </> : <>
         <Modal.Body>
-          {!appId && <Text variant="body-sm" tone="muted" as="p">Starting point: {selectedName}</Text>}
+          {<Text variant="body-sm" tone="muted" as="p">Starting point: {selectedName}</Text>}
           {detailsBody}
         </Modal.Body>
         <Modal.Footer>
@@ -471,7 +457,7 @@ export function TrackModal({
         </Modal.Footer>
       </>}
     </StepDialog>
-    {!appId && scope?.workspaceId && <ImportPackageModal key={scope.workspaceId}
+    {!destinationAppId && scope?.workspaceId && <ImportPackageModal key={scope.workspaceId}
       open={open && importOpen} workspaceId={scope.workspaceId} expectedScope="track"
       onClose={() => setImportOpen(false)}
       onSuccess={result => {
@@ -482,7 +468,7 @@ export function TrackModal({
         }
         setImportOpen(false);
         setLibraryRevision(value => value + 1);
-        showToast('Operational model imported. Review the track details before creating it.', 'success');
+        showToast('Template imported. Review the track details before creating it.', 'success');
       }} />}
   </>;
 }

@@ -52,7 +52,7 @@ export function OperationalModelPicker({
   value,
   onChange,
   defaultLabel = 'None / Default',
-  defaultDescription = 'No operational model applied — use base content schema.',
+  defaultDescription = 'Start with standard fields and views.',
   appSources = [],
   libraryPackages,
   scopeFilter,
@@ -75,7 +75,7 @@ export function OperationalModelPicker({
         const { entryTypeCount, viewCount } = summarizeLibraryManifest(manifest);
         return {
           value: `library:${pkg.id}`,
-          name: pkg.name || 'Untitled model',
+          name: pkg.name || 'Untitled template',
           description: pkg.description || undefined,
           entryTypeCount,
           viewCount,
@@ -178,10 +178,10 @@ export function OperationalModelPicker({
         />
         <input
           type="search"
-          aria-label="Filter operational models"
+          aria-label="Filter templates"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Filter operational models…"
+          placeholder="Filter templates…"
           className="
             w-full rounded-[var(--radius-input)] border border-[var(--panel-border)]
             bg-[var(--panel)] pl-9 pr-3 py-2 text-sm text-[var(--text)]
@@ -194,7 +194,7 @@ export function OperationalModelPicker({
       </div>
 
       {/* Scrollable list */}
-      <div role="radiogroup" aria-label="Operational Model options" className="flex flex-col gap-2 max-h-96 overflow-y-auto px-2" style={{ scrollbarGutter: 'stable' }}>
+      <div role="radiogroup" aria-label={scopeFilter === 'app' ? 'App template options' : 'Track template options'} className="flex flex-col gap-2 max-h-96 overflow-y-auto px-2" style={{ scrollbarGutter: 'stable' }}>
         {/* Default option — always shown, not filtered */}
         <PickerRow item={defaultItem} />
 
@@ -221,8 +221,8 @@ export function OperationalModelPicker({
               return <div key={item.value} className="flex items-center gap-1">
                 <div className="min-w-0 flex-1"><PickerRow item={item} /></div>
                 {onDelete && model?.workspace_id && model.can_delete !== false && (
-                  <Button variant="ghost" size="sm" className="h-11 w-11 shrink-0 p-0" aria-label={`Delete ${item.name} operational model`}
-                    title="Delete model" disabled={deletingIds?.has(model.id)} onClick={() => onDelete(model)}>
+                  <Button variant="ghost" size="sm" className="h-11 w-11 shrink-0 p-0" aria-label={`Delete ${item.name} template`}
+                    title="Delete template" disabled={deletingIds?.has(model.id)} onClick={() => onDelete(model)}>
                     <Trash2 size={16} strokeWidth={LINE_STROKE} aria-hidden="true" />
                   </Button>
                 )}
@@ -234,7 +234,7 @@ export function OperationalModelPicker({
         {/* No results */}
         {hasNoResults && (
           <p className="text-sm text-[var(--text-subtle)] py-2 text-center">
-            No operational models match.{' '}
+            No templates match.{' '}
             <button
               type="button"
               className="underline text-[var(--link)] hover:no-underline"
