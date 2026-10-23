@@ -69,6 +69,8 @@ export interface ActionBarButtonSpec {
    * system.
    */
   disabled_if?: VisibleIf;
+  /** Static fields merged into the tool ``input`` (after ``entry_id``). */
+  payload?: Record<string, unknown>;
 }
 
 interface ClientActionArgs {
@@ -258,7 +260,8 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
         return;
       }
       const { output } = await toolsApi.call(button.tool, {
-        ...(entryId ? { entry_id: entryId } : {}),
+        ...(entryId ? { entry_id: entryId, mailbox_id: entryId } : {}),
+        ...(button.payload && typeof button.payload === 'object' ? button.payload : {}),
         ...extraInput,
       });
       // A tool that returns {ok: false, reason} is reporting a clean,
