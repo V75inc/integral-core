@@ -122,6 +122,7 @@ class PassageStore:
         query: str = "",
         mode: str = "semantic",
         direct_entry_ids: list[str] | None = None,
+        eligible_entry_ids: list[str] | None = None,
     ) -> list[dict]:
         """Rank only the authorized scope's current model space.
 
@@ -141,6 +142,7 @@ class PassageStore:
                 f"""WITH scoped AS MATERIALIZED (
                   SELECT * FROM {self.table} WHERE profile_id=$1
                   AND workspace_id=$2 AND (track_id=ANY($3::text[]) OR entry_id=ANY($8::text[]))
+                  AND (cardinality($9::text[]) = 0 OR entry_id=ANY($9::text[]))
                   AND deleted_at IS NULL
                 ), ranked AS (
                   SELECT *, row_number() OVER (ORDER BY embedding <=> $4::vector,
@@ -166,6 +168,7 @@ class PassageStore:
                 query,
                 mode,
                 direct_entry_ids or [],
+                eligible_entry_ids or [],
             )
         return [dict(row) for row in rows]
 

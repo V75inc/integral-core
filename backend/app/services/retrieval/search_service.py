@@ -145,8 +145,21 @@ async def direct_entries(subject, workspace_id: str, scope: str) -> list[str]:
         after = edges[-1]["id"]
 
 
-async def retrieve_passages(subject, payload, *, driver, k: int, top_n: int):
-    """Return authorized current-source passages within a token budget."""
+async def retrieve_passages(
+    subject,
+    payload,
+    *,
+    driver,
+    k: int,
+    top_n: int,
+    eligible_entry_ids: list[str] | None = None,
+):
+    """Return authorized current-source passages within a token budget.
+
+    ``eligible_entry_ids`` narrows the passage selector to a caller-selected
+    structured candidate set. It never widens the host-bound workspace, App,
+    Track or policy scope; an empty list means no extra narrowing.
+    """
     from app.services.agent_scope import active_workspace_id
     from app.services.resource_location import DATA_APP_STATES, locate_resource
 
@@ -196,6 +209,13 @@ async def retrieve_passages(subject, payload, *, driver, k: int, top_n: int):
         if payload.mode == "graph"
         else (await encode_profile([payload.query], profile))[0]
     )
+    eligible = [
+        entry_id
+        for entry_id in dict.fromkeys(
+            str(value or "").strip() for value in (eligible_entry_ids or [])
+        )
+        if entry_id
+    ][:500]
     candidates = await store.search(
         query_vec,
         workspace_id=workspace_id,
@@ -204,6 +224,7 @@ async def retrieve_passages(subject, payload, *, driver, k: int, top_n: int):
         query=payload.query,
         mode=payload.mode,
         direct_entry_ids=granted_entries,
+        eligible_entry_ids=eligible,
     )
     budget = payload.context_tokens
     results: dict[str, RetrievedEntry] = {}

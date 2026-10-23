@@ -39,6 +39,7 @@ class OperationContext(ToolContext):
             "find_entries",
             "find_entries_in_track_type",
             "find_track_id_by_title",
+            "search_entries",
             "get_related_entries",
             "own_bundle_view",
             "track_kind",

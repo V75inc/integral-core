@@ -545,3 +545,133 @@ async def test_workspace_byok_indexes_and_queries_same_space_then_fences_switch(
     assert (
         await config.resolve_workspace_embedding_profile(workspace.id)
     ).id == embedding_profile().id
+
+
+@pytest.mark.asyncio
+async def test_app_search_entries_milestone_uses_core_passages(vector_driver):
+    """Declared-App facade returns a paraphrase from actual Core passages."""
+    from app.models.edges import CONTAINS, IS_OF_TYPE
+    from app.models.nodes import EntryType
+    from app.services.hooks.registry import ToolContext
+
+    user, workspace, app, track, entry = await graph()
+    track.title = "Inventory"
+    track.search_index = {
+        "fields": [
+            "title",
+            "custom_fields.sku",
+            "custom_fields.description",
+            "custom_fields.aliases",
+        ],
+        "exclude_fields": ["body"],
+    }
+    await track.save()
+    entry.title = "Non-Woven Geotextile NW18"
+    entry.body = "Internal notes must not be indexed."
+    entry.custom_fields = {
+        "sku": "NW18",
+        "description": "Filter fabric for separation and filtration.",
+        "aliases": "geofabric, filter fabric",
+    }
+    await entry.save()
+    entry_type = await EntryType.create(
+        name="Item",
+        track_id=track.id,
+        form_schema={"_manifest_entry_type_key": "inventory_item"},
+    )
+    await track.connect(entry_type, edge=CONTAINS)
+    await entry.connect(entry_type, edge=IS_OF_TYPE)
+    entry.type_id = entry_type.id
+    await entry.save()
+    await indexing.enqueue_entry(entry)
+    stats = await indexing.deliver_index_jobs()
+    assert stats == {"indexed": 1, "failed": 0, "superseded": 0}
+
+    ctx = ToolContext(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        scope="tool",
+        actor_kind="human",
+    )
+    ctx.app_id = app.id
+    token = current_scope_workspace_id.set(workspace.id)
+    try:
+        result = await ctx.search_entries(
+            query="separation fabric",
+            track_type="inventory",
+            entry_type="inventory_item",
+            eligible_entry_ids=[entry.id],
+            limit=10,
+        )
+    finally:
+        current_scope_workspace_id.reset(token)
+
+    assert result["available"] is True
+    assert result["effective_mode"] == "hybrid"
+    assert result["results"]
+    assert result["results"][0]["entry_id"] == entry.id
+    assert any(
+        "separation" in passage["text"] for passage in result["results"][0]["passages"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_app_search_entries_portfolio_milestone(vector_driver):
+    """Portfolio uses the same declared-App passage path."""
+    from app.models.edges import CONTAINS, IS_OF_TYPE
+    from app.models.nodes import EntryType
+    from app.services.hooks.registry import ToolContext
+
+    user, workspace, app, track, entry = await graph()
+    track.title = "Portfolio"
+    track.search_index = {
+        "fields": [
+            "title",
+            "custom_fields.description",
+            "custom_fields.aliases",
+        ],
+        "exclude_fields": ["body"],
+    }
+    await track.save()
+    entry.title = "Coastal Defence"
+    entry.body = "Internal notes must not be indexed."
+    entry.custom_fields = {
+        "description": "Rock armour and sea defence works.",
+        "aliases": "sea defence",
+    }
+    await entry.save()
+    entry_type = await EntryType.create(
+        name="Project",
+        track_id=track.id,
+        form_schema={"_manifest_entry_type_key": "portfolio_project"},
+    )
+    await track.connect(entry_type, edge=CONTAINS)
+    await entry.connect(entry_type, edge=IS_OF_TYPE)
+    entry.type_id = entry_type.id
+    await entry.save()
+    await indexing.enqueue_entry(entry)
+    stats = await indexing.deliver_index_jobs()
+    assert stats == {"indexed": 1, "failed": 0, "superseded": 0}
+
+    ctx = ToolContext(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        scope="tool",
+        actor_kind="human",
+    )
+    ctx.app_id = app.id
+    token = current_scope_workspace_id.set(workspace.id)
+    try:
+        result = await ctx.search_entries(
+            query="sea defence",
+            track_type="portfolio",
+            entry_type="portfolio_project",
+            eligible_entry_ids=[entry.id],
+            limit=10,
+        )
+    finally:
+        current_scope_workspace_id.reset(token)
+
+    assert result["available"] is True
+    assert result["results"]
+    assert result["results"][0]["entry_id"] == entry.id
