@@ -513,7 +513,7 @@ export function AppDashboardPanel({
             <div ref={containerRef} className="relative min-h-[320px] w-full">
               <GridLayout
                 className={`dashboard-grid layout${editMode ? ' dashboard-grid--editing' : ''}`}
-                layout={layoutFromWidgets(localWidgets)}
+                layout={layoutFromWidgets(localWidgets, rowHeight)}
                 cols={columns}
                 rowHeight={rowHeight}
                 width={gridWidth}
