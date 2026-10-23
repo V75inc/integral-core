@@ -1,6 +1,6 @@
 /** Searchable App library and an explicit, non-destructive installation review. */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, Check, Loader2, Package, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, Package, Plus, Search, Trash2, X } from 'lucide-react';
 import { AppIcon, Input, Surface, Text, Textarea } from '../../ui';
 import { Button, ViewTabs } from '../ui';
 import { Modal } from '../ui/Modal';
@@ -88,7 +88,7 @@ export function AppManagerLibrary(props: Props) {
               <AppPackageDetails profile={detail} onBack={() => setDetailId(undefined)} />
               <div className="flex flex-wrap gap-2 pb-5">
                 <Button variant="primary" disabled={submitting || isPackageInstalled(detail, apps)} onClick={() => toggle(detail)}>{isPackageInstalled(detail, apps) ? 'Installed' : selected.has(detail.id) ? 'Remove from selection' : 'Add to selection'}</Button>
-                {detail.workspace_id && <Button variant="ghost" aria-label={`Delete ${extractPackageMeta(detail).name} template`} disabled={submitting || props.deletingPackages.has(detail.id)} onClick={() => props.onDelete(detail)}>Delete saved template</Button>}
+                {detail.workspace_id && detail.can_delete !== false && <Button variant="ghost" aria-label={`Delete ${extractPackageMeta(detail).name} template`} disabled={submitting || props.deletingPackages.has(detail.id)} onClick={() => props.onDelete(detail)}>Delete saved template</Button>}
               </div>
             </> : <>
             {props.libraryActions}
@@ -108,7 +108,13 @@ export function AppManagerLibrary(props: Props) {
                   {query && <Button variant="ghost" size="sm" onClick={() => setSearch('')}>Clear search</Button>}
                 </Surface> : tab === 'installed' ? <ul className="space-y-3" data-testid="app-manager-installed">{visibleInstalled.map(app => <li key={app.id}>{props.renderInstalled(app)}</li>)}</ul>
                   : <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-testid="app-manager-available">
-                    {visibleProfiles.map(profile => <CatalogCard key={profile.id} profile={profile} installed={isPackageInstalled(profile, apps)} selected={selected.has(profile.id)} disabled={submitting} onToggle={() => toggle(profile)} onDetails={() => setDetailId(profile.id)} />)}
+                    {visibleProfiles.map(profile => <li key={profile.id} className="min-w-0 flex flex-col gap-1">
+                      <CatalogCard profile={profile} installed={isPackageInstalled(profile, apps)} selected={selected.has(profile.id)} disabled={submitting} onToggle={() => toggle(profile)} onDetails={() => setDetailId(profile.id)} />
+                      {profile.workspace_id && profile.can_delete !== false && <Button variant="ghost" size="sm"
+                        aria-label={`Delete ${extractPackageMeta(profile).name} operational model`}
+                        icon={<Trash2 size={14} strokeWidth={1.5} />} disabled={submitting || props.deletingPackages.has(profile.id)}
+                        onClick={() => props.onDelete(profile)}>Delete model</Button>}
+                    </li>)}
                   </ul>}
               </div>
             </>}
@@ -162,7 +168,7 @@ function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetai
 }) {
   const { name, description, slug } = extractPackageMeta(profile);
   const summary = summarizeLibraryManifest(profile.manifest);
-  return <li data-testid={`app-manager-row-${slug || profile.id}`} className="min-w-0">
+  return <div data-testid={`app-manager-row-${slug || profile.id}`} className="min-w-0 flex-1">
     <Surface border="subtle" radius="card" padding="md" className={`flex h-full flex-col ${selected ? 'ring-1 ring-[var(--brand-accent)]' : ''}`}>
       <div className="flex items-start gap-3"><AppIcon name={name} /><div className="min-w-0"><Text as="h3" variant="body" weight="semibold" className="break-words">{name}</Text><Text as="p" variant="meta" tone="subtle">{summary.prescribedTrackCount} {summary.prescribedTrackCount === 1 ? 'track' : 'tracks'}</Text></div></div>
       <Text as="p" variant="body-sm" tone="muted" className="my-3 flex-1">{description || 'An App template for your workspace.'}</Text>
@@ -171,5 +177,5 @@ function CatalogCard({ profile, installed, selected, disabled, onToggle, onDetai
         <Button variant="ghost" size="xs" className="min-h-11" aria-label={`View details for ${name}`} onClick={onDetails}>View details</Button>
       </div>
     </Surface>
-  </li>;
+  </div>;
 }

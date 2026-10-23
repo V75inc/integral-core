@@ -227,9 +227,9 @@ export function AppManagerDialog({
       toast.showToast('Template deleted.', 'success');
       onChanged?.();
     } catch (err) {
-      setError(
-        (err as { message?: string })?.message || 'Failed to delete template.',
-      );
+      const detail = (err as { response?: { data?: { detail?: string | { message?: string } } }; message?: string });
+      const reason = detail.response?.data?.detail;
+      toast.showToast((typeof reason === 'string' ? reason : reason?.message) || detail.message || 'Failed to delete template.', 'error');
     } finally {
       setDeletingPackages(prev => {
         const next = new Set(prev);

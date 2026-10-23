@@ -18,6 +18,7 @@ import type { App, OperationalModelNode } from '../../types';
 
 const mockListProfiles = vi.fn();
 const mockDeleteProfile = vi.fn();
+const mockToast = vi.fn();
 const mockBatchInstall = vi.fn();
 const mockUninstall = vi.fn();
 const mockUninstallPreflight = vi.fn();
@@ -34,7 +35,7 @@ vi.mock('../../context/ConfirmContext', () => ({
   useConfirm: () => vi.fn().mockResolvedValue(true),
 }));
 vi.mock('../../context/ToastContext', () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast: mockToast }),
 }));
 
 vi.mock('../../api/apps', () => ({
@@ -141,6 +142,7 @@ describe('AppManagerDialog', () => {
   beforeEach(() => {
     mockListProfiles.mockReset();
     mockDeleteProfile.mockReset();
+    mockToast.mockClear();
     mockDeleteProfile.mockResolvedValue(undefined);
     mockBatchInstall.mockReset();
     mockUninstall.mockReset();
@@ -625,5 +627,26 @@ describe('AppManagerDialog', () => {
     expect(screen.getByRole('button', { name: 'Remove HR Suite' })).toHaveAttribute('aria-pressed', 'true');
     expect(mockBatchInstall).not.toHaveBeenCalled();
   });
+
+
+it('offers deletion directly in the App library for user templates only', async () => {
+  mockListProfiles.mockResolvedValue([LIB_AVAILABLE, LIB_INSTALLED]);
+  renderDialog();
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete HR Suite operational model' }));
+  await waitFor(() => expect(mockDeleteProfile).toHaveBeenCalledWith('lib-hr'));
+  await waitFor(() => expect(screen.queryByTestId('app-manager-row-hr-suite')).toBeNull());
+  expect(screen.queryByRole('button', { name: 'Delete Content Factory operational model' })).toBeNull();
+  expect(mockUninstall).not.toHaveBeenCalled();
+});
+
+it('preserves a rejected App model deletion and uses a toast instead of an inline update', async () => {
+  mockListProfiles.mockResolvedValue([LIB_AVAILABLE]);
+  mockDeleteProfile.mockRejectedValue({ response: { data: { detail: 'Model is attached by reference.' } } });
+  renderDialog();
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete HR Suite operational model' }));
+  await waitFor(() => expect(mockToast).toHaveBeenCalledWith('Model is attached by reference.', 'error'));
+  expect(screen.getByTestId('app-manager-row-hr-suite')).toBeInTheDocument();
+  expect(screen.queryByText('Model is attached by reference.')).toBeNull();
+});
 
 });

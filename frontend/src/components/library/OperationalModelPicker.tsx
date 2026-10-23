@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Check, Search, Layers, LayoutGrid } from 'lucide-react';
+import { Check, Search, Layers, LayoutGrid, Trash2 } from 'lucide-react';
+import { Button } from '../ui';
 import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import type { OperationalModelNode } from '../../types';
 
@@ -27,6 +28,8 @@ interface Props {
   libraryPackages: OperationalModelNode[];
   /** Filter library to only 'track' or 'app' scope packages */
   scopeFilter?: 'track' | 'app';
+  onDelete?: (model: OperationalModelNode) => void;
+  deletingIds?: ReadonlySet<string>;
 }
 
 const LINE_STROKE = 1.5;
@@ -53,6 +56,8 @@ export function OperationalModelPicker({
   appSources = [],
   libraryPackages,
   scopeFilter,
+  onDelete,
+  deletingIds,
 }: Props) {
   const [search, setSearch] = useState('');
 
@@ -211,11 +216,19 @@ export function OperationalModelPicker({
             <p className="text-xs uppercase tracking-wide font-semibold text-[var(--text-subtle)] mt-1 px-0.5">
               Library
             </p>
-            {filteredLib.map(item => (
-              <div key={item.value} className="space-y-1">
+            {filteredLib.map(item => {
+              const model = libraryPackages.find(pkg => item.value === `library:${pkg.id}`);
+              return <div key={item.value} className="space-y-1">
                 <PickerRow item={item} />
-              </div>
-            ))}
+                {onDelete && model?.workspace_id && model.can_delete !== false && (
+                  <Button variant="ghost" size="sm" aria-label={`Delete ${item.name} operational model`}
+                    icon={<Trash2 size={14} strokeWidth={LINE_STROKE} />}
+                    disabled={deletingIds?.has(model.id)} onClick={() => onDelete(model)}>
+                    Delete model
+                  </Button>
+                )}
+              </div>;
+            })}
           </>
         )}
 

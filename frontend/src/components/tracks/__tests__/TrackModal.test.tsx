@@ -3,16 +3,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { TrackModal } from '../TrackModal';
+import { ConfirmProvider } from '../../../context/ConfirmContext';
 import type { Track } from '../../../types';
 
 const mocks = vi.hoisted(() => ({
-  create: vi.fn(), update: vi.fn(), list: vi.fn(), apps: vi.fn(), getApp: vi.fn(),
+  remove: vi.fn(), create: vi.fn(), update: vi.fn(), list: vi.fn(), apps: vi.fn(), getApp: vi.fn(),
   getModel: vi.fn(), templates: vi.fn(), preview: vi.fn(), publish: vi.fn(), toast: vi.fn(),
 }));
 vi.mock('../../../api', () => ({
   tracksApi: { create: mocks.create, update: mocks.update },
   appsApi: { list: mocks.apps, get: mocks.getApp, getOperationalModel: mocks.getModel, listTrackTemplates: mocks.templates },
-  operationalModelsApi: { list: mocks.list },
+  operationalModelsApi: { list: mocks.list, delete: mocks.remove },
 }));
 vi.mock('../../../api/operationalModels', () => ({ operationalModelsApi: {
   list: mocks.list, importPreview: mocks.preview, importPublish: mocks.publish,
@@ -30,12 +31,13 @@ const imported = { ...model, id: 'imported-model', name: 'Imported Reading List'
 function show(props: Partial<React.ComponentProps<typeof TrackModal>> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<MemoryRouter><QueryClientProvider client={client}>
-    <TrackModal open onClose={vi.fn()} onCreated={vi.fn()} {...props} />
+    <ConfirmProvider><TrackModal open onClose={vi.fn()} onCreated={vi.fn()} {...props} /></ConfirmProvider>
   </QueryClientProvider></MemoryRouter>);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.remove.mockResolvedValue(undefined);
   mocks.list.mockResolvedValue([model]);
   mocks.apps.mockResolvedValue([]);
   mocks.getApp.mockResolvedValue({ id: 'app-one', name: 'App One' });
@@ -127,4 +129,40 @@ it('preserves App-scoped creation and its parent assignment', async () => {
   fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'App track' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
   await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ app_id: 'app-one', title: 'App track' })));
+});
+
+
+it('confirms deletion of an uploaded model, removes it, and clears its selection without deleting Tracks', async () => {
+  mocks.list.mockResolvedValue([{ ...model, workspace_id: 'ws-qa' }]);
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: /Reading List Books/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List operational model' }));
+  expect(await screen.findByRole('heading', { name: 'Delete operational model?' })).toBeInTheDocument();
+  expect(mocks.remove).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete model' }));
+  await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('model-one'));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete Reading List operational model' })).toBeNull());
+  expect(within(screen.getByLabelText('Track starting point')).getByText('Blank track')).toBeInTheDocument();
+  expect(mocks.toast).toHaveBeenCalledWith('Operational model deleted.', 'success');
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it('keeps a model on cancellation or a server rejection and reports the failure in a toast', async () => {
+  mocks.list.mockResolvedValue([{ ...model, workspace_id: 'ws-qa' }]);
+  mocks.remove.mockRejectedValue({ response: { data: { detail: 'Model is attached by reference.' } } });
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete Reading List operational model' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(mocks.remove).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Reading List operational model' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete model' }));
+  await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith('Model is attached by reference.', 'error'));
+  expect(screen.getByRole('button', { name: 'Delete Reading List operational model' })).toBeInTheDocument();
+});
+
+it('does not offer deletion for platform models or a model marked non-deletable', async () => {
+  mocks.list.mockResolvedValue([model, { ...model, id: 'locked', workspace_id: 'ws-qa', can_delete: false }]);
+  show();
+  await screen.findAllByRole('button', { name: /Reading List Books/ });
+  expect(screen.queryByRole('button', { name: /Delete .* operational model/ })).toBeNull();
 });

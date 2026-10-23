@@ -16,6 +16,7 @@ import {
 } from '../../api';
 import { invalidateWorkspaceListCaches } from '../../queryKeys';
 import type { CreateTrackBody } from '../../api/tracks';
+import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { useScope } from '../../context/ScopeContext';
 import type { OperationalModelNode, App, Track } from '../../types';
@@ -52,6 +53,8 @@ export function TrackModal({
   appId,
 }: TrackModalProps) {
   const { showToast } = useToast();
+  const confirm = useConfirm();
+  const [deletingModels, setDeletingModels] = useState<Set<string>>(new Set());
   const { scope, activeWorkspace } = useScope();
   const isEdit = !!editTrack;
   const [title, setTitle] = useState(editTrack?.title || '');
@@ -286,6 +289,27 @@ export function TrackModal({
     }
   };
 
+  const deleteLibraryModel = async (model: OperationalModelNode) => {
+    if (!await confirm({
+      title: 'Delete operational model?',
+      message: `Remove “${model.name}” from the Track library? Tracks already created from a copy will remain unchanged.`,
+      confirmLabel: 'Delete model', variant: 'danger',
+    })) return;
+    setDeletingModels(previous => new Set(previous).add(model.id));
+    try {
+      await operationalModelsApi.delete(model.id);
+      setLibraryPackages(previous => previous.filter(item => item.id !== model.id));
+      setOperationalModelChoice(previous => previous === `library:${model.id}` ? '' : previous);
+      showToast('Operational model deleted.', 'success');
+    } catch (error: unknown) {
+      const detail = (error as { response?: { data?: { detail?: string | { message?: string } } }; message?: string });
+      const reason = detail.response?.data?.detail;
+      showToast((typeof reason === 'string' ? reason : reason?.message) || detail.message || 'Failed to delete operational model.', 'error');
+    } finally {
+      setDeletingModels(previous => { const next = new Set(previous); next.delete(model.id); return next; });
+    }
+  };
+
   const detailsBody = (
     <>
       <div>
@@ -410,6 +434,8 @@ export function TrackModal({
                 appSources={appSources}
                 libraryPackages={showLibraryRow ? libraryPackages : []}
                 scopeFilter="track"
+                onDelete={model => void deleteLibraryModel(model)}
+                deletingIds={deletingModels}
               />
             </section>
             {!appId && <Surface as="aside" tone="panel-2" padding="lg" radius="none"
