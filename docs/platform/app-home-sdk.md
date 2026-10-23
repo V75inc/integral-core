@@ -66,6 +66,12 @@ sandbox and legacy bridge SDK, independently of native Home rendering.
 
 ## Data, actions and state
 
+Home forms are for operational work. App-specific defaults, preferences and
+configuration MUST use the standard App settings dialog and
+`app.settings_schema`; a native Home form is not a substitute settings editor.
+Developers and agents follow the [App settings UI contract](app-settings-ui.md).
+
+
 Data nodes use an owning App's declared query key and parameters. Query reads
 remain permission filtered. Metrics use `value_path` (default `total_estimate`);
 records/charts use `rows_path` (`items`) and `label_field` (`title`). Charts

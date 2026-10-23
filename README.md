@@ -14,6 +14,7 @@ The result is software that can grow around the work it serves.
 - [The Integral white paper](docs/product/WHITE_PAPER.md): the extended guide to the concept, substrate, layers, and architecture of generative software.
 - [Use Integral](docs/user-guide/README.md): workspaces, Apps, records, views, sharing, AI, and approvals.
 - [Build an App](docs/developer/quickstart.md): from a package manifest to an installed application.
+- [App settings UI contract](docs/platform/app-settings-ui.md): all App-specific settings controls use the standard App settings dialog.
 - [Explore the architecture](docs/product/ARCHITECTURE.md): implementation boundaries and current contracts.
 - [Run Integral](docs/ops/DEPLOY.md): configuration, deployment, and qualification.
 

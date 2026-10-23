@@ -1,5 +1,10 @@
 # Integral Python SDK
 
+App-specific settings UI MUST use the standard App settings dialog, declared
+through `app.settings_schema`; handlers must not introduce a parallel settings
+store/editor. Use the injected App settings facade and canonical policy. See
+the [settings UI contract](../../docs/platform/app-settings-ui.md).
+
 The SDK provides public typing contracts for App handlers: OperationContext, ToolContextV2, query modes, field/relation shapes, and revisions. These protocols describe Core-injected capabilities; importing a type does not grant access.
 
 Prefer scoped get/query/invoke. Use the validated mutation helpers and inspect their result, including stale revision failure. Do not import private backend services or accept payload identity as authority.

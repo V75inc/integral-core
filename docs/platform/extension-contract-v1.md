@@ -125,6 +125,18 @@ The frozen hook catalog contains `entry.transform`, `entry.public_share`, `entry
 
 ## Presentation
 
+### App-specific settings (mandatory)
+
+All App-specific settings controls MUST use the standard App settings dialog
+available from the App header. Declare them in `app.settings_schema`; do not
+embed settings editors in Home, dashboards, Tracks, Entries or extension views.
+Operational record forms remain on their relevant surfaces. Developers and
+agents follow the [App settings UI contract](app-settings-ui.md), including
+canonical persistence, permission checks and review evidence. Unsupported
+controls require an extension to the shared settings renderer, not a separate
+settings UI.
+
+
 App-owned declarative composites use registered Core primitives. Sandboxed iframe extension views use declared assets, hosted paths, and the view handshake; a view's `config.min_height` lets a compact view size below the default frame height. This is an implemented extension surface; arbitrary remote React plugins or inline executable manifest code are not substitutes.
 
 Frame responses permit embedding by the API origin (`'self'`) and the explicit

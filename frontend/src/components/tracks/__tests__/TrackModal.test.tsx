@@ -189,11 +189,31 @@ it('chooses an existing App before picking its Track template and submits both c
   expect(mocks.create.mock.calls[0][0]).not.toHaveProperty('library_operational_model_id');
 });
 
-it('can leave an App-scoped flow for top-level Tracks without retaining the App or its template key', async () => {
-  mocks.apps.mockResolvedValue([{ id: 'app-one', name: 'Client Work' }]);
+it('locks an App-scoped flow to its originating App and submits its template there', async () => {
+  mocks.getApp.mockResolvedValue({ id: 'app-one', name: 'Client Work' });
   mocks.getModel.mockResolvedValue({ id: 'app-template', manifest: { scope: 'app', app: { tracks: [{ key: 'cases', name: 'Cases' }] } } });
   show({ appId: 'app-one' });
   await screen.findByRole('button', { name: 'Remove Cases' });
+  expect(within(screen.getByLabelText('Track destination')).getByText('Client Work')).toBeInTheDocument();
+  expect(screen.queryByRole('radio', { name: 'Top-level Tracks' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Change App' })).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Find an App' })).toBeNull();
+  expect(mocks.apps).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Client cases' } });
+  expect(screen.getByText('Add to: Client Work')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  expect(screen.queryByRole('radio', { name: 'Top-level Tracks' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create track' }));
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ app_id: 'app-one', app_track_type_key: 'cases', title: 'Client cases' })));
+});
+
+it('can change a freely selected App back to top-level placement from the Tracks page', async () => {
+  mocks.apps.mockResolvedValue([{ id: 'app-one', name: 'Client Work' }]);
+  show();
+  fireEvent.click(screen.getByRole('radio', { name: 'Inside an App' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Select App Client Work' }));
   fireEvent.click(screen.getByRole('radio', { name: 'Top-level Tracks' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Create your own track' }));
   fireEvent.change(screen.getByLabelText(/Track Name/), { target: { value: 'Independent notes' } });

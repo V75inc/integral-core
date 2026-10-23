@@ -13,6 +13,11 @@ Home renders.
 
 ## Shared authoring contract
 
+- App-specific configuration controls belong in the standard App settings
+  dialog, via `app.settings_schema`, for both developer and agent authoring.
+  Native Home forms support operational work, not duplicate settings editors.
+  See the [settings UI contract](../platform/app-settings-ui.md).
+
 - Developers package native `app.home` defaults. Reusable SDK component
   functions return typed composition data; they do not execute package JavaScript
   in the authenticated Core page.

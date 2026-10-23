@@ -423,6 +423,20 @@ Compute existing-record validation impact before destructive reapplication. Bloc
 
 ## Packages and extension boundaries
 
+### I-APP-SETTINGS-01 — One App settings surface
+
+All App-specific settings UI controls live in the standard App settings dialog
+opened from the App header. Developers and agents declare configuration through
+`app.settings_schema` and canonical settings persistence. Home, dashboard,
+Track, Entry and extension views must not introduce alternative settings
+editors. Operational record forms are distinct from App configuration. Core's
+required install-time collection reuses the same schema; subsequent editing
+uses the standard dialog. Unsupported controls require a reviewed shared
+renderer/contract extension. This is an authoring and review invariant, not a
+claim that the compiler can infer every form's purpose. See the
+[App settings UI contract](platform/app-settings-ui.md).
+
+
 ### I-APP-DEF-01 — Active-Definition-Authority
 
 Every App materialized through the package lifecycle has one active

@@ -65,6 +65,11 @@ If a tool may run longer than a request (an import, a month-end run), queue it w
 
 ## 5. Give the App useful behavior
 
+Declare App configuration in `app.settings_schema`. All App-specific settings
+controls MUST appear in the standard App settings dialog; Home and other views
+are for operational work. Follow the [settings UI contract](../platform/app-settings-ui.md)
+instead of building a separate configuration panel.
+
 Declare queries with bounded inputs and explicit outputs. A Home widget expecting rows and totals needs both. Declare operations with policy and staging requirements. Keep read operations free of hidden writes.
 
 Use a `member` field for an account reference, a `relation` for an operational entity, and `file`/`files` for attachments. Sensitive data needs a separate resource boundary rather than a hidden field.

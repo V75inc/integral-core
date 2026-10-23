@@ -1,5 +1,10 @@
 # Evolve extension contracts
 
+App presentation reviews must enforce the [App settings UI contract](app-settings-ui.md):
+all App-specific configuration controls belong in the standard App settings
+dialog. New control requirements extend that shared renderer and contract;
+they must not introduce a second settings surface.
+
 A public contract change affects independent App authors. Treat its information shapes, policy requirements, lifecycle, and failure semantics as a reviewed interface.
 
 Describe compatibility, source and wire changes, migration needs, and effects on existing packages. Add behavior tests using an external package that does not import private Core modules. Preserve Core-only boot and the [invariants](../INVARIANTS.md).

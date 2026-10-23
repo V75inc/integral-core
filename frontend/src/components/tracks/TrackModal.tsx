@@ -43,7 +43,7 @@ interface TrackModalProps {
   onClose(): void;
   onCreated(track: Track): void | Promise<void>;
   editTrack?: Track | null;
-  /** When creating from an App, enables operational model choices on create. */
+  /** When creating from an App, locks placement to that App. */
   appId?: string;
 }
 
@@ -85,7 +85,7 @@ export function TrackModal({
   const [appsError, setAppsError] = useState(false);
   const [appsRevision, setAppsRevision] = useState(0);
   const [destinationKind, setDestinationKind] = useState<TrackDestinationKind>(appId ? 'app' : 'top-level');
-  const destinationAppId = chosenParentAppId;
+  const destinationAppId = appId || chosenParentAppId;
   const needsAppSelection = destinationKind === 'app' && !destinationAppId;
 
   type TrackModalStep = 'details' | 'profile';
@@ -190,7 +190,7 @@ export function TrackModal({
   }, [open, isEdit, destinationAppId, manifestTracks]);
 
   useEffect(() => {
-    if (!open || isEdit) return;
+    if (!open || isEdit || appId) return;
     let cancelled = false;
     setAppsLoading(true);
     setAppsError(false);
@@ -200,7 +200,7 @@ export function TrackModal({
       if (!cancelled) { setAppsError(true); setParentAppOptions([]); }
     }).finally(() => { if (!cancelled) setAppsLoading(false); });
     return () => { cancelled = true; };
-  }, [open, isEdit, scope?.workspaceId, appsRevision]);
+  }, [open, isEdit, appId, scope?.workspaceId, appsRevision]);
 
   useEffect(() => {
     if (open && !isEdit) {
@@ -421,7 +421,12 @@ export function TrackModal({
               aria-label="Track starting point">
               <div className="min-h-0 space-y-5 sm:flex-1 sm:overflow-y-auto">
               <Text as="h3" variant="heading-sm" weight="semibold">Your selection</Text>
-              <TrackDestinationPicker kind={destinationKind} appId={destinationAppId} selectedAppName={appDetail?.name}
+              {appId ? <section aria-label="Track destination" className="space-y-3">
+                <Text variant="label">Add track to</Text>
+                <Surface border="subtle" radius="card" padding="sm">
+                  <Text weight="medium" as="p" className="break-words">{appDetail?.name || 'Current App'}</Text>
+                </Surface>
+              </section> : <TrackDestinationPicker kind={destinationKind} appId={destinationAppId} selectedAppName={appDetail?.name}
                 apps={parentAppOptions} loading={appsLoading} error={appsError} onRetry={() => setAppsRevision(value => value + 1)}
                 onKindChange={kind => {
                   if (kind === destinationKind) return;
@@ -431,7 +436,7 @@ export function TrackModal({
                   if (value === destinationAppId) return;
                   setChosenParentAppId(value); setOperationalModelChoice(''); setAppCp(null);
                   setAppDetail(null); setTemplates([]); setImportOpen(false); setDetailId(null);
-                }} />
+                }} />}
               <div className="border-t border-[var(--panel-border)] pt-4">
                 <Text variant="label">Starting point</Text>
                 <Text variant="body" weight="medium" as="p" className="mt-3">{needsAppSelection ? 'Choose an App' : selectedName}</Text>
@@ -448,7 +453,7 @@ export function TrackModal({
           </div>
         </Modal.Body>
         <Modal.Footer align="between">
-          {destinationKind === 'top-level' ? <Button variant="secondary" className="min-h-11"
+          {!destinationAppId && destinationKind === 'top-level' ? <Button variant="secondary" className="min-h-11"
             icon={<Plus size={16} strokeWidth={LINE_ICON_STROKE} />}
             onClick={() => { setOperationalModelChoice(''); setStep('details'); }}>Create your own track</Button>
             : <Button variant="ghost" onClick={onClose}>Cancel</Button>}

@@ -17,6 +17,17 @@ activity summaries, or a full layout of widgets across the app's tracks.
   `integral-insights` skill for operational surfaces on one track.
 - Schema changes — delegate to the `integral-models` skill.
 
+## App settings placement (required)
+
+All App-specific settings controls MUST use the standard App settings dialog
+opened from the App header. Declare configuration in `app.settings_schema`;
+never create settings editors on Home, dashboards, Tracks, Entries or extension
+views. Keep record-entry and other operational forms on their working surfaces.
+Preserve settings values when revising an App. If the shared settings renderer
+cannot express a control, identify the required contract extension rather than
+inventing a separate UI or unsupported settings-write tool. Use available
+canonical authoring/approval paths and verify saved values before claiming success.
+
 ## Shared native Home authoring
 
 Developers and the resident agent share one installed-App Home contract.

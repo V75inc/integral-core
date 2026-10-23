@@ -49,6 +49,11 @@ There is no general field-level privacy. Put differently governed information be
 
 ## Application extension perimeter
 
+The standard App settings dialog is the single UI surface for all App-specific
+configuration controls. Packages declare `app.settings_schema`; developers and
+agents must keep Home, dashboard and other operational views free of duplicate
+settings editors. See the [settings UI contract](../platform/app-settings-ui.md).
+
 Core does not import domain packages into service, API, schema, or model logic. Apps use `ToolContext` and published contracts. Preferred access uses scoped `get`, `query`, and `invoke`; legacy facade methods remain subject to their defined boundaries.
 
 A package declares tools, hooks, operations, queries, skills, views, and assets. Python tools require the appropriate trust tier and production signature posture. Hook points are cataloged and frozen. Installation registers package-owned capabilities in scope; pause and removal withdraw the applicable registrations.

@@ -18,6 +18,10 @@ Most guards inspect the staged index; an unstaged pass can be vacuous. The CSP h
 
 ## Implementation boundaries
 
+App-specific settings controls MUST use the standard App settings dialog.
+Review package, SDK and agent-authored UI against the
+[settings UI contract](../platform/app-settings-ui.md) and I-APP-SETTINGS-01.
+
 Use jvspatial endpoints, canonical exception subclasses, schema modules, and service-layer writes. Graph participants attach to a rooted parent in the same unit of work. Use typed edge metadata and Walkers for their intended roles. Measure and document permitted efficiency deviations.
 
 Core cannot import domain packages or branch on their identity. App tools use scoped facades. Changing core skills, bindings, tool manifests, or example Apps requires `make capability-map` and the regenerated artifacts.

@@ -2,6 +2,11 @@
 
 ## Native App Home authoring
 
+All App-specific settings controls MUST use the standard App settings dialog
+through `app.settings_schema`. Native Home forms and isolated extension views
+must not become separate settings editors. See the
+[App settings UI contract](../../docs/platform/app-settings-ui.md).
+
 Home screens render directly with Integral's native components. Use typed
 composition functions to package custom layouts or update an installed App:
 

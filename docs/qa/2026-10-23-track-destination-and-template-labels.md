@@ -1,5 +1,19 @@
 # Track destinations and plain-language template labels
 
+## Current App-context contract
+
+When opened from an App, Manage Tracks is locked to that App. Its destination
+is read-only; top-level placement and Change App are unavailable. Track creation
+uses the originating App ID, including after navigating Back from Track details.
+The main Tracks page retains both destination choices and App search.
+
+The current change passed 17 Track dialog regressions and TypeScript checks.
+Browser review confirmed the originating App name with no destination-switching
+controls. The earlier App-to-top-level behavior recorded below is superseded;
+its observations are retained as historical evidence.
+
+## Earlier qualification
+
 Manage Tracks now starts with **Add track to**. Users may choose **Top-level Tracks** or an existing App in the active workspace. The selector remains visible when the workspace has no Apps, and failed App loading provides Retry Apps rather than silently hiding the choice. App flows start with their originating App selected but can switch to the top level.
 
 Choosing an App loads that App's Track choices and templates before Continue is enabled. Switching destinations clears the previous App's template selection and type key. The final details step shows the destination, and creation submits an App ID only when an App is selected. Paused, incomplete, or uninstalled Apps cannot be selected for new Track creation.
@@ -8,7 +22,7 @@ User-facing App/Track library, import, deletion, configuration and creation labe
 
 Component coverage exercises creating under a selected App with its prescribed Track type, leaving an App flow for top-level Tracks without stale App/template fields, retrying App-list failures, and the existing manual/import/library/edit/delete flows. The shared template picker labels its App/Track scope appropriately.
 
-## Verification
+### Verification
 
 - 349 frontend files / 2,115 tests passed; final focused App/Track dialog run: 40 tests passed.
 - TypeScript/production build, all 16 guards, pre-commit framework and `make verify-ci` passed. Targeted ESLint reported zero errors (15 existing effect-pattern warnings).
@@ -16,7 +30,7 @@ Component coverage exercises creating under a selected App with its prescribed T
 - Starting from that App's New track action, switched to **Top-level Tracks**, created **Top-level Destination QA**, and verified the Track breadcrumb has no App. The App's Track count stayed at one.
 - Saved desktop chooser evidence with both destinations visible. No original Apps, Tracks or Entries were changed.
 
-## Scalable destination sidebar refinement
+### Scalable destination sidebar refinement
 
 Manage Tracks now follows the Manage Apps layout: template browsing on the left,
 a 19rem Your selection sidebar on the right, and an explicit details/confirmation

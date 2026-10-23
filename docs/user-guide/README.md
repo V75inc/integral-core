@@ -19,6 +19,11 @@ If a resource is unavailable, you may have the wrong workspace, insufficient acc
 
 ## 2. A useful first session
 
+To configure an App, open it and choose **Settings** in its header. The same
+dialog holds its App-specific options across Home, Tracks and dashboards.
+The options you can view or change depend on your access. Everyday record
+forms remain in their Tracks and other work views.
+
 Start with a simple collection you actually need: notes, requests, decisions, or another type your installation supports.
 
 1. Select your workspace.

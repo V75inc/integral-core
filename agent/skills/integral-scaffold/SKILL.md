@@ -6,6 +6,17 @@ allowed-tools: integral_whoami integral_describe_substrate integral_list_models 
 
 # Operational app delivery
 
+## App settings placement (required)
+
+All App-specific settings controls MUST use the standard App settings dialog
+opened from the App header. Declare configuration in `app.settings_schema`;
+never create settings editors on Home, dashboards, Tracks, Entries or extension
+views. Keep record-entry and other operational forms on their working surfaces.
+Preserve settings values when revising an App. If the shared settings renderer
+cannot express a control, identify the required contract extension rather than
+inventing a separate UI or unsupported settings-write tool. Use available
+canonical authoring/approval paths and verify saved values before claiming success.
+
 ## Delivery ownership and status
 
 This skill coordinates a new app or an addition to an existing app. Follow this sequence without

@@ -1,5 +1,14 @@
 # Agent authoring contract
 
+All App-specific settings UI MUST use the standard App settings dialog reached
+from the App header. Declare configuration in `app.settings_schema`; do not
+create settings forms/tabs on Home, dashboards, Tracks, Entries or extension
+views. Keep operational forms distinct. If a control is unsupported, extend
+the shared renderer through a reviewed contract change rather than introducing
+a parallel editor. Follow the [App settings UI contract](../platform/app-settings-ui.md)
+for persistence, migration, approval and verification.
+
+
 An agent can help describe and revise an Operational Model using exposed authoring capabilities. Its output is a candidate artifact, not authority to publish or execute it.
 
 Discover current field types, view types, relation targets, and authoring contracts through substrate introspection. Preserve existing introspection keys and shapes when extending the interface. Supply explicit authorized workspace and target identity; do not derive permission from an ID in generated text.

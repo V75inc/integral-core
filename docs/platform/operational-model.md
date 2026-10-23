@@ -1,5 +1,9 @@
 # Operational Models in the platform
 
+App configuration is declared in `app.settings_schema` and rendered in the
+standard App settings dialog. All App-specific settings UI follows the
+[settings UI contract](app-settings-ui.md); operational views must not duplicate it.
+
 Operational Models describe record schema and presentation inside the shared substrate. They are the modeling component of an App, rather than its entire capability authority.
 
 Keep five artifacts distinct: disk package, library model, attached model, installed App, and active ApplicationDefinition. Authoring YAML version 3 compiles to runtime schema version 2. Drafts and migration checks govern changes to existing data.

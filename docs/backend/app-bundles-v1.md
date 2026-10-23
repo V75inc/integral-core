@@ -12,7 +12,14 @@ The loader records manifest and bundle fingerprints, load issues, skill files, P
 
 Tracks and EntryTypes describe records. View declarations and composite types describe presentation. Queries expose bounded information contracts. Operations declare input, policy action, staging, and implementation. Tools supply reviewed execution through the facade. Hooks bind declared behavior to cataloged substrate events. Skills supply instructions and do not grant authority.
 
-Settings can pause installation until required values are provided. Dependencies constrain installation and removal. Cross-App references retain permission checks and remain inside the workspace contract.
+Settings can pause installation until required values are provided. All App-specific
+settings controls MUST use the standard App settings dialog after installation,
+with `app.settings_schema` supplying the shared form. Packages must not place
+settings editors on Home or other operational surfaces. See the
+[settings UI contract](../platform/app-settings-ui.md).
+
+Dependencies constrain installation and removal. Cross-App references retain
+permission checks and remain inside the workspace contract.
 
 ## Active definition
 

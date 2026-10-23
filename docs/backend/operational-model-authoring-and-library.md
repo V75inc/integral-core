@@ -1,5 +1,10 @@
 # Model authoring and the App library
 
+All App-specific settings UI MUST use the standard App settings dialog via
+`app.settings_schema`. Package and agent authoring must not add parallel
+configuration panels on operational surfaces. Follow the
+[settings UI contract](../platform/app-settings-ui.md).
+
 Author reusable packages on disk and expose them through configured package roots. Library models are catalog artifacts, not installed workspace instances. Their visibility and detail reads must follow package/resource authorization; a broad library query must not expose private package metadata.
 
 Use authoring YAML version 3, package identity, tags, declared assets, and standard skill files. The loader compiles runtime schema version 2 and reports load/signature issues. `INTEGRAL_CORE_ONLY=1` admits only Core packages; it does not disable agentive boot.

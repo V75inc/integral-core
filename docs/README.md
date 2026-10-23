@@ -16,6 +16,9 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
+All App authors follow the [App settings UI contract](platform/app-settings-ui.md):
+App-specific settings controls belong in the standard App settings dialog.
+
 Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [background jobs for Apps](platform/background-app-jobs.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). Use [declarative indexing and retrieval](backend/semantic-indexing.md) for searchable fields, agent capabilities and permission-aware passages. [Model discovery](backend/operational-model-search-index.md) covers the separate package catalog. The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
 
 ## Operate it

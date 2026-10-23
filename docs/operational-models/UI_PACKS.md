@@ -1,5 +1,9 @@
 # Package reusable presentation
 
+App-specific settings controls MUST use the standard App settings dialog via
+`app.settings_schema`; UI packs must not ship duplicate configuration panels.
+See the [settings UI contract](../platform/app-settings-ui.md).
+
 A UI pack is reusable presentation configuration within an App's model/package contract. It does not create a separate distribution authority or permission system.
 
 Carry declared composite types, supported regions, field presentation, extension assets, and query/operation dependencies together. Namespaced package keys avoid accidental collision. The installed active definition must retain the requirements the presentation relies on.
