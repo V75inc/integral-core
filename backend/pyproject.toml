@@ -24,7 +24,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc31"
+version = "0.1.1rc32"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 license-files = ["LICENSE", "NOTICE"]

@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from datetime import timedelta
 
 import pytest
 from jvspatial.core.context import GraphContext, scoped_default_context_async
@@ -139,12 +140,19 @@ async def test_expired_undispatched_claim_can_be_replaced_but_old_worker_is_fenc
         await mark_staging_external_dispatch(current)
 
 
-async def test_external_dispatch_intent_is_never_reclaimed_on_expiry(postgres_raw_db):
+async def test_external_dispatch_intent_is_never_reclaimed_on_expiry(
+    postgres_raw_db, monkeypatch
+):
+    from app.agentive.services import staging_execution
+
+    # Database latency must not expire the claim before dispatch is recorded.
+    now = staging_execution._now()
+    monkeypatch.setattr(staging_execution, "_now", lambda: now)
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         intent = identity()
-        claim = await claim_staging_execution(**intent, lease_seconds=0.03)
+        claim = await claim_staging_execution(**intent, lease_seconds=30)
         await mark_staging_external_dispatch(claim)
-        await asyncio.sleep(0.05)
+        now += timedelta(seconds=31)
         with pytest.raises(StagingError) as exc:
             await claim_staging_execution(**intent)
         assert exc.value.code == "application_reconciliation_required"
