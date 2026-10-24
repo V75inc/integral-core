@@ -600,7 +600,8 @@ def test_real_uvloop_does_not_immediately_expire_a_fresh_model_turn():
         async with asyncio.timeout(5) as deadline:
             timing.deadline = deadline
             timing.freeze_budget({"turn_timeout": 30})
-            assert 0 < timing.remaining_deadline_seconds() <= 5
+            # Subtracting loop-clock floats may exceed five by a few ULPs.
+            assert 0 < timing.remaining_deadline_seconds() <= 5 + 1e-9
             await asyncio.sleep(0.01)
             assert timing.remaining_deadline_seconds() > 0
 
