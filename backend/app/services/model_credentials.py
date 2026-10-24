@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -299,7 +300,8 @@ async def upsert_user_credential(
 
     local_ollama = slug == "ollama_local"
     existing = await get_credential_for_user(user_id)
-    configured_settings = validate_model_settings(
+    configured_settings = await asyncio.to_thread(
+        validate_model_settings,
         slug,
         model.strip(),
         (

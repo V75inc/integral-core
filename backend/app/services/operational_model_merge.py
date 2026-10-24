@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 from datetime import datetime, timezone
@@ -544,7 +545,9 @@ async def merge_template_operational_model_into_track(
         )
         await catalog_view_under_track(track, new_v)
 
-    canon = compile_canonical_manifest(manifest=dict(template_cp.manifest or {}))
+    canon = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=dict(template_cp.manifest or {})
+    )
     if canon.get("scope") == "track":
         tier = canon.get("track") or {}
         tcp.manifest = _merge_track_tier_into_manifest(tcp.manifest or {}, canon, tier)
@@ -793,7 +796,7 @@ async def merge_library_manifest_into_operational_model(
                 user_id=user_id,
             )
     manifest = library_cp.manifest or {}
-    canonical = compile_canonical_manifest(manifest=manifest)
+    canonical = await asyncio.to_thread(compile_canonical_manifest, manifest=manifest)
     source_id = str(getattr(library_cp, "id", "") or "")
 
     # Phase 10 Plan 10-04 — merge-time mirror of the compile-time public-catalog
@@ -840,7 +843,9 @@ async def merge_library_manifest_into_operational_model(
 
     if for_space and canonical.get("scope") == "app" and track is None:
         # App-level libraries merge their full manifest into the attached app_node profile.
-        target_manifest = compile_canonical_manifest(manifest=target_cp.manifest or {})
+        target_manifest = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=target_cp.manifest or {}
+        )
         merged_tracks: Dict[str, Dict[str, Any]] = {}
         for spec in list(
             ((target_manifest.get("app") or {}).get("tracks") or [])
@@ -1343,7 +1348,7 @@ async def preview_effective_app_manifest_after_library_merge(
         _scope_target=target_profile,
         user_id=user_id,
     )
-    return compile_canonical_manifest(manifest=target.manifest)
+    return await asyncio.to_thread(compile_canonical_manifest, manifest=target.manifest)
 
 
 def _track_spec_to_library_manifest_dict(
@@ -1401,7 +1406,9 @@ async def refresh_app_track_template_materialization(
     app_cp = await get_app_attached_operational_model(app_node)
     if app_cp is None or not app_cp.manifest:
         return None
-    canonical = compile_canonical_manifest(manifest=dict(app_cp.manifest or {}))
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=dict(app_cp.manifest or {})
+    )
     template_spec = find_app_track_template_spec_by_key(canonical, template_key)
     if template_spec is None:
         return None
@@ -1428,7 +1435,9 @@ async def refresh_all_app_track_template_materializations(app_node: App) -> int:
     app_cp = await get_app_attached_operational_model(app_node)
     if app_cp is None or not app_cp.manifest:
         return 0
-    canonical = compile_canonical_manifest(manifest=dict(app_cp.manifest or {}))
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=dict(app_cp.manifest or {})
+    )
     templates = list((canonical.get("app") or {}).get("track_templates") or [])
     count = 0
     for raw in templates:
@@ -1469,7 +1478,9 @@ async def provision_prescribed_tracks_from_app_manifest(
     sacp = await get_app_attached_operational_model(app_node)
     if not sacp or not sacp.manifest:
         return
-    canonical = compile_canonical_manifest(manifest=dict(sacp.manifest))
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=dict(sacp.manifest)
+    )
     if not app_manifest_provisioning_enabled(canonical):
         return
     user = await get_user_node(owner_user_id)

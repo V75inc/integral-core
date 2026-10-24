@@ -243,9 +243,9 @@ async def list_workspace_operational_models(request: Request) -> Dict[str, Any]:
     an empty list when no workspace-scope bundle has been authored yet
     (D5 ships the first sample bundle).
     """
-    from app.services.operational_model_loader import load_library_operational_models
+    from app.services.operational_model_library_sync import load_library_snapshot
 
-    specs = load_library_operational_models()
+    _, specs, _ = await load_library_snapshot()
     return {
         "operational_models": [
             {

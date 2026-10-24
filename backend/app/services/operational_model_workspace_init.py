@@ -35,6 +35,7 @@ D4 wires this service into ``POST /workspaces?operational_model_slug=<slug>``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -89,18 +90,12 @@ async def init_workspace_from_profile(
             ``applied_profiles`` entry for ``operational_model_slug``.
         WorkspaceInitFailed: Mid-write failure; rollback was attempted.
     """
-    # Import inside the function so test monkey-patches on the loader
-    # module land on the resolved symbol (Step 9 in the D3 plan).
-    from app.services.operational_model_loader import load_library_operational_models
-
-    spec = next(
-        (
-            s
-            for s in load_library_operational_models()
-            if s.slug == operational_model_slug
-        ),
-        None,
+    from app.services.operational_model_library_sync import (
+        load_library_bundle_index_async,
     )
+
+    _, bundle_specs = await load_library_bundle_index_async()
+    spec = bundle_specs.get(operational_model_slug)
     if spec is None:
         raise WorkspaceInitValidationError(
             f"bundle '{operational_model_slug}' not found"
@@ -141,7 +136,9 @@ async def init_workspace_from_profile(
 
     try:
         for app_entry in apps_decl:
-            inline = _resolve_sub_manifest(app_entry, spec)
+            inline = await asyncio.to_thread(
+                _resolve_sub_manifest, app_entry, spec, bundle_specs=bundle_specs
+            )
             app_name = str(app_entry.get("name") or app_entry.get("slug") or "App")
             app_source_slug = str(app_entry.get("slug") or "").strip()
             operational_model_ref = app_entry.get("operational_model_ref")
@@ -166,18 +163,7 @@ async def init_workspace_from_profile(
             if inline:
                 bundle_dir = spec.bundle_dir
                 if app_source_slug and app_source_slug != operational_model_slug:
-                    from app.services.operational_model_loader import (
-                        load_library_operational_models,
-                    )
-
-                    sibling = next(
-                        (
-                            s
-                            for s in load_library_operational_models()
-                            if s.slug == app_source_slug
-                        ),
-                        None,
-                    )
+                    sibling = bundle_specs.get(app_source_slug)
                     if sibling and sibling.bundle_dir:
                         bundle_dir = sibling.bundle_dir
                 await _apply_app_submanifest(
@@ -229,7 +215,7 @@ async def init_workspace_from_profile(
 
 
 def _resolve_sub_manifest(
-    app_entry: Dict[str, Any], spec: Any
+    app_entry: Dict[str, Any], spec: Any, *, bundle_specs: Dict[str, Any]
 ) -> Dict[str, Any] | None:
     """Resolve an app entry's sub-manifest from inline / operational_model_ref.
 
@@ -239,8 +225,6 @@ def _resolve_sub_manifest(
 
     Returns the manifest dict or ``None`` when no sub-manifest is declared.
     """
-    from app.services.operational_model_loader import load_library_operational_models
-
     inline = app_entry.get("profile")
     if inline:
         return inline
@@ -263,14 +247,7 @@ def _resolve_sub_manifest(
         sub_path = spec.bundle_dir / rel
         return _yaml.safe_load(sub_path.read_text(encoding="utf-8"))
 
-    sibling = next(
-        (
-            s
-            for s in load_library_operational_models()
-            if s.slug == operational_model_ref
-        ),
-        None,
-    )
+    sibling = bundle_specs.get(operational_model_ref)
     if sibling is None:
         raise WorkspaceInitValidationError(
             f"app '{app_entry.get('slug')}' operational_model_ref "
@@ -385,7 +362,9 @@ async def _apply_app_submanifest(
         from app.services.app_lifecycle import sync_operational_layer_from_manifest
         from app.services.operational_model_compile import compile_canonical_manifest
 
-        canonical = compile_canonical_manifest(manifest=normalized)
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=normalized
+        )
         await sync_operational_layer_from_manifest(app, canonical, actor_id=actor_id)
         # Workspace bundles are the same install surface as the app picker:
         # their referenced apps must receive their declared demo/configuration

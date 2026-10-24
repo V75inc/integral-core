@@ -24,6 +24,7 @@ back into the manifest.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -370,7 +371,9 @@ async def compute_entry_impact(
         validate_and_materialize_entry_custom_fields,
     )
 
-    runtime_tier = _candidate_track_tier(candidate_manifest, track)
+    runtime_tier = await asyncio.to_thread(
+        _candidate_track_tier, candidate_manifest, track
+    )
     candidate_entry_types = runtime_tier.get("entry_types") or []
     candidate_keys = {
         str((et or {}).get("key") or "")

@@ -56,7 +56,6 @@ from app.services.app_graph import (
 from app.services.operational_model_compile import (
     _as_dict,
     _as_list,
-    _scan_seeded_libraries_for_view_key,
     _slug,
     warm_seeded_library_view_index,
 )
@@ -65,20 +64,21 @@ from app.services.operational_model_graph import (
 )
 
 
-async def _warm_seeded_view_index_off_loop() -> None:
+async def _warm_seeded_view_index_off_loop() -> Dict[str, Dict[str, Any]]:
     """Parse seeded view specs on a worker thread, once per process.
 
     A failure leaves the attached manifest as the only source. The old
     per-view scan swallowed the same errors and continued.
     """
     try:
-        await asyncio.to_thread(warm_seeded_library_view_index)
+        return await asyncio.to_thread(warm_seeded_library_view_index)
     except Exception:
         logger.warning(
             "seeded library view index unavailable; view entry-type "
             "backfill will use the attached manifest only",
             exc_info=True,
         )
+        return {}
 
 
 async def backfill_view_entry_type_constraints_from_manifest(
@@ -114,7 +114,7 @@ async def backfill_view_entry_type_constraints_from_manifest(
 
     # The seed fallback parses every library package. Do that off the event
     # loop, once, so a track open does not freeze the only API worker.
-    await _warm_seeded_view_index_off_loop()
+    seed_index: Optional[Dict[str, Dict[str, Any]]] = None
 
     for v in views:
         cfg = v.config if isinstance(v.config, dict) else {}
@@ -127,7 +127,9 @@ async def backfill_view_entry_type_constraints_from_manifest(
         if spec is None or not (
             spec.get("entry_types") or spec.get("default_entry_type")
         ):
-            seed_spec = _scan_seeded_libraries_for_view_key(manifest_key)
+            if seed_index is None:
+                seed_index = await _warm_seeded_view_index_off_loop()
+            seed_spec = seed_index.get(_slug(manifest_key))
             if seed_spec is not None:
                 spec = seed_spec
         if not spec:
@@ -193,7 +195,7 @@ async def write_view_entry_type_constraints_from_manifest(
             if key:
                 by_key[key] = spec
 
-    await _warm_seeded_view_index_off_loop()
+    seed_index: Optional[Dict[str, Dict[str, Any]]] = None
 
     for v in views:
         cfg = v.config if isinstance(v.config, dict) else {}
@@ -204,7 +206,9 @@ async def write_view_entry_type_constraints_from_manifest(
         if spec is None or not (
             spec.get("entry_types") or spec.get("default_entry_type")
         ):
-            seed_spec = _scan_seeded_libraries_for_view_key(manifest_key)
+            if seed_index is None:
+                seed_index = await _warm_seeded_view_index_off_loop()
+            seed_spec = seed_index.get(_slug(manifest_key))
             if seed_spec is not None:
                 spec = seed_spec
         if not spec:
@@ -267,10 +271,11 @@ async def _try_refresh_anchor_template_cp(
             app_cp = await get_app_attached_operational_model(app_node)
             if app_cp is None or not app_cp.manifest:
                 return None
-            canonical = compile_canonical_manifest(
+            canonical = await asyncio.to_thread(
+                compile_canonical_manifest,
                 manifest=_as_dict(
                     app_cp.manifest, where="app operational model manifest"
-                )
+                ),
             )
     except BadRequestError:
         logger.exception("anchor template refresh: App manifest compile failed")
@@ -311,10 +316,11 @@ async def resolve_track_runtime_profile(
     cp = await get_track_attached_operational_model(track)
     if cp and cp.manifest:
         try:
-            manifest = compile_canonical_manifest(
+            manifest = await asyncio.to_thread(
+                compile_canonical_manifest,
                 manifest=repair_stored_manifest_for_compile(
                     _as_dict(cp.manifest, where="operational model manifest")
-                )
+                ),
             )
         except BadRequestError:
             # Stale anchor template CP — try to refresh from the parent
@@ -322,10 +328,11 @@ async def resolve_track_runtime_profile(
             refreshed = await _try_refresh_anchor_template_cp(track, cp)
             if refreshed is None:
                 raise
-            manifest = compile_canonical_manifest(
+            manifest = await asyncio.to_thread(
+                compile_canonical_manifest,
                 manifest=repair_stored_manifest_for_compile(
                     _as_dict(refreshed.manifest, where="operational model manifest")
-                )
+                ),
             )
             cp = refreshed
         if manifest.get("scope") == "track":
@@ -347,13 +354,14 @@ async def resolve_track_runtime_profile(
                 refreshed = await _try_refresh_anchor_template_cp(track, cp)
                 if refreshed is not None and refreshed.manifest:
                     try:
-                        r_manifest = compile_canonical_manifest(
+                        r_manifest = await asyncio.to_thread(
+                            compile_canonical_manifest,
                             manifest=repair_stored_manifest_for_compile(
                                 _as_dict(
                                     refreshed.manifest,
                                     where="operational model manifest",
                                 )
-                            )
+                            ),
                         )
                     except BadRequestError:
                         r_manifest = None
@@ -374,10 +382,11 @@ async def resolve_track_runtime_profile(
             if definition is not None and definition.canonical_manifest:
                 manifest = dict(definition.canonical_manifest)
             elif scp and scp.manifest:
-                manifest = compile_canonical_manifest(
+                manifest = await asyncio.to_thread(
+                    compile_canonical_manifest,
                     manifest=repair_stored_manifest_for_compile(
                         _as_dict(scp.manifest, where="app operational model manifest")
-                    )
+                    ),
                 )
             else:
                 manifest = {}

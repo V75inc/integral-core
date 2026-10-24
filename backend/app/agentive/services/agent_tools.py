@@ -11,6 +11,7 @@ tool surface is now ``app.agentive.tooling`` (``dispatch_tool`` +
 ``build_tool_catalogue``).
 """
 
+import asyncio
 from typing import Any, Dict
 
 # ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ async def resolve_callable_units(
     from app.agentive.services.skill_registry import get_callable_skills
     from app.agentive.tooling.catalogue import build_tool_catalogue
 
-    mcp_tools = [t["name"] for t in build_tool_catalogue()]
+    mcp_tools = [t["name"] for t in await asyncio.to_thread(build_tool_catalogue)]
     skills = await get_callable_skills(agent_id, workspace_id, user_id=user_id)
     return {
         "mcp_tools": mcp_tools,

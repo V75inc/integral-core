@@ -1347,3 +1347,78 @@ async def test_dual_model_budget_binding_is_fenced_and_survives_recovery(
             plan,
             TurnLatency(),
         )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("title_fails", [False, True])
+async def test_answer_finishes_before_independently_leased_title(
+    postgres_graph_context, monkeypatch, title_fails
+) -> None:
+    """A cosmetic child has its own lease and cannot fail a completed answer."""
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from app.services import chat_providers
+    from app.services.chat_providers.pydantic_ai_provider import PydanticAIProvider
+
+    item, _principal = await _submitted_claimed_turn(claim=False)
+    provider = _Provider(
+        [
+            {"type": "text-delta", "delta": "Ready."},
+            {"type": "message-finish"},
+        ]
+    )
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+    model_calls = []
+
+    def title_model(messages, info):
+        model_calls.append(True)
+        if title_fails:
+            raise RuntimeError("simulated unavailable title provider")
+        return ModelResponse([TextPart("Prepare a concise answer for discussion")])
+
+    async def build_title(self, ctx, scope, work_context, role, **kwargs):
+        assert kwargs == {"model_role": "light", "auxiliary": True}
+        assert work_context.work_item_id != item.work_item_id
+        return FunctionModel(title_model)
+
+    monkeypatch.setattr(PydanticAIProvider, "_build_turn_model", build_title)
+    finished = await work_worker.process_one_due_item(
+        work_item_id=item.work_item_id, worker_id="answer-worker", lease_seconds=120
+    )
+    assert finished.status == "succeeded"
+    assert model_calls == []
+    thread = await ChatThread.get(item.thread_id)
+    assert thread.active_work_item_id == ""
+    fallback = thread.title
+    children = await WorkItem.find({"parent_work_item_id": item.work_item_id})
+    assert len(children) == 1
+    child = children[0]
+    assert child.kind == "chat_title" and child.status == "queued"
+    assert child.input_payload == {}
+    title = await work_worker.process_one_due_item(
+        work_item_id=child.work_item_id, worker_id="title-worker", lease_seconds=120
+    )
+    assert title.status == ("failed" if title_fails else "succeeded")
+    assert model_calls == [True]
+    parent = await WorkItem.get(item.id)
+    assert parent.status == "succeeded"
+    thread = await ChatThread.get(item.thread_id)
+    assert thread.active_work_item_id == ""
+    assert thread.title == (
+        fallback if title_fails else "Prepare a concise answer for discussion"
+    )
+    run = await AgentRun.find_one({"work_item_id": child.work_item_id})
+    assert run is not None and run.origin == "chat_title"
+    assert run.status == ("failed" if title_fails else "succeeded")
+    assert run.metadata == {"purpose": "conversation_title"}
+    assert (
+        await work_worker.process_one_due_item(
+            work_item_id=child.work_item_id, worker_id="other-worker", lease_seconds=120
+        )
+        is None
+    )
+    assert model_calls == [True]

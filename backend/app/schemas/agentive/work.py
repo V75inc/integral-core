@@ -23,6 +23,7 @@ WorkStatus = Literal[
 WorkKind = Literal[
     "capability",
     "chat_turn",
+    "chat_title",
     "routine_turn",
     "approval_resume",
     "event_trigger",

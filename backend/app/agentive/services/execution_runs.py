@@ -7,6 +7,7 @@ one turn of governed work.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -284,7 +285,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     from app.services.application_definitions import get_active_application_definition
     from app.services.operational_model_runtime import compile_canonical_manifest
 
-    core = build_core_capability_snapshot()
+    core = await asyncio.to_thread(build_core_capability_snapshot)
     snapshot: Dict[str, Any] = {
         "manifest_version": core["manifest_version"],
         "capabilities": core["capabilities"],
@@ -316,7 +317,8 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
             continue
         else:
             try:
-                canonical = compile_canonical_manifest(
+                canonical = await asyncio.to_thread(
+                    compile_canonical_manifest,
                     manifest=dict(getattr(profile, "manifest", {}) or {}),
                     scope_hint="app",
                 )

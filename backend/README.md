@@ -33,6 +33,19 @@ for deployment settings, rebuilds, API scope and real-database qualification.
 The legacy `backfill_embeddings.py` script fills the older single-vector
 adapter and does not populate the passage index.
 
+## Request liveness
+
+Keep file I/O, package validation, schema compilation and document/image
+processing off the API event loop. Only pure work belongs in worker threads;
+graph operations and transactions remain in their owning task. Reuse one
+validated source snapshot per operation, coalesce concurrent reads, and retain
+fresh authorization checks. See [I-RUNTIME-01](../docs/INVARIANTS.md#i-runtime-01--bounded-repeated-work).
+
+Package imports read manifests without unpacking arbitrary ZIP contents. Limits
+are 50 MiB uploaded/expanded, 4096 ZIP members, 128 packages and 10 MiB per
+manifest. Deep or expanded YAML alias structures are rejected before compiler
+hashing. These parsing limits do not grant package publication authority.
+
 ## jvspatial security compatibility
 
 Metadata pins jvspatial 0.2.2 and pydantic-ai-harness 0.59.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.

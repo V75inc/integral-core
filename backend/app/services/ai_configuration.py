@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import Any
@@ -283,7 +284,8 @@ async def save_profile(user_id: str, body: ProfileWrite) -> dict[str, Any]:
     """Validate and save model options against the owned provider connection."""
     _enabled()
     connection = await _owned(UserModelConnection, user_id, body.connection_id)
-    configured = validate_model_settings(
+    configured = await asyncio.to_thread(
+        validate_model_settings,
         connection.provider,
         body.model.strip(),
         body.generation_settings.model_dump(exclude_none=True),
@@ -319,7 +321,11 @@ async def save_profile(user_id: str, body: ProfileWrite) -> dict[str, Any]:
         and record.routing_mode == "light_heavy"
         and profile.id in {default_id, record.light_profile_id}
     ):
-        _require_structured_support(connection.provider, profile.model)
+        (
+            await asyncio.to_thread(
+                _require_structured_support, connection.provider, profile.model
+            )
+        )
     await _save_revision(profile, previous)
     record = await get_credential_for_user(user_id)
     if record and record.is_active and default_id == profile.id:
@@ -338,8 +344,11 @@ async def activate_profile(
     _enabled()
     profile = await _owned(UserModelProfile, user_id, item_id)
     connection = await _owned(UserModelConnection, user_id, profile.connection_id)
-    configured = validate_model_settings(
-        connection.provider, profile.model, profile.generation_settings
+    configured = await asyncio.to_thread(
+        validate_model_settings,
+        connection.provider,
+        profile.model,
+        profile.generation_settings,
     )
     if connection.api_key_enc and not decrypt_secret_from_storage(
         connection.api_key_enc, aad=user_id
@@ -367,8 +376,16 @@ async def activate_profile(
             light.api_key_enc, aad=user_id
         ):
             raise ValueError("The light provider key could not be read; replace it")
-        _require_structured_support(light.provider, light.model)
-        _require_structured_support(connection.provider, profile.model)
+        (
+            await asyncio.to_thread(
+                _require_structured_support, light.provider, light.model
+            )
+        )
+        (
+            await asyncio.to_thread(
+                _require_structured_support, connection.provider, profile.model
+            )
+        )
     if record.speech_model and not record.speech_api_key_enc:
         record.speech_provider = record.speech_provider or record.provider
         record.speech_api_key_enc = record.api_key_enc
@@ -487,8 +504,11 @@ async def profile_credential(user_id: str, profile_id: str, record):
     """Resolve an owned profile without mutating the user's saved default."""
     profile = await _owned(UserModelProfile, user_id, profile_id)
     connection = await _owned(UserModelConnection, user_id, profile.connection_id)
-    configured = validate_model_settings(
-        connection.provider, profile.model, profile.generation_settings
+    configured = await asyncio.to_thread(
+        validate_model_settings,
+        connection.provider,
+        profile.model,
+        profile.generation_settings,
     )
     return record.model_copy(
         update={
@@ -581,7 +601,8 @@ async def conversation_model(
             )
             # New choices are strict; older preferences fall back to the current
             # profile when the workspace owner changes models or routing mode.
-            apply_conversation_reasoning(
+            await asyncio.to_thread(
+                apply_conversation_reasoning,
                 plan,
                 {
                     role: effort
@@ -589,7 +610,9 @@ async def conversation_model(
                     if effort is not None
                 },
             )
-            efforts = applicable_reasoning_efforts(plan, efforts)
+            efforts = await asyncio.to_thread(
+                applicable_reasoning_efforts, plan, efforts
+            )
         # Field-only CAS: never overwrite an admission pointer from a stale
         # hydrated thread while another request starts a turn.
         from jvspatial.core.context import get_default_context
@@ -643,9 +666,9 @@ async def conversation_model(
                 heavy_only=thread.model_routing_mode == "heavy",
                 resolver=resolve_native_model_route,
             )
-            choices = reasoning_choices(plan)
-            active_efforts = applicable_reasoning_efforts(
-                plan, thread.model_reasoning_efforts
+            choices = await asyncio.to_thread(reasoning_choices, plan)
+            active_efforts = await asyncio.to_thread(
+                applicable_reasoning_efforts, plan, thread.model_reasoning_efforts
             )
         except (ValueError, ServiceUnavailableError, ModelKeyRequiredError):
             # Optional controls must not prevent model selection/reset when setup needs repair.

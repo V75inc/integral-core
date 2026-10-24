@@ -7,6 +7,7 @@ a new-app design.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -158,7 +159,7 @@ async def store_return_spec(thread_id: str) -> str:
         ],
     }
     blueprint = DesignBlueprint.model_validate(raw).model_dump(mode="json")
-    bridge = operation_bridge(blueprint)
+    bridge = await asyncio.to_thread(operation_bridge, blueprint)
     if not bridge:
         return ""
     thread = await _thread(thread_id)

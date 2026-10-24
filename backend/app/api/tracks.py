@@ -427,7 +427,8 @@ async def patch_track_operational_model(
         cp.version = version
     manifest_updated = manifest is not None or manifest_yaml is not None
     if manifest_updated:
-        cp.manifest = compile_canonical_manifest(
+        cp.manifest = await asyncio.to_thread(
+            compile_canonical_manifest,
             manifest=manifest,
             manifest_yaml=manifest_yaml,
             scope_hint=scope or "track",

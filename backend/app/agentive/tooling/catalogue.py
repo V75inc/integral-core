@@ -32,6 +32,7 @@ of the manifest ``params`` block into JSON Schema.
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Dict, List, Optional
 
 from app.agentive.tooling.bindings import TOOL_BINDINGS, ToolBinding
@@ -247,7 +248,16 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
     return schema
 
 
+_CATALOGUE_LOCK = threading.RLock()
+
+
 def build_tool_catalogue() -> List[Dict[str, Any]]:
+    """Share a cold build across executor threads; never expose partial state."""
+    with _CATALOGUE_LOCK:
+        return _build_tool_catalogue()
+
+
+def _build_tool_catalogue() -> List[Dict[str, Any]]:
     """Build the advertised tool catalogue: one dict per dispatchable tool.
 
     Loads the manifest, filters to existing-status tools that have a

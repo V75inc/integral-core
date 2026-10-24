@@ -8,6 +8,7 @@ only materializes the **workspace overlay**.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import hashlib
 import logging
@@ -70,19 +71,36 @@ class WorkspaceAgentProfile:
     profile_version: str
 
 
-async def _resolve_bundle_dir_async(app: App) -> Optional[Path]:
-    from app.services.operational_model_loader import load_library_operational_models
+async def _resolve_bundle_dir_async(
+    app: App, *, bundle_specs: Optional[Dict[str, Any]] = None
+) -> Optional[Path]:
+    if bundle_specs is None:
+        from app.services.operational_model_library_sync import (
+            load_library_bundle_index_async,
+        )
+
+        _, bundle_specs = await load_library_bundle_index_async()
+    specs = bundle_specs or {}
+
+    def validated_path(recorded: Any) -> Optional[Path]:
+        if not recorded:
+            return None
+        path = Path(str(recorded)).resolve()
+        return next(
+            (
+                spec.bundle_dir
+                for spec in specs.values()
+                if spec.bundle_dir and spec.bundle_dir.resolve() == path
+            ),
+            None,
+        )
 
     slug = str(getattr(app, "source_operational_model_slug", None) or "").strip()
     if slug:
-        spec = next(
-            (s for s in load_library_operational_models() if s.slug == slug), None
-        )
+        spec = specs.get(slug)
         if spec and spec.bundle_dir and spec.bundle_dir.is_dir():
             return spec.bundle_dir
-        candidate = _PROFILES_ROOT / slug
-        if candidate.is_dir():
-            return candidate
+        # A directory rejected by validation cannot re-enter through fallback.
 
     lib_id = getattr(app, "installed_from_library_id", None)
     if lib_id:
@@ -90,25 +108,18 @@ async def _resolve_bundle_dir_async(app: App) -> Optional[Path]:
         if cp is not None:
             md = dict(getattr(cp, "metadata", None) or {})
             bdp = md.get("bundle_dir_path")
-            if bdp:
-                p = Path(str(bdp))
-                if p.is_dir():
-                    return p
+            if path := validated_path(bdp):
+                return path
             cp_slug = str(md.get("slug") or "").strip()
             if cp_slug:
-                spec = next(
-                    (s for s in load_library_operational_models() if s.slug == cp_slug),
-                    None,
-                )
+                spec = specs.get(cp_slug)
                 if spec and spec.bundle_dir and spec.bundle_dir.is_dir():
                     return spec.bundle_dir
 
     md = dict(getattr(app, "metadata", None) or {})
     bdp = md.get("bundle_dir_path")
-    if bdp:
-        p = Path(str(bdp))
-        if p.is_dir():
-            return p
+    if path := validated_path(bdp):
+        return path
 
     return None
 
@@ -117,6 +128,7 @@ def locate_skill_disk_path(
     skill: Skill,
     *,
     bundle_dir: Optional[Path] = None,
+    allow_library_fallback: bool = True,
 ) -> Optional[Path]:
     """Resolve on-disk SKILL.md for a bundle skill (bundle dir or profiles glob)."""
     ref = str(getattr(skill, "prompt_template_ref", "") or "").strip()
@@ -125,6 +137,12 @@ def locate_skill_disk_path(
         if candidate.is_file():
             return candidate
     key = str(getattr(skill, "key", "") or "").strip()
+    if bundle_dir is not None and key:
+        candidate = bundle_dir / "skills" / key / "SKILL.md"
+        if candidate.is_file():
+            return candidate
+    if not allow_library_fallback:
+        return None
     if key:
         matches = sorted(
             path
@@ -205,9 +223,18 @@ def _resolve_domain_body(
     *,
     bundle_dir: Optional[Path],
     ignore_override: bool = False,
+    allow_disk_fallback: bool = True,
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
     """Return domain markdown (no inheritance) and optional parsed bundle meta."""
-    skill_path = locate_skill_disk_path(skill, bundle_dir=bundle_dir)
+    skill_path = (
+        locate_skill_disk_path(
+            skill,
+            bundle_dir=bundle_dir,
+            allow_library_fallback=allow_disk_fallback,
+        )
+        if bundle_dir is not None or allow_disk_fallback
+        else None
+    )
     bundle_meta: Optional[Dict[str, Any]] = None
     if skill_path is not None:
         _, bundle_meta = _body_from_skill_path(skill_path)
@@ -231,11 +258,13 @@ def _resolve_prompt_body(
     bundle_dir: Optional[Path],
     tools_required: List[str],
     ignore_override: bool = False,
+    allow_disk_fallback: bool = True,
 ) -> Tuple[Optional[str], List[str]]:
     domain_body, bundle_meta = _resolve_domain_body(
         skill,
         bundle_dir=bundle_dir,
         ignore_override=ignore_override,
+        allow_disk_fallback=allow_disk_fallback,
     )
     if not domain_body:
         return None, list(tools_required)
@@ -259,6 +288,7 @@ def _skill_to_overlay_doc(
     *,
     app_slug: str,
     bundle_dir: Optional[Path],
+    allow_disk_fallback: bool = True,
 ) -> Optional[OverlaySkillDoc]:
     if not getattr(skill, "enabled", True):
         return None
@@ -266,9 +296,14 @@ def _skill_to_overlay_doc(
         return None
 
     tools_required = list(getattr(skill, "tools_required", None) or [])
-    _, bundle_meta = _resolve_domain_body(skill, bundle_dir=bundle_dir)
+    _, bundle_meta = _resolve_domain_body(
+        skill, bundle_dir=bundle_dir, allow_disk_fallback=allow_disk_fallback
+    )
     body, resolved_tools = _resolve_prompt_body(
-        skill, bundle_dir=bundle_dir, tools_required=tools_required
+        skill,
+        bundle_dir=bundle_dir,
+        tools_required=tools_required,
+        allow_disk_fallback=allow_disk_fallback,
     )
     if not body:
         return None
@@ -345,6 +380,7 @@ def _profile_version_hint(
     skills: List[Skill],
     accessible_app_ids: Optional[set] = None,
     connector_fingerprint: str = "",
+    library_fingerprint: str = "",
 ) -> str:
     """Cache key for a composed profile.
 
@@ -371,6 +407,8 @@ def _profile_version_hint(
         parts.append("access:" + ",".join(sorted(accessible_app_ids)))
     if connector_fingerprint:
         parts.append(f"connectors:{connector_fingerprint}")
+    if library_fingerprint:
+        parts.append(f"library:{library_fingerprint}")
     digest = hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
     return digest
 
@@ -511,7 +549,11 @@ async def _connected_sources_doc(
         shared = next((r for r in rows if is_shared_row(r)), None)
         subject = personal or shared
         if subject is None:
-            label = row_display_name(rows[0]) if rows else slug.replace("_", " ")
+            label = (
+                await asyncio.to_thread(row_display_name, rows[0])
+                if rows
+                else slug.replace("_", " ")
+            )
             lines.append(
                 f"- {label}: connected by a teammate — not usable by you. "
                 "Connect your own account in Settings → Connectors, or ask "
@@ -519,7 +561,7 @@ async def _connected_sources_doc(
             )
             announced += 1
             continue
-        label = row_display_name(subject)
+        label = await asyncio.to_thread(row_display_name, subject)
         status = str(getattr(subject, "health_status", "") or "").strip().lower()
         last_error = str(getattr(subject, "last_error", "") or "").strip()
         ready = status in ("ok", "") and not last_error
@@ -599,11 +641,23 @@ async def compose_workspace_agent_profile(
         accessible = await callable_apps_for_scope(user_id, workspace_id=workspace_id)
         accessible_app_ids = {a.id for a in accessible}
 
+    from app.services.operational_model_library_sync import (
+        load_library_bundle_index_async,
+    )
+
+    # Disk metadata/validation is process-shared and runs off the API loop.
+    # Permission and callable-App reads above remain fresh on every turn.
+    library_fingerprint, bundle_specs = (
+        await load_library_bundle_index_async()
+        if any(getattr(skill, "origin", "bundle") != "workspace" for skill in skills)
+        else ("", {})
+    )
     version_hint = _profile_version_hint(
         list(apps),
         all_skills,
         accessible_app_ids,
         connector_fingerprint=await _connectors_fingerprint(workspace_id, user_id),
+        library_fingerprint=library_fingerprint,
     )
 
     cache_key = (workspace_id, user_id or "", focus)
@@ -650,12 +704,16 @@ async def compose_workspace_agent_profile(
 
         app_slug = _app_slug(app)
         if app_id not in bundle_dir_cache:
-            bundle_dir_cache[app_id] = await _resolve_bundle_dir_async(app)
+            bundle_dir_cache[app_id] = await _resolve_bundle_dir_async(
+                app, bundle_specs=bundle_specs
+            )
 
-        doc = _skill_to_overlay_doc(
+        doc = await asyncio.to_thread(
+            _skill_to_overlay_doc,
             skill,
             app_slug=app_slug,
             bundle_dir=bundle_dir_cache[app_id],
+            allow_disk_fallback=False,
         )
         if doc is not None:
             if getattr(skill, "private", False) and app_id != focus:
@@ -685,7 +743,9 @@ async def compose_workspace_agent_profile(
                 offer_app = app_by_id.get(skill_app_id) if user_id else None
                 if offer_app is None:
                     continue
-        doc = _skill_to_overlay_doc(skill, app_slug="workspace", bundle_dir=None)
+        doc = await asyncio.to_thread(
+            _skill_to_overlay_doc, skill, app_slug="workspace", bundle_dir=None
+        )
         if doc is not None:
             overlay_docs.append(
                 _offer_first_doc(doc, offer_app) if offer_app is not None else doc
@@ -746,7 +806,8 @@ async def resolve_bundle_default_body(
     bundle_dir: Optional[Path] = None
     if app is not None:
         bundle_dir = await _resolve_bundle_dir_async(app)
-    domain_body, bundle_meta = _resolve_domain_body(
+    domain_body, bundle_meta = await asyncio.to_thread(
+        _resolve_domain_body,
         skill,
         bundle_dir=bundle_dir,
         ignore_override=True,
@@ -767,7 +828,9 @@ async def resolve_skill_domain_body(
     bundle_dir: Optional[Path] = None
     if app is not None:
         bundle_dir = await _resolve_bundle_dir_async(app)
-    domain_body, _ = _resolve_domain_body(skill, bundle_dir=bundle_dir)
+    domain_body, _ = await asyncio.to_thread(
+        _resolve_domain_body, skill, bundle_dir=bundle_dir
+    )
     return domain_body
 
 

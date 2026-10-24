@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -83,4 +84,33 @@ class AttachmentMetadataExtractor(ABC):
         attachment bytes for the duration of the call. Extractors must
         not hold a reference to the path beyond their return.
         """
+        raise NotImplementedError
+
+
+class FileMetadataExtractor(AttachmentMetadataExtractor):
+    """Off-loop adapter for synchronous, file-only metadata parsers."""
+
+    async def extract(
+        self, *, path: str, mime: str, filename: str, size: int
+    ) -> MetadataResult:
+        # Wait for the parser before the service removes its temporary file,
+        # even if the requesting task is cancelled. A thread cannot be killed.
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                self.extract_file, path=path, mime=mime, filename=filename, size=size
+            )
+        )
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            finally:
+                raise
+
+    @abstractmethod
+    def extract_file(
+        self, *, path: str, mime: str, filename: str, size: int
+    ) -> MetadataResult:
+        """Read only the supplied local file; never touch graph/task state."""
         raise NotImplementedError

@@ -152,8 +152,8 @@ async def test_workspace_profile_after_install_public_skill():
         d for d in profile.overlay_skill_docs if d.name.endswith("carousel_drafter")
     )
     assert "integral_query_entries" in doc.requires_tools
-    assert "Draft" in doc.body or "carousel" in doc.body.lower()
-    assert "Standard Integral Tool Procedure" in doc.body
+    assert "A fixture skill body for profile composition." in doc.body
+    assert "UNTRUSTED_WORKSPACE_SKILL_OVERLAY" in doc.body
     assert not hasattr(doc, "requires_actions")
 
 

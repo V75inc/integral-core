@@ -39,6 +39,7 @@ otherwise :func:`_dispatch_execute_guard` fail-closes.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import time
@@ -438,7 +439,7 @@ async def dispatch_tool(
             and name != "integral_propose_design"
             and await session_queue_is_open(session_id)
         ):
-            peek = _registry().get(name)
+            peek = (await asyncio.to_thread(_registry)).get(name)
             if peek is None or peek.op_class not in ("read", "propose"):
                 result = ToolResult(
                     is_error=True,
@@ -503,7 +504,7 @@ async def dispatch_tool(
                 )
                 return result
 
-        spec = _registry().get(name)
+        spec = (await asyncio.to_thread(_registry)).get(name)
         binding = TOOL_BINDINGS.get(name)
 
         # Explicit user no-save intent is a host-enforced capability boundary,
@@ -818,7 +819,7 @@ async def _maybe_stage_mcp_write(
     else:
         connector = await Connector.get(connector_id)
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
-    if not is_write_tool(spec, auth_state=auth_state):
+    if not await asyncio.to_thread(is_write_tool, spec, auth_state=auth_state):
         return None
 
     display_name = str(auth_state.get("display_name") or "")

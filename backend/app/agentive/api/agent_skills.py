@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List
 
 from fastapi import Request
@@ -83,7 +84,7 @@ async def list_skills(request: Request) -> Dict[str, Any]:
     """Unified workspace skill list: core, app bundle, and workspace-authored."""
     user_id = _require_user(request)
     workspace_id = await _require_workspace(request, user_id)
-    core = list_core_skills()
+    core = await asyncio.to_thread(list_core_skills)
     overlay = await list_workspace_skills(workspace_id, user_id=user_id)
     grouped = _group_skills(core + overlay)
     return grouped.model_dump()
@@ -134,7 +135,7 @@ async def effective_skill_context(
         for doc in active_docs
     }
     rows: List[EffectiveSkillEntry] = []
-    for row in list_core_skills():
+    for row in await asyncio.to_thread(list_core_skills):
         rows.append(
             EffectiveSkillEntry(
                 id=row["id"],
@@ -197,7 +198,7 @@ async def effective_skill_context(
             description=str(tool.get("description") or ""),
             source="core",
         )
-        for tool in build_tool_catalogue()
+        for tool in await asyncio.to_thread(build_tool_catalogue)
     ]
     from app.services.hooks.registry import get_workspace_tools
 

@@ -40,6 +40,7 @@ SDK contract (mcp 1.27.1, verified against the installed package):
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Collection, FrozenSet, Optional, Sequence
 
 import mcp.types as types
@@ -144,7 +145,7 @@ async def _list_tools_impl(
     """
     allowed = allowed_op_classes_for_scopes(None if scopes is None else list(scopes))
     tools: list[types.Tool] = []
-    for t in build_tool_catalogue():
+    for t in await asyncio.to_thread(build_tool_catalogue):
         if allowed is not None and t.get("op_class") not in allowed:
             continue
         tools.append(
@@ -183,7 +184,7 @@ async def _call_tool_impl(
             ],
         )
 
-    source, op_class = infer_source_and_op_class(name)
+    source, op_class = await asyncio.to_thread(infer_source_and_op_class, name)
     result = await invoke_declared_capability(
         principal_id=principal_id,
         workspace_id=scope or "",

@@ -88,9 +88,11 @@ help:
 ##                 not as a readable test failure
 ##
 ## A green full-suite run is NOT evidence that CI will pass. This target is.
+# Ignore checkout dotenv files in both Core and LiteLLM, as on CI.
 verify-ci:
 	@echo "==> CI-faithful backend run (TESTING=1, DEBUG=false, smoke marker, xdist)"
-	@cd backend && TESTING=1 DEBUG=false $(PY) -m pytest -q --tb=short \
+	@cd backend && TESTING=1 DEBUG=false INTEGRAL_ENV_FILE=/dev/null \
+		LITELLM_MODE=PRODUCTION $(PY) -m pytest -q --tb=short \
 		-n auto --dist loadfile -m "smoke and not domain_app and not slow"
 
 ## F0 — Core-only library filter + marker lane

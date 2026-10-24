@@ -43,6 +43,7 @@ Route-backed reads are wired here. Task 4 completes the READ surface:
   ``not_implemented`` / fail-closed ToolResult rather than guessing.
 """
 
+import asyncio
 import re
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -2696,7 +2697,7 @@ async def _stage_call_workspace_tool(args: Dict[str, Any]) -> Dict[str, Any]:
             "an in-app action button. Tell the user to click that button "
             "on the entry's page."
         )
-    if not is_write_tool(spec):
+    if not await asyncio.to_thread(is_write_tool, spec):
         output = await invoke_workspace_tool(
             user_id=_bound_propose_principal(),
             workspace_id=workspace_id,

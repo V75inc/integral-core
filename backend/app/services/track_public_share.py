@@ -6,6 +6,7 @@ used by Complete hire → onboarding form link.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -73,7 +74,9 @@ async def declared_public_share(track: Track) -> Optional[Dict[str, Any]]:
         if profile is None or not profile.manifest:
             return None
 
-        canonical = compile_canonical_manifest(manifest=dict(profile.manifest))
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=dict(profile.manifest)
+        )
         for spec in (canonical.get("app") or {}).get("tracks") or []:
             if not isinstance(spec, dict):
                 continue

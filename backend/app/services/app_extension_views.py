@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -152,16 +153,14 @@ async def _resolve_bundle_dir(app: App) -> Optional[Path]:
 
     slug = str(getattr(app, "installed_package_slug", None) or "").strip()
     if slug:
-        from app.services.operational_model_loader import (
-            load_library_operational_models_with_issues,
+        from app.services.operational_model_library_sync import (
+            load_library_bundle_index_async,
         )
 
-        specs, _ = load_library_operational_models_with_issues(
-            core_only=False, verify_signatures=False
-        )
-        for spec in specs:
-            if spec.slug == slug and getattr(spec, "bundle_dir", None):
-                return Path(str(spec.bundle_dir)).resolve()
+        _, specs = await load_library_bundle_index_async()
+        spec = specs.get(slug)
+        if spec is not None and spec.bundle_dir:
+            return Path(spec.bundle_dir).resolve()
     return None
 
 
@@ -183,9 +182,11 @@ async def _compiled_app_manifest(app: App) -> Dict[str, Any]:
         app_md = getattr(app, "metadata", None) or {}
         raw = app_md.get("source_manifest")
         if isinstance(raw, dict) and raw:
-            return compile_canonical_manifest(manifest=raw)
+            return await asyncio.to_thread(compile_canonical_manifest, manifest=raw)
         return {}
-    return compile_canonical_manifest(manifest=cp.manifest or {})
+    return await asyncio.to_thread(
+        compile_canonical_manifest, manifest=cp.manifest or {}
+    )
 
 
 def _extension_views_from_canonical(canonical: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -414,9 +415,9 @@ async def render_extension_view_frame(token: str) -> Tuple[str, str]:
     )
     if media_type != "text/html":
         raise BadRequestError(message="view entry must be HTML")
-    html = file_path.read_text(encoding="utf-8")
+    html = await asyncio.to_thread(file_path.read_text, encoding="utf-8")
     parser = _InlineScriptHashes()
-    parser.feed(html)
+    await asyncio.to_thread(parser.feed, html)
     if parser.external_assets:
         raise BadRequestError(
             message="View assets must be bundled into self-contained HTML. Use the UI SDK build tool."

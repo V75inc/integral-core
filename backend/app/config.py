@@ -481,6 +481,10 @@ class Settings(BaseSettings):
     # ``metadata_extractor_version`` below this value are re-extracted on
     # demand (via /attachments/{id}/reprocess or a future admin sweep).
     ATTACHMENT_METADATA_EXTRACTOR_VERSION: int = 1
+    # Metadata has a separate resource budget from storing/downloading files.
+    ATTACHMENT_METADATA_MAX_BYTES: int = 50 * 1024 * 1024
+    ATTACHMENT_METADATA_CONCURRENCY: int = 2
+    ATTACHMENT_PREVIEW_MAX_BYTES: int = 50 * 1024 * 1024
     # Antivirus / malware scanner identifier. ``noop`` disables scanning
     # (status flips to ``skipped``). Wire a real engine (e.g. ``clamav``)
     # via the AttachmentScanner registry when ready.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import tempfile
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +22,25 @@ from app.services.app_graph import (
     wire_app_owner,
 )
 from app.utils.time import utc_now_iso
+
+_BUNDLE_ROOT = Path()
+
+
+@pytest.fixture(autouse=True)
+def validated_bundle_catalogue(tmp_path, monkeypatch):
+    """Permission tests use real, catalogued bundles rather than arbitrary paths."""
+    from app.services import operational_model_library_sync as cache
+    from app.services import operational_model_loader as loader
+
+    root = tmp_path / "bundles"
+    root.mkdir()
+    monkeypatch.setattr(sys.modules[__name__], "_BUNDLE_ROOT", root)
+    monkeypatch.setattr(loader, "_PROFILES_ROOT", root)
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.delenv("INTEGRAL_OPERATIONAL_MODEL_PUBKEY", raising=False)
+    cache.reset_library_operational_models_cache_for_testing()
+    yield
+    cache.reset_library_operational_models_cache_for_testing()
 
 
 async def _user(email: str) -> User:
@@ -57,14 +76,14 @@ async def _org_workspace(owner: User) -> Workspace:
     return ws
 
 
-def _write_skill_bundle(skill_key: str) -> str:
+def _write_skill_bundle(slug: str, skill_key: str) -> str:
     """Write a minimal on-disk skill bundle and return its bundle dir path.
 
     Canonical-format skills resolve their body from a SKILL.md on disk
     (inline prompt strings were dropped with the canonical skill format), so
     the fixture provides a real bundle dir for `_resolve_bundle_dir_async`.
     """
-    bundle_dir = Path(tempfile.mkdtemp(prefix="skill-scope-bundle-"))
+    bundle_dir = _BUNDLE_ROOT / slug
     skill_dir = bundle_dir / "skills" / skill_key
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -74,6 +93,23 @@ def _write_skill_bundle(skill_key: str) -> str:
         "---\n"
         f"You are running {skill_key}.\n",
         encoding="utf-8",
+    )
+    import yaml
+
+    (bundle_dir / "operational-model.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "integral_operational_model_version": 3,
+                "scope": "app",
+                "package": {"slug": slug, "name": slug, "version": "1.0.0"},
+                "app": {
+                    "tracks": [],
+                    "skills": sorted(
+                        p.parent.name for p in bundle_dir.glob("skills/*/SKILL.md")
+                    ),
+                },
+            }
+        )
     )
     return str(bundle_dir)
 
@@ -95,7 +131,7 @@ async def _app_with_skill(
         workspace_id=workspace_id,
         source_operational_model_slug=slug,
         lifecycle_state="active",
-        metadata={"bundle_dir_path": _write_skill_bundle(skill_key)},
+        metadata={"bundle_dir_path": _write_skill_bundle(slug, skill_key)},
         created_at=now,
         updated_at=now,
     )

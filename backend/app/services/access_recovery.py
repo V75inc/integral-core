@@ -7,6 +7,7 @@ No database driver or server bootstrap is imported by the maintenance command.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
 import hmac
@@ -280,7 +281,11 @@ def _review_image(projection: dict) -> dict:
 async def review(*, installation_id: str, directory: Path | None) -> dict:
     """Return concrete before/current membership inventory and exact apply digest."""
     restored = await inventory()
-    current = current_checkpoint(directory, installation_id) if directory else None
+    current = (
+        await asyncio.to_thread(current_checkpoint, directory, installation_id)
+        if directory
+        else None
+    )
     before = _projection(restored)
     after = _projection(current["inventory"]) if current else None
     memberships = [
@@ -319,7 +324,9 @@ async def apply(
         image = await inventory()
         held = get_default_context().database
         if directory:
-            current = current_checkpoint(directory, installation_id)["inventory"]
+            current = (
+                await asyncio.to_thread(current_checkpoint, directory, installation_id)
+            )["inventory"]
             if digest(_projection(image)["resources"]) != digest(
                 _projection(current)["resources"]
             ) or digest(_projection(image)["structure"]) != digest(

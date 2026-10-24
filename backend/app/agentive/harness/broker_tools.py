@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import replace
 from pathlib import Path
@@ -204,7 +205,7 @@ def _make_handler(
             if (
                 registered is not None
                 and is_agent_callable(registered)
-                and not is_write_tool(registered)
+                and not await asyncio.to_thread(is_write_tool, registered)
             ):
                 # The wrapper also supports staged writes, but a currently
                 # registered read tool is valid in a read-only turn. Dispatch

@@ -5,6 +5,7 @@ Allowlisted field keys only — no arbitrary path traversal from templates.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -141,7 +142,9 @@ async def rebuild_workspace_field_index(workspace_id: str) -> Dict[str, int]:
         if not manifest:
             continue
         try:
-            canonical = compile_canonical_manifest(manifest=manifest)
+            canonical = await asyncio.to_thread(
+                compile_canonical_manifest, manifest=manifest
+            )
         except Exception:
             logger.exception(
                 "rebuild_workspace_field_index: compile failed app=%s", app.id

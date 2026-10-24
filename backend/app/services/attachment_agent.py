@@ -15,6 +15,7 @@ called as ``await fn(user_id=<principal_id>, ...)``.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -390,7 +391,7 @@ async def attach_sandbox_file_to_entry(
             "message": f"Sandbox file not found: {rel}",
         }
 
-    content = abs_path.read_bytes()
+    content = await asyncio.to_thread(abs_path.read_bytes)
     filename = abs_path.name
     from app.services.attachment_upload_shared import fallback_mime_from_filename
 

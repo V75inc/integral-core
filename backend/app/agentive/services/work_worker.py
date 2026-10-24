@@ -40,6 +40,8 @@ async def _pending_write_references(
 DEFAULT_LEASE_SECONDS = work_items.DEFAULT_LEASE_SECONDS
 #: Work kinds served by the dedicated App job worker, not the main worker.
 APP_JOB_KINDS = frozenset({"app_tool"})
+# Platform-owned chat_title work uses the bounded main worker; it must not
+# occupy either the interactive chat workers or the dedicated App job lane.
 HANDLED_KINDS = frozenset(
     {
         "capability",
@@ -50,6 +52,7 @@ HANDLED_KINDS = frozenset(
         "app_lifecycle",
         "app_tool",
         "chat_turn",
+        "chat_title",
     }
 )
 
@@ -1259,6 +1262,28 @@ async def _execute_claimed_work(
         if kind == "app_tool":
             return await _handle_app_tool(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
+            )
+        if kind == "chat_title":
+            from app.services.chat_titles import run_conversation_title_work
+
+            async def title_body() -> None:
+                try:
+                    async with asyncio.timeout(20):
+                        await run_conversation_title_work(item)
+                except TimeoutError as exc:
+                    raise WorkError(
+                        "work.title_unavailable", "optional title work timed out"
+                    ) from exc
+
+            await _with_supervised_heartbeat(
+                item, worker_id=worker_id, lease_seconds=lease_seconds, body=title_body
+            )
+            return await work_items.transition_leased(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=int(item.lease_fence or 0),
+                expected_status="running",
+                target="succeeded",
             )
     except BadRequestError as exc:
         # Known permanent input/lifecycle failures must terminalize. Leaving

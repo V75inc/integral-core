@@ -6,6 +6,7 @@ No caller-supplied passage or receipt metadata is accepted as evidence.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -206,8 +207,8 @@ async def _resolve_source(
         principal_id=principal_id,
         capability_key=tool_key_for(step.connector_id, remote),
     )
-    if str(row.id) != step.connector_id or is_write_tool(
-        bound_spec, auth_state={"catalog_slug": row_slug(row)}
+    if str(row.id) != step.connector_id or await asyncio.to_thread(
+        is_write_tool, bound_spec, auth_state={"catalog_slug": row_slug(row)}
     ):
         return None
     environments = run.capability_snapshot.get("environments") or []

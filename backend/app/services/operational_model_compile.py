@@ -5,10 +5,12 @@ Split from ``operational_model_runtime`` per ``.planning/refactors/operational_m
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
 import re
+import threading
 from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -3812,7 +3814,37 @@ _manifest_compile_cache: Dict[str, Dict[str, Any]] = {}
 _MANIFEST_CACHE_MAX = 256
 
 
+_MANIFEST_COMPILE_LOCK = threading.RLock()
+
+
 def compile_canonical_manifest(
+    *,
+    manifest: Optional[Dict[str, Any]] = None,
+    manifest_yaml: Optional[str] = None,
+    scope_hint: Optional[str] = None,
+    is_public_catalog: bool = False,
+) -> Dict[str, Any]:
+    """Serialize pure compilation and cache publication across worker threads.
+
+    Graph orchestration stays in its owning asyncio Task. Only source/schema
+    work enters here, including synchronous CLI and startup consumers.
+    """
+    from app.services.operational_model_import import validate_manifest_budget
+
+    if manifest is not None:
+        validate_manifest_budget(manifest)
+    if manifest_yaml is not None and len(manifest_yaml) > 10 * 1024 * 1024:
+        raise BadRequestError(message="Manifest exceeds the 10 MB limit")
+    with _MANIFEST_COMPILE_LOCK:
+        return _compile_canonical_manifest(
+            manifest=manifest,
+            manifest_yaml=manifest_yaml,
+            scope_hint=scope_hint,
+            is_public_catalog=is_public_catalog,
+        )
+
+
+def _compile_canonical_manifest(
     *,
     manifest: Optional[Dict[str, Any]] = None,
     manifest_yaml: Optional[str] = None,
@@ -3850,7 +3882,7 @@ def compile_canonical_manifest(
     ck_base = _manifest_cache_key(manifest, manifest_yaml, scope_hint)
     ck = (ck_base + f":pc={int(bool(is_public_catalog))}") if ck_base else None
     if ck is not None and ck in _manifest_compile_cache:
-        return _manifest_compile_cache[ck]
+        return copy.deepcopy(_manifest_compile_cache[ck])
 
     raw: Dict[str, Any]
     if manifest_yaml is not None:
@@ -3863,6 +3895,9 @@ def compile_canonical_manifest(
             loaded = {}
         if not isinstance(loaded, dict):
             raise BadRequestError(message="manifest_yaml must deserialize to an object")
+        from app.services.operational_model_import import validate_manifest_budget
+
+        validate_manifest_budget(loaded)
         raw = loaded
     else:
         raw = _as_dict(manifest, where="manifest")
@@ -4359,7 +4394,7 @@ def compile_canonical_manifest(
         if ck is not None:
             if len(_manifest_compile_cache) >= _MANIFEST_CACHE_MAX:
                 _manifest_compile_cache.pop(next(iter(_manifest_compile_cache)), None)
-            _manifest_compile_cache[ck] = out
+            _manifest_compile_cache[ck] = copy.deepcopy(out)
         return out
     finally:
         _active_field_composites.reset(field_token)
@@ -4369,7 +4404,8 @@ def compile_canonical_manifest(
 
 def invalidate_manifest_cache() -> None:
     """Clear compiled manifest cache (call after profile PATCH/merge)."""
-    _manifest_compile_cache.clear()
+    with _MANIFEST_COMPILE_LOCK:
+        _manifest_compile_cache.clear()
 
 
 def app_manifest_provisioning_enabled(canonical: Dict[str, Any]) -> bool:

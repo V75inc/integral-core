@@ -23,8 +23,11 @@ import logging
 import os
 import shutil
 import tempfile
+from pathlib import Path
 from typing import Optional
+from weakref import WeakKeyDictionary
 
+from app.config import settings
 from app.models.nodes import Attachment
 from app.services.attachment_storage import (
     AttachmentStorageService,
@@ -93,7 +96,56 @@ def _resolve_libreoffice_binary() -> Optional[str]:
     return None
 
 
+_PREVIEW_RUNS: WeakKeyDictionary = WeakKeyDictionary()
+_PREVIEW_SLOTS: WeakKeyDictionary = WeakKeyDictionary()
+
+
 async def ensure_preview(
+    attachment: Attachment,
+    *,
+    entry_id: str,
+    storage: Optional[AttachmentStorageService] = None,
+    force: bool = False,
+) -> Optional[str]:
+    """Coalesce concurrent preview reads without moving graph writes to a task."""
+    if (
+        attachment.source_type != "file"
+        or not can_preview(attachment.mime_type)
+        or not attachment.storage_key
+    ):
+        return None
+    svc = storage or get_attachment_storage_service()
+    loop = asyncio.get_running_loop()
+    runs = _PREVIEW_RUNS.setdefault(loop, {})
+    key = (entry_id, attachment.id, attachment.storage_key, id(svc))
+    existing = runs.get(key)
+    if existing is not None:
+        result = await asyncio.shield(existing)
+        if result:
+            attachment.preview_storage_key = result
+        return result
+    future = loop.create_future()
+    future.add_done_callback(
+        lambda done: None if done.cancelled() else done.exception()
+    )
+    runs[key] = future
+    try:
+        result = await _ensure_preview(
+            attachment, entry_id=entry_id, storage=svc, force=force
+        )
+        future.set_result(result)
+        return result
+    except asyncio.CancelledError:
+        future.cancel()
+        raise
+    except Exception as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        runs.pop(key, None)
+
+
+async def _ensure_preview(
     attachment: Attachment,
     *,
     entry_id: str,
@@ -107,11 +159,6 @@ async def ensure_preview(
     PreviewUnavailableError when the binary is missing or conversion
     fails.
 
-    The function is safe to call concurrently for the same attachment
-    only in the sense that it won't corrupt — both callers will produce
-    the same bytes — but the work is done twice. A real distributed
-    lock isn't worth it for an operation that's a few seconds per
-    document; just cache aggressively at the HTTP layer.
     """
     if attachment.source_type != "file":
         return None
@@ -124,7 +171,7 @@ async def ensure_preview(
 
     cached_key = attachment.preview_storage_key
     if cached_key and not force:
-        existing = await svc.read_attachment(cached_key)
+        existing = await svc.get_metadata(cached_key)
         if existing is not None:
             return cached_key
         # The stored bytes vanished — fall through and regenerate.
@@ -136,11 +183,25 @@ async def ensure_preview(
             "(checked: libreoffice, soffice)."
         )
 
-    blob = await svc.read_attachment(attachment.storage_key)
-    if blob is None:
-        raise PreviewUnavailableError("Attachment bytes not found in storage.")
-
-    pdf_bytes = await _convert_to_pdf(binary, blob, suffix=_suffix_for(attachment))
+    if attachment.size > settings.ATTACHMENT_PREVIEW_MAX_BYTES:
+        raise PreviewUnavailableError(
+            "File exceeds the automatic preview size limit; download the original."
+        )
+    loop = asyncio.get_running_loop()
+    limiter = _PREVIEW_SLOTS.setdefault(loop, [asyncio.Semaphore(1), 0])
+    limiter[1] += 1
+    try:
+        async with limiter[0]:
+            blob = await svc.read_attachment(attachment.storage_key)
+            if blob is None:
+                raise PreviewUnavailableError("Attachment bytes not found in storage.")
+            pdf_bytes = await _convert_to_pdf(
+                binary, blob, suffix=_suffix_for(attachment)
+            )
+    finally:
+        limiter[1] -= 1
+        if limiter[1] == 0:
+            _PREVIEW_SLOTS.pop(loop, None)
 
     sibling_key = svc.build_sibling_key(entry_id, attachment.id, PREVIEW_FILENAME)
     result = await svc._storage.save_file(  # noqa: SLF001 - intentional reach-in
@@ -185,10 +246,18 @@ def _suffix_for(attachment: Attachment) -> str:
 
 async def _convert_to_pdf(binary: str, content: bytes, *, suffix: str) -> bytes:
     """Spawn ``libreoffice --headless --convert-to pdf`` and return PDF bytes."""
-    with tempfile.TemporaryDirectory(prefix="integral-preview-") as workdir:
+    directory = tempfile.TemporaryDirectory(prefix="integral-preview-")
+    workdir = directory.name
+    try:
         src_path = os.path.join(workdir, f"source{suffix or '.bin'}")
-        with open(src_path, "wb") as f:
-            f.write(content)
+        write = asyncio.create_task(
+            asyncio.to_thread(Path(src_path).write_bytes, content)
+        )
+        try:
+            await asyncio.shield(write)
+        except asyncio.CancelledError:
+            await write
+            raise
 
         # ``--outdir`` writes ``source.pdf`` next to the source file —
         # we control the dir so collisions with other in-flight
@@ -196,6 +265,7 @@ async def _convert_to_pdf(binary: str, content: bytes, *, suffix: str) -> bytes:
         # unique parent).
         cmd = [
             binary,
+            f"-env:UserInstallation={Path(workdir, 'profile').as_uri()}",
             "--headless",
             "--nologo",
             "--nofirststartwizard",
@@ -215,9 +285,12 @@ async def _convert_to_pdf(binary: str, content: bytes, *, suffix: str) -> bytes:
                 stdout, stderr = await asyncio.wait_for(
                     proc.communicate(), timeout=PREVIEW_TIMEOUT_SECONDS
                 )
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
                 with __import__("contextlib").suppress(ProcessLookupError):
                     proc.kill()
+                await proc.communicate()
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
                 raise PreviewUnavailableError(
                     f"LibreOffice timed out after {PREVIEW_TIMEOUT_SECONDS}s."
                 )
@@ -240,5 +313,11 @@ async def _convert_to_pdf(binary: str, content: bytes, *, suffix: str) -> bytes:
                 raise PreviewUnavailableError("LibreOffice produced no PDF output.")
             pdf_path = os.path.join(workdir, candidates[0])
 
-        with open(pdf_path, "rb") as pdf_f:
-            return pdf_f.read()
+        if os.path.getsize(pdf_path) > settings.ATTACHMENT_PREVIEW_MAX_BYTES:
+            raise PreviewUnavailableError(
+                "Generated preview exceeds the preview size limit."
+            )
+        return await asyncio.to_thread(Path(pdf_path).read_bytes)
+
+    finally:
+        await asyncio.to_thread(directory.cleanup)

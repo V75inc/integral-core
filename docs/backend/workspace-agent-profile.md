@@ -10,6 +10,21 @@ Binding changes, scope changes, pause/removal, and revocation must refresh the a
 
 Test inaccessible Apps, a second workspace, pause, duplicate keys, missing skill files, stale cached profiles, and current-grant rechecks. See [resident architecture](../product/RESIDENT_HARNESS.md).
 
+## Validated package sources
+
+Library source validation is shared within each process, independently of the
+short-lived workspace profile cache. Changes to package artifacts, signing
+keys, ordered package roots or plugin registrations invalidate source reuse.
+Recorded bundle paths must resolve through this validated index; a rejected
+package cannot re-enter through metadata or a same-named skill in another bundle.
+Caller access is checked afresh before a cached profile can be returned.
+
+Library validation and Skills editor catalogue compilation run outside the API
+event loop. Concurrent cold requests and forced rescans serialize compilation;
+forced rescans still validate afresh. Catalogue graph updates and structural
+edge callbacks remain on the originating request task. Source reuse never
+stores caller permission decisions or workspace content.
+
 ## Author skills as complete procedures
 
 Declare the exact callable tool names in the standard space-separated

@@ -301,7 +301,9 @@ async def require_installed_app_entitlement(app_node) -> Optional[Entitlement]:
         attached = await get_app_attached_operational_model(app_node)
         if attached is None:
             raise BadRequestError(message="Installed App package contract is missing")
-        canonical = compile_canonical_manifest(manifest=attached.manifest or {})
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=attached.manifest or {}
+        )
     package_meta = dict(canonical.get("package") or {})
     # Compiled definitions omit the library slug. Installation provenance is
     # the durable package identity, just as it is at the initial install gate.

@@ -6,7 +6,7 @@ manifest of any bundle slug; no domain coupling.
 
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
 from typing import Any, Dict
 
 from fastapi import Request
@@ -41,17 +41,17 @@ def _summarize_agent(agent: Dict[str, Any]) -> Dict[str, Any]:
 async def list_app_skills(request: Request, slug: str) -> Dict[str, Any]:
     """Return the skill + agent catalogue declared by an installed bundle's manifest."""
     from app.services.operational_model_compile import compile_canonical_manifest
-    from app.services.operational_model_loader import (
-        load_library_operational_models_with_issues,
+    from app.services.operational_model_library_sync import (
+        load_library_bundle_index_async,
     )
 
-    specs, _ = load_library_operational_models_with_issues(
-        packages_root=Path("app/packages")
-    )
-    spec = next((s for s in specs if s.slug == slug), None)
+    _, specs = await load_library_bundle_index_async()
+    spec = specs.get(slug)
     if spec is None:
         raise ResourceNotFoundError(message=f"App bundle {slug!r} not found")
-    canonical = compile_canonical_manifest(manifest=spec.manifest, scope_hint="app")
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=spec.manifest, scope_hint="app"
+    )
     app_block = canonical.get("app") or {}
     skills = [_summarize_skill(s) for s in (app_block.get("skills") or [])]
     agents = [_summarize_agent(a) for a in (app_block.get("agents") or [])]

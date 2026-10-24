@@ -46,6 +46,7 @@ Response shape::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -186,7 +187,9 @@ async def _expand_with_dependencies(
         if cp is None:
             continue
         try:
-            canonical = compile_canonical_manifest(manifest=cp.manifest or {})
+            canonical = await asyncio.to_thread(
+                compile_canonical_manifest, manifest=cp.manifest or {}
+            )
         except Exception:  # noqa: BLE001 — bad manifest surfaces during install
             continue
         app = canonical.get("app") or {}
@@ -269,7 +272,9 @@ async def batch_install(
             raise BadRequestError(
                 message=f"batch_install: library bundle {lib_id!r} not found or not a library package"
             )
-        canonical = compile_canonical_manifest(manifest=cp.manifest or {})
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=cp.manifest or {}
+        )
         item_settings = raw.get("settings")
         if item_settings is None and use_default_settings:
             # Activate immediately with the schema's declared defaults instead

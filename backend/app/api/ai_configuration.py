@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -122,7 +123,7 @@ async def get_configuration(request: Request) -> dict[str, Any]:
 async def capabilities(request: Request) -> dict[str, Any]:
     """Return model parameter support without making an inference request."""
     body = await _body(request, CapabilitiesRequest)
-    return model_capabilities(body.provider, body.model)
+    return await asyncio.to_thread(model_capabilities, body.provider, body.model)
 
 
 @endpoint(

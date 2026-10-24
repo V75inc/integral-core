@@ -35,6 +35,21 @@ from app.services.attachment_storage import get_attachment_storage_service
 logger = logging.getLogger(__name__)
 
 
+def _write_extraction_input(blob: bytes, suffix: str) -> str:
+    """Write parser input off-loop, removing incomplete files on failure."""
+    temp = tempfile.NamedTemporaryFile(mode="wb", suffix=suffix, delete=False)
+    try:
+        with temp:
+            temp.write(blob)
+        return temp.name
+    except BaseException:
+        try:
+            os.unlink(temp.name)
+        except OSError:
+            pass
+        raise
+
+
 class MetadataExtractionService:
     """Orchestrates extractor selection + execution + persistence."""
 
@@ -45,7 +60,12 @@ class MetadataExtractionService:
         self._extractors = extractors
         # Tracks in-flight extractions so the same attachment is not
         # processed concurrently. Keys: attachment_id.
-        self._in_flight: set[str] = set()
+        self._in_flight: dict[str, asyncio.Future] = {}
+        self._tasks: set[asyncio.Task] = set()
+        # Bound simultaneous blobs/parsers across all tenants in this process.
+        self._slots = asyncio.Semaphore(
+            max(1, min(settings.ATTACHMENT_METADATA_CONCURRENCY, 16))
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -66,39 +86,79 @@ class MetadataExtractionService:
                 attachment_id,
             )
             return
-        self._in_flight.add(attachment_id)
-        loop.create_task(self._background_runner(attachment_id))
+        future = loop.create_future()
+        # Background failures are logged; retrieve exceptions even without a waiter.
+        future.add_done_callback(
+            lambda done: None if done.cancelled() else done.exception()
+        )
+        self._in_flight[attachment_id] = future
+        task = loop.create_task(self._background_runner(attachment_id, future))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def extract_now(self, attachment_id: str) -> Attachment:
-        """Run extraction inline and return the updated Attachment."""
-        if attachment_id in self._in_flight:
-            # Wait for the in-flight task by polling — keeps this
-            # contention path simple. In practice callers rarely race.
-            for _ in range(50):  # ~5 s
-                await asyncio.sleep(0.1)
-                if attachment_id not in self._in_flight:
-                    break
-        self._in_flight.add(attachment_id)
-        try:
-            return await self._run_extraction(attachment_id)
-        finally:
-            self._in_flight.discard(attachment_id)
+        """Join overlapping extraction; a later explicit reprocess still runs anew."""
+        existing = self._in_flight.get(attachment_id)
+        if existing is not None:
+            return await asyncio.shield(existing)
+        future = asyncio.get_running_loop().create_future()
+        future.add_done_callback(
+            lambda done: None if done.cancelled() else done.exception()
+        )
+        self._in_flight[attachment_id] = future
+        return await self._complete_extraction(attachment_id, future)
 
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-
-    async def _background_runner(self, attachment_id: str) -> None:
+    async def _complete_extraction(
+        self, attachment_id: str, future: asyncio.Future
+    ) -> Attachment:
         try:
-            await self._run_extraction(attachment_id)
-        except Exception as e:  # noqa: BLE001
-            logger.exception(
-                "metadata extraction background task failed for %s: %s",
+            async with self._slots:
+                result = await self._run_extraction(attachment_id)
+            future.set_result(result)
+            return result
+        except asyncio.CancelledError:
+            try:
+                await self._record_failure(
+                    attachment_id,
+                    "Metadata extraction was interrupted. Reprocess the file to try again.",
+                )
+            finally:
+                future.cancel()
+            raise
+        except Exception as exc:
+            await self._record_failure(
                 attachment_id,
-                e,
+                "Metadata extraction could not complete. Reprocess the file to try again.",
             )
+            future.set_exception(exc)
+            raise
         finally:
-            self._in_flight.discard(attachment_id)
+            if self._in_flight.get(attachment_id) is future:
+                del self._in_flight[attachment_id]
+
+    async def _record_failure(self, attachment_id: str, message: str) -> None:
+        """Do not leave a durable processing indicator after failed/cancelled work."""
+        try:
+            attachment = await Attachment.get(attachment_id)
+            if attachment is not None and attachment.metadata_status == "processing":
+                attachment.metadata_status = "failed"
+                attachment.metadata_error = message
+                attachment.metadata_extractor_version = (
+                    settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
+                )
+                await attachment.save()
+        except Exception:
+            logger.exception("Could not record metadata failure for %s", attachment_id)
+
+    async def _background_runner(
+        self, attachment_id: str, future: asyncio.Future
+    ) -> None:
+        try:
+            await self._complete_extraction(attachment_id, future)
+        except Exception:
+            logger.exception(
+                "metadata extraction background task failed for %s", attachment_id
+            )
 
     def _pick_extractor(self, mime: str) -> Optional[AttachmentMetadataExtractor]:
         candidates = [e for e in self._extractors if e.supports(mime)]
@@ -126,6 +186,23 @@ class MetadataExtractionService:
         attachment.metadata_error = ""
         await attachment.save()
 
+        extractor = self._pick_extractor(attachment.mime_type)
+        if (
+            extractor is None
+            or attachment.size > settings.ATTACHMENT_METADATA_MAX_BYTES
+        ):
+            attachment.metadata_status = "skipped"
+            attachment.metadata_error = (
+                "File exceeds the metadata extraction size limit. The original remains available."
+                if extractor is not None
+                else ""
+            )
+            attachment.metadata_extractor_version = (
+                settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
+            )
+            await attachment.save()
+            return attachment
+
         storage = get_attachment_storage_service()
         blob = await storage.read_attachment(attachment.storage_key)
         if blob is None:
@@ -134,27 +211,23 @@ class MetadataExtractionService:
             await attachment.save()
             return attachment
 
-        extractor = self._pick_extractor(attachment.mime_type)
-        if extractor is None:
-            attachment.metadata_status = "skipped"
-            attachment.metadata_extractor_version = (
-                settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
-            )
-            await attachment.save()
-            return attachment
-
         # Write blob to a temp file so extractors that prefer disk
         # access (pdfplumber, mutagen, ffprobe) don't have to deal with
         # in-memory wrappers.
         suffix = os.path.splitext(attachment.filename or "")[1] or ""
-        tmp = tempfile.NamedTemporaryFile(mode="wb", suffix=suffix, delete=False)
+        write = asyncio.create_task(
+            asyncio.to_thread(_write_extraction_input, blob, suffix)
+        )
         try:
-            tmp.write(blob)
-            tmp.flush()
-            tmp.close()
+            input_path = await asyncio.shield(write)
+        except asyncio.CancelledError:
+            input_path = await write
+            await asyncio.to_thread(os.unlink, input_path)
+            raise
+        try:
             try:
                 result: MetadataResult = await extractor.extract(
-                    path=tmp.name,
+                    path=input_path,
                     mime=attachment.mime_type,
                     filename=attachment.filename,
                     size=attachment.size,
@@ -175,7 +248,7 @@ class MetadataExtractionService:
                 return attachment
         finally:
             try:
-                os.unlink(tmp.name)
+                await asyncio.to_thread(os.unlink, input_path)
             except OSError:
                 pass
 

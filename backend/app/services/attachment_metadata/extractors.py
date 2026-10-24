@@ -19,10 +19,12 @@ No central registration step — the dispatcher iterates
 from __future__ import annotations
 
 import logging
+from itertools import islice
 from typing import Any, Dict, Optional
 
 from app.services.attachment_metadata.base import (
     AttachmentMetadataExtractor,
+    FileMetadataExtractor,
     MetadataResult,
 )
 
@@ -42,18 +44,21 @@ def _safe_import(module: str):
 # ---------------------------------------------------------------------------
 
 
-class TextExtractor(AttachmentMetadataExtractor):
+class TextExtractor(FileMetadataExtractor):
     name = "text"
     mime_prefixes = ("text/",)
     exact_mimes = frozenset({"application/json"})
     priority = 5
 
-    async def extract(
+    def extract_file(
         self, *, path: str, mime: str, filename: str, size: int
     ) -> MetadataResult:
+        from app.config import settings
+
+        cap = settings.ATTACHMENT_EXTRACTED_TEXT_MAX_BYTES
         try:
             with open(path, "rb") as f:
-                raw = f.read()
+                raw = f.read(cap + 1)
         except OSError as e:
             return MetadataResult(error=f"read failed: {e}")
         # Decode with replacement so weird encodings don't blow up.
@@ -95,6 +100,7 @@ class TextExtractor(AttachmentMetadataExtractor):
             common={},
             type_specific=type_specific,
             extracted_text=text,
+            partial=len(raw) > cap,
         )
 
 
@@ -103,12 +109,12 @@ class TextExtractor(AttachmentMetadataExtractor):
 # ---------------------------------------------------------------------------
 
 
-class PdfExtractor(AttachmentMetadataExtractor):
+class PdfExtractor(FileMetadataExtractor):
     name = "pdf"
     exact_mimes = frozenset({"application/pdf"})
     priority = 20
 
-    async def extract(
+    def extract_file(
         self, *, path: str, mime: str, filename: str, size: int
     ) -> MetadataResult:
         # Prefer pdfplumber (better text extraction); fall back to pypdf
@@ -166,7 +172,9 @@ class PdfExtractor(AttachmentMetadataExtractor):
                 with pdfplumber.open(path) as pdf:
                     if page_count is None:
                         page_count = len(pdf.pages)
-                    for page in pdf.pages:
+                    if len(pdf.pages) > 200:
+                        partial = True
+                    for page in islice(pdf.pages, 200):
                         try:
                             chunk = page.extract_text() or ""
                         except Exception:  # noqa: BLE001
@@ -211,7 +219,7 @@ def _pdf_str(value: object) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-class DocxExtractor(AttachmentMetadataExtractor):
+class DocxExtractor(FileMetadataExtractor):
     name = "docx"
     exact_mimes = frozenset(
         {
@@ -220,9 +228,24 @@ class DocxExtractor(AttachmentMetadataExtractor):
     )
     priority = 20
 
-    async def extract(
+    def extract_file(
         self, *, path: str, mime: str, filename: str, size: int
     ) -> MetadataResult:
+        from zipfile import BadZipFile, ZipFile
+
+        try:
+            with ZipFile(path) as archive:
+                files = archive.infolist()
+                if (
+                    len(files) > 4096
+                    or sum(item.file_size for item in files) > 100 * 1024 * 1024
+                ):
+                    return MetadataResult(
+                        partial=True, error="Document exceeds metadata expansion limits"
+                    )
+        except (BadZipFile, OSError):
+            return MetadataResult(partial=True, error="Invalid document archive")
+
         docx = _safe_import("docx")
         if docx is None:
             return MetadataResult(partial=True, error="python-docx unavailable")
@@ -250,7 +273,7 @@ class DocxExtractor(AttachmentMetadataExtractor):
         headings: list[str] = []
         text_pieces: list[str] = []
         word_count = 0
-        for para in doc.paragraphs:
+        for para in islice(doc.paragraphs, 10_000):
             text = (para.text or "").strip()
             if not text:
                 continue
@@ -266,6 +289,7 @@ class DocxExtractor(AttachmentMetadataExtractor):
             common={},
             type_specific=type_specific,
             extracted_text="\n".join(text_pieces),
+            partial=len(doc.paragraphs) > 10_000,
         )
 
 
@@ -274,7 +298,7 @@ class DocxExtractor(AttachmentMetadataExtractor):
 # ---------------------------------------------------------------------------
 
 
-class XlsxExtractor(AttachmentMetadataExtractor):
+class XlsxExtractor(FileMetadataExtractor):
     name = "xlsx"
     exact_mimes = frozenset(
         {
@@ -283,9 +307,24 @@ class XlsxExtractor(AttachmentMetadataExtractor):
     )
     priority = 20
 
-    async def extract(
+    def extract_file(
         self, *, path: str, mime: str, filename: str, size: int
     ) -> MetadataResult:
+        from zipfile import BadZipFile, ZipFile
+
+        try:
+            with ZipFile(path) as archive:
+                files = archive.infolist()
+                if (
+                    len(files) > 4096
+                    or sum(item.file_size for item in files) > 100 * 1024 * 1024
+                ):
+                    return MetadataResult(
+                        partial=True, error="Document exceeds metadata expansion limits"
+                    )
+        except (BadZipFile, OSError):
+            return MetadataResult(partial=True, error="Invalid document archive")
+
         openpyxl = _safe_import("openpyxl")
         if openpyxl is None:
             return MetadataResult(partial=True, error="openpyxl unavailable")
@@ -298,7 +337,7 @@ class XlsxExtractor(AttachmentMetadataExtractor):
         sheets: list[Dict[str, Any]] = []
         text_pieces: list[str] = []
         formula_count = 0
-        for name in wb.sheetnames:
+        for name in wb.sheetnames[:20]:
             ws = wb[name]
             sheet_info = {
                 "name": name,
@@ -308,7 +347,7 @@ class XlsxExtractor(AttachmentMetadataExtractor):
             sheets.append(sheet_info)
             # Sample a few rows of values for text indexing — full
             # sheet contents quickly blow past the text cap.
-            for row in ws.iter_rows(max_row=200, values_only=True):
+            for row in ws.iter_rows(max_row=200, max_col=128, values_only=True):
                 for v in row:
                     if v is None:
                         continue
@@ -322,7 +361,7 @@ class XlsxExtractor(AttachmentMetadataExtractor):
 
         type_specific: Dict[str, Any] = {
             "sheets": sheets,
-            "sheet_count": len(sheets),
+            "sheet_count": len(wb.sheetnames),
             "formula_count_sampled": formula_count,
         }
 
@@ -330,6 +369,8 @@ class XlsxExtractor(AttachmentMetadataExtractor):
             common={},
             type_specific=type_specific,
             extracted_text="\n".join(text_pieces),
+            partial=len(wb.sheetnames) > 20
+            or any(sheet["rows"] > 200 or sheet["cols"] > 128 for sheet in sheets),
         )
 
 
@@ -338,7 +379,7 @@ class XlsxExtractor(AttachmentMetadataExtractor):
 # ---------------------------------------------------------------------------
 
 
-class PptxExtractor(AttachmentMetadataExtractor):
+class PptxExtractor(FileMetadataExtractor):
     name = "pptx"
     exact_mimes = frozenset(
         {
@@ -347,9 +388,24 @@ class PptxExtractor(AttachmentMetadataExtractor):
     )
     priority = 20
 
-    async def extract(
+    def extract_file(
         self, *, path: str, mime: str, filename: str, size: int
     ) -> MetadataResult:
+        from zipfile import BadZipFile, ZipFile
+
+        try:
+            with ZipFile(path) as archive:
+                files = archive.infolist()
+                if (
+                    len(files) > 4096
+                    or sum(item.file_size for item in files) > 100 * 1024 * 1024
+                ):
+                    return MetadataResult(
+                        partial=True, error="Document exceeds metadata expansion limits"
+                    )
+        except (BadZipFile, OSError):
+            return MetadataResult(partial=True, error="Invalid document archive")
+
         pptx = _safe_import("pptx")
         if pptx is None:
             return MetadataResult(partial=True, error="python-pptx unavailable")
@@ -362,7 +418,7 @@ class PptxExtractor(AttachmentMetadataExtractor):
         slide_titles: list[str] = []
         notes: list[str] = []
         text_pieces: list[str] = []
-        for slide in pres.slides:
+        for slide in islice(pres.slides, 200):
             title = ""
             for shape in slide.shapes:
                 if shape.has_text_frame:
@@ -393,6 +449,7 @@ class PptxExtractor(AttachmentMetadataExtractor):
             type_specific=type_specific,
             extracted_text="\n\n".join(text_pieces),
             page_count=len(pres.slides),
+            partial=len(pres.slides) > 200,
         )
 
 
@@ -401,12 +458,12 @@ class PptxExtractor(AttachmentMetadataExtractor):
 # ---------------------------------------------------------------------------
 
 
-class ImageExtractor(AttachmentMetadataExtractor):
+class ImageExtractor(FileMetadataExtractor):
     name = "image"
     mime_prefixes = ("image/",)
     priority = 10
 
-    async def extract(
+    def extract_file(
         self, *, path: str, mime: str, filename: str, size: int
     ) -> MetadataResult:
         pil_image = _safe_import("PIL.Image")
@@ -468,12 +525,12 @@ class ImageExtractor(AttachmentMetadataExtractor):
 # ---------------------------------------------------------------------------
 
 
-class AudioExtractor(AttachmentMetadataExtractor):
+class AudioExtractor(FileMetadataExtractor):
     name = "audio"
     mime_prefixes = ("audio/",)
     priority = 10
 
-    async def extract(
+    def extract_file(
         self, *, path: str, mime: str, filename: str, size: int
     ) -> MetadataResult:
         mutagen = _safe_import("mutagen")
@@ -551,7 +608,15 @@ class VideoExtractor(AttachmentMetadataExtractor):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.communicate()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            return MetadataResult(partial=True, error="ffprobe timed out")
         if proc.returncode != 0:
             return MetadataResult(
                 partial=True,
