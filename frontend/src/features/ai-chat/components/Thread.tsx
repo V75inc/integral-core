@@ -1470,7 +1470,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
             <PaperclipIcon size={15} />
           </button>
         </ComposerPrimitive.AddAttachment></HoverTooltip>
-        <HoverTooltip label="Suggestions" placement="top"><KebabMenu size="md" portal ariaLabel="Suggestions" title="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
+        <HoverTooltip label="Suggestions" placement="top"><KebabMenu variant="ghost" size="md" portal ariaLabel="Suggestions" title="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
           key: suggestion.label, label: suggestion.label, description: suggestion.text, disabled: !canSuggest,
           onClick: () => {
             refs?.resetComposerEntityRefs();

@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from pydantic_ai import (
@@ -54,10 +55,12 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.compaction import (
     ClearToolResults,
     SummarizingCompaction,
+    TieredCompaction,
     WarnNearLimits,
 )
 from pydantic_ai_harness.conversation_search import (
@@ -75,6 +78,15 @@ from pydantic_ai_harness.step_persistence import (
 )
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 
+from app.agentive.harness.pydantic_context import (
+    IntegralContextAdmission,
+    IntegralContextLifecycle,
+    IntegralContextOverflow,
+    IntegralContextPolicy,
+    active_turn_start,
+    protected_work_start,
+    request_estimate,
+)
 from app.agentive.harness.turn_progress import FINAL_RESPONSE_FALLBACK, TurnProgress
 
 
@@ -118,12 +130,11 @@ def final_response_reserved(ctx: RunContext[Any]) -> bool:
 
 
 class IntegralLimitWarnings(AbstractCapability):
-    """Use upstream usage warnings without fabricating a human conversation turn.
+    """Project native usage warnings into dynamic instructions.
 
-    WarnNearLimits normally injects UserPromptPart and strips marker-bearing
-    messages. Generate its usage-only warning on a disposable empty projection,
-    then attach it as a dynamic instruction. Real user messages remain exact;
-    neither warning prose nor model output can establish a new turn boundary.
+    Capture public queued system parts on a disposable projection. The native
+    provider lowering can otherwise turn them into extra user input, which
+    must never become a task/compaction boundary in Integral's working history.
     """
 
     async def before_model_request(self, ctx, request_context):
@@ -134,18 +145,19 @@ class IntegralLimitWarnings(AbstractCapability):
         tokens = tokens if isinstance(tokens, int) and tokens > 0 else None
         if requests is None and tokens is None:
             return request_context
-        upstream = WarnNearLimits(
-            max_iterations=requests, max_total_tokens=tokens, warning_threshold=0.6
+        captured = []
+        projection = SimpleNamespace(
+            usage=ctx.usage,
+            enqueue=lambda part, **options: captured.append(part),
         )
-        projected = await upstream.before_model_request(
-            ctx, replace(request_context, messages=[])
+        await WarnNearLimits(
+            max_iterations=requests, max_total_tokens=tokens, warning_threshold=0.6
+        ).before_model_request(
+            projection,
+            replace(request_context, messages=[ModelRequest(parts=[])]),
         )
         warning = "\n".join(
-            part.content
-            for message in projected.messages
-            if isinstance(message, ModelRequest)
-            for part in message.parts
-            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+            part.content for part in captured if isinstance(part, SystemPromptPart)
         )
         if warning:
             parameters = request_context.model_request_parameters
@@ -699,53 +711,133 @@ def build_integral_host_turn(content: str, *, run_id: str) -> ModelRequest:
 
 def _active_turn_start(messages) -> int | None:
     """Find a human turn or a typed Core event; prompt prose is never a marker."""
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
-        if not isinstance(message, ModelRequest):
-            continue
-        if any(isinstance(part, UserPromptPart) for part in message.parts):
-            return index
-        marker = (message.metadata or {}).get(_HOST_TURN_METADATA_KEY)
-        if isinstance(marker, str) and marker and marker == marker.strip():
-            return index
-    return None
+    return active_turn_start(messages)
 
 
 @dataclass
 class IntegralToolResultCompaction(ClearToolResults):
-    """Clear completed-turn payloads without erasing the active task's inputs.
+    """Bound read-only payloads in the active turn and completed history.
 
-    A five-pair window cannot retain a task that needs several record reads
-    plus destination schemas before staging. Clearing those reads mid-turn
-    causes the model to repeat them instead of completing the task. Keep the
-    active user turn exact; the native run's usage and tool limits still bound
-    it. Completed turns retain only the library's bounded recent window.
+    The current task and recent read receipts remain available. Older read-only
+    results can be fetched again if needed, while non-read tools (including
+    staging and writes) and their receipts remain untouched. This prevents a
+    long multi-step turn from repeatedly resending every prior read to the
+    heavy model. Completed turns retain the library's bounded recent window.
     """
+
+    clearable_tools: frozenset[str] | None = None
 
     async def before_model_request(self, ctx, request_context):
         # Request-only projection must also become the checkpoint working
         # history. Otherwise later runs resurrect the completed-turn payloads.
         before = list(request_context.messages)
         processed = await super().before_model_request(ctx, request_context)
+        # The pinned upstream estimator includes instructions and schemas.
+        # Also bound reads deterministically so even a misleading usage anchor
+        # cannot conceal accumulation during a long active task.
+        if self.clearable_tools:
+            processed.messages = await self._compact_active_turn(
+                list(processed.messages), ctx
+            )
         if processed.messages != before:
             ctx.messages[:] = processed.messages
         return processed
 
-    async def compact(self, messages, ctx):
+    async def _compact_active_turn(self, messages, ctx):
         turn_start = _active_turn_start(messages)
         if turn_start is None:
-            return await super().compact(messages, ctx)
-        history = await super().compact(messages[:turn_start], ctx)
-        return [*history, *messages[turn_start:]]
+            return messages
+        active_turn = messages[turn_start:]
+        if not self.clearable_tools:
+            return messages
+
+        # Fail closed for tools without an explicit read-only classification.
+        # Generated skill tools, capability discovery, staging, and writes are
+        # therefore protected by default; the caller supplies only Core tools
+        # classified as reads in the authoritative tool catalogue.
+        protected_tools = {
+            part.tool_name
+            for message in active_turn
+            if isinstance(message, ModelResponse)
+            for part in message.parts
+            if isinstance(part, ToolCallPart)
+            and part.tool_name not in self.clearable_tools
+        }
+        active_compaction = ClearToolResults(
+            max_tokens=1,
+            keep_pairs=2,
+            exclude_tools=self.exclude_tools | frozenset(protected_tools),
+            # Retain read arguments so the model can repeat a query whose
+            # earlier receipt was compacted.
+            clear_tool_inputs=False,
+            min_clear_tokens=256,
+            placeholder=self.placeholder,
+            tokenizer=self.tokenizer,
+        )
+        compacted = await active_compaction.compact(active_turn, ctx)
+        # Even the two most recent read results need a size ceiling. Retain a
+        # clearly marked preview, never imply that a truncated collection is
+        # complete. Mutation/capability returns and accepted user input are exact.
+        compacted = [
+            (
+                replace(
+                    message,
+                    parts=[
+                        (
+                            replace(
+                                part,
+                                content=(
+                                    str(part.content)[:16_384]
+                                    + "\n[Read preview truncated; request a narrower read for omitted values. This is not the complete result.]"
+                                ),
+                            )
+                            if type(part) is ToolReturnPart
+                            and part.tool_name in self.clearable_tools
+                            and len(str(part.content)) > 16_384
+                            else part
+                        )
+                        for part in message.parts
+                    ],
+                )
+                if isinstance(message, ModelRequest)
+                else message
+            )
+            for message in compacted
+        ]
+        return [*messages[:turn_start], *compacted]
+
+    async def compact(self, messages, ctx):
+        if self.clearable_tools is not None:
+            protected = {
+                part.tool_name
+                for message in messages
+                for part in message.parts
+                if isinstance(part, ToolCallPart)
+                and part.tool_name not in self.clearable_tools
+            }
+            # Explicit read-only classification applies to completed history
+            # too. Unknown tools and mutation receipts are never cheap-cleared.
+            compactor = replace(self, exclude_tools=self.exclude_tools | protected)
+        else:
+            compactor = self
+        turn_start = _active_turn_start(messages)
+        if turn_start is None:
+            return await ClearToolResults.compact(compactor, messages, ctx)
+        history = await ClearToolResults.compact(compactor, messages[:turn_start], ctx)
+        active_turn = await self._compact_active_turn(messages[turn_start:], ctx)
+        return [*history, *active_turn]
 
 
-def build_integral_context_compaction() -> ClearToolResults:
-    """Bound completed-turn payloads while preserving active task grounding."""
+def build_integral_context_compaction(
+    *, clearable_tools: frozenset[str] = frozenset()
+) -> ClearToolResults:
+    """Bound old reads while preserving active task and effect receipts."""
     return IntegralToolResultCompaction(
-        max_tokens=16_384,
+        max_tokens=8_192,
         keep_pairs=5,
         exclude_tools=frozenset({"load_capability"}),
         clear_tool_inputs=True,
+        clearable_tools=clearable_tools,
     )
 
 
@@ -764,8 +856,8 @@ class IntegralHistorySummary(SummarizingCompaction):
     _compacted_history_digest: str | None = None
 
     async def before_model_request(self, ctx, request_context):
-        # Pydantic AI 2.10 makes request_context.messages request-only.
-        # Persist compaction through the documented RunContext.messages seam
+        # Pydantic AI 2.54 treats replacement request history as request-only.
+        # Persist through the documented RunContext.messages seam
         # so StepPersistence and later turns receive the same working history.
         before = list(request_context.messages)
         turn_start = _active_turn_start(before)
@@ -798,7 +890,7 @@ class IntegralHistorySummary(SummarizingCompaction):
         # it mid-batch can erase a queued effect receipt and provoke restaging.
         # ClearToolResults still bounds older payloads; the library usage limits
         # bound a long active turn. Summarization owns completed-turn history.
-        turn_start = _active_turn_start(messages) or 0
+        turn_start = protected_work_start(messages)
         history, active_turn = messages[:turn_start], messages[turn_start:]
         if (
             len(history) <= self.keep_messages
@@ -811,10 +903,80 @@ class IntegralHistorySummary(SummarizingCompaction):
         history = await ClearToolResults(
             max_tokens=1,
             keep_pairs=0,
-            exclude_tools=frozenset(),
+            exclude_tools=frozenset(
+                part.tool_name
+                for message in history
+                for part in message.parts
+                if isinstance(part, ToolCallPart)
+                and (
+                    part.tool_name == "load_capability"
+                    or (
+                        getattr(
+                            getattr(ctx, "tools", {}).get(part.tool_name),
+                            "metadata",
+                            None,
+                        )
+                        or {}
+                    ).get("integral_op_class")
+                    != "read"
+                )
+            ),
             clear_tool_inputs=True,
         ).compact(history, ctx)
-        compacted = await super().compact(history, ctx)
+        # Native 0.59 keeps an indivisible recent message even when it exceeds
+        # its retained-token floor. This history contains completed work only:
+        # summarize an oversized message rather than retaining it beside its
+        # summary. Current work and pending effects were separated above.
+        summarizer = (
+            replace(
+                self,
+                keep_tokens=None,
+                keep_messages=0,
+                keep_user_messages=False,
+                preserve_first_user_message=True,
+            )
+            if any(
+                len(ModelMessagesTypeAdapter.dump_json([message]))
+                > self.max_history_bytes
+                for message in history
+            )
+            else (
+                replace(self, keep_tokens=None)
+                if self.max_messages is not None and len(messages) > self.max_messages
+                else self
+            )
+        )
+        compacted = await SummarizingCompaction.compact(summarizer, history, ctx)
+        # Native message-count cutoffs can retain a retry after summarizing its
+        # original call. Remove only that settled historical validation pair's
+        # orphan feedback; never synthesize a result or alter an open effect.
+        settled_retries = {
+            part.tool_call_id
+            for message in history
+            for part in message.parts
+            if isinstance(part, RetryPromptPart) and part.tool_name is not None
+        }
+        retained_calls = {
+            part.tool_call_id
+            for message in compacted
+            for part in message.parts
+            if isinstance(part, ToolCallPart)
+        }
+        orphan_retries = settled_retries - retained_calls
+        if orphan_retries:
+            normalized = []
+            for message in compacted:
+                parts = [
+                    part
+                    for part in message.parts
+                    if not (
+                        isinstance(part, RetryPromptPart)
+                        and part.tool_call_id in orphan_retries
+                    )
+                ]
+                if parts or not message.parts:
+                    normalized.append(replace(message, parts=parts))
+            compacted = normalized
         if compacted == history:
             return [*history, *active_turn]
         calls = {}
@@ -871,6 +1033,59 @@ def build_integral_history_compaction() -> IntegralHistorySummary:
         keep_user_messages=True,
         receipts=True,
         model_settings={"max_tokens": 2048},
+        # Summaries run in a separate native Agent; outer request hooks do not
+        # apply there. Use the public composition hook to bound that input too.
+        summarization_capabilities=[IntegralContextAdmission()],
+    )
+
+
+@dataclass
+class IntegralWorkingContext(TieredCompaction):
+    """One budget pipeline with a cheap per-step read pass and native escalation."""
+
+    policy: IntegralContextPolicy = IntegralContextPolicy()
+
+    async def before_model_request(self, ctx, request_context):
+        before = list(request_context.messages)
+        # Small read clearings happen without inference even below the history
+        # trigger. Typed activation was already normalized before node prepare.
+        request_context.messages = await self.tiers[0].compact(before, ctx)
+        limit = self.policy.input_limit(
+            request_context.model, request_context.model_settings
+        )
+        trigger = min(self.policy.trigger_tokens, limit)
+        estimate = request_estimate(request_context)
+        # Native 0.59 compaction reads the public working history. Make the
+        # cheap projection authoritative before invoking its tier scheduler.
+        ctx.messages[:] = request_context.messages
+        if (
+            estimate > trigger or len(request_context.messages) > 40
+        ) and not final_response_reserved(ctx):
+            # Message count is an independent trigger when provider usage is
+            # absent or a reused anchor is optimistic. Force the native tier
+            # chain to consider summarization even below the token target.
+            target = (
+                1
+                if len(request_context.messages) > 40
+                else min(self.policy.target_tokens, limit, max(1, estimate - 1))
+            )
+            pipeline = replace(self, target_tokens=target)
+            request_context = await TieredCompaction.before_model_request(
+                pipeline, ctx, request_context
+            )
+        if request_context.messages != before:
+            ctx.messages[:] = request_context.messages
+        return request_context
+
+
+def build_integral_working_context(*, clearable_tools: frozenset[str]):
+    """Use native tier orchestration; Core supplies protection and lifecycle rules."""
+    return IntegralWorkingContext(
+        tiers=[
+            build_integral_context_compaction(clearable_tools=clearable_tools),
+            build_integral_history_compaction(),
+        ],
+        target_tokens=16_384,
     )
 
 
@@ -882,6 +1097,8 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
+        if isinstance(current, IntegralContextOverflow):
+            return "model_context_limit"
         if isinstance(current, UsageLimitExceeded):
             return "harness_usage_limit"
         current = current.__cause__ or current.__context__
@@ -907,6 +1124,10 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
 
 
 __all__ = [
+    "IntegralContextAdmission",
+    "IntegralContextLifecycle",
+    "IntegralContextOverflow",
+    "IntegralContextPolicy",
     "build_integral_host_turn",
     "Agent",
     "AgentRunResultEvent",
@@ -937,6 +1158,7 @@ __all__ = [
     "RunRecord",
     "SchemaValidator",
     "Skills",
+    "LocalWorkspaceBackend",
     "SnapshotHistorySource",
     "StepEvent",
     "StepPersistence",

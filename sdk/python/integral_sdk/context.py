@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 
 @runtime_checkable
@@ -25,6 +25,33 @@ class OperationContext(Protocol):
     ) -> list[Any]: ...
 
     async def find_track_id_by_title(self, track_type: str) -> Optional[str]: ...
+
+    async def search_entries(
+        self,
+        *,
+        query: str,
+        track_type: str,
+        entry_type: Optional[str] = None,
+        eligible_entry_ids: Optional[List[str]] = None,
+        mode: str = "hybrid",
+        limit: int = 150,
+        context_tokens: int = 1200,
+    ) -> Dict[str, Any]:
+        """App-scoped passage retrieval for a declared App query.
+
+        ``track_type`` is an exact stable manifest/relation key or Track ID. Only
+        Tracks without stable keys use an unambiguous legacy title fallback.
+        ``entry_type`` matches an exact manifest key; omit it for keyless schemas.
+        ``eligible_entry_ids`` narrows candidate selection to a structured,
+        policy-authorized set: None discovers a bounded candidate window;
+        [] searches nothing. At most 500 supplied IDs and 500 matching Entries
+        are considered. Explicit IDs narrow parent discovery before paging;
+        unrelated Tracks and schema types do not consume the candidate budget.
+        Returns passages, source links, requested/effective mode, cap status
+        and warnings. Index coverage remains unknown unless measured; empty
+        results never establish absence. It never widens workspace/App scope.
+        """
+        ...
 
     async def create_entry(
         self,

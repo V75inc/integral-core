@@ -74,4 +74,4 @@ controls; Core contains no direct `window.integralDesktop` access. Hosted UI kee
 its normal account flow. Composition refuses replacement of the registry or session
 contract. Host profile display cannot change Core principal/workspace authority.
 
-Evidence: [18 October qualification](../ops/qualification/runtime-composition/2026-10-18.md). Production release pins remain a separate gate.
+Use the [qualification gates](../ops/QUALIFICATION.md) for the exact candidate. Historical 18 October evidence remains in Git; production release pins are a separate gate.

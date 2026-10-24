@@ -13,7 +13,7 @@ Monorepo:
 
 Backend uses jvspatial graph-based data model — all entities are Nodes with explicit Edges for relationships. Integral is an **ops layer** on a pluggable harness: `backend/app/agentive/` is **always-on** and hosts staging, skills overlay, MCP perimeter, and the active harness binding (default Integral AI via Pydantic AI; Integral AI is the only resident harness; Echo is a test fixture, not a product option). Singular resident mind applies **per active binding**, faceted by principal (personal / org-facing / system) — not a peer-agent fleet. External agents connect via Integral's **MCP surface** only; there is **no agent-to-agent (A2A) fabric** (retired). See [docs/backend/adr/003-singular-resident-harness.md](docs/backend/adr/003-singular-resident-harness.md), [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md). Architecture provisional (pre-1.0) — see [docs/product/ARCHITECTURE.md](docs/product/ARCHITECTURE.md) → "Vision-Aligned Architectural Directions".
 
-**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.36.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-022-release-gate).
+**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.59.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-022-release-gate).
 
 When repairing legacy `UserModelCredential` duplicates, read through `GraphContext.find` so the unique index is not created before deduplication. Validate the migration against a PostgreSQL schema containing actual duplicate rows, then verify the index rejects a new duplicate.
 
@@ -59,7 +59,7 @@ make help        # all targets
 
 Editing a core skill, `tool_manifest.yaml`, a binding, or an `examples/` App
 changes `docs/generated/capability-map.{json,md}`; run `make capability-map`
-and commit the result, or the smoke test `tests/test_capability_map.py` fails.
+and commit the result, or the smoke test `backend/tests/test_capability_map.py` fails.
 
 **A green local `pytest` is NOT evidence that CI will pass.** CI runs the
 backend with `TESTING=1`, **no `.env` file**, and the smoke marker under xdist.
@@ -139,6 +139,13 @@ These rules bind any AI agent working in this repo. They are not optional.
      lint or failing tests.
    - Only commit once lint is clean and tests pass. If a fix is out of scope,
      stop and surface it rather than committing a broken state.
+
+3. **Use the primary checkout by default.** Ask the user each time before
+   creating an additional worktree. Reuse the existing task checkout while work
+   is active. Retire obsolete worktrees and merged task branches after checking
+   their current state; preserve unreconciled source and local data outside the
+   repository before cleanup. Do not leave task reports or recovery dumps in
+   tracked documentation.
 
 ### Chat identity and first-time guidance
 

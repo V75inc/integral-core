@@ -545,3 +545,321 @@ async def test_workspace_byok_indexes_and_queries_same_space_then_fences_switch(
     assert (
         await config.resolve_workspace_embedding_profile(workspace.id)
     ).id == embedding_profile().id
+
+
+@pytest.mark.asyncio
+async def test_app_search_entries_milestone_uses_core_passages(vector_driver):
+    """Declared-App facade returns a paraphrase from actual Core passages."""
+    from app.models.edges import CONTAINS, IS_OF_TYPE
+    from app.models.nodes import EntryType
+    from app.services.hooks.registry import ToolContext
+
+    user, workspace, app, track, entry = await graph()
+    track.title = "Inventory"
+    track.search_index = {
+        "fields": [
+            "title",
+            "custom_fields.sku",
+            "custom_fields.description",
+            "custom_fields.aliases",
+        ],
+        "exclude_fields": ["body"],
+    }
+    await track.save()
+    entry.title = "Non-Woven Geotextile NW18"
+    entry.body = "Internal notes must not be indexed."
+    entry.custom_fields = {
+        "sku": "NW18",
+        "description": "Filter fabric for separation and filtration.",
+        "aliases": "geofabric, filter fabric",
+    }
+    await entry.save()
+    entry_type = await EntryType.create(
+        name="Item",
+        track_id=track.id,
+        form_schema={"_manifest_entry_type_key": "inventory_item"},
+    )
+    await track.connect(entry_type, edge=CONTAINS)
+    await entry.connect(entry_type, edge=IS_OF_TYPE)
+    entry.type_id = entry_type.id
+    await entry.save()
+    await indexing.enqueue_entry(entry)
+    stats = await indexing.deliver_index_jobs()
+    assert stats == {"indexed": 1, "failed": 0, "superseded": 0}
+
+    ctx = ToolContext(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        scope="tool",
+        actor_kind="human",
+    )
+    ctx.app_id = app.id
+    token = current_scope_workspace_id.set(workspace.id)
+    try:
+        result = await ctx.search_entries(
+            query="separation fabric",
+            track_type="inventory",
+            entry_type="inventory_item",
+            eligible_entry_ids=[entry.id],
+            limit=10,
+        )
+    finally:
+        current_scope_workspace_id.reset(token)
+
+    assert result["available"] is True
+    assert result["effective_mode"] == "hybrid"
+    assert result["results"]
+    assert result["results"][0]["entry_id"] == entry.id
+    assert any(
+        "separation" in passage["text"] for passage in result["results"][0]["passages"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_app_search_entries_portfolio_milestone(vector_driver):
+    """Portfolio uses the same declared-App passage path."""
+    from app.models.edges import CONTAINS, IS_OF_TYPE
+    from app.models.nodes import EntryType
+    from app.services.hooks.registry import ToolContext
+
+    user, workspace, app, track, entry = await graph()
+    track.title = "Portfolio"
+    track.search_index = {
+        "fields": [
+            "title",
+            "custom_fields.description",
+            "custom_fields.aliases",
+        ],
+        "exclude_fields": ["body"],
+    }
+    await track.save()
+    entry.title = "Coastal Defence"
+    entry.body = "Internal notes must not be indexed."
+    entry.custom_fields = {
+        "description": "Rock armour and sea defence works.",
+        "aliases": "sea defence",
+    }
+    await entry.save()
+    entry_type = await EntryType.create(
+        name="Project",
+        track_id=track.id,
+        form_schema={"_manifest_entry_type_key": "portfolio_project"},
+    )
+    await track.connect(entry_type, edge=CONTAINS)
+    await entry.connect(entry_type, edge=IS_OF_TYPE)
+    entry.type_id = entry_type.id
+    await entry.save()
+    await indexing.enqueue_entry(entry)
+    stats = await indexing.deliver_index_jobs()
+    assert stats == {"indexed": 1, "failed": 0, "superseded": 0}
+
+    ctx = ToolContext(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        scope="tool",
+        actor_kind="human",
+    )
+    ctx.app_id = app.id
+    token = current_scope_workspace_id.set(workspace.id)
+    try:
+        result = await ctx.search_entries(
+            query="sea defence",
+            track_type="portfolio",
+            entry_type="portfolio_project",
+            eligible_entry_ids=[entry.id],
+            limit=10,
+        )
+    finally:
+        current_scope_workspace_id.reset(token)
+
+    assert result["available"] is True
+    assert result["results"]
+    assert result["results"][0]["entry_id"] == entry.id
+
+
+async def test_app_search_unindexed_sources_never_claim_full_coverage(vector_driver):
+    from app.services.hooks.registry import ToolContext
+
+    user, workspace, app, track, entry = await graph()
+    track.title = "Inventory"
+    await track.save()
+    entry.body = "Filter fabric is available."
+    await entry.save()
+    ctx = ToolContext(user_id=user.id, workspace_id=workspace.id, scope="tool")
+    ctx.app_id = app.id
+    result = await ctx.search_entries(
+        query="filter fabric", track_type="inventory", mode="graph"
+    )
+    assert result["available"] and result["results"] == []
+    assert result["coverage"] == "unknown"
+
+
+async def test_selected_passages_do_not_sweep_unrelated_grants(
+    vector_driver, monkeypatch
+):
+    from app.services.hooks.registry import ToolContext
+    from app.services.retrieval import search_service
+
+    user, workspace, app, track, entry = await indexed_graph(vector_driver)
+    track.template_id = "inventory"
+    track.title = "Renamed catalog"
+    await track.save()
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError(
+            "An exact-ID read must not enumerate the collection or unrelated grants"
+        )
+
+    monkeypatch.setattr(ToolContext, "find_entries_in_track_type", forbidden)
+    monkeypatch.setattr(search_service, "scoped_tracks", forbidden)
+    monkeypatch.setattr(search_service, "direct_entries", forbidden)
+    ctx = ToolContext(user_id=user.id, workspace_id=workspace.id, scope="tool")
+    ctx.app_id = app.id
+    result = await ctx.search_entries(
+        query="recycling",
+        track_type="inventory",
+        mode="graph",
+        eligible_entry_ids=[entry.id],
+    )
+    assert result["available"] and result["results"][0]["entry_id"] == entry.id
+    assert result["coverage"] == "unknown"
+
+    by_id = await ctx.search_entries(
+        query="recycling",
+        track_type=track.id,
+        mode="graph",
+        eligible_entry_ids=[entry.id],
+    )
+    assert by_id["available"] and by_id["results"][0]["entry_id"] == entry.id
+
+
+async def test_selected_passages_recheck_scope_and_access_after_encoding(
+    vector_driver, monkeypatch
+):
+    from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services.app_graph import catalog_user
+    from app.services.retrieval import profile_encoder
+
+    user, workspace, app, track, entry = await indexed_graph(vector_driver)
+    reader = await User.create(display_name="Search reader")
+    await catalog_user(reader)
+    await reader.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    await reader.connect(app, edge=COLLABORATES_ON, role="viewer")
+    _, foreign_workspace, foreign_app, _, foreign_entry = await graph()
+    await reader.connect(foreign_workspace, edge=IS_MEMBER_OF, role="member")
+    await reader.connect(foreign_app, edge=COLLABORATES_ON, role="viewer")
+    token = current_scope_workspace_id.set(workspace.id)
+    try:
+        results, *_ = await retrieve_passages(
+            Subject(kind="human", id=reader.id),
+            RetrieveRequest(query="recycling", scope=f"app:{app.id}", mode="graph"),
+            driver=vector_driver,
+            k=10,
+            top_n=5,
+            eligible_entry_ids=[entry.id, foreign_entry.id],
+        )
+        assert [row.entry_id for row in results] == [entry.id]
+        original = profile_encoder.encode_profile
+
+        async def revoke_during_encoding(*args, **kwargs):
+            value = await original(*args, **kwargs)
+            await reader.connect(entry, edge=EXCLUDED_FROM)
+            return value
+
+        monkeypatch.setattr(profile_encoder, "encode_profile", revoke_during_encoding)
+        results, *_ = await retrieve_passages(
+            Subject(kind="human", id=reader.id),
+            RetrieveRequest(query="recycling", scope=f"app:{app.id}", mode="semantic"),
+            driver=vector_driver,
+            k=10,
+            top_n=5,
+            eligible_entry_ids=[entry.id],
+        )
+        assert results == []
+        results, *_ = await retrieve_passages(
+            Subject(kind="human", id=reader.id),
+            RetrieveRequest(query="recycling", scope=f"app:{app.id}"),
+            driver=vector_driver,
+            k=10,
+            top_n=5,
+            eligible_entry_ids=[],
+        )
+        assert results == []
+    finally:
+        current_scope_workspace_id.reset(token)
+
+
+async def test_delegated_app_search_uses_real_exact_function_authority(vector_driver):
+    from app.agentive.edges import HAS_ORG_AGENT
+    from app.agentive.nodes import AgentConfig
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.access_delegation import create_binding, revoke_binding
+    from app.services.app_operation_authority import operation_permit
+    from app.services.app_operations.context import OperationContext
+    from app.services.application_definitions import definition_fingerprint
+    from app.services.policy_registry import create_policy
+    from tests.test_app_action_delegation import fixture
+
+    owner, issuer, workspace, app, track, entry, definition = await fixture()
+    track.title = "Inventory"
+    await track.save()
+    entry.body = "Batteries go to the recycling point."
+    await entry.save()
+    manifest = definition.canonical_manifest
+    manifest["app"]["operations"][0]["kind"] = "read"
+    definition.canonical_manifest = manifest
+    definition.manifest_fingerprint = definition_fingerprint(manifest)
+    await definition.save()
+    binding = await create_binding(
+        actor_id=owner.id,
+        app_id=app.id,
+        subject_kind="human",
+        subject_id=issuer.id,
+        role="reviewer",
+        conditions=[],
+    )
+    agent = await AgentConfig.create(
+        scope="org_facing",
+        facet="org_facing",
+        workspace_id=workspace.id,
+        is_active=True,
+    )
+    await workspace.connect(agent, edge=HAS_ORG_AGENT)
+    await create_policy(
+        subject_kind="agent",
+        subject_id=agent.id,
+        scope=f"app:{app.id}",
+        actions=[f"app:{app.id}:approve"],
+        created_by=issuer.id,
+    )
+    await indexing.enqueue_entry(entry)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    subject = Subject(kind="agent", id=agent.id)
+    ctx = OperationContext(
+        user_id=issuer.id,
+        workspace_id=workspace.id,
+        app_id=app.id,
+        scope="operation",
+        actor_kind="agent",
+        actor_id=agent.id,
+        operation_key="approve",
+        read_only=True,
+    )
+    async with operation_permit(
+        principal_id=agent.id,
+        workspace_id=workspace.id,
+        app_id=app.id,
+        operation_key="approve",
+        payload={"entry_id": entry.id},
+        subject=subject,
+    ):
+        result = await ctx.search_entries(
+            query="batteries", track_type="inventory", mode="graph"
+        )
+        assert result["available"] and result["results"][0]["entry_id"] == entry.id
+        await revoke_binding(actor_id=owner.id, binding_id=binding.id)
+        with pytest.raises(InsufficientPermissionsError):
+            await ctx.search_entries(
+                query="batteries", track_type="inventory", mode="graph"
+            )

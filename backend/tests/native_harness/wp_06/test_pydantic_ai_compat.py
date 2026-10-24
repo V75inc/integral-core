@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Skills
 
 from app.agentive.harness.pydantic_ai_compat import (
@@ -202,7 +203,11 @@ async def test_native_skills_loader_remains_available_after_integral_catalog_sea
         tools=[search_capabilities],
         capabilities=[
             IntegralToolDisclosure(),
-            Skills(tmp_path, include={"integral-workspace"}),
+            Skills(
+                tmp_path,
+                include={"integral-workspace"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
         ],
     )
     result = await agent.run("What workspace and tracks do I have?")
@@ -337,7 +342,7 @@ def test_application_code_uses_integral_adapter_for_pydantic_imports() -> None:
     direct_imports: list[str] = []
 
     for source_path in app_root.rglob("*.py"):
-        if source_path == adapter_path:
+        if source_path in {adapter_path, adapter_path.with_name("pydantic_context.py")}:
             continue
         tree = ast.parse(
             source_path.read_text(encoding="utf-8"), filename=str(source_path)
@@ -450,10 +455,10 @@ def test_run_instructions_surface_current_core_outcomes_over_old_proposal_text()
 
 
 def test_integral_compaction_preserves_the_recent_working_set() -> None:
-    """Keep the live outcome and skill state while compacting bulky history."""
+    """Keep a small recent window and never clear capability activation."""
     compaction = build_integral_context_compaction()
 
-    assert compaction.max_tokens == 16_384
+    assert compaction.max_tokens == 8_192
     assert compaction.max_fraction is None
     assert compaction.keep_pairs == 5
     assert compaction.exclude_tools == frozenset({"load_capability"})
@@ -463,7 +468,9 @@ def test_integral_compaction_preserves_the_recent_working_set() -> None:
 @pytest.mark.asyncio
 async def test_compaction_keeps_skill_and_working_set_and_clears_old_payloads() -> None:
     """Compact model-visible history without mutating the durable source list."""
-    compaction = build_integral_context_compaction()
+    compaction = build_integral_context_compaction(
+        clearable_tools=frozenset({"search_capabilities", "read"})
+    )
     messages = [
         ModelResponse(
             parts=[ToolCallPart("search_capabilities", {"query": "q" * 4000}, "search")]
@@ -529,9 +536,9 @@ async def test_receipt_filing_compaction_retains_source_destination_and_schema()
             ]
         )
 
-    compacted = await build_integral_context_compaction().compact(
-        messages, SimpleNamespace()
-    )
+    compacted = await build_integral_context_compaction(
+        clearable_tools=frozenset({"read"})
+    ).compact(messages, SimpleNamespace())
 
     assert compacted == messages
     assert [
@@ -628,6 +635,7 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
     tmp_path,
 ):
     """Use the real library across a resumed long chat, including summary usage."""
+    from pydantic_ai.profiles import ModelProfile
     from pydantic_ai.usage import RequestUsage
 
     from app.agentive.harness.pydantic_ai_compat import (
@@ -673,9 +681,13 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
         return ModelResponse(parts=[TextPart("Ana remains the only customer.")])
 
     agent = Agent(
-        FunctionModel(respond),
+        FunctionModel(respond, profile=ModelProfile(context_window=200_000)),
         capabilities=[
-            Skills(tmp_path, include={"record-work"}),
+            Skills(
+                tmp_path,
+                include={"record-work"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
             build_integral_history_compaction(),
         ],
     )
@@ -687,9 +699,13 @@ async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
     assert observations == ["load", "first", "summary", "resumed"]
     assert second.usage.requests == 2
     fresh_agent = Agent(
-        FunctionModel(respond),
+        FunctionModel(respond, profile=ModelProfile(context_window=200_000)),
         capabilities=[
-            Skills(tmp_path, include={"record-work"}),
+            Skills(
+                tmp_path,
+                include={"record-work"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
             build_integral_history_compaction(),
         ],
     )
@@ -753,36 +769,105 @@ async def test_history_summary_never_distills_active_batch_receipts(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_compaction_preserves_active_multi_record_grounding():
+async def test_compaction_clears_only_stale_active_reads():
     messages = [ModelRequest(parts=[UserPromptPart("Prepare the related records")])]
     for index in range(12):
+        name = "write" if index == 5 else "read"
         messages.extend(
             [
-                ModelResponse(
-                    parts=[ToolCallPart("read", {"index": index}, str(index))]
-                ),
+                ModelResponse(parts=[ToolCallPart(name, {"index": index}, str(index))]),
                 ModelRequest(
                     parts=[
-                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                        ToolReturnPart(
+                            name,
+                            {"record_id": str(index), "details": "x" * 256},
+                            str(index),
+                        )
                     ]
                 ),
             ]
         )
-    compacted = await build_integral_context_compaction().compact(
-        messages, SimpleNamespace()
+    compacted = await build_integral_context_compaction(
+        clearable_tools=frozenset({"read"})
+    ).compact(messages, SimpleNamespace())
+    returns = [
+        part
+        for message in compacted
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert len(returns) == 12
+    assert [part.content for part in returns[:5]] == ["[tool result cleared]"] * 5
+    assert returns[5].content == {
+        "record_id": "5",
+        "details": "x" * 256,
+    }  # write receipt retained
+    assert [part.content for part in returns[6:10]] == ["[tool result cleared]"] * 4
+    assert [part.content for part in returns[-2:]] == [
+        {"record_id": str(index), "details": "x" * 256} for index in range(10, 12)
+    ]
+    first_read_call = next(
+        part
+        for message in compacted
+        for part in message.parts
+        if isinstance(part, ToolCallPart) and part.tool_name == "read"
     )
-    assert compacted == messages
-    assert (
-        len(
-            [
-                p
-                for m in compacted
-                for p in m.parts
-                if isinstance(p, ToolReturnPart) and isinstance(p.content, dict)
-            ]
-        )
-        == 12
+    assert "index" in str(first_read_call.args)  # refetch arguments stay available
+    assert compacted[0] == messages[0]  # exact user task remains available
+    assert messages[2].parts[0].content == {
+        "record_id": "0",
+        "details": "x" * 256,
+    }  # source untouched
+
+
+@pytest.mark.asyncio
+async def test_active_read_compaction_does_not_wait_for_history_threshold():
+    call_index = 0
+
+    async def read_1():
+        return {"record_id": "1", "details": "x" * 2048}
+
+    async def read_2():
+        return {"record_id": "2", "details": "x" * 2048}
+
+    async def read_3():
+        return {"record_id": "3", "details": "x" * 2048}
+
+    def respond(messages, info):
+        nonlocal call_index
+        call_index += 1
+        if call_index <= 3:
+            return ModelResponse(
+                parts=[ToolCallPart(f"read_{call_index}", {}, str(call_index))]
+            )
+        return ModelResponse(parts=[TextPart("Done")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        tools=[read_1, read_2, read_3],
+        capabilities=[
+            build_integral_context_compaction(
+                clearable_tools=frozenset({"read_1", "read_2", "read_3"})
+            )
+        ],
     )
+    result = await agent.run("Read these three sources and summarize them.")
+    seen_returns = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+
+    assert result.output == "Done"
+    assert [part.tool_name for part in seen_returns] == [
+        "read_1",
+        "read_2",
+        "read_3",
+    ]
+    assert seen_returns[0].content == "[tool result cleared]"
+    assert seen_returns[1].content == {"record_id": "2", "details": "x" * 2048}
+    assert seen_returns[2].content == {"record_id": "3", "details": "x" * 2048}
 
 
 @pytest.mark.asyncio
@@ -815,9 +900,9 @@ async def test_compaction_clears_completed_turn_but_preserves_new_task():
                 ),
             ]
         )
-    compacted = await build_integral_context_compaction().compact(
-        messages + active, SimpleNamespace()
-    )
+    compacted = await build_integral_context_compaction(
+        clearable_tools=frozenset({"read"})
+    ).compact(messages + active, SimpleNamespace())
     assert compacted[-len(active) :] == active
     assert compacted[2].parts[0].content == "[tool result cleared]"
     assert messages[2].parts[0].content == {"record_id": "0"}
@@ -909,7 +994,11 @@ async def test_discovered_workflow_must_be_loaded_before_text_completion(tmp_pat
             IntegralToolDisclosure(
                 workflow_skill_ids=frozenset({"workspace-insights"})
             ),
-            Skills(tmp_path, include={"workspace-insights"}),
+            Skills(
+                tmp_path,
+                include={"workspace-insights"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
         ],
     )
     result = await agent.run("What could hold up our next delivery?")

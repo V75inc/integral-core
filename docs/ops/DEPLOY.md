@@ -130,7 +130,7 @@ For a failed upgrade, inspect the schema and effect state before reverting an im
 
 ## jvspatial 0.2.2 release gate
 
-Current metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.36.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
+Current metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
 
 When repairing duplicate UserModelCredential records, query through `GraphContext.find` before creating a unique index. Test with actual duplicates, then verify the repaired index rejects another duplicate. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. `RATE_LIMIT_DISABLED=1` bypass is restricted to pytest or DEBUG; it does not justify removing the production auth cap.
 
@@ -154,7 +154,7 @@ turn timeout limits. Operator settings remain ceilings: `INTEGRAL_NATIVE_TURN_RE
 `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT`, `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS`,
 `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` and
 `INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS`. Unset profile values inherit defaults.
-See [AI configuration and latency](../implementation/ai-model-settings-and-latency.md)
+See [AI model configuration](../backend/model-credentials-byok.md)
 for migration, routing, metrics and measurement limits.
 
 ### Optional native light/heavy model roles
@@ -170,7 +170,7 @@ Optional `INTEGRAL_NATIVE_LIGHT_MODEL_SETTINGS` and
 `INTEGRAL_NATIVE_HEAVY_MODEL_SETTINGS` are typed JSON objects using the same bounded
 settings contract as profiles. Reasoning controls must be supported by that model.
 Update `INTEGRAL_NATIVE_CREDENTIAL_REF` when rotating operator credentials. Strict BYOK
-never falls back to deployment models. See the [integration review](../implementation/pydantic-harness-dual-model-review.md)
+never falls back to deployment models. See the [routing contract](../backend/model-credentials-byok.md#single-or-automatic-routing)
 for admission, recovery, measurement limitations and rollback to Single model.
 
 The AI Models page shows deployment roles and their validated tuning as read-only

@@ -419,6 +419,37 @@ class ToolContext:
                 out.append(e)
         return out
 
+    async def search_entries(
+        self,
+        *,
+        query: str,
+        track_type: str,
+        entry_type: Optional[str] = None,
+        eligible_entry_ids: Optional[List[str]] = None,
+        mode: str = "hybrid",
+        limit: int = 150,
+        context_tokens: int = 1200,
+    ) -> Dict[str, Any]:
+        """Search a bounded, authorized candidate set in this App.
+
+        ``track_type`` selects an exact stable manifest/relation key or Track ID;
+        only unkeyed legacy Tracks permit unambiguous title matching. See
+        ``retrieval.app_search`` for limits and coverage semantics. The facade
+        remains the only bundle-facing access point.
+        """
+        from app.services.retrieval.app_search import search_app_entries
+
+        return await search_app_entries(
+            self,
+            query=query,
+            track_type=track_type,
+            entry_type=entry_type,
+            eligible_entry_ids=eligible_entry_ids,
+            mode=mode,
+            limit=limit,
+            context_tokens=context_tokens,
+        )
+
     async def find_track_id_by_title(self, track_type: str) -> Optional[str]:
         """Resolve a track's id by its title, scoped to this workspace.
 

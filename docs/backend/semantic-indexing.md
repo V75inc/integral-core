@@ -162,6 +162,64 @@ links are repaired, while unrelated external websites retain external behavior.
 An optional `index` envelope reports passage tokens, candidate-limit state and
 unasserted coverage. No matches does not prove absence while coverage is unknown.
 
+## App passage search
+
+Declared App tools/functions access passages through
+`ToolContext.search_entries` (also available on SDK `OperationContext`). The
+host supplies principal, workspace and App; tools supply `query`, a stable Track
+manifest key or `n.Track.*` ID as `track_type`, an optional manifest `entry_type`,
+and optional `eligible_entry_ids`. This does not relax the generic installed-App
+query boundary.
+
+Candidate selection uses a Walker along App → Track → Entry, resolving types
+through Track → OperationalModel → EntryType (or a directly attached legacy
+EntryType). Stable `template_id` identity takes precedence; ad-hoc Tracks use
+`relation_type_key`. Stable Track and EntryType keys match their declared values
+exactly, preserving distinct keys containing hyphens or underscores. Display
+renames do not change selection. Only Tracks without either stable identity
+may fall back to normalized title matching. `entry_type` selects a declared
+manifest key; omit it for keyless legacy schemas rather than guessing from
+a display name.
+Ambiguous readable matches return `ambiguous_track`; an incomplete legacy
+lookup returns `track_selection_unavailable`. An explicit Track ID avoids
+label ambiguity. Existing title-based SDK helpers retain their own legacy
+contracts; this new passage API does not adopt title identity for keyed Tracks.
+
+Every graph neighbour page applies identity/type/explicit-ID predicates before
+its limit. At most 500 supplied IDs and 500 matching Entry candidates are
+considered. Track/type discovery bounds matching resources, not the entire
+App or unrelated schemas, and reports truncation as partial coverage. Explicit
+Entry IDs resolve their canonical parent Tracks first and constrain discovery
+to those parents, including in Apps with more than 500 Tracks. `None` discovers
+candidates; an explicit `[]` performs no search. Selected-ID retrieval does not
+enumerate unrelated user grants. Canonical scope, current source and permission
+checks remain mandatory, including a fresh check after encoding.
+
+This read-only facade preserves I-GRAPH-01/02 (no graph writes; rooted-edge
+traversal), I-SUBSTRATE-01/I-EXT-01 (no domain identity or package imports),
+I-RET-01 (current canonical audience/source checks) and I-RET-07 (honest unknown
+or partial coverage). No procedural traversal exception is required.
+
+`limit` bounds passage candidates (1..500); returned Entries are additionally
+bounded by `min(limit, 50)` and `context_tokens` (64..8192). `graph`, `semantic`
+and `hybrid` modes are supported over the current pgvector passage space.
+Unavailable semantic inference can fall back to lexical passage search with
+`degraded=true`; it does not search unindexed source content.
+
+Results include passages, current title/revision and `action_url`. Coverage is
+`unknown` for an unmeasured index, or `partial` when selection, ranking, output
+or passage budgets truncate it, or inference degrades. Only a deliberately
+empty input/selection reports `full` without inspecting the index. No matches
+does not prove absence. Warnings disclose caps and dropped supplied IDs without
+listing inaccessible identities. Failures return stable reason codes, never
+provider credentials, connection strings or arbitrary exception text.
+
+For delegated agent/connector functions, Core revalidates the exact actor,
+function and issuer before selection and result release. The data policy
+subject is the current human issuer; it is never a service-kind/human-ID pair.
+Revocation prevents release, and a bare service context cannot borrow human
+access. Use structured query/aggregation facades for full collections and totals.
+
 ## Management
 
 All routes use authenticated identity and the host-validated workspace;
@@ -224,6 +282,7 @@ isolated. Transaction qualification uses `INTEGRAL_TEST_DB=postgres` and
 `tests/contract/test_semantic_index_transactions_postgres.py`; that test fixture
 creates/resets its own `integral_test` database, so use an isolated cluster.
 
-See the [PR #162 qualification report](../ops/qualification/semantic-search-2026-10-20/REPORT.md) for actual accuracy, latency and
-provider-reported token observations. A synthetic corpus is not a production
+Use the [qualification guide](../ops/QUALIFICATION.md#retrieval-qualification)
+for actual accuracy, latency and provider-token measurement. Retain raw corpora
+and run outputs with review artifacts. A synthetic corpus is not a production
 recall or scale guarantee.

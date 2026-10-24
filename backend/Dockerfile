@@ -47,7 +47,7 @@ assert m.version("integral-core") == "0.1.1rc31"; \
 assert m.version("integral-sdk") == "0.2.0"; \
 from integral_sdk import OperationContext; \
 assert m.version("jvspatial") == "0.2.2", "Expected jvspatial 0.2.2, installed " + m.version("jvspatial"); \
-assert m.version("pydantic-ai-harness") == "0.36.0"; \
+assert m.version("pydantic-ai-harness") == "0.59.0"; \
 assert m.distribution("jvspatial").read_text("direct_url.json") is None'
 
 # Pre-bake the ONNX weights for sentence-transformers/all-MiniLM-L6-v2 so

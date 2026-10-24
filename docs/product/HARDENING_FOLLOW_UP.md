@@ -26,4 +26,4 @@ This is the maintained backlog carried forward from the retired review timelines
 - Reconcile legacy relation identities without losing data. Continue canonical command consolidation, classified errors and scoped directory policy.
 - Complete wider file-picker, provider, connector, native-installer and production-deployment matrices; individual browser checks do not establish these outcomes.
 
-Use the [qualification guide](../ops/QUALIFICATION.md) for gates and [release record](../ops/RELEASE_QUALIFICATION.md) for evidence from the actual candidate. This backlog is not a claim that rc20 implements or qualifies every item.
+Use the [qualification guide](../ops/QUALIFICATION.md) for gates and [release record](../ops/RELEASE_QUALIFICATION.md) for evidence from the actual candidate. This backlog is not a claim that a particular release implements or qualifies every item.

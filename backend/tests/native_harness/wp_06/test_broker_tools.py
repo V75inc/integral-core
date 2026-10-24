@@ -591,6 +591,11 @@ def test_scaffold_lifecycle_tools_are_directly_callable_after_skill_load() -> No
     assert by_name["integral_build_approved_design"].defer_loading is False
     assert by_name["integral_verify_build"].defer_loading is False
     assert by_name["integral_get_scope"].defer_loading is False
+    assert by_name["integral_get_scope"].metadata == {"integral_op_class": "read"}
+    assert (
+        by_name["integral_build_approved_design"].metadata["integral_op_class"]
+        != "read"
+    )
 
 
 @pytest.mark.asyncio

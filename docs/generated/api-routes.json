@@ -1431,13 +1431,157 @@
     "line": 646
   },
   {
+    "path": "/users/me/ai-configuration",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "get_configuration",
+    "line": 56
+  },
+  {
+    "path": "/users/me/conversation-model",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "conversation_model",
+    "line": 208
+  },
+  {
+    "path": "/users/me/embedding-configuration",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "get_embedding_configuration",
+    "line": 251
+  },
+  {
+    "path": "/users/me/embedding-configuration",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "save_embedding_configuration",
+    "line": 264
+  },
+  {
+    "path": "/users/me/embedding-configuration/test",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "test_embedding_configuration",
+    "line": 285
+  },
+  {
+    "path": "/users/me/model-capabilities",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "capabilities",
+    "line": 122
+  },
+  {
+    "path": "/users/me/model-connections",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "save_connection",
+    "line": 131
+  },
+  {
+    "path": "/users/me/model-connections/remove",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "remove_connection",
+    "line": 160
+  },
+  {
+    "path": "/users/me/model-connections/test",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "test_connection",
+    "line": 144
+  },
+  {
+    "path": "/users/me/model-profiles",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "save_profile",
+    "line": 171
+  },
+  {
+    "path": "/users/me/model-profiles/activate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "activate_profile",
+    "line": 182
+  },
+  {
+    "path": "/users/me/model-profiles/remove",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "remove_profile",
+    "line": 195
+  },
+  {
+    "path": "/users/me/model-routing",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "configure_routing",
+    "line": 238
+  },
+  {
+    "path": "/users/me/voice-configuration",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "get_voice_configuration",
+    "line": 303
+  },
+  {
+    "path": "/users/me/voice-configuration",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "save_voice_configuration",
+    "line": 317
+  },
+  {
     "path": "/extension-view-frame",
     "methods": [
       "GET"
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "extension_view_frame_route",
-    "line": 46
+    "line": 47
+  },
+  {
+    "path": "/extensions/{app_id}/navigate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/app_extensions.py",
+    "handler": "resolve_view_navigation",
+    "line": 329
   },
   {
     "path": "/extensions/{app_id}/operations",
@@ -1446,7 +1590,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "list_operations",
-    "line": 64
+    "line": 65
   },
   {
     "path": "/extensions/{app_id}/operations/{operation_key}",
@@ -1455,7 +1599,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "invoke_operation",
-    "line": 100
+    "line": 101
   },
   {
     "path": "/extensions/{app_id}/views",
@@ -1464,7 +1608,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "list_extension_views_route",
-    "line": 240
+    "line": 241
   },
   {
     "path": "/extensions/{app_id}/views/{view_key}/handshake",
@@ -1473,7 +1617,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "extension_view_handshake_route",
-    "line": 264
+    "line": 265
   },
   {
     "path": "/extensions/{app_id}/views/{view_key}/{asset_path:path}",
@@ -1482,7 +1626,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "serve_extension_view_asset_route",
-    "line": 297
+    "line": 298
   },
   {
     "path": "/approvals",
@@ -1536,7 +1680,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "delete_app",
-    "line": 478
+    "line": 480
   },
   {
     "path": "/apps/{app_id}",
@@ -1563,7 +1707,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "list_app_collaborators",
-    "line": 854
+    "line": 856
   },
   {
     "path": "/apps/{app_id}/collaborators",
@@ -1572,7 +1716,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "add_app_collaborator",
-    "line": 933
+    "line": 935
   },
   {
     "path": "/apps/{app_id}/collaborators/{collaborator_user_id}",
@@ -1581,7 +1725,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "remove_app_collaborator",
-    "line": 963
+    "line": 965
   },
   {
     "path": "/apps/{app_id}/collaborators/{collaborator_user_id}",
@@ -1590,7 +1734,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "update_app_collaborator_role",
-    "line": 988
+    "line": 990
   },
   {
     "path": "/apps/{app_id}/definition",
@@ -1635,7 +1779,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "finalize_install_endpoint",
-    "line": 1949
+    "line": 1951
   },
   {
     "path": "/apps/{app_id}/operational-model",
@@ -1644,7 +1788,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "get_app_operational_model",
-    "line": 1220
+    "line": 1222
   },
   {
     "path": "/apps/{app_id}/operational-model",
@@ -1653,7 +1797,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "patch_app_operational_model",
-    "line": 1248
+    "line": 1250
   },
   {
     "path": "/apps/{app_id}/operational-model/apply",
@@ -1662,7 +1806,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "apply_app_operational_model_library",
-    "line": 1444
+    "line": 1446
   },
   {
     "path": "/apps/{app_id}/operational-model/merge-library",
@@ -1671,7 +1815,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "merge_library_into_app_operational_model",
-    "line": 1316
+    "line": 1318
   },
   {
     "path": "/apps/{app_id}/operational-model/preview",
@@ -1680,7 +1824,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "preview_app_operational_model_merge",
-    "line": 1409
+    "line": 1411
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates",
@@ -1689,7 +1833,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "list_app_track_templates",
-    "line": 1533
+    "line": 1535
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates",
@@ -1698,7 +1842,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_app_track_template",
-    "line": 1562
+    "line": 1564
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}",
@@ -1707,7 +1851,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "delete_app_track_template",
-    "line": 1616
+    "line": 1618
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/apply-to-track",
@@ -1716,7 +1860,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "apply_track_template_to_track",
-    "line": 1666
+    "line": 1668
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/entry-types",
@@ -1725,7 +1869,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_track_template_entry_type",
-    "line": 1723
+    "line": 1725
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/tags",
@@ -1734,7 +1878,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_track_template_tag",
-    "line": 1776
+    "line": 1778
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/views",
@@ -1743,7 +1887,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_track_template_view",
-    "line": 1826
+    "line": 1828
   },
   {
     "path": "/apps/{app_id}/pause",
@@ -1752,7 +1896,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "pause_app_endpoint",
-    "line": 2091
+    "line": 2093
   },
   {
     "path": "/apps/{app_id}/resume",
@@ -1761,7 +1905,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "resume_app_endpoint",
-    "line": 2119
+    "line": 2121
   },
   {
     "path": "/apps/{app_id}/settings",
@@ -1770,7 +1914,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "get_app_settings",
-    "line": 1987
+    "line": 1989
   },
   {
     "path": "/apps/{app_id}/settings",
@@ -1779,7 +1923,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "patch_app_settings",
-    "line": 2021
+    "line": 2023
   },
   {
     "path": "/apps/{app_id}/tracks",
@@ -1788,7 +1932,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "list_app_tracks",
-    "line": 556
+    "line": 558
   },
   {
     "path": "/apps/{app_id}/tracks",
@@ -1797,7 +1941,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "add_track_to_app",
-    "line": 659
+    "line": 661
   },
   {
     "path": "/apps/{app_id}/tracks/order",
@@ -1806,7 +1950,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "reorder_app_tracks",
-    "line": 715
+    "line": 717
   },
   {
     "path": "/apps/{app_id}/tracks/{track_id}",
@@ -1815,7 +1959,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "remove_track_from_app",
-    "line": 798
+    "line": 800
   },
   {
     "path": "/apps/{app_id}/transfer-ownership",
@@ -1824,7 +1968,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "post_transfer_app_ownership",
-    "line": 1020
+    "line": 1022
   },
   {
     "path": "/apps/{app_id}/uninstall",
@@ -1833,7 +1977,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "uninstall_app_endpoint",
-    "line": 2181
+    "line": 2183
   },
   {
     "path": "/apps/{app_id}/uninstall-preflight",
@@ -1842,7 +1986,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "uninstall_preflight_endpoint",
-    "line": 2147
+    "line": 2149
   },
   {
     "path": "/apps/{app_id}/update-from-library",
@@ -1851,7 +1995,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "update_from_library_endpoint",
-    "line": 2057
+    "line": 2059
   },
   {
     "path": "/workspaces/{workspace_id}/apps/install",
@@ -1860,7 +2004,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "install_app_endpoint",
-    "line": 1909
+    "line": 1911
   },
   {
     "path": "/apps/batch-install",
@@ -1878,7 +2022,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "list_app_dashboards",
-    "line": 75
+    "line": 76
   },
   {
     "path": "/apps/{app_id}/dashboards",
@@ -1887,7 +2031,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "create_app_dashboard",
-    "line": 87
+    "line": 88
   },
   {
     "path": "/apps/{app_id}/dashboards/suggest",
@@ -1896,7 +2040,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "suggest_app_dashboard",
-    "line": 137
+    "line": 138
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}",
@@ -1905,7 +2049,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "delete_app_dashboard",
-    "line": 235
+    "line": 236
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}",
@@ -1914,7 +2058,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_app_dashboard",
-    "line": 154
+    "line": 155
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}",
@@ -1923,7 +2067,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "patch_app_dashboard",
-    "line": 175
+    "line": 176
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}/data",
@@ -1932,7 +2076,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_app_dashboard_data",
-    "line": 275
+    "line": 276
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
@@ -1941,7 +2085,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_dashboard_widget_result_set",
-    "line": 303
+    "line": 304
   },
   {
     "path": "/apps/{app_id}/home",
@@ -1950,7 +2094,16 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_app_home",
-    "line": 45
+    "line": 46
+  },
+  {
+    "path": "/apps/{app_id}/home/preview",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "preview_app_home",
+    "line": 489
   },
   {
     "path": "/dashboard-widget-substrate",
@@ -1959,7 +2112,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_dashboard_widget_substrate",
-    "line": 460
+    "line": 461
   },
   {
     "path": "/apps/{slug}/skills",
@@ -2445,7 +2598,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "create_entry",
-    "line": 386
+    "line": 385
   },
   {
     "path": "/entries/{entry_id}",
@@ -2454,7 +2607,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "delete_entry",
-    "line": 720
+    "line": 719
   },
   {
     "path": "/entries/{entry_id}",
@@ -2463,7 +2616,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry",
-    "line": 496
+    "line": 495
   },
   {
     "path": "/entries/{entry_id}",
@@ -2472,7 +2625,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "update_entry",
-    "line": 542
+    "line": 541
   },
   {
     "path": "/entries/{entry_id}/reactions",
@@ -2481,7 +2634,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_reaction",
-    "line": 849
+    "line": 848
   },
   {
     "path": "/entries/{entry_id}/reactions",
@@ -2490,7 +2643,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "select_reaction",
-    "line": 855
+    "line": 854
   },
   {
     "path": "/entries/{entry_id}/reactions/{emoji}",
@@ -2499,7 +2652,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_reaction",
-    "line": 868
+    "line": 867
   },
   {
     "path": "/entries/{entry_id}/tags",
@@ -2508,7 +2661,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_tag_to_entry",
-    "line": 816
+    "line": 815
   },
   {
     "path": "/entries/{entry_id}/tags/{tag_id}",
@@ -2517,7 +2670,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_tag_from_entry",
-    "line": 826
+    "line": 825
   },
   {
     "path": "/entries/{entry_id}/unwatch",
@@ -2526,7 +2679,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "unwatch_entry",
-    "line": 954
+    "line": 953
   },
   {
     "path": "/entries/{entry_id}/watch",
@@ -2535,7 +2688,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "watch_entry",
-    "line": 924
+    "line": 923
   },
   {
     "path": "/entries/{entry_id}/watchers",
@@ -2544,7 +2697,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry_watchers",
-    "line": 876
+    "line": 875
   },
   {
     "path": "/entries/{entry_id}/precompute",
@@ -2697,7 +2850,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "get_feed_entries",
-    "line": 107
+    "line": 106
   },
   {
     "path": "/feed_entries",
@@ -2706,7 +2859,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "create_feed_entry",
-    "line": 131
+    "line": 132
   },
   {
     "path": "/feed_entries/{entry_id}",
@@ -2715,7 +2868,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "delete_feed_entry",
-    "line": 171
+    "line": 172
   },
   {
     "path": "/feed_entries/{entry_id}",
@@ -2724,7 +2877,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "update_feed_entry",
-    "line": 153
+    "line": 154
   },
   {
     "path": "/graph-context",
@@ -2859,7 +3012,7 @@
     ],
     "source": "backend/app/api/meta.py",
     "handler": "readiness",
-    "line": 20
+    "line": 21
   },
   {
     "path": "/meta/build",
@@ -2868,7 +3021,7 @@
     ],
     "source": "backend/app/api/meta.py",
     "handler": "build_meta",
-    "line": 74
+    "line": 75
   },
   {
     "path": "/meta/colors",
@@ -2877,7 +3030,7 @@
     ],
     "source": "backend/app/api/meta.py",
     "handler": "get_color_palettes",
-    "line": 257
+    "line": 266
   },
   {
     "path": "/meta/deployment",
@@ -2886,7 +3039,7 @@
     ],
     "source": "backend/app/api/meta.py",
     "handler": "deployment_meta",
-    "line": 87
+    "line": 96
   },
   {
     "path": "/meta/deployment/ready",
@@ -2895,7 +3048,7 @@
     ],
     "source": "backend/app/api/meta.py",
     "handler": "desktop_readiness",
-    "line": 298
+    "line": 307
   },
   {
     "path": "/meta/entry-type-icons",
@@ -2904,7 +3057,7 @@
     ],
     "source": "backend/app/api/meta.py",
     "handler": "get_entry_type_icons",
-    "line": 183
+    "line": 192
   },
   {
     "path": "/meta/templates",
@@ -2913,7 +3066,7 @@
     ],
     "source": "backend/app/api/meta.py",
     "handler": "get_templates",
-    "line": 107
+    "line": 116
   },
   {
     "path": "/me/mission-control",
@@ -3057,7 +3210,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "detach_library_from_space_profile",
-    "line": 1361
+    "line": 1366
   },
   {
     "path": "/apps/{app_id}/operational-model/revert-customizations",
@@ -3066,7 +3219,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "revert_space_profile_customizations",
-    "line": 1447
+    "line": 1452
   },
   {
     "path": "/operational-model-substrate",
@@ -3075,7 +3228,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "get_operational_model_substrate",
-    "line": 2046
+    "line": 2051
   },
   {
     "path": "/operational-models",
@@ -3084,7 +3237,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "list_library_operational_models",
-    "line": 127
+    "line": 132
   },
   {
     "path": "/operational-models",
@@ -3093,7 +3246,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "publish_operational_model",
-    "line": 244
+    "line": 249
   },
   {
     "path": "/operational-models/author",
@@ -3102,7 +3255,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "author_operational_model",
-    "line": 2244
+    "line": 2249
   },
   {
     "path": "/operational-models/from-app/{app_id}",
@@ -3111,7 +3264,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "derive_library_profile_from_space",
-    "line": 1123
+    "line": 1128
   },
   {
     "path": "/operational-models/from-track/{track_id}",
@@ -3120,7 +3273,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "derive_library_profile_from_track",
-    "line": 1025
+    "line": 1030
   },
   {
     "path": "/operational-models/import",
@@ -3129,7 +3282,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "import_operational_model",
-    "line": 2558
+    "line": 2564
   },
   {
     "path": "/operational-models/validate",
@@ -3138,7 +3291,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "validate_operational_model_manifest",
-    "line": 451
+    "line": 456
   },
   {
     "path": "/operational-models/{operational_model_id}",
@@ -3147,7 +3300,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "deprecate_library_operational_model",
-    "line": 403
+    "line": 408
   },
   {
     "path": "/operational-models/{operational_model_id}",
@@ -3156,7 +3309,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "get_library_operational_model",
-    "line": 178
+    "line": 183
   },
   {
     "path": "/operational-models/{operational_model_id}",
@@ -3165,7 +3318,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "update_library_operational_model",
-    "line": 333
+    "line": 338
   },
   {
     "path": "/operational-models/{operational_model_id}/diff",
@@ -3174,7 +3327,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "diff_operational_model",
-    "line": 1849
+    "line": 1854
   },
   {
     "path": "/operational-models/{operational_model_id}/discard-draft",
@@ -3183,7 +3336,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "discard_operational_model_draft",
-    "line": 2018
+    "line": 2023
   },
   {
     "path": "/operational-models/{operational_model_id}/draft",
@@ -3192,7 +3345,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "fork_operational_model_draft",
-    "line": 1734
+    "line": 1739
   },
   {
     "path": "/operational-models/{operational_model_id}/migration-status",
@@ -3201,7 +3354,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "get_operational_model_migration_status",
-    "line": 1621
+    "line": 1626
   },
   {
     "path": "/operational-models/{operational_model_id}/modify",
@@ -3210,7 +3363,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "modify_operational_model",
-    "line": 2376
+    "line": 2381
   },
   {
     "path": "/operational-models/{operational_model_id}/preview-update",
@@ -3219,7 +3372,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "preview_update_operational_model",
-    "line": 1990
+    "line": 1995
   },
   {
     "path": "/operational-models/{operational_model_id}/publish",
@@ -3228,7 +3381,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "publish_operational_model_draft",
-    "line": 1766
+    "line": 1771
   },
   {
     "path": "/operational-models/{operational_model_id}/retry-migration",
@@ -3237,7 +3390,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "retry_operational_model_migration",
-    "line": 1645
+    "line": 1650
   },
   {
     "path": "/tracks/{track_id}/operational-model/detach-library",
@@ -3246,7 +3399,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "detach_library_from_track_profile",
-    "line": 799
+    "line": 804
   },
   {
     "path": "/tracks/{track_id}/operational-model/entry-types",
@@ -3255,7 +3408,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "add_entry_type_to_track_profile",
-    "line": 485
+    "line": 490
   },
   {
     "path": "/tracks/{track_id}/operational-model/entry-types/{entry_type_id}",
@@ -3264,7 +3417,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "remove_entry_type_from_track_profile",
-    "line": 574
+    "line": 579
   },
   {
     "path": "/tracks/{track_id}/operational-model/revert-customizations",
@@ -3273,7 +3426,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "revert_track_profile_customizations",
-    "line": 880
+    "line": 885
   },
   {
     "path": "/tracks/{track_id}/operational-model/views",
@@ -3282,7 +3435,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "add_view_to_track_profile",
-    "line": 637
+    "line": 642
   },
   {
     "path": "/tracks/{track_id}/operational-model/views/{view_id}",
@@ -3291,7 +3444,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "remove_view_from_track_profile",
-    "line": 736
+    "line": 741
   },
   {
     "path": "/workspaces/{workspace_id}/operational-models",
@@ -3300,7 +3453,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "list_workspace_operational_models",
-    "line": 210
+    "line": 215
   },
   {
     "path": "/policies",

@@ -105,7 +105,10 @@ async def test_history_summary_uses_same_host_event_boundary(monkeypatch):
         return [ModelRequest(parts=[SystemPromptPart("Summary")])]
 
     monkeypatch.setattr(SummarizingCompaction, "compact", summarize)
-    ctx = SimpleNamespace(active_capability_ids=set(), tools={})
+    ctx = SimpleNamespace(
+        active_capability_ids=set(),
+        tools={"read": SimpleNamespace(metadata={"integral_op_class": "read"})},
+    )
     compacted = await IntegralHistorySummary(max_tokens=1, keep_messages=1).compact(
         history + current, ctx
     )

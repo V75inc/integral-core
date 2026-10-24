@@ -1,9 +1,0 @@
-{
-  "label": "pgvector_passages",
-  "question": "From the saved QA Lantern Wiki only, what phone number can a visitor call, and what warranty period is promised? If the saved pages do not provide these details, say so briefly. Do not invent details.",
-  "seconds": 36.656016665976495,
-  "input_tokens": 99179,
-  "output_tokens": 1380,
-  "model_calls": 7,
-  "answer": "I checked all six saved pages in the [QA Lantern Wiki track](/tracks/n.Track.ec71815ba0e94ea1b8f4d184), and neither detail is there.\n\n- **Phone number:** none of the pages list a phone number or any other contact number for visitors. Contact is expressed only in terms of people (Priya for incidents and safety, Mateo for parts exceptions), with no number given.\n- **Warranty period:** no warranty or repair guarantee period is stated. The only related line, on the [Escalation and Incidents](/tracks/n.Track.ec71815ba0e94ea1b8f4d184?entry=n.Entry.46db2ee0a50c491681d706e0) page, says the cafe \"does not promise that every item can be repaired\" \u2014 a disclaimer, not a warranty term.\n\nThe pages are also marked as fictional demo content for testing, so any details there wouldn't be real-world contact or warranty information."
-}
