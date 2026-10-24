@@ -38,6 +38,7 @@ class EmbeddingModelResponse(BaseModel):
     configuration: EmbeddingModelChoice
     effective_provider: str
     effective_model: str
+    processing_location: Literal["server", "device", "provider"] = "server"
     dimensions: int
     profile_id: str | None = None
     rebuild_status: str = ""

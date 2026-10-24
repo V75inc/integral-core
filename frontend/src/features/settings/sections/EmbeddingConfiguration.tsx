@@ -87,6 +87,7 @@ export function EmbeddingConfiguration({
   });
   const supported = connections.filter((c) => c.provider !== "anthropic");
   const data = query.data;
+  const localLabel = data?.processing_location === "device" ? "On this device" : "On this server";
   const busy = save.isPending || test.isPending;
   const valid =
     !!draft &&
@@ -115,7 +116,7 @@ export function EmbeddingConfiguration({
             {data && (
               <Text as="p" variant="body-sm" className="break-words">
                 {data.effective_provider === "local"
-                  ? "Local default"
+                  ? localLabel
                   : PROVIDER_LABELS[
                       data.effective_provider as keyof typeof PROVIDER_LABELS
                     ] || "Provider unavailable"}{" "}
@@ -187,8 +188,8 @@ export function EmbeddingConfiguration({
         {draft && (
           <Modal.Body>
             <Text as="p" variant="body-sm" tone="muted">
-              Choose how search understands workspace text. The local default
-              keeps embedding processing on this installation.
+              Choose how search understands workspace text. The default runs
+              on {data?.processing_location === "device" ? "this device" : "the Integral server"}, using its CPU and memory.
             </Text>
             <Text as="label" variant="body-sm" className="flex flex-col gap-1">
               Model source
@@ -202,7 +203,7 @@ export function EmbeddingConfiguration({
                   })
                 }
               >
-                <option value="deployment">Local / deployment default</option>
+                <option value="deployment">{localLabel} · default</option>
                 <option
                   value="provider"
                   disabled={!data?.provider_overrides_supported}

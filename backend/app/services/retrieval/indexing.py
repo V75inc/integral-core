@@ -114,7 +114,11 @@ async def index_document(entry: Any, *, location=None, schemas=None) -> dict | N
 
 
 async def enqueue_entry(
-    entry: Any, *, force: bool = False, source_error: str = ""
+    entry: Any,
+    *,
+    force: bool = False,
+    source_error: str = "",
+    verify_integrity: bool = False,
 ) -> None:
     """Persist invalidation without doing embedding/network work on a write."""
     from . import get_embedding_store
@@ -122,13 +126,28 @@ async def enqueue_entry(
 
     if not isinstance(get_embedding_store(), PgVectorEmbeddingStore):
         return
-    database = get_default_context().database
     doc = None
     if not source_error:
         try:
             doc = await index_document(entry)
         except Exception as exc:
             source_error = type(exc).__name__
+    await _enqueue_document(
+        entry,
+        doc,
+        force=force,
+        source_error=source_error,
+        verify_integrity=verify_integrity,
+    )
+
+
+async def _enqueue_document(
+    entry, doc, *, force=False, source_error="", verify_integrity=False
+):
+    """Retain prepared reconciliation facts as intent, never as publication authority."""
+    from . import get_embedding_store
+
+    database = get_default_context().database
     workspace_id = doc["workspace_id"] if doc else getattr(entry, "workspace_id", "")
     try:
         from .embedding_configuration import resolve_workspace_embedding_profile
@@ -145,7 +164,19 @@ async def enqueue_entry(
     )
     existing = await database.get("object", identity)
     if existing and not force and existing["context"].get("source_hash") == source_hash:
-        return
+        data = existing["context"]
+        if not verify_integrity or data.get("status") != "indexed" or doc is None:
+            return
+        # A matching receipt is not proof that the complete projection exists.
+        # Reconciliation repairs lost/corrupt rows even without a source edit.
+        from .embedding_configuration import resolve_workspace_embedding_profile
+        from .passage_store import passage_store
+
+        profile = await resolve_workspace_embedding_profile(workspace_id)
+        if await passage_store(get_embedding_store(), profile).integrity(
+            entry.id, source_hash
+        ):
+            return
     context = {
         "entry_id": entry.id,
         "workspace_id": workspace_id,
@@ -155,6 +186,7 @@ async def enqueue_entry(
         "track_id": entry.track_id,
         "status": "pending",
         "attempt": 0,
+        "force_encode": force,
         "due": time.time(),
         "generation": uuid.uuid4().hex,
     }
@@ -195,7 +227,7 @@ async def enqueue_record(record: dict, *, force: bool = False) -> None:
         await enqueue_entry(entry, force=force, source_error=type(exc).__name__)
         return
     if entry:
-        await enqueue_entry(entry, force=force)
+        await enqueue_entry(entry, force=force, verify_integrity=True)
 
 
 async def reconcile_page(*, limit: int = 100) -> int:
@@ -205,8 +237,44 @@ async def reconcile_page(*, limit: int = 100) -> int:
     after = (cursor or {}).get("context", {}).get("after", "")
     predicate = {"entity": "Entry", "id": {"$gt": after}}
     rows = await database.find("node", predicate, sort=[("id", 1)], limit=limit)
+    from app.models.nodes import Entry
+    from app.services.resource_location import DATA_APP_STATES, locate_resources
+
+    from . import get_embedding_store
+    from .pgvector_driver import PgVectorEmbeddingStore
+
+    locations: dict[str, Any] | None = None
+    schemas: dict[str, Any] = {}
+    if rows and isinstance(get_embedding_store(), PgVectorEmbeddingStore):
+        try:
+            locations = await locate_resources(
+                "entry",
+                [r["id"] for r in rows],
+                selected_records=rows,
+                allowed_app_states=DATA_APP_STATES,
+            )
+        except Exception:
+            # Preserve the existing per-record quarantine path if one malformed
+            # source prevents a complete bounded graph projection.
+            locations = None
     for row in rows:
-        await enqueue_record(row)
+        if locations is None:
+            await enqueue_record(row)
+            continue
+        try:
+            entry = await get_default_context()._deserialize_entity(Entry, row)
+            location = locations.get(row["id"])
+            document = (
+                await index_document(entry, location=location, schemas=schemas)
+                if location
+                else None
+            )
+            # These are fresh page facts for job intent only. Delivery rechecks
+            # source/profile/ownership before egress and under its publish lock.
+            await _enqueue_document(entry, document, verify_integrity=True)
+        except Exception:
+            await enqueue_record(row)
+
     await database.save(
         "object",
         {
@@ -246,8 +314,19 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
         },
         limit=limit,
     )
-    tokenizer = None
+    from collections import defaultdict, deque
+
+    grouped: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
     for row in rows:
+        grouped[row["context"].get("workspace_id", "")].append(row)
+    fair = []
+    while grouped:
+        for workspace in list(grouped):
+            fair.append(grouped[workspace].popleft())
+            if not grouped[workspace]:
+                del grouped[workspace]
+    tokenizer = None
+    for row in fair:
         ctx = row["context"]
         lease = uuid.uuid4().hex
         claimed = await database.find_one_and_update(
@@ -329,31 +408,42 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
                 if tokenizer is None:
                     tokenizer = await passage_tokenizer()
                 passages = split_passages(document["texts"], profile, tokenizer)
+                if not await store.publish_lexical(
+                    document, passages, guard=publishable
+                ):
+                    stats["superseded"] += 1
+                    continue
+                reused = (
+                    {}
+                    if ctx.get("force_encode")
+                    else await store.reusable_vectors(entry.id)
+                )
+                missing = [p for p in passages if p["text"] not in reused]
                 lost_lease = False
-                for start in range(0, len(passages), 32):
-                    # Batch memory is bounded even for a long document.
-                    batch = passages[start : start + 32]
+                for start in range(0, len(missing), 32):
+                    # Recheck source selection and egress authority before each
+                    # physical batch; publication checks cannot recall sent text.
+                    if not await publishable():
+                        lost_lease = True
+                        break
+                    batch = missing[start : start + 32]
                     vectors = await encode_profile([p["text"] for p in batch], profile)
                     renewed = await database.find_one_and_update(
                         "object",
-                        {
-                            **fence,
-                            "context.lease_until": {"$gt": time.time()},
-                        },
+                        {**fence, "context.lease_until": {"$gt": time.time()}},
                         {"$set": {"context.lease_until": time.time() + 300}},
                     )
                     if renewed is None:
                         lost_lease = True
                         break
-                    for p, v in zip(batch, vectors):
-                        p["vector"] = v
+                    reused.update({p["text"]: v for p, v in zip(batch, vectors)})
                 if lost_lease:
                     stats["superseded"] += 1
                     continue
                 published = await store.replace(
                     document,
                     passages,
-                    [p.pop("vector") for p in passages],
+                    [reused[p["text"]] for p in passages],
                     guard=publishable,
                 )
             if not published:
@@ -388,6 +478,13 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
             )
             if updated is not None:
                 stats["indexed"] += 1
+                if document is not None:
+                    try:
+                        await store.maintain_ann(document["workspace_id"])
+                    except Exception:
+                        # Index maintenance is retryable; it must not turn a
+                        # successfully fenced publication into failed delivery.
+                        logger.warning("Search index maintenance will retry")
         except asyncio.CancelledError:
             # Lease expiry makes process loss/cancellation resumable.
             raise

@@ -158,7 +158,7 @@ async def configure_index(
 async def index_status(
     user_id: str, track_id: str, workspace_id: str | None = None
 ) -> dict:
-    """Probe the encoder/store and compare bounded current source coverage."""
+    """Compare storage integrity and bounded source coverage without inference."""
     from . import get_embedding_store
     from .indexing import ENTITY
     from .passage_store import passage_store
@@ -184,9 +184,8 @@ async def index_status(
     if isinstance(driver, PgVectorEmbeddingStore):
         try:
             await passage_store(driver, profile).ensure_schema()
-            from .profile_encoder import encode_profile
-
-            await encode_profile(["search readiness"], profile)
+            # Reading status must never make a paid inference request. Storage
+            # integrity and recent delivery state are distinct from model health.
             ready = True
         except Exception as exc:
             error = type(exc).__name__
@@ -226,17 +225,7 @@ async def index_status(
     stored = {}
     if ready:
         store = passage_store(driver, profile)
-        pool = await store.ensure_schema()
-        async with pool.acquire() as conn:
-            stored = {
-                r["entry_id"]: r["source_hash"]
-                for r in await conn.fetch(
-                    f"SELECT DISTINCT entry_id,source_hash FROM {store.table} "
-                    "WHERE profile_id=$1 AND track_id=$2 AND deleted_at IS NULL LIMIT 1001",
-                    profile.id,
-                    track_id,
-                )
-            }
+        stored = await store.verified_sources([r["id"] for r in sources[:1000]])
     current, excluded, invalid = 0, 0, 0
     for source in sources[:1000]:
         try:

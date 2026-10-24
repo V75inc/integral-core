@@ -142,6 +142,7 @@ async def resolve_workspace_embedding_profile(workspace_id: str):
 async def describe(user_id: str, workspace_id: str) -> dict:
     """Describe effective search configuration without disclosing private providers."""
     from app.config import settings
+    from app.runtime.composition import runtime
 
     if await can_access_workspace(user_id, workspace_id) == "none":
         raise InsufficientPermissionsError(message="Workspace is unavailable")
@@ -175,6 +176,11 @@ async def describe(user_id: str, workspace_id: str) -> dict:
         "configuration": choice.model_dump() if editable else {"mode": "deployment"},
         "effective_provider": profile.provider or "local" if profile else "unavailable",
         "effective_model": profile.model if profile else choice.model,
+        "processing_location": (
+            "provider"
+            if profile and profile.provider
+            else "device" if runtime().preset == "local" else "server"
+        ),
         "dimensions": profile.dimensions if profile else choice.dimensions,
         "profile_id": profile.id if profile else None,
         "rebuild_status": rows[0]["context"]["status"] if rows else "",

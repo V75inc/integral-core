@@ -173,6 +173,7 @@ export interface EmbeddingConfiguration {
   configuration: EmbeddingChoice;
   effective_provider: string;
   effective_model: string;
+  processing_location?: "server" | "device" | "provider";
   dimensions: number;
   profile_id: string | null;
   rebuild_status: string;

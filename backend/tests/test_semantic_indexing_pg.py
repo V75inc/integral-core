@@ -44,7 +44,8 @@ async def vector_driver(monkeypatch):
     finally:
         pool = await driver._get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(f"DROP TABLE IF EXISTS {driver._table}_passage")
+            for suffix in ("_passage", "_lexical", "_manifest"):
+                await conn.execute(f"DROP TABLE IF EXISTS {driver._table}{suffix}")
             await conn.execute(f"DROP TABLE IF EXISTS {driver._table}")
         await driver.close()
 

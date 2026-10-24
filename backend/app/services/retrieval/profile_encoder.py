@@ -93,7 +93,14 @@ async def encode_profile(texts: list[str], profile, *, require_active: bool = Tr
             client = httpx.AsyncClient(
                 timeout=timeout, trust_env=False, follow_redirects=False
             )
-        async with asyncio.timeout(40), client:
+        from .encoding_runtime import bounded_setting, is_interactive
+
+        deadline = (
+            bounded_setting("EMBEDDING_QUERY_TIMEOUT_MS", 1000, 100, 5000) / 1000
+            if is_interactive()
+            else 40
+        )
+        async with asyncio.timeout(deadline), client:
             async with client.stream(
                 "POST",
                 base.rstrip("/") + ("/api/embed" if ollama else "/embeddings"),
@@ -131,6 +138,10 @@ async def encode_profile(texts: list[str], profile, *, require_active: bool = Tr
             for v in vectors
         ):
             raise ValueError("Embedding response dimensions or values do not match")
+        for vector in vectors:
+            norm = math.hypot(*vector)
+            if not math.isfinite(norm) or norm <= 0:
+                raise ValueError("Embedding response contains an invalid vector norm")
         return vectors
     except Exception:
         # No provider body, text, URL or secret in user-visible errors or job status.

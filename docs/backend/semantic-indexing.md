@@ -1,5 +1,10 @@
 # Declarative indexing and retrieval
 
+The [improvement contract](../platform/knowledge-retrieval-v1.md) and
+[ADR-017](adr/017-graph-guided-knowledge-retrieval.md) distinguish the current
+hardening delivery from pending migration, integration and scale gates. This
+guide describes the implemented behavior; target SLOs remain unqualified.
+
 PostgreSQL deployments use a local text-only ONNX encoder and pgvector. The
 registry resolves lazily after `POSTGRES_*` has become
 `JVSPATIAL_POSTGRES_DSN`; API import order cannot permanently select a null store.
@@ -73,15 +78,31 @@ exception class, never provider strings or credentials. A malformed source is
 isolated to its own retryable job; later records still advance. Invalid profile
 settings retain unconfigured intent and preserve primary writes; a corrected
 profile is picked up by reconciliation. Storage/model configuration outages
-fall back to canonical keyword reads with a bounded retry cooldown. Deletion invalidates
+fall back first to the independent indexed lexical projection, then to canonical keyword reads if storage is unavailable. A temporary local admission timeout does not disable other workspaces’ semantic search. Deletion invalidates
 retrieval immediately through canonical reads even if derived cleanup retries.
 
 Use `INDEX_WORKER_INTERVAL_SECONDS` (default 10), `INDEX_WORKER_BATCH_SIZE`
 (default 16, maximum 128). Each sweep scans at most 100 Entries per cycle.
-Model inference runs off the async event loop; concurrent encoder access is
-serialized; `EMBEDDING_MODEL_THREADS` defaults to one ONNX thread per process
-(1..16), avoiding CPU oversubscription. This prevents cold model setup and native tokenizer use from
-blocking or racing chat requests.
+Local inference uses one dedicated native executor per process. Interactive queries
+receive priority between microbatches (default four passages); after eight
+queries a waiting background batch receives a slice. Native work retains its
+slot until it actually finishes, even if the caller is cancelled. Queue size
+and wait times are bounded; this is process-level admission, not a fleet or
+tenant quota. Workspace ordering is round-robin only within the selected job
+page; long-document checkpointing and stronger fairness remain planned.
+`EMBEDDING_MODEL_THREADS` defaults to one ONNX thread (1..16).
+
+Each successful publication retains a count/checksum manifest for the vector
+and independent lexical projections. Reconciliation verifies actual rows even
+when a source hash matches the last delivery receipt, and reschedules missing
+or corrupt data without requiring an edit. Status uses the same manifests and
+never invokes a local or paid encoder. Failed cold weight loads are cooled down for 30 seconds instead of being retried for every pending record. For ordinary edits, only unchanged text
+from a verified prior Entry/profile publication is reused. Explicit reindex
+requests still re-encode all passages. This is not cross-tenant vector caching.
+
+Lexical passages publish before vector inference, so changed text remains
+keyword-searchable during a provider outage. Publication remains source/lease
+fenced; retrieval checks canonical content and policy regardless of projection.
 
 ## Profiles and text limits
 
@@ -123,7 +144,7 @@ fallback remains available while current-profile coverage warms. Do not delete
 or reuse older vectors solely because their dimensions match.
 
 Defaults: MiniLM L6 v2, 384 dimensions, 160-token chunks and 24-token overlap.
-Chunks use a clone of the actual model tokenizer without truncation, preserve
+Chunks use an independent clone of the same pinned tokenizer without loading ONNX inference weights. They preserve
 canonical text offsets, and include the tail of long content. More than 4096
 passages fails visibly instead of publishing a partial document. Inference
 refuses input above the actual model limit (MiniLM 256 including special tokens).
@@ -142,12 +163,27 @@ before returning any title, text, metadata or citation. The existing governed
 App query boundary still applies. An index declaration never grants access.
 Archived/deleted/moved/revoked/changed sources cannot return stale content.
 
-Hybrid uses reciprocal rank fusion of exact cosine and PostgreSQL lexical
-rankings. Explicit graph mode retains the canonical keyword path, including
-unindexed content. Scoped exact vector ranking deliberately avoids global ANN
-candidate starvation. Profile-specific HNSW indexes are provisioned, but are
-not used by this exact query path. Large-scope performance is a separate load
-qualification requirement; do not infer it from a small wiki smoke.
+Hybrid fuses independently limited vector and indexed lexical candidates with
+reciprocal rank fusion. Lexical search uses a weighted stored `tsvector` and GIN
+index. Small admitted scopes use exact cosine ranking. Larger scopes may use a
+workspace/profile-specific HNSW partial index when `RETRIEVE_ANN_ENABLED=1` and pgvector supports iterative
+filtered scans (0.8+). The worker builds indexes concurrently; reads do not build
+them. ANN is opt-in pending deployment qualification; exact ranking remains the default. A per-table cap bounds physical ANN indexes; scopes without one use exact
+ranking. Set `RETRIEVE_EXACT_THRESHOLD=100000` to retain exact ranking up to that
+bounded scope size. Low-selectivity recall and production throughput require
+qualification; small synthetic tests do not establish fleet capacity.
+
+Explicit graph mode retains canonical keyword reads, including unindexed
+content. Degraded semantic/hybrid reads prefer indexed lexical evidence without
+calling the encoder. Final validation checks at most four records concurrently,
+with the ordinary current policy check for each; a caller-owned PostgreSQL
+transaction stays on its owner task. No indexed ACL or process TTL grants access.
+
+Feed and Track views read the ranked selection using optional `entry_ids` on
+the ordinary list endpoints (up to 50 unique IDs, intersected before pagination).
+The same workspace, App/Track/view filters and canonical access admission apply.
+The UI preserves retrieval order, stops automatic paging during a search and
+does not replay 429/5xx errors through a compatibility endpoint. Retry is explicit.
 
 `k` defaults to `RETRIEVE_K_DEFAULT` (150, cap 500), `top_n` to
 `RETRIEVE_TOP_N_DEFAULT` (20, cap 50). Omitted request values honor deployment
@@ -241,9 +277,9 @@ Example passage request:
 
 Current Track configuration authority in the bound workspace is required:
 
-- `GET /api/tracks/{id}/search-index`: storage AND encoder readiness, jobs,
-  bounded comparison of canonical source hashes, delivery receipts and actual
-  stored passage hashes. `coverage_complete` is a point-in-time observation,
+- `GET /api/tracks/{id}/search-index`: storage readiness, jobs and bounded comparison
+  of canonical source hashes, delivery receipts and vector/lexical integrity manifests.
+  It performs no inference and does not assert encoder health. `coverage_complete` is a point-in-time observation,
   never a future guarantee; over 1000 sources/jobs is explicitly truncated.
 - `PUT /api/tracks/{id}/search-index`: validate/save a complete declaration and
   retain a rebuild request and revision-bound audit intent in the same transaction.
@@ -267,7 +303,8 @@ pgvector integration tests on a disposable database:
 SEMANTIC_TEST_DSN=postgresql://user@127.0.0.1:5432/disposable \
 TESTING=1 INTEGRAL_RUN_SLOW_TESTS=1 backend/.venv/bin/python -m pytest \
   backend/tests/test_semantic_index_definitions.py \
-  backend/tests/test_semantic_indexing_pg.py -o addopts='' -q
+  backend/tests/test_semantic_indexing_pg.py \
+  backend/tests/test_semantic_search_hardening_pg.py -o addopts='' -q
 ```
 
 For parity with the PostgreSQL CI lane, also set `INTEGRAL_TEST_DB=postgres`

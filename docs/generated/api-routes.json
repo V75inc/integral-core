@@ -2589,7 +2589,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "list_entries",
-    "line": 337
+    "line": 341
   },
   {
     "path": "/entries",
@@ -2598,7 +2598,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "create_entry",
-    "line": 385
+    "line": 391
   },
   {
     "path": "/entries/{entry_id}",
@@ -2607,7 +2607,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "delete_entry",
-    "line": 719
+    "line": 725
   },
   {
     "path": "/entries/{entry_id}",
@@ -2616,7 +2616,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry",
-    "line": 495
+    "line": 501
   },
   {
     "path": "/entries/{entry_id}",
@@ -2625,7 +2625,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "update_entry",
-    "line": 541
+    "line": 547
   },
   {
     "path": "/entries/{entry_id}/reactions",
@@ -2634,7 +2634,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_reaction",
-    "line": 848
+    "line": 854
   },
   {
     "path": "/entries/{entry_id}/reactions",
@@ -2643,7 +2643,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "select_reaction",
-    "line": 854
+    "line": 860
   },
   {
     "path": "/entries/{entry_id}/reactions/{emoji}",
@@ -2652,7 +2652,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_reaction",
-    "line": 867
+    "line": 873
   },
   {
     "path": "/entries/{entry_id}/tags",
@@ -2661,7 +2661,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_tag_to_entry",
-    "line": 815
+    "line": 821
   },
   {
     "path": "/entries/{entry_id}/tags/{tag_id}",
@@ -2670,7 +2670,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_tag_from_entry",
-    "line": 825
+    "line": 831
   },
   {
     "path": "/entries/{entry_id}/unwatch",
@@ -2679,7 +2679,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "unwatch_entry",
-    "line": 953
+    "line": 959
   },
   {
     "path": "/entries/{entry_id}/watch",
@@ -2688,7 +2688,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "watch_entry",
-    "line": 923
+    "line": 929
   },
   {
     "path": "/entries/{entry_id}/watchers",
@@ -2697,7 +2697,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry_watchers",
-    "line": 875
+    "line": 881
   },
   {
     "path": "/entries/{entry_id}/precompute",
@@ -2841,7 +2841,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "get_feed",
-    "line": 25
+    "line": 29
   },
   {
     "path": "/feed_entries",
@@ -2850,7 +2850,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "get_feed_entries",
-    "line": 106
+    "line": 112
   },
   {
     "path": "/feed_entries",
@@ -2859,7 +2859,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "create_feed_entry",
-    "line": 132
+    "line": 140
   },
   {
     "path": "/feed_entries/{entry_id}",
@@ -2868,7 +2868,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "delete_feed_entry",
-    "line": 172
+    "line": 180
   },
   {
     "path": "/feed_entries/{entry_id}",
@@ -2877,7 +2877,7 @@
     ],
     "source": "backend/app/api/feed.py",
     "handler": "update_feed_entry",
-    "line": 154
+    "line": 162
   },
   {
     "path": "/graph-context",
@@ -3795,7 +3795,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "post_promote_scratch_entry",
-    "line": 1291
+    "line": 1296
   },
   {
     "path": "/tracks/{track_id}",
@@ -3831,7 +3831,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "list_collaborators",
-    "line": 716
+    "line": 721
   },
   {
     "path": "/tracks/{track_id}/collaborators",
@@ -3840,7 +3840,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "add_collaborator",
-    "line": 690
+    "line": 695
   },
   {
     "path": "/tracks/{track_id}/collaborators/{collaborator_user_id}",
@@ -3849,7 +3849,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "remove_collaborator",
-    "line": 1121
+    "line": 1126
   },
   {
     "path": "/tracks/{track_id}/collaborators/{collaborator_user_id}",
@@ -3858,7 +3858,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "update_collaborator_role",
-    "line": 1146
+    "line": 1151
   },
   {
     "path": "/tracks/{track_id}/detail",
@@ -3885,7 +3885,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "add_exclusion",
-    "line": 1180
+    "line": 1185
   },
   {
     "path": "/tracks/{track_id}/exclusions/{user_id_to_restore}",
@@ -3894,7 +3894,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "remove_exclusion",
-    "line": 1215
+    "line": 1220
   },
   {
     "path": "/tracks/{track_id}/mention-candidates",
@@ -3903,7 +3903,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "list_mention_candidates",
-    "line": 952
+    "line": 957
   },
   {
     "path": "/tracks/{track_id}/operational-model",
@@ -3939,7 +3939,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "post_transfer_track_ownership",
-    "line": 1245
+    "line": 1250
   },
   {
     "path": "/tracks/{track_id}/unwatch",
@@ -3948,7 +3948,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "unwatch_track",
-    "line": 1410
+    "line": 1415
   },
   {
     "path": "/tracks/{track_id}/watch",
@@ -3957,7 +3957,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "watch_track",
-    "line": 1379
+    "line": 1384
   },
   {
     "path": "/tracks/{track_id}/watchers",
@@ -3966,7 +3966,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "get_track_watchers",
-    "line": 1328
+    "line": 1333
   },
   {
     "path": "/public-share/track/{token}",

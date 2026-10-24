@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from typing import Any
 
 from app.api.errors import BadRequestError, InsufficientPermissionsError
@@ -13,6 +16,8 @@ from app.services.policy_engine import evaluate
 from .embedding_configuration import resolve_workspace_embedding_profile
 from .indexing import index_document
 from .passage_store import passage_store
+
+logger = logging.getLogger(__name__)
 
 
 async def _eligible_scope(subject, workspace_id, scope, identities):
@@ -198,6 +203,16 @@ async def retrieve_passages(
     from .embedding_model import passage_tokenizer
     from .profile_encoder import encode_profile
 
+    started = time.perf_counter()
+    timings = {}
+    mark = started
+
+    def phase(name):
+        nonlocal mark
+        now = time.perf_counter()
+        timings[name] = round((now - mark) * 1000, 2)
+        mark = now
+
     scope = payload.scope or ""
     workspace_id = active_workspace_id()
     if scope.startswith("workspace:"):
@@ -241,22 +256,36 @@ async def retrieve_passages(
         granted_entries = await direct_entries(subject, workspace_id, scope)
     try:
         profile = await resolve_workspace_embedding_profile(workspace_id)
-    except ValueError:
-        from .embedding_store import EmbeddingStoreUnavailable
+    except Exception:
+        if payload.mode != "graph":
+            raise
+        # Text search is independent of a broken private provider reference.
+        from .index_definition import embedding_profile
 
-        raise EmbeddingStoreUnavailable(
-            "The search profile needs a configuration update"
-        ) from None
+        try:
+            profile = embedding_profile()
+        except (ValueError, OSError) as exc:
+            from .profile_encoder import WorkspaceEmbeddingUnavailable
+
+            raise WorkspaceEmbeddingUnavailable(
+                "The deployment search model needs a configuration update"
+            ) from exc
     store = passage_store(driver, profile)
+    phase("admission_ms")
     tokenizer = await passage_tokenizer()
     query_tokens = tokenizer.encode(payload.query, add_special_tokens=False)
     if len(query_tokens.ids) > 240:
         raise BadRequestError(message="Use a shorter search phrase")
-    query_vec = (
-        [1.0] + [0.0] * (profile.dimensions - 1)
-        if payload.mode == "graph"
-        else (await encode_profile([payload.query], profile))[0]
-    )
+    phase("tokenizer_ms")
+    from .encoding_runtime import interactive_encoding
+
+    with interactive_encoding():
+        query_vec = (
+            [1.0] + [0.0] * (profile.dimensions - 1)
+            if payload.mode == "graph"
+            else (await encode_profile([payload.query], profile))[0]
+        )
+    phase("encoding_ms")
     candidates = await store.search(
         query_vec,
         workspace_id=workspace_id,
@@ -267,6 +296,7 @@ async def retrieve_passages(
         direct_entry_ids=granted_entries,
         eligible_entry_ids=eligible,
     )
+    phase("ranking_ms")
     budget = payload.context_tokens
     results: dict[str, RetrievedEntry] = {}
     current_documents = {}
@@ -275,58 +305,94 @@ async def retrieve_passages(
     from app.services.resource_location import locate_resources
 
     records: dict[str, dict[str, Any]] = {}
-    locations = await locate_resources(
-        "entry",
-        list(dict.fromkeys(c["entry_id"] for c in candidates)),
-        workspace_hints=[workspace_id],
-        allowed_app_states=DATA_APP_STATES,
-        records_out=records,
-    )
+    locations: dict[str, Any] = {}
+    attempted = set()
     schemas: dict[str, Any] = {}
     dropped = 0
-    for candidate in candidates:
+
+    async def prepare(identity):
+        """Keep ordinary per-item policy checks; overlap only bounded read I/O."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
+
+        record = records.get(identity)
+        entry = (
+            await get_default_context()._deserialize_entity(Entry, record)
+            if record and locations.get(identity)
+            else None
+        )
+        document, denied = None, False
+        if entry:
+            with isolated_permissions_cache():
+                decision = await evaluate(
+                    subject=subject,
+                    action="entry.read",
+                    resource=Resource(
+                        kind="entry", id=identity, scope=f"track:{entry.track_id}"
+                    ),
+                )
+            denied = not decision.allowed
+            if decision.allowed:
+                document = await index_document(
+                    entry, location=locations[identity], schemas=schemas
+                )
+                if document and (
+                    document["workspace_id"] != workspace_id
+                    or (
+                        document["track_id"] not in tracks
+                        and identity not in granted_entries
+                    )
+                    or (
+                        scope.startswith("app:")
+                        and document["app_id"] != scope.split(":", 1)[1]
+                    )
+                ):
+                    document = None
+        return entry, document, denied
+
+    for position, candidate in enumerate(candidates):
         identity = candidate["entry_id"]
         if identity not in results and len(results) >= top_n:
             continue
         if identity not in current_documents:
-            record = records.get(identity)
-            entry = (
-                await get_default_context()._deserialize_entity(Entry, record)
-                if record and locations.get(identity)
-                else None
+            page = list(
+                dict.fromkeys(
+                    c["entry_id"]
+                    for c in candidates[position:]
+                    if c["entry_id"] not in attempted
+                )
+            )[: max(5, min(20, top_n * 2))]
+            attempted.update(page)
+            locations.update(
+                await locate_resources(
+                    "entry",
+                    page,
+                    workspace_hints=[workspace_id],
+                    allowed_app_states=DATA_APP_STATES,
+                    records_out=records,
+                )
             )
-            document = None
-            if entry:
-                # Authorize before composing, exposing titles, text or metadata.
-                from app.middleware.permissions_cache import isolated_permissions_cache
+            # Four independent canonical checks at a time; never fan out over
+            # the corpus or substitute cached/indexed ACLs for current policy.
+            # A caller-owned transaction is task/connection affine: keep every
+            # read on its owner task rather than spawning concurrent children.
+            from app.services.entry_write_scope import is_postgres_entry_transaction
 
-                with isolated_permissions_cache():
-                    decision = await evaluate(
-                        subject=subject,
-                        action="entry.read",
-                        resource=Resource(
-                            kind="entry", id=identity, scope=f"track:{entry.track_id}"
-                        ),
+            serial = is_postgres_entry_transaction(get_default_context().database)
+            for start in range(0, len(page), 4):
+                batch = page[start : start + 4]
+                prepared = (
+                    [await prepare(eid) for eid in batch]
+                    if serial
+                    else await asyncio.gather(
+                        *(prepare(eid) for eid in batch), return_exceptions=True
                     )
-                if decision.allowed:
-                    document = await index_document(
-                        entry, location=locations[identity], schemas=schemas
-                    )
-                    if document and (
-                        document["workspace_id"] != workspace_id
-                        or (
-                            document["track_id"] not in tracks
-                            and identity not in granted_entries
-                        )
-                        or (
-                            scope.startswith("app:")
-                            and document["app_id"] != scope.split(":", 1)[1]
-                        )
-                    ):
-                        document = None
-                else:
-                    dropped += 1
-            current_documents[identity] = (entry, document)
+                )
+                for eid, item in zip(batch, prepared):
+                    if isinstance(item, BaseException):
+                        raise item
+                    entry, document, denied = item
+                    current_documents[eid] = (entry, document)
+                    dropped += int(denied)
         entry, document = current_documents[identity]
         if not document or document["source_hash"] != candidate["source_hash"]:
             continue
@@ -381,10 +447,13 @@ async def retrieve_passages(
                 mode_origin=(
                     ["graph"]
                     if payload.mode == "graph"
-                    else (
-                        ["graph", "semantic"]
-                        if payload.mode == "hybrid" and candidate["lexical_match"]
-                        else ["semantic"]
+                    else (["graph"] if candidate.get("lexical_match") else [])
+                    + (
+                        ["semantic"]
+                        if candidate.get(
+                            "vector_match", not candidate.get("lexical_match")
+                        )
+                        else []
                     )
                 ),
                 snippet=passage[:200],
@@ -409,4 +478,7 @@ async def retrieve_passages(
                 tokens=used,
             )
         )
+    phase("validation_packing_ms")
+    timings["total_ms"] = round((time.perf_counter() - started) * 1000, 2)
+    logger.info("retrieval stages: %s", timings)
     return list(results.values()), dropped, len(candidates), payload.mode, False

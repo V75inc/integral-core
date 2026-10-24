@@ -191,7 +191,15 @@ async def test_native_transport_never_uses_ambient_key_or_remote_workspace_in_te
 
 
 @pytest.mark.parametrize(
-    "vectors", [[[]], [[float("nan")] * 16], [[0.0] * 15], [[False] * 16]]
+    "vectors",
+    [
+        [[]],
+        [[float("nan")] * 16],
+        [[0.0] * 15],
+        [[False] * 16],
+        [[0.0] * 16],
+        [[1e308] * 16],
+    ],
 )
 async def test_malformed_provider_vectors_fail_closed(monkeypatch, vectors):
     user, workspace, connection, body = await fixture()
