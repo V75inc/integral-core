@@ -336,3 +336,45 @@ async def test_private_app_skills_offered_outside_focus_only_to_app_users():
             == {}
         )
     assert private_docs(await compose_workspace_agent_profile(ws.id)) == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_paged_editor_never_counts_or_names_inaccessible_app_skills():
+    from app.agentive.services.agent_skills import browse_skills
+    from app.schemas.agentive.agent_skills import SkillBrowseQuery
+
+    owner = await _user("browse-owner@skill-scope.test")
+    member = await _user("browse-member@skill-scope.test")
+    ws = await _org_workspace(owner)
+    await member.connect(ws, edge=IS_MEMBER_OF, role="member", joined_at=utc_now_iso())
+    visible = await _app_with_skill(
+        name="Visible",
+        slug="browse-visible",
+        workspace_id=ws.id,
+        owner_id=owner.id,
+        skill_key="visible_skill",
+        private=True,
+    )
+    hidden = await _app_with_skill(
+        name="Hidden",
+        slug="browse-hidden",
+        workspace_id=ws.id,
+        owner_id=owner.id,
+        skill_key="hidden_skill",
+        private=True,
+    )
+    await member.connect(visible, edge=COLLABORATES_ON, role="viewer")
+    page = await browse_skills(
+        ws.id, user_id=member.id, query=SkillBrowseQuery(source="app", page_size=1)
+    )
+    assert page["total"] == 1
+    assert page["skills"][0]["key"] == "visible_skill"
+    assert page["apps"] == [{"id": visible.id, "name": "Visible"}]
+    guessed = await browse_skills(
+        ws.id,
+        user_id=member.id,
+        query=SkillBrowseQuery(app_id=hidden.id, search="hidden"),
+    )
+    assert guessed["total"] == 0 and guessed["skills"] == []
+    assert hidden.id not in {app["id"] for app in guessed["apps"]}

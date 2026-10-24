@@ -22,6 +22,7 @@ class SkillSummaryResponse(BaseModel):
     kind: str = "declarative"
     app_id: str = ""
     app_slug: str = ""
+    app_name: str = ""
     namespaced_name: str = ""
     origin: str = "bundle"
     enabled: bool = True
@@ -48,6 +49,28 @@ class SkillDetailResponse(SkillSummaryResponse):
     prompt_template_ref: Optional[str] = None
     handler_ref: Optional[str] = None
     warnings: List[SkillComplianceWarning] = Field(default_factory=list)
+
+
+class SkillBrowseQuery(BaseModel):
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=10, ge=1, le=50)
+    search: str = Field(default="", max_length=120)
+    source: Literal["all", "core", "app", "workspace"] = "all"
+    app_id: str = Field(default="", max_length=200)
+
+
+class SkillBrowseApp(BaseModel):
+    id: str
+    name: str
+
+
+class SkillBrowseResponse(BaseModel):
+    skills: List[SkillSummaryResponse] = Field(default_factory=list)
+    apps: List[SkillBrowseApp] = Field(default_factory=list)
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class SkillCreateRequest(BaseModel):

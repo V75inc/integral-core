@@ -62,3 +62,21 @@ left marked active after its required instruction body is discarded. Pending
 staging/effect continuations protect their task, and final context admission
 stops oversized protected work safely. App uninstall, permission checks and
 profile invalidation remain Core authorities; context retention grants none.
+
+## Skills settings browsing
+
+The settings page uses `GET /api/agentive/skills/browse` with `page`,
+`page_size` (default 10, maximum 50), `search`, `source` and optional `app_id`.
+Search matches saved skill names/keys and App names. Counts and App choices
+come only from the caller-visible inventory; supplying an inaccessible App ID
+cannot reveal its skills or counts. Existing list and effective-context APIs
+retain their contracts.
+
+Paging precedes on-disk description enrichment. Only the selected page is
+returned, and full instructions load when a skill is opened. The graph registry
+still resolves the authorized inventory before paging: this is not a claim of
+constant-time database discovery. The initial UI does not compose a runtime
+profile or fetch the tool catalogue. The secondary “Inspect agent access” action
+opens a dialog on demand, shows one paged collection at a time, and resets on
+workspace changes. Tool autocomplete loads
+only when creating or editing a skill. Mutation feedback uses toasts.

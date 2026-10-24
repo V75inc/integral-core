@@ -25,6 +25,7 @@ from app.agentive.workspace_agent_profile import (
 from app.exceptions import InvalidToolReferenceError
 from app.models.edges import CONTAINS
 from app.models.nodes import App, Skill, Workspace
+from app.schemas.agentive.agent_skills import SkillBrowseQuery
 from app.utils.time import utc_now_iso
 
 _RESIDENT_AGENT_NAMESPACE = "integral"
@@ -361,6 +362,7 @@ def skill_summary(
         "kind": getattr(skill, "kind", "declarative"),
         "app_id": getattr(skill, "app_id", ""),
         "app_slug": app_slug,
+        "app_name": str(getattr(app, "name", "") or app_slug) if app else "",
         "namespaced_name": namespaced,
         "origin": origin,
         "enabled": bool(getattr(skill, "enabled", True)),
@@ -380,6 +382,7 @@ async def list_workspace_skills(
     user_id: str,
     private_app_id: str | None = None,
     include_private: bool = True,
+    include_metadata: bool = True,
 ) -> List[Dict[str, Any]]:
     """List caller-visible skills, with private inclusion defaulting to editor mode.
 
@@ -418,7 +421,7 @@ async def list_workspace_skills(
 
     async def metadata(skill: Skill, app: Optional[App]) -> Tuple[str, List[str]]:
         nonlocal bundle_specs
-        if app is None:
+        if app is None or not include_metadata:
             return "", []
         if app.id not in bundle_dirs:
             if bundle_specs is None:
@@ -490,6 +493,97 @@ async def list_workspace_skills(
                 row["description"] = disk_desc
         out.append(row)
     return out
+
+
+async def browse_skills(
+    workspace_id: str, *, user_id: str, query: SkillBrowseQuery
+) -> dict:
+    """Page the authorized inventory before disk enrichment, never cache authority.
+
+    The existing registry resolves graph membership and caller access across
+    the inventory. Paging bounds response size and file reads; it does not
+    claim to make that authorization inventory scan sublinear. Search uses
+    saved names/keys/App names, so it never reads every instruction file.
+    """
+    core = (
+        await asyncio.to_thread(list_core_skills)
+        if query.source in {"all", "core"}
+        else []
+    )
+    overlay = (
+        await list_workspace_skills(
+            workspace_id, user_id=user_id, include_metadata=False
+        )
+        if query.source != "core"
+        else []
+    )
+    apps = {
+        row["app_id"]: row.get("app_name") or row.get("app_slug") or "App"
+        for row in overlay
+        if row.get("app_id")
+    }
+    search = query.search.strip().casefold()
+    rows = [
+        row
+        for row in core + overlay
+        if (query.source == "all" or row["source"] == query.source)
+        and (not query.app_id or row.get("app_id") == query.app_id)
+        and (
+            not search
+            or search
+            in " ".join(
+                str(row.get(key) or "")
+                for key in ("name", "key", "namespaced_name", "app_slug", "app_name")
+            ).casefold()
+        )
+    ]
+    rows.sort(key=lambda row: (row["name"].casefold(), row["id"]))
+    total = len(rows)
+    total_pages = max(1, (total + query.page_size - 1) // query.page_size)
+    page = min(query.page, total_pages)
+    selected = rows[(page - 1) * query.page_size : page * query.page_size]
+    # Only visible rows need a description fallback. Tool lists and full
+    # instructions belong to the detail view, never the browsing request.
+    missing_descriptions = [
+        row
+        for row in selected
+        if row["source"] != "core" and row.get("app_id") and not row.get("description")
+    ]
+    if missing_descriptions:
+        from app.services.operational_model_library_sync import (
+            load_library_bundle_index_async,
+        )
+
+        _, specs = await load_library_bundle_index_async()
+        directories: dict[str, Optional[Path]] = {}
+        for row in missing_descriptions:
+            skill = await Skill.get(row["id"])
+            if skill is not None:
+                app_id = row["app_id"]
+                if app_id not in directories:
+                    app = await App.get(app_id)
+                    directories[app_id] = (
+                        await _resolve_bundle_dir_async(app, bundle_specs=specs)
+                        if app is not None
+                        else None
+                    )
+                description, _ = await asyncio.to_thread(
+                    _read_skill_disk_metadata, skill, directories[app_id]
+                )
+                row["description"] = description
+    return {
+        "skills": selected,
+        "apps": [
+            {"id": app_id, "name": name}
+            for app_id, name in sorted(
+                apps.items(), key=lambda item: (item[1].casefold(), item[0])
+            )
+        ],
+        "total": total,
+        "page": page,
+        "page_size": query.page_size,
+        "total_pages": total_pages,
+    }
 
 
 async def get_skill_detail(
