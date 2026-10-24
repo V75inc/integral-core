@@ -6,6 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc32 — 2026-10-24
+
+- Bound resident-harness context and model-call history, improve turn compaction and refresh the qualified Pydantic AI runtime.
+- Renew active sessions consistently across hosted and desktop deployments, and show the installed Integral Core version in Settings → About.
+- Expose permission-scoped App passage search through the SDK while preserving caller visibility and workspace boundaries.
+- Make timeout and PostgreSQL dispatch-lease regression checks deterministic under release-test load.
+
 ## 0.1.1rc31 — 2026-10-23
 
 - Simplify provider setup and chat model controls, improve model settings feedback, and make lengthy messages and usage details easier to read.
