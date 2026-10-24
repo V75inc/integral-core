@@ -1,3 +1,4 @@
+import { isHostManagedSession } from '../../../api/sessionRuntime';
 import { isModelSetupFailure } from "../components/assistantMessagePresentation";
 import { aiChatApi } from "../../../api/aiChat";
 import { getActiveScopeHeader } from "../../../api/client";
@@ -114,6 +115,10 @@ export function createServerChatProvider({
     let clientFirstToolMs: number | undefined;
     let lastTiming: import('./types').ChatLatency | undefined;
     await checkSessionDeadline();
+    if (isHostManagedSession() && !getAccessToken()) {
+      yield { type: "error", code: "runtime_unavailable", message: "Your local workspace is reconnecting. Try again when it is ready." };
+      return;
+    }
     if (isSessionPaused()) {
       yield { type: "error", code: "session_renewal_required",
         message: "Renew your session, then send your message again." };
@@ -368,6 +373,10 @@ export function createServerChatProvider({
       );
       try {
         await checkSessionDeadline();
+        if (isHostManagedSession() && !getAccessToken()) {
+          yield { type: "error", code: "runtime_unavailable", message: "Your local workspace is reconnecting. Reopen this conversation when it is ready." };
+          return;
+        }
         if (isSessionPaused()) {
           yield { type: "error", code: "session_renewal_required",
             message: "Renew your session, then reopen this conversation to check the saved response." };

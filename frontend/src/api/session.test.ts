@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearTokens, getAccessToken, getRefreshToken, pauseForSessionRenewal, refreshAccessToken, setTokens, markActivity, checkSessionDeadline } from './session';
+import { clearTokens, getAccessToken, getRefreshToken, pauseForSessionRenewal, refreshAccessToken, setTokens, markActivity, checkSessionDeadline, installActivityListeners } from './session';
 import { applySessionPolicy, getSessionPolicy } from './sessionPolicy';
 import { enableSessionRecovery, getSessionRecovery } from './sessionRecovery';
 
@@ -59,26 +59,26 @@ describe('session renewal lifecycle', () => {
     expect(getSessionRecovery()).toBe('renew');
   });
 
-  it('locks at expiry, retains the refresh token and does not count polling as activity', async () => {
+  it('ends an expired idle session without showing an inactivity prompt', async () => {
     const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { access_token: 'renewed' } });
     setTokens({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600 });
     await vi.advanceTimersByTimeAsync(3_600_000);
     expect(post).not.toHaveBeenCalled();
-    expect(getSessionRecovery()).toBe('renew');
+    expect(getSessionRecovery()).toBeNull();
     expect(getAccessToken()).toBeNull();
-    expect(getRefreshToken()).toBe('refresh');
+    expect(getRefreshToken()).toBeNull();
   });
 
-  it('requires credentials after an authoritative refresh rejection without discarding page scope', async () => {
+  it('ends the session after an authoritative refresh rejection', async () => {
     localStorage.setItem('t75_user', JSON.stringify({ id: 'owner' }));
     localStorage.setItem('integral.scope', 'retained');
     setTokens({ access_token: 'access', refresh_token: 'refresh', expires_in: 60 });
     vi.spyOn(axios, 'post').mockRejectedValue({ response: { status: 401 } });
     expect(await refreshAccessToken()).toBeNull();
-    expect(getSessionRecovery()).toBe('signin');
+    expect(getSessionRecovery()).toBeNull();
     expect(getRefreshToken()).toBeNull();
     expect(getAccessToken()).toBeNull();
-    expect(localStorage.getItem('integral.scope')).toBe('retained');
+    expect(localStorage.getItem('integral.scope')).toBeNull();
   });
 
   it.each([429, 503])('retains renewable credentials after HTTP %s', async status => {
@@ -86,7 +86,7 @@ describe('session renewal lifecycle', () => {
     vi.spyOn(axios, 'post').mockRejectedValue({ response: { status } });
     expect(await refreshAccessToken()).toBeNull();
     pauseForSessionRenewal();
-    expect(getSessionRecovery()).toBe('renew');
+    expect(getSessionRecovery()).toBeNull();
     expect(getRefreshToken()).toBe('refresh');
   });
 
@@ -183,4 +183,81 @@ describe('refresh rotation and account boundaries', () => {
     expect(await pending).toBeNull();
     expect(getAccessToken()).toBe('different-login');
   });
+});
+
+
+describe('inactivity session boundaries', () => {
+  it.each(['/login', '/signup', '/forgot-password', '/reset-password', '/verify-email', '/credentials-delivery-verify.html', '/public/tracks/shared'])('does not lock the public page %s with stale credentials', async path => {
+    window.history.replaceState({}, '', path);
+    try {
+      applySessionPolicy({ idle_timeout_seconds: 60 });
+      setTokens({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600 });
+      await vi.advanceTimersByTimeAsync(61_000);
+      markActivity();
+      pauseForSessionRenewal();
+      expect(getSessionRecovery()).toBeNull();
+    } finally { window.history.replaceState({}, '', '/'); }
+  });
+
+  it('cannot lock or record activity after logout, even when the timer deadline passes', async () => {
+    applySessionPolicy({ idle_timeout_seconds: 60 });
+    setTokens({ access_token: 'access', expires_in: 3600 });
+    clearTokens();
+    await vi.advanceTimersByTimeAsync(61_000);
+    markActivity();
+    pauseForSessionRenewal();
+    expect(getSessionRecovery()).toBeNull();
+    expect(localStorage.getItem('t75_last_activity_at')).toBeNull();
+  });
+
+  it('expires a session while the inactivity lock is open', async () => {
+    applySessionPolicy({ idle_timeout_seconds: 60 });
+    setTokens({ access_token: 'access', refresh_token: 'refresh', expires_in: 120 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(getSessionRecovery()).toBe('renew');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(getSessionRecovery()).toBeNull();
+    expect(getAccessToken()).toBeNull();
+    expect(getRefreshToken()).toBeNull();
+  });
+
+  it('gives expiry precedence over a missed idle deadline', () => {
+    applySessionPolicy({ idle_timeout_seconds: 60 });
+    setTokens({ access_token: 'access', expires_in: 120 });
+    vi.setSystemTime(Date.now() + 121_000);
+    markActivity();
+    expect(getSessionRecovery()).toBeNull();
+    expect(getAccessToken()).toBeNull();
+  });
+
+  it('does not treat tab visibility as human activity', async () => {
+    installActivityListeners();
+    setTokens({ access_token: 'access', expires_in: 3600 });
+    const activity = localStorage.getItem('t75_last_activity_at');
+    await vi.advanceTimersByTimeAsync(10_000);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(localStorage.getItem('t75_last_activity_at')).toBe(activity);
+  });
+
+  it('does not inherit a previous login refresh token', () => {
+    setTokens({ access_token: 'old', refresh_token: 'old-refresh', expires_in: 60 });
+    setTokens({ access_token: 'new', expires_in: 60 });
+    expect(getRefreshToken()).toBeNull();
+  });
+});
+
+it('keeps an expiry watchdog after a pending refresh completes behind the idle lock', async () => {
+  applySessionPolicy({ idle_timeout_seconds: 10 });
+  setTokens({ access_token: 'old', refresh_token: 'refresh', expires_in: 60 });
+  let resolve!: (value: unknown) => void;
+  vi.spyOn(axios, 'post').mockImplementation(() => new Promise(done => { resolve = done; }));
+  const pending = refreshAccessToken();
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(getSessionRecovery()).toBe('renew');
+  resolve({ data: { access_token: 'new', refresh_token: 'rotated', expires_in: 30 } });
+  await pending;
+  expect(getSessionRecovery()).toBe('renew');
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(getSessionRecovery()).toBeNull();
+  expect(getAccessToken()).toBeNull();
 });
