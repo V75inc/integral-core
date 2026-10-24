@@ -73,64 +73,70 @@ def encoder_artifact(model_name: str = _DEFAULT_NAME) -> EncoderArtifact:
     return EncoderArtifact(repo, revision.lower(), filename, pooling, tuple(files))
 
 
+def artifact_path(artifact: EncoderArtifact, filename: str) -> str:
+    """Read a pinned artifact without importing the inference runtime."""
+    from huggingface_hub import hf_hub_download
+
+    cache = os.getenv("EMBEDDING_MODEL_CACHE_PATH") or os.getenv("FASTEMBED_CACHE_PATH")
+    return str(
+        hf_hub_download(
+            artifact.repository,
+            filename,
+            revision=artifact.revision,
+            cache_dir=cache,
+            local_files_only=os.getenv("HF_HUB_OFFLINE", "").lower() in {"1", "true"},
+        )
+    )
+
+
+def load_tokenizer(artifact: EncoderArtifact) -> Any:
+    """Load the unchanged composition tokenizer without loading ONNX weights."""
+    from pathlib import Path
+
+    from tokenizers import AddedToken, Tokenizer
+
+    def read(filename: str):
+        return json.loads(Path(artifact_path(artifact, filename)).read_text())
+
+    tokenizer_config = read("tokenizer_config.json")
+    config = read("config.json")
+    special = read("special_tokens_map.json")
+    tokenizer = Tokenizer.from_file(artifact_path(artifact, "tokenizer.json"))
+    limits = [
+        tokenizer_config[k]
+        for k in ("model_max_length", "max_length")
+        if k in tokenizer_config
+    ]
+    if not limits or not 2 <= int(min(limits)) <= 32768:
+        raise ValueError("The search tokenizer needs a bounded model token limit")
+    tokenizer.enable_truncation(max_length=int(min(limits)))
+    if not tokenizer.padding:
+        tokenizer.enable_padding(
+            pad_id=int(config.get("pad_token_id", 0)),
+            pad_token=tokenizer_config["pad_token"],
+        )
+    for token in special.values():
+        tokenizer.add_special_tokens(
+            [AddedToken(**token) if isinstance(token, dict) else token]
+        )
+    return tokenizer
+
+
 class OnnxTextEncoder:
     """Bounded CPU encoder with the existing encode/embedding batch surface."""
 
     def __init__(self, artifact: EncoderArtifact, threads: int) -> None:
         import onnxruntime as ort
-        from huggingface_hub import hf_hub_download
-        from tokenizers import AddedToken, Tokenizer
 
-        cache = os.getenv("EMBEDDING_MODEL_CACHE_PATH") or os.getenv(
-            "FASTEMBED_CACHE_PATH"
-        )
-
-        def download(filename: str) -> str:
-            return str(
-                hf_hub_download(
-                    artifact.repository,
-                    filename,
-                    revision=artifact.revision,
-                    cache_dir=cache,
-                    local_files_only=os.getenv("HF_HUB_OFFLINE", "").lower()
-                    in {"1", "true"},
-                )
-            )
-
-        from pathlib import Path
-
-        tokenizer_config = json.loads(
-            Path(download("tokenizer_config.json")).read_text()
-        )
-        config = json.loads(Path(download("config.json")).read_text())
-        special = json.loads(Path(download("special_tokens_map.json")).read_text())
-        tokenizer = Tokenizer.from_file(download("tokenizer.json"))
-        limits = [
-            tokenizer_config[k]
-            for k in ("model_max_length", "max_length")
-            if k in tokenizer_config
-        ]
-        if not limits or not 2 <= int(min(limits)) <= 32768:
-            raise ValueError("The search tokenizer needs a bounded model token limit")
-        tokenizer.enable_truncation(max_length=int(min(limits)))
-        if not tokenizer.padding:
-            tokenizer.enable_padding(
-                pad_id=int(config.get("pad_token_id", 0)),
-                pad_token=tokenizer_config["pad_token"],
-            )
-        for token in special.values():
-            tokenizer.add_special_tokens(
-                [AddedToken(**token) if isinstance(token, dict) else token]
-            )
-        self.tokenizer = tokenizer
+        self.tokenizer = load_tokenizer(artifact)
         self.pooling = artifact.pooling
         options = ort.SessionOptions()
         options.intra_op_num_threads = min(16, max(1, threads))
         options.inter_op_num_threads = 1
         for extra in artifact.additional_files:
-            download(extra)
+            artifact_path(artifact, extra)
         self.session = ort.InferenceSession(
-            download(artifact.model_file),
+            artifact_path(artifact, artifact.model_file),
             sess_options=options,
             providers=["CPUExecutionProvider"],
         )

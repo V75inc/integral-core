@@ -17,7 +17,11 @@ from app.api.entries import (
 )
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
-from app.services.entry_listing import fetch_accessible_entries_page, tag_filter_clauses
+from app.services.entry_listing import (
+    fetch_accessible_entries_page,
+    selected_entry_ids,
+    tag_filter_clauses,
+)
 from app.services.request_scope import resolve_workspace_id_from_request
 
 
@@ -32,6 +36,7 @@ async def get_feed(
     include_total: bool = True,
     tag_id: Optional[str] = None,
     tag_ids: Optional[str] = None,
+    entry_ids: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get aggregated feed of entries across accessible tracks (cursor pagination).
 
@@ -89,6 +94,7 @@ async def get_feed(
         limit=limit,
         include_total=include_total,
         filters=tag_filter_clauses(tag_id, tag_ids),
+        entry_ids=selected_entry_ids(entry_ids),
     )
     page_entries, excluded_tracks = await keep_open_entries(page_entries)
     if excluded_tracks:
@@ -113,6 +119,7 @@ async def get_feed_entries(
     include_total: bool = True,
     tag_id: Optional[str] = None,
     tag_ids: Optional[str] = None,
+    entry_ids: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get feed entries for a user (alias of /feed)."""
     return await get_feed(
@@ -125,6 +132,7 @@ async def get_feed_entries(
         include_total,
         tag_id,
         tag_ids,
+        entry_ids,
     )
 
 

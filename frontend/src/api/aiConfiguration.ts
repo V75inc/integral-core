@@ -141,7 +141,12 @@ export const aiConfigurationApi = {
     profile_id: string;
     editable: boolean;
     reasoning_efforts?: Partial<Record<"heavy" | "light", string>>;
-    reasoning_choices?: Partial<Record<"heavy" | "light", { model: string; efforts: string[]; default_effort?: string | null }>>;
+    reasoning_choices?: Partial<
+      Record<
+        "heavy" | "light",
+        { model: string; efforts: string[]; default_effort?: string | null }
+      >
+    >;
     routing_mode?: "inherit" | "heavy" | "profile";
   }> {
     return (
@@ -173,9 +178,17 @@ export interface EmbeddingConfiguration {
   configuration: EmbeddingChoice;
   effective_provider: string;
   effective_model: string;
+  processing_location?: "server" | "device" | "provider";
   dimensions: number;
   profile_id: string | null;
   rebuild_status: string;
+  rebuild_phase?: string;
+  pending_model?: string;
+  pending_profile_id?: string | null;
+  enumerated?: number | null;
+  verified?: number | null;
+  rebuild_error?: string;
+  serving_available?: boolean;
   error: string;
   changed?: boolean;
 }
@@ -184,9 +197,17 @@ export const embeddingConfigurationApi = {
     return (await api.get("/users/me/embedding-configuration")).data;
   },
   async save(
-    body: EmbeddingChoice & { revision: number },
+    body: EmbeddingChoice & {
+      revision: number;
+      continue_previous_provider?: boolean;
+    },
   ): Promise<EmbeddingConfiguration> {
     return (await api.post("/users/me/embedding-configuration", body)).data;
+  },
+  async cancel(revision: number): Promise<EmbeddingConfiguration> {
+    return (
+      await api.post("/users/me/embedding-configuration/cancel", { revision })
+    ).data;
   },
   async test(
     body: EmbeddingChoice,

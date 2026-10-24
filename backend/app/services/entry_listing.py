@@ -36,6 +36,20 @@ def tag_filter_clauses(
     return [{"field": "tags", "operator": "eq", "value": ids}] if ids else []
 
 
+def selected_entry_ids(value: str | None) -> list[str] | None:
+    """Bound search-result hydration without widening workspace admission."""
+    from app.api.errors import BadRequestError
+
+    if value is None:
+        return None
+    if len(value) > 10000:
+        raise BadRequestError(message="Selected entries are too long")
+    identities = list(dict.fromkeys(v.strip() for v in value.split(",") if v.strip()))
+    if len(identities) > 50 or any(len(v) > 200 for v in identities):
+        raise BadRequestError(message="Select at most 50 entries")
+    return identities
+
+
 def _resolve_filter_value(value: Any) -> Any:
     if isinstance(value, list):
         return [resolve_relative_date(item) for item in value]
@@ -163,6 +177,7 @@ async def fetch_accessible_entries_page(
     cursor: Optional[str] = None,
     limit: int = 20,
     include_total: bool = False,
+    entry_ids: Optional[List[str]] = None,
 ) -> Tuple[List[Entry], dict]:
     """Fetch one page of entries via DB keyset pagination."""
     from app.services.entry_access_projection import candidate_query, select_page
@@ -176,6 +191,14 @@ async def fetch_accessible_entries_page(
         return [], {"total": empty, "next_cursor": None, "has_more": False}
 
     clauses: List[Dict[str, Any]] = []
+    if entry_ids is not None:
+        if not entry_ids:
+            return [], {
+                "total": 0 if include_total else None,
+                "next_cursor": None,
+                "has_more": False,
+            }
+        clauses.append({"id": {"$in": entry_ids}})
     if scope_query:
         clauses.append(scope_query)
 

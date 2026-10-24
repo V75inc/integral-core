@@ -22,6 +22,7 @@ for dated checks against a specific source or artifact.
 | [014](014-app-background-jobs.md) | Background jobs for Apps | Proposed boundary |
 | [015](015-runtime-composition.md) | Neutral local/hosted runtime and host ownership | Accepted; locally implemented and qualified |
 | [016](016-declarative-semantic-indexing.md) | Declarative, permission-aware passage indexing | Implemented in PR #162; deployment qualification pending |
+| [017](017-graph-guided-knowledge-retrieval.md) | Strengthen embedding-based hybrid semantic search | Direction accepted; initial hardening in review, migration and production qualification pending |
 
 Update the relevant ADR when a durable boundary changes. Routine implementation
 and qualification results belong in Git and the maintained release qualification record.

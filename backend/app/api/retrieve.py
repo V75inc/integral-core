@@ -326,20 +326,22 @@ async def _dispatch_retrieve_modes(
 ) -> Tuple[List[RetrievedEntry], int, int, RetrieveMode, bool]:
     """Run the requested retrieval channel with runtime vector-search fallback."""
 
+    driver = None
     try:
         from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
 
         driver = get_embedding_store()
-        if (
-            isinstance(driver, PgVectorEmbeddingStore)
-            and not degraded
-            and effective_mode != "graph"
-        ):
+        if isinstance(driver, PgVectorEmbeddingStore) and requested_mode != "graph":
             from app.services.retrieval.search_service import retrieve_passages
 
-            return await retrieve_passages(
-                subject, payload, driver=driver, k=k, top_n=top_n
+            found, dropped, examined, mode, _ = await retrieve_passages(
+                subject,
+                payload.model_copy(update={"mode": effective_mode}),
+                driver=driver,
+                k=k,
+                top_n=top_n,
             )
+            return found, dropped, examined, mode, degraded
         if effective_mode == "graph":
             results, dropped, examined = await _retrieve_graph(
                 subject, payload, k=k, top_n=top_n
@@ -359,11 +361,27 @@ async def _dispatch_retrieve_modes(
             "hybrid",
         ) or not _is_vector_store_unavailable(exc):
             raise
+        from app.services.retrieval.embedding_store import EmbeddingBusy
         from app.services.retrieval.profile_encoder import WorkspaceEmbeddingUnavailable
 
-        if not isinstance(exc, WorkspaceEmbeddingUnavailable):
+        if not isinstance(exc, (WorkspaceEmbeddingUnavailable, EmbeddingBusy)):
             disable_semantic_retrieval_runtime(type(exc).__name__)
         _warn_degraded_once(requested_mode)
+        if isinstance(driver, PgVectorEmbeddingStore):
+            try:
+                from app.services.retrieval.search_service import retrieve_passages
+
+                found, dropped, examined, _, _ = await retrieve_passages(
+                    subject,
+                    payload.model_copy(update={"mode": "graph"}),
+                    driver=driver,
+                    k=k,
+                    top_n=top_n,
+                )
+                return found, dropped, examined, "graph", True
+            except Exception as fallback_error:
+                if not _is_vector_store_unavailable(fallback_error):
+                    raise
         results, dropped, examined = await _retrieve_graph(
             subject, payload, k=k, top_n=top_n
         )

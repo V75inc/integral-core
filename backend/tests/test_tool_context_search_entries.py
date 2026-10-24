@@ -42,9 +42,10 @@ def search(monkeypatch):
     class Driver:
         pass
 
-    async def candidates(ctx, track_type, entry_type, supplied):
+    async def candidates(ctx, track_type, entry_type, supplied, *, metadata_only=False):
         calls["selection"] = (ctx, track_type, entry_type, supplied)
-        return ["e1", "e2"], False
+        calls["metadata_only"] = metadata_only
+        return ({"t1": None} if metadata_only else ["e1", "e2"]), False
 
     async def retrieve(subject, payload, **kwargs):
         calls.setdefault("retrieval", []).append((subject, payload, kwargs))
@@ -217,10 +218,34 @@ async def test_requested_mode_is_preserved(search, mode):
 
 
 async def test_scope_failure_is_stable_and_non_widening(search, monkeypatch):
-    async def absent(*args):
+    async def absent(*args, **kwargs):
         raise app_search._SearchUnavailable("track_not_found")
 
     monkeypatch.setattr(app_search, "_candidate_ids", absent)
     result = await _ctx().search_entries(query="fabric", track_type="absent")
     assert not result["available"] and result["reason"] == "track_not_found"
     assert "retrieval" not in search
+
+
+async def test_discovery_passes_governed_scope_to_ranking_instead_of_first_ids(search):
+    result = await _ctx().search_entries(query="fabric", track_type="inventory")
+    assert result["results"] and search["metadata_only"] is True
+    kwargs = search["retrieval"][0][2]
+    assert kwargs["eligible_entry_ids"] is None
+    assert kwargs["type_selection"] == {"t1": None}
+
+
+async def test_selector_change_during_ranking_discards_the_old_evidence(
+    search, monkeypatch
+):
+    calls = 0
+
+    async def changing(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return ({"t1": None} if calls == 1 else {"t2": None}), False
+
+    monkeypatch.setattr(app_search, "_candidate_ids", changing)
+    result = await _ctx().search_entries(query="fabric", track_type="inventory")
+    assert not result["available"] and result["reason"] == "selection_changed"
+    assert result["results"] == []

@@ -14,6 +14,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 |---|---|---|
 | GET | `/agentive/skills` | [list_skills](../../backend/app/agentive/api/agent_skills.py) |
 | POST | `/agentive/skills` | [create_skill](../../backend/app/agentive/api/agent_skills.py) |
+| GET | `/agentive/skills/browse` | [browse_skill_page](../../backend/app/agentive/api/agent_skills.py) |
 | GET | `/agentive/skills/effective` | [effective_skill_context](../../backend/app/agentive/api/agent_skills.py) |
 | GET | `/agentive/skills/tool-catalogue` | [tool_catalogue](../../backend/app/agentive/api/agent_skills.py) |
 | DELETE | `/agentive/skills/{skill_id}` | [delete_skill](../../backend/app/agentive/api/agent_skills.py) |
@@ -290,6 +291,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | POST | `/users/me/conversation-model` | [conversation_model](../../backend/app/api/ai_configuration.py) |
 | GET | `/users/me/embedding-configuration` | [get_embedding_configuration](../../backend/app/api/ai_configuration.py) |
 | POST | `/users/me/embedding-configuration` | [save_embedding_configuration](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/embedding-configuration/cancel` | [cancel_embedding_configuration](../../backend/app/api/ai_configuration.py) |
 | POST | `/users/me/embedding-configuration/test` | [test_embedding_configuration](../../backend/app/api/ai_configuration.py) |
 | POST | `/users/me/model-capabilities` | [capabilities](../../backend/app/api/ai_configuration.py) |
 | POST | `/users/me/model-connections` | [save_connection](../../backend/app/api/ai_configuration.py) |

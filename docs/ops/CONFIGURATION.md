@@ -61,18 +61,29 @@ is separate from the local embedding encoder.
 | Setting | Default | Purpose |
 |---|---|---|
 | `EMBEDDING_STORE_DRIVER` | auto | Resolve PostgreSQL to pgvector, configured MongoDB to Atlas, otherwise null; explicit null selects graph-only reads |
-| `EMBEDDING_MODEL_NAME` | sentence-transformers/all-MiniLM-L6-v2 | Local FastEmbed ONNX model |
+| `EMBEDDING_MODEL_NAME` | sentence-transformers/all-MiniLM-L6-v2 | Server-side CPU ONNX encoder; independent of chat models |
 | `EMBEDDING_MODEL_REVISION` | bundled-v1 | Operator-declared immutable weight/image revision; change when weights change |
 | `EMBEDDING_MODEL_DIMENSIONS` | 384 | Must match the actual encoder output |
 | `EMBEDDING_MODEL_EAGER_LOAD` | 1 in runtime; 0 in `.env.example` | Warm weights at startup or load lazily |
-| `FASTEMBED_CACHE_PATH` | FastEmbed default | Persistent/prebaked local model cache; container image uses `/opt/fastembed_cache` |
+| `EMBEDDING_MODEL_CACHE_PATH` | Hub client default when both cache variables are absent | Preferred artifact cache path; falls back to legacy `FASTEMBED_CACHE_PATH` |
+| `FASTEMBED_CACHE_PATH` | `/opt/fastembed_cache` in the container image | Legacy artifact-cache fallback; the runtime does not require FastEmbed |
 | `EMBEDDING_MODEL_THREADS` | 1 | ONNX threads per process, bounded 1–16 |
+| `EMBEDDING_NATIVE_BATCH_SIZE` | 4 | Local passages per native slice, bounded 1–16 |
+| `EMBEDDING_QUEUE_LIMIT` | 32 | Waiting local native operations per event loop, bounded 1–256 |
+| `EMBEDDING_QUEUE_TIMEOUT_MS` | 500 | Interactive local admission wait, bounded 10–5,000 ms; background wait is 30 seconds |
+| `EMBEDDING_QUERY_TIMEOUT_MS` | 1000 | Total cloud query encoding deadline, bounded 100–5,000 ms; background requests retain 40 seconds |
 | `INDEX_CHUNK_TOKENS` | 160 | Passage size; must fit the encoder's actual token limit |
 | `INDEX_OVERLAP_TOKENS` | 24 | Passage overlap, less than half the chunk size |
 | `INDEX_WORKER_INTERVAL_SECONDS` | 10 | Index worker interval, bounded 1–3600 seconds |
 | `INDEX_WORKER_BATCH_SIZE` | 16 | Delivery batch, bounded 1–128; source sweep scans at most 100 per cycle |
 | `RETRIEVE_K_DEFAULT` | 150 | Candidate budget, capped at 500 |
 | `RETRIEVE_TOP_N_DEFAULT` | 20 | Result cap, capped at 50 |
+| `RETRIEVE_ANN_ENABLED` | 0 | Opt in to managed scoped ANN after exact-oracle/load qualification; default retains exact vector ranking |
+| `RETRIEVE_EXACT_THRESHOLD` | 2000 | Admitted passage count above which a ready scoped ANN index may be used, bounded 100–100,000 |
+| `RETRIEVE_MAX_ANN_INDEXES` | 32 | Workspace/profile ANN indexes per passage table, bounded 1–128; other scopes retain exact search |
+| `RETRIEVE_ANN_EF_SEARCH` | 1000 | ANN search candidate breadth, bounded 40–1,000 and at least twice the requested candidate cap |
+| `RETRIEVE_ANN_SCAN_LIMIT` | 20000 | pgvector iterative scan tuple budget, bounded 1,000–100,000 |
+| `RETRIEVE_STATEMENT_TIMEOUT_MS` | 1500 | Ranking SQL statement deadline, bounded 50–10,000 ms |
 
 Restart after deployment changes. Model/revision/dimension/chunk/overlap changes
 create a new profile and require backfill; old vectors are never used with a new
@@ -81,6 +92,22 @@ before declaring readiness. The per-request `context_tokens` bounds passage text
 (default 1200, range 64–8192); it excludes envelope and provider prompt overhead.
 See [indexing and retrieval](../backend/semantic-indexing.md) for selection,
 permissions, failure recovery and rebuilding.
+
+On hosted installations, the default local encoder consumes server CPU and
+memory. It is shared within a process, not a deployment-wide singleton, and
+background indexing competes with interactive searches. Local inference has one
+native slot per process with bounded admission and query priority between
+batches. Use `EMBEDDING_MODEL_EAGER_LOAD=0` on cloud-only deployments: provider
+composition/token counting no longer loads ONNX weights, although other local
+search consumers can still load them on demand. With eager loading enabled,
+startup intentionally loads the local model regardless of workspace choices.
+
+The [improvement contract](../platform/knowledge-retrieval-v1.md) retains open
+resource/fleet-fairness qualification gates. These limits do not supply a measured
+capacity guarantee. Do not raise workers or replicas without satisfying the
+existing runtime transport/chat-state requirements and accounting for duplicate
+native model memory. A filled local queue degrades that search; it does not
+trigger the deployment-wide semantic cooldown.
 
 ## Secrets and credentials
 

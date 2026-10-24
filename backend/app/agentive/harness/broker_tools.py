@@ -649,10 +649,11 @@ def build_brokered_tools(
         else frozenset(always_available_tools)
     )
     if always_available_tools is None:
-        # Schema exposure only: the original run snapshot and live broker still
+        # Foundational reads need no full workflow expansion. Schema exposure
+        # only: the original run snapshot and live broker still
         # authorize dispatch. Never synthesize a missing catalogue declaration.
         immediately_available |= frozenset(
-            {"integral_get_page_context", "integral_open_view"}
+            {"integral_get_page_context", "integral_open_view", "integral_query"}
         )
     if call_state.get("approved_design_ready") or call_state.get("pending_design"):
         # A saved design reply is a semantic decision point for the primary

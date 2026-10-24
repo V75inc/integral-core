@@ -553,3 +553,43 @@ async def test_native_date_cursor_includes_explicit_null_and_missing_tail(direct
             break
         cursor = metadata["next_cursor"]
     assert actual == expected
+
+
+async def test_ranked_selection_is_bounded_before_pagination_and_rechecks_denies():
+    _, workspace, _, track, excluded = await graph()
+    reader = await reader_in(workspace)
+    await reader.connect(track, edge=COLLABORATES_ON, role="viewer")
+    await reader.connect(excluded, edge=EXCLUDED_FROM)
+    chosen = await Entry.create(title="Older chosen record", track_id=track.id)
+    await track.connect(chosen, edge=CONTAINS)
+    for i in range(5):
+        unrelated = await Entry.create(title=f"Unrelated {i}", track_id=track.id)
+        await track.connect(unrelated, edge=CONTAINS)
+    _, foreign_workspace, _, foreign_track, foreign_entry = await graph()
+    assert foreign_workspace.id != workspace.id
+    rows, metadata = await fetch_accessible_entries_page(
+        reader.id,
+        workspace_id=workspace.id,
+        entry_ids=[chosen.id, excluded.id, foreign_entry.id],
+        limit=2,
+        include_total=True,
+    )
+    assert [row.id for row in rows] == [chosen.id]
+    assert metadata["total"] == 1 and not metadata["has_more"]
+    empty, metadata = await fetch_accessible_entries_page(
+        reader.id, workspace_id=workspace.id, entry_ids=[], include_total=True
+    )
+    assert empty == [] and metadata["total"] == 0
+
+
+async def test_ranked_selection_parser_rejects_unbounded_ids():
+    from app.api.errors import BadRequestError
+    from app.services.entry_listing import selected_entry_ids
+
+    assert selected_entry_ids(None) is None
+    assert selected_entry_ids("") == []
+    assert selected_entry_ids(" e1,e1,e2 ") == ["e1", "e2"]
+    with pytest.raises(BadRequestError):
+        selected_entry_ids(",".join(f"e{i}" for i in range(51)))
+    with pytest.raises(BadRequestError):
+        selected_entry_ids("x" * 201)

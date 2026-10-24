@@ -427,8 +427,9 @@ async def _warm_embedding_model() -> None:
 
     try:
         from app.services.retrieval.embedding_model import load_model
+        from app.services.retrieval.encoding_runtime import run_encoding
 
-        await asyncio.to_thread(load_model)
+        await run_encoding(load_model)
         std_logging.getLogger("app.services.retrieval").info(
             "embedding model warm-loaded at startup"
         )

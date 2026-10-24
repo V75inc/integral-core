@@ -37,6 +37,9 @@ async def test_canonical_writes_commit_index_intent_and_rollback_together(
         row = await postgres_raw_db.get("object", identity)
         assert row and row["context"]["status"] == "pending"
         previous_hash = row["context"]["source_hash"]
+        from app.services.retrieval.migration_barrier import barrier
+
+        previous_epoch = await barrier(workspace.id)
         with pytest.raises(RuntimeError, match="rollback"):
             async with entry_write_scope(entry.id):
                 await update_entry_in_track(
@@ -48,11 +51,13 @@ async def test_canonical_writes_commit_index_intent_and_rollback_together(
         assert (await postgres_raw_db.get("object", identity))["context"][
             "source_hash"
         ] == previous_hash
+        assert await barrier(workspace.id) == previous_epoch
         await update_entry_in_track(
             entry_id=entry.id, user_id=user.id, body="Version two"
         )
         row = await postgres_raw_db.get("object", identity)
         assert row["context"]["source_hash"] != previous_hash
+        assert await barrier(workspace.id) > previous_epoch
 
 
 async def test_index_configuration_and_audit_intent_share_commit(postgres_raw_db):
@@ -183,3 +188,66 @@ async def test_first_model_configuration_creation_serializes_revisions(
             "edge", {"entity": "HasModelConfiguration", "source": workspace.id}
         )
         assert len(edges) == 1
+
+
+async def test_migration_barrier_waits_for_uncommitted_canonical_intent(
+    postgres_raw_db, monkeypatch
+):
+    import asyncio
+
+    from app.services import retrieval
+    from app.services.entry_create import create_entry_in_track
+    from app.services.entry_update import update_entry_in_track
+    from app.services.retrieval.migration_barrier import barrier
+
+    monkeypatch.setattr(
+        retrieval, "get_embedding_store", lambda: PgVectorEmbeddingStore()
+    )
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        user, workspace, _, track, _ = await graph()
+        entry = await create_entry_in_track(
+            track=track,
+            user_id=user.id,
+            title="Barrier source",
+            workspace_id=workspace.id,
+        )
+        before = await barrier(workspace.id)
+    staged, release = asyncio.Event(), asyncio.Event()
+
+    async def writer():
+        try:
+            async with scoped_default_context_async(
+                GraphContext(database=postgres_raw_db)
+            ):
+                async with entry_write_scope(entry.id):
+                    await update_entry_in_track(
+                        entry_id=entry.id,
+                        user_id=user.id,
+                        body="Committed before cutover",
+                    )
+                    staged.set()
+                    await release.wait()
+        except BaseException:
+            staged.set()
+            raise
+
+    async def cutover_boundary():
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            async with entry_write_scope(workspace.id):
+                epoch = await barrier(workspace.id, lock=True)
+                fresh = await Entry.find_one({"id": entry.id})
+                return epoch, fresh.body
+
+    write_task = asyncio.create_task(writer())
+    await asyncio.wait_for(staged.wait(), 10)
+    if write_task.done():
+        await write_task
+    boundary_task = asyncio.create_task(cutover_boundary())
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(boundary_task), 0.1)
+    finally:
+        release.set()
+        await asyncio.wait_for(write_task, 10)
+    epoch, body = await asyncio.wait_for(boundary_task, 10)
+    assert epoch > before and body == "Committed before cutover"

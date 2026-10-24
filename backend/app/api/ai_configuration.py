@@ -278,6 +278,27 @@ async def save_embedding_configuration(request: Request) -> dict:
 
 
 @endpoint(
+    "/users/me/embedding-configuration/cancel",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Models"],
+)
+async def cancel_embedding_configuration(request: Request) -> dict:
+    """Cancel a pending model change without selecting another vector space."""
+    from app.schemas.embedding_configuration import EmbeddingModelCancel
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.retrieval.embedding_configuration import cancel
+
+    user_id = resolve_principal_id(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    body = await _body(request, EmbeddingModelCancel)
+    try:
+        return await cancel(user_id, workspace_id, body.revision)
+    except ValueError as exc:
+        raise BadRequestError(str(exc)) from None
+
+
+@endpoint(
     "/users/me/embedding-configuration/test",
     methods=["POST"],
     auth=True,

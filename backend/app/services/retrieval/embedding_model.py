@@ -19,6 +19,7 @@ import logging
 import math
 import os
 import threading
+import time
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -32,22 +33,35 @@ DEFAULT_MODEL_NAME = os.environ.get(
 # to inject a stub model without touching the network).
 _MODEL: Optional[Any] = None
 _MODEL_LOCK = threading.RLock()
+_MODEL_RETRY_AT = 0.0
+_TOKENIZER: Optional[Any] = None
+_TOKENIZER_LOCK = threading.RLock()
 
 
 def _load_model_unlocked() -> Any:
     """Load pinned model artifacts once, with heavy imports deferred."""
 
-    global _MODEL
+    global _MODEL, _MODEL_RETRY_AT
     if _MODEL is not None:
         return _MODEL
+    from .embedding_store import EmbeddingStoreUnavailable
 
-    # Deferred imports keep the ONNX/tokenizer stack off the cold boot path.
-    from .onnx_text_encoder import OnnxTextEncoder, encoder_artifact
+    if time.monotonic() < _MODEL_RETRY_AT:
+        raise EmbeddingStoreUnavailable(
+            "The search model is unavailable; retry shortly"
+        )
+    try:
+        # Deferred imports keep inference weights off the cloud/tokenizer path.
+        from .onnx_text_encoder import OnnxTextEncoder, encoder_artifact
 
-    logger.info("retrieval: loading embedding model %s", DEFAULT_MODEL_NAME)
-    threads = min(16, max(1, int(os.getenv("EMBEDDING_MODEL_THREADS", "1"))))
-    _MODEL = OnnxTextEncoder(encoder_artifact(DEFAULT_MODEL_NAME), threads)
-    return _MODEL
+        logger.info("retrieval: loading embedding model %s", DEFAULT_MODEL_NAME)
+        threads = min(16, max(1, int(os.getenv("EMBEDDING_MODEL_THREADS", "1"))))
+        _MODEL = OnnxTextEncoder(encoder_artifact(DEFAULT_MODEL_NAME), threads)
+        _MODEL_RETRY_AT = 0.0
+        return _MODEL
+    except Exception as exc:
+        _MODEL_RETRY_AT = time.monotonic() + 30
+        raise EmbeddingStoreUnavailable("The search model is unavailable") from exc
 
 
 def load_model() -> Any:
@@ -56,32 +70,41 @@ def load_model() -> Any:
         return _load_model_unlocked()
 
 
-async def _passage_model() -> Any:
+async def passage_tokenizer() -> Any:
+    """Clone the pinned tokenizer without loading inference weights."""
+    from tokenizers import Tokenizer
+
+    from .onnx_text_encoder import encoder_artifact, load_tokenizer
+
+    def read():
+        global _TOKENIZER
+        with _TOKENIZER_LOCK:
+            # Preserve injected test/custom model tokenizers without forcing a
+            # model load in cloud-only installations.
+            if _MODEL is not None:
+                source = _MODEL.tokenizer
+            else:
+                if _TOKENIZER is None:
+                    _TOKENIZER = load_tokenizer(encoder_artifact(DEFAULT_MODEL_NAME))
+                source = _TOKENIZER
+            clone = Tokenizer.from_str(source.to_str())
+            clone.no_truncation()
+            clone.no_padding()
+            return clone
+
     from .embedding_store import EmbeddingStoreUnavailable
 
     try:
-        return await asyncio.to_thread(load_model)
+        return await asyncio.to_thread(read)
     except Exception as exc:
-        raise EmbeddingStoreUnavailable("The search model is unavailable") from exc
-
-
-async def passage_tokenizer() -> Any:
-    """Independent untruncated tokenizer; never mutate inference's tokenizer."""
-    from tokenizers import Tokenizer
-
-    model = await _passage_model()
-    tokenizer = model.tokenizer
-    clone = Tokenizer.from_str(tokenizer.to_str())
-    clone.no_truncation()
-    clone.no_padding()
-    return clone
+        raise EmbeddingStoreUnavailable("The search tokenizer is unavailable") from exc
 
 
 async def encode_passages(texts: list[str], dimensions: int) -> list[list[float]]:
     """Bounded batch encoding with explicit model/dimension validation."""
-    model = await _passage_model()
+    from .encoding_runtime import bounded_setting, run_encoding
 
-    def encode() -> list[list[float]]:
+    def encode(batch: list[str], model: Any) -> list[list[float]]:
         # Inference truncates at the model's limit. Refuse oversized passages
         # instead of silently losing their tail, including a misconfigured chunk.
         from tokenizers import Tokenizer
@@ -101,12 +124,12 @@ async def encode_passages(texts: list[str], dimensions: int) -> list[list[float]
             raise EmbeddingStoreUnavailable(
                 "The configured passage size exceeds the search model limit"
             )
-        if any(len(tokenizer.encode(text).ids) > maximum for text in texts):
+        if any(len(tokenizer.encode(text).ids) > maximum for text in batch):
             raise ValueError("Text exceeds this embedding model's token limit")
         vectors = [
-            [float(x) for x in vector] for vector in model.embed(texts, batch_size=16)
+            [float(x) for x in vector] for vector in model.embed(batch, batch_size=16)
         ]
-        if len(vectors) != len(texts) or any(
+        if len(vectors) != len(batch) or any(
             len(v) != dimensions or not all(math.isfinite(x) for x in v)
             for v in vectors
         ):
@@ -115,11 +138,17 @@ async def encode_passages(texts: list[str], dimensions: int) -> list[list[float]
             )
         return vectors
 
-    def serialized_encode():
-        with _MODEL_LOCK:
-            return encode()
+    vectors = []
+    size = bounded_setting("EMBEDDING_NATIVE_BATCH_SIZE", 4, 1, 16)
+    for start in range(0, len(texts), size):
+        batch = texts[start : start + size]
 
-    return await asyncio.to_thread(serialized_encode)
+        def operation(batch=batch):
+            with _MODEL_LOCK:
+                return encode(batch, _load_model_unlocked())
+
+        vectors.extend(await run_encoding(operation))
+    return vectors
 
 
 def _compose_entry_text(entry: Any) -> str:
@@ -166,12 +195,14 @@ async def embed_entry_text(entry: Any) -> list[float]:
     """
 
     text = _compose_entry_text(entry)
-    model = await asyncio.to_thread(load_model)
 
     def _encode() -> Any:
+        model = load_model()
         return model.encode(text, convert_to_numpy=False)
 
-    raw = await asyncio.to_thread(_encode)
+    from .encoding_runtime import run_encoding
+
+    raw = await run_encoding(_encode)
     if isinstance(raw, list):
         return [float(x) for x in raw]
     # Defensive: callers (or test stubs) may return numpy regardless.
@@ -194,12 +225,15 @@ async def embed_query_text(query: str) -> list[float]:
     """
 
     text = (query or "").strip()[:2000]
-    model = await asyncio.to_thread(load_model)
 
     def _encode() -> Any:
+        model = load_model()
         return model.encode(text, convert_to_numpy=False)
 
-    raw = await asyncio.to_thread(_encode)
+    from .encoding_runtime import interactive_encoding, run_encoding
+
+    with interactive_encoding():
+        raw = await run_encoding(_encode)
     if isinstance(raw, list):
         return [float(x) for x in raw]
     try:

@@ -336,6 +336,11 @@ class WorkspaceModelConfiguration(Node):
     # this declaration only selects an isolated derived embedding space.
     embedding_settings: Dict[str, Any] = Field(default_factory=dict)
     embedding_settings_revision: int = Field(default=0, ge=0)
+    # None preserves pre-migration installations' selected space. An explicit
+    # dict pins the serving choice while embedding_settings builds separately.
+    embedding_serving_settings: Optional[Dict[str, Any]] = None
+    embedding_serving_profile: Optional[Dict[str, Any]] = None
+    embedding_continue_previous_provider: bool = False
     voice_settings: Dict[str, Any] = Field(default_factory=dict)
     voice_settings_revision: int = Field(default=0, ge=0)
 

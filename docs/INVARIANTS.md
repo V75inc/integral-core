@@ -677,7 +677,7 @@ PostgreSQL passage queries constrain workspace, current profile and readable Tra
 
 ### I-RET-05 — No tag-only reembedding
 
-Reencode selected text/metadata or effective selection changes, not tag-only or other nonselected edits. The current canonical revision is returned even when its selected-content hash is unchanged. Keep legacy adapter hooks separate from PostgreSQL durable passage jobs.
+Refresh projections when selected text, metadata or effective selection changes, not for tag-only or other nonselected edits. Only changed encoder inputs require inference; verified unchanged vectors may be reused within the same authorized profile. The current canonical revision is returned even when its selected-content hash is unchanged. Keep legacy adapter hooks separate from PostgreSQL durable passage jobs.
 
 ### I-RET-06 — Durable index intent and profile isolation
 
