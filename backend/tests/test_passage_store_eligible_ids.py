@@ -70,11 +70,11 @@ def test_search_passes_eligible_ids_to_the_selector() -> None:
     )
 
     assert result == []
-    assert "cardinality($9::text[]) = 0" in conn.sql
+    assert "$9::text[] IS NULL" in conn.sql
     assert conn.args[-1] == ["e1", "e2"]
 
 
-def test_search_without_eligible_ids_passes_an_empty_set() -> None:
+def test_search_without_eligible_ids_passes_no_filter() -> None:
     conn = _Conn()
     store = PassageStore(
         SimpleNamespace(_table="retrieval_test"),
@@ -101,4 +101,34 @@ def test_search_without_eligible_ids_passes_an_empty_set() -> None:
         )
     )
 
-    assert conn.args[-1] == []
+    assert conn.args[-1] is None
+
+
+def test_explicit_empty_ids_return_before_store_access():
+    store = PassageStore(
+        SimpleNamespace(_table="retrieval_test"),
+        EmbeddingProfile(
+            model="test",
+            revision="test",
+            dimensions=384,
+            chunk_tokens=160,
+            overlap_tokens=24,
+        ),
+    )
+
+    async def forbidden():
+        raise AssertionError("Empty selection must not query the store")
+
+    store.ensure_schema = forbidden
+    assert (
+        asyncio.run(
+            store.search(
+                [0.0] * 384,
+                workspace_id="w1",
+                track_ids=["t1"],
+                k=10,
+                eligible_entry_ids=[],
+            )
+        )
+        == []
+    )

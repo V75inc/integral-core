@@ -25,6 +25,8 @@ export interface KebabMenuItem {
 }
 
 interface KebabMenuProps {
+  /** Use a borderless trigger alongside other icon-only actions. */
+  variant?: 'outline' | 'ghost';
   menuTitle?: string;
   menuCaption?: string;
   align?: 'start' | 'end';
@@ -47,6 +49,7 @@ interface KebabMenuProps {
  *  outside-click + Escape close), repackaged as a reusable primitive so
  *  detail pages don't reimplement the same plumbing per surface. */
 export function KebabMenu({
+  variant = 'outline',
   items,
   ariaLabel = 'More actions',
   size = 'sm',
@@ -205,7 +208,7 @@ export function KebabMenu({
   return (
     <div className="relative" ref={wrapperRef}>
       <Button
-        variant="outline"
+        variant={variant}
         size={size}
         disabled={disabled}
         title={title}

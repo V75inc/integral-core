@@ -282,11 +282,32 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/chat/threads/{thread_id}/work-items/{work_item_id}/events` | [replay_chat_turn_events](../../backend/app/api/ai_chat.py) |
 | GET | `/chat/threads/{thread_id}/work-items/{work_item_id}/stream` | [stream_chat_turn_events](../../backend/app/api/ai_chat.py) |
 
+## ai_configuration
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| GET | `/users/me/ai-configuration` | [get_configuration](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/conversation-model` | [conversation_model](../../backend/app/api/ai_configuration.py) |
+| GET | `/users/me/embedding-configuration` | [get_embedding_configuration](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/embedding-configuration` | [save_embedding_configuration](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/embedding-configuration/test` | [test_embedding_configuration](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-capabilities` | [capabilities](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-connections` | [save_connection](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-connections/remove` | [remove_connection](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-connections/test` | [test_connection](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-profiles` | [save_profile](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-profiles/activate` | [activate_profile](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-profiles/remove` | [remove_profile](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/model-routing` | [configure_routing](../../backend/app/api/ai_configuration.py) |
+| GET | `/users/me/voice-configuration` | [get_voice_configuration](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/voice-configuration` | [save_voice_configuration](../../backend/app/api/ai_configuration.py) |
+
 ## app_extensions
 
 | Methods | Declared path | Handler |
 |---|---|---|
 | GET | `/extension-view-frame` | [extension_view_frame_route](../../backend/app/api/app_extensions.py) |
+| POST | `/extensions/{app_id}/navigate` | [resolve_view_navigation](../../backend/app/api/app_extensions.py) |
 | GET | `/extensions/{app_id}/operations` | [list_operations](../../backend/app/api/app_extensions.py) |
 | POST | `/extensions/{app_id}/operations/{operation_key}` | [invoke_operation](../../backend/app/api/app_extensions.py) |
 | GET | `/extensions/{app_id}/views` | [list_extension_views_route](../../backend/app/api/app_extensions.py) |
@@ -364,6 +385,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/apps/{app_id}/dashboards/{dashboard_id}/data` | [get_app_dashboard_data](../../backend/app/api/apps_dashboards.py) |
 | POST | `/apps/{app_id}/dashboards/{dashboard_id}/drill-through` | [get_dashboard_widget_result_set](../../backend/app/api/apps_dashboards.py) |
 | GET | `/apps/{app_id}/home` | [get_app_home](../../backend/app/api/apps_dashboards.py) |
+| POST | `/apps/{app_id}/home/preview` | [preview_app_home](../../backend/app/api/apps_dashboards.py) |
 | GET | `/dashboard-widget-substrate` | [get_dashboard_widget_substrate](../../backend/app/api/apps_dashboards.py) |
 
 ## apps_skills

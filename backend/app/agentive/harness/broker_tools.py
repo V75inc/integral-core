@@ -793,32 +793,33 @@ def build_brokered_tools(
         # its catalogue on dispatch. This framework validator enforces only
         # that the top-level arguments are an object; it deliberately avoids a
         # second, potentially divergent interpretation of nested JSON Schema.
-        tools.append(
-            build_integral_json_schema_tool(
-                function=invoke_tool,
-                name=name,
-                description=description,
-                json_schema=schema,
-                prepare=_prepare_capability_tool(
-                    name,
-                    _REQUIRED_SKILLS_BY_TOOL.get(name),
-                    (
-                        frozenset(skill_owners.get(name, ()))
-                        if op_class != "read"
-                        and name != "integral_invoke_app_operation"
-                        else frozenset()
-                    ),
-                    call_state,
-                    workflow_tool_owners=frozenset(skill_owners.get(name, ())),
+        tool = build_integral_json_schema_tool(
+            function=invoke_tool,
+            name=name,
+            description=description,
+            json_schema=schema,
+            prepare=_prepare_capability_tool(
+                name,
+                _REQUIRED_SKILLS_BY_TOOL.get(name),
+                (
+                    frozenset(skill_owners.get(name, ()))
+                    if op_class != "read" and name != "integral_invoke_app_operation"
+                    else frozenset()
                 ),
-                defer_loading=name not in immediately_available,
-                # Public Pydantic barriers preserve model-emitted order for
-                # stateful Core writes, including batch start/append/commit.
-                # Independent reads remain eligible for parallel execution.
-                sequential=op_class != "read",
-                max_retries=2 if name == "integral_build_approved_design" else None,
-            )
+                call_state,
+                workflow_tool_owners=frozenset(skill_owners.get(name, ())),
+            ),
+            defer_loading=name not in immediately_available,
+            # Public Pydantic barriers preserve model-emitted order for
+            # stateful Core writes, including batch start/append/commit.
+            # Independent reads remain eligible for parallel execution.
+            sequential=op_class != "read",
+            max_retries=2 if name == "integral_build_approved_design" else None,
         )
+        # Keep the catalogue's authoritative effect class available to the
+        # harness compactor. This is local adapter metadata, never model input.
+        tool.metadata = {"integral_op_class": op_class}
+        tools.append(tool)
     if skill_library is not None:
         tools.append(
             build_search_capabilities_tool(

@@ -164,4 +164,4 @@ until equivalent coverage and enforcement exist.
 
 No runtime changes, Core publication or release approval accompany this proposal.
 
-Qualification: [18 October record](../../ops/qualification/runtime-composition/2026-10-18.md).
+Qualification follows the [current source and artifact gates](../../ops/QUALIFICATION.md). The original 18 October record remains in Git history.

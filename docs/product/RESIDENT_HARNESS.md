@@ -27,3 +27,15 @@ Native chat uses durable WorkItems by default on PostgreSQL. Accepted request fi
 External agents use MCP under the same relevant policy and scope perimeter. There is no A2A delegation fabric. Outbound MCP connectors expose external tools through their own declared trust boundary.
 
 Read [chat lifecycle](../backend/ai-chat.md), [BYOA](BYOA.md), [work mandates](../backend/work-mandate-contract.md), and [qualification](../ops/QUALIFICATION.md).
+
+### Bounded working context
+
+The resident follows I-CONTEXT-02: long-lived encrypted execution evidence is
+separate from the bounded context submitted to a model. Native capabilities
+continue to own execution, disclosure, summarization and checkpointing. Core's
+retention policy expires old disclosures at settled step boundaries, preserves
+current work and pending effects, and admits the final request against the
+selected model's usable budget. Expired procedures can be rediscovered. Existing
+sessions normalize on valid resume; no chat deletion is required. See the
+[working-context contract](../backend/ai-chat.md#working-context-and-long-conversations) and the
+[qualification report](../ops/qualification/harness-context-lifecycle.md).

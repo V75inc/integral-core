@@ -162,6 +162,45 @@ links are repaired, while unrelated external websites retain external behavior.
 An optional `index` envelope reports passage tokens, candidate-limit state and
 unasserted coverage. No matches does not prove absence while coverage is unknown.
 
+## App passage search
+
+Declared App tools/functions access passages through
+`ToolContext.search_entries` (also available on SDK `OperationContext`). The
+host supplies principal, workspace and App; tools supply `query`, the Track
+title-slug as `track_type`, an optional manifest `entry_type`, and optional
+`eligible_entry_ids`. This does not relax the generic installed-App query boundary.
+
+Candidate selection intersects the App's current rooted Tracks, requested
+type, explicit IDs and current ordinary audience before passage ranking. IDs
+and type predicates reach the Entry selector before its bounded read; no
+complete collection hydration or count sweep is performed. At most 500 supplied
+IDs and one 500-Entry candidate window are considered. Track/schema discovery
+each has a 500-record limit and returns `scope_limit_reached` rather than
+silently treating an oversized scope as empty. `None` discovers candidates;
+an explicit `[]` performs no search. Selected-ID retrieval does not enumerate
+unrelated user grants. Canonical scope, current source and permission checks
+remain mandatory, including a fresh check after encoding.
+
+`limit` bounds passage candidates (1..500); returned Entries are additionally
+bounded by `min(limit, 50)` and `context_tokens` (64..8192). `graph`, `semantic`
+and `hybrid` modes are supported over the current pgvector passage space.
+Unavailable semantic inference can fall back to lexical passage search with
+`degraded=true`; it does not search unindexed source content.
+
+Results include passages, current title/revision and `action_url`. Coverage is
+`unknown` for an unmeasured index, or `partial` when selection, ranking, output
+or passage budgets truncate it, or inference degrades. Only a deliberately
+empty input/selection reports `full` without inspecting the index. No matches
+does not prove absence. Warnings disclose caps and dropped supplied IDs without
+listing inaccessible identities. Failures return stable reason codes, never
+provider credentials, connection strings or arbitrary exception text.
+
+For delegated agent/connector functions, Core revalidates the exact actor,
+function and issuer before selection and result release. The data policy
+subject is the current human issuer; it is never a service-kind/human-ID pair.
+Revocation prevents release, and a bare service context cannot borrow human
+access. Use structured query/aggregation facades for full collections and totals.
+
 ## Management
 
 All routes use authenticated identity and the host-validated workspace;
@@ -224,6 +263,7 @@ isolated. Transaction qualification uses `INTEGRAL_TEST_DB=postgres` and
 `tests/contract/test_semantic_index_transactions_postgres.py`; that test fixture
 creates/resets its own `integral_test` database, so use an isolated cluster.
 
-See the [PR #162 qualification report](../ops/qualification/semantic-search-2026-10-20/REPORT.md) for actual accuracy, latency and
-provider-reported token observations. A synthetic corpus is not a production
+Use the [qualification guide](../ops/QUALIFICATION.md#retrieval-qualification)
+for actual accuracy, latency and provider-token measurement. Retain raw corpora
+and run outputs with review artifacts. A synthetic corpus is not a production
 recall or scale guarantee.

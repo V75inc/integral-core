@@ -1,7 +1,18 @@
 # Documentation maintenance
 
-Maintain the reader guides, architecture decisions and implementation contracts against current source. Use stable filenames; keep chronological run logs and superseded review reports outside the maintained reader set. Git retains their history.
+Maintain one current guide per topic, backed by source and executable tests.
+The [documentation hub](../README.md) provides reader navigation; architecture
+decisions retain rationale, and [invariants](../INVARIANTS.md) preserve boundaries.
+Update affected guides when behavior changes instead of adding a second plan
+or a chronological task log. Regenerate source-derived inventories.
 
-Before removing an old report, preserve unresolved requirements in the [hardening follow-up](../product/HARDENING_FOLLOW_UP.md). Record exact candidate checks and limits in the [release qualification](../ops/RELEASE_QUALIFICATION.md). Never promote historical checks into current release claims.
+Retire completed plans, superseded reviews, raw screenshots and run logs from
+the reader tree. Git preserves their history. Carry unresolved requirements into
+[hardening follow-up](../product/HARDENING_FOLLOW_UP.md); keep concise exact-candidate
+results in [release qualification](../ops/RELEASE_QUALIFICATION.md). CI and PR
+artifacts hold detailed execution evidence. Never turn historical checks into
+current release claims.
 
-Regenerate API/capability inventories from source. Run `python3 scripts/check_documentation.py` after link changes and `python3 scripts/build_documentation.py` to inspect the local reader. The CSV files here describe the earlier editorial migration; they are historical provenance, not live implementation inventories.
+Run `python3 scripts/check_documentation.py` after link changes and
+`python3 scripts/build_documentation.py` to inspect the reader. Keep local drafts,
+provider credentials, recovery snapshots and runtime data outside tracked docs.

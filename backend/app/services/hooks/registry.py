@@ -430,187 +430,23 @@ class ToolContext:
         limit: int = 150,
         context_tokens: int = 1200,
     ) -> Dict[str, Any]:
-        """App-scoped passage retrieval for an installed App's declared query.
+        """Search a bounded, authorized candidate set in this App.
 
-        This is the prototype bridge over Core's shared passage selector. The
-        caller supplies only a query and an optional structured eligible-ID
-        set; principal, workspace, App and Track scope come from this trusted
-        execution context. Generic retrieval and its installed-App refusal are
-        unchanged.
+        See ``retrieval.app_search`` for limits and coverage semantics. The
+        facade remains the only bundle-facing access point.
         """
-        app_id = str(getattr(self, "app_id", "") or "").strip()
-        if not app_id:
-            return {
-                "available": False,
-                "reason": "app_scope_required",
-                "results": [],
-                "warnings": [],
-            }
-        text = str(query or "").strip()
-        if not text:
-            return {
-                "available": True,
-                "requested_mode": "empty_query",
-                "effective_mode": "empty_query",
-                "degraded": False,
-                "coverage": "full",
-                "candidate_limit_reached": False,
-                "results": [],
-                "warnings": [],
-            }
+        from app.services.retrieval.app_search import search_app_entries
 
-        tracks = await self._tracks_by_title(track_type)
-        if not tracks:
-            return {
-                "available": False,
-                "reason": "track_not_found",
-                "results": [],
-                "warnings": [],
-            }
-        allowed_entries = await self.find_entries_in_track_type(track_type, entry_type)
-        allowed_ids = {
-            str(getattr(entry, "id", "") or "")
-            for entry in allowed_entries
-            if getattr(entry, "id", None)
-        }
-        if not allowed_ids:
-            return {
-                "available": True,
-                "requested_mode": "hybrid",
-                "effective_mode": "hybrid",
-                "degraded": False,
-                "coverage": "full",
-                "candidate_limit_reached": False,
-                "results": [],
-                "warnings": [],
-            }
-
-        warnings: List[str] = []
-        capped = False
-        if eligible_entry_ids is None:
-            supplied = sorted(allowed_ids)
-            eligible = supplied[:500]
-            capped = len(supplied) > 500
-        else:
-            supplied = [
-                str(value or "").strip()
-                for value in eligible_entry_ids
-                if str(value or "").strip()
-            ]
-            unique = list(dict.fromkeys(supplied))
-            eligible = [entry_id for entry_id in unique if entry_id in allowed_ids]
-            if len(unique) > 500:
-                capped = True
-                eligible = eligible[:500]
-            if len(eligible) < len(unique):
-                warnings.append("ineligible_ids_dropped")
-        if capped:
-            warnings.append("eligible_ids_capped")
-        if not eligible:
-            return {
-                "available": True,
-                "requested_mode": "hybrid",
-                "effective_mode": "hybrid",
-                "degraded": False,
-                "coverage": "full",
-                "candidate_limit_reached": False,
-                "results": [],
-                "warnings": warnings,
-            }
-
-        try:
-            from app.schemas.policy import Subject
-            from app.schemas.retrieve import RetrieveRequest
-            from app.services.agent_scope import current_scope_workspace_id
-            from app.services.retrieval import get_embedding_store
-            from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
-            from app.services.retrieval.search_service import retrieve_passages
-
-            driver = get_embedding_store()
-            if not isinstance(driver, PgVectorEmbeddingStore):
-                return {
-                    "available": False,
-                    "reason": "passage_store_unavailable",
-                    "results": [],
-                    "warnings": warnings,
-                }
-
-            requested = "graph" if str(mode).casefold() == "graph" else "hybrid"
-            k = max(1, min(int(limit), 500))
-            top_n = max(10, min(50, k))
-            payload_kwargs = {
-                "query": text,
-                "scope": f"app:{app_id}",
-                "mode": requested,
-                "k": k,
-                "top_n": top_n,
-                "context_tokens": max(64, min(int(context_tokens), 8192)),
-            }
-            subject = Subject(kind=self.actor_kind, id=self.user_id)
-            token = current_scope_workspace_id.set(self.workspace_id)
-            try:
-                try:
-                    results, _dropped, _examined, effective, degraded = (
-                        await retrieve_passages(
-                            subject,
-                            RetrieveRequest(**payload_kwargs),
-                            driver=driver,
-                            k=k,
-                            top_n=top_n,
-                            eligible_entry_ids=eligible,
-                        )
-                    )
-                except Exception:
-                    if requested == "graph":
-                        raise
-                    degraded = True
-                    effective = "graph"
-                    results, _dropped, _examined, effective, _ = (
-                        await retrieve_passages(
-                            subject,
-                            RetrieveRequest(**{**payload_kwargs, "mode": "graph"}),
-                            driver=driver,
-                            k=k,
-                            top_n=top_n,
-                            eligible_entry_ids=eligible,
-                        )
-                    )
-            finally:
-                current_scope_workspace_id.reset(token)
-        except Exception as exc:  # noqa: BLE001 - report an unavailable read
-            return {
-                "available": False,
-                "reason": f"search_failed: {exc}",
-                "results": [],
-                "warnings": warnings,
-            }
-
-        if degraded and requested != effective:
-            warnings.append("semantic_unavailable")
-        limit_reached = bool(capped or len(results) >= top_n)
-        if limit_reached and "candidate_limit_reached" not in warnings:
-            warnings.append("candidate_limit_reached")
-        rows = [
-            {
-                "entry_id": result.entry_id,
-                "score": float(result.score),
-                "title": result.title,
-                "source_revision": result.source_revision,
-                "mode_origin": list(result.mode_origin),
-                "passages": [passage.model_dump() for passage in result.passages],
-            }
-            for result in results
-        ]
-        return {
-            "available": True,
-            "requested_mode": requested,
-            "effective_mode": effective,
-            "degraded": bool(degraded),
-            "coverage": "partial" if limit_reached or degraded else "full",
-            "candidate_limit_reached": limit_reached,
-            "results": rows,
-            "warnings": warnings,
-        }
+        return await search_app_entries(
+            self,
+            query=query,
+            track_type=track_type,
+            entry_type=entry_type,
+            eligible_entry_ids=eligible_entry_ids,
+            mode=mode,
+            limit=limit,
+            context_tokens=context_tokens,
+        )
 
     async def find_track_id_by_title(self, track_type: str) -> Optional[str]:
         """Resolve a track's id by its title, scoped to this workspace.

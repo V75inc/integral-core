@@ -22,17 +22,19 @@ from app.agentive.harness.pydantic_ai_compat import (
     ConversationSearch,
     InstructionDisclosureGuard,
     Instrumentation,
+    IntegralContextAdmission,
+    IntegralContextLifecycle,
     IntegralLimitWarnings,
     IntegralToolDisclosure,
+    LocalWorkspaceBackend,
     PublicConversationHistorySource,
     Skills,
     SnapshotHistorySource,
     StepPersistence,
     StepStore,
     ToolSearch,
-    build_integral_context_compaction,
-    build_integral_history_compaction,
     build_integral_run_instructions,
+    build_integral_working_context,
 )
 from app.agentive.harness.scoped_store import ScopedStepStore
 from app.agentive.harness.turn_progress import TurnProgress
@@ -129,6 +131,7 @@ def build_native_runtime(
 
     capabilities: list[Any] = [
         Instrumentation(),
+        IntegralContextLifecycle(),
         IntegralLimitWarnings(),
         # Pydantic AI owns deferred tool discovery; its supported callable
         # strategy uses Integral's tenant-authorized semantic catalog rather
@@ -171,10 +174,17 @@ def build_native_runtime(
             agent_name=agent_name,
             run_id=scope.framework_run_id,
         ),
-        # Adapter-owned policy bounds repeated tool-call arguments and results
-        # without discarding the newest outcome or active skill state.
-        build_integral_context_compaction(),
-        build_integral_history_compaction(),
+        # Bound repeated read payloads even within a long active turn. Only
+        # tools explicitly marked read-only in the Core catalogue may be
+        # compacted; capability loading, skills, staging, and writes stay exact.
+        build_integral_working_context(
+            clearable_tools=frozenset(
+                tool.name
+                for tool in tools
+                if (getattr(tool, "metadata", None) or {}).get("integral_op_class")
+                == "read"
+            )
+        ),
         # Search only this server-assigned Pydantic conversation. The source
         # is the exact tenant/principal/thread/session-scoped StepStore used by
         # StepPersistence; never use the library's store-wide search scope.
@@ -191,12 +201,16 @@ def build_native_runtime(
     if selected_skills:
         capabilities.append(
             Skills(
-                directories=list(skill_directories),
+                directories=[path.resolve() for path in skill_directories],
                 include=selected_skills,
+                # Attach a backend only to Skills. No filesystem or shell
+                # capability is added to the resident agent.
+                workspace=LocalWorkspaceBackend(skill_directories[0].resolve()),
             )
         )
 
     capabilities.append(InstructionDisclosureGuard(protected_instructions=protected))
+    capabilities.append(IntegralContextAdmission())
 
     agent = Agent(
         model,

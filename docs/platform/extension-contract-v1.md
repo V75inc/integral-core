@@ -113,6 +113,14 @@ App is installed; the workspace comes from Core, never from the tool.
 
 OperationContext is injected by Core. Its identity includes principal, workspace, scope, bundle slug, installed App, operation key, and optional idempotency/correlation keys. It offers validated create/update helpers, conditional updates, audit emission, deduplicated notifications, and the preferred facade. Raw private Core imports are forbidden.
 
+For prose evidence within a declared App function, use
+`context.search_entries(query=..., track_type=..., entry_type=...,
+eligible_entry_ids=...)`. This is a bounded passage read, not a complete
+collection query. `None` discovers candidates; `[]` searches nothing. Observe
+the returned coverage and truncation warnings. Exact agent/connector function
+delegation is rechecked while the human issuer's current ordinary audience
+bounds the data read. See [App passage search](../backend/semantic-indexing.md#app-passage-search).
+
 ## Declaration requirements
 
 Packages declare input/output schemas, operation policy and staging behavior, query shape, tools, hooks, skills, and presentation assets. Python implementations require their trust tier and signature posture. An installed App resolves the immutable active ApplicationDefinition before using its effective capability contract.

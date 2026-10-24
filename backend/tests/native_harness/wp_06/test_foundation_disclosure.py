@@ -7,6 +7,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Skills
 
 from app.agentive.harness.broker_tools import build_brokered_tools
@@ -101,7 +102,11 @@ async def test_read_only_skill_does_not_disclose_undeclared_mutation_schemas(
         tools=tools,
         capabilities=[
             IntegralToolDisclosure(),
-            Skills(tmp_path, include={"record-lookup"}),
+            Skills(
+                tmp_path,
+                include={"record-lookup"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
         ],
     )
     result = await agent.run("Find the exact record missing-item.")
@@ -208,7 +213,11 @@ async def test_read_discovery_does_not_require_loading_an_unrelated_owner_skill(
         tools=tools,
         capabilities=[
             IntegralToolDisclosure(),
-            Skills(tmp_path, include={"identity-work"}),
+            Skills(
+                tmp_path,
+                include={"identity-work"},
+                workspace=LocalWorkspaceBackend(tmp_path),
+            ),
         ],
     )
     assert (

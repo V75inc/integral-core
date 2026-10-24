@@ -40,9 +40,12 @@ class OperationContext(Protocol):
         """App-scoped passage retrieval for a declared App query.
 
         ``eligible_entry_ids`` narrows candidate selection to a structured,
-        policy-authorized set. Returns passages plus requested/effective mode,
-        coverage, cap status and warnings; it never widens the caller's
-        workspace, App or Track scope.
+        policy-authorized set: None discovers a bounded candidate window;
+        [] searches nothing. At most 500 supplied IDs and one 500-Entry window
+        are considered. Track and schema discovery are independently bounded.
+        Returns passages, source links, requested/effective mode, cap status
+        and warnings. Index coverage remains unknown unless measured; empty
+        results never establish absence. It never widens workspace/App scope.
         """
         ...
 

@@ -61,4 +61,4 @@ provider token usage are measured separately.
 See the [maintained contract](../semantic-indexing.md),
 [invariants I-RET-01–07](../../INVARIANTS.md#retrieval-scratch-and-connectors),
 [rollout runbook](../../ops/DEPLOY.md#search-rollout-and-recovery), and
-[local qualification evidence](../../ops/qualification/semantic-search-2026-10-20/REPORT.md).
+[qualification requirements](../../ops/QUALIFICATION.md#retrieval-qualification).

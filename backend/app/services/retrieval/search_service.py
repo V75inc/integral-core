@@ -15,6 +15,37 @@ from .indexing import index_document
 from .passage_store import passage_store
 
 
+async def _eligible_scope(subject, workspace_id, scope, identities):
+    """Admit only the selected IDs without walking all of the user's grants."""
+    from app.services.resource_location import DATA_APP_STATES, locate_resources
+
+    locations = await locate_resources(
+        "entry",
+        identities,
+        workspace_hints=[workspace_id],
+        allowed_app_states=DATA_APP_STATES,
+    )
+    admitted = []
+    for identity in identities:
+        location = locations.get(identity)
+        if location is None or location.workspace_id != workspace_id:
+            continue
+        if scope.startswith("app:") and location.app_id != scope.split(":", 1)[1]:
+            continue
+        if scope.startswith("track:") and location.track_id != scope.split(":", 1)[1]:
+            continue
+        decision = await evaluate(
+            subject=subject,
+            action="entry.read",
+            resource=Resource(
+                kind="entry", id=identity, scope=f"track:{location.track_id}"
+            ),
+        )
+        if decision.allowed:
+            admitted.append(identity)
+    return admitted
+
+
 async def scoped_tracks(subject: Subject, workspace_id: str, scope: str) -> list[str]:
     """Resolve current readable Tracks inside the exact host-bound scope."""
     from jvspatial.core.context import get_default_context
@@ -158,7 +189,8 @@ async def retrieve_passages(
 
     ``eligible_entry_ids`` narrows the passage selector to a caller-selected
     structured candidate set. It never widens the host-bound workspace, App,
-    Track or policy scope; an empty list means no extra narrowing.
+    Track or policy scope. None applies no extra narrowing; an empty list
+    selects nothing. Explicit candidates avoid unrelated Track/grant sweeps.
     """
     from app.services.agent_scope import active_workspace_id
     from app.services.resource_location import DATA_APP_STATES, locate_resource
@@ -189,8 +221,24 @@ async def retrieve_passages(
         raise InsufficientPermissionsError(
             message="Choose a workspace before searching"
         )
-    tracks = await scoped_tracks(subject, workspace_id, scope)
-    granted_entries = await direct_entries(subject, workspace_id, scope)
+    eligible = None
+    if eligible_entry_ids is not None:
+        eligible = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in eligible_entry_ids[:500]
+                if value and str(value).strip()
+            )
+        )
+        if not eligible:
+            return [], 0, 0, payload.mode, False
+        tracks = []
+        granted_entries = await _eligible_scope(subject, workspace_id, scope, eligible)
+        if not granted_entries:
+            return [], 0, 0, payload.mode, False
+    else:
+        tracks = await scoped_tracks(subject, workspace_id, scope)
+        granted_entries = await direct_entries(subject, workspace_id, scope)
     try:
         profile = await resolve_workspace_embedding_profile(workspace_id)
     except ValueError:
@@ -209,13 +257,6 @@ async def retrieve_passages(
         if payload.mode == "graph"
         else (await encode_profile([payload.query], profile))[0]
     )
-    eligible = [
-        entry_id
-        for entry_id in dict.fromkeys(
-            str(value or "").strip() for value in (eligible_entry_ids or [])
-        )
-        if entry_id
-    ][:500]
     candidates = await store.search(
         query_vec,
         workspace_id=workspace_id,
@@ -257,13 +298,16 @@ async def retrieve_passages(
             document = None
             if entry:
                 # Authorize before composing, exposing titles, text or metadata.
-                decision = await evaluate(
-                    subject=subject,
-                    action="entry.read",
-                    resource=Resource(
-                        kind="entry", id=identity, scope=f"track:{entry.track_id}"
-                    ),
-                )
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                with isolated_permissions_cache():
+                    decision = await evaluate(
+                        subject=subject,
+                        action="entry.read",
+                        resource=Resource(
+                            kind="entry", id=identity, scope=f"track:{entry.track_id}"
+                        ),
+                    )
                 if decision.allowed:
                     document = await index_document(
                         entry, location=locations[identity], schemas=schemas

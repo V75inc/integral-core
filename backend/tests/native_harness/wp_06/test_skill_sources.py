@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Skills
 
 from app.agentive.harness.skill_sources import (
@@ -12,7 +14,10 @@ from app.agentive.harness.skill_sources import (
 )
 
 
-def test_materialized_library_loads_as_standard_agent_skills(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_materialized_library_loads_as_standard_agent_skills(
+    tmp_path: Path,
+) -> None:
     """Only normalized name/description metadata reaches Pydantic Skills."""
     root = tmp_path / "skills"
     names = materialize_standard_skill_library(
@@ -34,8 +39,8 @@ def test_materialized_library_loads_as_standard_agent_skills(tmp_path: Path) -> 
         "description": "Prepare an asset checkout.",
     }
 
-    capability = Skills(root, include=names)
-    assert [item.id for item in capability._deferred_capabilities] == [
+    capability = Skills(root, include=names, workspace=LocalWorkspaceBackend(tmp_path))
+    assert [item.name for item in (await capability.load()).skills] == [
         "example-app-prepare-asset-checkout"
     ]
 
@@ -53,7 +58,8 @@ def test_normalized_name_collisions_remain_distinct(tmp_path: Path) -> None:
     assert all(len(name) <= 64 for name in names)
 
 
-def test_harness_discovers_all_authorized_skills_without_text_routing(
+@pytest.mark.asyncio
+async def test_harness_discovers_all_authorized_skills_without_text_routing(
     tmp_path: Path,
 ) -> None:
     """Harness discovery, not user-text matching, selects the relevant skill."""
@@ -76,6 +82,10 @@ def test_harness_discovers_all_authorized_skills_without_text_routing(
     names = materialize_standard_skill_library(
         [scaffold, model, entries], root=tmp_path / "authorized-skills"
     )
-    capability = Skills(tmp_path / "authorized-skills", include=names)
+    capability = Skills(
+        tmp_path / "authorized-skills",
+        include=names,
+        workspace=LocalWorkspaceBackend(tmp_path),
+    )
 
-    assert {item.id for item in capability._deferred_capabilities} == names
+    assert {item.name for item in (await capability.load()).skills} == names
