@@ -88,6 +88,13 @@ async def fixture():
     return user, workspace, connection, body
 
 
+async def pending_profile(workspace_id):
+    record = await configuration_record(workspace_id)
+    return await service.selected_profile(
+        workspace_id, EmbeddingModelChoice.model_validate(record.embedding_settings)
+    )
+
+
 async def test_local_profile_identity_is_unchanged():
     profile = embedding_profile()
     old = {
@@ -105,13 +112,14 @@ async def test_owner_choice_is_private_revision_bound_and_durably_queued():
     saved = await service.save(user.user_id, workspace.id, body)
     assert saved["configuration"]["connection_id"] == connection.id
     assert (
-        saved["effective_model"] == "test-embedding"
+        saved["pending_model"] == "test-embedding"
         and saved["rebuild_status"] == "pending"
     )
-    assert saved["profile_id"] != embedding_profile().id
+    assert saved["profile_id"] == embedding_profile().id
+    assert saved["pending_profile_id"] != saved["profile_id"]
     with pytest.raises(ResourceConflictError):
         await service.save(user.user_id, workspace.id, body)
-    profile = await service.resolve_workspace_embedding_profile(workspace.id)
+    profile = await pending_profile(workspace.id)
     assert profile.workspace_id == workspace.id and profile.owner_id == user.user_id
     from dataclasses import replace
 
@@ -150,7 +158,7 @@ async def test_member_sees_effective_model_without_private_connection():
     await catalog_user(member)
     await member.connect(workspace, edge=IS_MEMBER_OF, role="member")
     view = await service.describe(member.id, workspace.id)
-    assert not view["editable"] and view["effective_model"] == body.model
+    assert not view["editable"] and view["pending_model"] == body.model
     assert connection.id not in str(view)
 
 
@@ -175,14 +183,16 @@ async def test_native_transport_never_uses_ambient_key_or_remote_workspace_in_te
     result = await service.test(
         user.user_id,
         workspace.id,
-        EmbeddingModelChoice.model_validate(body.model_dump(exclude={"revision"})),
+        EmbeddingModelChoice.model_validate(
+            body.model_dump(exclude={"revision", "continue_previous_provider"})
+        ),
     )
     assert result["valid"]
     assert calls[0][1]["input"] == ["Integral embedding configuration test"]
     assert calls[0][0].url == "http://localhost:8080/v1/embeddings"
     assert (await configuration_record(workspace.id)).embedding_settings_revision == 0
     await service.save(user.user_id, workspace.id, body)
-    profile = await service.resolve_workspace_embedding_profile(workspace.id)
+    profile = await pending_profile(workspace.id)
     await encode_profile(["fixture only"], profile)
     await connection.delete()
     with pytest.raises(WorkspaceEmbeddingUnavailable):
@@ -316,9 +326,7 @@ async def test_ordinary_workspace_saves_cannot_restore_old_provider_choices():
     workspace.name = "A concurrent rename"
     workspace.storage_bytes_used = 42
     await workspace.save()
-    assert (
-        await service.resolve_workspace_embedding_profile(workspace.id)
-    ).connection_id == connection.id
+    assert (await pending_profile(workspace.id)).connection_id == connection.id
     await service.save(user.user_id, workspace.id, EmbeddingModelWrite(revision=1))
     await workspace.save()
     assert (
@@ -377,8 +385,11 @@ async def test_former_workspace_owner_can_remove_their_private_provider():
     replacement = await User.create(display_name="Replacement", user_id=auth.id)
     await catalog_user(replacement)
     await replacement.connect(workspace, edge=IS_MEMBER_OF, role="owner")
-    with pytest.raises(WorkspaceEmbeddingUnavailable):
+    assert (
         await service.resolve_workspace_embedding_profile(workspace.id)
+    ).id == embedding_profile().id
+    with pytest.raises(ValueError):
+        await pending_profile(workspace.id)
     await remove_item(user.user_id, connection.id, connection=True)
     assert await context.database.get("object", connection.id) is None
 
@@ -388,7 +399,7 @@ async def test_platform_policy_uses_local_default_without_erasing_saved_override
 ):
     user, workspace, connection, body = await fixture()
     await service.save(user.user_id, workspace.id, body)
-    selected = await service.resolve_workspace_embedding_profile(workspace.id)
+    selected = await pending_profile(workspace.id)
     from app.config import settings
 
     monkeypatch.setattr(settings, "INTEGRAL_AGENT_KEY_MODE", "platform_only")
@@ -404,9 +415,7 @@ async def test_platform_policy_uses_local_default_without_erasing_saved_override
     with pytest.raises(WorkspaceEmbeddingUnavailable):
         await encode_profile(["never sent"], selected)
     monkeypatch.setattr(settings, "INTEGRAL_AGENT_KEY_MODE", "hybrid")
-    assert (
-        await service.resolve_workspace_embedding_profile(workspace.id)
-    ).id == selected.id
+    assert (await pending_profile(workspace.id)).id == selected.id
 
 
 async def test_failed_workspace_rebuild_is_backed_off_without_losing_cursor():
@@ -464,3 +473,51 @@ async def test_embedding_response_byte_budget_is_enforced(monkeypatch):
     )
     with pytest.raises(WorkspaceEmbeddingUnavailable):
         await encode_profile(["synthetic"], profile, require_active=False)
+
+
+async def test_previous_provider_continuation_is_explicit_and_can_be_revoked():
+    user, workspace, connection, body = await fixture()
+    saved = await service.save(user.user_id, workspace.id, body)
+    previous = await pending_profile(workspace.id)
+    record = await configuration_record(workspace.id)
+    # Authority fixture: mark the previous choice as serving. Real manifest
+    # activation is exercised by test_embedding_migration_pg, not simulated here.
+    await get_default_context().database.find_one_and_update(
+        "node",
+        {"id": record.id},
+        {
+            "$set": {
+                "context.embedding_serving_settings": record.embedding_settings,
+                "context.embedding_serving_profile": asdict(previous),
+            }
+        },
+    )
+    change = body.model_copy(
+        update={"revision": saved["revision"], "model": "replacement-embedding"}
+    )
+    result = await service.save(user.user_id, workspace.id, change)
+    assert result["effective_model"] == previous.model
+    assert result["serving_available"] is False
+    assert not await service.encoding_authorized(previous)
+    with pytest.raises(WorkspaceEmbeddingUnavailable):
+        await encode_profile(["must not leave"], previous)
+    permitted = change.model_copy(
+        update={"revision": result["revision"], "continue_previous_provider": True}
+    )
+    result = await service.save(user.user_id, workspace.id, permitted)
+    assert result["changed"] and await service.encoding_authorized(previous)
+    stopped = permitted.model_copy(
+        update={"revision": result["revision"], "continue_previous_provider": False}
+    )
+    result = await service.save(user.user_id, workspace.id, stopped)
+    assert result["changed"] and not await service.encoding_authorized(previous)
+    # Only the current request remains runnable after repeated changes.
+    requests = await get_default_context().database.find(
+        "object",
+        {
+            "entity": service.REBUILD,
+            "context.workspace_id": workspace.id,
+            "context.status": {"$in": ["pending", "working", "queued"]},
+        },
+    )
+    assert len(requests) == 1

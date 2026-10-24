@@ -10,6 +10,84 @@ from tests.test_semantic_indexing_pg import indexed_graph, search, vector_driver
 pytestmark = [pytest.mark.integration, pytest.mark.slow, pytest.mark.asyncio]
 
 
+async def test_readable_scope_never_enumerates_redundant_record_grants(
+    vector_driver, monkeypatch
+):
+    from app.models.edges import OWNS
+    from app.services.retrieval import search_service
+
+    user, workspace, app, track, entry = await indexed_graph(vector_driver)
+    await user.connect(entry, edge=OWNS)
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Readable Track coverage must avoid the grant inventory")
+
+    monkeypatch.setattr(search_service, "direct_entries", forbidden)
+    result = await search(user, workspace, app, vector_driver)
+    assert result[0], result
+
+
+async def test_workspace_scope_ignores_foreign_track_with_matching_scalar_cache(
+    vector_driver, monkeypatch
+):
+    from app.schemas.policy import Subject
+    from app.schemas.retrieve import RetrieveRequest
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.retrieval import search_service
+    from tests.test_resource_location import graph
+
+    user, workspace, app, track, entry = await indexed_graph(vector_driver)
+    _, _, _, foreign_track, _ = await graph()
+    foreign_track.workspace_id = workspace.id
+    await foreign_track.save()
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Full rooted coverage does not need a grant inventory")
+
+    monkeypatch.setattr(search_service, "direct_entries", forbidden)
+    token = current_scope_workspace_id.set(workspace.id)
+    try:
+        found, *_ = await search_service.retrieve_passages(
+            Subject(kind="human", id=user.id),
+            RetrieveRequest(
+                query="collection point", scope=f"workspace:{workspace.id}"
+            ),
+            driver=vector_driver,
+            k=40,
+            top_n=5,
+        )
+    finally:
+        current_scope_workspace_id.reset(token)
+    assert found and found[0].entry_id == entry.id
+
+
+async def test_source_backed_entry_share_is_searchable_and_revocation_is_live(
+    vector_driver,
+):
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.share_link_lifecycle import (
+        redeem_source_link,
+        revoke_source_grant,
+    )
+    from app.services.share_links import mint_share_link
+    from tests.test_access_lifecycle import verified_subject
+
+    owner, workspace, app, track, entry = await indexed_graph(vector_driver)
+    recipient = await verified_subject(workspace, "guest")
+    minted = await mint_share_link(owner.id, "entry", entry.id, role="viewer")
+    await redeem_source_link(recipient.id, minted["token"])
+    with isolated_permissions_cache():
+        found, *_ = await search(recipient, workspace, app, vector_driver)
+        assert found and found[0].entry_id == entry.id
+    await revoke_source_grant(
+        actor_id=owner.id,
+        link_id=minted["share_link"]["id"],
+        recipient_id=recipient.id,
+    )
+    with isolated_permissions_cache():
+        assert (await search(recipient, workspace, app, vector_driver))[0] == []
+
+
 async def test_missing_passage_is_repaired_without_source_edit(vector_driver):
     user, workspace, app, track, entry = await indexed_graph(vector_driver)
     store = passage_store(vector_driver, embedding_profile())

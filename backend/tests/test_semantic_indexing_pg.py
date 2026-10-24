@@ -529,20 +529,31 @@ async def test_workspace_byok_indexes_and_queries_same_space_then_fences_switch(
         ),
     )
     await process_workspace_rebuilds()
-    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    # Serving and pending spaces are maintained separately until verification.
+    assert (await indexing.deliver_index_jobs())["indexed"] == 2
+    await process_workspace_rebuilds()
     found, *_ = await search(
         user, workspace, app, vector_driver, query="Scope QA", mode="semantic"
     )
     assert found and found[0].entry_id == entry.id
     assert calls[-1] == "Scope QA"
     profile = await config.resolve_workspace_embedding_profile(workspace.id)
-    assert profile.id == remote["profile_id"]
-    # Leave old-space work pending, switch, and prove it cannot send text or publish.
+    assert profile.id == remote["pending_profile_id"]
+    # A former provider retains keyword publication, never encoding authority
+    # without explicit continuation consent during the next migration.
     await indexing.enqueue_entry(entry, force=True)
     before = len(calls)
     await config.save(identity.id, workspace.id, EmbeddingModelWrite(revision=1))
     stats = await indexing.deliver_index_jobs()
-    assert stats["superseded"] == 1 and len(calls) == before
+    assert stats["failed"] == 1 and len(calls) == before
+    assert (
+        await config.resolve_workspace_embedding_profile(workspace.id)
+    ).id == profile.id
+    await process_workspace_rebuilds()
+    await indexing.deliver_index_jobs()
+    from tests.test_embedding_migration_pg import finish_rebuild
+
+    await finish_rebuild(workspace.id)
     assert (
         await config.resolve_workspace_embedding_profile(workspace.id)
     ).id == embedding_profile().id

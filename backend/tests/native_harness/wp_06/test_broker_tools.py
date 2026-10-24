@@ -576,7 +576,8 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
         "integral_verify_build",
     }
     assert {name for name, tool in by_name.items() if not tool.defer_loading} == (
-        always_available | {"integral_get_page_context", "integral_open_view"}
+        always_available
+        | {"integral_get_page_context", "integral_open_view", "integral_query"}
     )
     assert len(by_name) > 100
 

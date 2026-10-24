@@ -69,7 +69,9 @@ async def _candidate_ids(
     track_type: str,
     entry_type: str | None,
     supplied: list[str] | None,
-) -> tuple[list[str], bool]:
+    *,
+    metadata_only: bool = False,
+) -> tuple[list[str] | dict[str, list[str] | None], bool]:
     """Walk only matching rooted resources, then apply canonical audience gates."""
     location = await locate_resource("app", context.app_id)
     if location is None or location.workspace_id != context.workspace_id:
@@ -101,6 +103,7 @@ async def _candidate_ids(
         entry_type_key=str(entry_type or "").strip(),
         selected_ids=supplied,
         selected_track_ids=selected_tracks,
+        metadata_only=metadata_only,
     )
     await walker.spawn(app)
     if walker.failure_reason:
@@ -114,6 +117,8 @@ async def _candidate_ids(
         raise _SearchUnavailable("selection_failed")
     if not walker.track_found and selected_tracks != []:
         raise _SearchUnavailable("track_not_found")
+    if metadata_only:
+        return walker.selection, walker.truncated
     admitted = await admit_records(
         context.user_id,
         walker.records,
@@ -171,15 +176,23 @@ async def search_app_entries(
         )
         with ordinary_authority_only(), isolated_permissions_cache():
             subject = await _read_subject(context)
-            eligible, truncated = await _candidate_ids(
-                context, track_type, entry_type, supplied
+            selected, truncated = await _candidate_ids(
+                context,
+                track_type,
+                entry_type,
+                supplied,
+                metadata_only=supplied is None,
+            )
+            eligible = cast(list[str], selected) if supplied is not None else None
+            selection_options: dict[str, Any] = (
+                {"type_selection": selected} if supplied is None else {}
             )
             capped = capped or truncated
             if capped:
                 warnings.append("eligible_ids_capped")
-            if supplied is not None and set(supplied) - set(eligible):
+            if supplied is not None and set(supplied) - set(eligible or []):
                 warnings.append("ineligible_ids_dropped")
-            if not eligible:
+            if not selected:
                 await _read_subject(context)
                 return _response(
                     requested,
@@ -205,6 +218,7 @@ async def search_app_entries(
                             k=k,
                             top_n=top_n,
                             eligible_entry_ids=eligible,
+                            **selection_options,
                         )
                     )
                 except (
@@ -223,10 +237,24 @@ async def search_app_entries(
                         k=k,
                         top_n=top_n,
                         eligible_entry_ids=eligible,
+                        **selection_options,
                     )
                     degraded = True
             finally:
                 current_scope_workspace_id.reset(token)
+            # Stable manifest identity can change during encoding/ranking too.
+            # Refresh selector authority rather than treating the initial
+            # graph discovery or its request-local permission cache as a lease.
+            with isolated_permissions_cache():
+                current_selection, _ = await _candidate_ids(
+                    context,
+                    track_type,
+                    entry_type,
+                    supplied,
+                    metadata_only=supplied is None,
+                )
+            if current_selection != selected:
+                raise _SearchUnavailable("selection_changed")
             await _read_subject(context)
     except _SearchUnavailable as exc:
         return _response(requested, available=False, reason=str(exc), warnings=warnings)

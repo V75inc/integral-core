@@ -31,6 +31,7 @@ class PassageStore:
         ):
             raise ValueError("Invalid internal passage table name")
         self._ready = False
+        self._selection_indexes_ready = False
         self._lock = asyncio.Lock()
         self.suffix = hashlib.sha256(self.table.encode()).hexdigest()[:12]
 
@@ -237,7 +238,12 @@ class PassageStore:
                 p["start"],
                 p["end"],
                 p["text"],
-                json.dumps(document["metadata"]),
+                json.dumps(
+                    {
+                        **document["metadata"],
+                        "_integral_type_id": document.get("type_id", ""),
+                    }
+                ),
             )
             for i, p in enumerate(passages)
         ]
@@ -317,7 +323,12 @@ class PassageStore:
                             p["start"],
                             p["end"],
                             p["text"],
-                            json.dumps(document["metadata"]),
+                            json.dumps(
+                                {
+                                    **document["metadata"],
+                                    "_integral_type_id": document.get("type_id", ""),
+                                }
+                            ),
                             _vector_literal(v),
                         )
                         for i, (p, v) in enumerate(zip(passages, vectors))
@@ -337,6 +348,45 @@ class PassageStore:
                 actual["checksum"],
             )
         return True
+
+    async def maintain_selection_indexes(self) -> None:
+        """Build two shared type selectors in worker maintenance, never on reads."""
+        if self._selection_indexes_ready:
+            return
+        pool = await self.ensure_schema()
+        async with pool.acquire() as conn:
+            lock = self.table + ":selection-indexes"
+            if not await conn.fetchval(
+                "SELECT pg_try_advisory_lock(hashtext($1))", lock
+            ):
+                return
+            try:
+                for name, table, columns in (
+                    (
+                        "passage_type_" + self.suffix,
+                        self.table,
+                        "profile_id,workspace_id,(metadata->>'_integral_type_id'),track_id",
+                    ),
+                    (
+                        "passage_lexical_type_" + self.suffix,
+                        self.lexical,
+                        "workspace_id,(metadata->>'_integral_type_id'),track_id",
+                    ),
+                ):
+                    existing = await conn.fetchrow(
+                        "SELECT indisvalid FROM pg_index WHERE indexrelid=to_regclass($1)",
+                        name,
+                    )
+                    if existing and existing["indisvalid"]:
+                        continue
+                    if existing:
+                        await conn.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {name}")
+                    await conn.execute(
+                        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON {table} ({columns}) WHERE deleted_at IS NULL"
+                    )
+                self._selection_indexes_ready = True
+            finally:
+                await conn.execute("SELECT pg_advisory_unlock(hashtext($1))", lock)
 
     async def maintain_ann(self, workspace_id: str) -> bool:
         """Build qualified large-profile indexes in worker maintenance, never search."""
@@ -405,19 +455,21 @@ class PassageStore:
         mode: str = "semantic",
         direct_entry_ids: list[str] | None = None,
         eligible_entry_ids: list[str] | None = None,
+        type_selection: dict[str, list[str] | None] | None = None,
     ) -> list[dict]:
         """Fuse independently bounded branches; lexical mode needs no vector."""
         if (
             not workspace_id
             or not (track_ids or direct_entry_ids)
             or eligible_entry_ids == []
+            or type_selection == {}
         ):
             return []
         if mode != "graph" and len(vector) != self.profile.dimensions:
             raise ValueError("Query vector dimensions differ from embedding profile")
         pool = await self.ensure_schema()
         k = min(max(k, 1), 500)
-        where = "workspace_id=$2 AND (track_id=ANY($3::text[]) OR entry_id=ANY($7::text[])) AND ($8::text[] IS NULL OR entry_id=ANY($8::text[])) AND deleted_at IS NULL"
+        where = "workspace_id=$2 AND (track_id=ANY($3::text[]) OR entry_id=ANY($7::text[])) AND ($8::text[] IS NULL OR entry_id=ANY($8::text[])) AND deleted_at IS NULL AND (NOT $9::boolean OR track_id=ANY($10::text[]) OR (metadata->>'_integral_type_id')=ANY($11::text[]))"
         args = [
             self.profile.id,
             workspace_id,
@@ -427,6 +479,16 @@ class PassageStore:
             query,
             direct_entry_ids or [],
             eligible_entry_ids,
+            type_selection is not None,
+            [track for track, types in (type_selection or {}).items() if types is None],
+            list(
+                {
+                    identity
+                    for types in (type_selection or {}).values()
+                    if types is not None
+                    for identity in types
+                }
+            ),
         ]
         branches = []
         ann_name = self.ann_index_name(workspace_id)

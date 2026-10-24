@@ -207,7 +207,7 @@ manifest key or `n.Track.*` ID as `track_type`, an optional manifest `entry_type
 and optional `eligible_entry_ids`. This does not relax the generic installed-App
 query boundary.
 
-Candidate selection uses a Walker along App → Track → Entry, resolving types
+Discovery uses a Walker along App → Track, resolving types
 through Track → OperationalModel → EntryType (or a directly attached legacy
 EntryType). Stable `template_id` identity takes precedence; ad-hoc Tracks use
 `relation_type_key`. Stable Track and EntryType keys match their declared values
@@ -222,14 +222,19 @@ label ambiguity. Existing title-based SDK helpers retain their own legacy
 contracts; this new passage API does not adopt title identity for keyed Tracks.
 
 Every graph neighbour page applies identity/type/explicit-ID predicates before
-its limit. At most 500 supplied IDs and 500 matching Entry candidates are
-considered. Track/type discovery bounds matching resources, not the entire
-App or unrelated schemas, and reports truncation as partial coverage. Explicit
-Entry IDs resolve their canonical parent Tracks first and constrain discovery
-to those parents, including in Apps with more than 500 Tracks. `None` discovers
-candidates; an explicit `[]` performs no search. Selected-ID retrieval does not
-enumerate unrelated user grants. Canonical scope, current source and permission
-checks remain mandatory, including a fresh check after encoding.
+its limit. Discovery resolves at most 500 matching Tracks/types and ranks their
+indexed passages without enumerating an Entry-ID prefix. Current canonical
+Track/type and per-Entry audience checks still apply after ranking. Matching
+schema-scope truncation is reported as partial; unrelated App Tracks/schema types
+do not consume that scope budget. Two shared type-selector indexes are built
+concurrently by worker maintenance, never by search requests. Derived type
+metadata is not public result metadata or a permission grant.
+
+Explicit caller-supplied Entry IDs remain capped at 500. Their canonical parent
+Tracks constrain discovery, including in Apps with more than 500 Tracks. `None`
+uses governed scope discovery; an explicit `[]` performs no search. Selected-ID
+retrieval does not enumerate unrelated user grants. Canonical scope, current
+source and permission checks remain mandatory, including after query encoding.
 
 This read-only facade preserves I-GRAPH-01/02 (no graph writes; rooted-edge
 traversal), I-SUBSTRATE-01/I-EXT-01 (no domain identity or package imports),
@@ -323,3 +328,50 @@ Use the [qualification guide](../ops/QUALIFICATION.md#retrieval-qualification)
 for actual accuracy, latency and provider-token measurement. Retain raw corpora
 and run outputs with review artifacts. A synthetic corpus is not a production
 recall or scale guarantee.
+
+## Model migration
+
+Workspace model saves retain separate serving/building choices. Rebuild discovery
+follows the rooted workspace Track registry with keyset pages and a depth-bounded
+frontier; it does not scan every tenant's Entries. Verification compares current
+canonical selected text with stored manifests. A committed-intent journal catches
+up subsequent Entry changes in bounded pages. A short transactional epoch and
+request-row lease fence activation against in-flight commands, configuration
+supersession and outstanding delivery. Track-wide index changes restart the
+verification sweep; Entry writes do not require a quiet whole-corpus window.
+Older partial rebuilds restart under the journal protocol. Old provider continuation
+requires explicit consent; current-key/owner/host checks still apply per batch.
+Cancel is revision-bound. See [embedding controls](voice-and-embedding-models.md).
+
+These changes do not complete every search phase. Long-document checkpoints,
+stronger tenant fairness, provider pooling/query-vector caching, retention, the
+remaining lifecycle-trigger audit and production relevance/load qualification
+remain in [the delivery contract](../platform/knowledge-retrieval-v1.md).
+
+## Admission and worker recovery
+
+Workspace scope discovery follows the rooted Track registry. When the entire
+requested Track scope is readable, ranking does not enumerate the user's Entry
+ownership inventory. Partial access uses jvspatial neighbour pages constrained
+to the uncovered Tracks before hydration; unrelated workspaces and already
+readable Tracks do not enter that grant scan. The declared Entry Track narrows
+discovery only: final candidates still receive current canonical containment
+and per-Entry policy checks. Entry-only collaborator links use the existing
+independent grant-source resolver and the same admission checks; they are not
+flattened into direct collaboration. This is candidate selection, never cached authorization. Retrieval stage timings distinguish
+scope, audience, profile, encoding, ranking and final validation without logging
+query or source text.
+
+Expired retrieval-worker claims compare the unique lease token, not floating-point
+timestamp equality. Time determines expiry; generation/status/token fence
+reclamation. Graceful workspace-rebuild cancellation releases only its own claim.
+Excluded-content intent resolves the canonical workspace even when the legacy
+Entry workspace cache is empty. Source and policy checks remain authoritative
+while background invalidation catches up.
+
+The resident receives the existing `integral_query` read schema immediately when
+its catalogue permits it. A focused fact lookup need not load the complete
+Insights workflow/tool schemas. It starts with a small passage budget; live
+broker and App operation boundaries still apply. This reduces model roundtrips
+and schema input, not the physical model/provider latency. See
+[chat latency](ai-chat.md#response-latency-and-activity).

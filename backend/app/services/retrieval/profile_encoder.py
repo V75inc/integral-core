@@ -20,6 +20,10 @@ class WorkspaceEmbeddingUnavailable(EmbeddingStoreUnavailable):
 
 async def encode_profile(texts: list[str], profile, *, require_active: bool = True):
     """Encode a bounded batch with the current owned model and validate every vector."""
+    from .embedding_configuration import encoding_authorized
+
+    if require_active and not await encoding_authorized(profile):
+        raise WorkspaceEmbeddingUnavailable("The search model is no longer authorized")
     if not profile.provider:
         from .embedding_model import encode_passages
 
@@ -29,19 +33,12 @@ async def encode_profile(texts: list[str], profile, *, require_active: bool = Tr
     from .embedding_configuration import (
         owned_connection,
         owner_subject,
-        resolve_workspace_embedding_profile,
     )
 
     try:
         _enabled()
         if await owner_subject(profile.workspace_id) != profile.owner_id:
             raise ValueError("Workspace owner changed")
-        if (
-            require_active
-            and (await resolve_workspace_embedding_profile(profile.workspace_id)).id
-            != profile.id
-        ):
-            raise ValueError("Embedding model changed")
         connection = await owned_connection(profile.owner_id, profile.connection_id)
         key = (
             decrypt_secret_from_storage(connection.api_key_enc, aad=profile.owner_id)

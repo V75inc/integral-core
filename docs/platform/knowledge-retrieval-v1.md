@@ -1,9 +1,9 @@
 # Integral semantic search improvement plan and contract — proposal v1
 
-**Status:** Approved direction; initial hardening implementation in review. The migration, broader integration and production qualification gates below remain open.
-**Date:** 24 October 2026. **Draft revision:** 4 — initial hardening delivery; remaining gates explicit.
+**Status:** Approved direction; index hardening, model migration and App discovery implementation in review. The migration, broader integration and production qualification gates below remain open.
+**Date:** 24 October 2026. **Draft revision:** 5 — verified migration and governed discovery; remaining gates explicit.
 **Decision owner:** Integral product architect, with retrieval, runtime, authorization, SDK and frontend engineering review.
-**Implementation base:** PR #171, `fa1fe11bd5de527b49567456d0ffe04a865f5fea` on `codex/harness-context-and-core-version`. This work is a separate stacked PR. The proposal also inspected PR #172 at `42d8cf5dada2dd691076fe8772d7d364b1d52842`; its SDK App passage-discovery findings are identified separately and its code is not included in this delivery.
+**Implementation base:** `main` at `37219ddee21690429455a170393e49dbb7f1eed2`, including merged #171, #172 and #176. PR #173 remains a separate draft on `codex/semantic-search-hardening`; it is not a release or production deployment.
 **Decision record:** [ADR-017](../backend/adr/017-graph-guided-knowledge-retrieval.md).
 
 This document records the delivery contract and remaining implementation plan. The [current indexing guide](../backend/semantic-indexing.md) and [voice and embedding guide](../backend/voice-and-embedding-models.md) describe shipped behavior. Requirements below are proposed obligations, not claims that the baseline already meets them. This revision replaces the unimplemented embedding-free proposal.
@@ -12,7 +12,15 @@ This document records the delivery contract and remaining implementation plan. T
 
 The initial delivery implements independent pinned tokenization, bounded local inference admission and microbatches, query priority with background slices, shorter cloud-query deadlines, independent indexed lexical publication, per-document integrity manifests and repair, verified unchanged-vector reuse, independent top-k fusion, small-scope exact ranking and capped workspace/profile HNSW maintenance. Status reads perform no inference. Candidate validation overlaps at most four ordinary policy checks and stays serial inside a caller-owned transaction. Feed and Track search hydrate the bounded ranked IDs through their ordinary list admission, without scanning unrelated pages or retrying rate-limit failures through another endpoint. Settings identify server versus device processing.
 
-This is not a claim that every exit gate below has passed. Pending/serving profile cutover, resumable passage-level scheduling, full workspace fairness, query-vector caching, pooled provider transports, cleanup/retention and the PR #172 SDK discovery changes remain separate work. Rebuild status remains bounded and conservative; over 1,000 sources/jobs is not reported as complete. The current model selection still takes effect before its background rebuild finishes. No new cross-profile fallback or migration guarantee is introduced here.
+The follow-on implementation separates configured/building and pinned serving profiles. A rooted, keyset-paged Workspace → Tracks registry → Track → Entry Walker retains a constant-depth frontier. A verification sweep checks actual projection manifests before transactional cutover; source-intent epochs serialize with canonical Entry commands and Track index configuration. A committed-intent journal catches up Entry changes after the full verification sweep. A cutover holds both the epoch and rebuild-request rows, checks owner/revision/profile/lease and actual tail manifests, and rejects outstanding work. Track-wide changes restart verification; ordinary Entry writes do not require a quiet whole-corpus window. Older partial requests restart under the journal protocol. Enumeration alone cannot activate a model. The previous provider is used during a migration only with explicit continuation consent; otherwise its existing authorized projection remains available for keyword retrieval. Cancel is owner/revision-bound, and superseded requests stop being scheduled immediately.
+
+Interactive scope admission now avoids scanning creation-time ownership grants when rooted Track coverage already admits the entire scope. Partial-access discovery removes duplicate grants before canonical admission. Rebuild pages batch fresh containment and schema reads. Retrieval-worker recovery fences on unique lease tokens instead of exact floating-point timestamp equality; graceful shutdown releases its owned rebuild claim. Excluded-content invalidation resolves its canonical workspace rather than relying on an optional Entry cache.
+
+The native resident exposes the existing read-only `integral_query` as a foundational schema, when present in the authorized catalogue. Focused knowledge lookups need no full Insights workflow expansion; current broker, App-operation and per-result policy gates remain unchanged. Other workflows still use progressive discovery/loading.
+
+App SDK discovery now resolves governed Track/type selectors before index ranking, instead of materializing the first 500 Entries. Explicit Entry-ID narrowing retains its 500-ID contract. Current canonical containment, type and audience are rechecked after ranking. Type projection adoption keeps existing untyped readers and source hashes compatible and reuses verified vectors; shared type-selector indexes are built concurrently by worker maintenance, never by a search.
+
+This is not a claim that every exit gate below has passed. The broader schema/restore/lifecycle invalidation audit, resumable passage-level scheduling, full workspace fairness, query-vector caching, pooled provider transports, cleanup/retention, qualified rollback and production quality/resource gates remain open. Existing Track status still uses bounded diagnostics; workspace migration verification is separately paged without a 1,000-source completion shortcut. Local transaction and browser evidence cannot establish a cloud capacity or freshness SLA.
 
 The qualification suite includes real encoder/PostgreSQL tests, a scoped ANN exact oracle, authority regressions and a populated browser preview. Production hardware sizing, a held-out 200-query relevance set, 100-tenant load cells and a two-hour container soak remain release gates. Do not treat this initial PR as approval to promise the SLOs in section 12 or increase production workers.
 
@@ -40,7 +48,7 @@ No universal ontology induction, arbitrary reasoning engine, automatic workspace
 
 ## 2. Verified baseline and critical findings
 
-These are code observations, not measured production bottlenecks. Reproduce them and establish their impact in Phase 0 before claiming improvements.
+These describe the historical inspected baseline before this PR, not the current implementation boundary above. They are code observations, not production latency measurements. Preserve the baseline/evaluation split when qualifying improvements.
 
 | Area | Inspected behavior | Improvement and priority |
 |---|---|---|
@@ -397,7 +405,7 @@ The steps below are ordered work packages, not a commitment to a number of PRs. 
 
 **Work:** separate top-k branches and indexed fusion; exact/ANN planner; small-tenant/direct-grant filter qualification; bounded refill; physical index/partition lifecycle; batch scope/policy work. Replace App discovery first-500 behavior with governed scope/type ranking. Prove current policy and explicit-ID semantics across adapters.
 
-**Areas:** `passage_store.py`, `search_service.py`; reconcile the separately reviewed PR #172 App search/Walker contract before adding it to the PR #171 lineage; canonical query improvements in JV Spatial where needed, database/load tests.
+**Areas:** `passage_store.py`, `search_service.py`; retain the merged PR #172 App search/Walker authority contract; canonical query improvements in JV Spatial where needed, database/load tests.
 
 **Exit:** physical plans use the intended indexes, relevant records after old caps are found, exact-oracle ANN recall and latency targets pass at scale, no global candidate starvation, no unbounded per-profile index creation. Retain a safe exact/lexical fallback and rollback toggle.
 

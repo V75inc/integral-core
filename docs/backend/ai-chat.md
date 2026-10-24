@@ -224,6 +224,15 @@ navigate only when clicked; they do not replay automatic agent navigation.
 
 ## Response latency and activity
 
+The existing read-only `integral_query` is a foundational native tool when it is
+present in the authorized catalogue. Focused saved-text lookups can call it
+without searching for and loading the full Insights workflow. Start with three
+results and a 600-token passage budget, answer from current passages and cite
+`action_url`. This changes schema visibility, not dispatch authority: the same
+broker, current policy, workspace and declared App-operation boundaries apply.
+Other workflows retain progressive discovery and skill loading; an explicit
+host visibility override remains authoritative.
+
 `INTEGRAL_CHAT_WORKERS` selects 1–16 durable chat workers per API process
 (default 4). Independent conversations can proceed concurrently; per-thread
 admission, leases and cancellation still serialize a single conversation.

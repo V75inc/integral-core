@@ -44,7 +44,11 @@ export function EmbeddingConfiguration({
   const [draft, setDraft] = useState<
     (EmbeddingChoice & { revision: number }) | null
   >(null);
-  useEffect(() => setDraft(null), [workspaceId, auth?.user?.id]);
+  const [continuePrevious, setContinuePrevious] = useState(false);
+  useEffect(() => {
+    setDraft(null);
+    setContinuePrevious(false);
+  }, [workspaceId, auth?.user?.id]);
   const query = useQuery({
     queryKey: [
       ...EMBEDDING_CONFIGURATION_QUERY_KEY,
@@ -53,7 +57,13 @@ export function EmbeddingConfiguration({
     ],
     queryFn: embeddingConfigurationApi.get,
     enabled: !!auth?.user && !!workspaceId,
-    refetchInterval: 15000,
+    refetchInterval: (q) =>
+      q.state.data?.rebuild_status &&
+      !["ready", "cancelled", "superseded"].includes(
+        q.state.data.rebuild_status,
+      )
+        ? 15000
+        : false,
   });
   const save = useMutation({
     mutationFn: embeddingConfigurationApi.save,
@@ -85,10 +95,27 @@ export function EmbeddingConfiguration({
         "error",
       ),
   });
+  const cancelChange = useMutation({
+    mutationFn: embeddingConfigurationApi.cancel,
+    onSuccess: () => {
+      void qc.invalidateQueries({
+        queryKey: EMBEDDING_CONFIGURATION_QUERY_KEY,
+      });
+      showToast("Model change cancelled.", "success");
+    },
+    onError: (error) =>
+      showToast(
+        errorMessageFromAxios(error, "Could not cancel the model change."),
+        "error",
+      ),
+  });
   const supported = connections.filter((c) => c.provider !== "anthropic");
   const data = query.data;
-  const localLabel = data?.processing_location === "device" ? "On this device" : "On this server";
-  const busy = save.isPending || test.isPending;
+  const localLabel =
+    data?.processing_location === "device"
+      ? "On this device"
+      : "On this server";
+  const busy = save.isPending || test.isPending || cancelChange.isPending;
   const valid =
     !!draft &&
     (draft.mode === "deployment" ||
@@ -125,12 +152,47 @@ export function EmbeddingConfiguration({
             )}
             {data?.rebuild_status && (
               <Text as="p" variant="meta" tone="muted">
-                {data.rebuild_status === "queued"
-                  ? "Rebuild queued. Results fill in as indexing completes."
+                {data.rebuild_status === "ready"
+                  ? "Search model ready."
                   : data.rebuild_status === "superseded"
                     ? "Earlier rebuild replaced by newer settings."
-                    : "Rebuild in progress. Results may be incomplete."}
+                    : data.rebuild_status === "cancelled"
+                      ? "Model change cancelled."
+                      : data.rebuild_phase === "catching_up"
+                        ? "Finishing recent changes before switching models."
+                        : data.rebuild_phase === "verifying"
+                          ? data.editable
+                            ? `Verifying search coverage · ${(data.verified ?? 0).toLocaleString()} records checked.`
+                            : "Verifying search coverage."
+                          : data.editable
+                            ? `Preparing search · ${(data.enumerated ?? 0).toLocaleString()} records reviewed.`
+                            : "Preparing search."}
               </Text>
+            )}
+            {data?.rebuild_error && (
+              <Text as="p" variant="body-sm" tone="muted">
+                {data.rebuild_error}
+              </Text>
+            )}
+            {data?.pending_model && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Text variant="body-sm" tone="muted">
+                  Preparing {data.pending_model}.{" "}
+                  {data.serving_available !== false
+                    ? "The current model remains available."
+                    : "Keyword search remains available."}
+                </Text>
+                {data.editable && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => cancelChange.mutate(data.revision)}
+                  >
+                    Cancel change
+                  </Button>
+                )}
+              </div>
             )}
             {data?.error && (
               <Text as="p" variant="body-sm" tone="muted">
@@ -165,13 +227,14 @@ export function EmbeddingConfiguration({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() =>
+            onClick={() => {
+              setContinuePrevious(false);
               setDraft({
                 ...fresh(),
                 ...data.configuration,
                 revision: data.revision,
-              })
-            }
+              });
+            }}
           >
             Configure embeddings
           </Button>
@@ -188,8 +251,11 @@ export function EmbeddingConfiguration({
         {draft && (
           <Modal.Body>
             <Text as="p" variant="body-sm" tone="muted">
-              Choose how search understands workspace text. The default runs
-              on {data?.processing_location === "device" ? "this device" : "the Integral server"}, using its CPU and memory.
+              Choose how search understands workspace text. The default runs on{" "}
+              {data?.processing_location === "device"
+                ? "this device"
+                : "the Integral server"}
+              , using its CPU and memory.
             </Text>
             <Text as="label" variant="body-sm" className="flex flex-col gap-1">
               Model source
@@ -309,9 +375,26 @@ export function EmbeddingConfiguration({
             )}
             <Text as="p" variant="meta" tone="muted">
               Changing models rebuilds the search index in a separate vector
-              space. Results may be incomplete until indexing catches up.
-              Testing sends a sample phrase only.
+              space. The new model starts serving only after coverage is
+              verified. Testing sends a sample phrase only.
             </Text>
+            {data?.effective_provider &&
+              !["local", "unavailable"].includes(data.effective_provider) && (
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={continuePrevious}
+                    disabled={busy}
+                    onChange={(e) => setContinuePrevious(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <Text variant="body-sm">
+                    Keep using the current provider until the new model is
+                    ready. These calls may incur charges. Otherwise, search uses
+                    existing keyword results during the change.
+                  </Text>
+                </label>
+              )}
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] pt-4">
               <Button
                 variant="ghost"
@@ -332,7 +415,12 @@ export function EmbeddingConfiguration({
               </Button>
               <Button
                 disabled={busy || !valid}
-                onClick={() => save.mutate(draft)}
+                onClick={() =>
+                  save.mutate({
+                    ...draft,
+                    continue_previous_provider: continuePrevious,
+                  })
+                }
               >
                 {save.isPending ? "Saving…" : "Save model"}
               </Button>

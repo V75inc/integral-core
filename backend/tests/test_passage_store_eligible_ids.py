@@ -88,7 +88,8 @@ def test_search_passes_eligible_ids_to_the_selector(mode) -> None:
     assert conn.queries
     for sql, args in conn.queries:
         assert "$8::text[] IS NULL OR entry_id=ANY($8::text[])" in sql
-        assert args[-1] == ["e1", "e2"]
+        assert args[7] == ["e1", "e2"]
+        assert args[8] is False
 
 
 def test_search_without_eligible_ids_passes_no_filter() -> None:
@@ -118,7 +119,7 @@ def test_search_without_eligible_ids_passes_no_filter() -> None:
         )
     )
 
-    assert conn.args[-1] is None
+    assert conn.args[7] is None
 
 
 def test_explicit_empty_ids_return_before_store_access():

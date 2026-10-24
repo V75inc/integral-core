@@ -28,6 +28,12 @@ class EmbeddingModelChoice(BaseModel):
 
 class EmbeddingModelWrite(EmbeddingModelChoice):
     revision: int = Field(ge=0)
+    continue_previous_provider: bool = False
+
+
+class EmbeddingModelCancel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    revision: int = Field(ge=0)
 
 
 class EmbeddingModelResponse(BaseModel):
@@ -42,8 +48,15 @@ class EmbeddingModelResponse(BaseModel):
     dimensions: int
     profile_id: str | None = None
     rebuild_status: str = ""
+    rebuild_phase: str = ""
     error: str = ""
     changed: bool = False
+    pending_model: str = ""
+    pending_profile_id: str | None = None
+    enumerated: int | None = None
+    verified: int | None = None
+    rebuild_error: str = ""
+    serving_available: bool = True
 
 
 class EmbeddingModelTestResponse(BaseModel):

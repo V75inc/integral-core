@@ -48,28 +48,36 @@ async def request_reindex(
 ) -> dict:
     """Retain a rebuild request attributed to its authorized actor."""
     await admit_track(user_id, track_id, workspace_id)
-    profile = await resolve_workspace_embedding_profile(
-        workspace_id or active_workspace_id()
-    )
-    identity = "o.TrackIndexRequest." + digest([track_id, profile.id])
-    await get_default_context().database.save(
-        "object",
-        {
-            "id": identity,
-            "entity": "TrackIndexRequest",
-            "context": {
-                "track_id": track_id,
-                "workspace_id": workspace_id or active_workspace_id(),
-                "requested_by": user_id,
-                "profile_id": profile.id,
-                "status": "pending",
-                "after": "",
-                "requested_at": time.time(),
-                "generation": uuid.uuid4().hex,
-                "queued": 0,
+    from app.services.entry_write_scope import entry_write_scope
+
+    from .migration_barrier import advance, barrier
+
+    bound_workspace = workspace_id or active_workspace_id()
+    async with entry_write_scope(track_id):
+        await barrier(bound_workspace, lock=True)
+        profile = await resolve_workspace_embedding_profile(
+            workspace_id or active_workspace_id()
+        )
+        identity = "o.TrackIndexRequest." + digest([track_id, profile.id])
+        await get_default_context().database.save(
+            "object",
+            {
+                "id": identity,
+                "entity": "TrackIndexRequest",
+                "context": {
+                    "track_id": track_id,
+                    "workspace_id": workspace_id or active_workspace_id(),
+                    "requested_by": user_id,
+                    "profile_id": profile.id,
+                    "status": "pending",
+                    "after": "",
+                    "requested_at": time.time(),
+                    "generation": uuid.uuid4().hex,
+                    "queued": 0,
+                },
             },
-        },
-    )
+        )
+        await advance(bound_workspace, scope=True)
     return {"requested": True, "track_id": track_id, "profile_id": profile.id}
 
 
@@ -199,7 +207,7 @@ async def index_status(
         },
         limit=1001,
     )
-    counts = {"pending": 0, "working": 0, "indexed": 0, "failed": 0}
+    counts = {"pending": 0, "working": 0, "indexed": 0, "failed": 0, "lexical_only": 0}
     for row in rows[:1000]:
         data = row["context"]
         if data["status"] in counts:
@@ -305,7 +313,7 @@ async def process_reindex_requests(*, limit: int = 4) -> None:
                 **fence,
                 "context.status": ctx["status"],
                 **(
-                    {"context.lease_until": ctx["lease_until"]}
+                    {"context.lease": ctx.get("lease")}
                     if ctx["status"] == "working"
                     else {}
                 ),

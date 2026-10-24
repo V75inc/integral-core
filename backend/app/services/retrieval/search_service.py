@@ -51,16 +51,24 @@ async def _eligible_scope(subject, workspace_id, scope, identities):
     return admitted
 
 
-async def scoped_tracks(subject: Subject, workspace_id: str, scope: str) -> list[str]:
+async def scoped_tracks(
+    subject: Subject,
+    workspace_id: str,
+    scope: str,
+    selected_ids: list[str] | None = None,
+    scope_inventory: set[str] | None = None,
+) -> list[str]:
     """Resolve current readable Tracks inside the exact host-bound scope."""
-    from jvspatial.core.context import get_default_context
-
     from app.services.resource_location import DATA_APP_STATES, locate_resources
 
-    database = get_default_context().database
-    after = ""
+    cursor = None
+    registry = None
     tracks = []
-    if scope.startswith("track:"):
+    if selected_ids is not None:
+        if len(selected_ids) > 500:
+            raise BadRequestError(message="Narrow this search to fewer lists")
+        records = [{"id": identity} for identity in selected_ids]
+    elif scope.startswith("track:"):
         records = [{"id": scope.split(":", 1)[1]}]
     elif scope.startswith("app:"):
         from app.models.edges import CONTAINS
@@ -75,21 +83,31 @@ async def scoped_tracks(subject: Subject, workspace_id: str, scope: str) -> list
         records = [{"id": child.id} for child in children]
     else:
         records = None
-    while True:
-        page = (
-            records
-            if records is not None
-            else await database.find(
-                "node",
-                {
-                    "entity": "Track",
-                    "context.workspace_id": workspace_id,
-                    "id": {"$gt": after},
-                },
-                sort=[("id", 1)],
-                limit=100,
+        from app.models.edges import CATALOGS, CONTAINS
+        from app.models.nodes import Workspace
+        from app.services.app_graph import _workspace_branch_id
+
+        workspace = await Workspace.find_one({"id": workspace_id})
+        branches = (
+            await workspace.nodes(
+                edge=[CONTAINS],
+                node=[{"Tracks": {"id": _workspace_branch_id(workspace_id, "tracks")}}],
+                limit=2,
             )
+            if workspace
+            else []
         )
+        registry = branches[0] if len(branches) == 1 else None
+    while True:
+        if records is not None:
+            page = records
+        elif registry is not None:
+            children, cursor = await registry.nodes_page(
+                edge=[CATALOGS], node=["Track"], cursor=cursor, limit=100
+            )
+            page = [{"id": child.id} for child in children]
+        else:
+            page = []
         locations = await locate_resources(
             "track",
             [r["id"] for r in page],
@@ -97,11 +115,15 @@ async def scoped_tracks(subject: Subject, workspace_id: str, scope: str) -> list
             allowed_app_states=DATA_APP_STATES,
         )
         for record in page:
+            if scope.startswith("track:") and record["id"] != scope.split(":", 1)[1]:
+                continue
             location = locations.get(record["id"])
             if location is None or location.workspace_id != workspace_id:
                 continue
             if scope.startswith("app:") and location.app_id != scope.split(":", 1)[1]:
                 continue
+            if scope_inventory is not None:
+                scope_inventory.add(record["id"])
             decision = await evaluate(
                 subject=subject,
                 action="track.read",
@@ -111,44 +133,57 @@ async def scoped_tracks(subject: Subject, workspace_id: str, scope: str) -> list
             )
             if decision.allowed:
                 tracks.append(record["id"])
-        if records is not None or len(page) < 100:
-            return tracks
-        after = page[-1]["id"]
-        if len(tracks) > 5000:
+        if len(tracks) > 5000 or (
+            scope_inventory is not None and len(scope_inventory) > 5000
+        ):
             raise BadRequestError(message="Narrow this search to an App or list")
+        if records is not None or cursor is None:
+            return tracks
 
 
-async def direct_entries(subject, workspace_id: str, scope: str) -> list[str]:
+async def direct_entries(
+    subject, workspace_id: str, scope: str, candidate_tracks: list[str]
+) -> list[str]:
     """Direct Entry grants need not grant read access to their whole Track."""
-    from jvspatial.core.context import get_default_context
-
     from app.models.edges import COLLABORATES_ON, OWNS
     from app.services.permissions import get_user_node
     from app.services.resource_location import DATA_APP_STATES, locate_resources
+    from app.services.share_grant_sources import share_grant_targets
 
     user = await get_user_node(subject.id)
-    if user is None:
+    if user is None or not candidate_tracks:
         return []
-    database = get_default_context().database
-    after, admitted = "", []
-    while True:
-        edges = await database.find(
-            "edge",
+    from jvspatial.core.context import get_default_context
+
+    sourced = await share_grant_targets(user.id, "entry")
+    source_records = (
+        await get_default_context().database.find(
+            "node",
             {
-                "source": user.id,
-                "entity": {
-                    "$in": [COLLABORATES_ON._entity_name(), OWNS._entity_name()]
-                },
-                "id": {"$gt": after},
+                "entity": Entry._entity_name(),
+                "id": {"$in": sorted(sourced)},
+                "context.track_id": {"$in": candidate_tracks},
             },
-            sort=[("id", 1)],
+            limit=1001,
+        )
+        if sourced
+        else []
+    )
+    admitted = await _eligible_scope(
+        subject, workspace_id, scope, [row["id"] for row in source_records]
+    )
+    cursor = None
+    while True:
+        # Push the declared Track selector into jvspatial's neighbour page.
+        # It is discovery only: fresh containment and policy still admit each
+        # candidate. No scan of unrelated grants or readable-Track records.
+        entries, cursor = await user.nodes_page(
+            edge=[COLLABORATES_ON, OWNS],
+            node=[{"Entry": {"context.track_id": {"$in": candidate_tracks}}}],
+            cursor=cursor,
             limit=100,
         )
-        ids = list(
-            dict.fromkeys(
-                e["target"] for e in edges if e["target"].startswith("n.Entry.")
-            )
-        )
+        ids = [entry.id for entry in entries if entry.id not in admitted]
         locations = await locate_resources(
             "entry",
             ids,
@@ -156,7 +191,11 @@ async def direct_entries(subject, workspace_id: str, scope: str) -> list[str]:
             allowed_app_states=DATA_APP_STATES,
         )
         for identity, location in locations.items():
-            if location is None or location.workspace_id != workspace_id:
+            if (
+                location is None
+                or location.workspace_id != workspace_id
+                or location.track_id not in candidate_tracks
+            ):
                 continue
             if scope.startswith("app:") and location.app_id != scope.split(":", 1)[1]:
                 continue
@@ -176,9 +215,8 @@ async def direct_entries(subject, workspace_id: str, scope: str) -> list[str]:
                 admitted.append(identity)
         if len(admitted) > 5000:
             raise BadRequestError(message="Narrow this search to an App or list")
-        if len(edges) < 100:
+        if cursor is None:
             return admitted
-        after = edges[-1]["id"]
 
 
 async def retrieve_passages(
@@ -189,6 +227,7 @@ async def retrieve_passages(
     k: int,
     top_n: int,
     eligible_entry_ids: list[str] | None = None,
+    type_selection: dict[str, list[str] | None] | None = None,
 ):
     """Return authorized current-source passages within a token budget.
 
@@ -236,6 +275,26 @@ async def retrieve_passages(
         raise InsufficientPermissionsError(
             message="Choose a workspace before searching"
         )
+    phase("scope_ms")
+    if type_selection is not None:
+        if not type_selection:
+            return [], 0, 0, payload.mode, False
+        if (
+            len(type_selection) > 500
+            or sum(len(v or []) for v in type_selection.values()) > 500
+        ):
+            raise BadRequestError(message="Narrow this search to fewer record types")
+    if payload.mode != "graph":
+        from .embedding_configuration import encoding_authorized
+        from .profile_encoder import WorkspaceEmbeddingUnavailable
+
+        # A disabled former provider cannot encode during migration. Refuse
+        # before the audience sweep, so lexical fallback does that work once.
+        # This preflight sends no text; the physical encoder still rechecks
+        # current egress authority after candidate admission.
+        selected = await resolve_workspace_embedding_profile(workspace_id)
+        if not await encoding_authorized(selected):
+            raise WorkspaceEmbeddingUnavailable("The search model is not available")
     eligible = None
     if eligible_entry_ids is not None:
         eligible = list(
@@ -252,8 +311,22 @@ async def retrieve_passages(
         if not granted_entries:
             return [], 0, 0, payload.mode, False
     else:
-        tracks = await scoped_tracks(subject, workspace_id, scope)
-        granted_entries = await direct_entries(subject, workspace_id, scope)
+        inventory: set[str] = set()
+        tracks = (
+            await scoped_tracks(subject, workspace_id, scope, list(type_selection))
+            if type_selection is not None
+            else await scoped_tracks(
+                subject, workspace_id, scope, scope_inventory=inventory
+            )
+        )
+        granted_entries = (
+            await direct_entries(
+                subject, workspace_id, scope, sorted(inventory - set(tracks))
+            )
+            if type_selection is None and inventory != set(tracks)
+            else []
+        )
+    phase("audience_ms")
     try:
         profile = await resolve_workspace_embedding_profile(workspace_id)
     except Exception:
@@ -295,6 +368,7 @@ async def retrieve_passages(
         mode=payload.mode,
         direct_entry_ids=granted_entries,
         eligible_entry_ids=eligible,
+        **({"type_selection": type_selection} if type_selection is not None else {}),
     )
     phase("ranking_ms")
     budget = payload.context_tokens
@@ -335,6 +409,13 @@ async def retrieve_passages(
                 document = await index_document(
                     entry, location=locations[identity], schemas=schemas
                 )
+                if document and type_selection is not None:
+                    selected_types = type_selection.get(document["track_id"], [])
+                    if (
+                        selected_types is not None
+                        and entry.type_id not in selected_types
+                    ):
+                        document = None
                 if document and (
                     document["workspace_id"] != workspace_id
                     or (

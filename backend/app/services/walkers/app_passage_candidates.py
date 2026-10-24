@@ -47,6 +47,8 @@ class AppPassageCandidateWalker(Walker):
     entry_type_key: str = ""
     selected_ids: list[str] | None = None
     selected_track_ids: list[str] | None = None
+    metadata_only: bool = False
+    selection: dict[str, list[str] | None] = Field(default_factory=dict)
     records: list[dict[str, Any]] = Field(default_factory=list)
     truncated: bool = False
     track_found: bool = False
@@ -170,6 +172,14 @@ class AppPassageCandidateWalker(Walker):
             await self._queue_entries(track, here.id)
 
     async def _queue_entries(self, track: Track, type_id: str | None = None) -> None:
+        if self.metadata_only:
+            if type_id is None:
+                self.selection[track.id] = None
+            else:
+                selected = self.selection.setdefault(track.id, [])
+                if selected is not None and type_id not in selected:
+                    selected.append(type_id)
+            return
         remaining = MAX_CANDIDATES - self._queued
         query: dict[str, Any] = {}
         if self.selected_ids is not None:
