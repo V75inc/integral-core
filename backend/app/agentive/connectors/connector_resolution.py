@@ -17,6 +17,7 @@ only in ``auth_state`` (their ``subclass_slug`` is ``"mcp"``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -153,10 +154,10 @@ async def resolve_connector_row(
     name: Optional[str] = None
     for connector in connectors:
         if row_slug(connector) == slug:
-            name = row_display_name(connector)
+            name = await asyncio.to_thread(row_display_name, connector)
             break
     if name is None:
-        name = row_display_name(_EmptyRow(), slug=slug)
+        name = await asyncio.to_thread(row_display_name, _EmptyRow(), slug=slug)
     raise ResolutionError(
         f"No {name} connection found — connect it in Settings → Connectors",
         "not_connected",

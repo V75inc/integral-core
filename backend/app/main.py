@@ -475,7 +475,7 @@ async def _bootstrap_resident_harness() -> None:
         mark_intelligence_unavailable,
     )
 
-    if not list_core_skills():
+    if not await asyncio.to_thread(list_core_skills):
         mark_intelligence_unavailable("skills_missing")
         raise RuntimeError("Integral AI's packaged skills are missing")
     mark_intelligence_available()

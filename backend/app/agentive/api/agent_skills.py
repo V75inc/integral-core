@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List
 
 from fastapi import Request
 from jvspatial.api import endpoint
 from jvspatial.api.exceptions import InsufficientPermissionsError
+from pydantic import ValidationError
 
 from app.agentive.services.agent_skills import (
+    browse_skills,
     build_tool_catalogue_for_editor,
     create_workspace_skill,
     delete_workspace_skill,
@@ -21,13 +24,19 @@ from app.agentive.services.agent_skills import (
 )
 from app.agentive.tooling.catalogue import build_tool_catalogue
 from app.agentive.workspace_agent_profile import compose_workspace_agent_profile
-from app.api.errors import MissingAuthenticationError, ResourceNotFoundError
+from app.api.errors import (
+    BadRequestError,
+    MissingAuthenticationError,
+    ResourceNotFoundError,
+)
 from app.api.utils import resolve_principal_id
 from app.models.nodes import Skill
 from app.schemas.agentive.agent_skills import (
     EffectiveSkillContextResponse,
     EffectiveSkillEntry,
     EffectiveToolEntry,
+    SkillBrowseQuery,
+    SkillBrowseResponse,
     SkillCreateRequest,
     SkillDetailResponse,
     SkillListResponse,
@@ -83,10 +92,23 @@ async def list_skills(request: Request) -> Dict[str, Any]:
     """Unified workspace skill list: core, app bundle, and workspace-authored."""
     user_id = _require_user(request)
     workspace_id = await _require_workspace(request, user_id)
-    core = list_core_skills()
+    core = await asyncio.to_thread(list_core_skills)
     overlay = await list_workspace_skills(workspace_id, user_id=user_id)
     grouped = _group_skills(core + overlay)
     return grouped.model_dump()
+
+
+@endpoint("/agentive/skills/browse", methods=["GET"], auth=True, tags=["Agentive"])
+async def browse_skill_page(request: Request) -> Dict[str, Any]:
+    """Bounded editor browsing; full runtime context is a separate opt-in read."""
+    user_id = _require_user(request)
+    workspace_id = await _require_workspace(request, user_id)
+    try:
+        query = SkillBrowseQuery.model_validate(dict(request.query_params))
+    except ValidationError as exc:
+        raise BadRequestError(message="Invalid skill filters or pagination") from exc
+    page = await browse_skills(workspace_id, user_id=user_id, query=query)
+    return SkillBrowseResponse(**page).model_dump()
 
 
 @endpoint(
@@ -134,7 +156,7 @@ async def effective_skill_context(
         for doc in active_docs
     }
     rows: List[EffectiveSkillEntry] = []
-    for row in list_core_skills():
+    for row in await asyncio.to_thread(list_core_skills):
         rows.append(
             EffectiveSkillEntry(
                 id=row["id"],
@@ -197,7 +219,7 @@ async def effective_skill_context(
             description=str(tool.get("description") or ""),
             source="core",
         )
-        for tool in build_tool_catalogue()
+        for tool in await asyncio.to_thread(build_tool_catalogue)
     ]
     from app.services.hooks.registry import get_workspace_tools
 

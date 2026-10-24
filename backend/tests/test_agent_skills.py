@@ -510,13 +510,22 @@ async def test_get_core_skill_detail_includes_description():
 
 
 @pytest.mark.asyncio
-async def test_get_bundle_skill_detail_without_source_operational_model_slug(tmp_path):
+async def test_get_bundle_skill_detail_without_source_operational_model_slug(
+    tmp_path, monkeypatch
+):
     """Bundle skill editor resolves content from the explicit bundle path without an App slug."""
     from app.agentive.services.agent_skills import get_skill_detail
 
     owner = await _user("skills-disk@example.com")
     ws = await _personal_workspace(owner)
     now = utc_now_iso()
+    from app.services import operational_model_library_sync as cache
+    from app.services import operational_model_loader as loader
+
+    monkeypatch.setattr(loader, "_PROFILES_ROOT", tmp_path)
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.delenv("INTEGRAL_OPERATIONAL_MODEL_PUBKEY", raising=False)
+    cache.reset_library_operational_models_cache_for_testing()
     bundle_dir = tmp_path / "synthetic-app"
     skill_path = bundle_dir / "skills" / "handle_request" / "SKILL.md"
     skill_path.parent.mkdir(parents=True)
@@ -524,12 +533,15 @@ async def test_get_bundle_skill_detail_without_source_operational_model_slug(tmp
         "---\n"
         "name: Handle Request\n"
         "description: Handle a synthetic request.\n"
-        "allowed-tools:\n"
-        "  - integral_whoami\n"
-        "  - integral_list_apps\n"
+        "allowed-tools: integral_whoami integral_list_apps\n"
         "---\n"
         "## Procedure\n\nHandle the request using the workspace contract.\n",
         encoding="utf-8",
+    )
+    (bundle_dir / "operational-model.yaml").write_text(
+        "integral_operational_model_version: 3\nscope: app\n"
+        "package:\n  slug: synthetic-app\n  name: Synthetic App\n  version: 1.0.0\n"
+        "app:\n  tracks: []\n  skills: [handle_request]\n"
     )
     app = await App.create(
         name="Synthetic App",

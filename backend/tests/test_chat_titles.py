@@ -201,3 +201,19 @@ async def test_lost_durable_lease_prevents_title_write(title_case, monkeypatch):
         work_execution_context=object(),
     )
     title_case.tx.find_one_and_update.assert_not_awaited()
+
+
+async def test_membership_revoked_during_inference_prevents_title_write(title_case):
+    """A successful provider response does not authorize a stale title mutation."""
+    from app.schemas.agentive.work import WorkError
+
+    authority = AsyncMock(side_effect=WorkError("work.policy_denied"))
+    with pytest.raises(WorkError, match="work.policy_denied"):
+        await chat_titles.infer_conversation_title(
+            thread_id="thread-1",
+            model=object(),
+            assistant_text="Answer",
+            assert_authority=authority,
+        )
+    title_case.run.assert_awaited_once()
+    title_case.tx.find_one_and_update.assert_not_awaited()

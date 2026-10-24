@@ -6,6 +6,7 @@ an incomplete document raises at load time so tests and boot fail loud.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -222,7 +223,16 @@ def _normalize_entry(doc: Dict[str, Any], *, path: Path) -> Dict[str, Any]:
     }
 
 
+_CATALOG_LOCK = threading.RLock()
+
+
 def load_catalog(*, catalog_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Serialize validation/cache publication across concurrent request threads."""
+    with _CATALOG_LOCK:
+        return _load_catalog(catalog_dir=catalog_dir)
+
+
+def _load_catalog(*, catalog_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """Return all vetted catalog packages, sorted by display_name."""
     global _CACHE, _CACHE_STAMP
     root = catalog_dir or CATALOG_DIR

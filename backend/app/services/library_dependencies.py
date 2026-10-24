@@ -1,5 +1,6 @@
 """Current library dependency admission and deterministic merge ordering."""
 
+import asyncio
 import re
 from typing import Optional
 
@@ -73,7 +74,9 @@ class LibraryDependencyWalker(Walker):
             )
             if current is None:
                 raise ResourceNotFoundError(message="Operational Model not found")
-            canonical = compile_canonical_manifest(manifest=current.manifest or {})
+            canonical = await asyncio.to_thread(
+                compile_canonical_manifest, manifest=current.manifest or {}
+            )
             declarations = (canonical.get("package") or {}).get("dependencies") or []
             if len(declarations) > 128:
                 raise BadRequestError(

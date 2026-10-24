@@ -25,6 +25,7 @@ membership is preserved.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 from datetime import datetime, timezone
@@ -146,7 +147,9 @@ async def publish_draft(
 
     # Validate compilability up-front so we never half-swap a broken manifest.
     try:
-        compiled = compile_canonical_manifest(manifest=dict(draft.manifest or {}))
+        compiled = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=dict(draft.manifest or {})
+        )
     except BadRequestError as exc:
         raise BadRequestError(message=f"Draft manifest does not compile: {exc.message}")
 

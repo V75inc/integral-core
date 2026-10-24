@@ -8,6 +8,7 @@ executing arbitrary generated code.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import Any, Dict, Iterable, List, Optional
@@ -425,9 +426,13 @@ async def _compile_application_definition(
     in the same service operation; the old contract remains inspectable for a
     later three-way upgrade merge.
     """
-    canonical = compile_canonical_manifest(manifest=dict(manifest or {}))
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=dict(manifest or {})
+    )
     package_base = (
-        compile_canonical_manifest(manifest=dict(base_package_manifest or {}))
+        await asyncio.to_thread(
+            compile_canonical_manifest, manifest=dict(base_package_manifest or {})
+        )
         if base_package_manifest
         else {}
     )

@@ -46,6 +46,7 @@ Implementation notes:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -117,7 +118,9 @@ async def _live_mcp_tool_names() -> set:
     try:
         from app.agentive.tooling import build_tool_catalogue
 
-        _LIVE_MCP_TOOL_NAMES = {entry["name"] for entry in build_tool_catalogue()}
+        _LIVE_MCP_TOOL_NAMES = {
+            entry["name"] for entry in await asyncio.to_thread(build_tool_catalogue)
+        }
         return set(_LIVE_MCP_TOOL_NAMES)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning(

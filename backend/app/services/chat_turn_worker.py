@@ -138,6 +138,12 @@ async def terminalize_chat_turn(
                 run.finished_at = utc_now_iso()
                 run.error = transitioned.failure if status != "succeeded" else None
                 await run.save()
+        if status == "succeeded" and thread is not None:
+            from app.services.chat_titles import enqueue_conversation_title
+
+            await enqueue_conversation_title(
+                parent=transitioned, thread=thread, transaction=transaction
+            )
         return transitioned
 
 

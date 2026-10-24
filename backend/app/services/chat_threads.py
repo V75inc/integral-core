@@ -7,6 +7,7 @@ can share the same primitives.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -1406,7 +1407,7 @@ async def _store_operation_bridge(
     bridge = None
     if blueprint.get("operations"):
         try:
-            bridge = operation_bridge(blueprint)
+            bridge = await asyncio.to_thread(operation_bridge, blueprint)
         except Exception:  # noqa: BLE001 — a bad skeleton only skips the spec
             logger.exception("operation bridge skeleton failed")
     if not bridge:

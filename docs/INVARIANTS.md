@@ -22,6 +22,40 @@ Use static create/edge checks and runtime reachability audits in `test_graph_con
 
 Use jvspatial Object for log-shaped/scalar-keyed records that have no meaningful graph relationship, permission resolution, cascade, traversal, or Walker computation. Graph participants remain Nodes. Conversion between these primitives is a substrate change. ChangeEvent persistence uses DBLog(Object) through the canonical logger; it does not need a graph migration. Private execution records can use scoped encrypted Objects while their owning sessions remain rooted Nodes.
 
+## Request liveness
+
+### I-RUNTIME-01 — Bounded repeated work
+
+Async request/worker paths offload pure synchronous source parsing, manifest
+compilation, document rendering and image processing. Graph operations,
+transactions and authorization remain on the originating asyncio Task. Do not
+move an entire graph service to a thread to hide blocking code.
+
+Concurrent library reads share validation without caching caller authority.
+Subsequent reads still check artifact/trust freshness; a cancelled waiter does
+not cancel another caller's validation. Per-operation loops reuse their source
+snapshot rather than rebuilding it for each App, Skill or View.
+
+Polling waits for outstanding reads, pauses hidden-tab timers, bounds catch-up
+pages and detects a nonadvancing cursor. Live event history retains its encrypted,
+principal/workspace/query-bound scan position at exhaustion; workspace changes
+reset subscribers; access-token renewal alone preserves scan progress. Live
+activity keeps a bounded recent window; the Audit log remains the full-history
+surface. Hidden tabs defer invalidation bursts until visible. An exhausted page is not permission to rescan all history on
+every timer tick. Catch-up and bulk event bursts reconcile each active query
+once, with one trailing refresh if an older read was already in flight. Deleted
+detail queries remain stale without refetching them. Retries never replay timed-out writes.
+
+History may withhold missing primary resources after a bounded bulk existence
+read; this negative prefilter never grants access. Surviving candidates still
+pass current containment, release admission and snapshot projection. Stop scans
+between records when their work budget expires and return protected progress;
+never report exhaustion or an outage as an empty complete history.
+
+Gates: `test_request_amplification.py`, `test_library_spec_cache.py`,
+`test_event_history.py`, `test_operational_model_import_limits.py`,
+`useSerialPolling.test.tsx` and `useChangeEventInvalidation.test.tsx`.
+
 ## Authority and access
 
 Use canonical policy evaluation. Agents without applicable policy fail closed. Policy administration authorizes itself through the same perimeter. No API-level legacy access helper or client-selected scope can bypass authority.

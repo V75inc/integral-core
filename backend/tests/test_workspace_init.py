@@ -30,6 +30,16 @@ import pytest
 from tests.fixtures.workspaces import make_org_workspace
 
 
+def _mock_library(monkeypatch, load):
+    async def source_index():
+        return "test-source", {spec.slug: spec for spec in load()}
+
+    monkeypatch.setattr(
+        "app.services.operational_model_library_sync.load_library_bundle_index_async",
+        source_index,
+    )
+
+
 @pytest.mark.asyncio
 async def test_init_rejects_non_workspace_scope_bundle(monkeypatch):
     """A bundle whose manifest.scope is anything other than "workspace"
@@ -41,8 +51,8 @@ async def test_init_rejects_non_workspace_scope_bundle(monkeypatch):
         init_workspace_from_profile,
     )
 
-    monkeypatch.setattr(
-        "app.services.operational_model_loader.load_library_operational_models",
+    _mock_library(
+        monkeypatch,
         lambda: [
             LibraryProfileSpec(
                 name="A",
@@ -73,8 +83,8 @@ async def test_init_rejects_already_applied_slug(monkeypatch):
         init_workspace_from_profile,
     )
 
-    monkeypatch.setattr(
-        "app.services.operational_model_loader.load_library_operational_models",
+    _mock_library(
+        monkeypatch,
         lambda: [
             LibraryProfileSpec(
                 name="X",
@@ -118,8 +128,8 @@ async def test_init_creates_apps_and_writes_applied_profiles(monkeypatch):
         init_workspace_from_profile,
     )
 
-    monkeypatch.setattr(
-        "app.services.operational_model_loader.load_library_operational_models",
+    _mock_library(
+        monkeypatch,
         lambda: [
             LibraryProfileSpec(
                 name="Z",
@@ -184,8 +194,8 @@ async def test_init_rollback_does_not_attribute_error(monkeypatch):
         init_workspace_from_profile,
     )
 
-    monkeypatch.setattr(
-        "app.services.operational_model_loader.load_library_operational_models",
+    _mock_library(
+        monkeypatch,
         lambda: [
             LibraryProfileSpec(
                 name="R",
@@ -252,8 +262,8 @@ async def test_init_handles_cross_app_relations(monkeypatch):
         init_workspace_from_profile,
     )
 
-    monkeypatch.setattr(
-        "app.services.operational_model_loader.load_library_operational_models",
+    _mock_library(
+        monkeypatch,
         lambda: [
             LibraryProfileSpec(
                 name="X",

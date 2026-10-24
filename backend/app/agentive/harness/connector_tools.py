@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.agentive.connectors.connector_resolution import (
@@ -61,7 +62,9 @@ async def build_connector_tool_catalogue(
                 "input_schema": schema,
                 "op_class": (
                     "execute"
-                    if is_write_tool(spec, auth_state={"catalog_slug": slug})
+                    if await asyncio.to_thread(
+                        is_write_tool, spec, auth_state={"catalog_slug": slug}
+                    )
                     else "read"
                 ),
             }

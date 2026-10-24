@@ -43,6 +43,7 @@ See ``backend/tests/test_app_lifecycle.py`` for the regression suite.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -459,11 +460,11 @@ async def install_app(
     library_cp = await assert_library_package_installable_in_workspace(
         library_cp, workspace_id, user_id=actor_id
     )
-    assert_library_artifact_trusted(library_cp)
+    await asyncio.to_thread(assert_library_artifact_trusted, library_cp)
 
     manifest = library_cp.manifest or {}
     # Step 1: compile (raises OperationalModelV1RejectedError on v1).
-    canonical = compile_canonical_manifest(manifest=manifest)
+    canonical = await asyncio.to_thread(compile_canonical_manifest, manifest=manifest)
 
     # Step 2: requires_apps dependency check.
     await _check_requires_apps(canonical, workspace_id)
@@ -799,7 +800,9 @@ async def install_app(
                 )
                 or None
             )
-            bundle_dir = normalize_bundle_dir(lib_path, slug=lib_slug)
+            bundle_dir = await asyncio.to_thread(
+                normalize_bundle_dir, lib_path, slug=lib_slug
+            )
             await register_bundle_on_install(
                 workspace_id=app_node.workspace_id,
                 canonical=canonical,
@@ -1034,17 +1037,21 @@ async def _resolve_app_bundle_dir(app_node: App) -> str | None:
     if not slug and attached is not None:
         pkg = (attached.manifest or {}).get("package") or {}
         slug = str(pkg.get("slug") or pkg.get("name") or "").strip()
-    resolved = normalize_bundle_dir(bundle_dir, slug=slug)
+    resolved = await asyncio.to_thread(normalize_bundle_dir, bundle_dir, slug=slug)
     if resolved:
         return resolved
     library_id = getattr(app_node, "installed_from_library_id", None) or getattr(
         app_node, "library_merge_source_id", None
     )
     if not library_id:
-        return resolve_bundle_dir_for_slug(slug) if slug else None
+        return (
+            await asyncio.to_thread(resolve_bundle_dir_for_slug, slug) if slug else None
+        )
     library_cp = await OperationalModel.get(library_id)
     if library_cp is None:
-        return resolve_bundle_dir_for_slug(slug) if slug else None
+        return (
+            await asyncio.to_thread(resolve_bundle_dir_for_slug, slug) if slug else None
+        )
     lib_path = (
         str((getattr(library_cp, "metadata", None) or {}).get("bundle_dir_path") or "")
         or None
@@ -1053,7 +1060,7 @@ async def _resolve_app_bundle_dir(app_node: App) -> str | None:
         slug = str(
             (getattr(library_cp, "metadata", None) or {}).get("slug") or ""
         ).strip()
-    return normalize_bundle_dir(lib_path, slug=slug)
+    return await asyncio.to_thread(normalize_bundle_dir, lib_path, slug=slug)
 
 
 async def sync_operational_layer_from_manifest(
@@ -1260,7 +1267,9 @@ async def finalize_install(
             message="App attached OperationalModel missing on finalize",
             details={"app_id": app_id},
         )
-    canonical = compile_canonical_manifest(manifest=attached_cp.manifest or {})
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=attached_cp.manifest or {}
+    )
 
     from app.services.entitlements import require_installed_app_entitlement
 
@@ -1426,7 +1435,9 @@ async def _find_active_hard_dependents(
                 attached = await get_app_attached_operational_model(other)
                 if attached is None:
                     continue
-                canonical = compile_canonical_manifest(manifest=attached.manifest or {})
+                canonical = await asyncio.to_thread(
+                    compile_canonical_manifest, manifest=attached.manifest or {}
+                )
         except Exception:  # noqa: BLE001
             logger.exception("dependency manifest unavailable for App %s", other.id)
             continue
@@ -1455,7 +1466,9 @@ async def _check_app_dependencies_active(app_node: App) -> None:
                 message="App attached OperationalModel missing during dependency check",
                 details={"app_id": app_node.id},
             )
-        canonical = compile_canonical_manifest(manifest=attached.manifest or {})
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=attached.manifest or {}
+        )
     await _check_requires_apps(canonical, app_node.workspace_id)
 
 
@@ -1534,8 +1547,8 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
                 if attached is None:
                     canonical = {}
                 else:
-                    canonical = compile_canonical_manifest(
-                        manifest=attached.manifest or {}
+                    canonical = await asyncio.to_thread(
+                        compile_canonical_manifest, manifest=attached.manifest or {}
                     )
             attached = await get_app_attached_operational_model(app_node)
             bundle_dir = (
@@ -1646,14 +1659,16 @@ async def _update_app_from_library(
         )
     from app.services.package_trust import assert_library_artifact_trusted
 
-    assert_library_artifact_trusted(library_cp)
+    await asyncio.to_thread(assert_library_artifact_trusted, library_cp)
     attached_cp = await get_app_attached_operational_model(app_node)
     if not attached_cp:
         raise AppInstallError(
             message="App attached OperationalModel missing on update",
             details={"app_id": app_id},
         )
-    canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=library_cp.manifest or {}
+    )
     current_definition = await get_active_application_definition(app_node)
     if current_definition is not None:
         from app.services.application_definitions import (
@@ -1700,7 +1715,9 @@ async def _update_app_from_library(
 
                 await register_bundle_on_install(
                     app_node.workspace_id,
-                    compile_canonical_manifest(manifest=manifest_snapshot),
+                    await asyncio.to_thread(
+                        compile_canonical_manifest, manifest=manifest_snapshot
+                    ),
                     bundle_dir=(
                         str(
                             (getattr(library_cp, "metadata", None) or {}).get(
@@ -2201,7 +2218,9 @@ async def _resolve_bundle_slug(app_node: App) -> str:
         if not slug:
             cp = await get_app_attached_operational_model(app_node)
             canonical = (
-                compile_canonical_manifest(manifest=cp.manifest or {})
+                await asyncio.to_thread(
+                    compile_canonical_manifest, manifest=cp.manifest or {}
+                )
                 if cp and cp.manifest
                 else {}
             )
@@ -2315,8 +2334,8 @@ async def _collect_cascade_refs(
                 continue
             cp = await get_app_attached_operational_model(other)
             if cp:
-                manifests[other.id] = compile_canonical_manifest(
-                    manifest=cp.manifest or {}
+                manifests[other.id] = await asyncio.to_thread(
+                    compile_canonical_manifest, manifest=cp.manifest or {}
                 )
         except Exception:
             continue

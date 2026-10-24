@@ -102,6 +102,9 @@ If chat reports that storage encryption is not configured, correct the deploymen
 | `ATTACHMENT_MAX_BATCH_BYTES` | 1 GiB | Batch byte limit |
 | `ATTACHMENT_MAX_BATCH_FILES` | 10 | Batch count limit |
 | `ATTACHMENT_EXTRACTED_TEXT_MAX_BYTES` | 10 MiB | Extracted text bound |
+| `ATTACHMENT_METADATA_MAX_BYTES` | 50 MiB | Automatic metadata input limit; larger originals remain downloadable |
+| `ATTACHMENT_METADATA_CONCURRENCY` | 2 | Concurrent metadata extractions per process (bounded to 1–16) |
+| `ATTACHMENT_PREVIEW_MAX_BYTES` | 50 MiB | Automatic Office preview input/output limit; one conversion at a time per process |
 | `ATTACHMENT_AGENT_TEXT_MAX_CHARS` | 20000 | Agent-facing extracted text bound |
 | `ATTACHMENT_SCANNER` | noop | No screening assurance until a real scanner is configured |
 | `CHUNKED_UPLOAD_ENABLED` | false | Explicit resumable-upload rollout |

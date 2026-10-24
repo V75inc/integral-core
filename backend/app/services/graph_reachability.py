@@ -32,6 +32,7 @@ follows the same canonical walker pattern documented in
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -217,7 +218,7 @@ async def audit_orphans(
     time so test monkey-patches take effect.
     """
     walker, _ = await _walk_from_root()
-    allowlist = _parse_allowlist(allowlist_path)
+    allowlist = await asyncio.to_thread(_parse_allowlist, allowlist_path)
 
     out: dict[str, list[str]] = {}
     for cls in _all_node_classes():
@@ -251,7 +252,7 @@ async def run_audit(*, raise_on_violation: bool = False) -> AuditReport:
         subset for status / progress reporting.
     """
     walker, elapsed = await _walk_from_root()
-    allowlist = _parse_allowlist()
+    allowlist = await asyncio.to_thread(_parse_allowlist)
 
     orphans: dict[str, list[str]] = {}
     allow_orphans: dict[str, list[str]] = {}

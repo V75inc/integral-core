@@ -1,5 +1,6 @@
 """First publication of a named workspace-private library draft."""
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -65,7 +66,9 @@ async def _publish(model_id: str, user_id: str, expected: Optional[str]) -> dict
         raise InsufficientPermissionsError(message="Access denied")
     if expected is not None and publication_review_fingerprint(model, None) != expected:
         raise BadRequestError(message="Publication review is stale")
-    compiled = compile_canonical_manifest(manifest=model.manifest or {})
+    compiled = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=model.manifest or {}
+    )
     before = await export_node(model)
     now = datetime.now(timezone.utc).isoformat()
     model.manifest = compiled

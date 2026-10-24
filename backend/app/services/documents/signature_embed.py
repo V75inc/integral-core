@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import logging
@@ -226,7 +227,7 @@ async def render_pdf_with_pre_embedded_signatures(
     """
     from app.services.documents.output import render_output
 
-    data, mime, _ext = render_output(html, "pdf", title=title)
+    data, mime, _ext = await asyncio.to_thread(render_output, html, "pdf", title=title)
     if mime != "application/pdf":
         raise ValueError("PDF rendering failed")
     return await apply_pre_embedded_signatures(
@@ -251,7 +252,8 @@ async def apply_pre_embedded_signatures(
     if not blocks:
         return pdf_bytes
 
-    all_places = resolve_signature_places(
+    all_places = await asyncio.to_thread(
+        resolve_signature_places,
         html=html,
         editor_document=editor_document,
         pdf_bytes=pdf_bytes,
@@ -275,7 +277,8 @@ async def apply_pre_embedded_signatures(
 
     if not signatures:
         return pdf_bytes
-    return overlay_signatures(
+    return await asyncio.to_thread(
+        overlay_signatures,
         pdf_bytes,
         signatures,
         places=overlay_places,

@@ -6,6 +6,7 @@ Called by services/app_lifecycle.install_app + uninstall_app.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict
 
@@ -246,12 +247,16 @@ async def rehydrate_all_installed_bundles() -> None:
                 count_healed += 1
             definition = await get_active_application_definition(app_node)
             canonical = (
-                compile_canonical_manifest(manifest=cp.manifest or {})
+                await asyncio.to_thread(
+                    compile_canonical_manifest, manifest=cp.manifest or {}
+                )
                 if healed
                 else (
                     dict(definition.canonical_manifest)
                     if definition is not None and definition.canonical_manifest
-                    else compile_canonical_manifest(manifest=cp.manifest or {})
+                    else await asyncio.to_thread(
+                        compile_canonical_manifest, manifest=cp.manifest or {}
+                    )
                 )
             )
             if getattr(app_node, "installed_from_library_id", None):
@@ -383,7 +388,7 @@ async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
     from app.services.operational_model_runtime import compile_canonical_manifest
 
     try:
-        compile_canonical_manifest(manifest=manifest)
+        await asyncio.to_thread(compile_canonical_manifest, manifest=manifest)
     except (BadRequestError, ValueError) as exc:
         logger.warning(
             "rehydrate: operational backfill for app %s requires a package upgrade: %s",

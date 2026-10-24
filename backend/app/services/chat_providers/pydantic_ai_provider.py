@@ -1476,7 +1476,14 @@ class PydanticAIProvider:
         return thread, workspace_role
 
     async def _build_turn_model(
-        self, ctx, scope, work_execution_context, workspace_role, *, model_role="heavy"
+        self,
+        ctx,
+        scope,
+        work_execution_context,
+        workspace_role,
+        *,
+        model_role="heavy",
+        auxiliary=False,
     ):
         """One funding, metering and current-authority contract for both modes."""
         from app.config import settings
@@ -1603,6 +1610,7 @@ class PydanticAIProvider:
             dispatch_guard=timing.reserve_dispatch if timing is not None else None,
             request_validator=validate_images,
             timeout_seconds=min(
+                10 if auxiliary else float("inf"),
                 settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
                 generation.get(
                     "request_timeout",
@@ -1619,7 +1627,9 @@ class PydanticAIProvider:
                     settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
                 ),
             ),
-            max_attempts=settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS,
+            max_attempts=(
+                1 if auxiliary else settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS
+            ),
             retry_status=emit_model_retry_status,
         )
 
@@ -1910,7 +1920,7 @@ class PydanticAIProvider:
 
         from app.agentive.tooling.catalogue import build_tool_catalogue
 
-        catalogue = build_tool_catalogue()
+        catalogue = await asyncio.to_thread(build_tool_catalogue)
         from app.agentive.harness.connector_tools import build_connector_tool_catalogue
 
         catalogue = [
@@ -1930,7 +1940,7 @@ class PydanticAIProvider:
         )
         from app.agentive.services.agent_skills import list_core_skills
 
-        skill_rows = list_core_skills()
+        skill_rows = await asyncio.to_thread(list_core_skills)
         skill_sources = [
             (
                 str(row.get("key") or ""),
@@ -2199,7 +2209,8 @@ class PydanticAIProvider:
         )
         skill_temp = tempfile.TemporaryDirectory(prefix="integral-native-skills-")
         try:
-            allowed_skill_names = materialize_standard_skill_library(
+            allowed_skill_names = await asyncio.to_thread(
+                materialize_standard_skill_library,
                 skill_sources,
                 root=Path(skill_temp.name),
                 allowed_tools={
@@ -2241,7 +2252,8 @@ class PydanticAIProvider:
                 "scaffold_coverage_attempted": False,
                 "capability_search_completed": False,
             }
-            tools = build_brokered_tools(
+            tools = await asyncio.to_thread(
+                build_brokered_tools,
                 scope=scope,
                 catalogue=catalogue,
                 work_execution_context=work_execution_context,
@@ -2868,17 +2880,6 @@ class PydanticAIProvider:
                         )
                 if updated_session.last_checkpoint_id != persisted_id:
                     raise RuntimeError("safe checkpoint pointer did not advance")
-
-            # Use the same scoped, admitted and metered model transport, with
-            # no tools or conversation instructions in this presentation task.
-            from app.services.chat_titles import infer_conversation_title
-
-            await infer_conversation_title(
-                thread_id=ctx.thread_id,
-                model=getattr(agent, "model", None),
-                assistant_text=str((settled_event or {}).get("delta") or ""),
-                work_execution_context=work_execution_context,
-            )
 
             if run_state.get("adaptive_requests"):
                 observations = await list_run_model_request_observations(

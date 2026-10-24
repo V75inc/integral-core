@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import glob
 import hashlib
 import os
@@ -24,6 +25,7 @@ from app.agentive.workspace_agent_profile import (
 from app.exceptions import InvalidToolReferenceError
 from app.models.edges import CONTAINS
 from app.models.nodes import App, Skill, Workspace
+from app.schemas.agentive.agent_skills import SkillBrowseQuery
 from app.utils.time import utc_now_iso
 
 _RESIDENT_AGENT_NAMESPACE = "integral"
@@ -67,7 +69,7 @@ async def build_tool_catalogue_for_editor() -> List[Dict[str, Any]]:
     from app.agentive.tooling import build_tool_catalogue
 
     out: List[Dict[str, Any]] = []
-    for entry in build_tool_catalogue():
+    for entry in await asyncio.to_thread(build_tool_catalogue):
         schema = entry.get("input_schema") or {}
         out.append(
             {
@@ -264,7 +266,8 @@ async def resolve_skill_bodies(
 
     domain_body = await resolve_skill_domain_body(skill, app=app)
     default_merged, _ = await resolve_bundle_default_body(skill, app=app)
-    resolved, _ = _resolve_prompt_body(
+    resolved, _ = await asyncio.to_thread(
+        _resolve_prompt_body,
         skill,
         bundle_dir=bundle_dir,  # type: ignore[arg-type]
         tools_required=list(getattr(skill, "tools_required", None) or []),
@@ -272,35 +275,55 @@ async def resolve_skill_bodies(
     return resolved, default_merged, domain_body
 
 
-async def resolve_skill_description(
-    skill: Skill,
-    *,
-    app: Optional[App] = None,
-) -> str:
-    """Discovery description: Skill node, else SKILL.md frontmatter on disk."""
-    desc = str(getattr(skill, "description", "") or "").strip()
-    if desc:
-        return desc
+def _read_skill_disk_metadata(
+    skill: Skill, bundle_dir: Optional[Path]
+) -> Tuple[str, List[str]]:
+    """Read one authorized bundle document once, on the caller's worker thread."""
+    from app.agentive.workspace_agent_profile import locate_skill_disk_path
+    from app.services.skill_format import allowed_tool_names, parse_skill_document
+
+    # A rejected/missing bundle must not resolve a same-named skill elsewhere.
+    if bundle_dir is None:
+        return "", []
+    skill_path = locate_skill_disk_path(
+        skill, bundle_dir=bundle_dir, allow_library_fallback=False
+    )
+    if skill_path is None:
+        return "", []
+    try:
+        meta, _ = parse_skill_document(skill_path)
+        return (
+            str(meta.get("description") or "").strip(),
+            allowed_tool_names(meta.get("allowed-tools")),
+        )
+    except (OSError, ValueError):
+        return "", []
+
+
+async def _skill_disk_metadata(
+    skill: Skill, app: Optional[App]
+) -> Tuple[str, List[str]]:
     if app is None:
         app_id = str(getattr(skill, "app_id", "") or "")
         if app_id:
             app = await App.get(app_id)
     if app is None:
-        return ""
+        return "", []
     bundle_dir = await _resolve_bundle_dir_async(app)
-    from app.agentive.workspace_agent_profile import locate_skill_disk_path
+    return await asyncio.to_thread(_read_skill_disk_metadata, skill, bundle_dir)
 
-    skill_path = locate_skill_disk_path(skill, bundle_dir=bundle_dir)
-    if skill_path is None:
-        return ""
-    try:
-        from app.services.skill_format import parse_skill_document
 
-        meta, _ = parse_skill_document(skill_path)
-        return str(meta.get("description") or "").strip()
-    except Exception:
-        pass
-    return ""
+async def resolve_skill_description(
+    skill: Skill,
+    *,
+    app: Optional[App] = None,
+) -> str:
+    """Discovery description: Skill node, else its validated bundle document."""
+    desc = str(getattr(skill, "description", "") or "").strip()
+    if desc:
+        return desc
+    description, _ = await _skill_disk_metadata(skill, app)
+    return description
 
 
 async def resolve_skill_tools_from_disk(
@@ -308,27 +331,9 @@ async def resolve_skill_tools_from_disk(
     *,
     app: Optional[App] = None,
 ) -> List[str]:
-    """tools_required from SKILL.md allowed-tools when disk is reachable."""
-    if app is None:
-        app_id = str(getattr(skill, "app_id", "") or "")
-        if app_id:
-            app = await App.get(app_id)
-    if app is None:
-        return list(getattr(skill, "tools_required", None) or [])
-    from app.agentive.workspace_agent_profile import (
-        _resolve_bundle_dir_async,
-        allowed_tools_from_skill_path,
-        locate_skill_disk_path,
-    )
-
-    bundle_dir = await _resolve_bundle_dir_async(app)
-    skill_path = locate_skill_disk_path(skill, bundle_dir=bundle_dir)
-    if skill_path is None:
-        return list(getattr(skill, "tools_required", None) or [])
-    disk_tools = allowed_tools_from_skill_path(skill_path)
-    if disk_tools:
-        return disk_tools
-    return list(getattr(skill, "tools_required", None) or [])
+    """Read allowed-tools without doing filesystem work on the API event loop."""
+    _, tools = await _skill_disk_metadata(skill, app)
+    return tools or list(getattr(skill, "tools_required", None) or [])
 
 
 def skill_summary(
@@ -357,6 +362,7 @@ def skill_summary(
         "kind": getattr(skill, "kind", "declarative"),
         "app_id": getattr(skill, "app_id", ""),
         "app_slug": app_slug,
+        "app_name": str(getattr(app, "name", "") or app_slug) if app else "",
         "namespaced_name": namespaced,
         "origin": origin,
         "enabled": bool(getattr(skill, "enabled", True)),
@@ -376,6 +382,7 @@ async def list_workspace_skills(
     user_id: str,
     private_app_id: str | None = None,
     include_private: bool = True,
+    include_metadata: bool = True,
 ) -> List[Dict[str, Any]]:
     """List caller-visible skills, with private inclusion defaulting to editor mode.
 
@@ -409,6 +416,27 @@ async def list_workspace_skills(
 
     out: List[Dict[str, Any]] = []
     seen: set = set()
+    bundle_specs = None
+    bundle_dirs: Dict[str, Optional[Path]] = {}
+
+    async def metadata(skill: Skill, app: Optional[App]) -> Tuple[str, List[str]]:
+        nonlocal bundle_specs
+        if app is None or not include_metadata:
+            return "", []
+        if app.id not in bundle_dirs:
+            if bundle_specs is None:
+                from app.services.operational_model_library_sync import (
+                    load_library_bundle_index_async,
+                )
+
+                _, bundle_specs = await load_library_bundle_index_async()
+            bundle_dirs[app.id] = await _resolve_bundle_dir_async(
+                app, bundle_specs=bundle_specs
+            )
+        return await asyncio.to_thread(
+            _read_skill_disk_metadata, skill, bundle_dirs[app.id]
+        )
+
     for sk in skills:
         skill_app_id = str(getattr(sk, "app_id", "") or "")
         if (
@@ -424,9 +452,10 @@ async def list_workspace_skills(
         if origin == "workspace":
             owning_app = app_by_id.get(str(getattr(sk, "app_id", "") or ""))
             row = skill_summary(sk, app=owning_app, source="workspace")
-            disk_desc = await resolve_skill_description(sk)
-            if disk_desc:
-                row["description"] = disk_desc
+            if not row["description"]:
+                disk_desc, _ = await metadata(sk, owning_app)
+                if disk_desc:
+                    row["description"] = disk_desc
             out.append(row)
             seen.add(sk.id)
             continue
@@ -434,10 +463,9 @@ async def list_workspace_skills(
         if app is None:
             continue
         row = skill_summary(sk, app=app, source="app")
-        disk_desc = await resolve_skill_description(sk, app=app)
-        if disk_desc:
+        disk_desc, disk_tools = await metadata(sk, app)
+        if not row["description"] and disk_desc:
             row["description"] = disk_desc
-        disk_tools = await resolve_skill_tools_from_disk(sk, app=app)
         if disk_tools:
             row["tools_required"] = disk_tools
         out.append(row)
@@ -459,11 +487,103 @@ async def list_workspace_skills(
             continue
         owning_app = app_by_id.get(sk_app_id)
         row = skill_summary(sk, app=owning_app, source="workspace")
-        disk_desc = await resolve_skill_description(sk)
-        if disk_desc:
-            row["description"] = disk_desc
+        if not row["description"]:
+            disk_desc, _ = await metadata(sk, owning_app)
+            if disk_desc:
+                row["description"] = disk_desc
         out.append(row)
     return out
+
+
+async def browse_skills(
+    workspace_id: str, *, user_id: str, query: SkillBrowseQuery
+) -> dict:
+    """Page the authorized inventory before disk enrichment, never cache authority.
+
+    The existing registry resolves graph membership and caller access across
+    the inventory. Paging bounds response size and file reads; it does not
+    claim to make that authorization inventory scan sublinear. Search uses
+    saved names/keys/App names, so it never reads every instruction file.
+    """
+    core = (
+        await asyncio.to_thread(list_core_skills)
+        if query.source in {"all", "core"}
+        else []
+    )
+    overlay = (
+        await list_workspace_skills(
+            workspace_id, user_id=user_id, include_metadata=False
+        )
+        if query.source != "core"
+        else []
+    )
+    apps = {
+        row["app_id"]: row.get("app_name") or row.get("app_slug") or "App"
+        for row in overlay
+        if row.get("app_id")
+    }
+    search = query.search.strip().casefold()
+    rows = [
+        row
+        for row in core + overlay
+        if (query.source == "all" or row["source"] == query.source)
+        and (not query.app_id or row.get("app_id") == query.app_id)
+        and (
+            not search
+            or search
+            in " ".join(
+                str(row.get(key) or "")
+                for key in ("name", "key", "namespaced_name", "app_slug", "app_name")
+            ).casefold()
+        )
+    ]
+    rows.sort(key=lambda row: (row["name"].casefold(), row["id"]))
+    total = len(rows)
+    total_pages = max(1, (total + query.page_size - 1) // query.page_size)
+    page = min(query.page, total_pages)
+    selected = rows[(page - 1) * query.page_size : page * query.page_size]
+    # Only visible rows need a description fallback. Tool lists and full
+    # instructions belong to the detail view, never the browsing request.
+    missing_descriptions = [
+        row
+        for row in selected
+        if row["source"] != "core" and row.get("app_id") and not row.get("description")
+    ]
+    if missing_descriptions:
+        from app.services.operational_model_library_sync import (
+            load_library_bundle_index_async,
+        )
+
+        _, specs = await load_library_bundle_index_async()
+        directories: dict[str, Optional[Path]] = {}
+        for row in missing_descriptions:
+            skill = await Skill.get(row["id"])
+            if skill is not None:
+                app_id = row["app_id"]
+                if app_id not in directories:
+                    app = await App.get(app_id)
+                    directories[app_id] = (
+                        await _resolve_bundle_dir_async(app, bundle_specs=specs)
+                        if app is not None
+                        else None
+                    )
+                description, _ = await asyncio.to_thread(
+                    _read_skill_disk_metadata, skill, directories[app_id]
+                )
+                row["description"] = description
+    return {
+        "skills": selected,
+        "apps": [
+            {"id": app_id, "name": name}
+            for app_id, name in sorted(
+                apps.items(), key=lambda item: (item[1].casefold(), item[0])
+            )
+        ],
+        "total": total,
+        "page": page,
+        "page_size": query.page_size,
+        "total_pages": total_pages,
+    }
 
 
 async def get_skill_detail(
@@ -479,7 +599,7 @@ async def get_skill_detail(
             from app.api.errors import ResourceNotFoundError
 
             raise ResourceNotFoundError(message="skill not found")
-        for row in list_core_skills():
+        for row in await asyncio.to_thread(list_core_skills):
             if row["id"] == skill_id:
                 return row
         from app.api.errors import ResourceNotFoundError
@@ -698,23 +818,21 @@ async def update_workspace_skill(
 
 
 async def _manifest_skill_defaults(app: App, key: str) -> Tuple[str, str]:
-    from pathlib import Path
-
     from app.services.operational_model_compile import compile_canonical_manifest
-    from app.services.operational_model_loader import (
-        load_library_operational_models_with_issues,
+    from app.services.operational_model_library_sync import (
+        load_library_bundle_index_async,
     )
 
     slug = str(getattr(app, "source_operational_model_slug", None) or "").strip()
     if not slug:
         return "", ""
-    specs, _ = load_library_operational_models_with_issues(
-        packages_root=Path("app/packages")
-    )
-    spec = next((s for s in specs if s.slug == slug), None)
+    _, specs = await load_library_bundle_index_async()
+    spec = specs.get(slug)
     if spec is None:
         return "", ""
-    canonical = compile_canonical_manifest(manifest=spec.manifest, scope_hint="app")
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=spec.manifest, scope_hint="app"
+    )
     for sk in canonical.get("app", {}).get("skills") or []:
         if sk.get("key") == key:
             return str(sk.get("name") or key), str(sk.get("description") or "")

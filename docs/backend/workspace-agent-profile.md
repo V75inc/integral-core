@@ -10,6 +10,21 @@ Binding changes, scope changes, pause/removal, and revocation must refresh the a
 
 Test inaccessible Apps, a second workspace, pause, duplicate keys, missing skill files, stale cached profiles, and current-grant rechecks. See [resident architecture](../product/RESIDENT_HARNESS.md).
 
+## Validated package sources
+
+Library source validation is shared within each process, independently of the
+short-lived workspace profile cache. Changes to package artifacts, signing
+keys, ordered package roots or plugin registrations invalidate source reuse.
+Recorded bundle paths must resolve through this validated index; a rejected
+package cannot re-enter through metadata or a same-named skill in another bundle.
+Caller access is checked afresh before a cached profile can be returned.
+
+Library validation and Skills editor catalogue compilation run outside the API
+event loop. Concurrent cold requests and forced rescans serialize compilation;
+forced rescans still validate afresh. Catalogue graph updates and structural
+edge callbacks remain on the originating request task. Source reuse never
+stores caller permission decisions or workspace content.
+
 ## Author skills as complete procedures
 
 Declare the exact callable tool names in the standard space-separated
@@ -47,3 +62,21 @@ left marked active after its required instruction body is discarded. Pending
 staging/effect continuations protect their task, and final context admission
 stops oversized protected work safely. App uninstall, permission checks and
 profile invalidation remain Core authorities; context retention grants none.
+
+## Skills settings browsing
+
+The settings page uses `GET /api/agentive/skills/browse` with `page`,
+`page_size` (default 10, maximum 50), `search`, `source` and optional `app_id`.
+Search matches saved skill names/keys and App names. Counts and App choices
+come only from the caller-visible inventory; supplying an inaccessible App ID
+cannot reveal its skills or counts. Existing list and effective-context APIs
+retain their contracts.
+
+Paging precedes on-disk description enrichment. Only the selected page is
+returned, and full instructions load when a skill is opened. The graph registry
+still resolves the authorized inventory before paging: this is not a claim of
+constant-time database discovery. The initial UI does not compose a runtime
+profile or fetch the tool catalogue. The secondary “Inspect agent access” action
+opens a dialog on demand, shows one paged collection at a time, and resets on
+workspace changes. Tool autocomplete loads
+only when creating or editing a skill. Mutation feedback uses toasts.

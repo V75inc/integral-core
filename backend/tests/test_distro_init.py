@@ -62,11 +62,18 @@ def test_cwd_dotenv_fills_unset_variables(
     (tmp_path / ".env").write_text(
         "INTEGRAL_SMOKE_DOTENV_MARKER=from-cwd\n", encoding="utf-8"
     )
+    # This case explicitly tests an unmanaged cwd. Do not inherit a managed
+    # runtime file, or load the developer checkout's dotenv while testing it.
+    from app import config
+
+    monkeypatch.setattr(config, "_MANAGED_ENV", None)
+    monkeypatch.setattr(config, "_ENV_FILES", ())
     monkeypatch.delenv("INTEGRAL_SMOKE_DOTENV_MARKER", raising=False)
     monkeypatch.chdir(tmp_path)
     try:
         load_integral_env_files()
-        assert os.environ.get("INTEGRAL_SMOKE_DOTENV_MARKER") == "from-cwd"
+        marker = os.environ.get("INTEGRAL_SMOKE_DOTENV_MARKER")
+        assert marker == "from-cwd"
     finally:
         os.environ.pop("INTEGRAL_SMOKE_DOTENV_MARKER", None)
 
@@ -144,3 +151,24 @@ def test_text_fidelity_default_preserves_explicit_deployment_choice(
     monkeypatch.setenv("JVSPATIAL_TEXT_NORMALIZATION_ENABLED", "true")
     configure_integral_text_fidelity()
     assert os.environ["JVSPATIAL_TEXT_NORMALIZATION_ENABLED"] == "true"
+
+
+def test_managed_runtime_ignores_cwd_dotenv(tmp_path, monkeypatch):
+    from app import config
+
+    (tmp_path / ".env").write_text("INTEGRAL_SMOKE_CWD_ONLY=must-not-load\n")
+    managed = tmp_path / "runtime.env"
+    managed.write_text("INTEGRAL_SMOKE_MANAGED_ONLY=managed\n")
+    monkeypatch.setattr(config, "_MANAGED_ENV", str(managed))
+    monkeypatch.setattr(config, "_ENV_FILES", (managed,))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("INTEGRAL_SMOKE_CWD_ONLY", raising=False)
+    monkeypatch.delenv("INTEGRAL_SMOKE_MANAGED_ONLY", raising=False)
+    try:
+        config.load_integral_env_files()
+        marker = os.environ.get("INTEGRAL_SMOKE_MANAGED_ONLY")
+        cwd = os.environ.get("INTEGRAL_SMOKE_CWD_ONLY")
+        assert marker == "managed" and cwd is None
+    finally:
+        os.environ.pop("INTEGRAL_SMOKE_MANAGED_ONLY", None)
+        os.environ.pop("INTEGRAL_SMOKE_CWD_ONLY", None)

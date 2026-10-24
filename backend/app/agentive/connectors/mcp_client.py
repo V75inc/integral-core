@@ -6,6 +6,7 @@ outbound MCP server (``app.agentive.mcp.server``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -261,8 +262,10 @@ async def open_mcp_session(
     if transport == "stdio":
         from mcp.client.stdio import StdioServerParameters, stdio_client
 
-        command, args = _resolve_trusted_stdio_command(auth_state)
-        env_dict = _build_spawn_env(auth_state)
+        command, args = await asyncio.to_thread(
+            _resolve_trusted_stdio_command, auth_state
+        )
+        env_dict = await asyncio.to_thread(_build_spawn_env, auth_state)
         params = StdioServerParameters(command=command, args=args, env=env_dict)
         async with stdio_client(params) as (read, write):
             async with ClientSession(

@@ -12,6 +12,7 @@ CONTAINS edge into App, ChangeEvent emission).
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Callable, Dict, Optional
 
 # Errors imported from app.api.errors mirrors the pre-existing service-
@@ -139,7 +140,9 @@ async def create_track_in_space(
         sacp = await get_app_attached_operational_model(sp_for_spec)
         if not sacp or not sacp.manifest:
             raise BadRequestError(message="App has no operational model manifest")
-        canonical = compile_canonical_manifest(manifest=dict(sacp.manifest))
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=dict(sacp.manifest)
+        )
         space_track_spec = find_app_track_spec_by_key(canonical, stk_raw)
         if not space_track_spec:
             raise BadRequestError(

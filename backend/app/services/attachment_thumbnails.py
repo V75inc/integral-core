@@ -19,6 +19,7 @@ after Pillow gets installed.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from typing import Optional
@@ -55,48 +56,13 @@ def _can_thumbnail(mime: str) -> bool:
     return mime in THUMB_MIME_TYPES
 
 
-async def ensure_thumbnail(
-    attachment: Attachment,
-    *,
-    entry_id: str,
-    content: Optional[bytes] = None,
-    storage: Optional[AttachmentStorageService] = None,
-) -> Optional[str]:
-    """Generate (or regenerate) the thumbnail for ``attachment``.
-
-    Returns the sibling storage key when a thumbnail was produced and
-    persisted; ``None`` when the attachment isn't thumbnailable or when
-    Pillow isn't available.
-
-    Args:
-        attachment: Target attachment record. Updated in place with
-            ``thumb_storage_key`` on success (the caller is responsible
-            for ``await attachment.save()`` afterwards).
-        entry_id: Owning entry id; needed to build the sibling key.
-        content: Optional original bytes. When omitted, the bytes are
-            fetched from storage. Pass in when you have them already
-            (upload flow) to avoid a redundant round trip.
-        storage: Optional storage facade override (tests).
-    """
-    if attachment.source_type != "file":
-        return None
-    if not _can_thumbnail(attachment.mime_type):
-        return None
-    if not attachment.storage_key:
-        return None
-
+def _render_thumbnail(content: bytes) -> Optional[bytes]:
+    """Decode/resize/encode only; persistence stays in the caller's Task."""
     try:
         from PIL import Image  # type: ignore[import-not-found]
     except Exception as e:  # noqa: BLE001
         logger.debug("Pillow unavailable; skipping thumbnail (%s)", e)
         return None
-
-    svc = storage or get_attachment_storage_service()
-
-    if content is None:
-        content = await svc.read_attachment(attachment.storage_key)
-        if content is None:
-            return None
 
     # Pillow ≥9.1 exposes ``Image.Resampling.LANCZOS``; older releases
     # still in the wild only have ``Image.LANCZOS``. Resolve once and
@@ -132,11 +98,53 @@ async def ensure_thumbnail(
             thumb_bytes = buf.getvalue()
     except Exception as e:  # noqa: BLE001
         logger.warning(
-            "thumbnail generation failed for %s (%s): %s",
-            attachment.id,
-            attachment.mime_type,
+            "thumbnail generation failed: %s",
             e,
         )
+        return None
+
+    return thumb_bytes
+
+
+async def ensure_thumbnail(
+    attachment: Attachment,
+    *,
+    entry_id: str,
+    content: Optional[bytes] = None,
+    storage: Optional[AttachmentStorageService] = None,
+) -> Optional[str]:
+    """Generate (or regenerate) the thumbnail for ``attachment``.
+
+    Returns the sibling storage key when a thumbnail was produced and
+    persisted; ``None`` when the attachment isn't thumbnailable or when
+    Pillow isn't available.
+
+    Args:
+        attachment: Target attachment record. Updated in place with
+            ``thumb_storage_key`` on success (the caller is responsible
+            for ``await attachment.save()`` afterwards).
+        entry_id: Owning entry id; needed to build the sibling key.
+        content: Optional original bytes. When omitted, the bytes are
+            fetched from storage. Pass in when you have them already
+            (upload flow) to avoid a redundant round trip.
+        storage: Optional storage facade override (tests).
+    """
+    if attachment.source_type != "file":
+        return None
+    if not _can_thumbnail(attachment.mime_type):
+        return None
+    if not attachment.storage_key:
+        return None
+
+    svc = storage or get_attachment_storage_service()
+
+    if content is None:
+        content = await svc.read_attachment(attachment.storage_key)
+        if content is None:
+            return None
+
+    thumb_bytes = await asyncio.to_thread(_render_thumbnail, content)
+    if thumb_bytes is None:
         return None
 
     sibling_key = svc.build_sibling_key(entry_id, attachment.id, THUMB_FILENAME)

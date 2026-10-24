@@ -14,7 +14,9 @@ Two defects this pins:
 
 from __future__ import annotations
 
+import ast
 import inspect
+import textwrap
 
 import pytest
 
@@ -28,9 +30,29 @@ def test_sequester_gate_precedes_every_dispatch_path():
     src = inspect.getsource(dispatch.dispatch_tool)
     gate = src.index("session_queue_is_open")
     fallback = src.index("get_workspace_tools")
-    registry = src.index("_registry().get(name)")
+    tree = ast.parse(textwrap.dedent(src))
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    gate_line = min(
+        node.lineno
+        for node in calls
+        if isinstance(node.func, ast.Name) and node.func.id == "session_queue_is_open"
+    )
+    registry_lines = [
+        node.lineno
+        for node in calls
+        if (isinstance(node.func, ast.Name) and node.func.id == "_registry")
+        or (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "to_thread"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "_registry"
+        )
+    ]
     assert gate < fallback, "bundle/mcp fallback returns before the sequester gate"
-    assert gate < registry, "gate must precede tool resolution entirely"
+    assert registry_lines and all(
+        gate_line < line for line in registry_lines
+    ), "gate must precede tool resolution entirely"
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,7 @@ import in ``app/agentive/__init__.py``); the agentive surface is only mounted
 when ``AGENTIVE_ENABLED=1`` at process start (D-08, app/main.py).
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Set, cast
 
@@ -253,7 +254,9 @@ async def list_connector_catalog_endpoint(request: Request) -> CatalogListRespon
         raise MissingAuthenticationError(message="Authentication required")
     await _require_workspace_admin_for_mcp_registry(request, user_id)
 
-    entries = [_catalog_entry_wire(e) for e in load_visible_catalog()]
+    entries = [
+        _catalog_entry_wire(e) for e in await asyncio.to_thread(load_visible_catalog)
+    ]
     return CatalogListResponse(entries=entries, total=len(entries))
 
 
@@ -275,7 +278,7 @@ async def get_connector_catalog_entry_endpoint(
     await _require_workspace_admin_for_mcp_registry(request, user_id)
 
     try:
-        entry = get_catalog_entry(slug)
+        entry = await asyncio.to_thread(get_catalog_entry, slug)
     except KeyError:
         raise ResourceNotFoundError(message=f"Unknown catalog slug: {slug!r}")
     except ValueError as e:
@@ -351,7 +354,7 @@ async def install_connector_from_catalog_endpoint(
             )
 
     try:
-        entry = get_catalog_entry(slug)
+        entry = await asyncio.to_thread(get_catalog_entry, slug)
     except KeyError:
         raise ResourceNotFoundError(message=f"Unknown catalog slug: {slug!r}")
     except ValueError as e:
@@ -1164,7 +1167,7 @@ async def reauthorize_mcp_connector_endpoint(
         from app.connectors.catalog_loader import get_catalog_entry
 
         try:
-            entry = get_catalog_entry(catalog_slug)
+            entry = await asyncio.to_thread(get_catalog_entry, catalog_slug)
         except KeyError:
             entry = {}
         raw_cfg = entry.get("oauth")
@@ -1408,7 +1411,7 @@ async def list_connector_tools(
             )
             write = bool(spec.get("_native_write", False))
             if not spec.get("_native_tool_name"):
-                write = is_write_tool(spec, auth_state=auth)
+                write = await asyncio.to_thread(is_write_tool, spec, auth_state=auth)
             _emit(
                 key=str(spec.get("key") or ""),
                 name=name,
@@ -1429,7 +1432,7 @@ async def list_connector_tools(
                 continue
             write = bool(spec.get("_native_write", False))
             if not spec.get("_native_tool_name"):
-                write = is_write_tool(spec, auth_state=auth)
+                write = await asyncio.to_thread(is_write_tool, spec, auth_state=auth)
             _emit(
                 key=str(spec.get("key") or ""),
                 name=name,
@@ -1453,7 +1456,9 @@ async def list_connector_tools(
                 description=item.get("description") or "",
                 input_schema=item.get("input_schema"),
                 scope="row",
-                write=is_write_tool({"_mcp_remote_name": name}, auth_state=auth),
+                write=await asyncio.to_thread(
+                    is_write_tool, {"_mcp_remote_name": name}, auth_state=auth
+                ),
             )
     return ConnectorToolsResponse(connector_id=existing.id, tools=tools)
 
@@ -1777,7 +1782,7 @@ async def _finish_quickbooks_mcp_oauth(
 
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
     try:
-        entry = get_catalog_entry("quickbooks_mcp")
+        entry = await asyncio.to_thread(get_catalog_entry, "quickbooks_mcp")
     except KeyError:
         entry = {}
     spawn = spawn_env_from_quickbooks_oauth(

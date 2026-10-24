@@ -156,11 +156,9 @@ async def list_loaded_profiles(request: Request) -> Dict[str, Any]:
     to trigger a rescan.
     """
     await require_platform_admin(request)
-    from app.services.operational_model_loader import (
-        load_library_operational_models_with_issues,
-    )
+    from app.services.operational_model_library_sync import load_library_snapshot
 
-    specs, issues = load_library_operational_models_with_issues()
+    _, specs, issues = await load_library_snapshot()
     return {
         "operational_models": [
             {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.models.edges import HAS_ATTACHMENT
@@ -104,10 +105,10 @@ async def accept_contract_canvas(
         raise ValueError(
             "Template has no employee signature block configured for signing"
         )
-    png_bytes = decode_signature_png(signature_png)
+    png_bytes = await asyncio.to_thread(decode_signature_png, signature_png)
     sign_role = str(employee_place.get("role") or "employee_signature")
-    signed_pdf = overlay_signature_png(
-        pdf_bytes, png_bytes, [employee_place], role=sign_role
+    signed_pdf = await asyncio.to_thread(
+        overlay_signature_png, pdf_bytes, png_bytes, [employee_place], role=sign_role
     )
 
     now = utc_now_iso()

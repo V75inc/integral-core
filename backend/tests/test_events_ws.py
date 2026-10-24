@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 
+@pytest.mark.usefixtures("client")
 def test_ws_rejects_missing_token():
     """No ?token= → close 4001 (D-13).
 
@@ -39,6 +40,7 @@ def test_ws_rejects_missing_token():
     assert exc_info.value.code == 4001
 
 
+@pytest.mark.usefixtures("client")
 def test_ws_rejects_invalid_token():
     """Bogus JWT → close 4001 (D-13)."""
     from starlette.testclient import TestClient
@@ -93,6 +95,7 @@ def test_ws_registers_and_unregisters_on_disconnect(jwt_for_test_user):
     assert set(esr._subscriptions.keys()) == initial_keys
 
 
+@pytest.mark.usefixtures("client")
 def test_ws_path_is_core_not_agentive_gated():
     """/api/events lives outside the AGENTIVE_ENABLED block (D-13)."""
     from app.main import app

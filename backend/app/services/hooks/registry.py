@@ -9,6 +9,7 @@ never import from app.services / app.models directly.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import warnings
 from dataclasses import dataclass
@@ -1361,8 +1362,8 @@ class ToolContext:
         )
 
         connector_slug = str(spec.get("_mcp_connector_slug") or "")
-        connector_tool_is_write = _is_write_connector_tool(
-            spec, auth_state={"catalog_slug": connector_slug}
+        connector_tool_is_write = await asyncio.to_thread(
+            _is_write_connector_tool, spec, auth_state={"catalog_slug": connector_slug}
         )
         if write:
             # A write is allowed only when ALL hold: the running tool declared this exact

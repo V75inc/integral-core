@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass
@@ -108,10 +109,12 @@ async def effective_routing_summary(workspace_id: str) -> dict[str, Any]:
         "heavy_model": heavy_model,
         "light_model": light_model if mode == "light_heavy" else "",
         "heavy_generation_settings": (
-            deployment_settings("heavy", heavy_model) if heavy_model else {}
+            await asyncio.to_thread(deployment_settings, "heavy", heavy_model)
+            if heavy_model
+            else {}
         ),
         "light_generation_settings": (
-            deployment_settings("light", light_model)
+            await asyncio.to_thread(deployment_settings, "light", light_model)
             if light_model and mode == "light_heavy"
             else {}
         ),
@@ -146,7 +149,9 @@ async def resolve_turn_routes(
         )
     )
     if deployment:
-        heavy_settings = deployment_settings("heavy", heavy.model)
+        heavy_settings = await asyncio.to_thread(
+            deployment_settings, "heavy", heavy.model
+        )
         heavy = (
             heavy.model_copy(update={"generation_settings": heavy_settings})
             if heavy_settings
@@ -165,7 +170,9 @@ async def resolve_turn_routes(
             )
             light = light.model_copy(
                 update={
-                    "generation_settings": deployment_settings("light", light.model)
+                    "generation_settings": await asyncio.to_thread(
+                        deployment_settings, "light", light.model
+                    )
                 }
             )
         return TurnModelRoutes(heavy, light, mode)
@@ -268,8 +275,14 @@ async def conversation_turn_routes(
 ) -> TurnModelRoutes:
     """Resolve current authority, then bind the conversation's presentation settings."""
     plan = await resolve_turn_routes(**kwargs)
-    return apply_conversation_reasoning(
-        plan, applicable_reasoning_efforts(plan, reasoning_efforts or {})
+    return await asyncio.to_thread(
+        apply_conversation_reasoning,
+        plan,
+        (
+            await asyncio.to_thread(
+                applicable_reasoning_efforts, plan, reasoning_efforts or {}
+            )
+        ),
     )
 
 

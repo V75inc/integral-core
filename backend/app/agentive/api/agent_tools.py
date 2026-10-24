@@ -6,6 +6,7 @@ manifest-driven catalogue (:func:`build_tool_catalogue`); ``POST
 :func:`dispatch_tool` under the authenticated principal + bound workspace scope.
 """
 
+import asyncio
 from typing import Any, Dict, Optional
 
 from fastapi import Request
@@ -24,7 +25,7 @@ from app.api.utils import resolve_principal_id
 @endpoint("/agentive/tools", methods=["GET"], auth=True, tags=["Agentive"])
 async def list_tools(request: Request) -> Dict[str, Any]:
     """List the dispatchable manifest tools available to agents."""
-    catalogue = build_tool_catalogue()
+    catalogue = await asyncio.to_thread(build_tool_catalogue)
     return {"tools": catalogue, "total": len(catalogue)}
 
 
@@ -64,7 +65,7 @@ async def execute_tool_endpoint(
     # historically accepted — extract the id while preserving the fail-closed
     # personal-workspace default established above.
     workspace_id: Optional[str] = scope.get("workspace_id") if scope else None
-    source, op_class = infer_source_and_op_class(tool_name)
+    source, op_class = await asyncio.to_thread(infer_source_and_op_class, tool_name)
     result = await invoke_declared_capability(
         principal_id=user_id,
         workspace_id=workspace_id or "",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -266,8 +267,9 @@ async def materialize_anchor_track(
                 f"(field '{field_key}', template_key '{template_key}')"
             )
         )
-    canonical = compile_canonical_manifest(
-        manifest=_as_dict(app_cp.manifest, where="app operational model manifest")
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest,
+        manifest=_as_dict(app_cp.manifest, where="app operational model manifest"),
     )
     template_spec = find_app_track_template_spec_by_key(canonical, template_key)
     if template_spec is None:

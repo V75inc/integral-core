@@ -4,11 +4,10 @@ Includes library package management (list/get/publish/update/deprecate/validate)
 and attached-profile customization, detach/revert, and derivation endpoints.
 """
 
+import asyncio
 import base64
-import json
 from typing import Any, Dict, List, Optional
 
-import yaml
 from fastapi import Request
 from jvspatial.api import endpoint
 from pydantic import ValidationError
@@ -272,7 +271,8 @@ async def publish_operational_model(
         raise BadRequestError(message="name must be 120 characters or fewer")
     name_fold = compute_fold(safe_name)
     safe_version = validate_semver_ish(version, allow_empty=True) or None
-    canonical = compile_canonical_manifest(
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest,
         manifest=manifest,
         manifest_yaml=manifest_yaml,
         scope_hint=scope,
@@ -371,7 +371,8 @@ async def update_library_operational_model(
     if version is not None:
         cp.version = version
     if manifest is not None or manifest_yaml is not None:
-        canonical = compile_canonical_manifest(
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest,
             manifest=manifest,
             manifest_yaml=manifest_yaml,
             scope_hint=scope,
@@ -464,8 +465,11 @@ async def validate_operational_model_manifest(
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
     try:
-        canonical = compile_canonical_manifest(
-            manifest=manifest, manifest_yaml=manifest_yaml, scope_hint=scope
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest,
+            manifest=manifest,
+            manifest_yaml=manifest_yaml,
+            scope_hint=scope,
         )
     except BadRequestError as exc:
         return {
@@ -1673,7 +1677,9 @@ async def retry_operational_model_migration(
             message="Only a failed migration can be retried",
             details={"migration_status": current_status},
         )
-    manifest = compile_canonical_manifest(manifest=dict(cp.manifest or {}))
+    manifest = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=dict(cp.manifest or {})
+    )
     declared_ops = [
         op
         for migration in list(manifest.get("migrations") or [])
@@ -2493,7 +2499,9 @@ async def _publish_single_manifest(
 
     Returns the created OperationalModel node.
     """
-    canonical = compile_canonical_manifest(manifest=manifest_dict)
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=manifest_dict
+    )
     pkg = canonical.get("package") or {}
     package_name: str = str(pkg.get("name") or "")
     package_description: Optional[str] = (
@@ -2584,11 +2592,12 @@ async def import_operational_model(
       - Single file: ``{"operational_model": {...}, "message": "..."}``
       - ZIP archive:  ``{"published": N, "operational_models": [...], "message": "..."}``
     """
-    import pathlib
-    import tempfile
-    import zipfile
-
-    _MAX_ZIP_BYTES = 50 * 1024 * 1024  # 50 MB
+    from app.services.operational_model_import import (
+        MAX_UPLOAD_BYTES,
+        parse_archive_manifests,
+        parse_manifest_bytes,
+        validate_manifest_budget,
+    )
 
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -2654,40 +2663,14 @@ async def import_operational_model(
                 message="Only .yaml, .yml, .json, and .zip files are accepted"
             )
 
-        raw_bytes = await upload.read()  # type: ignore[union-attr]
+        raw_bytes = await upload.read(MAX_UPLOAD_BYTES + 1)  # type: ignore[union-attr]
 
-        # Size guard for ZIP uploads
-        if is_zip and len(raw_bytes) > _MAX_ZIP_BYTES:
-            raise BadRequestError(
-                message=f"ZIP archive exceeds the 50 MB limit ({len(raw_bytes)} bytes)"
-            )
-
+        if len(raw_bytes) > MAX_UPLOAD_BYTES:
+            raise BadRequestError(message="Upload exceeds the 50 MB limit")
         if not is_zip:
-            # Single YAML / JSON file — decode and parse now
-            try:
-                text = raw_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                raise BadRequestError(message="File must be UTF-8 encoded")
-
-            if is_yaml:
-                try:
-                    loaded = yaml.safe_load(text)
-                except yaml.YAMLError as e:
-                    raise BadRequestError(message=f"Invalid YAML: {e}")
-                if loaded is None:
-                    loaded = {}
-                if not isinstance(loaded, dict):
-                    raise BadRequestError(
-                        message="YAML file must deserialize to an object"
-                    )
-                manifest_dict = loaded
-            else:
-                try:
-                    manifest_dict = json.loads(text)
-                except json.JSONDecodeError as e:
-                    raise BadRequestError(message=f"Invalid JSON: {e}")
-                if not isinstance(manifest_dict, dict):
-                    raise BadRequestError(message="JSON file must be an object")
+            manifest_dict = await asyncio.to_thread(
+                parse_manifest_bytes, raw_bytes, is_yaml=is_yaml
+            )
 
     elif "application/json" in content_type:
         manifest_dict = options.manifest
@@ -2703,90 +2686,70 @@ async def import_operational_model(
     # 2. ZIP archive path
     # ------------------------------------------------------------------ #
     if filename.endswith(".zip") and raw_bytes is not None:
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = pathlib.Path(tmp)
-            zip_path = tmp_path / "upload.zip"
-            zip_path.write_bytes(raw_bytes)
-
-            try:
-                with zipfile.ZipFile(zip_path) as zf:
-                    zf.extractall(tmp_path)
-            except zipfile.BadZipFile as e:
-                raise BadRequestError(message=f"Invalid ZIP archive: {e}")
-
-            # Collect operational-model.yaml files exactly one level deep
-            profile_files = sorted(tmp_path.glob("*/operational-model.yaml"))
-            if not profile_files:
-                raise BadRequestError(
-                    message=(
-                        "No operational-model.yaml files found in archive. "
-                        "Expected structure: <package-name>/operational-model.yaml"
-                    )
-                )
-
-            if preview:
-                items: List[PackagePreviewItem] = []
-                for pf in profile_files:
-                    try:
-                        raw = yaml.safe_load(pf.read_text(encoding="utf-8"))
-                        if not isinstance(raw, dict):
-                            raw = {}
-                        canonical = compile_canonical_manifest(manifest=raw)
-                        items.append(_build_package_preview_item(canonical))
-                    except Exception as exc:  # noqa: BLE001
-                        items.append(
-                            PackagePreviewItem(
-                                package_name=pf.parent.name,
-                                package_description=None,
-                                entry_type_count=0,
-                                view_count=0,
-                                tag_count=0,
-                                validation_errors=[str(exc)],
-                            )
-                        )
-                return ImportPreviewResponse(
-                    packages=items, archive_type="archive"
-                ).model_dump()
-
-            # Publish mode — persist each package
-            reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-            if not reg:
-                raise ResourceNotFoundError(
-                    message="Operational Models registry missing"
-                )
-            now = utc_now_iso()
-            published_nodes = []
-            for pf in profile_files:
+        sources = await asyncio.to_thread(parse_archive_manifests, raw_bytes)
+        if preview:
+            items: List[PackagePreviewItem] = []
+            for package_name, raw, error in sources:
                 try:
-                    raw = yaml.safe_load(pf.read_text(encoding="utf-8"))
-                    if not isinstance(raw, dict):
-                        raw = {}
-                    cp = await _publish_single_manifest(
-                        manifest_dict=raw,
-                        workspace_id=workspace_id,
-                        user_id=user_id,
-                        reg=reg,
-                        now=now,
+                    if error:
+                        raise BadRequestError(message=error)
+                    canonical = await asyncio.to_thread(
+                        compile_canonical_manifest, manifest=raw
                     )
-                    published_nodes.append(await export_node(cp))
-                except Exception as exc:  # noqa: BLE001
-                    raise BadRequestError(
-                        message=f"Failed to publish '{pf.parent.name}': {exc}"
+                    items.append(_build_package_preview_item(canonical))
+                except Exception as exc:
+                    items.append(
+                        PackagePreviewItem(
+                            package_name=package_name,
+                            package_description=None,
+                            entry_type_count=0,
+                            view_count=0,
+                            tag_count=0,
+                            validation_errors=[str(exc)],
+                        )
                     )
+            return ImportPreviewResponse(
+                packages=items, archive_type="archive"
+            ).model_dump()
 
-            return {
-                "published": len(published_nodes),
-                "operational_models": published_nodes,
-                "message": f"{len(published_nodes)} operational model(s) imported",
-            }
+        reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+        if not reg:
+            raise ResourceNotFoundError(message="Operational Models registry missing")
+        now = utc_now_iso()
+        published_nodes = []
+        for package_name, raw, error in sources:
+            try:
+                if error:
+                    raise BadRequestError(message=error)
+                assert raw is not None
+                cp = await _publish_single_manifest(
+                    manifest_dict=raw,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    reg=reg,
+                    now=now,
+                )
+                published_nodes.append(await export_node(cp))
+            except Exception as exc:
+                raise BadRequestError(
+                    message=f"Failed to publish '{package_name}': {exc}"
+                )
+        return {
+            "published": len(published_nodes),
+            "operational_models": published_nodes,
+            "message": f"{len(published_nodes)} operational model(s) imported",
+        }
 
     # ------------------------------------------------------------------ #
     # 3. Single YAML / JSON file path (existing behaviour, preserved)
     # ------------------------------------------------------------------ #
     assert manifest_dict is not None  # guaranteed by branches above
+    await asyncio.to_thread(validate_manifest_budget, manifest_dict)
 
     # Validate via the canonical compile path — raises on failure.
-    canonical = compile_canonical_manifest(manifest=manifest_dict)
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=manifest_dict
+    )
 
     if preview:
         return ImportPreviewResponse(

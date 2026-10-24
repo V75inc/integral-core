@@ -283,7 +283,9 @@ async def get_app(request: Request, app_id: str) -> Dict[str, Any]:
                 compile_canonical_manifest,
             )
 
-            canonical = compile_canonical_manifest(manifest=cp.manifest or {})
+            canonical = await asyncio.to_thread(
+                compile_canonical_manifest, manifest=cp.manifest or {}
+            )
             ops = (canonical.get("app") or {}).get("operations") or []
             if isinstance(ops, list):
                 payload["operations"] = ops
@@ -1081,8 +1083,9 @@ async def _record_effective_definition_after_library_apply(
         manifest=dict(attached_profile.manifest or {}),
         source_operational_model_id=library_profile.id,
         source_kind="package",
-        base_package_manifest=compile_canonical_manifest(
-            manifest=dict(library_profile.manifest or {})
+        base_package_manifest=await asyncio.to_thread(
+            compile_canonical_manifest,
+            manifest=dict(library_profile.manifest or {}),
         ),
     )
     if str(getattr(app_node, "lifecycle_state", "") or "") == "active":
@@ -1109,7 +1112,9 @@ async def _preview_app_library_apply(
             library_cp.id, location.workspace_id, user_id=user_id
         )
     )[-1]
-    canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=library_cp.manifest or {}
+    )
     scope = str(canonical.get("scope") or "")
     preview: Dict[str, Any] = {
         "scope": scope,
@@ -1278,7 +1283,8 @@ async def patch_app_operational_model(
         cp.version = version
     manifest_updated = manifest is not None or manifest_yaml is not None
     if manifest_updated:
-        cp.manifest = compile_canonical_manifest(
+        cp.manifest = await asyncio.to_thread(
+            compile_canonical_manifest,
             manifest=manifest,
             manifest_yaml=manifest_yaml,
             scope_hint=scope or "app",
@@ -1337,7 +1343,7 @@ async def merge_library_into_app_operational_model(
         raise ResourceNotFoundError(message="Library package not found")
     from app.services.package_trust import assert_library_artifact_trusted
 
-    assert_library_artifact_trusted(lib)
+    await asyncio.to_thread(assert_library_artifact_trusted, lib)
     from app.services.application_definitions import (
         assert_package_upgrade_conflict_free,
         get_active_application_definition,
@@ -1377,7 +1383,9 @@ async def merge_library_into_app_operational_model(
         from app.services.app_lifecycle import sync_operational_layer_from_manifest
         from app.services.operational_model_runtime import compile_canonical_manifest
 
-        canonical = compile_canonical_manifest(manifest=lib.manifest or {})
+        canonical = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=lib.manifest or {}
+        )
         await sync_operational_layer_from_manifest(sp, canonical, actor_id=user_id)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
@@ -1430,7 +1438,7 @@ async def preview_app_operational_model_merge(
         raise ResourceNotFoundError(message="Library package not found")
     from app.services.package_trust import assert_library_artifact_trusted
 
-    assert_library_artifact_trusted(lib)
+    await asyncio.to_thread(assert_library_artifact_trusted, lib)
     return {
         "app_id": app_id,
         "preview": await _preview_app_library_apply(sp, lib, user_id=user_id),
@@ -1465,7 +1473,7 @@ async def apply_app_operational_model_library(
         raise ResourceNotFoundError(message="Library package not found")
     from app.services.package_trust import assert_library_artifact_trusted
 
-    assert_library_artifact_trusted(lib)
+    await asyncio.to_thread(assert_library_artifact_trusted, lib)
     preview = await _preview_app_library_apply(sp, lib, user_id=user_id)
     if (preview.get("definition_upgrade") or {}).get("status") == "conflicts":
         from app.exceptions import ApplicationDefinitionUpgradeConflictError

@@ -6,13 +6,21 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.api.errors import QueryUnavailableError
+from app.api.errors import BadRequestError, QueryUnavailableError
 from app.services import event_history
 from app.services.change_event_logger import ChangeEventLogger
 from app.services.event_history_cursor import decode_history_cursor
 from app.services.pagination import decode_cursor, encode_cursor
 
 pytestmark = [pytest.mark.smoke, pytest.mark.asyncio]
+
+
+@pytest.fixture(autouse=True)
+def synthetic_primary_candidates(monkeypatch):
+    # Unit rows below are synthetic; primary existence is exercised separately.
+    monkeypatch.setattr(
+        event_history, "_missing_primary_events", AsyncMock(return_value=set())
+    )
 
 
 def log_row(index):
@@ -27,6 +35,7 @@ def log_row(index):
 
 async def test_denied_rows_have_a_bounded_scan_and_continuation(monkeypatch):
     calls = []
+    monkeypatch.setattr(event_history, "MAX_SCAN_SECONDS", 60)
 
     async def page(**kwargs):
         calls.append(kwargs)
@@ -227,3 +236,69 @@ async def test_authorized_other_workspace_is_excluded_from_bound_feed(
     )
     assert own.status_code == 200, own.text
     assert any(e["resource_id"] == track for e in own.json()["events"])
+
+
+async def test_forward_exhaustion_preserves_private_resume_without_rescanning(
+    monkeypatch,
+):
+    """Idle subscribers resume after denied rows instead of rereading all history."""
+    calls = []
+
+    async def page(**kwargs):
+        calls.append(kwargs)
+        return [log_row(0)] if kwargs["cursor"] is None else []
+
+    monkeypatch.setattr(event_history, "_in_workspace", AsyncMock(return_value=False))
+    options = dict(
+        logger=SimpleNamespace(find_page=page),
+        user_id="user",
+        workspace_id="bound",
+        action="event_feed.subscribe",
+        limit=50,
+        descending=False,
+    )
+    first = await event_history.read_event_history(**options, cursor=None)
+    assert (
+        first["events"] == [] and first["next_cursor"] is None and not first["has_more"]
+    )
+    assert first["resume_cursor"].startswith("eh1:")
+    assert "event-00000" not in first["resume_cursor"]
+    assert len(calls) == 2
+    calls.clear()
+    second = await event_history.read_event_history(
+        **options, cursor=first["resume_cursor"]
+    )
+    assert len(calls) == 1 and calls[0]["cursor"] is not None
+    assert second["events"] == [] and second["resume_cursor"]
+    with pytest.raises(BadRequestError, match="Invalid event history cursor"):
+        await event_history.read_event_history(
+            **{**options, "workspace_id": "other"}, cursor=first["resume_cursor"]
+        )
+
+
+async def test_slow_history_scan_returns_private_progress_before_completing_window(
+    monkeypatch,
+):
+    clock = [0.0]
+    monkeypatch.setattr(event_history, "monotonic", lambda: clock[0])
+
+    async def denied(*args):
+        clock[0] += 0.6
+        return False
+
+    monkeypatch.setattr(event_history, "_in_workspace", denied)
+    logger = SimpleNamespace(
+        find_page=AsyncMock(return_value=[log_row(n) for n in range(100)])
+    )
+    result = await event_history.read_event_history(
+        logger=logger,
+        user_id="user",
+        workspace_id="workspace",
+        action="event_feed.subscribe",
+        cursor=None,
+        limit=50,
+        descending=False,
+    )
+    assert result["events"] == [] and result["has_more"] and not result["scan_complete"]
+    assert result["resume_cursor"] and "event-00001" not in result["resume_cursor"]
+    logger.find_page.assert_awaited_once()

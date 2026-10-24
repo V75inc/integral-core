@@ -23,6 +23,7 @@ Return shapes mirror the existing MCP tool envelopes one-for-one:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -449,7 +450,7 @@ async def register_app_track_template(
             "defaults": {},
         }
     )
-    compile_canonical_manifest(manifest=manifest)
+    await asyncio.to_thread(compile_canonical_manifest, manifest=manifest)
     cp.manifest = manifest
     cp.updated_at = datetime.now(timezone.utc).isoformat()
     await cp.save()
@@ -646,7 +647,9 @@ async def author_operational_model(
     }
 
     try:
-        compiled = compile_canonical_manifest(manifest=manifest, scope_hint=scope)
+        compiled = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=manifest, scope_hint=scope
+        )
     except Exception as exc:  # noqa: BLE001 — surfaces validation message to agent
         return {"error": "manifest_invalid", "detail": str(exc)}
 
@@ -1491,7 +1494,7 @@ async def apply_patch_to_draft(
 
     try:
         patched = apply_operations(draft.manifest or {}, operations)
-        compiled = compile_canonical_manifest(manifest=patched)
+        compiled = await asyncio.to_thread(compile_canonical_manifest, manifest=patched)
     except _BadRequest as exc:
         return {"error": "bad_request", "detail": exc.message}
 
@@ -1637,8 +1640,12 @@ async def publish_draft_for_agent(
         # failed profile-revision approval look like a successful publication.
         # Compare canonical forms so equivalent user-authored order/omission
         # does not create a meaningless version or a false success receipt.
-        parent_manifest = compile_canonical_manifest(manifest=parent.manifest or {})
-        draft_manifest = compile_canonical_manifest(manifest=draft.manifest or {})
+        parent_manifest = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=parent.manifest or {}
+        )
+        draft_manifest = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=draft.manifest or {}
+        )
         if draft_manifest == parent_manifest:
             return {
                 "error": "bad_request",
@@ -1754,8 +1761,8 @@ async def create_empty_library_draft(
     from app.services.operational_model_runtime import compile_canonical_manifest
 
     try:
-        compiled = compile_canonical_manifest(
-            manifest=skeleton, scope_hint=internal_scope
+        compiled = await asyncio.to_thread(
+            compile_canonical_manifest, manifest=skeleton, scope_hint=internal_scope
         )
     except Exception as exc:  # noqa: BLE001
         return {"error": "manifest_invalid", "detail": str(exc)}
