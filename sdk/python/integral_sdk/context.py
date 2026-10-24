@@ -39,10 +39,14 @@ class OperationContext(Protocol):
     ) -> Dict[str, Any]:
         """App-scoped passage retrieval for a declared App query.
 
+        ``track_type`` is an exact stable manifest/relation key or Track ID. Only
+        Tracks without stable keys use an unambiguous legacy title fallback.
+        ``entry_type`` matches an exact manifest key; omit it for keyless schemas.
         ``eligible_entry_ids`` narrows candidate selection to a structured,
         policy-authorized set: None discovers a bounded candidate window;
-        [] searches nothing. At most 500 supplied IDs and one 500-Entry window
-        are considered. Track and schema discovery are independently bounded.
+        [] searches nothing. At most 500 supplied IDs and 500 matching Entries
+        are considered. Explicit IDs narrow parent discovery before paging;
+        unrelated Tracks and schema types do not consume the candidate budget.
         Returns passages, source links, requested/effective mode, cap status
         and warnings. Index coverage remains unknown unless measured; empty
         results never establish absence. It never widens workspace/App scope.

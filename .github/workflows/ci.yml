@@ -340,7 +340,8 @@ jobs:
         run: |
           pytest -q --tb=short -o addopts='' \
             tests/test_semantic_index_definitions.py tests/test_semantic_indexing_pg.py \
-            tests/test_pgvector_driver.py tests/test_pgvector_unavailable_fallback.py
+            tests/test_pgvector_driver.py tests/test_pgvector_unavailable_fallback.py \
+            tests/test_app_passage_candidates.py
 
       - name: Postgres spike, contract and App job authorization lane
         env:

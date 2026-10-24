@@ -701,7 +701,8 @@ async def test_selected_passages_do_not_sweep_unrelated_grants(
     from app.services.retrieval import search_service
 
     user, workspace, app, track, entry = await indexed_graph(vector_driver)
-    track.title = "Inventory"
+    track.template_id = "inventory"
+    track.title = "Renamed catalog"
     await track.save()
 
     async def forbidden(*args, **kwargs):
@@ -722,6 +723,14 @@ async def test_selected_passages_do_not_sweep_unrelated_grants(
     )
     assert result["available"] and result["results"][0]["entry_id"] == entry.id
     assert result["coverage"] == "unknown"
+
+    by_id = await ctx.search_entries(
+        query="recycling",
+        track_type=track.id,
+        mode="graph",
+        eligible_entry_ids=[entry.id],
+    )
+    assert by_id["available"] and by_id["results"][0]["entry_id"] == entry.id
 
 
 async def test_selected_passages_recheck_scope_and_access_after_encoding(

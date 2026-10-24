@@ -5,28 +5,29 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from jvspatial.core.context import get_default_context
-
 from app.api.errors import BadRequestError, InsufficientPermissionsError
 from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import isolated_permissions_cache
-from app.models.edges import CONTAINS
-from app.models.nodes import App, Entry, EntryType
+from app.models.nodes import App
 from app.schemas.policy import Subject
 from app.schemas.retrieve import RetrieveMode, RetrieveRequest
 from app.services.agent_scope import current_scope_workspace_id
 from app.services.entry_access_projection import admit_records
-from app.services.operational_model_compile import _slug
-from app.services.permissions import resolve_role
-from app.services.resource_location import ACTIVE_APP_STATES, locate_resource
+from app.services.resource_location import (
+    ACTIVE_APP_STATES,
+    locate_resource,
+    locate_resources,
+)
+from app.services.walkers.app_passage_candidates import (
+    MAX_CANDIDATES,
+    AppPassageCandidateWalker,
+)
+from app.services.walkers.app_passage_candidates import (
+    CandidateSelectionUnavailable as _SearchUnavailable,
+)
 from app.services.workspace_governance import ordinary_authority_only
 
 logger = logging.getLogger(__name__)
-MAX_CANDIDATES = 500
-
-
-class _SearchUnavailable(Exception):
-    """A stable public reason without server diagnostics."""
 
 
 def _response(mode: str, **values: Any) -> dict[str, Any]:
@@ -69,68 +70,58 @@ async def _candidate_ids(
     entry_type: str | None,
     supplied: list[str] | None,
 ) -> tuple[list[str], bool]:
-    """Select at most one raw Entry window, then apply canonical audience gates.
-
-    No Entry nodes are hydrated and no total/count sweep is performed. Track
-    and schema discovery are also bounded; oversized scopes fail explicitly.
-    """
+    """Walk only matching rooted resources, then apply canonical audience gates."""
     location = await locate_resource("app", context.app_id)
     if location is None or location.workspace_id != context.workspace_id:
         raise _SearchUnavailable("app_scope_unavailable")
     app = await App.get(context.app_id)
     if app is None:
         raise _SearchUnavailable("app_scope_unavailable")
-    tracks = await app.nodes(edge=[CONTAINS], node=["Track"], limit=MAX_CANDIDATES + 1)
-    if len(tracks) > MAX_CANDIDATES:
-        raise _SearchUnavailable("scope_limit_reached")
-    wanted = _slug(track_type or "")
-    track_ids = []
-    for track in tracks:
-        if wanted and _slug(track.title or "") == wanted:
-            if await resolve_role(context.user_id, "track", track.id) is not None:
-                track_ids.append(track.id)
-    if not track_ids:
-        raise _SearchUnavailable("track_not_found")
-    database = get_default_context().database
-    query: dict[str, Any] = {
-        "entity": Entry._entity_name(),
-        "context.track_id": {"$in": track_ids},
-    }
+    selected_tracks = None
     if supplied is not None:
-        query["id"] = {"$in": supplied}
-    if entry_type:
-        types = await database.find(
-            "node",
-            {
-                "entity": EntryType._entity_name(),
-                "context.track_id": {"$in": track_ids},
-            },
-            limit=MAX_CANDIDATES + 1,
+        locations = await locate_resources(
+            "entry",
+            supplied,
+            workspace_hints=[context.workspace_id],
+            allowed_app_states=ACTIVE_APP_STATES,
         )
-        if len(types) > MAX_CANDIDATES:
-            raise _SearchUnavailable("scope_limit_reached")
-        wanted_type = _slug(entry_type)
-        type_ids = []
-        for record in types:
-            data = record.get("context") or {}
-            schema = data.get("form_schema") or {}
-            key = schema.get("_manifest_entry_type_key") or data.get("name") or ""
-            if _slug(str(key)) == wanted_type:
-                type_ids.append(record["id"])
-        if not type_ids:
-            return [], False
-        query["context.type_id"] = {"$in": type_ids}
-    rows = await database.find(
-        "node", query, limit=MAX_CANDIDATES + 1, sort=[("id", 1)]
+        selected_tracks = list(
+            dict.fromkeys(
+                item.track_id
+                for item in locations.values()
+                if item
+                and item.workspace_id == context.workspace_id
+                and item.app_id == context.app_id
+            )
+        )
+    walker = AppPassageCandidateWalker(
+        principal_id=context.user_id,
+        workspace_id=context.workspace_id,
+        track_selector=track_type,
+        entry_type_key=str(entry_type or "").strip(),
+        selected_ids=supplied,
+        selected_track_ids=selected_tracks,
     )
+    await walker.spawn(app)
+    if walker.failure_reason:
+        raise _SearchUnavailable(walker.failure_reason)
+    # jvspatial records visit-hook failures instead of raising them. Never
+    # release a partial selection after a failed containment/schema read.
+    if any(
+        isinstance(item, dict) and "hook_error" in item
+        for item in await walker.get_report()
+    ):
+        raise _SearchUnavailable("selection_failed")
+    if not walker.track_found and selected_tracks != []:
+        raise _SearchUnavailable("track_not_found")
     admitted = await admit_records(
         context.user_id,
-        rows[:MAX_CANDIDATES],
+        walker.records,
         workspace_id=context.workspace_id,
         app_id=context.app_id,
         allowed_app_states=ACTIVE_APP_STATES,
     )
-    return [row["id"] for row in admitted], len(rows) > MAX_CANDIDATES
+    return [row["id"] for row in admitted], walker.truncated
 
 
 async def search_app_entries(

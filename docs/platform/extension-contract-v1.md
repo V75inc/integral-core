@@ -116,7 +116,9 @@ OperationContext is injected by Core. Its identity includes principal, workspace
 For prose evidence within a declared App function, use
 `context.search_entries(query=..., track_type=..., entry_type=...,
 eligible_entry_ids=...)`. This is a bounded passage read, not a complete
-collection query. `None` discovers candidates; `[]` searches nothing. Observe
+collection query. `track_type` selects a stable manifest/relation key or Track
+ID; only unkeyed legacy Tracks use unambiguous title matching. `None` discovers
+candidates; `[]` searches nothing. Observe
 the returned coverage and truncation warnings. Exact agent/connector function
 delegation is rechecked while the human issuer's current ordinary audience
 bounds the data read. See [App passage search](../backend/semantic-indexing.md#app-passage-search).

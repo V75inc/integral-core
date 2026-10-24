@@ -432,8 +432,10 @@ class ToolContext:
     ) -> Dict[str, Any]:
         """Search a bounded, authorized candidate set in this App.
 
-        See ``retrieval.app_search`` for limits and coverage semantics. The
-        facade remains the only bundle-facing access point.
+        ``track_type`` selects an exact stable manifest/relation key or Track ID;
+        only unkeyed legacy Tracks permit unambiguous title matching. See
+        ``retrieval.app_search`` for limits and coverage semantics. The facade
+        remains the only bundle-facing access point.
         """
         from app.services.retrieval.app_search import search_app_entries
 
