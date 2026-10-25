@@ -22,6 +22,8 @@ from app.schemas.agentive.work import (
 from app.utils.time import utc_now_iso
 
 DEFAULT_LEASE_SECONDS = 30.0
+CLAIM_PAGE_SIZE = 32
+CLAIM_PAGES_PER_STATUS = 2
 TOPIC_LEASE_RECLAIMED = "work.lease_reclaimed"
 RETRYABLE_FAILURE_CLASSES = frozenset(
     {"transient", "rate_limited", "dependency_unavailable"}
@@ -764,6 +766,7 @@ async def claim_due_candidate(
     transaction: Any = None,
     kinds: Optional[frozenset[str]] = None,
     exclude_kinds: Optional[frozenset[str]] = None,
+    claim_cursor: Optional[dict[str, str]] = None,
 ) -> Optional[WorkItem]:
     """Claim one due queued/retry_wait WorkItem into ``running`` under a lease.
 
@@ -800,7 +803,11 @@ async def claim_due_candidate(
         try:
             return await cas_work_item_update(
                 candidate.work_item_id,
-                expected={"status": from_status},
+                expected={
+                    "status": from_status,
+                    "attempt": int(candidate.attempt or 0),
+                    "lease_fence": int(candidate.lease_fence or 0),
+                },
                 updates={
                     "status": "running",
                     "attempt": int(candidate.attempt or 0) + 1,
@@ -835,18 +842,44 @@ async def claim_due_candidate(
             return None
         return await _try_claim(item)
 
+    from jvspatial.core.context import get_default_context
+
+    from app.agentive.services.work_outbox import _hydrate_work_item
+
+    context = get_default_context()
+    await context.ensure_indexes(WorkItem)
+    cursors = claim_cursor if claim_cursor is not None else {}
     for status in ("queued", "retry_wait"):
-        candidates = list(await WorkItem.find({"context.status": status}))
-        for candidate in candidates:
-            if not _is_due(candidate, now_dt):
-                continue
-            if kinds is not None and candidate.kind not in kinds:
-                continue
-            if exclude_kinds is not None and candidate.kind in exclude_kinds:
-                continue
-            won = await _try_claim(candidate)
-            if won is not None:
-                return won
+        for _ in range(CLAIM_PAGES_PER_STATUS):
+            query: dict[str, Any] = {
+                "entity": WorkItem._entity_name(),
+                "context.status": status,
+            }
+            kind_filter = {}
+            if kinds is not None:
+                kind_filter["$in"] = sorted(kinds)
+            if exclude_kinds:
+                kind_filter["$nin"] = sorted(exclude_kinds)
+            if kind_filter:
+                query["context.kind"] = kind_filter
+            if cursors.get(status):
+                query["id"] = {"$gt": cursors[status]}
+            rows = await context.database.find(
+                "object", query, sort=[("id", 1)], limit=CLAIM_PAGE_SIZE
+            )
+            if not rows:
+                cursors.pop(status, None)
+                break
+            for row in rows:
+                # Advance even past blocked/future/racing candidates. A worker
+                # retains only two scalar cursors, never a hydrated backlog.
+                cursors[status] = row["id"]
+                won = await _try_claim(_hydrate_work_item(row))
+                if won is not None:
+                    return won
+            if len(rows) < CLAIM_PAGE_SIZE:
+                cursors.pop(status, None)
+                break
     return None
 
 

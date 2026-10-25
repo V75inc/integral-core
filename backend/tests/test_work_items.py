@@ -338,3 +338,116 @@ async def test_terminal_transition_cannot_reopen() -> None:
             target="queued",
         )
     assert exc.value.code == "work.invalid_transition"
+
+
+@pytest.mark.asyncio
+async def test_claim_pages_filter_kind_and_rotate_past_future_work(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from jvspatial.core.context import get_default_context
+
+    monkeypatch.setattr(work_items, "CLAIM_PAGE_SIZE", 4)
+    monkeypatch.setattr(work_items, "CLAIM_PAGES_PER_STATUS", 2)
+    for index in range(17):
+        await WorkItem.create(
+            id=f"o.WorkItem.000-future-{index:03}",
+            work_item_id=f"000-future-{index:03}",
+            kind="chat_turn",
+            status="queued",
+            next_attempt_at="2099-01-01T00:00:00+00:00",
+        )
+        await WorkItem.create(
+            id=f"o.WorkItem.000-other-{index:03}",
+            work_item_id=f"000-other-{index:03}",
+            kind="app_tool",
+            status="queued",
+        )
+    ready = await work_items.enqueue_work_item(
+        kind="chat_turn",
+        origin="interactive_chat",
+        principal_id="paged-user",
+        workspace_id="paged-workspace",
+        idempotency_key="paged-ready",
+    )
+    db = get_default_context().database
+    find = AsyncMock(wraps=db.find)
+    monkeypatch.setattr(db, "find", find)
+    cursor = {}
+    for attempt in range(3):
+        claimed = await work_items.claim_due_candidate(
+            worker_id="paged",
+            kinds=frozenset({"chat_turn"}),
+            claim_cursor=cursor,
+        )
+        if attempt < 2:
+            assert claimed is None
+        else:
+            assert claimed.work_item_id == ready.work_item_id
+    pages = [
+        call
+        for call in find.await_args_list
+        if call.args[0] == "object"
+        and call.args[1].get("entity") == "WorkItem"
+        and "context.status" in call.args[1]
+    ]
+    assert pages
+    assert all(call.kwargs["limit"] == 4 for call in pages)
+    assert all(call.args[1]["context.kind"] == {"$in": ["chat_turn"]} for call in pages)
+    assert len(cursor) <= 2
+    # Wrap and see a newly due item that sorts before the current cursor.
+    old = await WorkItem.get("o.WorkItem.000-future-000")
+    old.next_attempt_at = ""
+    await old.save()
+    seen = False
+    for _ in range(5):
+        claimed = await work_items.claim_due_candidate(
+            worker_id="paged", kinds=frozenset({"chat_turn"}), claim_cursor=cursor
+        )
+        if claimed and claimed.work_item_id == old.work_item_id:
+            seen = True
+            break
+    assert seen
+
+
+@pytest.mark.asyncio
+async def test_claim_rejects_snapshot_from_an_earlier_retry_generation(monkeypatch):
+    from app.agentive.services import work_outbox
+
+    item = await WorkItem.create(
+        id="o.WorkItem.retry-generation",
+        work_item_id="retry-generation",
+        kind="chat_turn",
+        status="retry_wait",
+        attempt=1,
+        lease_fence=1,
+    )
+    original = work_outbox.cas_work_item_update
+    raced = False
+
+    async def race(work_item_id, **kwargs):
+        nonlocal raced
+        if not raced:
+            raced = True
+            # Another worker claimed and rescheduled the item after our
+            # candidate read: the status matches again, the generation does not.
+            await original(
+                work_item_id,
+                expected={"status": "retry_wait"},
+                updates={"attempt": 2, "lease_fence": 2},
+                bump_transition_seq=True,
+            )
+        return await original(work_item_id, **kwargs)
+
+    monkeypatch.setattr(work_outbox, "cas_work_item_update", race)
+    claimed = await work_items.claim_due_candidate(
+        worker_id="stale", kinds=frozenset({"chat_turn"})
+    )
+    assert claimed is None
+    current = await WorkItem.get(item.id)
+    assert (
+        current.status == "retry_wait" and current.attempt == current.lease_fence == 2
+    )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="fresh", kinds=frozenset({"chat_turn"})
+    )
+    assert claimed and claimed.attempt == claimed.lease_fence == 3

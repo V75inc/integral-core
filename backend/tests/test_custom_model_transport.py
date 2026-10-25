@@ -498,3 +498,181 @@ async def test_raw_probe_body_limit_closes_stream(public_dns, monkeypatch):
     )[0]
     assert closed
     assert "llm.example" not in url_safety._pinned_hosts
+
+
+async def test_turn_session_reuses_client_but_revalidates_every_request(
+    public_dns, monkeypatch
+):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "reply",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "fixture",
+                "choices": [],
+            },
+        )
+
+    mock_network(monkeypatch, handler)
+    validate = AsyncMock(wraps=transport.validate_outbound_http_url)
+    monkeypatch.setattr(transport, "validate_outbound_http_url", validate)
+    kwargs = {
+        "api_base": "https://llm.example/v1",
+        "api_key": "synthetic",
+        "timeout": 1,
+    }
+    session = transport.CustomModelSession(kwargs, keyless_endpoint=False)
+    clients = []
+
+    async def completion(**kw):
+        clients.append(kw["client"])
+        return await kw["client"].chat.completions.create(model="fixture", messages=[])
+
+    try:
+        for _ in range(2):
+            await transport.custom_endpoint_completion(
+                completion, kwargs, session=session
+            )
+        assert clients == [session.client, session.client]
+        assert len(seen) == 2 and validate.await_count == 2
+        assert not session.client.is_closed()
+        for changed in (
+            {"api_key": "rotated"},
+            {"api_base": "https://other.example/v1"},
+        ):
+            with pytest.raises(ValueError, match="route changed"):
+                await transport.custom_endpoint_completion(
+                    completion, {**kwargs, **changed}, session=session
+                )
+        # Reusing a pooled socket must not bypass changed outbound policy.
+        validate.side_effect = ValueError("policy changed")
+        with pytest.raises(Exception):
+            await transport.custom_endpoint_completion(
+                completion, kwargs, session=session
+            )
+        assert len(seen) == 2
+    finally:
+        await session.aclose()
+        await session.aclose()
+    assert session.client.is_closed()
+    assert "llm.example" not in url_safety._pinned_hosts
+
+
+async def test_turn_stream_close_preserves_pool_until_turn_cleanup():
+    kwargs = {
+        "api_base": "https://llm.example/v1",
+        "api_key": "synthetic",
+        "timeout": 1,
+        "stream": True,
+    }
+    session = transport.CustomModelSession(kwargs, keyless_endpoint=False)
+
+    async def chunks():
+        yield "chunk"
+
+    async def completion(**kw):
+        return chunks()
+
+    try:
+        for _ in range(2):
+            owned = await transport.custom_endpoint_completion(
+                completion, kwargs, session=session
+            )
+            assert [chunk async for chunk in owned] == ["chunk"]
+            await owned.aclose()
+            assert not session.client.is_closed()
+
+        async def cancelled(**kw):
+            raise asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            await transport.custom_endpoint_completion(
+                cancelled, kwargs, session=session
+            )
+    finally:
+        await session.aclose()
+    assert session.client.is_closed()
+
+
+async def test_real_loopback_connections_are_reused_only_for_owned_session(monkeypatch):
+    """Exercise real keep-alive sockets, not just MockTransport identity."""
+    connections = 0
+    requests = 0
+    handlers = set()
+
+    async def serve(reader, writer):
+        nonlocal connections, requests
+        connections += 1
+        task = asyncio.current_task()
+        handlers.add(task)
+        try:
+            while True:
+                try:
+                    header = await reader.readuntil(b"\r\n\r\n")
+                except asyncio.IncompleteReadError:
+                    break
+                length = next(
+                    (
+                        int(line.split(b":", 1)[1])
+                        for line in header.split(b"\r\n")
+                        if line.lower().startswith(b"content-length:")
+                    ),
+                    0,
+                )
+                await reader.readexactly(length)
+                requests += 1
+                body = b'{"id":"reply","object":"chat.completion","created":1,"model":"fixture","choices":[]}'
+                writer.write(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                    + str(len(body)).encode()
+                    + b"\r\n\r\n"
+                    + body
+                )
+                await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            handlers.discard(task)
+
+    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    monkeypatch.setenv("INTEGRAL_OUTBOUND_TRUSTED_HOSTS", "models.test")
+    real_dns = url_safety._real_getaddrinfo
+    monkeypatch.setattr(
+        url_safety,
+        "_real_getaddrinfo",
+        lambda host, *a, **kw: real_dns(
+            "127.0.0.1" if host == "models.test" else host, *a, **kw
+        ),
+    )
+    monkeypatch.setenv("INTEGRAL_OUTBOUND_EXTRA_PORTS", str(port))
+    kwargs = {
+        "api_base": f"http://models.test:{port}/v1",
+        "api_key": "synthetic",
+        "timeout": 2,
+    }
+
+    async def completion(**kw):
+        return await kw["client"].chat.completions.create(model="fixture", messages=[])
+
+    session = transport.CustomModelSession(kwargs, keyless_endpoint=False)
+    try:
+        for _ in range(2):
+            await transport.custom_endpoint_completion(
+                completion, kwargs, session=session
+            )
+        assert requests == 2 and connections == 1
+        for _ in range(2):
+            await transport.custom_endpoint_completion(completion, kwargs)
+        assert requests == 4 and connections == 3
+    finally:
+        await session.aclose()
+        server.close()
+        await server.wait_closed()
+        if handlers:
+            await asyncio.wait_for(asyncio.gather(*list(handlers)), timeout=2)

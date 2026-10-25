@@ -129,6 +129,21 @@ async def resolve_turn_routes(
     heavy_only: bool = False,
 ) -> TurnModelRoutes:
     """Resolve both roles from one funding authority; never change global models."""
+    from app.services.chat_latency import measure_latency_phase
+    from app.services.model_credential_resolver import model_owner_resolution
+
+    with measure_latency_phase("routeResolution"), model_owner_resolution():
+        return await _resolve_turn_routes(
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            resolver=resolver,
+            heavy_only=heavy_only,
+        )
+
+
+async def _resolve_turn_routes(
+    *, workspace_id: str, profile_id: str, resolver: Callable, heavy_only: bool
+) -> TurnModelRoutes:
     heavy = await resolver(
         workspace_id=workspace_id,
         default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
@@ -275,6 +290,8 @@ async def conversation_turn_routes(
 ) -> TurnModelRoutes:
     """Resolve current authority, then bind the conversation's presentation settings."""
     plan = await resolve_turn_routes(**kwargs)
+    if not reasoning_efforts:
+        return plan
     return await asyncio.to_thread(
         apply_conversation_reasoning,
         plan,

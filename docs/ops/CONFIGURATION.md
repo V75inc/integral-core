@@ -35,6 +35,7 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 | `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS` | 900 | Accepted turn deadline |
 | `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` | 180 | Individual provider request ceiling through stream completion |
 | `INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS` | 30 | Maximum silence before stream headers or between chunks; tune for slower model deployments (5–180 seconds). Does not extend the total request ceiling. |
+| `INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS` | 8 | Total automatic Light-pass deadline, including framework schema retries (1–30 seconds). Dual routing uses one physical transport attempt, then a known transient failure can escalate through current Heavy admission. Single-model and Heavy request ceilings are unchanged. |
 | `INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS` | 3 | Total model attempts including the initial request (1–3); transient failures before output only |
 | `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` | 1200000 | Aggregate turn token ceiling |
 | `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT` | 20 | Model requests per turn |

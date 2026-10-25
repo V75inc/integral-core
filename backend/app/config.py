@@ -144,6 +144,10 @@ class Settings(BaseSettings):
     # Bound silence independently of a productive stream's total runtime.
     INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS: int = Field(default=30, ge=5, le=180)
     INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=3)
+    # Automatic routing is a short conversational pass, not a heavy workflow.
+    # Bound the entire pass (including schema retries), then escalate through
+    # the normal current-authority path on a known transient timeout.
+    INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS: int = Field(default=8, ge=1, le=30)
     # Aggregate input and output tokens across the native agent's model calls
     # in one turn; independent from any provider's per-request output limit.
     INTEGRAL_NATIVE_TURN_TOKEN_LIMIT: int = Field(default=1_200_000, ge=1)

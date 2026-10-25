@@ -589,3 +589,70 @@ async def test_light_bridge_requires_routing_choice_with_followup_history(
         assert result.usage.input_tokens == 50 and result.usage.output_tokens == 5
     finally:
         await model.client.close()
+
+
+@pytest.mark.asyncio
+async def test_dual_routing_has_total_deadline_and_does_not_swallow_cancellation(
+    monkeypatch,
+):
+    import asyncio
+
+    from app.agentive.harness import adaptive
+    from app.agentive.harness.model_errors import NativeModelRequestError
+    from app.agentive.harness.model_routing import (
+        TurnModelRoutes,
+        may_escalate_light_failure,
+    )
+    from app.config import settings
+    from app.services.chat_latency import TurnLatency, current_latency
+
+    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    native = PydanticAIProvider()
+    plan = TurnModelRoutes(SimpleNamespace(), SimpleNamespace(), "light_heavy")
+    timing = TurnLatency(route_plan=plan)
+
+    async def build(*a, **kw):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(native, "_build_turn_model", build)
+    monkeypatch.setattr(settings, "INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS", 0.01)
+    cancelled = False
+
+    async def stalled(*a, **kw):
+        nonlocal cancelled
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled = True
+
+    monkeypatch.setattr(
+        adaptive, "build_light_agent", lambda *a, **kw: SimpleNamespace(run=stalled)
+    )
+    token = current_latency.set(timing)
+    try:
+        with pytest.raises(NativeModelRequestError) as caught:
+            await native._try_light_turn(ctx, thread, "owner", None)
+        assert cancelled and may_escalate_light_failure(caught.value, plan)
+
+        async def user_cancelled(*a, **kw):
+            raise asyncio.CancelledError()
+
+        monkeypatch.setattr(
+            adaptive,
+            "build_light_agent",
+            lambda *a, **kw: SimpleNamespace(run=user_cancelled),
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await native._try_light_turn(ctx, thread, "owner", None)
+
+        async def denied(*a, **kw):
+            raise InsufficientPermissionsError(message="revoked")
+
+        monkeypatch.setattr(
+            adaptive, "build_light_agent", lambda *a, **kw: SimpleNamespace(run=denied)
+        )
+        with pytest.raises(InsufficientPermissionsError) as caught:
+            await native._try_light_turn(ctx, thread, "owner", None)
+        assert not may_escalate_light_failure(caught.value, plan)
+    finally:
+        current_latency.reset(token)

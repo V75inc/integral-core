@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +28,10 @@ LATENCY_FIELDS = frozenset(
     }
 )
 
+PHASE_FIELDS = frozenset(
+    {"routeResolution", "modelAdmission", "dispatchReceipt", "providerStart"}
+)
+
 
 @dataclass
 class TurnLatency:
@@ -41,6 +46,8 @@ class TurnLatency:
     physical_tokens: dict[str, int] = field(default_factory=dict)
     clients: list[Any] = field(default_factory=list)
     roles: list[dict[str, str]] = field(default_factory=list)
+    phase_totals: dict[str, float] = field(default_factory=dict)
+    phase_counts: dict[str, int] = field(default_factory=dict)
 
     def freeze_budget(self, value: dict) -> None:
         """A later model can only tighten an already established turn ceiling."""
@@ -121,6 +128,28 @@ class TurnLatency:
 current_latency: ContextVar[TurnLatency | None] = ContextVar(
     "chat_latency", default=None
 )
+
+
+@contextmanager
+def measure_latency_phase(name: str):
+    """Bounded, content-free aggregate diagnostics; not wall-clock milestones.
+
+    Route resolution is nested within model admission. Provider start measures
+    SDK entry until the response/stream is obtained, not stream completion.
+    Never sum nested spans or present this as time to displayed answer text.
+    """
+    if name not in PHASE_FIELDS:
+        raise ValueError("Unknown model latency phase")
+    timing = current_latency.get()
+    began = time.monotonic()
+    try:
+        yield
+    finally:
+        if timing is not None:
+            timing.phase_totals[name] = (
+                timing.phase_totals.get(name, 0) + (time.monotonic() - began) * 1000
+            )
+            timing.phase_counts[name] = timing.phase_counts.get(name, 0) + 1
 
 
 def mark_latency(name: str) -> None:

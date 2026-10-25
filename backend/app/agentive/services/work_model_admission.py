@@ -112,8 +112,17 @@ class WorkModelAdmission:
         self, dispatch: ModelDispatchInput
     ) -> Callable[[], Awaitable[None]]:
         """Reserve and fence approved work before any physical SDK call."""
-        async with self._lock:
-            return await self._admit(dispatch)
+        from app.services.chat_latency import measure_latency_phase
+
+        with measure_latency_phase("modelAdmission"):
+            async with self._lock:
+                ready = await self._admit(dispatch)
+
+        async def measured_ready():
+            with measure_latency_phase("modelAdmission"):
+                await ready()
+
+        return measured_ready
 
     async def _admit(
         self, dispatch: ModelDispatchInput

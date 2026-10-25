@@ -13,7 +13,7 @@ class WorkItem(Object):
     """Queue-shaped execution control record."""
 
     work_item_id: str = attribute(default="", indexed=True)
-    kind: str = ""
+    kind: str = attribute(default="", indexed=True)
     origin: str = ""
     principal_id: str = attribute(default="", indexed=True)
     workspace_id: str = attribute(default="", indexed=True)

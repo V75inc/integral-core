@@ -1591,6 +1591,13 @@ class PydanticAIProvider:
         from app.services.chat_image_inputs import assert_model_image_access
         from app.services.model_retry_status import emit_model_retry_status
 
+        routing_pass = model_role == "light" and plan.mode == "light_heavy"
+        routing_timeout = (
+            settings.INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS
+            if routing_pass
+            else float("inf")
+        )
+
         async def validate_images(payload: dict[str, Any]) -> None:
             from app.agentive.harness.model_errors import NativeModelRequestError
             from app.middleware.permissions_cache import isolated_permissions_cache
@@ -1610,6 +1617,7 @@ class PydanticAIProvider:
             dispatch_guard=timing.reserve_dispatch if timing is not None else None,
             request_validator=validate_images,
             timeout_seconds=min(
+                routing_timeout,
                 10 if auxiliary else float("inf"),
                 settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
                 generation.get(
@@ -1618,6 +1626,7 @@ class PydanticAIProvider:
                 ),
             ),
             idle_timeout_seconds=min(
+                routing_timeout,
                 settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS,
                 generation.get(
                     "idle_timeout", settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS
@@ -1628,7 +1637,9 @@ class PydanticAIProvider:
                 ),
             ),
             max_attempts=(
-                1 if auxiliary else settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS
+                1
+                if auxiliary or routing_pass
+                else settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS
             ),
             retry_status=emit_model_retry_status,
         )
@@ -1743,17 +1754,40 @@ class PydanticAIProvider:
 
         time_context = await user_time_context(ctx.user_id)
         started = time.monotonic()
-        result = await build_light_agent(
+        agent = build_light_agent(
             model,
             time_context=time_context,
             orientation_context=await workspace_orientation(ctx, thread),
             identity_context=await user_identity_context(ctx.user_id),
-        ).run(
-            ctx.text,
-            message_history=public_dialogue(messages, exclude_id=accepted_id),
-            cancellation_token=self._active_tokens.get(ctx.thread_id),
-            usage_limits=turn_usage_limits(light=True),
         )
+        from app.config import settings
+        from app.services.chat_latency import current_latency
+
+        timing = current_latency.get()
+        timeout = (
+            settings.INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS
+            if timing is not None
+            and getattr(timing.route_plan, "mode", None) == "light_heavy"
+            else None
+        )
+        # Include every framework schema retry in the one routing allowance.
+        # The enclosing preparation path escalates only classified transient
+        # failures; cancellation and current-authority denials still propagate.
+        routing_deadline = asyncio.timeout(timeout)
+        try:
+            async with routing_deadline:
+                result = await agent.run(
+                    ctx.text,
+                    message_history=public_dialogue(messages, exclude_id=accepted_id),
+                    cancellation_token=self._active_tokens.get(ctx.thread_id),
+                    usage_limits=turn_usage_limits(light=True),
+                )
+        except TimeoutError as exc:
+            if not routing_deadline.expired():
+                raise
+            from app.agentive.harness.model_errors import NativeModelRequestError
+
+            raise NativeModelRequestError("model_request_timeout") from exc
         from app.agentive.harness.events import is_serialized_tool_text
 
         if isinstance(result.output, OperationalContextRequest) or (
@@ -2438,6 +2472,14 @@ class PydanticAIProvider:
                         if any(isinstance(result, BaseException) for result in results):
                             logger.warning("Native model client cleanup was incomplete")
                 finally:
+                    logger.info(
+                        "native model latency phases counts=%s totals_ms=%s",
+                        timing.phase_counts,
+                        {
+                            key: round(value, 1)
+                            for key, value in timing.phase_totals.items()
+                        },
+                    )
                     current_latency.reset(token)
 
     async def _stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:

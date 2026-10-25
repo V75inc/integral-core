@@ -131,6 +131,7 @@ class _OwnedModelStream:
 
     def __init__(self, stream: Any, client: Any) -> None:
         self._stream, self._iterator, self._client = stream, stream.__aiter__(), client
+        self._closed = False
 
     def __aiter__(self) -> "_OwnedModelStream":
         return self
@@ -149,12 +150,59 @@ class _OwnedModelStream:
             raise
 
     async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             close = getattr(self._stream, "aclose", None)
             if callable(close):
                 await close()
         finally:
-            await self._client.close()
+            if self._client is not None:
+                await self._client.close()
+
+
+class CustomModelSession:
+    """Turn-owned connection reuse, with request-local credentials and guards.
+
+    A session belongs to one immutable physical route. It is never shared
+    across models, principals or turns. The guarded HTTP client still checks
+    endpoint authority and DNS on every request, including reused connections.
+    """
+
+    def __init__(self, kwargs: dict[str, Any], *, keyless_endpoint: bool) -> None:
+        from openai import AsyncOpenAI
+
+        self._base = normalize_custom_base_url(kwargs["api_base"])
+        self._key = kwargs["api_key"]
+        self._keyless = keyless_endpoint
+        self._closed = False
+        self.client = AsyncOpenAI(
+            api_key=self._key,
+            base_url=self._base,
+            http_client=CustomModelAsyncClient(
+                self._base,
+                timeout=float(kwargs["timeout"]),
+                omit_authorization=keyless_endpoint,
+            ),
+            organization="",
+            project="",
+            max_retries=0,
+        )
+
+    def assert_route(self, kwargs: dict[str, Any], keyless_endpoint: bool) -> None:
+        if (
+            self._closed
+            or normalize_custom_base_url(kwargs["api_base"]) != self._base
+            or kwargs["api_key"] != self._key
+            or keyless_endpoint != self._keyless
+        ):
+            raise ValueError("Custom model session route changed")
+
+    async def aclose(self) -> None:
+        if not self._closed:
+            self._closed = True
+            await self.client.close()
 
 
 async def custom_endpoint_completion(
@@ -162,8 +210,16 @@ async def custom_endpoint_completion(
     kwargs: dict[str, Any],
     *,
     keyless_endpoint: bool = False,
+    session: CustomModelSession | None = None,
 ) -> Any:
-    """Give LiteLLM an explicit guarded OpenAI SDK client for this call only."""
+    """Use a guarded client, owned by this call or its explicit turn session."""
+    if session is not None:
+        session.assert_route(kwargs, keyless_endpoint)
+        result = await completion(**kwargs, client=session.client)
+        if kwargs.get("stream") and hasattr(result, "__aiter__"):
+            # The stream closes its response; the turn owns the connection pool.
+            return _OwnedModelStream(result, None)
+        return result
     from openai import AsyncOpenAI
 
     base = normalize_custom_base_url(kwargs["api_base"])

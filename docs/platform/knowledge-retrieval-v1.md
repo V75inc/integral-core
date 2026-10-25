@@ -1,7 +1,7 @@
 # Integral semantic search improvement plan and contract — proposal v1
 
 **Status:** Approved direction; index hardening, model migration and App discovery implementation in review. The migration, broader integration and production qualification gates below remain open.
-**Date:** 24 October 2026. **Draft revision:** 5 — verified migration and governed discovery; remaining gates explicit.
+**Date:** 24 October 2026. **Draft revision:** 6 — bounded model-routing overhead and turn-owned cloud transport; remaining gates explicit.
 **Decision owner:** Integral product architect, with retrieval, runtime, authorization, SDK and frontend engineering review.
 **Implementation base:** `main` at `37219ddee21690429455a170393e49dbb7f1eed2`, including merged #171, #172 and #176. PR #173 remains a separate draft on `codex/semantic-search-hardening`; it is not a release or production deployment.
 **Decision record:** [ADR-017](../backend/adr/017-graph-guided-knowledge-retrieval.md).
@@ -16,7 +16,7 @@ The follow-on implementation separates configured/building and pinned serving pr
 
 Interactive scope admission now avoids scanning creation-time ownership grants when rooted Track coverage already admits the entire scope. Partial-access discovery removes duplicate grants before canonical admission. Rebuild pages batch fresh containment and schema reads. Retrieval-worker recovery fences on unique lease tokens instead of exact floating-point timestamp equality; graceful shutdown releases its owned rebuild claim. Excluded-content invalidation resolves its canonical workspace rather than relying on an optional Entry cache.
 
-The native resident exposes the existing read-only `integral_query` as a foundational schema, when present in the authorized catalogue. Focused knowledge lookups need no full Insights workflow expansion; current broker, App-operation and per-result policy gates remain unchanged. Other workflows still use progressive discovery/loading.
+The native resident exposes the existing read-only `integral_query` as a foundational schema, when present in the authorized catalogue. Focused knowledge lookups need no full Insights workflow expansion; current broker, App-operation and per-result policy gates remain unchanged. Other workflows still use progressive discovery/loading. Route resolution coalesces owner reads within one fresh admission check, never across requests. Custom model endpoints reuse guarded connections only within the same physical model and turn; outbound checks and current credential/permission admission remain mandatory. Content-free phase diagnostics distinguish host admission from provider startup. Automatic Light routing has one transport attempt and a bounded total model-pass deadline, including schema retries; known transient timeouts hand off through current Heavy admission. Workers page filtered queue candidates with constant-size rotating cursors instead of hydrating every queued item on each poll. This does not remove the authority-free Light routing pass or establish a cloud latency SLO.
 
 App SDK discovery now resolves governed Track/type selectors before index ranking, instead of materializing the first 500 Entries. Explicit Entry-ID narrowing retains its 500-ID contract. Current canonical containment, type and audience are rechecked after ranking. Type projection adoption keeps existing untyped readers and source hashes compatible and reuses verified vectors; shared type-selector indexes are built concurrently by worker maintenance, never by a search.
 
