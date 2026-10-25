@@ -19,11 +19,22 @@ is enough to start this sequence. Pushing a tag alone does not publish it.
 ## Versioning
 
 - Single source of truth: `backend/pyproject.toml` → `[project].version`
+- Keep the editable project's version in `backend/uv.lock` and the source-only
+  fallback in `backend/app/cli.py` aligned with that declaration. For a
+  version-only change, run `uv lock --offline` from `backend/` and verify that
+  no dependency versions changed. Update `CHANGELOG.md` in the same PR.
 - Follows [PEP 440](https://peps.python.org/pep-0440/) /
   [SemVer](https://semver.org/): `MAJOR.MINOR.PATCH`, with pre-releases as
   `rcN` / `aN` / `bN` (e.g. `0.1.1rc1`).
 - A manual tag or a workflow-dispatch tag must match `pyproject.toml`.
   A push to `main` publishes the version already in that file.
+
+When a candidate spans stacked PRs, put the single version bump on the final PR
+and merge its base PR first. Qualify each exact head; a green base does not
+qualify its follow-on. Verify the actual CI workflow run when a stacked target
+is outside the pull-request branch filters. The final `main` revision must pass
+its own CI before publication. Preparation, a version declaration and a passing
+PR run do not establish that the candidate has been uploaded or deployed.
 
 ## One-time setup
 
@@ -118,10 +129,12 @@ is enough to start this sequence. Pushing a tag alone does not publish it.
    pip install integral-core==0.1.1
    ```
 
-## Commercial pin
+## Downstream version pins
 
-Commercial `V75inc/integral` tracks Core by git tag until index installs are
-stable — see `docs/product/CORE_PIN.md`.
+Downstream deployments should pin an exact published Core version and record
+the selected artifact's identity. Update a consuming repository only after
+verifying publication and the installed version; a source version bump alone
+does not make an installable release available.
 
 TestPyPI (explicit index):
 
