@@ -548,6 +548,14 @@ See [chat lifecycle](docs/backend/ai-chat.md#image-input).
 
 ### Search and indexing
 
+For recurring domain questions, follow [efficient agent reads](docs/platform/extension-contract-v1.md#efficient-agent-reads).
+Apps own focused deterministic summaries and compact source results; Core owns
+generic governed reads and bounded discovery/context. Skills should identify
+the registered read and minimal input, avoiding repeated catalog/schema discovery.
+Measure first-tool and first-domain-data timings separately, plus total time,
+call/token counts and verified answer accuracy on populated workspaces. Never
+trade current authorization or complete aggregate coverage for speed.
+
 Installed-App record questions must discover the App's registered read tools
 or declared queries. Keep the insights skill and refusal recovery hints aligned;
 do not bypass the governed query boundary. Chat progress uses a single short
