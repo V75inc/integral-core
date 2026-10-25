@@ -1025,6 +1025,9 @@ silently losing an approval/effect or looping through model retries.
 Verification: `tests/native_harness/wp_07/test_context_lifecycle.py` exercises
 100-run checkpoint round trips, actual provider JSON, rotating skills/tools,
 old bloated sessions, explicit overflow, media accounting and pending effects.
+`tests/native_harness/wp_07/test_business_context_regressions.py` additionally
+checks admission/compaction estimate consistency, active-load deduplication,
+usage-anchor reclaim and per-call read clearing on mixed read/write wrappers.
 Set `INTEGRAL_CONTEXT_SOAK_RUNS=500` for the longer qualification workload.
 
 ## Verification and change discipline

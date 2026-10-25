@@ -553,6 +553,7 @@
         "integral_get_graph_context",
         "integral_get_track_schema",
         "integral_governed_query",
+        "integral_list_apps",
         "integral_list_notifications",
         "integral_list_tracks",
         "integral_list_views",

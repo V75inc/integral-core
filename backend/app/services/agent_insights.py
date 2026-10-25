@@ -450,6 +450,17 @@ async def query_entries(
             else:
                 excluded_tracks += 1
     if named_block is not None:
+        recovery = None
+        if (
+            named_block.code == "app_domain"
+            and workspace_id
+            and named in accessible_tracks
+        ):
+            from app.services.workspace_tools import track_read_tool_hint
+
+            recovery = await track_read_tool_hint(
+                user_id=user_id, workspace_id=workspace_id, track=named
+            )
         return {
             "entries": [],
             "total": None,
@@ -457,6 +468,7 @@ async def query_entries(
             "limit": limit,
             "offset": offset,
             "refused": named_block.public(track_id=track_id),
+            **({"recovery": recovery} if recovery else {}),
             "filters_applied": {
                 "track_id": track_id,
                 "workspace_id": workspace_id,

@@ -369,7 +369,11 @@ domains:
           and `key` (its manifest identifier, e.g. "pay_run") — pass EITHER as
           type_hint/entry_type to integral_create_entry / integral_file_content, `key`
           is the more stable of the two. This describes the track's SHAPE, not its
-          contents — use integral_query_entries to read the actual entries. Distinct
+          contents. For installed Apps, discover their read tools with
+          integral_list_workspace_tools(app_id=..., read_only=true) and invoke the
+          returned key through integral_call_workspace_tool. Generic integral_query_entries
+          reads workspace-authored tracks only; an app_domain refusal is not an empty result.
+          Distinct
           from integral_get_app (app metadata) and integral_describe_substrate (the
           global palette of field/view types available to author NEW structure).
         http: "GET /api/tracks/{track_id}/detail"
@@ -1643,11 +1647,20 @@ domains:
           chat, including each live tool key and parameter schema. Use this
           before integral_call_workspace_tool; do not guess a key. Registered tool
           keys are invoked through integral_call_workspace_tool, never as
-          declared query keys in integral_governed_query.
+          declared query keys in integral_governed_query. Narrow by app_id and
+          read_only=true for existing App records; use tool_key for one exact
+          schema. Results are paged: follow next_offset only when needed.
+          Core navigation tools are not registered App tools: use
+          integral_list_apps/integral_list_tracks for App/Track IDs and links.
         http: "(service workspace_tools.list_workspace_tools)"
         policy_action: tool.invoke
-        params: {}
-        returns: { tools: list, count: integer }
+        params:
+          app_id: {type: string, optional: true, desc: "Only tools belonging to this accessible installed App."}
+          tool_key: {type: string, optional: true, desc: "An exact registered key whose schema is needed."}
+          read_only: {type: boolean, optional: true, default: false}
+          limit: {type: integer, optional: true, default: 20}
+          offset: {type: integer, optional: true, default: 0}
+        returns: { tools: list, count: integer, has_more: boolean, next_offset: integer }
       - name: integral_call_workspace_tool
         status: existing
         op_class: propose
@@ -1656,6 +1669,11 @@ domains:
           Invoke one workspace-registered bundle tool by key. Write tools are
           staged for user blessing; read tools return immediately. Use the
           exact tool key and input shape returned by integral_list_workspace_tools.
+          For a record read accepting a track title, first obtain the actual title
+          from integral_list_tracks scoped to its app_id; never guess or shorten
+          it. Before selecting named fields, discover integral_get_track_schema
+          and verify which Track and EntryType own those fields. A missing track
+          or nulls for unverified field names do not prove that data is absent.
         http: "POST /api/tools/{tool_key}"
         policy_action: tool.invoke
         staging_kind: call_workspace_tool

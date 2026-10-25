@@ -227,6 +227,38 @@ def test_app_query_items_receive_resource_links_without_mutating_receipts():
     assert result["_receipt"] == source["_receipt"]
 
 
+def test_registered_app_read_envelope_supplies_record_links():
+    source = {
+        "tool_key": "sample.query_records",
+        "output": {"rows": [{"id": "n.Entry.sample", "title": "Sample"}]},
+        "_receipt": {"state": "complete"},
+    }
+    result = _resource_links_for_model(source)
+    assert result["output"]["rows"][0]["url"] == "/entries/n.Entry.sample"
+    assert "url" not in source["output"]["rows"][0]
+    assert result["_receipt"] == source["_receipt"]
+
+
+def test_app_named_collections_receive_links_without_recursive_field_rewrites():
+    source = {
+        "output": {
+            "available_records": [
+                {"id": "n.Entry.sample", "fields": {"id": "n.Entry.field"}},
+                {"id": "external-record"},
+            ],
+            "_diagnostics": [{"id": "n.Entry.private"}],
+        },
+        "_receipt": [{"id": "n.Entry.receipt"}],
+    }
+    result = _resource_links_for_model(source)
+    assert result["output"]["available_records"][0]["url"] == "/entries/n.Entry.sample"
+    assert "url" not in source["output"]["available_records"][0]
+    assert "url" not in result["output"]["available_records"][0]["fields"]
+    assert result["output"]["available_records"][1] == {"id": "external-record"}
+    assert result["output"]["_diagnostics"] == source["output"]["_diagnostics"]
+    assert result["_receipt"] == source["_receipt"]
+
+
 def test_pending_write_resolution_tool_is_only_exposed_for_scoped_pending_items():
     """Expose the chat decision tool only when Core supplied pending items."""
     tools = build_brokered_tools(
@@ -577,7 +609,13 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
     }
     assert {name for name, tool in by_name.items() if not tool.defer_loading} == (
         always_available
-        | {"integral_get_page_context", "integral_open_view", "integral_query"}
+        | {
+            "integral_get_page_context",
+            "integral_open_view",
+            "integral_query",
+            "integral_list_workspace_tools",
+            "integral_call_workspace_tool",
+        }
     )
     assert len(by_name) > 100
 
@@ -1148,6 +1186,88 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
     assert len(invocations) == 2
     assert invocations[0]["workspace_id"] == _scope().workspace_id
     assert invocations[0]["principal_id"] == _scope().principal_id
+
+
+@pytest.mark.asyncio
+async def test_broad_read_skill_keeps_undiscovered_schemas_deferred(
+    monkeypatch, tmp_path
+):
+    """Loading one procedure must not disclose its entire 80-tool read catalogue."""
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    from app.agentive.harness.skill_sources import materialize_standard_skill_library
+
+    names = [f"read_record_{i:02}" for i in range(80)]
+    skills = materialize_standard_skill_library(
+        [("read-workflow", "Read current records", "Use the matching read tool.")],
+        root=tmp_path,
+        allowed_tools={"read-workflow": names},
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda name: ("core", "read"),
+    )
+
+    async def invoke(**kwargs):
+        return CapabilityResult(ok=True, data={"value": "verified"})
+
+    async def embed(text):
+        return [1.0, 0.0]
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.harness.capability_search._embed_text_for_capability_search",
+        embed,
+    )
+    requests = []
+
+    def respond(messages, info):
+        visible = {tool.name for tool in info.function_tools}
+        requests.append(visible)
+        if len(requests) == 1:
+            return ModelResponse(
+                parts=[ToolCallPart("search_capabilities", {"query": names[0]})]
+            )
+        if len(requests) == 2:
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "read-workflow"})]
+            )
+        disclosed_reads = visible.intersection(names)
+        assert names[0] in disclosed_reads
+        assert len(disclosed_reads) <= 8
+        if len(requests) == 3:
+            return ModelResponse(parts=[ToolCallPart(names[0], {})])
+        return ModelResponse(parts=[TextPart("Verified")])
+
+    scope = _scope()
+    catalogue = [
+        {
+            "name": name,
+            "description": "Read the current record",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+        for name in names
+    ]
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Read current records.",
+        tools=build_brokered_tools(
+            scope=scope, catalogue=catalogue, skill_library=tmp_path
+        ),
+        step_store_backend=InMemoryStepStore(),
+        scope=scope,
+        agent_name="bounded-read-disclosure",
+        skill_directories=[tmp_path],
+        allowed_skill_names=skills,
+    )
+    result = await agent.run(
+        "Read the current record",
+        conversation_id=scope.framework_conversation_id,
+        run_id=scope.framework_run_id,
+    )
+    assert result.output == "Verified"
 
 
 @pytest.mark.asyncio
@@ -2054,15 +2174,18 @@ def test_tool_effect_identity_survives_new_attempt_but_keeps_current_lease():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("write", [False, True])
+@pytest.mark.parametrize("staged_receipt", [False, True])
 async def test_registered_tool_classification_preserves_read_only_turn(
-    monkeypatch, write
+    monkeypatch, write, staged_receipt
 ):
     """Only a live registered read may use the mixed invocation wrapper."""
     calls = []
 
     async def invoke(**kwargs):
         calls.append(kwargs)
-        return CapabilityResult(ok=True, data={"rows": []})
+        return CapabilityResult(
+            ok=True, data={"_kind": "staged_change"} if staged_receipt else {"rows": []}
+        )
 
     monkeypatch.setattr(
         "app.agentive.services.capability_broker.invoke_declared_capability", invoke
@@ -2103,6 +2226,98 @@ async def test_registered_tool_classification_preserves_read_only_turn(
     if write:
         assert result["error_code"] == "user_no_workspace_writes"
         assert calls == []
-    else:
-        assert not result.get("error")
+    elif staged_receipt:
+        assert result["_kind"] == "staged_change"
         assert len(calls) == 1
+    else:
+        assert result.metadata == {"integral_effect_v1": "read"}
+        assert not result.return_value.get("error")
+        assert len(calls) == 1
+
+
+def test_core_navigation_reads_do_not_require_app_catalogue_paging(tmp_path):
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        catalogue=[
+            {
+                "name": name,
+                "description": "Read navigation metadata",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+            for name in ("integral_list_apps", "integral_list_tracks")
+        ],
+    )
+    assert all(
+        not tool.defer_loading
+        for tool in tools
+        if tool.name.startswith("integral_list_")
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("write", [False, True])
+async def test_app_read_protocol_visibility_does_not_unlock_unloaded_writes(
+    tmp_path, monkeypatch, write
+):
+    folder = tmp_path / "sample-workflow"
+    folder.mkdir()
+    (folder / "SKILL.md").write_text(
+        "---\nname: sample-workflow\ndescription: Manage sample records.\n"
+        "allowed-tools: integral_call_workspace_tool\n---\nUse the declared protocol.\n"
+    )
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"rows": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.services.workspace_tools.lookup_workspace_tool",
+        lambda *_: {
+            "agent_callable": True,
+            "side_effects": "write" if write else "read_only",
+        },
+    )
+    catalogue = [
+        t for t in build_tool_catalogue() if t["name"] == "integral_call_workspace_tool"
+    ]
+    tool = next(
+        t
+        for t in build_brokered_tools(
+            scope=_scope(), skill_library=tmp_path, catalogue=catalogue
+        )
+        if t.name == "integral_call_workspace_tool"
+    )
+    ctx = SimpleNamespace(tool_call_id="sample", active_capability_ids=set())
+    assert tool.defer_loading is False
+    assert tool.prepare(ctx, tool.tool_def) is not None
+    result = await tool.function_schema.call({"tool_key": "sample", "input": {}}, ctx)
+    if write:
+        assert result["error_code"] == "required_skill_not_loaded"
+        assert not calls
+    else:
+        assert result.metadata == {"integral_effect_v1": "read"}
+        assert len(calls) == 1
+
+
+@pytest.mark.parametrize("key", ["boundary", "refused"])
+def test_generic_app_read_boundary_advertises_live_read_protocol(key):
+    original = {key: {"declared_query_required": True}, "results": []}
+    projected = _resource_links_for_model(original)
+    assert projected["recovery"]["tool"] == "integral_list_workspace_tools"
+    assert projected["recovery"]["arguments"] == {"read_only": True}
+    assert projected["recovery"]["invoke_with"] == "integral_call_workspace_tool"
+    assert "recovery" not in original
+
+
+def test_scoped_read_recovery_is_not_replaced_by_generic_hint():
+    recovery = {
+        "arguments": {"app_id": "app-1"},
+        "read_tools": [{"key": "declared_read"}],
+    }
+    original = {"refused": {"declared_query_required": True}, "recovery": recovery}
+    assert _resource_links_for_model(original)["recovery"] == recovery

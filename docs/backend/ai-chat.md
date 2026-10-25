@@ -152,8 +152,10 @@ must not repeatedly greet the user or repeat their name mechanically.
 ### Working context and long conversations
 
 The native harness expires older skill-load pairs and tool discoveries before
-preparing the next model step. It retains the current and immediately preceding
-task plus a 32 KiB historical skill allowance and 16 recent tool disclosures.
+preparing the next model step. It preserves the current task and retains older
+skill bodies only within the remainder of a 32 KiB disclosure allowance, after
+counting protected bodies. Completed-task discoveries retain at most 16 recent
+tool names.
 Unsettled tool calls and pending staging proposals protect their source task;
 these protections can exceed the normal working-set allowance and are subject
 to final input admission. Expired skills remain discoverable and can be loaded
@@ -168,6 +170,32 @@ accounting. The normalized working history is checkpointed, and older encrypted
 snapshots remain available through scoped conversation search. Existing bloated
 sessions receive this policy on their next valid resume.
 
+Static Core reads and registered App reads share one result window: older large
+payloads are cleared beyond five completed-history reads or two current-turn
+reads, with explicit incomplete previews above 16 KiB. Mixed read/write invocation wrappers carry Core-generated
+per-call checkpoint metadata; their names are never globally clearable. Unknown
+or legacy classifications and all mutation receipts remain protected. App output
+and model arguments cannot supply this trusted classification. Active read
+arguments remain available for a narrower repeat query.
+
+The active task additionally retains at most two compact App/Track inventories.
+Each keeps exact resource IDs, names and links, short purposes and an explicit
+incomplete-preview marker, within an 8 KiB envelope. These addresses must survive
+later data reads: otherwise the model can discover the right Track and then
+guess its name after that discovery disappears. Older inventories expire through
+the same history policy; this does not retain record bodies or grant access.
+
+If native tier escalation stops while Core's conservative admission estimate is
+still too large, the cheap tier clears older classified reads once more, keeping
+the newest result. It never discards current user input, approvals or effects.
+Irreducible protected input still fails admission.
+
+Completed-history summarization retains a four-message / 2,048-token recent
+suffix rather than retaining most of the previous workflow. Current accepted
+input and unresolved effects are separated before that strategy runs. Typed
+capability restoration deduplicates against both historical and active-turn
+messages; it never replays a load already present in the current task.
+
 Default pressure/target estimates are 24,576/16,384 input tokens. Final admission
 reserves configured output and 10% model-window headroom (at least 1,024 tokens),
 caps input at 65,536 tokens, and assumes a 32,768-token window when the native
@@ -175,12 +203,17 @@ model profile/registry has no window. These are operational estimates, not
 provider billing measurements. Image input reserves an additional estimated
 4,096 tokens per image rather than counting compressed bytes as text. Existing
 upload byte/pixel and permission checks still apply. Protected input that cannot
-fit returns the existing context-limit outcome before inference. Smaller
+fit returns `harness_context_limit` before inference. Provider rejections remain
+`model_context_limit`, so operators can distinguish host admission from remote
+failures without exposing private diagnostic text. Smaller
 models, or many unresolved proposals, may require narrowing the task.
 
 The adapter keeps projected instruction parts and the recorded current request
 in agreement for native estimation. Measured history reclaim corrects the old
-usage anchor without changing its reported token counts or billing records.
+usage anchor after disclosure projection, read clearing and summarization,
+without changing its reported token counts or billing records. Compaction and
+admission use the same estimate, including the independent current-text/schema
+floor; a request cannot skip recovery just because an old usage anchor is small.
 New provider responses establish fresh anchors. Content-free context metrics
 are logged alongside native compaction spans and existing physical-request
 component sizes; diagnostics must never retain prompt/record/key contents.
@@ -272,6 +305,42 @@ This keeps App-job backlogs out of chat-worker candidate reads.
 Deferred discovery reuses immutable description embeddings keyed by document
 hash and embedding model. Current authorized candidates, query embeddings,
 ranking and tool results are not cached.
+Catalogue definitions are encoded without submitting one concurrent task per
+definition to the bounded encoder queue. A single large catalogue must not
+overload its own search admission. Encoder outages still permit an explicit
+lexical fallback; ranking never grants capability or record authority.
+Small skill procedures (up to eight declared tools) retain their immediate
+tool bundle. Broad procedures keep independent read schemas deferred until
+discovery selects them; loading a reporting skill does not disclose every
+query/report schema. Procedure-dependent write tools retain their existing
+skill and approval requirements.
+
+`integral_list_workspace_tools` defaults to 20 results for resident/MCP calls.
+It accepts an accessible `app_id`, exact `tool_key`, `read_only`, `limit` (up to
+50), and `offset`; `count`, `has_more` and `next_offset` describe coverage.
+Read tools sort before write actions, so the first page of a write-heavy App
+still exposes its data access. Within each group, stable key ordering keeps
+paging predictable. The underlying HTTP service retains its unpaged compatibility
+default.
+
+Core App/Track navigation and the paged App catalogue/invocation protocol remain
+visible for ordinary operational turns. The mixed App wrapper cannot be hidden
+wholesale as a skill-owned write: independently authorized reads use it too.
+Actual writes still require their loaded procedure and the same live broker,
+staging and approval checks. Visibility grants no snapshot or principal
+privilege. Saved design approval continuations retain focused build disclosure.
+App-scoped discovery checks the live App/workspace relationship and role.
+A refused generic query on an accessible installed App advertises a small
+authorized read-tool catalogue and its invocation contract. It never executes
+those tools automatically, and a Track-only grant does not disclose a private
+parent App's tools. An `app_domain` refusal remains an unread collection, not
+zero records.
+
+App read arguments use discovered Track titles and verified EntryType fields.
+A failed title lookup or nulls for unverified field names are not proof of
+missing data. Returned resource lists receive canonical links by recognized
+resource ID, including App-defined collection names; nested record fields and
+private receipt metadata are not recursively rewritten.
 
 Activity distinguishes queue delay, preparation, first provider output, first
 requested/started/received tool, first operational tool, first answer text and

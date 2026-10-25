@@ -27,8 +27,19 @@ def test_model_context_limit_is_actionable_without_leaking_provider_error() -> N
     )
 
     assert code == "model_context_limit"
-    assert "shorter request" in message
+    assert "larger context window" in message
     assert "provider default" not in message
+
+
+def test_host_context_limit_is_distinct_from_provider_overflow() -> None:
+    provider = SimpleNamespace(classify_exception=lambda _exc: "harness_context_limit")
+    code, message = classify_turn_exception(
+        Exception("private context dimensions"), provider=provider
+    )
+    assert code == "harness_context_limit"
+    assert "conversation is saved" in message
+    assert "start a new chat" not in message
+    assert "private" not in message
 
 
 def test_harness_usage_limit_has_an_actionable_message() -> None:
@@ -164,3 +175,21 @@ def test_all_host_failure_messages_use_everyday_language():
     for code, message in _ERROR_MESSAGES.items():
         assert message, code
         assert not any(word in message for word in forbidden), code
+
+
+def test_generic_tool_retry_exhaustion_does_not_claim_an_approved_build_failed():
+    from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
+
+    from app.agentive.harness.pydantic_ai_compat import (
+        classify_integral_harness_exception,
+    )
+
+    exc = UnexpectedModelBehavior(
+        "Tool 'load_capability' exceeded max retries count of 1."
+    )
+    exc.__cause__ = ModelRetry("No capability found with id 'unknown-tool'.")
+    provider = SimpleNamespace(classify_exception=classify_integral_harness_exception)
+    code, message = classify_turn_exception(exc, provider=provider)
+    assert code == "model_response_invalid"
+    assert "approved" not in message.lower()
+    assert "unknown-tool" not in message

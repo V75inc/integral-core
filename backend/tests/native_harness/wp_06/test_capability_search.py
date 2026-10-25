@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,6 +16,63 @@ from app.agentive.harness.capability_search import (
     search_capabilities_for_turn,
 )
 from app.agentive.harness.skill_sources import materialize_standard_skill_library
+
+
+@pytest.fixture(autouse=True)
+def isolate_definition_vector_cache():
+    """Each probe controls its encoder; production content hashes are deterministic."""
+    from app.agentive.harness.capability_search import _DEFINITION_VECTORS
+
+    _DEFINITION_VECTORS.clear()
+    yield
+    _DEFINITION_VECTORS.clear()
+
+
+@pytest.mark.asyncio
+async def test_large_catalogue_does_not_overload_its_own_encoder_queue(monkeypatch):
+    from app.agentive.harness import capability_search
+
+    running = 0
+    high_water = 0
+    seen = []
+
+    async def bounded_encoder(text):
+        nonlocal running, high_water
+        running += 1
+        high_water = max(high_water, running)
+        try:
+            if running > 4:
+                raise RuntimeError("Encoder queue full")
+            await asyncio.sleep(0)
+            seen.append(text)
+            return [1.0, 0.0]
+        finally:
+            running -= 1
+
+    monkeypatch.setattr(
+        capability_search, "_embed_text_for_capability_search", bounded_encoder
+    )
+    catalogue = [
+        {
+            "name": f"read_{i}",
+            "description": f"Read catalogue resource {i}",
+            "input_schema": {"type": "object"},
+        }
+        for i in range(80)
+    ]
+    tool = build_search_capabilities_tool(skill_library=None, catalogue=catalogue)
+    result = (await tool.function(query="read a resource")).return_value
+    assert result["ranking_method"] == "hybrid_semantic_lexical"
+    assert high_water <= 4
+    assert len(seen) >= 81
+    before = len(seen)
+    # New invocation/authorization catalogue: definitions are reusable, query is not cached.
+    another = build_search_capabilities_tool(
+        skill_library=None, catalogue=catalogue[:2]
+    )
+    result = (await another.function(query="different request")).return_value
+    assert len(seen) - before <= 2
+    assert all(item["name"] in {"read_0", "read_1"} for item in result["results"])
 
 
 @pytest.mark.asyncio

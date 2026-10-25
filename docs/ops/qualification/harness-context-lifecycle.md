@@ -133,3 +133,144 @@ call was summarized is removed with that call; Core never invents a successful
 tool outcome. This keeps the native provider-valid checkpoint equal to the
 returned working history. The original 500-run measurements above describe the
 initial dependency versions, not this maintenance update.
+
+## Business RC33 regression replay (2026-10-25)
+
+A separate loopback Business deployment reproduces the deployed RC33 source
+(Core `7e3c5064`, Business tree `8cb20977`), with an isolated PostgreSQL database
+and seven installed Apps. It uses saved GPT-4.1 Light / DeepSeek v4.1 flash Heavy
+profiles, automatic routing and provider-default generation settings. The
+workspace is synthetic, not a copy of hosted customer data: twenty employees
+have twenty dated monthly compensation records, plus the App-created starting
+records. Two salaries total GYD 550,000; the remaining eighteen are zero. No pay
+runs, payslips or accounting journals are seeded.
+
+The published RC33 runtime reproduced a host context overflow on the fourth
+question of a normal conversation (28,179 estimated input tokens against a
+25,396 admission limit). Three context regressions also fail against the
+immutable RC33 source: optimistic native usage hiding current wire size,
+duplicated current capability activation after historical summary, and stale
+provider usage rejecting already-cleared reads.
+
+Corrections use one wire-size floor for compaction and admission, persist
+measured context reclaim without changing billing usage, and retain current
+capability activation once. Completed prose has a smaller recent window while
+active work, unknown effects and approval receipts remain separately protected.
+Mixed App read/write wrappers now carry per-call trusted read metadata; a read
+can be cheaply cleared without making a write through the same tool clearable.
+The full read result remains archived. Schema discovery keeps broad workflow
+read tools deferred, rather than revealing an entire read catalogue on load.
+
+An intermediate candidate completed template lookup, a brief acknowledgement, App
+selection, actual-payroll inquiry, exact configured-salary calculation and a
+second acknowledgement. It returns the actual Receipt entry link, correctly
+reports no recorded paid payroll, calculates GYD 550,000 with 20/20 coverage and
+18 zero salaries, and links the compensation Track. The final acknowledgement
+routes back to Light. No write was requested or executed.
+
+One six-turn sample measured 32.7, 2.7, 11.3, 39.9, 26.6 and 2.6 seconds wall
+time respectively. First operational-tool starts on the four substantive turns
+were 7.8, 7.7, 5.2 and 8.2 seconds (rounded; inspect native timing telemetry for
+new measurements). These are cloud-model workflow samples, not a production
+latency SLO or a controlled speedup claim. Substantive answers still involve
+multiple model round trips. The baseline used initial ENV transport settings;
+that replay used saved BYOK profiles, so timing differences are not a
+controlled model-configuration comparison. Hosted Dev has not received these
+local corrections.
+
+A second fresh replay exposed a further disclosure-budget defect: both current
+and previous tasks were exempt from the skill allowance, and protected bodies
+were not charged against the historical allowance. Thus a short follow-up could
+retain another full set of procedures beside the current task. The projection
+now protects current/unsettled work and charges its bodies before admitting
+completed-task disclosures. Procedure text is never shortened; expired complete
+load pairs can be rediscovered. A focused two-task regression reproduces the
+old over-retention. The 100-run rotating-skill probe now retains one 20 KB skill
+body, with a maximum projected request of 29,047 characters and final provider
+wire size 31,678 bytes on that fixture. These are bounded-context measurements,
+not inference-speed measurements.
+
+Static and dynamic read receipts originally had separate recent-result windows.
+They now share one window; an additional pressure pass retains only the latest
+read when needed to satisfy the common admission estimate. Replaying the captured
+failing request without summary inference reduces its estimate from 27,457 to
+23,708 tokens under the unchanged 25,396-token limit. The regression also keeps
+an exact pending-write receipt beside those disposable reads.
+
+App read discovery no longer disappears when a previously loaded skill expires.
+The shared wrapper remains visible for reads, while its write handler still
+requires the loaded workflow and all broker/approval checks. Core navigation
+metadata avoids paging App tool catalogues just to obtain Track IDs or links.
+Generic-boundary results advertise the actual App read protocol without
+executing it or weakening the boundary.
+
+Original-pair live requalification is blocked by Ollama Cloud's weekly account
+usage limit. A separate GPT-4.1 control conversation exposed incomplete/incorrect
+answers despite successful transport; it is not accepted as a passing accuracy
+smoke or as evidence that the final candidate works on DeepSeek. Preserve that
+qualification gap until the original cloud pair can be exercised again. Local
+corrections have not been published to hosted Dev.
+
+The control also exposed a presentation trap in paged App catalogues: sorting
+only by key placed the generic read behind more than twenty write actions.
+Read-first stable ordering now exposes data access on the initial page without
+removing writes, changing page counts or granting privileges. A regression
+places an alphabetically earlier write ahead of a read and verifies that the
+read still leads the default page while exact write-key lookup remains intact.
+
+Acceptance testing uses ordinary user prompts, without tool names, schema names,
+Track titles or expected numbers supplied in the question. Directed prompts
+remain diagnostics only. An ordinary salary follow-up exposed over-clearing of
+navigation: the model discovered the correct compensation Track, but subsequent
+reads removed its title before the query completed. The candidate now retains
+two bounded navigation inventories during active work, rather than retaining
+all record bodies. A regression verifies exact names/links, size limits,
+expiry of older inventories and continued clearing of data reads. App-defined
+collection names also receive canonical entry links, preventing an internal-ID
+reply when the user asks where to open a result.
+
+With the user's approval to substitute Heavy, two fresh ordinary conversations
+use GPT-4.1 Light / GPT-6.1 Heavy (`gpt-6.1-sol`, medium reasoning) through the
+existing OpenAI connection. Fifteen turns complete without stream errors and
+pass readback against the canonical fixture: the published Receipt and its
+entry link, Documents for narrative proposals, GYD 550,000 configured monthly
+base, twenty current employees and eighteen current zero salaries. Actual pay
+runs remain absent. A browser-originated recheck beside the unrelated Receipt
+page also returns eighteen current zero salaries and explicitly distinguishes
+them from thirty-eight historical zero-valued records. The receipt source link
+opens the correct published template in the browser.
+
+These are accuracy/recovery checks, not a latency acceptance claim. Substantive
+answers range from 14.8 to 51.3 seconds in these samples; first operational-tool
+starts range from 4.7 to 19.0 seconds where reported. Tests and some smoke traffic
+overlap, and the replacement model has a different context window. Its successful
+cloud runs do not substitute for the unchanged-limit captured overflow replay
+or prove DeepSeek qualification. GPT-5.4 control runs still made false-absence or
+incomplete-read claims and are not accepted as passing. Model selection and the
+App's own typed read contracts remain part of end-to-end answer quality. No
+hosted configuration or deployment has been changed.
+
+The 51.3-second follow-up contains twelve model calls totalling 36.4 seconds,
+including an 11.8-second native history-summary call, and nine tool calls with
+8.4 seconds of accumulated tool duration. Those durations need not partition
+wall time exactly. Repeated discovery and summarization remain measurable
+optimization targets; this candidate does not claim that all cloud workflows
+meet a low-latency SLO. Five sequential local list samples under this test load
+have medians of 205 ms for Apps, 796 ms for Tracks, 376 ms for Feed and 207 ms
+for twenty compensation Entries. These are local observations, not hosted or
+large-tenant capacity measurements.
+
+After the full gate finishes, a service restart and one fresh ordinary salary
+conversation run without suites or other model smoke traffic. The correct
+initial answer takes 37.9 seconds wall time (first requested tool 7.8 seconds;
+first operational read 16.3 seconds; eleven model calls). The zero-salary
+follow-up takes 6.7 seconds and the Light acknowledgement 2.2 seconds. Thus the
+remaining first-request latency is real, not explained away by test contention.
+It remains an optimization gap rather than a passing latency SLO.
+
+Final local verification: `make verify` passes, with 7,605 backend tests passed,
+997 skipped and 2,237 frontend tests passed. Focused PostgreSQL App-tool,
+broker and query-boundary checks pass separately. The captured overflow replay
+still admits 23,708 tokens under the original 25,396 limit after the navigation
+change. No provider quota bypass, larger admission limit for that replay,
+authorization relaxation or domain-specific Core routing is used.

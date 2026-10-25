@@ -294,7 +294,7 @@ async def test_irreducible_input_stops_before_inference():
     with pytest.raises(IntegralContextOverflow) as failure:
         await agent.run("accepted user input " * 200)
     assert not called
-    assert classify_integral_harness_exception(failure.value) == "model_context_limit"
+    assert classify_integral_harness_exception(failure.value) == "harness_context_limit"
 
 
 @pytest.mark.asyncio
