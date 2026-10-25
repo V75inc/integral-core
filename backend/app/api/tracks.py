@@ -614,6 +614,7 @@ async def get_track_entries(
     q: Optional[str] = None,
     view_id: Optional[str] = None,
     dashboard_filters: Optional[str] = None,
+    entry_ids: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get entries in a track, filtered by the user's visibility access.
 
@@ -637,7 +638,10 @@ async def get_track_entries(
 
     from app.api.entries import enrich_entry_page_for_response
     from app.models.nodes import View as ViewNode
-    from app.services.entry_listing import fetch_accessible_entries_page
+    from app.services.entry_listing import (
+        fetch_accessible_entries_page,
+        selected_entry_ids,
+    )
 
     parsed_filters = None
     if dashboard_filters:
@@ -678,6 +682,7 @@ async def get_track_entries(
         cursor=cursor,
         limit=limit,
         include_total=True,
+        entry_ids=selected_entry_ids(entry_ids),
     )
     enriched = await enrich_entry_page_for_response(page_entries)
     response["entries"] = enriched

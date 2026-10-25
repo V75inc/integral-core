@@ -536,6 +536,11 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         self._admission = admission
         self._dispatch_guard = dispatch_guard
         self._request_validator = request_validator
+        self._custom_session = None
+
+    async def aclose(self) -> None:
+        if self._custom_session is not None:
+            await self._custom_session.aclose()
 
     async def _sdk_completion(self, **kwargs: Any) -> Any:
         completion = self._completion
@@ -548,10 +553,21 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             and self._route.credential_source == "workspace_byok"
             and self._route.api_base is not None
         ):
-            from app.services.custom_model_transport import custom_endpoint_completion
+            from app.services.custom_model_transport import (
+                CustomModelSession,
+                custom_endpoint_completion,
+            )
+
+            if self._custom_session is None:
+                self._custom_session = CustomModelSession(
+                    kwargs, keyless_endpoint=self._route.keyless_endpoint
+                )
 
             return await custom_endpoint_completion(
-                completion, kwargs, keyless_endpoint=self._route.keyless_endpoint
+                completion,
+                kwargs,
+                keyless_endpoint=self._route.keyless_endpoint,
+                session=self._custom_session,
             )
         return await completion(**kwargs)
 
@@ -799,14 +815,17 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                         "model admission requires final dispatch readiness"
                     )
 
-            await self._observe(
-                request_id=request_id,
-                request_context=request_context,
-                attempt=attempt,
-                started_at=started_at,
-                outcome="dispatch_intent",
-                required=True,
-            )
+            from app.services.chat_latency import measure_latency_phase
+
+            with measure_latency_phase("dispatchReceipt"):
+                await self._observe(
+                    request_id=request_id,
+                    request_context=request_context,
+                    attempt=attempt,
+                    started_at=started_at,
+                    outcome="dispatch_intent",
+                    required=True,
+                )
 
             if readiness is not None:
                 # Receipt persistence can outlive pricing or current authority.
@@ -836,14 +855,15 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
 
             try:
                 deadline = asyncio.get_running_loop().time() + self._timeout_seconds
-                response = await asyncio.wait_for(
-                    self._sdk_completion(**kwargs),
-                    timeout=(
-                        self._idle_timeout_seconds
-                        if body.get("stream") is True
-                        else self._timeout_seconds
-                    ),
-                )
+                with measure_latency_phase("providerStart"):
+                    response = await asyncio.wait_for(
+                        self._sdk_completion(**kwargs),
+                        timeout=(
+                            self._idle_timeout_seconds
+                            if body.get("stream") is True
+                            else self._timeout_seconds
+                        ),
+                    )
                 if self._max_attempts > 1:
                     if body.get("stream") is True and hasattr(response, "__aiter__"):
                         original_stream = response

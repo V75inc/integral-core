@@ -1249,7 +1249,10 @@ async def test_custom_workspace_route_enters_guarded_sdk_boundary(monkeypatch, k
         "timeout": 1.0,
     }
     assert await transport._sdk_completion(**kwargs) == {"guarded": True}
-    guarded.assert_awaited_once_with(completion, kwargs, keyless_endpoint=keyless)
+    guarded.assert_awaited_once_with(
+        completion, kwargs, keyless_endpoint=keyless, session=transport._custom_session
+    )
+    await transport.aclose()
     completion.assert_not_awaited()
 
 

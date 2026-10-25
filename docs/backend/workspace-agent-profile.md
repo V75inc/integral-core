@@ -53,6 +53,13 @@ in diagnostics. Do not truncate an uncertain outcome into a success claim.
 
 ### Skill context lifetime
 
+A focused saved-text lookup may use the foundational `integral_query` tool
+without activating the full Insights procedure. Only its already authorized
+read schema is initially visible; no write workflow or additional App tools are
+activated. More complex workflows retain normal discovery and loading. The
+broker rechecks current scope, policy and declared operation boundaries on every
+call, independently of schema visibility.
+
 The authorized workspace skill library is a discovery catalogue, not a list of
 procedures to resend forever. Native runtime context policy retains the active
 and recent task's procedures, expires older complete load pairs under a byte

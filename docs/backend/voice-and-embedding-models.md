@@ -1,5 +1,9 @@
 # Workspace voice and embedding models
 
+The [semantic search improvement contract](../platform/knowledge-retrieval-v1.md)
+distinguishes the initial hardening delivery from remaining resource, migration
+and integration gates. This guide describes the implemented configuration.
+
 Settings → AI Models → Models groups configuration into a single-open accordion:
 Language & multimodal (existing chat profiles and Light/Heavy routing), Embeddings
 (workspace semantic search), and Voice (transcription). Providers remains the
@@ -29,19 +33,34 @@ owner's private provider record and are resolved afresh before requests. Fixed
 providers use fixed hosts; custom endpoints are validated and redirects refused.
 Custom endpoints reuse the harness’s DNS-pinned outbound-request guard; proxy
 ENV and redirects cannot move a request to another authority. Requests have a
-40-second total limit, an 8 MiB identity-encoded response budget, and at most 32
+1-second interactive query deadline (configurable) and a 40-second background limit, an 8 MiB identity-encoded response budget, and at most 32
 passages with connect/read timeouts. They validate response
-indexes, dimensions and finite numeric values, and expose sanitized failures.
+indexes, dimensions, finite numeric values and nonzero finite norms, and expose sanitized failures. Status polling performs no inference. See the [operating limits](../ops/CONFIGURATION.md#indexing-and-retrieval).
 
-Changing a choice persists configuration, a durable rebuild cursor and audit
-intent in the graph transaction. Each workspace/provider/model/endpoint/dimension
-and composition identity has a separate vector space. Rebuilds scan bounded pages
-and verify canonical containment. Workers reject superseded jobs and check active
-profile, owner, generation, lease and source before publication. Searches use the
-same selected profile. A workspace provider failure can degrade that request to
-graph retrieval without disabling semantic search for other workspaces. Queued
-rebuild status is deliberately not a claim of complete coverage; existing Track
-search-status tools retain bounded source/receipt/vector coverage checks.
+Changing a choice commits the desired model, durable build request and audit intent
+together. The serving model is pinned separately: saving does not make an empty
+new space active. A resumable Walker follows the workspace's rooted Track registry
+and Entries with bounded keyset pages. A second pass verifies actual lexical/vector
+manifests. Activation checks committed intent epochs, outstanding work, owner,
+configuration revision, profile and the worker lease in one graph transaction.
+Enumeration and queue exhaustion alone never mean ready. Progress is resumable
+beyond 1,000 records; detailed counts are restricted to the owner.
+
+New and edited content maintains both currently authorized serving/building spaces.
+Continuing calls to a previous provider requires the explicit checkbox on each
+changed selection; it is off by default. Revoked/removed keys, changed owner and
+host policy stop further encoding. Existing authorized lexical projections remain
+readable without funding the former model. A provider outage affects its workspace,
+not the global semantic capability. Requests already dispatched cannot be recalled.
+
+`POST /api/users/me/embedding-configuration/cancel` takes the current `revision`.
+It restores the serving choice through the same owner/revision/audit transaction
+and fences the superseded build. A removed or no-longer-owned provider must be
+replaced with a working choice; cancellation cannot revive its authority.
+Search readiness is a verified point in time, not a promise of zero lag for future
+writes. The existing Track status API remains a bounded diagnostic. The remaining
+schema/restore/lifecycle invalidation audit and production qualification are recorded
+in [the implementation contract](../platform/knowledge-retrieval-v1.md).
 
 Remote spaces use the pinned local tokenizer for **passage composition**, recorded
 in profile format v3; this is not a claim that providers share its tokenization.

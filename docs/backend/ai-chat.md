@@ -224,9 +224,51 @@ navigate only when clicked; they do not replay automatic agent navigation.
 
 ## Response latency and activity
 
+The existing read-only `integral_query` is a foundational native tool when it is
+present in the authorized catalogue. Focused saved-text lookups can call it
+without searching for and loading the full Insights workflow. Start with three
+results and a 600-token passage budget, answer from current passages and cite
+`action_url`. This changes schema visibility, not dispatch authority: the same
+broker, current policy, workspace and declared App-operation boundaries apply.
+Other workflows retain progressive discovery and skill loading; an explicit
+host visibility override remains authoritative.
+
+Model routing coalesces workspace-owner credential reads only for one route
+resolution. Each physical request and its final readiness check resolve current
+authority again; no route, decrypted key or permission decision survives that
+boundary. Automatic Light routing has one transport attempt and a total eight-second
+deadline (`INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS`), including framework
+schema retries. A known transient timeout requests Heavy context through its
+normal admission; cancellation and authority denials never become fallbacks.
+Single-model and Heavy request timeouts/retries retain their configured bounds.
+A route without a conversation reasoning override avoids unnecessary
+metadata-worker hops.
+
+Custom OpenAI-compatible routes reuse one guarded SDK connection pool per
+physical model instance within a turn. Separate models and turns own separate
+clients; turn cleanup closes them on success, failure or cancellation. Every
+request still validates endpoint authority, outbound policy and DNS pinning.
+Redirects and environment proxies stay disabled. Standard provider routes keep
+LiteLLM's existing provider connection reuse; the in-process bridge client is
+not a new network connection to a LiteLLM proxy.
+
+Content-free server diagnostics report `routeResolution`, `modelAdmission`,
+`dispatchReceipt` and `providerStart` aggregate milliseconds and counts per
+turn. Route resolution can be nested in admission, so these are not additive
+wall-clock milestones. Provider start ends when the SDK returns a response or
+stream, not when the stream finishes or answer text becomes visible. These
+logs contain no prompts, tool arguments, endpoints or credential material.
+
 `INTEGRAL_CHAT_WORKERS` selects 1–16 durable chat workers per API process
 (default 4). Independent conversations can proceed concurrently; per-thread
-admission, leases and cancellation still serialize a single conversation.
+admission, leases and cancellation still serialize a single conversation. Each
+worker scans at most two 32-item pages per queued/retry status, with work-kind
+filters applied in persistence before hydration. Two task-local keyset cursors
+rotate past future or dependency-blocked items and wrap when exhausted; current
+lease CAS, dependency, deadline and cancellation checks still decide each claim.
+Claims compare observed attempt and lease-fence generations as well as status,
+so a raced retry cannot reuse an earlier generation.
+This keeps App-job backlogs out of chat-worker candidate reads.
 Deferred discovery reuses immutable description embeddings keyed by document
 hash and embedding model. Current authorized candidates, query embeddings,
 ranking and tool results are not cached.

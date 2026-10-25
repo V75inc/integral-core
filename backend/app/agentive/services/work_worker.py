@@ -1342,6 +1342,7 @@ async def process_one_due_item(
     work_item_id: Optional[str] = None,
     kinds: Optional[frozenset[str]] = None,
     exclude_kinds: Optional[frozenset[str]] = None,
+    claim_cursor: Optional[dict[str, str]] = None,
 ) -> Optional[WorkItem]:
     """Claim one due item (optional id, optionally limited by kind) and execute it."""
     claimed = await work_items.claim_due_candidate(
@@ -1350,6 +1351,7 @@ async def process_one_due_item(
         work_item_id=work_item_id,
         kinds=kinds,
         exclude_kinds=exclude_kinds,
+        claim_cursor=claim_cursor,
     )
     if claimed is None:
         return None
@@ -1370,6 +1372,7 @@ async def worker_loop(
 ) -> None:
     """Background poll loop. Stops when ``stop_event`` is set."""
     stop = stop_event or asyncio.Event()
+    claim_cursor: dict[str, str] = {}
     while not stop.is_set():
         try:
             result = await process_one_due_item(
@@ -1377,6 +1380,7 @@ async def worker_loop(
                 lease_seconds=lease_seconds,
                 kinds=kinds,
                 exclude_kinds=exclude_kinds,
+                claim_cursor=claim_cursor,
             )
             if result is None:
                 try:

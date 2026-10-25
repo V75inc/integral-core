@@ -46,6 +46,10 @@ class EmbeddingStoreUnavailable(RuntimeError):
     """
 
 
+class EmbeddingBusy(EmbeddingStoreUnavailable):
+    """Transient local admission pressure; never disable other tenants' search."""
+
+
 @runtime_checkable
 class EmbeddingStore(Protocol):
     """Protocol for pluggable embedding stores."""

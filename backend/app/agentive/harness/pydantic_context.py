@@ -279,7 +279,20 @@ class IntegralContextLifecycle(AbstractCapability):
                     replace(
                         part,
                         content=(
-                            "Discover authorized workflows with search_capabilities. "
+                            (
+                                "For a focused lookup of saved text, integral_query "
+                                "is available directly; start with top_n=3 and "
+                                "context_tokens=600. Answer from its returned "
+                                "passages and cite action_url; do not fetch whole "
+                                "records when the passages suffice. "
+                                "A title alone does not establish the answer. "
+                                "If evidence is insufficient, read the source through "
+                                "authorized tools or state which detail is unavailable. "
+                                if "integral_query"
+                                in getattr(ctx, "available_tool_names", frozenset())
+                                else ""
+                            )
+                            + "Discover authorized workflows with search_capabilities. "
                             "Load the selected workflow using load_capability before using its tools. "
                             "Previously expired workflows can be searched for and loaded again."
                         ),

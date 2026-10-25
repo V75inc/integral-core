@@ -113,3 +113,73 @@ def test_is_vector_store_unavailable_detects_search_not_enabled():
     )
     assert _is_vector_store_unavailable(exc) is True
     assert _is_vector_store_unavailable(ValueError("other")) is False
+
+
+@pytest.mark.asyncio
+async def test_local_pressure_uses_lexical_without_disabling_other_workspaces(
+    monkeypatch,
+):
+    from unittest.mock import Mock
+
+    from app.api import retrieve as handler
+    from app.schemas.policy import Subject
+    from app.schemas.retrieve import RetrieveRequest
+    from app.services.retrieval import search_service
+    from app.services.retrieval.embedding_store import EmbeddingBusy
+    from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
+
+    driver = PgVectorEmbeddingStore(dsn="postgresql://fixture/disposable")
+    monkeypatch.setattr(handler, "get_embedding_store", lambda: driver)
+    disabled = Mock()
+    monkeypatch.setattr(handler, "disable_semantic_retrieval_runtime", disabled)
+    modes = []
+
+    async def retrieve(subject, payload, **kwargs):
+        modes.append(payload.mode)
+        if payload.mode != "graph":
+            raise EmbeddingBusy("query admission is full")
+        return [], 0, 0, "graph", False
+
+    monkeypatch.setattr(search_service, "retrieve_passages", retrieve)
+    result = await handler._dispatch_retrieve_modes(
+        Subject(kind="human", id="reader"),
+        RetrieveRequest(query="battery disposal"),
+        requested_mode="semantic",
+        effective_mode="semantic",
+        degraded=False,
+        k=150,
+        top_n=20,
+    )
+    assert result[-2:] == ("graph", True)
+    assert modes == ["semantic", "graph"]
+    disabled.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_driver_resolution_still_reaches_canonical_fallback(
+    monkeypatch,
+):
+    from unittest.mock import AsyncMock
+
+    from app.api import retrieve as handler
+    from app.schemas.policy import Subject
+    from app.schemas.retrieve import RetrieveRequest
+    from app.services.retrieval.embedding_store import EmbeddingBusy
+
+    def unavailable():
+        raise EmbeddingBusy("temporarily unavailable")
+
+    monkeypatch.setattr(handler, "get_embedding_store", unavailable)
+    fallback = AsyncMock(return_value=([], 0, 0))
+    monkeypatch.setattr(handler, "_retrieve_graph", fallback)
+    result = await handler._dispatch_retrieve_modes(
+        Subject(kind="human", id="reader"),
+        RetrieveRequest(query="battery disposal"),
+        requested_mode="semantic",
+        effective_mode="semantic",
+        degraded=False,
+        k=150,
+        top_n=20,
+    )
+    assert result[-2:] == ("graph", True)
+    fallback.assert_awaited_once()

@@ -16,6 +16,7 @@ import { EntryComposer } from '../components/entries/EntryComposer';
 import { EntryDetail } from '../components/entries/EntryDetail';
 import { FeedFilterStrip } from '../components/feed/FeedFilterStrip';
 import { useRetrieve } from '../hooks/useRetrieve';
+import { useSearchResultEntries } from '../hooks/useSearchResultEntries';
 import { useOpenEntryModalRefetch } from '../hooks/useOpenEntryModalRefetch';
 import {
   CardSkeleton,
@@ -113,7 +114,7 @@ export function FeedPage() {
     error: retrievalError,
     run: runRetrieval,
     reset: resetRetrieval,
-  } = useRetrieve({ scope: undefined });
+  } = useRetrieve({ scope: undefined, authorityKey: `${workspaceId}:${user?.id}` });
 
   // URL-write helpers for the tag/author filters. Toggling matches the
   // existing pattern (click the active filter again → clear).
@@ -178,6 +179,7 @@ export function FeedPage() {
     error: feedError,
     isLoading: feedLoading,
     isFetchingNextPage,
+    isFetchNextPageError,
     hasNextPage,
     fetchNextPage,
     refetch: refetchFeed,
@@ -186,11 +188,14 @@ export function FeedPage() {
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       feedApi.getEntriesPage({
+        include_total: false,
         ...(filterTrack ? { track_id: filterTrack } : {}),
         ...(appIdFromQuery ? { app_id: appIdFromQuery } : {}),
         ...(pageParam ? { cursor: pageParam } : {}),
         ...(filterTags.length ? { tag_ids: filterTags.join(',') } : {}),
       }),
+    retry: (attempt, error) =>
+      (error as { response?: { status?: number } }).response?.status !== 429 && attempt < 1,
     getNextPageParam: last =>
       last.hasMore && last.nextCursor ? last.nextCursor : undefined,
   });
@@ -216,9 +221,39 @@ export function FeedPage() {
     [navTracks, user],
   );
 
+  const semanticMode =
+    retrievalMode === 'semantic' || retrievalMode === 'hybrid';
+  const retrievalIdOrder = useMemo(
+    () => retrievalResults.map(r => r.entry_id),
+    [retrievalResults]
+  );
+  const retrievalIdSet = useMemo(
+    () => new Set(retrievalIdOrder),
+    [retrievalIdOrder]
+  );
+  // Hydrate the bounded ranked selection directly. Walking every feed page
+  // to find twenty IDs creates request bursts and can loop forever on 429.
+  const {
+    data: matchedPage,
+    isLoading: matchesLoading,
+    isError: matchesError,
+    refetch: refetchMatches,
+    patchPage: patchMatchingEntries,
+  } = useSearchResultEntries({
+    entryIds: retrievalIdOrder,
+    workspaceId,
+    principalId: user?.id,
+    enabled: semanticMode,
+    params: {
+      ...(filterTrack ? { track_id: filterTrack } : {}),
+      ...(appIdFromQuery ? { app_id: appIdFromQuery } : {}),
+      ...(filterTags.length ? { tag_ids: filterTags.join(',') } : {}),
+    },
+  });
+
   const allEntries = useMemo(
-    () => mergeDedupedEntries(feedData?.pages ?? []),
-    [feedData]
+    () => mergeDedupedEntries([...(matchedPage ? [matchedPage] : []), ...(feedData?.pages ?? [])]),
+    [feedData, matchedPage]
   );
   const openModalEntryId = entryModal?.entry.id;
 
@@ -244,8 +279,8 @@ export function FeedPage() {
 
   const hasCachedFeedPages = Boolean(feedData?.pages?.length);
   const isInitialFeedLoading = feedLoading && !hasCachedFeedPages;
-  // Server-reported total across all pages — falls back to the loaded
-  // count only when the API hasn't surfaced one (older endpoints).
+  // Infinite scrolling avoids an audience-wide count before showing a page.
+  // Older endpoints may still supply an exact total.
   const totalEntryCount = useMemo(() => {
     const pages = feedData?.pages || [];
     for (const p of pages) {
@@ -282,16 +317,6 @@ export function FeedPage() {
   // ranker. Tag/author/type filters still apply on top so the user can
   // refine a retrieval result. Graph mode keeps the existing in-memory
   // search behavior.
-  const semanticMode =
-    retrievalMode === 'semantic' || retrievalMode === 'hybrid';
-  const retrievalIdOrder = useMemo(
-    () => retrievalResults.map(r => r.entry_id),
-    [retrievalResults]
-  );
-  const retrievalIdSet = useMemo(
-    () => new Set(retrievalIdOrder),
-    [retrievalIdOrder]
-  );
   const entries = useMemo(() => {
     let list: Entry[];
     if (semanticMode && retrievalResults.length > 0) {
@@ -421,7 +446,9 @@ export function FeedPage() {
         if (
           first?.isIntersecting &&
           hasNextPage &&
-          !isFetchingNextPage
+          !isFetchingNextPage &&
+          !isFetchNextPageError &&
+          !(semanticMode && feedSearch.trim())
         ) {
           fetchNextPage();
         }
@@ -435,29 +462,7 @@ export function FeedPage() {
     // it (and vice versa) — without this, the observer is permanently
     // attached to a stale (or null) node and infinite scroll dies in
     // semantic mode where the initial render is often empty.
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, entries.length]);
-
-  // Semantic-mode auto-loader: when the ranker returned IDs the feed
-  // cache has not yet caught up to, eagerly pull more feed pages until
-  // every retrieval match is materialized or the feed is exhausted.
-  // Without this, "Showing X of N — scroll to load more" becomes a lie:
-  // the missing IDs may sit dozens of feed pages deep and the user has
-  // to scroll manually past every page to reveal them. ``top_n`` caps
-  // semantic results at 20 at the backend (no offset/cursor yet — that
-  // lands in a follow-up plan), so the loop terminates quickly.
-  useEffect(() => {
-    if (!semanticMode) return;
-    if (retrievalMissingCount === 0) return;
-    if (!hasNextPage) return;
-    if (isFetchingNextPage) return;
-    fetchNextPage();
-  }, [
-    semanticMode,
-    retrievalMissingCount,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-  ]);
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, entries.length, semanticMode, feedSearch]);
 
   const invalidateFeedEntries = useCallback(() => {
     // Invalidate the entire ['feed'] prefix so Mission Control's
@@ -603,6 +608,7 @@ export function FeedPage() {
 
   const handleDelete = useCallback(
     (id: string) => {
+      patchMatchingEntries(page => ({ ...page, entries: page.entries.filter(entry => entry.id !== id) }));
       // Optimistic: drop the entry from the cached pages so the row
       // disappears IMMEDIATELY — before EntryCard awaits the
       // backend (which on tagged entries currently takes ~5s).
@@ -629,11 +635,12 @@ export function FeedPage() {
       // fresh page anyway. EntryCard handles the rollback
       // (it invalidates on backend failure to restore the row).
     },
-    [queryClient, feedQueryKey]
+    [queryClient, feedQueryKey, patchMatchingEntries]
   );
 
   const handleUpdate = useCallback(
     (updated: Entry) => {
+      patchMatchingEntries(page => ({ ...page, entries: page.entries.map(entry => entry.id === updated.id ? updated : entry) }));
       queryClient.setQueryData<InfiniteData<FeedEntriesPage>>(
         feedQueryKey,
         old => {
@@ -650,7 +657,7 @@ export function FeedPage() {
         }
       );
     },
-    [queryClient, feedQueryKey]
+    [queryClient, feedQueryKey, patchMatchingEntries]
   );
 
   return (
@@ -672,6 +679,7 @@ export function FeedPage() {
               <span>
                 {totalEntryCount ?? entries.length}{' '}
                 {(totalEntryCount ?? entries.length) === 1 ? 'entry' : 'entries'}
+                {totalEntryCount === undefined && hasNextPage ? ' loaded' : ''}
               </span>
               {entries[0]?.created_at ? (
                 <>
@@ -753,7 +761,7 @@ export function FeedPage() {
             ) : null}
           </FilterActionRow>
 
-          {isInitialFeedLoading ? (
+          {isInitialFeedLoading || retrievalLoading || (retrievalResults.length > 0 && matchesLoading && entries.length === 0) ? (
             <div className="mt-8 space-y-10">
               {[1, 2, 3, 4].map(i => (
                 <CardSkeleton key={i} />
@@ -811,17 +819,17 @@ export function FeedPage() {
             </div>
           ) : (
             <div className="mt-8">
-              {/* Retrieval hint — when the ranker returned matches that
-                  aren't yet loaded in the feed cache, surface the count
-                  so the user knows the visible list is a subset of the
-                  full result set. Loading is automatic — additional
-                  pages stream in as IntersectionObserver fires. */}
+              {/* Missing ranked records use one bounded read with explicit retry. */}
               {semanticMode && retrievalMissingCount > 0 ? (
                 <div className="mb-3 text-xs text-[var(--text-subtle)]">
                   Showing {entries.length} of {retrievalResults.length} {retrievalResults.length === 1 ? 'match' : 'matches'}.{' '}
                   <span className="text-[var(--text-muted)]">
-                    {retrievalMissingCount} additional match
-                    {retrievalMissingCount === 1 ? ' is' : 'es are'} loading…
+                    {matchesLoading
+                      ? 'Loading matching entries…'
+                      : matchesError
+                        ? 'Some matches could not be loaded.'
+                        : 'Some matches are no longer available.'}
+                    {matchesError && <Button variant="ghost" size="sm" onClick={() => { void refetchMatches(); }}>Retry</Button>}
                   </span>
                 </div>
               ) : null}

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional
 
@@ -21,6 +23,25 @@ from app.services.model_provider_endpoints import KEYLESS_PLACEHOLDER_API_KEY
 from app.services.workspace_permissions import get_workspace_owner_user_id
 
 logger = logging.getLogger(__name__)
+
+_owner_resolution: ContextVar[dict | None] = ContextVar(
+    "model_owner_resolution", default=None
+)
+
+
+@contextmanager
+def model_owner_resolution():
+    """Coalesce owner reads within ONE route check, never across dispatches.
+
+    The light and heavy profiles must be selected from the same observed owner
+    configuration. No plaintext key or resolved route is cached here. Each new
+    check (including final dispatch readiness) gets an empty task-local scope.
+    """
+    token = _owner_resolution.set({})
+    try:
+        yield
+    finally:
+        _owner_resolution.reset(token)
 
 
 class ModelKeyRequiredError(Exception):
@@ -151,21 +172,7 @@ async def resolve_native_model_override(
             raise ModelKeyRequiredError("workspace scope required for agent turn")
         return None
 
-    owner_user_node_id = await get_workspace_owner_user_id(workspace_id)
-    if not owner_user_node_id:
-        if mode == "byo_strict":
-            raise ModelKeyRequiredError("workspace has no owner")
-        return None
-
-    from app.services.permissions import get_user_node
-
-    owner = await get_user_node(owner_user_node_id)
-    if not owner or not owner.user_id:
-        if mode == "byo_strict":
-            raise ModelKeyRequiredError("workspace owner not found")
-        return None
-
-    record = await get_active_credential_for_user(owner.user_id)
+    record = await _workspace_owner_credential(workspace_id)
     if not record:
         if mode == "byo_strict":
             raise ModelKeyRequiredError("model_key_required")
@@ -175,7 +182,7 @@ async def resolve_native_model_override(
         from app.services.ai_configuration import profile_credential
 
         record = await profile_credential(
-            owner.user_id, profile_id or record.active_profile_id, record
+            record.user_id, profile_id or record.active_profile_id, record
         )
     default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
@@ -191,7 +198,7 @@ async def resolve_native_model_override(
     if not _credential_funds_byok(record):
         if mode == "byo_strict":
             raise ModelKeyRequiredError("stored credential could not be decrypted")
-        logger.warning("BYOK credential decrypt failed for user_id=%s", owner.user_id)
+        logger.warning("BYOK credential decrypt failed for user_id=%s", record.user_id)
         return None
 
     override: Dict[str, Any] = {
@@ -270,6 +277,18 @@ def _platform_speech_credential() -> Optional[SpeechCredential]:
 
 
 async def _workspace_owner_credential(
+    workspace_id: str,
+) -> Optional[UserModelCredential]:
+    scope = _owner_resolution.get()
+    if scope is not None and workspace_id in scope:
+        return scope[workspace_id]
+    record = await _read_workspace_owner_credential(workspace_id)
+    if scope is not None:
+        scope[workspace_id] = record
+    return record
+
+
+async def _read_workspace_owner_credential(
     workspace_id: str,
 ) -> Optional[UserModelCredential]:
     owner_user_node_id = await get_workspace_owner_user_id(workspace_id)

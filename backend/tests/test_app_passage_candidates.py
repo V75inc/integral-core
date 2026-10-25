@@ -232,3 +232,21 @@ async def test_unreadable_stable_track_has_same_result_as_absent_track():
     for selector in ("private-key", "absent-key", private.id):
         with pytest.raises(_SearchUnavailable, match="track_not_found"):
             await _candidate_ids(ctx, selector, None, None)
+
+
+async def test_discovery_resolves_scope_without_enumerating_entries(monkeypatch):
+    user, workspace, app, track, entry = await graph()
+    original = Track.nodes_page
+
+    async def no_entry_page(self, **kwargs):
+        if kwargs.get("node") == [{"Entry": {}}]:
+            raise AssertionError(
+                "Discovery must rank the index before hydrating Entries"
+            )
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(Track, "nodes_page", no_entry_page)
+    selection, truncated = await _candidate_ids(
+        context(user, workspace, app), track.id, None, None, metadata_only=True
+    )
+    assert selection == {track.id: None} and not truncated

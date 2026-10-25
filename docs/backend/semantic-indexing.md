@@ -1,5 +1,10 @@
 # Declarative indexing and retrieval
 
+The [improvement contract](../platform/knowledge-retrieval-v1.md) and
+[ADR-017](adr/017-graph-guided-knowledge-retrieval.md) distinguish the current
+hardening delivery from pending migration, integration and scale gates. This
+guide describes the implemented behavior; target SLOs remain unqualified.
+
 PostgreSQL deployments use a local text-only ONNX encoder and pgvector. The
 registry resolves lazily after `POSTGRES_*` has become
 `JVSPATIAL_POSTGRES_DSN`; API import order cannot permanently select a null store.
@@ -73,15 +78,31 @@ exception class, never provider strings or credentials. A malformed source is
 isolated to its own retryable job; later records still advance. Invalid profile
 settings retain unconfigured intent and preserve primary writes; a corrected
 profile is picked up by reconciliation. Storage/model configuration outages
-fall back to canonical keyword reads with a bounded retry cooldown. Deletion invalidates
+fall back first to the independent indexed lexical projection, then to canonical keyword reads if storage is unavailable. A temporary local admission timeout does not disable other workspaces’ semantic search. Deletion invalidates
 retrieval immediately through canonical reads even if derived cleanup retries.
 
 Use `INDEX_WORKER_INTERVAL_SECONDS` (default 10), `INDEX_WORKER_BATCH_SIZE`
 (default 16, maximum 128). Each sweep scans at most 100 Entries per cycle.
-Model inference runs off the async event loop; concurrent encoder access is
-serialized; `EMBEDDING_MODEL_THREADS` defaults to one ONNX thread per process
-(1..16), avoiding CPU oversubscription. This prevents cold model setup and native tokenizer use from
-blocking or racing chat requests.
+Local inference uses one dedicated native executor per process. Interactive queries
+receive priority between microbatches (default four passages); after eight
+queries a waiting background batch receives a slice. Native work retains its
+slot until it actually finishes, even if the caller is cancelled. Queue size
+and wait times are bounded; this is process-level admission, not a fleet or
+tenant quota. Workspace ordering is round-robin only within the selected job
+page; long-document checkpointing and stronger fairness remain planned.
+`EMBEDDING_MODEL_THREADS` defaults to one ONNX thread (1..16).
+
+Each successful publication retains a count/checksum manifest for the vector
+and independent lexical projections. Reconciliation verifies actual rows even
+when a source hash matches the last delivery receipt, and reschedules missing
+or corrupt data without requiring an edit. Status uses the same manifests and
+never invokes a local or paid encoder. Failed cold weight loads are cooled down for 30 seconds instead of being retried for every pending record. For ordinary edits, only unchanged text
+from a verified prior Entry/profile publication is reused. Explicit reindex
+requests still re-encode all passages. This is not cross-tenant vector caching.
+
+Lexical passages publish before vector inference, so changed text remains
+keyword-searchable during a provider outage. Publication remains source/lease
+fenced; retrieval checks canonical content and policy regardless of projection.
 
 ## Profiles and text limits
 
@@ -123,7 +144,7 @@ fallback remains available while current-profile coverage warms. Do not delete
 or reuse older vectors solely because their dimensions match.
 
 Defaults: MiniLM L6 v2, 384 dimensions, 160-token chunks and 24-token overlap.
-Chunks use a clone of the actual model tokenizer without truncation, preserve
+Chunks use an independent clone of the same pinned tokenizer without loading ONNX inference weights. They preserve
 canonical text offsets, and include the tail of long content. More than 4096
 passages fails visibly instead of publishing a partial document. Inference
 refuses input above the actual model limit (MiniLM 256 including special tokens).
@@ -142,12 +163,29 @@ before returning any title, text, metadata or citation. The existing governed
 App query boundary still applies. An index declaration never grants access.
 Archived/deleted/moved/revoked/changed sources cannot return stale content.
 
-Hybrid uses reciprocal rank fusion of exact cosine and PostgreSQL lexical
-rankings. Explicit graph mode retains the canonical keyword path, including
-unindexed content. Scoped exact vector ranking deliberately avoids global ANN
-candidate starvation. Profile-specific HNSW indexes are provisioned, but are
-not used by this exact query path. Large-scope performance is a separate load
-qualification requirement; do not infer it from a small wiki smoke.
+Hybrid fuses independently limited vector and indexed lexical candidates with
+reciprocal rank fusion. Lexical search uses a weighted stored `tsvector` and GIN
+index. Small admitted scopes use exact cosine candidate selection. Final ranks
+also apply the bounded diversity/evidence policy described under Qualification.
+Larger scopes may use a
+workspace/profile-specific HNSW partial index when `RETRIEVE_ANN_ENABLED=1` and pgvector supports iterative
+filtered scans (0.8+). The worker builds indexes concurrently; reads do not build
+them. ANN is opt-in pending deployment qualification; exact ranking remains the default. A per-table cap bounds physical ANN indexes; scopes without one use exact
+ranking. Set `RETRIEVE_EXACT_THRESHOLD=100000` to retain exact ranking up to that
+bounded scope size. Low-selectivity recall and production throughput require
+qualification; small synthetic tests do not establish fleet capacity.
+
+Explicit graph mode retains canonical keyword reads, including unindexed
+content. Degraded semantic/hybrid reads prefer indexed lexical evidence without
+calling the encoder. Final validation checks at most four records concurrently,
+with the ordinary current policy check for each; a caller-owned PostgreSQL
+transaction stays on its owner task. No indexed ACL or process TTL grants access.
+
+Feed and Track views read the ranked selection using optional `entry_ids` on
+the ordinary list endpoints (up to 50 unique IDs, intersected before pagination).
+The same workspace, App/Track/view filters and canonical access admission apply.
+The UI preserves retrieval order, stops automatic paging during a search and
+does not replay 429/5xx errors through a compatibility endpoint. Retry is explicit.
 
 `k` defaults to `RETRIEVE_K_DEFAULT` (150, cap 500), `top_n` to
 `RETRIEVE_TOP_N_DEFAULT` (20, cap 50). Omitted request values honor deployment
@@ -171,7 +209,7 @@ manifest key or `n.Track.*` ID as `track_type`, an optional manifest `entry_type
 and optional `eligible_entry_ids`. This does not relax the generic installed-App
 query boundary.
 
-Candidate selection uses a Walker along App → Track → Entry, resolving types
+Discovery uses a Walker along App → Track, resolving types
 through Track → OperationalModel → EntryType (or a directly attached legacy
 EntryType). Stable `template_id` identity takes precedence; ad-hoc Tracks use
 `relation_type_key`. Stable Track and EntryType keys match their declared values
@@ -186,14 +224,19 @@ label ambiguity. Existing title-based SDK helpers retain their own legacy
 contracts; this new passage API does not adopt title identity for keyed Tracks.
 
 Every graph neighbour page applies identity/type/explicit-ID predicates before
-its limit. At most 500 supplied IDs and 500 matching Entry candidates are
-considered. Track/type discovery bounds matching resources, not the entire
-App or unrelated schemas, and reports truncation as partial coverage. Explicit
-Entry IDs resolve their canonical parent Tracks first and constrain discovery
-to those parents, including in Apps with more than 500 Tracks. `None` discovers
-candidates; an explicit `[]` performs no search. Selected-ID retrieval does not
-enumerate unrelated user grants. Canonical scope, current source and permission
-checks remain mandatory, including a fresh check after encoding.
+its limit. Discovery resolves at most 500 matching Tracks/types and ranks their
+indexed passages without enumerating an Entry-ID prefix. Current canonical
+Track/type and per-Entry audience checks still apply after ranking. Matching
+schema-scope truncation is reported as partial; unrelated App Tracks/schema types
+do not consume that scope budget. Two shared type-selector indexes are built
+concurrently by worker maintenance, never by search requests. Derived type
+metadata is not public result metadata or a permission grant.
+
+Explicit caller-supplied Entry IDs remain capped at 500. Their canonical parent
+Tracks constrain discovery, including in Apps with more than 500 Tracks. `None`
+uses governed scope discovery; an explicit `[]` performs no search. Selected-ID
+retrieval does not enumerate unrelated user grants. Canonical scope, current
+source and permission checks remain mandatory, including after query encoding.
 
 This read-only facade preserves I-GRAPH-01/02 (no graph writes; rooted-edge
 traversal), I-SUBSTRATE-01/I-EXT-01 (no domain identity or package imports),
@@ -241,9 +284,9 @@ Example passage request:
 
 Current Track configuration authority in the bound workspace is required:
 
-- `GET /api/tracks/{id}/search-index`: storage AND encoder readiness, jobs,
-  bounded comparison of canonical source hashes, delivery receipts and actual
-  stored passage hashes. `coverage_complete` is a point-in-time observation,
+- `GET /api/tracks/{id}/search-index`: storage readiness, jobs and bounded comparison
+  of canonical source hashes, delivery receipts and vector/lexical integrity manifests.
+  It performs no inference and does not assert encoder health. `coverage_complete` is a point-in-time observation,
   never a future guarantee; over 1000 sources/jobs is explicitly truncated.
 - `PUT /api/tracks/{id}/search-index`: validate/save a complete declaration and
   retain a rebuild request and revision-bound audit intent in the same transaction.
@@ -260,6 +303,49 @@ records when the evidence is sufficient.
 
 ## Qualification
 
+Separate retrieval accuracy from end-to-end agent accuracy. A resident may
+rewrite or narrow a query and answer correctly even when a broad workspace
+query ranks irrelevant passages first. Include paraphrases, repeated records,
+shared boilerplate and short title-only passages in the held-out relevance
+set. Compare ranked evidence with canonical source text, not only the final
+answer. Matching encoder fingerprints alone does not establish relevance.
+
+PostgreSQL passage retrieval independently samples up to `min(3*k, 500)`
+lexical and vector candidates before fusion, returning at most `k` ranked
+candidates to current-source/permission validation. Ranking discounts repeated
+title wording and exact repeated substantive paragraphs, so one template
+does not fill the evidence window. Vector-only title resemblance receives half
+the passage weight unless the query's words identify that title; lexical title
+matches keep their weight. Substantive evidence can therefore outrank a short,
+loosely related heading. Distinct quantities, negation and word
+order in body text are not collapsed by approximate word matching. Candidates
+are reordered rather than removed by the diversity stage; denied/stale copies
+cannot grant access to their readable counterpart. `index.ranking` identifies
+this policy as `rrf_diversity_v1`. The score includes the diversity discount
+and is not confidence. Existing source offsets, profile identity, token budget
+and live admission are unchanged. This needs no encoder change, index rebuild,
+new service or model call. The candidate cap still limits recall: diversity
+cannot recover a relevant passage absent from the sampled candidate pool.
+
+A title-only hit also receives a bounded prefix from its already-authorized,
+hash-checked selected body/custom field when budget remains. This supporting
+passage is marked `context_only=true`; it is not represented as a matched
+passage. Its snippet and offsets reference current canonical text, it consumes
+the same shared token budget, and excluded fields are never added. Prefix
+tokenization is bounded to 8,192 characters. This gives the agent evidence
+beyond a label without another model or graph request; it does not establish
+that an answer outside that prefix was read.
+
+For browsing latency, the Feed uses cursor pages without exact totals. Its
+header identifies a partial count as loaded entries. Date/ID-ordered pages
+admit a page-sized candidate window plus lookahead and refill past denied
+records; exact totals and custom sorts retain their complete-audience paths.
+Current containment, workspace and per-record authority remain mandatory.
+Feed and Track pages reuse backend type slugs instead of awaiting redundant
+type-name requests; legacy payloads retain the lookup fallback. Measure page
+selection, enrichment, HTTP time and visible rendering separately from model
+routing, first-tool request/start and completed-answer latency.
+
 Run the default backend suite and `make verify-ci`. Opt in to real encoder and
 pgvector integration tests on a disposable database:
 
@@ -267,7 +353,8 @@ pgvector integration tests on a disposable database:
 SEMANTIC_TEST_DSN=postgresql://user@127.0.0.1:5432/disposable \
 TESTING=1 INTEGRAL_RUN_SLOW_TESTS=1 backend/.venv/bin/python -m pytest \
   backend/tests/test_semantic_index_definitions.py \
-  backend/tests/test_semantic_indexing_pg.py -o addopts='' -q
+  backend/tests/test_semantic_indexing_pg.py \
+  backend/tests/test_semantic_search_hardening_pg.py -o addopts='' -q
 ```
 
 For parity with the PostgreSQL CI lane, also set `INTEGRAL_TEST_DB=postgres`
@@ -286,3 +373,50 @@ Use the [qualification guide](../ops/QUALIFICATION.md#retrieval-qualification)
 for actual accuracy, latency and provider-token measurement. Retain raw corpora
 and run outputs with review artifacts. A synthetic corpus is not a production
 recall or scale guarantee.
+
+## Model migration
+
+Workspace model saves retain separate serving/building choices. Rebuild discovery
+follows the rooted workspace Track registry with keyset pages and a depth-bounded
+frontier; it does not scan every tenant's Entries. Verification compares current
+canonical selected text with stored manifests. A committed-intent journal catches
+up subsequent Entry changes in bounded pages. A short transactional epoch and
+request-row lease fence activation against in-flight commands, configuration
+supersession and outstanding delivery. Track-wide index changes restart the
+verification sweep; Entry writes do not require a quiet whole-corpus window.
+Older partial rebuilds restart under the journal protocol. Old provider continuation
+requires explicit consent; current-key/owner/host checks still apply per batch.
+Cancel is revision-bound. See [embedding controls](voice-and-embedding-models.md).
+
+These changes do not complete every search phase. Long-document checkpoints,
+stronger tenant fairness, provider pooling/query-vector caching, retention, the
+remaining lifecycle-trigger audit and production relevance/load qualification
+remain in [the delivery contract](../platform/knowledge-retrieval-v1.md).
+
+## Admission and worker recovery
+
+Workspace scope discovery follows the rooted Track registry. When the entire
+requested Track scope is readable, ranking does not enumerate the user's Entry
+ownership inventory. Partial access uses jvspatial neighbour pages constrained
+to the uncovered Tracks before hydration; unrelated workspaces and already
+readable Tracks do not enter that grant scan. The declared Entry Track narrows
+discovery only: final candidates still receive current canonical containment
+and per-Entry policy checks. Entry-only collaborator links use the existing
+independent grant-source resolver and the same admission checks; they are not
+flattened into direct collaboration. This is candidate selection, never cached authorization. Retrieval stage timings distinguish
+scope, audience, profile, encoding, ranking and final validation without logging
+query or source text.
+
+Expired retrieval-worker claims compare the unique lease token, not floating-point
+timestamp equality. Time determines expiry; generation/status/token fence
+reclamation. Graceful workspace-rebuild cancellation releases only its own claim.
+Excluded-content intent resolves the canonical workspace even when the legacy
+Entry workspace cache is empty. Source and policy checks remain authoritative
+while background invalidation catches up.
+
+The resident receives the existing `integral_query` read schema immediately when
+its catalogue permits it. A focused fact lookup need not load the complete
+Insights workflow/tool schemas. It starts with a small passage budget; live
+broker and App operation boundaries still apply. This reduces model roundtrips
+and schema input, not the physical model/provider latency. See
+[chat latency](ai-chat.md#response-latency-and-activity).

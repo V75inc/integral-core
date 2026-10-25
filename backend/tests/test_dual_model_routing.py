@@ -287,6 +287,20 @@ async def test_native_adapter_passes_distinct_models_and_observes_both_roles(
         )
         await native._build_turn_model(ctx, scope, None, "owner")
         assert [c["route"].model for c in captured] == ["light", "heavy"]
+        assert captured[0]["max_attempts"] == 1
+        from app.config import settings
+
+        assert (
+            captured[0]["timeout_seconds"]
+            == settings.INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS
+        )
+        assert (
+            captured[1]["timeout_seconds"]
+            == settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS
+        )
+        assert (
+            captured[1]["max_attempts"] == settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS
+        )
         assert persist.call_args.args[0].model_role == "light"
         assert (
             timing.budget_settings["model_request_limit"] == 3
@@ -786,3 +800,92 @@ async def test_conversation_reasoning_cannot_bypass_owner_or_platform_policy(
     )
     assert denied.status_code == 400
     assert (await ChatThread.get(thread_id)).model_reasoning_efforts == {}
+
+
+@pytest.mark.asyncio
+async def test_owner_reads_coalesce_only_within_one_fresh_route_check(monkeypatch):
+    from app.services import model_credential_resolver as credentials
+
+    first = SimpleNamespace(
+        routing_mode="light_heavy", light_profile_id="light", updated_at="one"
+    )
+    second = SimpleNamespace(routing_mode="single", updated_at="two")
+    read = AsyncMock(side_effect=[first, second, None])
+    monkeypatch.setattr(credentials, "_read_workspace_owner_credential", read)
+
+    # The production resolver and role selection consult the same owner helper.
+    async def resolver(**kwargs):
+        await credentials._workspace_owner_credential(kwargs["workspace_id"])
+        return ResolvedModelRoute(
+            provider="openai",
+            model="openai/fixture",
+            api_key="synthetic",
+            credential_source="workspace_byok",
+        )
+
+    plan = await model_routing.conversation_turn_routes(
+        workspace_id="workspace", resolver=resolver
+    )
+    assert plan.mode == "light_heavy" and read.await_count == 1
+    # A later physical admission sees the change, rather than a turn-wide cache.
+    plan = await model_routing.conversation_turn_routes(
+        workspace_id="workspace", resolver=resolver
+    )
+    assert plan.mode == "single" and read.await_count == 2
+    assert await credentials._workspace_owner_credential("workspace") is None
+    assert read.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_owner_read_scope_is_reset_on_failure_and_isolated_between_tasks(
+    monkeypatch,
+):
+    from app.services import model_credential_resolver as credentials
+
+    reads = AsyncMock(side_effect=lambda ws: SimpleNamespace(workspace=ws))
+    monkeypatch.setattr(credentials, "_read_workspace_owner_credential", reads)
+
+    async def check(ws):
+        with credentials.model_owner_resolution():
+            one = await credentials._workspace_owner_credential(ws)
+            await asyncio.sleep(0)
+            assert await credentials._workspace_owner_credential(ws) is one
+            assert one.workspace == ws
+
+    await asyncio.gather(check("one"), check("two"))
+    assert reads.await_count == 2
+    with pytest.raises(RuntimeError):
+        with credentials.model_owner_resolution():
+            await credentials._workspace_owner_credential("one")
+            raise RuntimeError()
+    await credentials._workspace_owner_credential("one")
+    assert reads.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_latency_phases_remain_task_local_and_count_failed_dispatches():
+    from app.services.chat_latency import measure_latency_phase
+
+    async def one_turn(fail):
+        timing = TurnLatency()
+        token = current_latency.set(timing)
+        try:
+            try:
+                with measure_latency_phase("providerStart"):
+                    await asyncio.sleep(0)
+                    if fail:
+                        raise asyncio.CancelledError()
+            except asyncio.CancelledError:
+                pass
+            assert timing.phase_counts == {"providerStart": 1}
+            assert timing.phase_totals["providerStart"] >= 0
+            with pytest.raises(ValueError):
+                with measure_latency_phase("unbounded-user-content"):
+                    pass
+            return timing
+        finally:
+            current_latency.reset(token)
+
+    first, second = await asyncio.gather(one_turn(True), one_turn(False))
+    assert first.phase_counts is not second.phase_counts
+    assert current_latency.get() is None

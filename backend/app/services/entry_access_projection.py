@@ -621,6 +621,9 @@ async def select_page(
         app_id=app_id,
         sort=fields,
         cursor=cursor,
+        # A scrolling page needs one admitted lookahead, not 500 candidates.
+        # iter_records still refills past denied rows and checks every window.
+        batch_size=WINDOW if include_total else min(WINDOW, offset + limit + 1),
     ):
         for record in records:
             if visible >= offset and len(selected) <= limit:

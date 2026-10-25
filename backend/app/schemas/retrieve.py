@@ -38,8 +38,10 @@ class RetrieveRequest(BaseModel):
     active workspace. Narrower scopes must belong to it. Current membership,
     source and policy checks apply independently of vector prefilters.
 
-    graph uses canonical keyword reads; PostgreSQL semantic uses exact cosine
-    over profile-isolated passages and hybrid adds lexical reciprocal ranks.
+    graph uses canonical keyword reads; PostgreSQL semantic selects cosine
+    candidates from profile-isolated passages and hybrid adds lexical ranks.
+    Bounded overfetch and diversity discounts keep repeated wording from
+    occupying the evidence window; scores are ranks, not confidence.
     Other adapters retain their own channel semantics. k bounds candidates and
     top_n bounds returned records. Both honor deployment defaults; the passage
     text context_tokens budget excludes envelope, schemas and model history.
@@ -74,6 +76,10 @@ class RetrievedPassage(BaseModel):
     end: int
     text: str
     tokens: int
+    context_only: bool = Field(
+        default=False,
+        description="Supporting text from current selected fields, not a ranked match.",
+    )
 
 
 class RetrievedEntry(BaseModel):

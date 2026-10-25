@@ -21,6 +21,12 @@ App-specific settings controls belong in the standard App settings dialog.
 
 Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [background jobs for Apps](platform/background-app-jobs.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). Use [declarative indexing and retrieval](backend/semantic-indexing.md) for searchable fields, agent capabilities and permission-aware passages. [Model discovery](backend/operational-model-search-index.md) covers the separate package catalog. The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
 
+The [semantic search improvement contract](platform/knowledge-retrieval-v1.md)
+strengthens embedding-based hybrid retrieval, hosted CPU/memory controls,
+automatic index repair, safe model migrations and shared agent evidence. Its
+delivery boundary and quality/resource/scale gates distinguish implemented hardening from future work,
+including selective JV Spatial enrichment and optional OKF interchange.
+
 ## Operate it
 
 Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups, restore, and upgrades. For hosted environments, use the [deployment runbook](ops/DEPLOY.md), [configuration guide](ops/CONFIGURATION.md), [security guide](ops/SECURITY.md), and [qualification record](ops/QUALIFICATION.md). Commercial distributions also use the [commercial host integration guide](platform/commercial-host-integration.md); payment-provider and plan settings remain in the host. Deployment, publication, CI, and user-flow acceptance are distinct checks.
