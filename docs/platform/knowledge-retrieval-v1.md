@@ -20,6 +20,19 @@ The native resident exposes the existing read-only `integral_query` as a foundat
 
 App SDK discovery now resolves governed Track/type selectors before index ranking, instead of materializing the first 500 Entries. Explicit Entry-ID narrowing retains its 500-ID contract. Current canonical containment, type and audience are rechecked after ranking. Type projection adoption keeps existing untyped readers and source hashes compatible and reuses verified vectors; shared type-selector indexes are built concurrently by worker maintenance, never by a search.
 
+Passage ranking now uses bounded candidate overfetch and repeated-title/paragraph
+discounts after independent branch fusion. Vector-only title resemblance has
+less weight than substantive evidence unless the query identifies the title;
+exact names, identifiers and lexical title matches retain their weight. This
+reuses current vectors and canonical passage offsets, with no additional
+inference or migration. It improves the evidence window rather than promising
+that the first result is always correct. See the current indexing guide for
+the rank identifier, candidate caps and remaining relevance qualification.
+Title-only hits can also include bounded supporting canonical text, explicitly
+marked as context rather than a ranked match. The resident must not treat a
+record label as answer evidence; insufficient passages require an authorized
+source read or an explicit statement that the detail is unavailable.
+
 This is not a claim that every exit gate below has passed. The broader schema/restore/lifecycle invalidation audit, resumable passage-level scheduling, full workspace fairness, query-vector caching, pooled provider transports, cleanup/retention, qualified rollback and production quality/resource gates remain open. Existing Track status still uses bounded diagnostics; workspace migration verification is separately paged without a 1,000-source completion shortcut. Local transaction and browser evidence cannot establish a cloud capacity or freshness SLA.
 
 The qualification suite includes real encoder/PostgreSQL tests, a scoped ANN exact oracle, authority regressions and a populated browser preview. Production hardware sizing, a held-out 200-query relevance set, 100-tenant load cells and a two-hour container soak remain release gates. Do not treat this initial PR as approval to promise the SLOs in section 12 or increase production workers.

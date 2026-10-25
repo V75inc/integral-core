@@ -469,13 +469,17 @@ class PassageStore:
             raise ValueError("Query vector dimensions differ from embedding profile")
         pool = await self.ensure_schema()
         k = min(max(k, 1), 500)
+        # Repeated passages must not consume the entire candidate window before
+        # diversity ranking. Bound overfetch per branch, not by corpus size;
+        # at most k ranked candidates reach canonical validation below.
+        branch_limit = min(500, k * 3)
         where = "workspace_id=$2 AND (track_id=ANY($3::text[]) OR entry_id=ANY($7::text[])) AND ($8::text[] IS NULL OR entry_id=ANY($8::text[])) AND deleted_at IS NULL AND (NOT $9::boolean OR track_id=ANY($10::text[]) OR (metadata->>'_integral_type_id')=ANY($11::text[]))"
         args = [
             self.profile.id,
             workspace_id,
             track_ids,
             _vector_literal(vector or [1.0]),
-            k,
+            branch_limit,
             query,
             direct_entry_ids or [],
             eligible_entry_ids,
@@ -549,7 +553,7 @@ class PassageStore:
                             "SELECT set_config('hnsw.ef_search',$1,true)",
                             str(
                                 max(
-                                    k * 2,
+                                    branch_limit * 2,
                                     bounded_setting(
                                         "RETRIEVE_ANN_EF_SEARCH", 1000, 40, 1000
                                     ),
@@ -604,10 +608,13 @@ class PassageStore:
                     merged[key]["vector_match"] |= row["vector_match"]
                 else:
                     merged[key] = row
-        return sorted(
+        ranked = sorted(
             merged.values(),
             key=lambda r: (-r["score"], r["entry_id"], r["start_offset"]),
-        )[:k]
+        )
+        from .passage_ranking import diverse_passage_ranks
+
+        return diverse_passage_ranks(ranked, query=query)[:k]
 
     async def soft_delete(self, entry_id: str, *, guard=None) -> bool:
         pool = await self.ensure_schema()

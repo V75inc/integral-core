@@ -316,3 +316,122 @@ async def test_invalid_deployment_profile_preserves_canonical_fallback(
         assert any(result.entry_id == entry.id for result in found)
     finally:
         current_scope_workspace_id.reset(token)
+
+
+async def test_repeated_titles_do_not_hide_the_answer_in_broad_search(
+    vector_driver, monkeypatch
+):
+    """Exercise the actual encoder, passage ranks and canonical source gate."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.models.edges import COLLABORATES_ON, CONTAINS, EXCLUDED_FROM
+    from app.models.nodes import Entry
+    from app.services.retrieval import passage_ranking
+    from tests.test_entry_projection_authority import reader_in
+    from tests.test_resource_location import graph
+
+    user, workspace, app, track, answer = await graph()
+    answer.title = "Safety assembly — Anna Regina #064"
+    answer.body = (
+        "If the fire alarm sounds, meet in the eastern courtyard beside the blue "
+        "water tank. Supervisors account for all visitors.\n\n"
+        "Operational record for the Anna Regina service team. Reference HS-01-0064. "
+        "Reviewed in October 2026. The assigned coordinator checks completion "
+        "and records outstanding actions."
+    )
+    await answer.save()
+    await indexing.enqueue_entry(answer)
+    for i in range(20):
+        entry = await Entry.create(
+            title=f"Rainy season dispatch — Georgetown #{i:03}",
+            track_id=track.id,
+            body="During heavy rainfall confirm river conditions before dispatch.",
+        )
+        await track.connect(entry, edge=CONTAINS)
+        await indexing.enqueue_entry(entry)
+    assert (await indexing.deliver_index_jobs(limit=30))["indexed"] == 21
+    query = "Where do people gather during an evacuation?"
+    with monkeypatch.context() as old:
+        old.setattr(passage_ranking, "diverse_passage_ranks", lambda rows, **_: rows)
+        with isolated_permissions_cache():
+            baseline = (
+                await search(
+                    user, workspace, app, vector_driver, query, mode="semantic"
+                )
+            )[0]
+    assert answer.id not in [row.entry_id for row in baseline]
+    with isolated_permissions_cache():
+        updated = (
+            await search(user, workspace, app, vector_driver, query, mode="semantic")
+        )[0]
+    found = next(row for row in updated if row.entry_id == answer.id)
+    assert "blue water tank" in " ".join(p.text for p in found.passages)
+    assert found.action_url.endswith("?entry=" + answer.id)
+    reader = await reader_in(workspace)
+    await reader.connect(track, edge=COLLABORATES_ON, role="viewer")
+    await reader.connect(answer, edge=EXCLUDED_FROM)
+    with isolated_permissions_cache():
+        denied = (
+            await search(reader, workspace, app, vector_driver, query, mode="semantic")
+        )[0]
+    assert answer.id not in [row.entry_id for row in denied]
+
+
+@pytest.mark.parametrize("include_body", [True, False])
+async def test_title_only_hit_has_bounded_selected_current_support(
+    vector_driver, monkeypatch, include_body
+):
+    from app.services.retrieval.passage_store import PassageStore
+    from tests.test_resource_location import graph
+
+    user, workspace, app, track, entry = await graph()
+    entry.title = "Emergency assembly handbook"
+    entry.body = "Meet in the southern courtyard beside the blue water tank. Supervisors account for visitors."
+    await entry.save()
+    track.search_index = {"fields": ["title", "body"] if include_body else ["title"]}
+    await track.save()
+    await indexing.enqueue_entry(entry)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    original = PassageStore.search
+
+    async def titles_only(self, *args, **kwargs):
+        rows = await original(self, *args, **kwargs)
+        return [row for row in rows if row["field_path"] == "title"]
+
+    monkeypatch.setattr(PassageStore, "search", titles_only)
+    found = (
+        await search(
+            user,
+            workspace,
+            app,
+            vector_driver,
+            "Emergency assembly handbook",
+            mode="semantic",
+            context_tokens=64,
+        )
+    )[0]
+    assert len(found) == 1
+    assert sum(p.tokens for p in found[0].passages) <= 64
+    support = [p for p in found[0].passages if p.context_only]
+    assert bool(support) == include_body
+    if include_body:
+        assert "southern courtyard" in support[0].text
+        assert support[0].text == entry.body[support[0].start : support[0].end]
+        assert "southern courtyard" in found[0].snippet
+    else:
+        assert all(p.field == "title" for p in found[0].passages)
+    entry.body = "Changed canonical instructions that are not yet indexed."
+    await entry.save()
+    after = (
+        await search(
+            user,
+            workspace,
+            app,
+            vector_driver,
+            "Emergency assembly handbook",
+            mode="semantic",
+        )
+    )[0]
+    if include_body:
+        assert after == []
+    else:
+        assert after and all(p.field == "title" for p in after[0].passages)

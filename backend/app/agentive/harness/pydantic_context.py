@@ -285,6 +285,9 @@ class IntegralContextLifecycle(AbstractCapability):
                                 "context_tokens=600. Answer from its returned "
                                 "passages and cite action_url; do not fetch whole "
                                 "records when the passages suffice. "
+                                "A title alone does not establish the answer. "
+                                "If evidence is insufficient, read the source through "
+                                "authorized tools or state which detail is unavailable. "
                                 if "integral_query"
                                 in getattr(ctx, "available_tool_names", frozenset())
                                 else ""

@@ -250,6 +250,7 @@ async def finalize_retrieval(
             profile = await resolve_workspace_embedding_profile(workspace_id or "")
             index = {
                 "profile_id": profile.id,
+                "ranking": "rrf_diversity_v1",
                 "coverage": "not_asserted",
                 "passage_tokens": sum(
                     p.tokens for result in results for p in result.passages

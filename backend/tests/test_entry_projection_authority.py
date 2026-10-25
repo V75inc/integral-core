@@ -280,8 +280,10 @@ async def test_direct_entry_http_read_does_not_export_private_parent_content(
     assert "sentinel" not in response.text
 
 
+@pytest.mark.parametrize("include_total", (True, False))
 async def test_pages_refill_across_excluded_windows_and_recheck_next_request(
     monkeypatch,
+    include_total,
 ):
     from app.services import entry_access_projection
     from app.services.pagination import DEFAULT_ENTITY_SORT
@@ -308,10 +310,11 @@ async def test_pages_refill_across_excluded_windows_and_recheck_next_request(
         track_id=track.id,
         workspace_id=workspace.id,
         limit=2,
-        include_total=True,
+        include_total=include_total,
     )
     assert [entry.id for entry in first] == [entries[4].id, entries[3].id]
-    assert metadata["total"] == 5 and metadata["has_more"]
+    assert metadata["total"] == (5 if include_total else None)
+    assert metadata["has_more"]
     offset = await get_user_accessible_entry_page(
         reader.id,
         track.id,
@@ -329,11 +332,11 @@ async def test_pages_refill_across_excluded_windows_and_recheck_next_request(
         track_id=track.id,
         workspace_id=workspace.id,
         limit=2,
-        include_total=True,
+        include_total=include_total,
         cursor=metadata["next_cursor"],
     )
     assert [entry.id for entry in second] == [entries[1].id, entries[0].id]
-    assert next_metadata["total"] == 4
+    assert next_metadata["total"] == (4 if include_total else None)
     assert not next_metadata["has_more"] and next_metadata["next_cursor"] is None
 
 
@@ -593,3 +596,35 @@ async def test_ranked_selection_parser_rejects_unbounded_ids():
         selected_entry_ids(",".join(f"e{i}" for i in range(51)))
     with pytest.raises(BadRequestError):
         selected_entry_ids("x" * 201)
+
+
+async def test_scrolling_page_admits_only_page_sized_windows(monkeypatch):
+    """Do not materialize a 500-row authority window for a two-row page."""
+    from app.services import entry_access_projection
+
+    _, workspace, _, track, _ = await graph()
+    reader = await reader_in(workspace)
+    await reader.connect(track, edge=COLLABORATES_ON, role="viewer")
+    for index in range(8):
+        entry = await Entry.create(title=f"Page {index}", track_id=track.id)
+        await track.connect(entry, edge=CONTAINS)
+
+    windows = []
+    original = entry_access_projection.admit_records
+
+    async def observed(user_id, records, **kwargs):
+        windows.append(len(records))
+        return await original(user_id, records, **kwargs)
+
+    monkeypatch.setattr(entry_access_projection, "admit_records", observed)
+    rows, metadata = await fetch_accessible_entries_page(
+        reader.id,
+        workspace_id=workspace.id,
+        track_id=track.id,
+        limit=2,
+        include_total=False,
+    )
+    assert len(rows) == 2
+    assert windows == [3]
+    assert metadata["total"] is None
+    assert metadata["has_more"] and metadata["next_cursor"]

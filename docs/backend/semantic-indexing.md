@@ -165,7 +165,9 @@ Archived/deleted/moved/revoked/changed sources cannot return stale content.
 
 Hybrid fuses independently limited vector and indexed lexical candidates with
 reciprocal rank fusion. Lexical search uses a weighted stored `tsvector` and GIN
-index. Small admitted scopes use exact cosine ranking. Larger scopes may use a
+index. Small admitted scopes use exact cosine candidate selection. Final ranks
+also apply the bounded diversity/evidence policy described under Qualification.
+Larger scopes may use a
 workspace/profile-specific HNSW partial index when `RETRIEVE_ANN_ENABLED=1` and pgvector supports iterative
 filtered scans (0.8+). The worker builds indexes concurrently; reads do not build
 them. ANN is opt-in pending deployment qualification; exact ranking remains the default. A per-table cap bounds physical ANN indexes; scopes without one use exact
@@ -300,6 +302,49 @@ passage reads for prose/RAG and cites returned links without rereading whole
 records when the evidence is sufficient.
 
 ## Qualification
+
+Separate retrieval accuracy from end-to-end agent accuracy. A resident may
+rewrite or narrow a query and answer correctly even when a broad workspace
+query ranks irrelevant passages first. Include paraphrases, repeated records,
+shared boilerplate and short title-only passages in the held-out relevance
+set. Compare ranked evidence with canonical source text, not only the final
+answer. Matching encoder fingerprints alone does not establish relevance.
+
+PostgreSQL passage retrieval independently samples up to `min(3*k, 500)`
+lexical and vector candidates before fusion, returning at most `k` ranked
+candidates to current-source/permission validation. Ranking discounts repeated
+title wording and exact repeated substantive paragraphs, so one template
+does not fill the evidence window. Vector-only title resemblance receives half
+the passage weight unless the query's words identify that title; lexical title
+matches keep their weight. Substantive evidence can therefore outrank a short,
+loosely related heading. Distinct quantities, negation and word
+order in body text are not collapsed by approximate word matching. Candidates
+are reordered rather than removed by the diversity stage; denied/stale copies
+cannot grant access to their readable counterpart. `index.ranking` identifies
+this policy as `rrf_diversity_v1`. The score includes the diversity discount
+and is not confidence. Existing source offsets, profile identity, token budget
+and live admission are unchanged. This needs no encoder change, index rebuild,
+new service or model call. The candidate cap still limits recall: diversity
+cannot recover a relevant passage absent from the sampled candidate pool.
+
+A title-only hit also receives a bounded prefix from its already-authorized,
+hash-checked selected body/custom field when budget remains. This supporting
+passage is marked `context_only=true`; it is not represented as a matched
+passage. Its snippet and offsets reference current canonical text, it consumes
+the same shared token budget, and excluded fields are never added. Prefix
+tokenization is bounded to 8,192 characters. This gives the agent evidence
+beyond a label without another model or graph request; it does not establish
+that an answer outside that prefix was read.
+
+For browsing latency, the Feed uses cursor pages without exact totals. Its
+header identifies a partial count as loaded entries. Date/ID-ordered pages
+admit a page-sized candidate window plus lookahead and refill past denied
+records; exact totals and custom sorts retain their complete-audience paths.
+Current containment, workspace and per-record authority remain mandatory.
+Feed and Track pages reuse backend type slugs instead of awaiting redundant
+type-name requests; legacy payloads retain the lookup fallback. Measure page
+selection, enrichment, HTTP time and visible rendering separately from model
+routing, first-tool request/start and completed-answer latency.
 
 Run the default backend suite and `make verify-ci`. Opt in to real encoder and
 pgvector integration tests on a disposable database:

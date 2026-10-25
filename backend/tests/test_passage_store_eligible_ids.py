@@ -150,3 +150,38 @@ def test_explicit_empty_ids_return_before_store_access():
         )
         == []
     )
+
+
+@pytest.mark.parametrize("k,branch_limit", [(1, 3), (10, 30), (150, 450), (500, 500)])
+def test_diversity_overfetch_is_bounded_per_branch(k, branch_limit):
+    conn = _Conn()
+    store = PassageStore(
+        SimpleNamespace(_table="retrieval_test"),
+        EmbeddingProfile(
+            model="test",
+            revision="test",
+            dimensions=384,
+            chunk_tokens=160,
+            overlap_tokens=24,
+        ),
+    )
+
+    async def schema():
+        return _Pool(conn)
+
+    store.ensure_schema = schema
+    assert (
+        asyncio.run(
+            store.search(
+                [0.0] * 384,
+                workspace_id="w1",
+                track_ids=["t1"],
+                k=k,
+                query="project records",
+                mode="hybrid",
+            )
+        )
+        == []
+    )
+    assert conn.queries
+    assert all(args[4] == branch_limit for _, args in conn.queries)

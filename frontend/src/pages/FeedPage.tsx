@@ -188,6 +188,7 @@ export function FeedPage() {
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       feedApi.getEntriesPage({
+        include_total: false,
         ...(filterTrack ? { track_id: filterTrack } : {}),
         ...(appIdFromQuery ? { app_id: appIdFromQuery } : {}),
         ...(pageParam ? { cursor: pageParam } : {}),
@@ -278,8 +279,8 @@ export function FeedPage() {
 
   const hasCachedFeedPages = Boolean(feedData?.pages?.length);
   const isInitialFeedLoading = feedLoading && !hasCachedFeedPages;
-  // Server-reported total across all pages — falls back to the loaded
-  // count only when the API hasn't surfaced one (older endpoints).
+  // Infinite scrolling avoids an audience-wide count before showing a page.
+  // Older endpoints may still supply an exact total.
   const totalEntryCount = useMemo(() => {
     const pages = feedData?.pages || [];
     for (const p of pages) {
@@ -678,6 +679,7 @@ export function FeedPage() {
               <span>
                 {totalEntryCount ?? entries.length}{' '}
                 {(totalEntryCount ?? entries.length) === 1 ? 'entry' : 'entries'}
+                {totalEntryCount === undefined && hasNextPage ? ' loaded' : ''}
               </span>
               {entries[0]?.created_at ? (
                 <>

@@ -559,6 +559,39 @@ async def retrieve_passages(
                 tokens=used,
             )
         )
+    # A matching heading is navigation, not sufficient answer evidence. Reuse
+    # only the already admitted, hash-checked document's selected text, within
+    # the remaining shared token budget. No extra graph/provider request, and
+    # no assumption that the prefix itself matched the query.
+    for identity, result in results.items():
+        if budget <= 0 or any(p.field != "title" for p in result.passages):
+            continue
+        _, document = current_documents[identity]
+        texts = document["texts"]
+        field = next(
+            (key for key in texts if key != "title" and texts[key].strip()), None
+        )
+        if field is None:
+            continue
+        # Tokenize a bounded prefix, never a whole arbitrarily long record.
+        text = texts[field][:8192]
+        encoding = tokenizer.encode(text, add_special_tokens=False)
+        offsets = encoding.offsets[: min(budget, profile.chunk_tokens)]
+        if not offsets:
+            continue
+        a, b = offsets[0][0], offsets[-1][1]
+        result.passages.append(
+            RetrievedPassage(
+                field=field,
+                start=a,
+                end=b,
+                text=text[a:b],
+                tokens=len(offsets),
+                context_only=True,
+            )
+        )
+        result.snippet = text[a:b][:200]
+        budget -= len(offsets)
     phase("validation_packing_ms")
     timings["total_ms"] = round((time.perf_counter() - started) * 1000, 2)
     logger.info("retrieval stages: %s", timings)

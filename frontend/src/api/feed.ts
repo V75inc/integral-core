@@ -64,7 +64,10 @@ async function normalizeEntriesWithTypes(raw: unknown[]): Promise<Entry[]> {
   await hydrateEntryTagsForList(raw as any[]);
   const trackIds = [
     ...new Set(
-      raw.map((e: any) => e.track_id).filter(Boolean)
+      raw
+        .filter((e: any) => e.type_id && !e.type)
+        .map((e: any) => e.track_id)
+        .filter(Boolean)
     ),
   ] as string[];
   const maps: Record<string, Record<string, string>> = {};
