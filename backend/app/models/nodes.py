@@ -343,6 +343,8 @@ class WorkspaceModelConfiguration(Node):
     embedding_continue_previous_provider: bool = False
     voice_settings: Dict[str, Any] = Field(default_factory=dict)
     voice_settings_revision: int = Field(default=0, ge=0)
+    attachment_settings: Dict[str, Any] = Field(default_factory=dict)
+    attachment_settings_revision: int = Field(default=0, ge=0)
 
 
 class WorkspaceAuthorizationState(Node):

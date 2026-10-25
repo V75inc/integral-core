@@ -430,6 +430,8 @@ class ToolContext:
         mode: str = "hybrid",
         limit: int = 150,
         context_tokens: int = 1200,
+        attachment_kind: Optional[str] = None,
+        attachment_filename: str = "",
     ) -> Dict[str, Any]:
         """Search a bounded, authorized candidate set in this App.
 
@@ -449,6 +451,8 @@ class ToolContext:
             mode=mode,
             limit=limit,
             context_tokens=context_tokens,
+            attachment_kind=attachment_kind,
+            attachment_filename=attachment_filename,
         )
 
     async def find_track_id_by_title(self, track_type: str) -> Optional[str]:

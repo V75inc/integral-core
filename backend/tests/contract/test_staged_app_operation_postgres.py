@@ -407,6 +407,13 @@ async def main():
     get_database_manager().set_prime_database(database)
     try:
         async with scoped_default_context_async(GraphContext(database=database)):
+            # Initialize storage before competing for the approval. Lazy DDL
+            # inside competing effect transactions can deadlock on table locks;
+            # this probe tests exactly-once effects, not concurrent schema boot.
+            for collection in ("node", "edge", "object"):
+                await database.find(collection, {"id": ""}, limit=1)
+            print("READY", flush=True)
+            await asyncio.to_thread(sys.stdin.readline)
             if sys.argv[2] == "execute":
                 spec = {"key": "record", "kind": "execute", "handler_ref": "reference:record"}
                 register_app_operations(sc.workspace_id, sc.payload["app_id"], "reference", [spec])
@@ -434,7 +441,7 @@ asyncio.run(main())
 """
 
 
-async def independent_worker(snapshot, mode, output_dir):
+async def independent_worker(snapshot, mode, output_dir, *, ready_barrier=None):
     import asyncio
     import json
     import os
@@ -449,20 +456,30 @@ async def independent_worker(snapshot, mode, output_dir):
         mode,
         cwd=str(Path(__file__).resolve().parents[2]),
         env=os.environ.copy(),
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
+        ready = await asyncio.wait_for(process.stdout.readline(), timeout=30)
+        if ready == b"READY\n":
+            if ready_barrier is not None:
+                await asyncio.wait_for(ready_barrier.wait(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(b"go\n"), timeout=60
+            )
+        else:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
+        (output_dir / f"worker-{process.pid}.log").write_bytes(stderr)
+        assert ready == b"READY\n", "Independent worker did not initialize storage"
+        assert (
+            process.returncode == 0
+        ), "Independent worker failed; diagnostic retained in disposable test directory"
     except BaseException:
         if process.returncode is None:
             process.kill()
             await process.wait()
         raise
-    (output_dir / f"worker-{process.pid}.log").write_bytes(stderr)
-    assert (
-        process.returncode == 0
-    ), "Independent worker failed; diagnostic retained in disposable test directory"
     lines = [
         line.split("__operation_worker_result__", 1)[1]
         for line in stdout.decode().splitlines()
@@ -531,8 +548,14 @@ async def test_independent_worker_processes_cannot_duplicate_the_effect(
             )
         )
         try:
+            ready_barrier = asyncio.Barrier(2)
             results = await asyncio.gather(
-                *[independent_worker(snapshot, "execute", tmp_path) for _ in range(2)]
+                *[
+                    independent_worker(
+                        snapshot, "execute", tmp_path, ready_barrier=ready_barrier
+                    )
+                    for _ in range(2)
+                ]
             )
             assert all(result["consumed"] for result in results)
             assert results[0]["receipt"]["id"] == results[1]["receipt"]["id"]

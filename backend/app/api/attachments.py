@@ -795,7 +795,9 @@ async def download_attachment(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    attachment = await Attachment.get(attachment_id)
+    # Background extraction/model analysis updates derived fields with a
+    # source-bound CAS. Read the current row rather than a cached Node snapshot.
+    attachment = await Attachment.find_one({"id": attachment_id})
     if not attachment or not is_visible_to_user(attachment):
         raise ResourceNotFoundError(message="Attachment not found")
 
@@ -1011,7 +1013,9 @@ async def reprocess_attachment_metadata(
         )
 
     service = get_metadata_extraction_service()
-    updated = await service.extract_now(attachment_id)
+    updated = await service.extract_now(
+        attachment_id, force_analysis=True, analysis_principal_id=user_id
+    )
     return {
         "attachment": await export_node(updated),
         "message": "Attachment metadata reprocessed",

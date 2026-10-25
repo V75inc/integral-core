@@ -52,6 +52,40 @@ Metadata pins jvspatial 0.2.2 and pydantic-ai-harness 0.59.0. Runtime dependenci
 
 `make verify` from the repository root is the broad local gate. PR smoke CI is narrower and runs without a developer .env. Database contracts and packaged-wheel checks provide separate evidence.
 
+The broad gate runs the complete default backend suite once under CI conditions
+(`TESTING=1`, `DEBUG=false`, no dotenv), including its smoke tests. It uses at
+most four xdist workers, grouped by file, and preserves per-test database
+isolation. `make verify-ci` runs the smoke subset separately for a shorter
+feedback loop; `make verify-pr` also retains the independent contract and
+PostgreSQL lanes. Plain `pytest` remains serial.
+
+Use `make test-backend PYTEST_WORKERS=0` for serial debugging. Override
+`PYTEST_MAX_WORKERS` to tune the cap after measurement. The root backend and
+smoke targets print the slowest 25 test phases and save JUnit timings in
+`backend/.pytest_cache/verification/{backend,smoke}.xml` (ignored). These reports
+include setup and teardown time; compare identical selections and environments,
+and distinguish summed test time from elapsed parallel run time. Do not reduce
+coverage or replace real database tests to meet a timing target.
+
+The contract lane uses two workers with per-test work stealing, so a large App
+contract file can be shared instead of becoming a serial tail. Set
+`CONTRACT_TEST_WORKERS=0` for its serial baseline. `make test-postgres-ci` is
+also the CI graph/transaction command: it uses two independent worker databases,
+prime/log pools of one to three connections each, and separate JUnit reports
+for spikes, contracts, App jobs and authority. Set `POSTGRES_TEST_WORKERS=0`
+for serial comparison. Run separate PostgreSQL invocations sequentially on a
+shared local service: the fixture recreates its fixed per-worker test databases.
+The real encoder/pgvector lane stays serial and separate from these graph tests.
+
+Frontend tests cap workers at the smaller of four and the runner's available
+CPUs; the Vitest `--maxWorkers` option supports controlled comparisons. CI runs
+`npm run lint:types` once, then `npm run build:assets`. Standalone `npm run build`
+continues to check types and build assets together.
+`make test-frontend` is shared with CI and writes JUnit timings to ignored
+`frontend/node_modules/.cache/verification/frontend.xml`. CI retains that
+report alongside the contract and PostgreSQL artifacts and prints the available
+CPU/worker budget.
+
 Successful database operations, including slow calls, do not emit log records.
 Metrics and slow-call counters remain available; failed operations emit
 structured ERROR records from jvspatial.

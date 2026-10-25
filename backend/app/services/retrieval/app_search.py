@@ -139,6 +139,8 @@ async def search_app_entries(
     mode: str = "hybrid",
     limit: int = 150,
     context_tokens: int = 1200,
+    attachment_kind: str | None = None,
+    attachment_filename: str = "",
 ) -> dict[str, Any]:
     """Search the current App without claiming unmeasured index coverage."""
     requested = str(mode).casefold()
@@ -147,7 +149,9 @@ async def search_app_entries(
     if not str(getattr(context, "app_id", "") or "").strip():
         return _response(requested, available=False, reason="app_scope_required")
     text = str(query or "").strip()
-    if not text or eligible_entry_ids == []:
+    if (
+        not text and attachment_kind is None and not attachment_filename
+    ) or eligible_entry_ids == []:
         return _response(requested, coverage="full")
     warnings: list[str] = []
     try:
@@ -173,7 +177,11 @@ async def search_app_entries(
             k=k,
             top_n=top_n,
             context_tokens=max(64, min(int(context_tokens), 8192)),
+            attachment_kind=attachment_kind,
+            attachment_filename=attachment_filename,
         )
+        if not text:
+            payload = payload.model_copy(update={"mode": "graph"})
         with ordinary_authority_only(), isolated_permissions_cache():
             subject = await _read_subject(context)
             selected, truncated = await _candidate_ids(

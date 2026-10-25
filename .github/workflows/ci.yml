@@ -154,18 +154,19 @@ jobs:
             -m "core_only"
 
       - name: F0 extension-contract lane
-        env:
-          TESTING: "1"
-        run: |
-          pytest -q --tb=short --durations=20 --junitxml=test-results-contract.xml \
-            tests/contract/ -m "contract"
+        # Per-test scheduling can split the large reference-App files. Worker
+        # databases and function-scoped state remain isolated as in the full gate.
+        run: make -C .. verify-contract CONTRACT_TEST_WORKERS=2
 
       - name: Upload contract test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-contract-test-report
-          path: backend/test-results-*.xml
+          path: |
+            backend/test-results-*.xml
+            backend/.pytest_cache/verification/contract.xml
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
@@ -261,8 +262,24 @@ jobs:
 
       - run: npm ci
       - run: npm run lint:types
-      - run: npm run test:run
-      - run: npm run build
+      - name: Run npm run test:run
+        run: |
+          node --input-type=module -e 'import { availableParallelism } from "node:os"; console.log({ availableCpus: availableParallelism(), maxWorkers: Math.min(4, availableParallelism()) });'
+          make -C .. test-frontend
+
+      - name: Upload frontend test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-report
+          path: frontend/node_modules/.cache/verification/frontend.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # lint:types above already checked TypeScript; build assets without a
+      # second tsc pass. npm run build still checks types for standalone use.
+      - run: npm run build:assets
 
       - name: Dependency advisories (frontend)
         # Unknown high/critical findings fail even without a published fix.
@@ -341,21 +358,25 @@ jobs:
           pytest -q --tb=short -o addopts='' \
             tests/test_semantic_index_definitions.py tests/test_semantic_indexing_pg.py \
             tests/test_pgvector_driver.py tests/test_pgvector_unavailable_fallback.py \
-            tests/test_app_passage_candidates.py
+            tests/test_attachment_search_pg.py
 
       - name: Postgres spike, contract and App job authorization lane
         env:
-          TESTING: "1"
-          INTEGRAL_TEST_DB: postgres
-          JVSPATIAL_DB_TYPE: postgres
           JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@localhost:5432/integral_core
-        run: |
-          pytest -q --tb=short tests/spikes/ -m postgres
-          pytest -q --tb=short tests/contract/ -m "contract and postgres"
-          pytest -q --tb=short tests/test_app_jobs.py tests/test_tool_context_own_bundle_workspace.py
-          pytest -q --tb=short \
-            tests/test_credentials_delivery.py tests/test_member_provision_authority.py \
-            tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py tests/test_install_seed_authority.py
+        # Shared with local qualification: two isolated worker DBs and pools
+        # capped at three connections each. App passage authority stays here,
+        # rather than repeating it in the real-encoder lane above.
+        run: make -C .. test-postgres-ci POSTGRES_TEST_WORKERS=2
+
+      - name: Upload PostgreSQL test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-postgres-test-report
+          path: backend/.pytest_cache/verification/postgres-*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   docker-build-verify:
     runs-on: ubuntu-latest

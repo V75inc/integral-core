@@ -51,7 +51,7 @@ PostgreSQL, frontend and artifact lanes; the full default suite remains a local
 responsibility. One command covers the broad local gate:
 
 ```bash
-make verify      # guards, pinned formatters, tsc, CI-faithful run, both suites
+make verify      # guards, pinned formatters, tsc, artifact, both suites; backend uses CI env
 make verify-ci   # reproduce the CI smoke lane; not the whole workflow
 make verify-pr   # reproduce backend test lanes and the PostgreSQL lane
 make help        # all targets
@@ -74,6 +74,18 @@ A plain local run differs on all three counts, and each can hide a real failure:
 All three combined once hid a boot guard that `sys.exit(1)`-ed during
 collection, turning every CI run red while local stayed green. Run `make
 verify-ci` before pushing, and check `gh pr checks <n>` after.
+
+`make verify` runs the complete default backend selection (including smoke)
+once with `TESTING=1`, `DEBUG=false`, no dotenv and xdist file grouping. It no
+longer repeats the smoke subset in the same gate. Workers are capped at four;
+use `PYTEST_WORKERS=0` for a serial comparison. Slowest-test timings are printed
+and JUnit reports stay in ignored `backend/.pytest_cache/verification/`.
+Contracts and the CI PostgreSQL graph lanes use two workers with per-test
+work stealing; PostgreSQL pools are bounded to one to three connections each.
+Use `CONTRACT_TEST_WORKERS=0` or `POSTGRES_TEST_WORKERS=0` for serial comparison.
+Local and CI PostgreSQL graph commands share `make test-postgres-ci`; real
+encoder qualification stays a separate serial lane. Frontend CI checks types
+once before `build:assets`; standalone `npm run build` still includes TypeScript.
 
 ```bash
 # Narrower runs

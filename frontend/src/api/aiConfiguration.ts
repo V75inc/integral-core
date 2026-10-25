@@ -218,6 +218,22 @@ export const embeddingConfigurationApi = {
 };
 
 export const VOICE_CONFIGURATION_QUERY_KEY = ["voice-configuration"] as const;
+export const ATTACHMENT_ANALYSIS_QUERY_KEY = ["attachment-analysis"] as const;
+export interface AttachmentAnalysisConfiguration {
+  workspace_id: string;
+  editable: boolean;
+  revision: number;
+  available: boolean;
+  configuration: { enabled: boolean };
+}
+export const attachmentAnalysisApi = {
+  async get(): Promise<AttachmentAnalysisConfiguration> {
+    return (await api.get("/users/me/attachment-analysis")).data;
+  },
+  async save(body: { enabled: boolean; revision: number }): Promise<AttachmentAnalysisConfiguration> {
+    return (await api.post("/users/me/attachment-analysis", body)).data;
+  },
+};
 export interface VoiceChoice {
   mode: "inherit" | "provider" | "disabled";
   connection_id: string;

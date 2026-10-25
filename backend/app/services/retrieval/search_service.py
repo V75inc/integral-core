@@ -13,6 +13,7 @@ from app.schemas.policy import Resource, Subject
 from app.schemas.retrieve import RetrievedEntry, RetrievedPassage
 from app.services.policy_engine import evaluate
 
+from .attachment_sources import passage_source
 from .embedding_configuration import resolve_workspace_embedding_profile
 from .indexing import index_document
 from .passage_store import passage_store
@@ -369,6 +370,14 @@ async def retrieve_passages(
         direct_entry_ids=granted_entries,
         eligible_entry_ids=eligible,
         **({"type_selection": type_selection} if type_selection is not None else {}),
+        **(
+            {
+                "attachment_kind": payload.attachment_kind,
+                "attachment_filename": payload.attachment_filename,
+            }
+            if payload.attachment_kind is not None or payload.attachment_filename
+            else {}
+        ),
     )
     phase("ranking_ms")
     budget = payload.context_tokens
@@ -557,6 +566,12 @@ async def retrieve_passages(
                 end=passage_start + len(passage),
                 text=passage,
                 tokens=used,
+                **passage_source(
+                    document,
+                    candidate["field_path"],
+                    passage_start,
+                    passage_start + len(passage),
+                ),
             )
         )
     # A matching heading is navigation, not sufficient answer evidence. Reuse
@@ -588,6 +603,7 @@ async def retrieve_passages(
                 text=text[a:b],
                 tokens=len(offsets),
                 context_only=True,
+                **passage_source(document, field, a, b),
             )
         )
         result.snippet = text[a:b][:200]

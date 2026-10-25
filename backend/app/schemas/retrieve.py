@@ -66,8 +66,22 @@ class RetrieveRequest(BaseModel):
         le=50,
     )
     context_tokens: int = Field(default=1200, ge=64, le=8192)
+    attachment_kind: Optional[Literal["any", "image", "document", "audio", "video"]] = (
+        None
+    )
+    attachment_filename: str = Field(default="", max_length=512)
 
     model_config = {"extra": "forbid"}
+
+
+class AttachmentLocation(BaseModel):
+    """Canonical section locator in the extraction projection, when available."""
+
+    page_start: Optional[int] = Field(default=None, ge=1)
+    page_end: Optional[int] = Field(default=None, ge=1)
+    slide_start: Optional[int] = Field(default=None, ge=1)
+    slide_end: Optional[int] = Field(default=None, ge=1)
+    sheet: Optional[str] = Field(default=None, max_length=128)
 
 
 class RetrievedPassage(BaseModel):
@@ -76,6 +90,13 @@ class RetrievedPassage(BaseModel):
     end: int
     text: str
     tokens: int
+    attachment_id: Optional[str] = None
+    filename: Optional[str] = None
+    content_origin: Optional[
+        Literal["file_metadata", "extracted_text", "generated_description"]
+    ] = None
+    extraction_status: Optional[str] = None
+    source_location: Optional[AttachmentLocation] = None
     context_only: bool = Field(
         default=False,
         description="Supporting text from current selected fields, not a ranked match.",

@@ -23,12 +23,27 @@ from itertools import islice
 from typing import Any, Dict, Optional
 
 from app.services.attachment_metadata.base import (
+    IMAGE_PIXEL_BUDGET,
     AttachmentMetadataExtractor,
     FileMetadataExtractor,
     MetadataResult,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _located_text(parts, separator="\n\n"):
+    """Join extracted sections while retaining canonical character locators."""
+    texts, locations, offset = [], [], 0
+    for text, locator in parts:
+        if not text:
+            continue
+        if texts:
+            offset += len(separator)
+        texts.append(text)
+        locations.append({"start": offset, "end": offset + len(text), **locator})
+        offset += len(text)
+    return separator.join(texts), locations
 
 
 def _safe_import(module: str):
@@ -129,6 +144,7 @@ class PdfExtractor(FileMetadataExtractor):
 
         type_specific: Dict[str, Any] = {}
         text_pieces: list[str] = []
+        page_numbers: list[int] = []
         page_count: Optional[int] = None
         partial = False
         encrypted = False
@@ -174,7 +190,7 @@ class PdfExtractor(FileMetadataExtractor):
                         page_count = len(pdf.pages)
                     if len(pdf.pages) > 200:
                         partial = True
-                    for page in islice(pdf.pages, 200):
+                    for page_number, page in enumerate(islice(pdf.pages, 200), 1):
                         try:
                             chunk = page.extract_text() or ""
                         except Exception:  # noqa: BLE001
@@ -187,18 +203,28 @@ class PdfExtractor(FileMetadataExtractor):
                                     "utf-8", errors="replace"
                                 )
                             )
+                            page_numbers.append(page_number)
                             partial = True
                             break
                         running += len(encoded)
                         text_pieces.append(chunk)
+                        page_numbers.append(page_number)
+                        if not chunk.strip():
+                            partial = True  # No claim that an image-only page was read.
             except Exception as e:  # noqa: BLE001
                 logger.warning("pdfplumber failed on %r: %s", filename, e)
                 partial = True
 
+        text, locations = _located_text(
+            zip(text_pieces, ({"page": n} for n in page_numbers))
+        )
+        type_specific["text_locations"] = locations
+        if pdfplumber is None and page_count:
+            partial = True
         return MetadataResult(
             common={"page_count": page_count} if page_count is not None else {},
             type_specific=type_specific,
-            extracted_text="\n\n".join(p for p in text_pieces if p),
+            extracted_text=text,
             page_count=page_count,
             partial=partial,
         )
@@ -284,12 +310,23 @@ class DocxExtractor(FileMetadataExtractor):
                 headings.append(text)
         type_specific["headings"] = headings
         type_specific["word_count"] = word_count
+        # Tables carry document facts too; paragraph-only extraction loses them.
+        table_partial = len(doc.tables) > 200
+        for table_number, table in enumerate(islice(doc.tables, 200), 1):
+            text_pieces.append(f"Table {table_number}")
+            table_partial = table_partial or len(table.rows) > 200
+            for row in islice(table.rows, 200):
+                cells = list(islice(row.cells, 128))
+                table_partial = table_partial or len(row.cells) > 128
+                text_pieces.append(" | ".join(cell.text.strip() for cell in cells))
 
         return MetadataResult(
             common={},
             type_specific=type_specific,
             extracted_text="\n".join(text_pieces),
-            partial=len(doc.paragraphs) > 10_000,
+            partial=len(doc.paragraphs) > 10_000
+            or table_partial
+            or bool(doc.inline_shapes),
         )
 
 
@@ -337,7 +374,9 @@ class XlsxExtractor(FileMetadataExtractor):
         sheets: list[Dict[str, Any]] = []
         text_pieces: list[str] = []
         formula_count = 0
+        sheet_parts = []
         for name in wb.sheetnames[:20]:
+            first = len(text_pieces)
             ws = wb[name]
             sheet_info = {
                 "name": name,
@@ -357,18 +396,22 @@ class XlsxExtractor(FileMetadataExtractor):
                     if sv.startswith("="):
                         formula_count += 1
                     text_pieces.append(sv)
+            sheet_parts.append(("\n".join(text_pieces[first:]), {"sheet": name}))
         wb.close()
 
         type_specific: Dict[str, Any] = {
             "sheets": sheets,
+            "sheet_names": wb.sheetnames[:20],
             "sheet_count": len(wb.sheetnames),
             "formula_count_sampled": formula_count,
         }
+        text, locations = _located_text(sheet_parts)
+        type_specific["text_locations"] = locations
 
         return MetadataResult(
             common={},
             type_specific=type_specific,
-            extracted_text="\n".join(text_pieces),
+            extracted_text=text,
             partial=len(wb.sheetnames) > 20
             or any(sheet["rows"] > 200 or sheet["cols"] > 128 for sheet in sheets),
         )
@@ -418,7 +461,9 @@ class PptxExtractor(FileMetadataExtractor):
         slide_titles: list[str] = []
         notes: list[str] = []
         text_pieces: list[str] = []
-        for slide in islice(pres.slides, 200):
+        slide_parts = []
+        for slide_number, slide in enumerate(islice(pres.slides, 200), 1):
+            first = len(text_pieces)
             title = ""
             for shape in slide.shapes:
                 if shape.has_text_frame:
@@ -426,7 +471,7 @@ class PptxExtractor(FileMetadataExtractor):
                     if chunk:
                         if (
                             not title
-                            and shape.placeholder_format
+                            and shape.is_placeholder
                             and (shape.placeholder_format.idx == 0)
                         ):
                             title = chunk.split("\n", 1)[0]
@@ -437,17 +482,22 @@ class PptxExtractor(FileMetadataExtractor):
                 if note_text:
                     notes.append(note_text)
                     text_pieces.append(note_text)
+            slide_parts.append(
+                ("\n\n".join(text_pieces[first:]), {"slide": slide_number})
+            )
 
         type_specific: Dict[str, Any] = {
             "slide_count": len(pres.slides),
             "slide_titles": slide_titles,
             "speaker_notes": notes,
         }
+        text, locations = _located_text(slide_parts)
+        type_specific["text_locations"] = locations
 
         return MetadataResult(
             common={"page_count": len(pres.slides)},
             type_specific=type_specific,
-            extracted_text="\n\n".join(text_pieces),
+            extracted_text=text,
             page_count=len(pres.slides),
             partial=len(pres.slides) > 200,
         )
@@ -474,6 +524,15 @@ class ImageExtractor(FileMetadataExtractor):
                 width, height = im.size
                 format_ = im.format
                 mode = im.mode
+                if width * height > IMAGE_PIXEL_BUDGET:
+                    # Some formats load pixels while reading EXIF. Keep even
+                    # native property extraction within the image memory bound.
+                    return MetadataResult(
+                        width=width,
+                        height=height,
+                        partial=True,
+                        type_specific={"format": format_, "mode": mode},
+                    )
                 exif = {}
                 try:
                     raw_exif = im.getexif() or {}

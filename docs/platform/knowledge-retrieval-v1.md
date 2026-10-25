@@ -1,12 +1,12 @@
 # Integral semantic search improvement plan and contract — proposal v1
 
-**Status:** Approved direction; index hardening, model migration and App discovery implementation in review. The migration, broader integration and production qualification gates below remain open.
-**Date:** 24 October 2026. **Draft revision:** 6 — bounded model-routing overhead and turn-owned cloud transport; remaining gates explicit.
+**Status:** Approved direction; index hardening, model migration, App discovery and attachment evidence implemented in the RC33 candidate. Broader lifecycle, restore, retention and production qualification gates below remain open.
+**Date:** 25 October 2026. **Draft revision:** 7 — attachment delivery and release boundary reconciled; remaining gates explicit.
 **Decision owner:** Integral product architect, with retrieval, runtime, authorization, SDK and frontend engineering review.
-**Implementation base:** `main` at `37219ddee21690429455a170393e49dbb7f1eed2`, including merged #171, #172 and #176. PR #173 remains a separate draft on `codex/semantic-search-hardening`; it is not a release or production deployment.
+**Implementation base:** `main` at `37219ddee21690429455a170393e49dbb7f1eed2`, including merged #171, #172 and #176. PR #173 supplies search hardening; its stacked follow-on #177 supplies attachment evidence and the RC33 version declaration. A candidate version does not establish publication or production deployment.
 **Decision record:** [ADR-017](../backend/adr/017-graph-guided-knowledge-retrieval.md).
 
-This document records the delivery contract and remaining implementation plan. The [current indexing guide](../backend/semantic-indexing.md) and [voice and embedding guide](../backend/voice-and-embedding-models.md) describe shipped behavior. Requirements below are proposed obligations, not claims that the baseline already meets them. This revision replaces the unimplemented embedding-free proposal.
+This document records the delivery contract and remaining implementation plan. The [current indexing guide](../backend/semantic-indexing.md) and [voice and embedding guide](../backend/voice-and-embedding-models.md) describe implemented behavior. Requirements below are proposed obligations, not claims that the baseline already meets them. This revision replaces the unimplemented embedding-free proposal.
 
 ## Implementation boundary
 
@@ -33,9 +33,21 @@ marked as context rather than a ranked match. The resident must not treat a
 record label as answer evidence; insufficient passages require an authorized
 source read or an explicit statement that the detail is unavailable.
 
+The attachment follow-on adds canonical file sources to the Entry passage
+adapter: allowlisted file properties, native PDF/Office/text extraction, section
+locators and source-bound multimodal image descriptions and visible text. It
+does not use OCR. File-kind/filename selectors narrow candidates before ranking;
+blank queries support bounded file discovery. Search rechecks current parent
+edges, access, scan state and file hashes. Model analysis runs as leased,
+stateless background work through the existing model admission/accounting plane,
+with no tools, chat history or workspace inventory. Unsupported adapters do not
+fund these calls. Attachment-free fingerprints remain compatible with existing
+indexes. See [attachment contracts](../backend/attachment-agent-contract.md) for
+the resource bounds and partial-coverage behavior.
+
 This is not a claim that every exit gate below has passed. The broader schema/restore/lifecycle invalidation audit, resumable passage-level scheduling, full workspace fairness, query-vector caching, pooled provider transports, cleanup/retention, qualified rollback and production quality/resource gates remain open. Existing Track status still uses bounded diagnostics; workspace migration verification is separately paged without a 1,000-source completion shortcut. Local transaction and browser evidence cannot establish a cloud capacity or freshness SLA.
 
-The qualification suite includes real encoder/PostgreSQL tests, a scoped ANN exact oracle, authority regressions and a populated browser preview. Production hardware sizing, a held-out 200-query relevance set, 100-tenant load cells and a two-hour container soak remain release gates. Do not treat this initial PR as approval to promise the SLOs in section 12 or increase production workers.
+The qualification suite includes real encoder/PostgreSQL tests, a scoped ANN exact oracle, authority regressions and a populated browser preview. Production hardware sizing, a held-out 200-query relevance set, 100-tenant load cells and a two-hour container soak remain production-promotion gates. Do not treat this candidate as approval to promise the SLOs in section 12 or increase production workers.
 
 ## 1. Outcome and architectural decision
 
@@ -57,7 +69,7 @@ Embedding models and chat Light/Heavy profiles are independent. Changing a chat 
 
 ### 1.2 Non-goals for this delivery
 
-No universal ontology induction, arbitrary reasoning engine, automatic workspace-wide summaries, cross-workspace federation or separate Markdown authority store. Attachment extraction, comments, OCR and voice transcripts need explicit source adapters and access/provenance contracts; current Entry text coverage must never be advertised as coverage of those sources. OKF export/import remains optional later interoperability work. Search results cannot establish complete collections or exact totals.
+No universal ontology induction, arbitrary reasoning engine, automatic workspace-wide summaries, cross-workspace federation or separate Markdown authority store. Comments, audio/video content and image-only document pages need additional source adapters and access/provenance qualification; Entry/attachment text coverage must never be advertised as coverage of those sources. Images use configured multimodal models, without OCR. OKF export/import remains optional later interoperability work. Search results cannot establish complete collections or exact totals.
 
 ## 2. Verified baseline and critical findings
 

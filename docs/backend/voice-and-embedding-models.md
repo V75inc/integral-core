@@ -6,7 +6,8 @@ and integration gates. This guide describes the implemented configuration.
 
 Settings → AI Models → Models groups configuration into a single-open accordion:
 Language & multimodal (existing chat profiles and Light/Heavy routing), Embeddings
-(workspace semantic search), and Voice (transcription). Providers remains the
+(workspace semantic search), Images and documents (attachment processing), and
+Voice (transcription). Providers remains the
 single private connection/key catalog. Model editors use those saved connections;
 Voice input owns microphone, language and shortcut preferences and links back to
 AI Models. Mutation results use toasts; failed editors retain drafts.
@@ -69,6 +70,22 @@ explicitly disabled; unsupported/oversized input fails rather than silently
 publishing partial text. Old local format-v2 identities remain stable. Retained
 old spaces are derived data; this change does not add a vector-retention cleanup
 policy.
+
+## Images and documents
+
+The workspace owner controls automatic image processing under Images and
+documents. The deployment setting `ATTACHMENT_IMAGE_DESCRIPTIONS_ENABLED` must
+also permit it; unsupported stores expose the feature as unavailable. Native
+document text extraction remains separate from this image setting.
+
+Image analysis uses the configured Heavy model if it supports vision, otherwise
+the configured vision-capable Light model. It does not require another provider
+key or an embedding model. With no compatible route, images retain file details
+without generated descriptions. Automatic processing sends a resized image to
+that provider and can incur usage charges; turning it off prevents new admitted
+analysis, but cannot recall a request already dispatched. Analysis has no chat
+history or tools. See the [attachment contract](attachment-agent-contract.md)
+for access checks, source identity, format limits and reprocessing behavior.
 
 ## Voice choice
 

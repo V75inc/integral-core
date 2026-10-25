@@ -34,6 +34,35 @@ async def _body(request: Request, schema):
         ) from None
 
 
+@endpoint(
+    "/users/me/attachment-analysis", methods=["GET"], auth=True, tags=["AI Models"]
+)
+async def get_attachment_analysis_configuration(request: Request) -> dict:
+    """Read automatic image processing for the authenticated workspace."""
+    from app.services.attachment_metadata.configuration import describe
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = resolve_principal_id(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    return await describe(user_id, workspace_id)
+
+
+@endpoint(
+    "/users/me/attachment-analysis", methods=["POST"], auth=True, tags=["AI Models"]
+)
+async def save_attachment_analysis_configuration(request: Request) -> dict:
+    """Save revision-bound, owner-controlled image analysis policy."""
+    from app.schemas.attachment_analysis import AttachmentAnalysisWrite
+    from app.services.attachment_metadata.configuration import save
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = resolve_principal_id(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    return await save(
+        user_id, workspace_id, await _body(request, AttachmentAnalysisWrite)
+    )
+
+
 async def _mutate(request: Request, operation, *, action: str) -> Any:
     user_id = resolve_principal_id(request)
     try:

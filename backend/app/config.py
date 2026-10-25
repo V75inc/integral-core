@@ -484,7 +484,8 @@ class Settings(BaseSettings):
     # Current metadata extractor schema version. Attachments with
     # ``metadata_extractor_version`` below this value are re-extracted on
     # demand (via /attachments/{id}/reprocess or a future admin sweep).
-    ATTACHMENT_METADATA_EXTRACTOR_VERSION: int = 1
+    ATTACHMENT_METADATA_EXTRACTOR_VERSION: int = 2
+    ATTACHMENT_IMAGE_DESCRIPTIONS_ENABLED: bool = True
     # Metadata has a separate resource budget from storing/downloading files.
     ATTACHMENT_METADATA_MAX_BYTES: int = 50 * 1024 * 1024
     ATTACHMENT_METADATA_CONCURRENCY: int = 2

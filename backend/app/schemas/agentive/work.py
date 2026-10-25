@@ -24,6 +24,7 @@ WorkKind = Literal[
     "capability",
     "chat_turn",
     "chat_title",
+    "attachment_analysis",
     "routine_turn",
     "approval_resume",
     "event_trigger",

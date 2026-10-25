@@ -182,6 +182,10 @@ async def retrieve(request: Request) -> Any:
     requested_mode = payload.mode
     effective_mode = requested_mode
     degraded = False
+    if (
+        payload.attachment_kind is not None or payload.attachment_filename
+    ) and not payload.query.strip():
+        effective_mode = "graph"
     if requested_mode in ("semantic", "hybrid") and not semantic_retrieval_available():
         _warn_degraded_once(requested_mode)
         effective_mode = "graph"
@@ -332,7 +336,12 @@ async def _dispatch_retrieve_modes(
         from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
 
         driver = get_embedding_store()
-        if isinstance(driver, PgVectorEmbeddingStore) and requested_mode != "graph":
+        attachment_search = payload.attachment_kind is not None or bool(
+            payload.attachment_filename
+        )
+        if isinstance(driver, PgVectorEmbeddingStore) and (
+            requested_mode != "graph" or attachment_search
+        ):
             from app.services.retrieval.search_service import retrieve_passages
 
             found, dropped, examined, mode, _ = await retrieve_passages(
@@ -343,6 +352,12 @@ async def _dispatch_retrieve_modes(
                 top_n=top_n,
             )
             return found, dropped, examined, mode, degraded
+        if attachment_search:
+            from app.api.errors import ServiceUnavailableError
+
+            raise ServiceUnavailableError(
+                message="Attachment search needs the PostgreSQL passage index on this deployment"
+            )
         if effective_mode == "graph":
             results, dropped, examined = await _retrieve_graph(
                 subject, payload, k=k, top_n=top_n
@@ -383,6 +398,12 @@ async def _dispatch_retrieve_modes(
             except Exception as fallback_error:
                 if not _is_vector_store_unavailable(fallback_error):
                     raise
+        if payload.attachment_kind is not None or payload.attachment_filename:
+            from app.api.errors import ServiceUnavailableError
+
+            raise ServiceUnavailableError(
+                message="Attachment search is temporarily unavailable; file discovery was not completed"
+            ) from exc
         results, dropped, examined = await _retrieve_graph(
             subject, payload, k=k, top_n=top_n
         )

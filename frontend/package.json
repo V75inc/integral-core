@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc && vite build",
+    "build:assets": "vite build",
     "dev": "vite --port 9006 --host 0.0.0.0",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

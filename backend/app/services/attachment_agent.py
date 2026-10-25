@@ -36,6 +36,18 @@ from app.utils.time import utc_now_iso
 _LIST_OMIT_FIELDS = ("extracted_text",)
 
 
+def _agent_metadata(attachment: Attachment) -> dict:
+    """Keep internal section maps and duplicate image bodies out of context."""
+    metadata = dict(attachment.metadata or {})
+    metadata.pop("semantic", None)
+    typed = metadata.get("type_specific")
+    if isinstance(typed, dict):
+        metadata["type_specific"] = {
+            key: value for key, value in typed.items() if key != "text_locations"
+        }
+    return metadata
+
+
 async def _require_entry_read(user_id: str, entry: Entry) -> None:
     if not await _can_read_entry(user_id, entry):
         raise PermissionError(
@@ -77,7 +89,14 @@ async def _attachment_summary_items(
     for a in visible:
         item = await export_node(a)
         await enrich_attachment_export(item, a)
+        item["metadata"] = _agent_metadata(a)
         body = item.get("extracted_text") or ""
+        if a.mime_type.startswith("image/"):
+            from app.services.attachment_metadata.observations import (
+                image_description_text,
+            )
+
+            body = image_description_text(a)
         for field in _LIST_OMIT_FIELDS:
             item.pop(field, None)
         item["has_text"] = bool(body)
@@ -268,7 +287,7 @@ async def resolve_readable_attachment(
     other users' chat attachments all read as "not found". Shared by every
     agent-facing attachment read (text, transcription).
     """
-    attachment = await Attachment.get(attachment_id)
+    attachment = await Attachment.find_one({"id": attachment_id})
     if not attachment or not is_visible_to_user(attachment):
         raise ValueError("Attachment not found")
 
@@ -302,6 +321,13 @@ async def get_attachment_text(
     attachment, _, _ = await resolve_readable_attachment(user_id, attachment_id)
 
     full = getattr(attachment, "extracted_text", "") or ""
+    origin = "extracted_text"
+    if attachment.mime_type.startswith("image/"):
+        from app.services.attachment_metadata.observations import image_description_text
+
+        full = image_description_text(attachment)
+        origin = "generated_description" if full else "file_metadata"
+    metadata = _agent_metadata(attachment)
     truncated = len(full) > cap
     text = full[:cap]
 
@@ -311,11 +337,12 @@ async def get_attachment_text(
         "mime_type": getattr(attachment, "mime_type", "") or "",
         "metadata_status": getattr(attachment, "metadata_status", "") or "",
         "page_count": getattr(attachment, "page_count", None),
-        "metadata": getattr(attachment, "metadata", {}) or {},
+        "metadata": metadata,
         "text": text,
         "char_count": len(text),
         "truncated": truncated,
         "content_untrusted": True,
+        "content_origin": origin,
     }
 
 
