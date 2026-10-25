@@ -80,15 +80,47 @@ completion. Request `POST /api/tracks/{id}/search-index/reindex` to repair or fo
 a rebuild, then inspect status and retrieve a saved paraphrase plus an exact
 identifier. Check the cited record and test revoked access separately.
 
-A model/profile change starts a separate space and backfill. Old profile rows
-are retained and are not a fallback for a different model. Track their storage
-cost; no automatic old-profile pruning is promised. Semantic outages fall back
-to canonical keyword reads with a retry cooldown. Failed indexing jobs retry;
+A model/profile change starts a separate build while queries pin the serving
+profile. Activation requires verified source coverage and committed-intent
+catch-up. Continuing calls to a previous provider requires explicit consent;
+without it, the existing authorized projection can still serve keyword matches.
+Use Settings → AI Models → Embeddings to inspect serving/building progress and
+cancel a pending change. Cancellation rechecks the current owner, revision and
+provider authority; it is not qualified rollback to an arbitrary old snapshot.
+
+Old profile rows are retained and are not vectors for a different model. Track
+their storage cost; no automatic old-profile pruning is promised. Semantic
+outages retain the independent keyword path where available, with a retry
+cooldown. Failed indexing jobs retry;
 correct the deployment or source error and inspect coverage again. Keep the
 canonical graph and its index intent in backups. Restored or missing derived
 passages can be rebuilt from that graph. See the
 [indexing guide](../backend/semantic-indexing.md) for lifecycle details and the
 [qualification procedure](QUALIFICATION.md#retrieval-qualification) before promotion.
+
+### Upgrading an existing search deployment
+
+Back up the canonical graph, attachment bytes and required encryption keys before
+changing the pinned artifact. Preserve existing model selections and identifiers;
+do not delete data or reseed a workspace to refresh a derived index. Verify the
+installed Core version in Settings → About after upgrading.
+
+Existing attachment-free fingerprints remain compatible. For attachment-enabled
+Tracks, inspect the current `search_index.attachments` selection and coverage.
+Use a permitted attachment's metadata panel → Reprocess when existing document
+text or image observations need regeneration, then verify a file-specific search
+and open its cited Entry. A Track reindex rebuilds the selected projection; it
+does not substitute for extracting missing file content. Enabling image analysis
+does not itself process every existing file or establish complete coverage.
+
+Automatic image analysis requires PostgreSQL passage storage, transactional work
+and a configured vision-capable model. Review Settings → AI Models → Images and
+documents before processing a populated workspace: analysis can send image
+content to its configured provider. Confirm the deployment and workspace policy,
+provider budget and [attachment limits](../backend/attachment-agent-contract.md).
+No OCR is used; image-only document pages and audio/video content remain outside
+the indexed-content coverage. Validate restore and resource/relevance targets
+separately before production promotion.
 
 ## Backup and restore
 

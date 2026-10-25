@@ -6,6 +6,21 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc33 — 2026-10-25
+
+- Strengthen semantic and hybrid search with independent lexical indexing, bounded candidate ranking, integrity manifests, repair and reuse of verified unchanged vectors.
+- Build embedding model changes in a separate space before verified activation; keep serving/building progress visible and support revision-bound cancellation. Previous-provider use requires explicit continuation consent.
+- Give focused resident lookups direct access to the governed query surface, bound automatic Light routing and reuse guarded custom-provider connections within a turn.
+- Reduce Feed/Track page hydration and redundant type lookups; preserve ranked search results through authorized list APIs and avoid retry storms after rate limiting.
+- Index canonical attachment metadata, native document text and source-bound image descriptions/visible text from configured multimodal models, without OCR. Add image-processing controls and file-specific search selectors while preserving live access, scan state and source identity.
+- Streamline local verification and parallelize contract/PostgreSQL qualification with isolated worker databases, bounded pools and retained reports. Preserve all qualification lanes and cross-process exactly-once checks.
+
+See [search rollout and recovery](docs/ops/DEPLOY.md#search-rollout-and-recovery)
+before upgrading an existing index. Scanned document pages, audio/video content,
+qualified rollback/retention and production relevance/capacity targets remain
+outside this release's completed qualification. Publication and deployment are
+separate from this version declaration.
+
 ## 0.1.1rc32 — 2026-10-24
 
 - Bound resident-harness context and model-call history, improve turn compaction and refresh the qualified Pydantic AI runtime.

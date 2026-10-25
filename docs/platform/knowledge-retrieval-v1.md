@@ -1,12 +1,12 @@
 # Integral semantic search improvement plan and contract — proposal v1
 
-**Status:** Approved direction; index hardening, model migration and App discovery implementation in review. The migration, broader integration and production qualification gates below remain open.
-**Date:** 24 October 2026. **Draft revision:** 6 — bounded model-routing overhead and turn-owned cloud transport; remaining gates explicit.
+**Status:** Approved direction; index hardening, model migration, App discovery and attachment evidence implemented in the RC33 candidate. Broader lifecycle, restore, retention and production qualification gates below remain open.
+**Date:** 25 October 2026. **Draft revision:** 7 — attachment delivery and release boundary reconciled; remaining gates explicit.
 **Decision owner:** Integral product architect, with retrieval, runtime, authorization, SDK and frontend engineering review.
-**Implementation base:** `main` at `37219ddee21690429455a170393e49dbb7f1eed2`, including merged #171, #172 and #176. PR #173 remains a separate draft on `codex/semantic-search-hardening`; it is not a release or production deployment.
+**Implementation base:** `main` at `37219ddee21690429455a170393e49dbb7f1eed2`, including merged #171, #172 and #176. PR #173 supplies search hardening; its stacked follow-on #177 supplies attachment evidence and the RC33 version declaration. A candidate version does not establish publication or production deployment.
 **Decision record:** [ADR-017](../backend/adr/017-graph-guided-knowledge-retrieval.md).
 
-This document records the delivery contract and remaining implementation plan. The [current indexing guide](../backend/semantic-indexing.md) and [voice and embedding guide](../backend/voice-and-embedding-models.md) describe shipped behavior. Requirements below are proposed obligations, not claims that the baseline already meets them. This revision replaces the unimplemented embedding-free proposal.
+This document records the delivery contract and remaining implementation plan. The [current indexing guide](../backend/semantic-indexing.md) and [voice and embedding guide](../backend/voice-and-embedding-models.md) describe implemented behavior. Requirements below are proposed obligations, not claims that the baseline already meets them. This revision replaces the unimplemented embedding-free proposal.
 
 ## Implementation boundary
 
@@ -47,7 +47,7 @@ the resource bounds and partial-coverage behavior.
 
 This is not a claim that every exit gate below has passed. The broader schema/restore/lifecycle invalidation audit, resumable passage-level scheduling, full workspace fairness, query-vector caching, pooled provider transports, cleanup/retention, qualified rollback and production quality/resource gates remain open. Existing Track status still uses bounded diagnostics; workspace migration verification is separately paged without a 1,000-source completion shortcut. Local transaction and browser evidence cannot establish a cloud capacity or freshness SLA.
 
-The qualification suite includes real encoder/PostgreSQL tests, a scoped ANN exact oracle, authority regressions and a populated browser preview. Production hardware sizing, a held-out 200-query relevance set, 100-tenant load cells and a two-hour container soak remain release gates. Do not treat this initial PR as approval to promise the SLOs in section 12 or increase production workers.
+The qualification suite includes real encoder/PostgreSQL tests, a scoped ANN exact oracle, authority regressions and a populated browser preview. Production hardware sizing, a held-out 200-query relevance set, 100-tenant load cells and a two-hour container soak remain production-promotion gates. Do not treat this candidate as approval to promise the SLOs in section 12 or increase production workers.
 
 ## 1. Outcome and architectural decision
 

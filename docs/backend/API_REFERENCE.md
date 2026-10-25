@@ -288,6 +288,8 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | Methods | Declared path | Handler |
 |---|---|---|
 | GET | `/users/me/ai-configuration` | [get_configuration](../../backend/app/api/ai_configuration.py) |
+| GET | `/users/me/attachment-analysis` | [get_attachment_analysis_configuration](../../backend/app/api/ai_configuration.py) |
+| POST | `/users/me/attachment-analysis` | [save_attachment_analysis_configuration](../../backend/app/api/ai_configuration.py) |
 | POST | `/users/me/conversation-model` | [conversation_model](../../backend/app/api/ai_configuration.py) |
 | GET | `/users/me/embedding-configuration` | [get_embedding_configuration](../../backend/app/api/ai_configuration.py) |
 | POST | `/users/me/embedding-configuration` | [save_embedding_configuration](../../backend/app/api/ai_configuration.py) |

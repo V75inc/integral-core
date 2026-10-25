@@ -1446,7 +1446,25 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "get_configuration",
-    "line": 57
+    "line": 86
+  },
+  {
+    "path": "/users/me/attachment-analysis",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "get_attachment_analysis_configuration",
+    "line": 40
+  },
+  {
+    "path": "/users/me/attachment-analysis",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_configuration.py",
+    "handler": "save_attachment_analysis_configuration",
+    "line": 53
   },
   {
     "path": "/users/me/conversation-model",
@@ -1455,7 +1473,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "conversation_model",
-    "line": 209
+    "line": 238
   },
   {
     "path": "/users/me/embedding-configuration",
@@ -1464,7 +1482,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "get_embedding_configuration",
-    "line": 252
+    "line": 281
   },
   {
     "path": "/users/me/embedding-configuration",
@@ -1473,7 +1491,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "save_embedding_configuration",
-    "line": 265
+    "line": 294
   },
   {
     "path": "/users/me/embedding-configuration/cancel",
@@ -1482,7 +1500,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "cancel_embedding_configuration",
-    "line": 286
+    "line": 315
   },
   {
     "path": "/users/me/embedding-configuration/test",
@@ -1491,7 +1509,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "test_embedding_configuration",
-    "line": 307
+    "line": 336
   },
   {
     "path": "/users/me/model-capabilities",
@@ -1500,7 +1518,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "capabilities",
-    "line": 123
+    "line": 152
   },
   {
     "path": "/users/me/model-connections",
@@ -1509,7 +1527,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "save_connection",
-    "line": 132
+    "line": 161
   },
   {
     "path": "/users/me/model-connections/remove",
@@ -1518,7 +1536,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "remove_connection",
-    "line": 161
+    "line": 190
   },
   {
     "path": "/users/me/model-connections/test",
@@ -1527,7 +1545,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "test_connection",
-    "line": 145
+    "line": 174
   },
   {
     "path": "/users/me/model-profiles",
@@ -1536,7 +1554,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "save_profile",
-    "line": 172
+    "line": 201
   },
   {
     "path": "/users/me/model-profiles/activate",
@@ -1545,7 +1563,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "activate_profile",
-    "line": 183
+    "line": 212
   },
   {
     "path": "/users/me/model-profiles/remove",
@@ -1554,7 +1572,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "remove_profile",
-    "line": 196
+    "line": 225
   },
   {
     "path": "/users/me/model-routing",
@@ -1563,7 +1581,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "configure_routing",
-    "line": 239
+    "line": 268
   },
   {
     "path": "/users/me/voice-configuration",
@@ -1572,7 +1590,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "get_voice_configuration",
-    "line": 325
+    "line": 354
   },
   {
     "path": "/users/me/voice-configuration",
@@ -1581,7 +1599,7 @@
     ],
     "source": "backend/app/api/ai_configuration.py",
     "handler": "save_voice_configuration",
-    "line": 339
+    "line": 368
   },
   {
     "path": "/extension-view-frame",
@@ -2148,7 +2166,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "delete_attachment",
-    "line": 1652
+    "line": 1656
   },
   {
     "path": "/attachments/{attachment_id}",
@@ -2166,7 +2184,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "stream_attachment",
-    "line": 839
+    "line": 841
   },
   {
     "path": "/attachments/{attachment_id}/inline",
@@ -2175,7 +2193,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "stream_attachment_inline",
-    "line": 901
+    "line": 903
   },
   {
     "path": "/attachments/{attachment_id}/preview",
@@ -2184,7 +2202,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "stream_attachment_preview",
-    "line": 1086
+    "line": 1090
   },
   {
     "path": "/attachments/{attachment_id}/reprocess",
@@ -2193,7 +2211,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "reprocess_attachment_metadata",
-    "line": 973
+    "line": 975
   },
   {
     "path": "/attachments/{attachment_id}/thumb",
@@ -2202,7 +2220,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "stream_attachment_thumbnail",
-    "line": 1027
+    "line": 1031
   },
   {
     "path": "/chat/threads/{thread_id}/attachments",
@@ -2247,7 +2265,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "download_entry_attachments_zip",
-    "line": 1567
+    "line": 1571
   },
   {
     "path": "/entries/{entry_id}/attachments/url",
@@ -2265,7 +2283,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "start_chunked_upload",
-    "line": 1163
+    "line": 1167
   },
   {
     "path": "/uploads/{session_id}",
@@ -2274,7 +2292,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "cancel_chunked_upload",
-    "line": 1356
+    "line": 1360
   },
   {
     "path": "/uploads/{session_id}",
@@ -2283,7 +2301,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "get_chunked_upload_session",
-    "line": 1212
+    "line": 1216
   },
   {
     "path": "/uploads/{session_id}/chunks/{chunk_index}",
@@ -2292,7 +2310,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "append_chunked_upload_part",
-    "line": 1243
+    "line": 1247
   },
   {
     "path": "/uploads/{session_id}/complete",
@@ -2301,7 +2319,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "complete_chunked_upload",
-    "line": 1282
+    "line": 1286
   },
   {
     "path": "/audit-log",
