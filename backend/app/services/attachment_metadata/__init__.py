@@ -1,4 +1,4 @@
-"""Metadata extraction pipeline for attachments (Phase 1.5).
+"""Metadata extraction and searchable attachment analysis.
 
 Public surface:
 
@@ -22,10 +22,11 @@ are idempotent (overwrites the previous result) and triggered by the
 ``/attachments/{id}/reprocess`` endpoint or by bumping
 ``ATTACHMENT_METADATA_EXTRACTOR_VERSION``.
 
-OCR, ML-derived labels, transcription, embeddings — explicitly out of
-scope for this phase but the ABC accommodates them without schema
-churn (just register a new extractor that targets ``image/*`` or
-``audio/*``). On-demand transcription for the agent exists separately —
+Image content is interpreted by a configured multimodal model in leased
+background work, not by an OCR extractor. Descriptions and model-read text
+are source-bound, labeled generated observations. Native document text and
+allowlisted file metadata join the ordinary passage index. Search never
+downloads files or invokes a model. On-demand transcription exists separately —
 ``integral_transcribe_audio`` in ``app/agentive/services/speech`` — and
 deliberately persists nothing, so it is not an extractor.
 """

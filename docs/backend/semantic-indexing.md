@@ -27,7 +27,8 @@ Track `search_index` is a complete declaration:
   "fields": ["title", "body", "custom_fields.summary"],
   "exclude_fields": ["custom_fields.internal_notes"],
   "entry_type_ids": [],
-  "metadata_fields": []
+  "metadata_fields": [],
+  "attachments": "content"
 }
 ```
 
@@ -56,9 +57,27 @@ entry_types:
 ```
 
 `metadata_fields` stores selected scalar values as derived metadata. It does
-not create a new public metadata-filter API. Text selection does not
-implicitly include attachment bytes/extracted text, comments or linked records;
-those need an explicit supported canonical text field or future adapter.
+not create a new public metadata-filter API. Comments and linked records are
+not implicitly included. `attachments` separately selects `none`, `metadata`
+or `content` (default). EntryType declarations can narrow this selection.
+Files must belong to the current Entry through `HAS_ATTACHMENT`; a scalar
+attachment ID cache cannot authorize indexing or retrieval.
+
+Attachment content consists of native document text and, for images, observations
+from a configured multimodal model. There is no OCR step. Generated descriptions
+include model-read visible text and descriptive keywords, bound to the file's
+content hash. They remain generated observations rather than canonical facts or
+instructions. Without a configured vision-capable model, only image file details
+are available. Scanned PDF pages do not silently become searchable image text.
+
+File passages return `attachment_id`, `filename`, `content_origin`, extraction
+status and page/slide/sheet locations when available. Retrieval rechecks the
+current file parent, scan state, source hash, selection and Entry permission.
+Parsing and image analysis run in background work, never during search. Use
+`attachment_kind` or a literal `attachment_filename` substring to narrow file
+evidence; an empty query with a file filter supports discovery without an
+embedding request. A bounded result is not proof of uniqueness or complete
+workspace coverage.
 
 ## Delivery and recovery
 

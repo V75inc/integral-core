@@ -12,7 +12,7 @@ import json
 import os
 import re
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -34,6 +34,7 @@ class IndexDefinition(BaseModel):
     exclude_fields: list[str] = Field(default_factory=list, max_length=64)
     entry_type_ids: list[str] = Field(default_factory=list, max_length=64)
     metadata_fields: list[str] = Field(default_factory=list, max_length=32)
+    attachments: Literal["none", "metadata", "content"] = "content"
     model_config = {"extra": "forbid"}
 
     @field_validator("fields", "exclude_fields", "metadata_fields")
@@ -135,7 +136,10 @@ def split_passages(
     result = []
     seen = set()
     for field, text in texts.items():
-        if digest(text) in seen:
+        # A file is an independently citable source even when its wording
+        # equals another file or the Entry body. Vector reuse remains keyed to
+        # encoder input; passage identity must retain the attachment reference.
+        if not field.startswith("attachments.") and digest(text) in seen:
             continue
         seen.add(digest(text))
         encoding = tokenizer.encode(text, add_special_tokens=False)

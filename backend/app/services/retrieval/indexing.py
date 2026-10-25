@@ -28,20 +28,18 @@ ENTITY = "EntryIndexJob"
 CURSOR = "o.EntryIndexCursor.v1"
 
 
-async def index_document(entry: Any, *, location=None, schemas=None) -> dict | None:
-    """Compose selected current canonical content and its source fingerprint."""
+async def entry_index_definition(
+    entry: Any, track_id: str, *, schemas=None
+) -> IndexDefinition | None:
+    """Resolve current selection without hydrating any source text or files."""
     from app.models.nodes import EntryType, Track
-    from app.services.resource_location import DATA_APP_STATES, locate_resource
 
-    location = location or await locate_resource(
-        "entry", entry.id, allowed_app_states=DATA_APP_STATES
-    )
-    if location is None or getattr(entry, "status", "") in {"archived", "deleted"}:
+    if getattr(entry, "status", "") in {"archived", "deleted"}:
         return None
     schemas = {} if schemas is None else schemas
-    if location.track_id not in schemas:
-        schemas[location.track_id] = await Track.find_one({"id": location.track_id})
-    track = schemas[location.track_id]
+    if track_id not in schemas:
+        schemas[track_id] = await Track.find_one({"id": track_id})
+    track = schemas[track_id]
     if track is None:
         return None
     declaration = IndexDefinition.model_validate(track.search_index or {})
@@ -73,6 +71,13 @@ async def index_document(entry: Any, *, location=None, schemas=None) -> dict | N
             fields["metadata_fields"] = [
                 p for p in override.metadata_fields if p in declaration.metadata_fields
             ]
+        levels = ["none", "metadata", "content"]
+        fields["attachments"] = levels[
+            min(
+                levels.index(declaration.attachments),
+                levels.index(override.attachments),
+            )
+        ]
 
     # Both declarations are validated. Their bounded exclusion union may be
     # larger than one declaration's input limit; composition only narrows it.
@@ -81,7 +86,30 @@ async def index_document(entry: Any, *, location=None, schemas=None) -> dict | N
         declaration.entry_type_ids and entry.type_id not in declaration.entry_type_ids
     ):
         return None
+    return declaration
+
+
+async def index_document(entry: Any, *, location=None, schemas=None) -> dict | None:
+    """Compose selected current canonical content and its source fingerprint."""
+    from app.services.resource_location import DATA_APP_STATES, locate_resource
+
+    location = location or await locate_resource(
+        "entry", entry.id, allowed_app_states=DATA_APP_STATES
+    )
+    if location is None or getattr(entry, "status", "") in {"archived", "deleted"}:
+        return None
+    declaration = await entry_index_definition(
+        entry, location.track_id, schemas=schemas
+    )
+    if declaration is None:
+        return None
     texts = selected_text(entry, declaration)
+    from .attachment_sources import attachment_sources
+
+    attachment_text, passage_sources = await attachment_sources(
+        entry, declaration.attachments
+    )
+    texts.update(attachment_text)
     if not texts:
         return None
     metadata = {
@@ -105,12 +133,22 @@ async def index_document(entry: Any, *, location=None, schemas=None) -> dict | N
         "texts": texts,
         "metadata": metadata,
         "definition": declaration.model_dump(),
+        "passage_sources": passage_sources,
     }
     # Revision is returned from the current record, not trusted from the index.
     # Tag-only/nonselected edits need no fresh inference; filters are live reads.
-    doc["source_hash"] = digest(
-        {k: v for k, v in doc.items() if k not in {"source_revision", "type_id"}}
-    )
+    fingerprint = {
+        k: v for k, v in doc.items() if k not in {"source_revision", "type_id"}
+    }
+    # An additive file adapter must not invalidate every attachment-free Entry.
+    # Selection is already reflected in texts/sources; preserve their existing
+    # fingerprint when there is no file evidence instead of rebuilding a corpus.
+    fingerprint["definition"] = {
+        k: v for k, v in doc["definition"].items() if k != "attachments"
+    }
+    if not passage_sources:
+        fingerprint.pop("passage_sources")
+    doc["source_hash"] = digest(fingerprint)
     return doc
 
 
@@ -640,6 +678,11 @@ async def indexing_loop() -> None:
 
                 await process_workspace_rebuilds()
                 await process_reindex_requests()
+                from app.services.attachment_metadata.analysis import (
+                    reconcile_attachment_page,
+                )
+
+                await reconcile_attachment_page()
                 await reconcile_page(limit=100)
                 await deliver_index_jobs(
                     limit=_worker_setting("INDEX_WORKER_BATCH_SIZE", 16, 128)

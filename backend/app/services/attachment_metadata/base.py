@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+IMAGE_PIXEL_BUDGET = 16_000_000
+
 
 @dataclass
 class MetadataResult:

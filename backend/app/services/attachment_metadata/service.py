@@ -96,7 +96,13 @@ class MetadataExtractionService:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def extract_now(self, attachment_id: str) -> Attachment:
+    async def extract_now(
+        self,
+        attachment_id: str,
+        *,
+        force_analysis: bool = False,
+        analysis_principal_id: str | None = None,
+    ) -> Attachment:
         """Join overlapping extraction; a later explicit reprocess still runs anew."""
         existing = self._in_flight.get(attachment_id)
         if existing is not None:
@@ -106,14 +112,31 @@ class MetadataExtractionService:
             lambda done: None if done.cancelled() else done.exception()
         )
         self._in_flight[attachment_id] = future
-        return await self._complete_extraction(attachment_id, future)
+        return await self._complete_extraction(
+            attachment_id,
+            future,
+            force_analysis=force_analysis,
+            analysis_principal_id=analysis_principal_id,
+        )
 
     async def _complete_extraction(
-        self, attachment_id: str, future: asyncio.Future
+        self,
+        attachment_id: str,
+        future: asyncio.Future,
+        *,
+        force_analysis: bool = False,
+        analysis_principal_id: str | None = None,
     ) -> Attachment:
         try:
             async with self._slots:
                 result = await self._run_extraction(attachment_id)
+            from .analysis import enqueue_analysis
+
+            # One completed extraction schedules one transform. The explicit
+            # reprocess path must not also enqueue an automatic duplicate.
+            await enqueue_analysis(
+                result, force=force_analysis, principal_id=analysis_principal_id
+            )
             future.set_result(result)
             return result
         except asyncio.CancelledError:
@@ -139,14 +162,27 @@ class MetadataExtractionService:
     async def _record_failure(self, attachment_id: str, message: str) -> None:
         """Do not leave a durable processing indicator after failed/cancelled work."""
         try:
-            attachment = await Attachment.get(attachment_id)
+            attachment = await Attachment.find_one({"id": attachment_id})
             if attachment is not None and attachment.metadata_status == "processing":
-                attachment.metadata_status = "failed"
-                attachment.metadata_error = message
-                attachment.metadata_extractor_version = (
-                    settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
+                # Diagnostic cleanup only, including after cancellation: never
+                # publish text, model output or a new provider request here.
+                context = await attachment.get_context()
+                await context.database.find_one_and_update(
+                    "node",
+                    {
+                        "id": attachment.id,
+                        "entity": "Attachment",
+                        "context.metadata_status": "processing",
+                        "context.content_hash": attachment.content_hash,
+                        "context.storage_key": attachment.storage_key,
+                    },
+                    {
+                        "$set": {
+                            "context.metadata_status": "failed",
+                            "context.metadata_error": message,
+                        }
+                    },
                 )
-                await attachment.save()
         except Exception:
             logger.exception("Could not record metadata failure for %s", attachment_id)
 
@@ -167,10 +203,73 @@ class MetadataExtractionService:
         candidates.sort(key=lambda e: e.priority, reverse=True)
         return candidates[0]
 
+    async def _save_metadata(self, attachment: Attachment) -> None:
+        """Update derived fields only; a late parser cannot resurrect a deleted file."""
+        from jvspatial.core.context import get_default_context
+
+        from .analysis import in_analysis
+
+        fields = {
+            key: getattr(attachment, key)
+            for key in (
+                "metadata",
+                "extracted_text",
+                "metadata_status",
+                "metadata_error",
+                "metadata_extractor_version",
+                "width",
+                "height",
+                "page_count",
+            )
+        }
+
+        async def persist():
+            row = await get_default_context().database.find_one_and_update(
+                "node",
+                {
+                    "id": attachment.id,
+                    "entity": "Attachment",
+                    "context.storage_key": attachment.storage_key,
+                    "context.content_hash": attachment.content_hash,
+                    "context.scan_status": {"$ne": "blocked"},
+                },
+                {"$set": {f"context.{key}": value for key, value in fields.items()}},
+            )
+            if row is None:
+                raise ValueError("Attachment changed or was removed during extraction")
+            if attachment.metadata_status == "processing":
+                return None
+            from app.services.retrieval.indexing import enqueue_entry
+
+            from .analysis import file_parent
+
+            entry, _ = await file_parent(attachment)
+            if entry is not None:
+                # Selected text and its durable index intent commit together.
+                await enqueue_entry(entry)
+            return entry
+
+        execution = in_analysis.get()
+        if execution is not None:
+            from app.agentive.services.work_items import authorized_work_item_effect
+
+            async with authorized_work_item_effect(execution):
+                await persist()
+        else:
+            from app.services.entry_write_scope import entry_write_scope
+
+            async with entry_write_scope(attachment.id):
+                await persist()
+
     async def _run_extraction(self, attachment_id: str) -> Attachment:
-        attachment = await Attachment.get(attachment_id)
+        attachment = await Attachment.find_one({"id": attachment_id})
         if not attachment:
             raise ValueError(f"Attachment {attachment_id} not found")
+        # Keep the extraction's file identity independent of any entity instance
+        # another task obtains through the graph cache during the parser await.
+        attachment = attachment.model_copy()
+        if attachment.scan_status == "blocked":
+            return attachment
 
         # URL attachments and entries without persisted bytes have nothing
         # to extract; mark skipped so the UI can still surface a status.
@@ -179,12 +278,12 @@ class MetadataExtractionService:
             attachment.metadata_extractor_version = (
                 settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
             )
-            await attachment.save()
+            await self._save_metadata(attachment)
             return attachment
 
         attachment.metadata_status = "processing"
         attachment.metadata_error = ""
-        await attachment.save()
+        await self._save_metadata(attachment)
 
         extractor = self._pick_extractor(attachment.mime_type)
         if (
@@ -200,7 +299,7 @@ class MetadataExtractionService:
             attachment.metadata_extractor_version = (
                 settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
             )
-            await attachment.save()
+            await self._save_metadata(attachment)
             return attachment
 
         storage = get_attachment_storage_service()
@@ -208,7 +307,7 @@ class MetadataExtractionService:
         if blob is None:
             attachment.metadata_status = "failed"
             attachment.metadata_error = "Attachment bytes not found in storage."
-            await attachment.save()
+            await self._save_metadata(attachment)
             return attachment
 
         # Write blob to a temp file so extractors that prefer disk
@@ -244,7 +343,7 @@ class MetadataExtractionService:
                 attachment.metadata_extractor_version = (
                     settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
                 )
-                await attachment.save()
+                await self._save_metadata(attachment)
                 return attachment
         finally:
             try:
@@ -257,7 +356,8 @@ class MetadataExtractionService:
         cap = settings.ATTACHMENT_EXTRACTED_TEXT_MAX_BYTES
         text = result.extracted_text or ""
         if len(text.encode("utf-8")) > cap:
-            text = text.encode("utf-8")[:cap].decode("utf-8", errors="replace")
+            text = text.encode("utf-8")[:cap].decode("utf-8", errors="ignore")
+            result.partial = True
         attachment.extracted_text = text
 
         if result.width is not None:
@@ -279,7 +379,7 @@ class MetadataExtractionService:
         attachment.metadata_extractor_version = (
             settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
         )
-        await attachment.save()
+        await self._save_metadata(attachment)
         return attachment
 
 

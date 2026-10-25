@@ -118,7 +118,7 @@ async def test_extraction_joins_scheduled_work_and_waiter_cancel_does_not_restar
     service = MetadataExtractionService(extractors=())
     started, release = asyncio.Event(), asyncio.Event()
     calls = []
-    result = SimpleNamespace(id="attachment")
+    result = SimpleNamespace(id="attachment", source_type="url")
 
     async def run(attachment_id):
         calls.append(attachment_id)
@@ -161,7 +161,7 @@ async def test_extraction_limits_simultaneous_blobs_without_moving_graph_task(
         peak = max(peak, active)
         await release.wait()
         active -= 1
-        return SimpleNamespace(id=attachment_id)
+        return SimpleNamespace(id=attachment_id, source_type="url")
 
     async def request(attachment_id):
         owners[attachment_id] = asyncio.current_task()
@@ -283,24 +283,28 @@ async def test_oversized_metadata_skips_without_reading_the_blob(monkeypatch):
     from app.config import settings
     from app.services.attachment_metadata import service as module
 
-    node = SimpleNamespace(
+    node = module.Attachment(
+        id="n.Attachment.oversized",
         source_type="file",
         storage_key="original",
         size=settings.ATTACHMENT_METADATA_MAX_BYTES + 1,
         mime_type="text/plain",
         metadata_status="",
         metadata_error="",
-        save=AsyncMock(),
     )
-    monkeypatch.setattr(module.Attachment, "get", AsyncMock(return_value=node))
+    monkeypatch.setattr(module.Attachment, "find_one", AsyncMock(return_value=node))
+    service = module.MetadataExtractionService()
+    persist = AsyncMock()
+    monkeypatch.setattr(service, "_save_metadata", persist)
 
     def no_storage():
         raise AssertionError("Oversized metadata must not allocate the blob")
 
     monkeypatch.setattr(module, "get_attachment_storage_service", no_storage)
-    result = await module.MetadataExtractionService().extract_now("attachment")
+    result = await service.extract_now(node.id)
     assert result.metadata_status == "skipped"
     assert "original remains available" in result.metadata_error
+    assert persist.await_count == 2  # Processing, then explicit skipped status.
 
 
 @pytest.mark.asyncio
@@ -330,11 +334,32 @@ async def test_failed_extraction_does_not_leave_a_processing_indicator(monkeypat
 
     owner = asyncio.current_task()
 
-    async def save():
-        assert asyncio.current_task() is owner
+    node = module.Attachment(
+        id="n.Attachment.failed",
+        metadata_status="processing",
+        storage_key="original",
+        content_hash="original",
+    )
 
-    node = SimpleNamespace(metadata_status="processing", metadata_error="", save=save)
-    monkeypatch.setattr(module.Attachment, "get", AsyncMock(return_value=node))
+    async def update(collection, query, values):
+        assert asyncio.current_task() is owner
+        assert collection == "node" and query["id"] == node.id
+        assert query["context.metadata_status"] == "processing"
+        assert query["context.content_hash"] == "original"
+        assert query["context.storage_key"] == "original"
+        assert set(values["$set"]) == {
+            "context.metadata_status",
+            "context.metadata_error",
+        }
+        node.metadata_status = values["$set"]["context.metadata_status"]
+        node.metadata_error = values["$set"]["context.metadata_error"]
+        return {"id": node.id}
+
+    monkeypatch.setattr(module.Attachment, "find_one", AsyncMock(return_value=node))
+    context = SimpleNamespace(database=SimpleNamespace(find_one_and_update=update))
+    monkeypatch.setattr(
+        module.Attachment, "get_context", AsyncMock(return_value=context)
+    )
     service = module.MetadataExtractionService(extractors=())
 
     async def fail(attachment_id):

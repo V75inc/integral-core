@@ -33,6 +33,18 @@ marked as context rather than a ranked match. The resident must not treat a
 record label as answer evidence; insufficient passages require an authorized
 source read or an explicit statement that the detail is unavailable.
 
+The attachment follow-on adds canonical file sources to the Entry passage
+adapter: allowlisted file properties, native PDF/Office/text extraction, section
+locators and source-bound multimodal image descriptions and visible text. It
+does not use OCR. File-kind/filename selectors narrow candidates before ranking;
+blank queries support bounded file discovery. Search rechecks current parent
+edges, access, scan state and file hashes. Model analysis runs as leased,
+stateless background work through the existing model admission/accounting plane,
+with no tools, chat history or workspace inventory. Unsupported adapters do not
+fund these calls. Attachment-free fingerprints remain compatible with existing
+indexes. See [attachment contracts](../backend/attachment-agent-contract.md) for
+the resource bounds and partial-coverage behavior.
+
 This is not a claim that every exit gate below has passed. The broader schema/restore/lifecycle invalidation audit, resumable passage-level scheduling, full workspace fairness, query-vector caching, pooled provider transports, cleanup/retention, qualified rollback and production quality/resource gates remain open. Existing Track status still uses bounded diagnostics; workspace migration verification is separately paged without a 1,000-source completion shortcut. Local transaction and browser evidence cannot establish a cloud capacity or freshness SLA.
 
 The qualification suite includes real encoder/PostgreSQL tests, a scoped ANN exact oracle, authority regressions and a populated browser preview. Production hardware sizing, a held-out 200-query relevance set, 100-tenant load cells and a two-hour container soak remain release gates. Do not treat this initial PR as approval to promise the SLOs in section 12 or increase production workers.
@@ -57,7 +69,7 @@ Embedding models and chat Light/Heavy profiles are independent. Changing a chat 
 
 ### 1.2 Non-goals for this delivery
 
-No universal ontology induction, arbitrary reasoning engine, automatic workspace-wide summaries, cross-workspace federation or separate Markdown authority store. Attachment extraction, comments, OCR and voice transcripts need explicit source adapters and access/provenance contracts; current Entry text coverage must never be advertised as coverage of those sources. OKF export/import remains optional later interoperability work. Search results cannot establish complete collections or exact totals.
+No universal ontology induction, arbitrary reasoning engine, automatic workspace-wide summaries, cross-workspace federation or separate Markdown authority store. Comments, audio/video content and image-only document pages need additional source adapters and access/provenance qualification; Entry/attachment text coverage must never be advertised as coverage of those sources. Images use configured multimodal models, without OCR. OKF export/import remains optional later interoperability work. Search results cannot establish complete collections or exact totals.
 
 ## 2. Verified baseline and critical findings
 

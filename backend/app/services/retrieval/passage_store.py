@@ -242,11 +242,26 @@ class PassageStore:
                     {
                         **document["metadata"],
                         "_integral_type_id": document.get("type_id", ""),
+                        **self._attachment_metadata(document, p),
                     }
                 ),
             )
             for i, p in enumerate(passages)
         ]
+
+    @staticmethod
+    def _attachment_metadata(document, passage) -> dict:
+        source = document.get("passage_sources", {}).get(passage["field"])
+        if not source:
+            return {}
+        mime = source.get("mime_type", "")
+        prefix = mime.partition("/")[0]
+        return {
+            "_integral_attachment_kind": (
+                prefix if prefix in {"image", "audio", "video"} else "document"
+            ),
+            "_integral_attachment_filename": source.get("filename", ""),
+        }
 
     async def _write_lexical(self, conn, document, passages):
         await conn.execute(
@@ -327,6 +342,7 @@ class PassageStore:
                                 {
                                     **document["metadata"],
                                     "_integral_type_id": document.get("type_id", ""),
+                                    **self._attachment_metadata(document, p),
                                 }
                             ),
                             _vector_literal(v),
@@ -350,7 +366,7 @@ class PassageStore:
         return True
 
     async def maintain_selection_indexes(self) -> None:
-        """Build two shared type selectors in worker maintenance, never on reads."""
+        """Build shared type/file selectors in worker maintenance, never on reads."""
         if self._selection_indexes_ready:
             return
         pool = await self.ensure_schema()
@@ -361,16 +377,30 @@ class PassageStore:
             ):
                 return
             try:
-                for name, table, columns in (
+                for name, table, columns, predicate in (
                     (
                         "passage_type_" + self.suffix,
                         self.table,
                         "profile_id,workspace_id,(metadata->>'_integral_type_id'),track_id",
+                        "deleted_at IS NULL",
                     ),
                     (
                         "passage_lexical_type_" + self.suffix,
                         self.lexical,
                         "workspace_id,(metadata->>'_integral_type_id'),track_id",
+                        "deleted_at IS NULL",
+                    ),
+                    (
+                        "passage_attachment_" + self.suffix,
+                        self.table,
+                        "profile_id,workspace_id,(metadata->>'_integral_attachment_kind'),entry_id",
+                        "deleted_at IS NULL AND field_path LIKE 'attachments.%'",
+                    ),
+                    (
+                        "passage_lexical_attachment_" + self.suffix,
+                        self.lexical,
+                        "workspace_id,(metadata->>'_integral_attachment_kind'),entry_id",
+                        "deleted_at IS NULL AND field_path LIKE 'attachments.%'",
                     ),
                 ):
                     existing = await conn.fetchrow(
@@ -382,7 +412,7 @@ class PassageStore:
                     if existing:
                         await conn.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {name}")
                     await conn.execute(
-                        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON {table} ({columns}) WHERE deleted_at IS NULL"
+                        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON {table} ({columns}) WHERE {predicate}"
                     )
                 self._selection_indexes_ready = True
             finally:
@@ -456,6 +486,8 @@ class PassageStore:
         direct_entry_ids: list[str] | None = None,
         eligible_entry_ids: list[str] | None = None,
         type_selection: dict[str, list[str] | None] | None = None,
+        attachment_kind: str | None = None,
+        attachment_filename: str = "",
     ) -> list[dict]:
         """Fuse independently bounded branches; lexical mode needs no vector."""
         if (
@@ -474,6 +506,17 @@ class PassageStore:
         # at most k ranked candidates reach canonical validation below.
         branch_limit = min(500, k * 3)
         where = "workspace_id=$2 AND (track_id=ANY($3::text[]) OR entry_id=ANY($7::text[])) AND ($8::text[] IS NULL OR entry_id=ANY($8::text[])) AND deleted_at IS NULL AND (NOT $9::boolean OR track_id=ANY($10::text[]) OR (metadata->>'_integral_type_id')=ANY($11::text[]))"
+        if attachment_kind is not None or attachment_filename:
+            where += " AND field_path LIKE 'attachments.%'"
+            if attachment_kind and attachment_kind != "any":
+                # A closed schema enum, not caller-provided SQL.
+                if attachment_kind not in {"image", "document", "audio", "video"}:
+                    raise ValueError("Unknown attachment kind")
+                where += (
+                    f" AND metadata->>'_integral_attachment_kind'='{attachment_kind}'"
+                )
+            if attachment_filename:
+                where += " AND position(lower($12::text) in lower(metadata->>'_integral_attachment_filename'))>0"
         args = [
             self.profile.id,
             workspace_id,
@@ -494,6 +537,8 @@ class PassageStore:
                 }
             ),
         ]
+        if attachment_filename:
+            args.append(attachment_filename)
         branches = []
         ann_name = self.ann_index_name(workspace_id)
         try:
@@ -510,7 +555,7 @@ class PassageStore:
                     lexical = await conn.fetch(
                         f"""SELECT *, 1.0/(60+row_number() OVER (ORDER BY rank DESC,entry_id,ordinal)) AS score FROM (
                         SELECT *,ts_rank_cd(search_terms,websearch_to_tsquery('simple',$6)) AS rank
-                        FROM {self.lexical} WHERE {where} AND search_terms @@ websearch_to_tsquery('simple',$6)
+                        FROM {self.lexical} WHERE {where} AND ($6='' OR search_terms @@ websearch_to_tsquery('simple',$6))
                         AND $1::text IS NOT NULL AND $4::text IS NOT NULL
                         ORDER BY rank DESC,entry_id,ordinal LIMIT $5) matches""",
                         *[args[0], args[1], args[2], str(args[3]), *args[4:]],

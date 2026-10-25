@@ -21,6 +21,7 @@ import { QuickProviderSetup } from "./QuickProviderSetup";
 import { ModelCategory } from "./ModelCategory";
 import { VoiceConfiguration } from "./VoiceConfiguration";
 import { EmbeddingConfiguration } from "./EmbeddingConfiguration";
+import { AttachmentAnalysisConfiguration } from "./AttachmentAnalysisConfiguration";
 import { ModelRoutingSection } from "./ModelRoutingSection";
 import { useToast } from "../../../context/ToastContext";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
@@ -36,6 +37,7 @@ import {
   ShieldCheck,
   Trash2,
   Pencil,
+  Image,
 } from "lucide-react";
 import { Modal, Badge } from "../../../components/ui";
 import { LINE_ICON_STROKE } from "../../../components/ui/IconWell";
@@ -507,6 +509,11 @@ export function AiConfigurationSection({
                   navigateToSection={navigateToSection}
                   embedded
                 />
+              </ModelCategory>
+              <ModelCategory id="attachment-models" title="Images and documents"
+                description="Make attachments searchable" icon={Image}
+                open={category === "attachments"} onToggle={() => toggleCategory("attachments")}>
+                <AttachmentAnalysisConfiguration />
               </ModelCategory>
               <Text as="p" variant="meta" tone="muted" className="px-1 pt-1">
                 Add providers once under Providers, then choose a model in each

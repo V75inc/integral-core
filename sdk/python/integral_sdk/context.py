@@ -36,6 +36,8 @@ class OperationContext(Protocol):
         mode: str = "hybrid",
         limit: int = 150,
         context_tokens: int = 1200,
+        attachment_kind: Optional[str] = None,
+        attachment_filename: str = "",
     ) -> Dict[str, Any]:
         """App-scoped passage retrieval for a declared App query.
 
@@ -44,9 +46,14 @@ class OperationContext(Protocol):
         ``entry_type`` matches an exact manifest key; omit it for keyless schemas.
         ``eligible_entry_ids`` narrows candidate selection to a structured,
         policy-authorized set: None discovers a bounded candidate window;
-        [] searches nothing. At most 500 supplied IDs and 500 matching Entries
-        are considered. Explicit IDs narrow parent discovery before paging;
-        unrelated Tracks and schema types do not consume the candidate budget.
+        [] searches nothing. At most 500 IDs can be supplied. Governed Track/type
+        selectors narrow index candidates before ranking; this is not a scan of
+        the first 500 matching Entries. The bounded candidate window is not an
+        exhaustive collection. Unrelated Tracks/types do not consume its budget.
+        ``attachment_kind`` selects file passages (any/image/document/audio/video);
+        ``attachment_filename`` is a case-insensitive literal substring. A blank
+        query is permitted with a file filter. File evidence includes identity,
+        content origin and extraction/section provenance when available.
         Returns passages, source links, requested/effective mode, cap status
         and warnings. Index coverage remains unknown unless measured; empty
         results never establish absence. It never widens workspace/App scope.

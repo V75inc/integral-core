@@ -53,6 +53,7 @@ HANDLED_KINDS = frozenset(
         "app_tool",
         "chat_turn",
         "chat_title",
+        "attachment_analysis",
     }
 )
 
@@ -1277,6 +1278,27 @@ async def _execute_claimed_work(
 
             await _with_supervised_heartbeat(
                 item, worker_id=worker_id, lease_seconds=lease_seconds, body=title_body
+            )
+            return await work_items.transition_leased(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=int(item.lease_fence or 0),
+                expected_status="running",
+                target="succeeded",
+            )
+        if kind == "attachment_analysis":
+            from app.services.attachment_metadata.analysis import (
+                run_attachment_analysis,
+            )
+
+            context = work_execution.build_work_execution_context(
+                work_item=item, logical_step_key="attachment_analysis:0"
+            )
+            await _with_supervised_heartbeat(
+                item,
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                body=lambda: run_attachment_analysis(item, context),
             )
             return await work_items.transition_leased(
                 item.work_item_id,

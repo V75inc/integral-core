@@ -366,9 +366,9 @@ export function EmbeddingConfiguration({
                     className="mt-1"
                   />
                   <Text variant="body-sm">
-                    Allow indexed workspace text and search queries to be
-                    processed by this provider. External services receive this
-                    text.
+                    Allow indexed workspace text, selected attachment text and
+                    search queries to be processed by this provider. External
+                    services receive this text.
                   </Text>
                 </label>
               </>
