@@ -7,11 +7,54 @@ import re
 import subprocess
 from pathlib import Path
 
+AGENT_EMAIL = (
+    rb"(?:cursoragent@cursor\.com|noreply@anthropic\.com|"
+    rb"(?:[0-9]+\+)?(?:cursoragent|claude)@users\.noreply\.github\.com)"
+)
+AGENT_IDENTITY = re.compile(AGENT_EMAIL, re.IGNORECASE)
 AGENT_TRAILER = re.compile(
-    rb"^co-authored-by:[ \t]*[^\r\n]*"
-    rb"<(?:cursoragent@cursor\.com|noreply@anthropic\.com)>[ \t]*\r?$",
+    rb"^co-authored-by:[ \t]*[^\r\n]*<" + AGENT_EMAIL + rb">[ \t]*\r?$",
     re.IGNORECASE | re.MULTILINE,
 )
+
+
+def check(refs, event=None):
+    """Reject attribution in complete reachable history and proposed PR text."""
+    if (
+        subprocess.check_output(
+            ["git", "rev-parse", "--is-shallow-repository"], text=True
+        ).strip()
+        != "false"
+    ):
+        raise ValueError("Complete history is required; fetch with fetch-depth: 0.")
+    resolved = [
+        subprocess.check_output(
+            ["git", "rev-parse", "--verify", "--end-of-options", ref + "^{commit}"],
+            text=True,
+        ).strip()
+        for ref in refs
+    ]
+    fields = subprocess.check_output(
+        ["git", "log", "--format=%H%x00%ae%x00%ce%x00%B%x00", *resolved, "--"]
+    ).split(b"\0")
+    violations = []
+    for i in range(0, len(fields) - 1, 4):
+        sha = fields[i].strip().decode("ascii")
+        for role, email in zip(("author", "committer"), fields[i + 1 : i + 3]):
+            if AGENT_IDENTITY.fullmatch(email):
+                violations.append({"commit": sha, "field": role})
+        if AGENT_TRAILER.search(fields[i + 3]):
+            violations.append({"commit": sha, "field": "coauthor"})
+    if event is not None and "pull_request" in event:
+        pr = event["pull_request"]
+        for field in ("title", "body"):
+            if AGENT_TRAILER.search((pr.get(field) or "").encode("utf-8")):
+                violations.append({"field": "pull_request." + field})
+    return {
+        "heads": resolved,
+        "commits": (len(fields) - 1) // 4,
+        "violations": violations,
+    }
 
 
 def audit(ref):
@@ -66,14 +109,29 @@ def main():
     history.add_argument(
         "refs", nargs="+", help="Local commit refs, e.g. origin/main HEAD"
     )
+    gate = commands.add_parser("check", help="Fail on reachable agent attribution")
+    gate.add_argument("refs", nargs="+", help="Commit refs to check with all ancestors")
+    gate.add_argument("--event", type=Path, help="GitHub event JSON for PR title/body")
     args = parser.parse_args()
     if args.command == "message":
         if AGENT_TRAILER.search(args.path.read_bytes()):
             parser.exit(
                 1, "Remove Cursor/Claude coauthor trailers from this commit message.\n"
             )
-    else:
+    elif args.command == "audit":
         print(json.dumps([audit(ref) for ref in args.refs], indent=2))
+    else:
+        try:
+            result = check(
+                args.refs, json.loads(args.event.read_text()) if args.event else None
+            )
+        except (ValueError, OSError, subprocess.CalledProcessError) as error:
+            parser.exit(2, f"Attribution check could not complete: {error}\n")
+        print(json.dumps(result, indent=2))
+        if result["violations"]:
+            parser.exit(
+                1, "Remove agent attribution before merging; preserve human credit.\n"
+            )
 
 
 if __name__ == "__main__":

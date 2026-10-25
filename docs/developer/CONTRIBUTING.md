@@ -40,8 +40,12 @@ Update the current reader guide and affected technical contract together. Avoid 
 
 Keep human authorship and human coauthor credit. Omit Cursor and Claude account
 coauthor trailers from new commit/merge messages. The repository `commit-msg`
-hook checks their exact account email identities when local hooks are enabled.
-It does not remove provider support or change existing history. See the
+hook checks their account email identities when local hooks are enabled. The
+**Contributor attribution** workflow also checks raw authors/committers, all
+reachable ancestors, and PR title/body trailers. Run
+`python3 scripts/commit_attribution.py check HEAD` before publication; use a
+complete clone. Review the final merge message as well. These checks do not
+remove provider support or change existing history. See the
 [history cutover plan](../ops/CONTRIBUTOR_ATTRIBUTION.md) for the separate GitHub
 Contributors cleanup and verification requirements.
 
