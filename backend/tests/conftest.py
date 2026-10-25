@@ -44,18 +44,16 @@ def _with_postgres_database(dsn: str, database_name: str) -> str:
 TEST_DB_PATH = f"test_integral_db{_DB_SUFFIX}"
 TEST_LOG_DB_PATH = f"test_integral_logs{_DB_SUFFIX}"
 
-# Opt-in Postgres test mode. JSON remains the default because the
-# per-test-reset fixtures further down (``setup_test_db`` /
-# ``_swap_prime_and_log_dbs``) are coupled to file-backed JsonDB
-# semantics — they rely on per-test ``tmp_path`` directories. Switching
-# to Postgres for the full suite is a separate piece of fixture surgery.
+# Opt-in Postgres test mode. Default JSON fixtures use per-test ``tmp_path``
+# directories. PostgreSQL fixtures
+# instead truncate the worker's tables and bind fresh graph/log pools before
+# each graph-backed test (see ``bind_fresh_graph_context_for_async_tests`` and
+# ``postgres_raw_db``).
 # When INTEGRAL_TEST_DB=postgres is set, the env vars below point at a
 # per-worker test database on the docker-compose ``db`` service (see
 # docker-compose.yml). The DB is dropped + re-created at session start
-# so each run begins clean; per-test isolation in this mode currently
-# relies on tests that override JVSPATIAL_DB_PATH skipping cleanly (the
-# PG path ignores the path knob), so the suite tightness for PG mode
-# is a known follow-up.
+# so each run begins clean. Worker names isolate parallel tests, but independent
+# pytest invocations on the same service must not share those worker DB names.
 _TEST_DB_KIND = (os.getenv("INTEGRAL_TEST_DB") or "json").lower()
 
 if _TEST_DB_KIND in ("postgres", "postgresql"):
@@ -842,9 +840,8 @@ def _pg_test_db_bootstrap():
     (releasing prior connections first), then creates it fresh. Without
     this every session would inherit residue from the previous run.
 
-    Per-test isolation in PG mode is a separate, larger piece of work
-    (see top-of-file note). This fixture only guarantees a clean DB at
-    *session* start.
+    This fixture guarantees a clean DB at session start. The per-test graph
+    binding and postgres_raw_db fixtures reset tables and own pool cleanup.
     """
     if _TEST_DB_KIND not in ("postgres", "postgresql") or USE_LIVE_SERVER:
         yield
@@ -989,8 +986,8 @@ def setup_test_db(tmp_path, monkeypatch, request):
     when one test's teardown deletes ``test_integral_db`` while the next test's
     ``ensure_integral_app_graph`` catalog sync is still writing edges.
 
-    In Postgres test mode the JsonDB swap is a no-op — per-test isolation
-    in that mode is a known follow-up (see _pg_test_db_bootstrap docstring).
+    In Postgres test mode the JsonDB swap is a no-op; the async graph binding
+    below resets the worker's tables and pools instead.
     """
     if not _test_needs_per_test_db(request):
         yield

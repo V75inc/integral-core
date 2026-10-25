@@ -33,6 +33,27 @@ FLAKE8_PLUGINS := --with pep8-naming --with flake8-docstrings \
                   --with flake8-comprehensions --with flake8-bugbear \
                   --with flake8-annotations --with flake8-simplify
 
+# Bound collection/import memory and database IO on developer machines. Plain
+# pytest stays serial; make targets use the same file grouping as PR CI.
+# Override with PYTEST_WORKERS=0 for debugging, or raise both settings on a
+# measured dedicated runner. PostgreSQL targets retain their separate limit.
+PYTEST_WORKERS ?= auto
+PYTEST_MAX_WORKERS ?= 4
+PYTEST_DIST ?= loadfile
+PYTEST_MARKERS ?= not domain_app and not slow
+CONTRACT_TEST_WORKERS ?= 2
+POSTGRES_TEST_WORKERS ?= 2
+TEST_REPORT_DIR ?= $(CURDIR)/backend/.pytest_cache/verification
+PYTEST_PARALLEL = -n $(PYTEST_WORKERS) --maxprocesses=$(PYTEST_MAX_WORKERS) --dist $(PYTEST_DIST)
+PYTEST_ENV = TESTING=1 DEBUG=false INTEGRAL_ENV_FILE=/dev/null LITELLM_MODE=PRODUCTION
+PYTEST_REPORT = --durations=25 --durations-min=0.1
+# Independent per-worker PostgreSQL databases, with bounded prime/log pools.
+# Keep real encoder qualification serial; these are graph/transaction lanes.
+POSTGRES_TEST_ENV = $(PYTEST_ENV) INTEGRAL_TEST_DB=postgres JVSPATIAL_DB_TYPE=postgres \
+                   JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
+                   JVSPATIAL_POSTGRES_MIN_POOL_SIZE=1 JVSPATIAL_POSTGRES_MAX_POOL_SIZE=3
+POSTGRES_TEST_ARGS = -n $(POSTGRES_TEST_WORKERS) --dist worksteal $(PYTEST_REPORT)
+
 # Every guard, including the four CI does not run. The pre-commit hook is the
 # stronger gate by design; `verify` matches the hook, not CI.
 GUARDS := jvspatial_drift_check graph_contiguousness_check \
@@ -50,7 +71,7 @@ GUARDS += module_import_cycle_check
 help:
 	@echo "Integral verification targets"
 	@echo ""
-	@echo "  make verify         full gate: guards, format, types, both suites, CI-faithful run"
+	@echo "  make verify         full gate: guards, format, types, artifact, frontend + CI-env backend"
 	@echo "  make verify-pr      reproduce backend test lanes and Postgres — pre-push"
 	@echo "  make verify-ci      reproduce the PR CI smoke lane only"
 	@echo "  make verify-core-only  F0 Core-only lane (INTEGRAL_CORE_ONLY=1 + core_only marker)"
@@ -72,6 +93,10 @@ help:
 	@echo "  make format-check   black/isort/flake8 at the versions pre-commit pins"
 	@echo "  make audit          dependency advisories, backend + frontend"
 	@echo ""
+	@echo "  Backend workers: $(PYTEST_WORKERS), capped at $(PYTEST_MAX_WORKERS); PYTEST_WORKERS=0 for serial"
+	@echo "  Contract / Postgres workers: $(CONTRACT_TEST_WORKERS) / $(POSTGRES_TEST_WORKERS) (0 for serial)"
+	@echo "  Timing + JUnit reports: $(TEST_REPORT_DIR)"
+	@echo ""
 	@echo "Interpreter: $(PY)"
 
 ## The single most important target.
@@ -91,9 +116,10 @@ help:
 # Ignore checkout dotenv files in both Core and LiteLLM, as on CI.
 verify-ci:
 	@echo "==> CI-faithful backend run (TESTING=1, DEBUG=false, smoke marker, xdist)"
-	@cd backend && TESTING=1 DEBUG=false INTEGRAL_ENV_FILE=/dev/null \
-		LITELLM_MODE=PRODUCTION $(PY) -m pytest -q --tb=short \
-		-n auto --dist loadfile -m "smoke and not domain_app and not slow"
+	@mkdir -p "$(TEST_REPORT_DIR)"
+	@cd backend && $(PYTEST_ENV) $(PY) -m pytest -q --tb=short \
+		$(PYTEST_PARALLEL) $(PYTEST_REPORT) --junitxml="$(TEST_REPORT_DIR)/smoke.xml" \
+		-m "smoke and not domain_app and not slow"
 
 ## F0 — Core-only library filter + marker lane
 verify-core-only:
@@ -134,12 +160,17 @@ verify-independent-artifacts: verify-artifact verify-clean-install verify-sdk-ar
 
 verify-contract:
 	@echo "==> F0 extension-contract lane"
-	@cd backend && TESTING=1 $(PY) -m pytest -q --tb=short \
-		tests/contract/ -m "contract"
+	@mkdir -p "$(TEST_REPORT_DIR)"
+	@cd backend && $(PYTEST_ENV) $(PY) -m pytest -q --tb=short \
+		-n $(CONTRACT_TEST_WORKERS) --dist worksteal $(PYTEST_REPORT) \
+		--junitxml="$(TEST_REPORT_DIR)/contract.xml" tests/contract/ -m "contract"
 
 test-backend:
-	@echo "==> Full backend suite"
-	@cd backend && $(PY) -m pytest -q
+	@echo "==> Full default backend suite (CI environment; includes smoke tests)"
+	@mkdir -p "$(TEST_REPORT_DIR)"
+	@cd backend && $(PYTEST_ENV) $(PY) -m pytest -q \
+		$(PYTEST_PARALLEL) $(PYTEST_REPORT) --junitxml="$(TEST_REPORT_DIR)/backend.xml" \
+		-m "$(PYTEST_MARKERS)"
 
 # Postgres lane (required by substrate-scale Phase A+). Needs
 # ``docker compose up -d db`` (host :5433) or an equivalent DSN via
@@ -160,23 +191,16 @@ test-postgres:
 ## ``docker run -d -p 5432:5432 -e POSTGRES_USER=integral -e POSTGRES_PASSWORD=integral -e POSTGRES_DB=integral_core pgvector/pgvector:pg16``).
 test-postgres-ci:
 	@echo "==> CI-faithful Postgres lane (spikes + contract postgres markers)"
-	@cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres \
-		JVSPATIAL_DB_TYPE=postgres \
-		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
-		$(PY) -m pytest -q --tb=short tests/spikes/ -m postgres
-	@cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres \
-		JVSPATIAL_DB_TYPE=postgres \
-		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
-		$(PY) -m pytest -q --tb=short tests/contract/ -m "contract and postgres"
-	@cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres \
-		JVSPATIAL_DB_TYPE=postgres \
-		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
-		$(PY) -m pytest -q --tb=short \
+	@mkdir -p "$(TEST_REPORT_DIR)"
+	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
+		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-spikes.xml" tests/spikes/ -m postgres
+	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
+		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-contract.xml" tests/contract/ -m "contract and postgres"
+	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
+		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-app-jobs.xml" \
 		tests/test_app_jobs.py tests/test_tool_context_own_bundle_workspace.py
-	@cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres \
-		JVSPATIAL_DB_TYPE=postgres \
-		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
-		$(PY) -m pytest -q --tb=short \
+	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
+		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-authority.xml" \
 		tests/test_credentials_delivery.py tests/test_member_provision_authority.py \
 		tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py tests/test_install_seed_authority.py \
 		tests/test_app_passage_candidates.py
@@ -192,7 +216,8 @@ verify-pr: guards precommit format-check verify-core-only verify-contract verify
 
 test-frontend:
 	@echo "==> Frontend suite"
-	@cd frontend && npm run test:run
+	@cd frontend && npm run test:run -- --reporter=default --reporter=junit \
+		--outputFile=node_modules/.cache/verification/frontend.xml
 
 types:
 	@echo "==> Frontend type check"
@@ -254,7 +279,11 @@ audit:
 	@cd frontend && bash ../.ci/dependency_audit.sh frontend
 
 ## Ordered cheapest-first so a fast failure surfaces before the slow suites.
-verify: guards precommit format-check lint types verify-artifact verify-ci test-frontend test-backend
+## The complete default backend selection includes the smoke selection and now
+## runs with the same no-dotenv/DEBUG=false environment and xdist file grouping.
+## Do not execute that overlapping smoke selection a second time here. The
+## independent verify-ci/verify-pr targets and PR CI retain their smoke lane.
+verify: guards precommit format-check lint types verify-artifact test-frontend test-backend
 	@echo ""
 	@echo "verify: all checks passed"
 
