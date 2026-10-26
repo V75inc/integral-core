@@ -135,7 +135,29 @@ class AuthenticationContext(GraphContext):
         # Even a no-change save validates the original authority snapshot.
         if not changed and not removed:
             update["$set"] = {"context.is_active": original["is_active"]}
+        activity_touch_only = (
+            isinstance(entity, AuthUser)
+            and set(changed) == {"last_accessed"}
+            and not removed
+        )
+        activity_query = {
+            key: value for key, value in query.items() if key != "context.last_accessed"
+        }
         db = self.database
+
+        async def write_observed() -> dict | None:
+            row = await db.find_one_and_update("object", query, update)
+            if row is None and activity_touch_only:
+                # A competing activity touch is not a credential change.
+                # Validate the SAME identity guards, keep the newer observed
+                # stamp, and do not retry a password write or token consumption.
+                row = await db.find_one_and_update(
+                    "object",
+                    activity_query,
+                    {"$set": {"context.is_active": original["is_active"]}},
+                )
+            return row
+
         concrete = db
         seen: set[int] = set()
         while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
@@ -155,13 +177,20 @@ class AuthenticationContext(GraphContext):
                 locked = await transaction.find_one_and_update(
                     "object", identity_query, {"$set": {}}
                 )
-                if locked is None or not QueryEngine.match(locked, query):
+                if locked is None:
                     raise AuthenticationStateConflict("Authentication state changed")
-                row = await transaction.find_one_and_update(
-                    "object", identity_query, update
-                )
+                if QueryEngine.match(locked, query):
+                    row = await transaction.find_one_and_update(
+                        "object", identity_query, update
+                    )
+                elif activity_touch_only and QueryEngine.match(locked, activity_query):
+                    # The row lock already fenced the current identity. Keep
+                    # its concurrent activity stamp rather than overwriting it.
+                    row = locked
+                else:
+                    raise AuthenticationStateConflict("Authentication state changed")
         elif native_atomic:
-            row = await db.find_one_and_update("object", query, update)
+            row = await write_observed()
         else:
             if type(concrete).__module__ not in {
                 "jvspatial.db.jsondb",
@@ -177,7 +206,7 @@ class AuthenticationContext(GraphContext):
             )
             lock = _local_identity_locks.setdefault(key, asyncio.Lock())
             async with lock:
-                row = await db.find_one_and_update("object", query, update)
+                row = await write_observed()
         if row is None:
             raise AuthenticationStateConflict("Authentication state changed")
         await self._remember(entity, row)
