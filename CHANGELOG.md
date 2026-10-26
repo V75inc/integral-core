@@ -6,6 +6,9 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Authorize entry update/delete staging before loading private preview details; execution still rechecks current authority.
+- Initialize native model-library metadata off the event loop before accepting traffic, avoid duplicate Core skill parsing, and separate local preparation spans from model/provider latency diagnostics.
+
 ## 0.1.1rc34 — 2026-10-25
 
 - Bound resident task procedures and tool-result history while protecting current work, pending writes and governed App-read discovery.

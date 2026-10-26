@@ -69,7 +69,7 @@ from app.api.errors import (
 )
 from app.models.nodes import ChatMessage, ChatThread, HarnessSession
 from app.schemas.agentive.work import WorkError, WorkExecutionContext
-from app.services.chat_latency import turn_usage_limits
+from app.services.chat_latency import measure_latency_phase, turn_usage_limits
 from app.services.chat_providers.base import (
     AgentDescriptor,
     ChatProviderCapabilities,
@@ -1756,12 +1756,13 @@ class PydanticAIProvider:
         started = time.monotonic()
         from app.agentive.harness.skill_sources import routing_skill_candidates
 
-        candidates = await routing_skill_candidates(
-            workspace_id=ctx.workspace_id,
-            principal_id=ctx.user_id,
-            focused_app_id=ctx.focused_space_id,
-            query=ctx.text,
-        )
+        with measure_latency_phase("routingDiscovery"):
+            candidates = await routing_skill_candidates(
+                workspace_id=ctx.workspace_id,
+                principal_id=ctx.user_id,
+                focused_app_id=ctx.focused_space_id,
+                query=ctx.text,
+            )
         agent = build_light_agent(
             model,
             time_context=time_context,
@@ -1983,11 +1984,12 @@ class PydanticAIProvider:
             compose_workspace_agent_profile,
         )
 
-        skill_profile = await compose_workspace_agent_profile(
-            ctx.workspace_id,
-            user_id=ctx.user_id,
-            focused_app_id=ctx.focused_space_id,
-        )
+        with measure_latency_phase("workspaceProfile"):
+            skill_profile = await compose_workspace_agent_profile(
+                ctx.workspace_id,
+                user_id=ctx.user_id,
+                focused_app_id=ctx.focused_space_id,
+            )
         from app.agentive.services.agent_skills import list_core_skills
 
         skill_rows = await asyncio.to_thread(list_core_skills)
@@ -2259,22 +2261,23 @@ class PydanticAIProvider:
         )
         skill_temp = tempfile.TemporaryDirectory(prefix="integral-native-skills-")
         try:
-            allowed_skill_names = await asyncio.to_thread(
-                materialize_standard_skill_library,
-                skill_sources,
-                root=Path(skill_temp.name),
-                allowed_tools={
-                    **{
-                        str(row["key"]): tuple(row.get("tools_required") or ())
-                        for row in skill_rows
-                        if row.get("key")
+            with measure_latency_phase("skillMaterialization"):
+                allowed_skill_names = await asyncio.to_thread(
+                    materialize_standard_skill_library,
+                    skill_sources,
+                    root=Path(skill_temp.name),
+                    allowed_tools={
+                        **{
+                            str(row["key"]): tuple(row.get("tools_required") or ())
+                            for row in skill_rows
+                            if row.get("key")
+                        },
+                        **{
+                            doc.name: doc.requires_tools
+                            for doc in skill_profile.overlay_skill_docs
+                        },
                     },
-                    **{
-                        doc.name: doc.requires_tools
-                        for doc in skill_profile.overlay_skill_docs
-                    },
-                },
-            )
+                )
             run_state: dict[str, Any] = {
                 "turn_progress": TurnProgress(),
                 "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
@@ -2350,24 +2353,25 @@ class PydanticAIProvider:
                             and len(definition.body) <= 16000
                         ):
                             initial_skill = (definition.name, definition.render())
-            agent, store = build_native_runtime(
-                model=model,
-                instructions=instructions,
-                protected_instruction_text=instructions.replace(
-                    ctx.system_context or "", ""
+            with measure_latency_phase("runtimeBuild"):
+                agent, store = build_native_runtime(
+                    model=model,
+                    instructions=instructions,
+                    protected_instruction_text=instructions.replace(
+                        ctx.system_context or "", ""
+                    )
+                    .replace(receipt_instructions, "")
+                    .replace(approval_instructions, "")
+                    .replace(time_context, ""),
+                    tools=tools,
+                    scope=scope,
+                    agent_name="integral_core",
+                    initial_skill=initial_skill,
+                    turn_progress=run_state["turn_progress"],
+                    skill_directories=[Path(skill_temp.name)],
+                    allowed_skill_names=allowed_skill_names,
+                    work_execution_context=work_execution_context,
                 )
-                .replace(receipt_instructions, "")
-                .replace(approval_instructions, "")
-                .replace(time_context, ""),
-                tools=tools,
-                scope=scope,
-                agent_name="integral_core",
-                initial_skill=initial_skill,
-                turn_progress=run_state["turn_progress"],
-                skill_directories=[Path(skill_temp.name)],
-                allowed_skill_names=allowed_skill_names,
-                work_execution_context=work_execution_context,
-            )
             agent.output_validator(_scaffold_completion_validator(run_state))
 
             @agent.output_validator
