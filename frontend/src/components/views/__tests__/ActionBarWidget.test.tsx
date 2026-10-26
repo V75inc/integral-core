@@ -208,3 +208,87 @@ describe('ActionBarWidget — next-step buttons', () => {
     await waitFor(() => expect(mockToolsCall).toHaveBeenCalledWith('review_tool', expect.anything()));
   });
 });
+
+describe('ActionBarWidget — keeping the record current', () => {
+  it('reloads the host record after a successful action so the buttons follow the new status', async () => {
+    mockToolsCall.mockResolvedValue({ output: { ok: true } });
+    const onHostChanged = vi.fn();
+    render(
+      <ActionBarWidget
+        view={view([{ key: 'go', label: 'Go', tool: 'some_tool' }], { onHostChanged })}
+        entries={[]}
+        isLoading={false}
+        onEntryOpen={noop}
+      />
+    );
+    fireEvent.click(screen.getByText('Go'));
+    await waitFor(() => expect(onHostChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps reloading while the record is mid-change, and stops when it settles', () => {
+    vi.useFakeTimers();
+    try {
+      const onHostChanged = vi.fn();
+      const bar = (status: string) => (
+        <ActionBarWidget
+          view={view([{ key: 'go', label: 'Go', tool: 'some_tool' }], {
+            onHostChanged,
+            entryValues: { status },
+            refresh_while: { field: 'status', in: ['finalizing'] },
+          })}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={noop}
+        />
+      );
+      const { rerender } = render(bar('finalizing'));
+      vi.advanceTimersByTime(8100);
+      expect(onHostChanged).toHaveBeenCalledTimes(2);
+      rerender(bar('approved'));
+      vi.advanceTimersByTime(8100);
+      expect(onHostChanged).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('ActionBarWidget — greyed-out steps', () => {
+  const steps = [
+    { key: 'review', label: 'Mark as reviewed', tool: 'review_tool', placement: 'end',
+      disabled_if: { field: 'status', not_in: ['waiting_for_review'] },
+      disabled_reason: 'Available once the pay run is waiting for review.' },
+    { key: 'paid', label: 'Mark as paid', tool: 'paid_tool', placement: 'end',
+      disabled_if: { field: 'status', not_in: ['approved'] },
+      disabled_reason: 'Available once the pay run is approved.' },
+  ];
+  const renderSteps = (status: string) =>
+    render(
+      <ActionBarWidget
+        view={view(steps, { entryValues: { status } })}
+        entries={[]}
+        isLoading={false}
+        onEntryOpen={noop}
+      />
+    );
+
+  it('shows every step, but only the applicable one is clickable', () => {
+    renderSteps('waiting_for_review');
+    expect(screen.getByText('Mark as reviewed').closest('button')).toBeEnabled();
+    const paid = screen.getByText('Mark as paid').closest('button')!;
+    expect(paid).toBeDisabled();
+    expect(paid).toHaveAttribute('title', 'Available once the pay run is approved.');
+  });
+
+  it('does not run a greyed-out step when clicked', () => {
+    renderSteps('waiting_for_review');
+    fireEvent.click(screen.getByText('Mark as paid'));
+    expect(mockToolsCall).not.toHaveBeenCalled();
+  });
+
+  it('moves the enabled step along with the status', () => {
+    renderSteps('approved');
+    expect(screen.getByText('Mark as reviewed').closest('button')).toBeDisabled();
+    expect(screen.getByText('Mark as paid').closest('button')).toBeEnabled();
+  });
+});

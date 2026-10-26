@@ -956,6 +956,18 @@ export function EntryDetail({
     [anchoredTrackId]
   );
 
+  // A button bar in the related views changes the record from outside this form
+  // (a status moves, a job finishes); reload it so the bar shows the new state.
+  const refreshHostEntry = useCallback(async () => {
+    try {
+      const refreshed = await entriesApi.get(entry.id);
+      setEntry(refreshed);
+      onUpdate?.(refreshed);
+    } catch {
+      /* keep what is shown; the next refresh tries again */
+    }
+  }, [entry.id, onUpdate]);
+
   const primaryRelatedViewsNode =
     user && !parentEntry ? (
       <RelatedViewsSection
@@ -970,6 +982,7 @@ export function EntryDetail({
         onEntryOpen={handleEmbeddedEntryOpen}
         onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
         onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+        onHostChanged={refreshHostEntry}
         isEditor={canEdit}
         appId={relatedViewAppId}
         heading={null}
@@ -1977,6 +1990,7 @@ export function EntryDetail({
                   onEntryOpen={handleEmbeddedEntryOpen}
                   onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
                   onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+                  onHostChanged={refreshHostEntry}
                   isEditor={canEdit}
                   appId={relatedViewAppId}
                 />

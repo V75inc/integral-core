@@ -74,6 +74,8 @@ export interface ActionBarButtonSpec {
    *  `{field: 'status', in: ['waiting_for_approval']}` so only the one next step
    *  is offered. Absent `entryValues` never hides (fail-open, like disabled_if). */
   visible_if?: VisibleIf;
+  /** Why the button is greyed out, shown on hover when ``disabled_if`` matches. */
+  disabled_reason?: string;
   /** 'end' puts the button in the right-hand group with the actions that move
    *  the record forward; the default 'start' keeps it on the left. */
   placement?: 'start' | 'end';
@@ -231,6 +233,17 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
     typeof bindings.onActionComplete === 'function'
       ? (bindings.onActionComplete as () => void)
       : undefined;
+  const onHostChanged =
+    typeof bindings.onHostChanged === 'function' ? (bindings.onHostChanged as () => void) : undefined;
+  // While the record's field matches this (e.g. status is "finalizing"), keep reloading
+  // it so the buttons follow a change made by a background job.
+  const refreshWhile = bindings.refresh_while as VisibleIf | undefined;
+  const polling = !!refreshWhile && !!onHostChanged && isVisible(refreshWhile, entryValues);
+  useEffect(() => {
+    if (!polling) return undefined;
+    const timer = window.setInterval(() => onHostChanged?.(), 4000);
+    return () => window.clearInterval(timer);
+  }, [polling, onHostChanged]);
 
   if (!buttons.length) return null;
 
@@ -353,6 +366,7 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
       const summary = typeof output.summary === 'string' ? output.summary.trim().slice(0, 500) : '';
       showToast(summary || `${button.label} complete`, 'success');
       onActionComplete?.();
+      onHostChanged?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Action failed';
       showToast(message, 'error');
@@ -378,7 +392,9 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
     const title = statusDisabled
       ? button.requires_admin && !viewerIsAdmin
         ? 'Only workspace admins can do this.'
-        : button.confirm_message || `"${button.label}" is disabled for this record's current status.`
+        : button.disabled_reason ||
+          button.confirm_message ||
+          `"${button.label}" is disabled for this record's current status.`
       : undefined;
     if (button.options?.length) {
       return (
