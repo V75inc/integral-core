@@ -6,6 +6,14 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc34 — 2026-10-25
+
+- Bound resident task procedures and tool-result history while protecting current work, pending writes and governed App-read discovery.
+- Let the Light routing pass nominate a freshly authorized workflow for Heavy execution, reducing repeated discovery calls without changing model settings or tool authority.
+- Add bounded App record pages and streaming explicit counts, with rooted schema selection, live authorization and per-window containment/block-query reuse.
+- Improve scoped read guidance, source links and recoverable query errors for App developers and the resident harness.
+- Check incoming contributor attribution across complete history and make hydration regression checks independent of test import order.
+
 ## 0.1.1rc33 — 2026-10-25
 
 - Strengthen semantic and hybrid search with independent lexical indexing, bounded candidate ranking, integrity manifests, repair and reuse of verified unchanged vectors.
