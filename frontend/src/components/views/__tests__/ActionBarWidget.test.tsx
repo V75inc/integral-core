@@ -14,6 +14,11 @@ vi.mock('../../../context/ToastContext', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }));
 
+let mockRole: string | undefined;
+vi.mock('../../../context/ScopeContext', () => ({
+  useScopeOptional: () => ({ activeWorkspace: { your_role: mockRole } }),
+}));
+
 vi.mock('../../../context/ConfirmContext', () => ({
   useConfirm: () => async () => true,
 }));
@@ -23,6 +28,7 @@ import { ActionBarWidget } from '../ActionBarWidget';
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mockRole = undefined;
 });
 
 function view(buttons: Record<string, unknown>[], extraBindings: Record<string, unknown> = {}): SavedView {
@@ -142,4 +148,63 @@ describe('ActionBarWidget — refresh-nonce notification', () => {
     expect(mockShowToast).toHaveBeenLastCalledWith('Go: 1 record failed', 'error');
   });
 
+});
+
+describe('ActionBarWidget — next-step buttons', () => {
+  const buttons = [
+    { key: 'export', label: 'Export register', tool: 'export_tool' },
+    { key: 'review', label: 'Mark as reviewed', tool: 'review_tool', placement: 'end', requires_admin: true,
+      visible_if: { field: 'status', in: ['waiting_for_review'] } },
+    { key: 'approve', label: 'Approve and finalize', tool: 'approve_tool', placement: 'end', requires_admin: true,
+      visible_if: { field: 'status', in: ['waiting_for_approval'] } },
+  ];
+  const renderBar = (status: string) =>
+    render(
+      <ActionBarWidget
+        view={view(buttons, { entryValues: { status } })}
+        entries={[]}
+        isLoading={false}
+        onEntryOpen={noop}
+      />
+    );
+
+  it('shows only the next step for the current status', () => {
+    renderBar('waiting_for_review');
+    expect(screen.getByText('Mark as reviewed')).toBeInTheDocument();
+    expect(screen.queryByText('Approve and finalize')).toBeNull();
+    expect(screen.getByText('Export register')).toBeInTheDocument();
+  });
+
+  it('shows nothing to move forward once the run is past those steps', () => {
+    renderBar('paid');
+    expect(screen.queryByText('Mark as reviewed')).toBeNull();
+    expect(screen.queryByText('Approve and finalize')).toBeNull();
+  });
+
+  it('puts forward-moving buttons in the right-hand group', () => {
+    renderBar('waiting_for_review');
+    const bar = screen.getByTestId('action-bar-widget');
+    const [left, right] = Array.from(bar.children);
+    expect(left).toHaveTextContent('Export register');
+    expect(right).toHaveTextContent('Mark as reviewed');
+    expect(right.className).toContain('ml-auto');
+  });
+
+  it('disables an admin-only button for a non-admin and explains why', async () => {
+    mockRole = 'member';
+    renderBar('waiting_for_review');
+    const button = screen.getByText('Mark as reviewed').closest('button')!;
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'Only workspace admins can do this.');
+    fireEvent.click(button);
+    expect(mockToolsCall).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin run it', async () => {
+    mockRole = 'admin';
+    mockToolsCall.mockResolvedValue({ output: { ok: true } });
+    renderBar('waiting_for_review');
+    fireEvent.click(screen.getByText('Mark as reviewed'));
+    await waitFor(() => expect(mockToolsCall).toHaveBeenCalledWith('review_tool', expect.anything()));
+  });
 });

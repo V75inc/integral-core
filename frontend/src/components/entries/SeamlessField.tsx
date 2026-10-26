@@ -103,6 +103,21 @@ function numberFromInput(raw: string): number | null {
   return raw === '' ? null : Number(raw);
 }
 
+/** Display-only number formats a field can ask for with ``widget``. */
+function groupedNumberFormat(widget: unknown): Intl.NumberFormatOptions | null {
+  if (widget === 'currency' || widget === 'amount') {
+    return { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  }
+  if (widget === 'number' || widget === 'grouped') return { maximumFractionDigits: 2 };
+  return null;
+}
+
+function formatGrouped(value: unknown, options: Intl.NumberFormatOptions): unknown {
+  if (value == null || value === '') return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? new Intl.NumberFormat(undefined, options).format(n) : value;
+}
+
 function hasMeaningfulValue(value: unknown, fieldType: string): boolean {
   if (value == null || value === '') return false;
   if (fieldType === 'number' && typeof value === 'number' && !Number.isNaN(value)) {
@@ -1190,11 +1205,14 @@ function SeamlessFieldInner(props: SeamlessFieldProps) {
   }
 
   if (field.type === 'text' || field.type === 'number') {
-    const inputType = field.type === 'number' ? 'number' : 'text';
+    // A read-only number with a money / grouped widget reads as 4,473,333.33,
+    // not 4473333.33. Editing keeps the plain number input.
+    const grouped = field.type === 'number' && (field.readonly || readonly) ? groupedNumberFormat(field.widget) : null;
+    const inputType = field.type === 'number' && !grouped ? 'number' : 'text';
     return (
       <SeamlessTextLikeInner
         field={field}
-        value={value}
+        value={grouped ? formatGrouped(value, grouped) : value}
         onChange={onChange}
         placeholder={placeholder}
         readonly={readonly}
