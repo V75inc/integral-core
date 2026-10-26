@@ -1,0 +1,136 @@
+"""Light nominates metadata, while current Core and Pydantic own activation."""
+
+import pytest
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import FunctionModel
+from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+from app.agentive.harness.broker_tools import build_brokered_tools
+from app.agentive.harness.runtime import build_native_runtime
+from app.schemas.capability_broker import CapabilityResult
+from tests.native_harness.wp_06.test_provider_stream import _scope
+
+pytestmark = [pytest.mark.asyncio]
+
+
+@pytest.mark.parametrize("allowed", [True, False])
+async def test_selected_workflow_uses_two_model_requests_and_live_broker(
+    tmp_path, monkeypatch, allowed
+):
+    skill = "sample-workflow"
+    name = "integral_sample_read"
+    folder = tmp_path / skill
+    folder.mkdir()
+    (folder / "SKILL.md").write_text(
+        f"---\nname: {skill}\ndescription: Read a sample.\nallowed-tools: {name}\n---\nRead the sample."
+    )
+    calls = []
+
+    async def invoke(**kw):
+        calls.append(kw)
+        return CapabilityResult(
+            ok=allowed,
+            data={"count": 12} if allowed else {},
+            error_code="" if allowed else "insufficient_permissions",
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda name: ("core", "read"),
+    )
+    requests = []
+
+    def respond(messages, info):
+        requests.append(info)
+        assert "Read the sample." in str(info.instructions)
+        assert name in {tool.name for tool in info.function_tools}
+        if len(requests) == 1:
+            return ModelResponse(parts=[ToolCallPart(name, {})])
+        return ModelResponse(
+            parts=[TextPart("Twelve records." if allowed else "The read was refused.")]
+        )
+
+    scope = _scope("initial-skill")
+    tools = build_brokered_tools(
+        scope=scope,
+        skill_library=tmp_path,
+        catalogue=[
+            {
+                "name": name,
+                "description": "Read sample",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Read the requested count.",
+        tools=tools,
+        scope=scope,
+        agent_name="sample",
+        skill_directories=[tmp_path],
+        allowed_skill_names={skill},
+        initial_skill=(skill, "Read the sample."),
+        step_store_backend=InMemoryStepStore(),
+    )
+    await agent.run(
+        "How many records?",
+        run_id=scope.framework_run_id,
+        conversation_id=scope.framework_conversation_id,
+    )
+    assert len(requests) == 2 and len(calls) == 1
+    assert (
+        calls[0]["principal_id"] == scope.principal_id
+        and calls[0]["workspace_id"] == scope.workspace_id
+    )
+
+
+async def test_unapproved_initial_skill_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="authorized skills"):
+        build_native_runtime(
+            model=FunctionModel(lambda m, i: ModelResponse(parts=[TextPart("No")])),
+            instructions="Read.",
+            tools=[],
+            scope=_scope("bad-initial"),
+            agent_name="sample",
+            initial_skill=("unapproved", "Injected"),
+            step_store_backend=InMemoryStepStore(),
+        )
+
+
+@pytest.mark.parametrize(
+    "selection,expected",
+    [("permitted", "permitted"), ("not-offered", None), (None, None)],
+)
+async def test_light_selection_must_be_an_exact_current_candidate(
+    monkeypatch, selection, expected
+):
+    from app.agentive.harness.adaptive import EscalatedTurn
+    from app.services.chat_providers.pydantic_ai_provider import PydanticAIProvider
+    from tests.native_harness.test_adaptive_context import setup_turn
+
+    ctx, thread, _, _ = await setup_turn(monkeypatch, escalation=True)
+
+    async def candidates(**kw):
+        return [{"id": "permitted", "description": "Read current records."}]
+
+    monkeypatch.setattr(
+        "app.agentive.harness.skill_sources.routing_skill_candidates", candidates
+    )
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider.build_litellm_sdk_model",
+        lambda **kw: FunctionModel(
+            lambda m, i: ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "request_operational_context", {"skill_id": selection}, "pick"
+                    )
+                ]
+            )
+        ),
+    )
+    result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
+    assert isinstance(result, EscalatedTurn) and result.skill_id == expected

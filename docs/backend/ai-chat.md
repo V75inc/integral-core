@@ -354,3 +354,21 @@ calls; that total is not one request's context size. Tool cards expose safe
 outcomes, returned counts and elapsed time, without private reasoning or raw
 arguments. The fallback status is “Responding…”; activity is described as
 “Activity, tool results, and model usage are shown here.”
+
+#### Sharing discovery with the Light pass
+
+Automatic routing may nominate one exact skill from at most eight current,
+authorization-filtered public metadata candidates. This is a model choice in the
+existing Light request, not a host keyword router or execution authority. The
+operational pass revalidates its source against the freshly composed skill catalog
+and loads the procedure through public Pydantic capability/Skills interfaces.
+Invalid, ambiguous, unavailable or oversized selections fall back to ordinary
+capability discovery. Other workflows stay deferred and remain discoverable.
+Social replies do not compose operational skill bodies or advance the operational
+checkpoint. Tool invocation still uses the current Core broker, App/principal
+scope, service-actor checks and ordinary staging/approval path. No discovery or
+permission decision is cached across users or runs.
+
+Operational answers retain the configured Heavy model and reasoning settings;
+workflow nomination removes discovery round trips without changing execution
+quality, request/token/funding budgets or the normal approval path.

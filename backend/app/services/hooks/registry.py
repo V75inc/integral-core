@@ -346,6 +346,12 @@ class ToolContext:
                 scoped.extend(await hydrate_records(records))
         return scoped
 
+    async def read_entry_records(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Read a bounded App page or stream an explicit authorized count."""
+        from app.services.app_record_read import read_app_records
+
+        return await read_app_records(self, params)
+
     async def _tracks_by_title(self, track_type: str) -> List[Any]:
         """Tracks matching ``track_type`` by title-slug, scoped to this
         workspace, EXCLUDING tracks whose parent App has been uninstalled.
@@ -368,7 +374,25 @@ class ToolContext:
         if not want:
             return []
         out: List[Any] = []
-        for track in await Track.find({"context.workspace_id": self.workspace_id}):
+        app_id = str(getattr(self, "app_id", "") or "")
+        if app_id:
+            from app.models.edges import CONTAINS
+            from app.models.nodes import App
+
+            app = await App.get(app_id)
+            tracks = []
+            if app is not None and await self._resource_in_scope("app", app_id):
+                cursor = None
+                while True:
+                    page, cursor = await app.nodes_page(
+                        edge=[CONTAINS], node=[Track], limit=100, cursor=cursor
+                    )
+                    tracks.extend(page)
+                    if not cursor:
+                        break
+        else:
+            tracks = await Track.find({"context.workspace_id": self.workspace_id})
+        for track in tracks:
             if _slug(getattr(track, "title", "") or "") != want:
                 continue
             with isolated_permissions_cache():

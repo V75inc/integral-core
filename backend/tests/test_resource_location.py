@@ -565,3 +565,52 @@ async def test_rollup_relationship_fault_is_unavailable(monkeypatch):
     )
     with pytest.raises(AuthorizationUnavailableError):
         await context.rollup_plan(entry.id)
+
+
+@pytest.mark.asyncio
+async def test_bulk_entry_prefix_reuse_keeps_every_entry_parent_check(monkeypatch):
+    from app.models.nodes import App as AppModel
+    from app.services.resource_location import locate_resources
+
+    user, workspace, app, track, first = await graph()
+    good = await Entry.create(title="Later good row", track_id=track.id)
+    await track.connect(good, edge=CONTAINS)
+    bad = await Entry.create(title="Duplicate parent", track_id=track.id)
+    await track.connect(bad, edge=CONTAINS)
+    _, other_track, _ = await sibling(user, workspace)
+    await other_track.connect(bad, edge=CONTAINS)
+    context = await track.get_context()
+    deserialize = context._deserialize_entity
+    apps = []
+
+    async def measured(model, record):
+        if model is AppModel:
+            apps.append(record["id"])
+        return await deserialize(model, record)
+
+    monkeypatch.setattr(context, "_deserialize_entity", measured)
+    found = await locate_resources(
+        "entry", [first.id, bad.id, good.id], workspace_hints=[workspace.id]
+    )
+    assert found[first.id] == found[good.id]
+    assert found[bad.id] is None
+    assert apps.count(app.id) == 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_entry_prefix_reuse_does_not_hide_invalid_later_visibility():
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.resource_location import locate_resources
+
+    user, workspace, app, track, first = await graph()
+    bad = await Entry.create(title="Invalid later fact", track_id=track.id)
+    await track.connect(bad, edge=CONTAINS)
+    database = (await track.get_context()).database
+    changed = await database.find_one_and_update(
+        "node", {"id": bad.id}, {"$set": {"context.visibility": "invalid"}}
+    )
+    assert changed
+    with pytest.raises(AuthorizationUnavailableError):
+        await locate_resources(
+            "entry", [first.id, bad.id], workspace_hints=[workspace.id]
+        )

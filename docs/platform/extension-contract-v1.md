@@ -246,3 +246,26 @@ component properties, installed overrides, previews, coauthor revisions and
 upgrade compatibility. The sandbox and canonical operation boundary remain in
 force. The independent TypeScript client lives in `sdk/ui`; background-job
 facade typing is also available in the Python SDK.
+
+### Bounded App record reads
+
+`OperationContext.read_entry_records(params)` supplies a generic, ordinary-authority
+read within the installed App; callers cannot supply principal, workspace or App
+scope. It accepts the owning Track title, an optional exact EntryType key, scalar
+filters, a compact field projection, `limit` (1–50), sorting and an opaque cursor.
+Track discovery stays inside the rooted App, and type predicates are resolved from
+its rooted schema before selecting Entries. Each raw window retains current
+canonical containment, membership, explicit denies, direct grants and active-App
+checks. These preserve I-ROLE-01/02, I-HARNESS-01, I-SUBSTRATE-01 and I-EXT-01.
+
+Ordinary pages return `count: null`, `count_is_exact: false`, `returned_count`,
+`truncated` and `next_cursor`; they do not implicitly scan for a total. Continue
+with identical parameters and the returned cursor. An exact count requires
+`count_only: true`; optional `group_by` streams the same admitted raw windows
+without retaining the full Track or hydrating every result again for presentation.
+Canonical binding validation still validates each Entry within its fresh window. Groups are bounded and disclose truncation.
+Counts still read matching records to validate current authority; they are not a
+cached or approximate dataset total. Custom-value sorting uses the canonical
+portable bounded-heap path where adapter ordering differs, so it can require a
+scan while keeping memory/page hydration bounded. High-cardinality grouping must
+be narrowed. Pages are live reads, not frozen reports.

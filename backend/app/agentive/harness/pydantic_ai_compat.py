@@ -622,7 +622,7 @@ def build_integral_run_instructions(
             "Entry; for several Entries link their containing Track(s). "
             "Integral navigation: resource IDs are opaque. When linking saved "
             "Apps, Tracks or Entries, copy the canonical url returned by Core "
-            "tools exactly. Do not split an ID, replace its dots with slashes, "
+            "tools exactly, as Markdown links with readable labels. Do not split an ID, replace its dots with slashes, "
             "or invent a route. If no verified url is available, use a plain "
             "record label instead of a guessed link.",
             "Integral read recovery: when Core refuses a read and returns "
@@ -640,7 +640,10 @@ def build_integral_run_instructions(
             "capability is missing or refused, explain the precise evidence gap; "
             "do not enumerate unrelated records or keep rediscovering the same tools. "
             "Use a corrected argument or a genuinely different authorized approach "
-            "after failure. When results suffice, answer immediately."
+            "after failure. When results suffice, answer immediately. For a count "
+            "question, give the count and relevant scope, not a roster or unsolicited "
+            "analysis. Do not infer causes or intent from numeric values and statuses "
+            "alone, or contradict explicit coverage flags in the returned evidence."
         )
         if final_response_reserved(ctx) or (
             turn_progress and turn_progress.should_finalize
@@ -1402,3 +1405,19 @@ class PublicConversationHistorySource:
                 if parts:
                     public.append(replace(response, parts=parts))
         return public
+
+
+@dataclass(kw_only=True)
+class InitialWorkflowSkill(AbstractCapability):
+    """A Light-selected, freshly authorized procedure, using public capability APIs.
+
+    Skills supplies instruction-only capabilities. This equivalent always-on
+    instruction capability removes discovery/loading requests for a model-selected
+    procedure; all broker, write staging and live permission checks remain intact.
+    """
+
+    id: str
+    instructions: str
+
+    def get_instructions(self) -> str:
+        return self.instructions
