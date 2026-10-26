@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Fix owned App deletion with anchored collections and populated shared Tracks: avoid deleting anchored siblings twice, and retain shared records without granting destructive authority over them. Clarify App versus dashboard deletion in resident skills, and leave an open App page after its agent-approved deletion completes.
+
 ## 0.1.1rc35 — 2026-10-26
 
 - Keep concurrent sign-ins and background activity from rejecting valid credentials when only the activity timestamp changed; retain current account, credential and refresh-token guards.

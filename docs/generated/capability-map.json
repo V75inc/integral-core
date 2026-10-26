@@ -367,6 +367,7 @@
       "body_tools": [
         "integral_activity_digest",
         "integral_create_dashboard",
+        "integral_delete_dashboard",
         "integral_describe_dashboard_substrate",
         "integral_list_apps",
         "integral_list_dashboards",
@@ -380,7 +381,8 @@
       ],
       "delegates_to": [
         "integral-insights",
-        "integral-models"
+        "integral-models",
+        "integral-workspace"
       ],
       "intent": "Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards \u2014 create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.",
       "name": "integral-dashboards",
@@ -954,6 +956,7 @@
         "integral_delete_track",
         "integral_get_access",
         "integral_get_app",
+        "integral_get_page_context",
         "integral_get_scope",
         "integral_get_track_schema",
         "integral_invite",
@@ -987,6 +990,7 @@
         "integral_delete_track",
         "integral_get_access",
         "integral_get_app",
+        "integral_get_page_context",
         "integral_get_scope",
         "integral_get_track_schema",
         "integral_list_apps",
@@ -1006,7 +1010,7 @@
         "integral-navigation",
         "integral-scaffold"
       ],
-      "intent": "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, lifecycle, scope, access, and collaboration. Use for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral-scaffold; for a Track's domain schema, use integral-model.",
+      "intent": "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, deletion, lifecycle, scope, access, and collaboration. Use for deleting a whole App or Track, even after dashboard work, and for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral-scaffold; for a Track's domain schema, use integral-model.",
       "name": "integral-workspace",
       "source": "agent/skills/integral-workspace/SKILL.md",
       "unresolved_refs": []
@@ -1098,7 +1102,8 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral-entries"
+        "integral-entries",
+        "integral-workspace"
       ],
       "status": "existing"
     },

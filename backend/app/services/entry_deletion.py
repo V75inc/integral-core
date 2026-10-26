@@ -212,7 +212,10 @@ async def delete_entry_fast(
     from app.services.app_invariant_guards import enforce_protected_field_write
     from app.services.entry_write_scope import entry_write_scope
     from app.services.operational_model_compile import slug_manifest_key
-    from app.services.resource_cascade import entry_cascade_permitted
+    from app.services.resource_cascade import (
+        cascade_manages_tracks,
+        entry_cascade_permitted,
+    )
 
     async with entry_write_scope(entry.id):
         current = await Entry.find_one({"id": entry.id})
@@ -229,7 +232,10 @@ async def delete_entry_fast(
             )
         if await entry_cascade_permitted(actor_user_id, current.id):
             await _delete_admitted_entry(
-                current, actor_user_id=actor_user_id, actor_kind=actor_kind
+                current,
+                actor_user_id=actor_user_id,
+                actor_kind=actor_kind,
+                cascade_anchors=not cascade_manages_tracks(),
             )
             return
         track = await Track.find_one({"id": current.track_id})
@@ -362,6 +368,7 @@ async def _delete_admitted_entry(
     *,
     actor_user_id: str = "",
     actor_kind: str = "human",
+    cascade_anchors: bool = True,
 ) -> None:
     """Delete an Entry and its entry-scoped descendants quickly.
 
@@ -404,8 +411,13 @@ async def _delete_admitted_entry(
     # Phase 3.1 Plan 03.1-03 — anchor cascade. Walk first (BEFORE the entry
     # is deleted, since once it's gone we can't enumerate its ANCHORS edges).
     try:
-        anchored_tracks = await entry.nodes(
-            edge=[ANCHORS], direction="out", node=["Track"]
+        # App/workspace cascades delete their captured Tracks themselves.
+        # Following ANCHORS here could delete a later sibling twice or reach
+        # a shared Track outside that command's destructive perimeter.
+        anchored_tracks = (
+            await entry.nodes(edge=[ANCHORS], direction="out", node=["Track"])
+            if cascade_anchors
+            else []
         )
     except Exception as exc:  # pragma: no cover — defensive
         logger.warning(
