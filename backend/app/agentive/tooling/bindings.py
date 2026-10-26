@@ -1061,6 +1061,34 @@ async def _schema_revision_for_update(current: Dict[str, Any]) -> Optional[int]:
     return live if live > stored else stored
 
 
+async def _authorize_entry_stage(entry_id: str, action: str) -> None:
+    """Authorize an Entry before a staging diff reads its private data.
+
+    Stagers run before approval and must not disclose titles, fields, or
+    revisions for guessed or out-of-scope IDs. The eventual executor checks
+    authority again at apply time; this earlier check protects the preview.
+    """
+    principal_id = _propose_principal.get()
+    if not principal_id:
+        raise PermissionError(
+            "An authenticated principal is required to stage this change."
+        )
+
+    from app.schemas.policy import Resource, Subject
+    from app.services.policy_engine import evaluate
+
+    decision = await evaluate(
+        subject=Subject(kind="human", id=principal_id),
+        action=action,
+        resource=Resource(kind="entry", id=entry_id, scope="*"),
+    )
+    if not decision.allowed:
+        raise PermissionError(
+            "This record is unavailable in the current scope. Use an authorized "
+            "record returned by the App's read contracts."
+        )
+
+
 async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage an ``update_entry``.
 
@@ -1088,6 +1116,7 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     if len(payload) == 1:
         raise ValueError("update_entry: supply at least one field to change")
 
+    await _authorize_entry_stage(entry_id, "entry.update")
     current = await _sd.load_entry_record(entry_id)
     if not current:
         raise ValueError(
@@ -1242,6 +1271,7 @@ async def _stage_delete_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("delete_entry: entry_id is required")
     payload = {"entry_id": entry_id}
 
+    await _authorize_entry_stage(entry_id, "entry.delete")
     current = await _sd.load_entry_record(entry_id)
     if not current:
         raise ValueError(

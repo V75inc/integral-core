@@ -10,6 +10,17 @@ import pytest
 from app.agentive.tooling import bindings
 
 
+@pytest.fixture(autouse=True)
+def authenticated_entry_stage(monkeypatch):
+    token = bindings._propose_principal.set("stage-test-user")
+    monkeypatch.setattr(
+        "app.services.policy_engine.evaluate",
+        AsyncMock(return_value=SimpleNamespace(allowed=True)),
+    )
+    yield
+    bindings._propose_principal.reset(token)
+
+
 @pytest.mark.asyncio
 async def test_stage_update_entry_uses_entry_title(monkeypatch):
     entry_id = "n.Entry.abc123def456"
@@ -235,6 +246,40 @@ async def test_stage_delete_entry_uses_entry_title(monkeypatch):
     assert "cannot be undone" in staged["diff_human"]
     assert "Reversible" not in staged["diff_human"]
     assert "Soft-deletes" not in staged["diff_human"]
+
+
+@pytest.mark.asyncio
+async def test_stage_delete_entry_does_not_disclose_unreadable_record(monkeypatch):
+    entry_id = "n.Entry.private-record"
+    load = AsyncMock(return_value={"id": entry_id, "title": "Private title"})
+    monkeypatch.setattr(bindings._sd, "load_entry_record", load)
+    monkeypatch.setattr(
+        "app.services.policy_engine.evaluate",
+        AsyncMock(return_value=SimpleNamespace(allowed=False)),
+    )
+
+    with pytest.raises(PermissionError, match="unavailable in the current scope"):
+        await bindings._stage_delete_entry({"entry_id": entry_id})
+
+    load.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stage_update_entry_does_not_disclose_uneditable_record(monkeypatch):
+    entry_id = "n.Entry.private-record"
+    load = AsyncMock(return_value={"id": entry_id, "title": "Private title"})
+    monkeypatch.setattr(bindings._sd, "load_entry_record", load)
+    monkeypatch.setattr(
+        "app.services.policy_engine.evaluate",
+        AsyncMock(return_value=SimpleNamespace(allowed=False)),
+    )
+
+    with pytest.raises(PermissionError, match="unavailable in the current scope"):
+        await bindings._stage_update_entry(
+            {"entry_id": entry_id, "updates": {"title": "Changed"}}
+        )
+
+    load.assert_not_awaited()
 
 
 @pytest.mark.asyncio
