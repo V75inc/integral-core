@@ -5,6 +5,8 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 import { Button } from '../../../components/ui';
 import { MarkdownContent } from '../../../components/ui/MarkdownContent';
+import JsonViewer from '../../../components/ui/JsonViewer';
+import { operationInput, StagedOperationInputs } from '../staging/StagedOperationInputs';
 import { IconButton, Input, Surface, Text } from '../../../ui';
 import { usePromptQueue } from './usePromptQueue';
 import type { PromptQuestionItem, PromptStagedWriteItem } from './types';
@@ -259,6 +261,12 @@ function WritePage({
   onReject: () => Promise<void>;
 }) {
   const pending = item.status === 'pending';
+  const machine = item.diff_machine;
+  const operation = machine && typeof machine === 'object' && !Array.isArray(machine)
+    ? { kind: item.write_kind ?? '', summary: item.summary ?? '', diff_machine: machine as Record<string, unknown> }
+    : null;
+  const hasInputs = operation && (operationInput(operation) !== null
+    || (operation.kind === 'batch' && Array.isArray(operation.diff_machine.operations)));
   const human = useMemo(() => {
     const d = item.diff_human;
     let raw = '';
@@ -294,6 +302,22 @@ function WritePage({
         <div className="mb-2 max-h-40 overflow-auto rounded border border-[var(--border-subtle)] p-2 text-xs">
           <MarkdownContent mutedBody={false}>{human}</MarkdownContent>
         </div>
+      ) : null}
+      {hasInputs && operation ? (
+        <details className="mb-3">
+          <summary className="cursor-pointer">
+            <Text variant="body-sm" as="span">Review exact inputs</Text>
+          </summary>
+          <div className="mt-2 max-h-80 overflow-auto">
+            <StagedOperationInputs staged={operation} />
+          </div>
+          <details className="mt-2">
+            <summary className="cursor-pointer">
+              <Text variant="meta" tone="subtle" as="span">Technical details</Text>
+            </summary>
+            <JsonViewer data={operation.diff_machine} defaultExpandDepth={2} maxHeight="40vh" />
+          </details>
+        </details>
       ) : null}
       {pending ? (
         <div className="flex flex-wrap gap-2">

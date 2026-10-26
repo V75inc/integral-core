@@ -14,7 +14,9 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function operationInput(staged: StagedChange): Record<string, unknown> | null {
+type OperationReview = Pick<StagedChange, 'kind' | 'summary' | 'diff_machine'>;
+
+export function operationInput(staged: OperationReview): Record<string, unknown> | null {
   const machine = staged.diff_machine;
   const supported = staged.kind === 'invoke_app_operation' || staged.kind === 'call_workspace_tool';
   return supported && machine?.op === staged.kind && isObject(machine.input)
@@ -30,7 +32,7 @@ function fieldLabel(key: string, labels?: InputLabels): string {
 
 /** Literal, read-only projection of the bound operation or workspace tool input; never parse narrated JSON. */
 export function StagedOperationInputs({ staged, onNavigate }: {
-  staged: StagedChange;
+  staged: OperationReview;
   onNavigate?: () => void;
 }) {
   if (staged.kind === 'batch' && Array.isArray(staged.diff_machine?.operations)) {
