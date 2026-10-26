@@ -8,6 +8,7 @@ import pytest
 from app.api.errors import BadRequestError
 from app.models.edges import COLLABORATES_ON, CONTAINS, EXCLUDED_FROM
 from app.models.nodes import Entry, EntryType
+from app.services import app_record_read as record_read
 from app.services.app_operations.context import OperationContext
 from tests.test_resource_location import graph, sibling
 
@@ -29,16 +30,14 @@ async def test_page_does_not_hydrate_or_count_the_whole_track(monkeypatch):
             title=f"Row {n}", track_id=track.id, custom_fields={"stage": "open"}
         )
         await track.connect(row, edge=CONTAINS)
-    from app.services import entry_access_projection as projection
-
-    hydrate = projection.hydrate_records
+    hydrate = record_read.hydrate_records
     sizes = []
 
     async def measured(records):
         sizes.append(len(records))
         return await hydrate(records)
 
-    monkeypatch.setattr(projection, "hydrate_records", measured)
+    monkeypatch.setattr(record_read, "hydrate_records", measured)
     page = await ctx.read_entry_records({"track": track.title, "limit": 5})
     assert page["count"] is None and not page["count_is_exact"]
     assert page["returned_count"] == 5 and page["truncated"] and page["next_cursor"]
@@ -63,10 +62,8 @@ async def test_count_streams_raw_windows_without_entry_hydration(monkeypatch):
             custom_fields={"stage": "open" if n % 2 else "closed"},
         )
         await track.connect(row, edge=CONTAINS)
-    from app.services import entry_access_projection as projection
-
     monkeypatch.setattr(
-        projection,
+        record_read,
         "hydrate_records",
         AsyncMock(side_effect=AssertionError("no node hydration")),
     )
