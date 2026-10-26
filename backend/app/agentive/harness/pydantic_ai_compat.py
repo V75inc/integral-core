@@ -9,6 +9,7 @@ at this seam and qualified by adapter contract tests.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -83,6 +84,7 @@ from app.agentive.harness.pydantic_context import (
     IntegralContextLifecycle,
     IntegralContextOverflow,
     IntegralContextPolicy,
+    account_context_reclaim,
     active_turn_start,
     protected_work_start,
     request_estimate,
@@ -620,7 +622,7 @@ def build_integral_run_instructions(
             "Entry; for several Entries link their containing Track(s). "
             "Integral navigation: resource IDs are opaque. When linking saved "
             "Apps, Tracks or Entries, copy the canonical url returned by Core "
-            "tools exactly. Do not split an ID, replace its dots with slashes, "
+            "tools exactly, as Markdown links with readable labels. Do not split an ID, replace its dots with slashes, "
             "or invent a route. If no verified url is available, use a plain "
             "record label instead of a guessed link.",
             "Integral read recovery: when Core refuses a read and returns "
@@ -638,7 +640,10 @@ def build_integral_run_instructions(
             "capability is missing or refused, explain the precise evidence gap; "
             "do not enumerate unrelated records or keep rediscovering the same tools. "
             "Use a corrected argument or a genuinely different authorized approach "
-            "after failure. When results suffice, answer immediately."
+            "after failure. When results suffice, answer immediately. For a count "
+            "question, give the count and relevant scope, not a roster or unsolicited "
+            "analysis. Do not infer causes or intent from numeric values and statuses "
+            "alone, or contradict explicit coverage flags in the returned evidence."
         )
         if final_response_reserved(ctx) or (
             turn_progress and turn_progress.should_finalize
@@ -726,11 +731,116 @@ class IntegralToolResultCompaction(ClearToolResults):
     """
 
     clearable_tools: frozenset[str] | None = None
+    active_keep_pairs: int = 2
+
+    _navigation_tools = frozenset({"integral_list_apps", "integral_list_tracks"})
+
+    def _navigation_preview(self, part):
+        """Retain exact addresses, not record bodies, for active read planning."""
+        if not isinstance(part.content, dict):
+            return part
+        collection = "apps" if part.tool_name == "integral_list_apps" else "tracks"
+        rows = part.content.get(collection)
+        if not isinstance(rows, list):
+            return part
+        projected, used = [], 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            item = {
+                key: row[key]
+                for key in ("id", "title", "name", "url")
+                if isinstance(row.get(key), str)
+            }
+            if isinstance(row.get("purpose"), str):
+                item["purpose"] = row["purpose"][:200]
+            size = len(json.dumps(item).encode("utf-8")) + 2
+            if used + size > 7680:
+                break
+            projected.append(item)
+            used += size
+        return replace(
+            part,
+            content={
+                collection: projected,
+                "navigation_preview": True,
+                "preview_incomplete": len(projected) != len(rows)
+                or bool(part.content.get("preview_incomplete"))
+                or bool(part.content.get("has_more")),
+                "instruction": "These are discovered resource addresses, not record data. Repeat the scoped navigation read if more resources are needed.",
+            },
+        )
+
+    def _compact_classified_reads(self, messages):
+        """Bound mixed-wrapper reads using Core's per-call effect evidence.
+
+        A wrapper can return reads and mutations in one turn. Never promote
+        its whole name into the clearable set. Legacy metadata fails closed.
+        """
+        turn_start = _active_turn_start(messages)
+        boundary = len(messages) if turn_start is None else turn_start
+        classified = [
+            (index, part_index)
+            for index, message in enumerate(messages)
+            if isinstance(message, ModelRequest)
+            for part_index, part in enumerate(message.parts)
+            if type(part) is ToolReturnPart
+            and (
+                part.tool_name in (self.clearable_tools or ())
+                or (
+                    isinstance(part.metadata, dict)
+                    and part.metadata.get("integral_effect_v1") == "read"
+                    and part.tool_name
+                    in {"integral_call_workspace_tool", "integral_invoke_app_operation"}
+                )
+            )
+        ]
+        history_reads = [key for key in classified if key[0] < boundary]
+        active_reads = [key for key in classified if key[0] >= boundary]
+        recent = set(
+            (history_reads[-self.keep_pairs :] if self.keep_pairs else [])
+            + (
+                active_reads[-self.active_keep_pairs :]
+                if self.active_keep_pairs
+                else []
+            )
+        )
+        eligible = set(classified)
+        navigation = {
+            key
+            for key in active_reads
+            if messages[key[0]].parts[key[1]].tool_name in self._navigation_tools
+        }
+        retained_navigation = set(sorted(navigation)[-2:])
+        projected = []
+        for index, message in enumerate(messages):
+            if not isinstance(message, ModelRequest):
+                projected.append(message)
+                continue
+            parts = []
+            for part_index, part in enumerate(message.parts):
+                key = (index, part_index)
+                if key in eligible:
+                    text = str(part.content)
+                    if key in retained_navigation:
+                        part = self._navigation_preview(part)
+                    elif key in navigation or (key not in recent and len(text) > 1024):
+                        part = replace(part, content=self.placeholder)
+                    elif len(text) > 16_384:
+                        part = replace(
+                            part,
+                            content=text[:16_384]
+                            + "\n[Read preview truncated; request a narrower read for omitted values. This is not the complete result.]",
+                        )
+                parts.append(part)
+            projected.append(replace(message, parts=parts))
+        return projected
 
     async def before_model_request(self, ctx, request_context):
         # Request-only projection must also become the checkpoint working
         # history. Otherwise later runs resurrect the completed-turn payloads.
         before = list(request_context.messages)
+        request_context.messages = self._compact_classified_reads(before)
         processed = await super().before_model_request(ctx, request_context)
         # The pinned upstream estimator includes instructions and schemas.
         # Also bound reads deterministically so even a misleading usage anchor
@@ -763,6 +873,10 @@ class IntegralToolResultCompaction(ClearToolResults):
             if isinstance(part, ToolCallPart)
             and part.tool_name not in self.clearable_tools
         }
+        # The shared projection already bounds navigation to two small maps.
+        # Clearing those a second time makes a discovered Track disappear while
+        # the model is still preparing its read, causing guesses and retries.
+        protected_tools |= self._navigation_tools
         active_compaction = ClearToolResults(
             max_tokens=1,
             keep_pairs=2,
@@ -807,6 +921,7 @@ class IntegralToolResultCompaction(ClearToolResults):
         return [*messages[:turn_start], *compacted]
 
     async def compact(self, messages, ctx):
+        messages = self._compact_classified_reads(messages)
         if self.clearable_tools is not None:
             protected = {
                 part.tool_name
@@ -817,7 +932,10 @@ class IntegralToolResultCompaction(ClearToolResults):
             }
             # Explicit read-only classification applies to completed history
             # too. Unknown tools and mutation receipts are never cheap-cleared.
-            compactor = replace(self, exclude_tools=self.exclude_tools | protected)
+            compactor = replace(
+                self,
+                exclude_tools=self.exclude_tools | protected | self._navigation_tools,
+            )
         else:
             compactor = self
         turn_start = _active_turn_start(messages)
@@ -994,7 +1112,7 @@ class IntegralHistorySummary(SummarizingCompaction):
                     names.update(name for name in part.tools_added if name in ctx.tools)
         retained = {
             part.tool_call_id
-            for message in compacted
+            for message in [*compacted, *active_turn]
             for part in message.parts
             if isinstance(part, LoadCapabilityReturnPart)
         }
@@ -1028,8 +1146,12 @@ def build_integral_history_compaction() -> IntegralHistorySummary:
     return IntegralHistorySummary(
         max_messages=40,
         max_tokens=24_576,
-        keep_messages=20,
-        keep_tokens=8_192,
+        # Only completed turns reach this strategy. Keeping 20 messages plus
+        # an 8K-token floor retained most of a prior workflow on a 32K model.
+        # Current work and unresolved effects are protected separately; older
+        # detail remains in the scoped archive behind the summary receipt.
+        keep_messages=4,
+        keep_tokens=2_048,
         keep_user_messages=True,
         receipts=True,
         model_settings={"max_tokens": 2048},
@@ -1049,7 +1171,9 @@ class IntegralWorkingContext(TieredCompaction):
         before = list(request_context.messages)
         # Small read clearings happen without inference even below the history
         # trigger. Typed activation was already normalized before node prepare.
-        request_context.messages = await self.tiers[0].compact(before, ctx)
+        request_context.messages = account_context_reclaim(
+            before, await self.tiers[0].compact(before, ctx)
+        )
         limit = self.policy.input_limit(
             request_context.model, request_context.model_settings
         )
@@ -1070,9 +1194,27 @@ class IntegralWorkingContext(TieredCompaction):
                 else min(self.policy.target_tokens, limit, max(1, estimate - 1))
             )
             pipeline = replace(self, target_tokens=target)
+            tier_input = list(request_context.messages)
             request_context = await TieredCompaction.before_model_request(
                 pipeline, ctx, request_context
             )
+            request_context.messages = account_context_reclaim(
+                tier_input, request_context.messages
+            )
+        if request_estimate(request_context) > limit:
+            # Native estimates can stop tier escalation before Core's more
+            # conservative wire/usage admission estimate is satisfied. Reclaim
+            # older disposable reads once more, retaining the newest result.
+            # This never touches unknown tools, effects, approvals or user input.
+            tier = self.tiers[0]
+            if isinstance(tier, IntegralToolResultCompaction):
+                prior = list(request_context.messages)
+                request_context.messages = account_context_reclaim(
+                    prior,
+                    await replace(tier, keep_pairs=0, active_keep_pairs=1).compact(
+                        prior, ctx
+                    ),
+                )
         if request_context.messages != before:
             ctx.messages[:] = request_context.messages
         return request_context
@@ -1098,7 +1240,7 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         if isinstance(current, IntegralContextOverflow):
-            return "model_context_limit"
+            return "harness_context_limit"
         if isinstance(current, UsageLimitExceeded):
             return "harness_usage_limit"
         current = current.__cause__ or current.__context__
@@ -1263,3 +1405,19 @@ class PublicConversationHistorySource:
                 if parts:
                     public.append(replace(response, parts=parts))
         return public
+
+
+@dataclass(kw_only=True)
+class InitialWorkflowSkill(AbstractCapability):
+    """A Light-selected, freshly authorized procedure, using public capability APIs.
+
+    Skills supplies instruction-only capabilities. This equivalent always-on
+    instruction capability removes discovery/loading requests for a model-selected
+    procedure; all broker, write staging and live permission checks remain intact.
+    """
+
+    id: str
+    instructions: str
+
+    def get_instructions(self) -> str:
+        return self.instructions

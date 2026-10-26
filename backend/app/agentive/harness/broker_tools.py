@@ -18,6 +18,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     ModelRetry,
     RunContext,
     Tool,
+    ToolReturn,
     build_integral_json_schema_tool,
 )
 from app.agentive.harness.tool_argument_adapter import normalize_tool_arguments
@@ -61,7 +62,9 @@ _REQUIRED_SKILLS_BY_TOOL = {
 }
 
 
-def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
+def _resource_links_for_model(
+    payload: dict[str, Any], *, _depth: int = 0
+) -> dict[str, Any]:
     """Supply canonical navigation URLs on Core resource read results.
 
     Node identifiers are opaque. The adapter renders the route rather than
@@ -94,10 +97,45 @@ def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
         return item
 
     enriched = resource(payload)
-    for collection in ("apps", "tracks", "entries", "rows", "items"):
-        items = payload.get(collection)
-        if isinstance(items, list):
+    boundary = payload.get("boundary") or payload.get("refused")
+    if (
+        _depth == 0
+        and isinstance(boundary, dict)
+        and boundary.get("declared_query_required") is True
+        and not payload.get("recovery")
+    ):
+        # A generic-search boundary is not an App read denial or an empty
+        # collection. Advertise discovery; never grant authority or dispatch.
+        enriched = {
+            **enriched,
+            "recovery": {
+                "tool": "integral_list_workspace_tools",
+                "arguments": {"read_only": True},
+                "invoke_with": "integral_call_workspace_tool",
+                "message": (
+                    "These App records were not read. Discover the installed App's "
+                    "read tools, narrowing by its app_id from integral_list_apps, "
+                    "then invoke the matching tool with its declared input schema. "
+                    "Do not report zero records or unavailable workspace access "
+                    "based on this generic boundary."
+                ),
+            },
+        }
+    # App contracts choose their own collection names. Recognize resources by
+    # their canonical IDs, not domain vocabulary; inspect only direct list
+    # members, never nested record fields or private receipt metadata.
+    for collection, items in payload.items():
+        if not collection.startswith("_") and isinstance(items, list):
             enriched = {**enriched, collection: [resource(item) for item in items]}
+    # Registered App reads use Core's {tool_key, output} envelope. Project
+    # that one known wrapper too, so a returned record already has a usable
+    # source link without another resolve/open-view model round-trip. Never
+    # recurse through arbitrary record fields or alter the receipt/source.
+    if _depth == 0 and isinstance(payload.get("output"), dict):
+        enriched = {
+            **enriched,
+            "output": _resource_links_for_model(payload["output"], _depth=1),
+        }
     return enriched
 
 
@@ -155,28 +193,7 @@ def _make_handler(
     build_attempted = False
     build_validation_failures = 0
 
-    async def invoke_tool(ctx: RunContext[Any], **arguments: Any) -> dict[str, Any]:
-        """Each tool call re-resolves access independently of previous reads."""
-        from app.middleware.permissions_cache import isolated_permissions_cache
-
-        with isolated_permissions_cache():
-            result = await invoke_current_tool(ctx, **arguments)
-            call_state["turn_progress"].observe(
-                capability_name,
-                normalize_tool_arguments(arguments, input_schema),
-                result,
-                is_read=capability_op_class == "read",
-            )
-            return result
-
-    async def invoke_current_tool(
-        ctx: RunContext[Any], **arguments: Any
-    ) -> dict[str, Any]:
-        """Invoke the declared capability with server-bound identity."""
-
-        nonlocal build_attempted, build_validation_failures
-        call_state["attempted"] += 1
-        arguments = normalize_tool_arguments(arguments, input_schema)
+    async def effective_operation(arguments: dict[str, Any]) -> str:
         effective_op_class = capability_op_class
         if capability_name == "integral_invoke_app_operation":
             from app.agentive.services.capability_broker import is_declared_app_read
@@ -211,6 +228,39 @@ def _make_handler(
                 # registered read tool is valid in a read-only turn. Dispatch
                 # still rechecks membership, privilege and owning-App access.
                 effective_op_class = "read"
+        return effective_op_class
+
+    async def invoke_tool(ctx: RunContext[Any], **arguments: Any) -> Any:
+        """Re-resolve access and bind effect evidence to this individual call."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
+
+        with isolated_permissions_cache():
+            effective_op_class = await effective_operation(arguments)
+            result = await invoke_current_tool(ctx, effective_op_class, **arguments)
+            # A staged/direct effect receipt always wins over the earlier
+            # read classification if registration changed during dispatch.
+            if capability_op_class != "read" and result.get("_kind"):
+                effective_op_class = capability_op_class
+            call_state["turn_progress"].observe(
+                capability_name,
+                normalize_tool_arguments(arguments, input_schema),
+                result,
+                is_read=effective_op_class == "read",
+            )
+            if capability_op_class != "read" and effective_op_class == "read":
+                # Framework metadata is checkpointed, never sourced from model
+                # arguments or an App payload. Classify calls, not tool names.
+                return ToolReturn(result, metadata={"integral_effect_v1": "read"})
+            return result
+
+    async def invoke_current_tool(
+        ctx: RunContext[Any], effective_op_class: str, **arguments: Any
+    ) -> dict[str, Any]:
+        """Invoke the declared capability with server-bound identity."""
+
+        nonlocal build_attempted, build_validation_failures
+        call_state["attempted"] += 1
+        arguments = normalize_tool_arguments(arguments, input_schema)
         if no_workspace_writes and effective_op_class != "read":
             return {
                 "error": True,
@@ -649,13 +699,29 @@ def build_brokered_tools(
         else frozenset(always_available_tools)
     )
     if always_available_tools is None:
-        # Foundational reads need no full workflow expansion. Schema exposure
+        # Foundational navigation and the App read protocol need no full
+        # workflow expansion. The mixed wrapper still gates writes. Schema exposure
         # only: the original run snapshot and live broker still
         # authorize dispatch. Never synthesize a missing catalogue declaration.
         immediately_available |= frozenset(
-            {"integral_get_page_context", "integral_open_view", "integral_query"}
+            {
+                "integral_get_page_context",
+                "integral_open_view",
+                "integral_query",
+                "integral_list_apps",
+                "integral_list_tracks",
+                "integral_list_workspace_tools",
+                "integral_call_workspace_tool",
+            }
         )
     if call_state.get("approved_design_ready") or call_state.get("pending_design"):
+        if skill_library is not None:
+            immediately_available -= {
+                "integral_list_apps",
+                "integral_list_tracks",
+                "integral_list_workspace_tools",
+                "integral_call_workspace_tool",
+            }
         # A saved design reply is a semantic decision point for the primary
         # model. Expose only its server-owned build macro for that turn; when
         # selected, the handler binds approval to the exact current user turn,
@@ -740,11 +806,15 @@ def build_brokered_tools(
                 )
             )
     skill_owners: dict[str, set[str]] = {}
+    small_workflows: set[str] = set()
     if skill_library is not None:
         from app.agentive.workspace_agent_profile import allowed_tools_from_skill_path
 
         for path in skill_library.glob("*/SKILL.md"):
-            for tool_name in allowed_tools_from_skill_path(path):
+            declared = allowed_tools_from_skill_path(path)
+            if len(declared) <= 8:
+                small_workflows.add(path.parent.name)
+            for tool_name in declared:
                 skill_owners.setdefault(tool_name, set()).add(path.parent.name)
     for item in catalogue:
         name = str(item.get("name") or "").strip()
@@ -805,11 +875,20 @@ def build_brokered_tools(
                 _REQUIRED_SKILLS_BY_TOOL.get(name),
                 (
                     frozenset(skill_owners.get(name, ()))
-                    if op_class != "read" and name != "integral_invoke_app_operation"
+                    if op_class != "read"
+                    and name
+                    not in {
+                        "integral_invoke_app_operation",
+                        "integral_call_workspace_tool",
+                    }
                     else frozenset()
                 ),
                 call_state,
-                workflow_tool_owners=frozenset(skill_owners.get(name, ())),
+                workflow_tool_owners=frozenset(
+                    owner
+                    for owner in skill_owners.get(name, ())
+                    if op_class != "read" or owner in small_workflows
+                ),
             ),
             defer_loading=name not in immediately_available,
             # Public Pydantic barriers preserve model-emitted order for
@@ -865,8 +944,10 @@ def _prepare_capability_tool(
             # exact current turn before any build effect.
             return replace(tool_def, defer_loading=False)
         # Skills supplies instructions; Core binds its standard allowed-tools
-        # declarations to the already authorized catalogue. Reveal the complete
-        # workflow on activation, including schemas needed to propose changes.
+        # declarations to the already authorized catalogue. Reveal schemas
+        # needed to propose changes on activation. Independent read schemas
+        # stay deferred until discovery selects them: a broad read procedure
+        # must not inject every reporting/query schema into every model call.
         # Shared tools may belong to several procedures. This is presentation,
         # never permission: dispatch still rechecks scope, policy and approval.
         if workflow_tool_owners.intersection(ctx.active_capability_ids):

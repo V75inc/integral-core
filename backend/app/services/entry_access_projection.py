@@ -331,6 +331,35 @@ async def admit_records(
     from app.services.share_grant_sources import share_grant_targets
 
     sourced_targets = await share_grant_targets(user.id, "entry")
+    scoped_locations = {
+        node_id: location
+        for node_id, location in locations.items()
+        if location is not None
+        and (not workspace_id or location.workspace_id == workspace_id)
+        and (not track_id or location.track_id == track_id)
+        and (not app_id or location.app_id == app_id)
+    }
+    for location in scoped_locations.values():
+        if location.workspace_id not in workspace_roles:
+            workspace = await context._deserialize_entity(
+                Workspace, canonical_records[location.workspace_id]
+            )
+            workspace_roles[location.workspace_id] = (
+                await _current_workspace_role(user, workspace) if workspace else "none"
+            )
+    from app.services.resource_access_blocks import blocked_entry_ids
+
+    blocked = await blocked_entry_ids(
+        user,
+        {
+            node_id: location
+            for node_id, location in scoped_locations.items()
+            if not (
+                workspace_roles[location.workspace_id] == "owner"
+                and owner_governance_allowed()
+            )
+        },
+    )
     result = []
     for selected in records:
         record = canonical_records[selected["id"]]
@@ -361,19 +390,8 @@ async def admit_records(
                 ),
             },
         }
-        if location.workspace_id not in workspace_roles:
-            workspace = await context._deserialize_entity(
-                Workspace, canonical_records[location.workspace_id]
-            )
-            workspace_roles[location.workspace_id] = (
-                await _current_workspace_role(user, workspace) if workspace else "none"
-            )
         membership = workspace_roles[location.workspace_id]
-        from app.services.resource_access_blocks import resource_blocked
-
-        if not (
-            membership == "owner" and owner_governance_allowed()
-        ) and await resource_blocked(user.id, "entry", record["id"], location=location):
+        if record["id"] in blocked:
             continue
         if membership == "owner" and owner_governance_allowed():
             result.append(record)

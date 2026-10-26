@@ -104,8 +104,8 @@ def _discovered(part) -> list[str]:
 def project_disclosures(messages, policy: IntegralContextPolicy):
     """Expire complete old loads and discovery, preserving pair structure.
 
-    Keep the active task and its preceding task for follow-up continuity. Older
-    pending staging or incomplete tool exchanges protect their entire task. If
+    Keep the active task; completed-task disclosures share a bounded budget.
+    Pending staging or incomplete tool exchanges protect their entire task. If
     protected work alone is too large, admission fails instead of deleting it.
     No procedure body is shortened and no successful load is fabricated.
     """
@@ -117,7 +117,7 @@ def project_disclosures(messages, policy: IntegralContextPolicy):
     for index, message in enumerate(messages):
         if active_turn_start([message]) is not None:
             starts.append(index)
-    protected_start = starts[-2] if len(starts) > 1 else 0
+    protected_start = starts[-1] if starts else 0
     calls, pairs, discoveries = {}, {}, {}
     unresolved_start = protected_start
     task_start = 0
@@ -153,12 +153,16 @@ def project_disclosures(messages, policy: IntegralContextPolicy):
     # Most recent successful load wins. Historical duplicate activations are
     # unnecessary but must be removed as a complete pair, never body-only.
     retained, used_bytes, skills = set(), 0, set()
-    for call_id, (call, result, index) in reversed(list(pairs.items())):
-        size = len(ModelMessagesTypeAdapter.dump_json([ModelRequest(parts=[result])]))
+    for call_id, (call, result, index) in pairs.items():
         if index >= protected_start:
             retained.add(call_id)
             skills.add(call.capability_id)
-        elif (
+            used_bytes += len(
+                ModelMessagesTypeAdapter.dump_json([ModelRequest(parts=[result])])
+            )
+    for call_id, (call, result, index) in reversed(list(pairs.items())):
+        size = len(ModelMessagesTypeAdapter.dump_json([ModelRequest(parts=[result])]))
+        if index < protected_start and (
             call.capability_id not in skills and used_bytes + size <= policy.skill_bytes
         ):
             retained.add(call_id)
@@ -331,7 +335,13 @@ class IntegralContextLifecycle(AbstractCapability):
 
 
 def request_estimate(request_context) -> int:
-    """Count current instructions/schemas once; never checkpoint JSON overhead."""
+    """Use the same conservative estimate for recovery and final admission.
+
+    A provider usage anchor can understate a newly revealed schema or skill.
+    The independent wire-text floor must trigger compaction too, otherwise
+    recovery skips that request and the final admission guard rejects it.
+    Historical instruction renderings and checkpoint metadata are not input.
+    """
     estimated = estimate_context_tokens(
         request_context.messages,
         model_request_parameters=request_context.model_request_parameters,
@@ -344,7 +354,53 @@ def request_estimate(request_context) -> int:
             if isinstance(reclaimed, int) and reclaimed > 0:
                 estimated = max(0, estimated - reclaimed)
             break
-    return estimated
+    text_chars, schema_chars = request_text_sizes(request_context)
+    return max(estimated, (text_chars + schema_chars + 3) // 4)
+
+
+def account_context_reclaim(before, after):
+    """Carry a conservative reclaim forward while its provider anchor survives.
+
+    Native tier escalation corrects its own estimate, but the next Core hook
+    estimates independently. Provider usage still describes the pre-compaction
+    request. Store the removed-text correction beside that same response so
+    admission and checkpoint resume agree without altering billing usage.
+    A new physical response naturally becomes an uncorrected usage anchor.
+    """
+    previous = next(
+        (
+            m
+            for m in reversed(before)
+            if isinstance(m, ModelResponse) and m.usage.input_tokens
+        ),
+        None,
+    )
+    if previous is None:
+        return after
+    reclaimed = max(0, estimate_token_count(before) - estimate_token_count(after))
+    if not reclaimed:
+        return after
+    for index in range(len(after) - 1, -1, -1):
+        response = after[index]
+        if isinstance(response, ModelResponse) and response.usage.input_tokens:
+            if (
+                response.timestamp == previous.timestamp
+                and response.usage == previous.usage
+            ):
+                metadata = response.metadata or {}
+                after = list(after)
+                after[index] = replace(
+                    response,
+                    metadata={
+                        **metadata,
+                        "integral_context_reclaimed_tokens_v1": metadata.get(
+                            "integral_context_reclaimed_tokens_v1", 0
+                        )
+                        + reclaimed,
+                    },
+                )
+            break
+    return after
 
 
 def _part_size(part) -> int:
@@ -361,6 +417,23 @@ def _part_size(part) -> int:
     return len(json.dumps(content, default=str))
 
 
+def request_text_sizes(request_context) -> tuple[int, int]:
+    """Current instructions, message parts and visible schemas, without private logs."""
+    parameters = request_context.model_request_parameters
+    text_chars = sum(len(part.content) for part in parameters.instruction_parts or ())
+    text_chars += sum(
+        _part_size(part)
+        for message in request_context.messages
+        for part in message.parts
+    )
+    schema_chars = sum(
+        len(json.dumps(tool.parameters_json_schema, default=str))
+        for tool in parameters.function_tools
+        if not tool.defer_loading or tool.name in parameters.revealed_tool_names
+    )
+    return text_chars, schema_chars
+
+
 @dataclass
 class IntegralContextAdmission(AbstractCapability):
     """Final non-inference guard; protected overflow never buys another model retry."""
@@ -372,23 +445,8 @@ class IntegralContextAdmission(AbstractCapability):
         limit = self.policy.input_limit(
             request_context.model, request_context.model_settings
         )
-        # An independent wire-text estimate prevents optimistic usage anchors
-        # from masking newly enlarged skill or catalogue instructions.
-        parameters = request_context.model_request_parameters
-        text_chars = sum(
-            len(part.content) for part in parameters.instruction_parts or ()
-        )
-        text_chars += sum(
-            _part_size(part)
-            for message in request_context.messages
-            for part in message.parts
-        )
-        schema_chars = sum(
-            len(json.dumps(tool.parameters_json_schema, default=str))
-            for tool in parameters.function_tools
-            if not tool.defer_loading or tool.name in parameters.revealed_tool_names
-        )
-        estimate = max(estimated, (text_chars + schema_chars + 3) // 4)
+        text_chars, schema_chars = request_text_sizes(request_context)
+        estimate = estimated
         logger.info(
             "Harness context estimated_tokens=%d limit=%d messages=%d schema_chars=%d",
             estimate,

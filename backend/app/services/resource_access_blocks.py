@@ -93,6 +93,59 @@ async def resource_blocked(
     return False
 
 
+async def blocked_entry_ids(user, locations):
+    """Read complete current block facts for one canonical admitted window.
+
+    No grant/deny result survives this call. Reuse the point reader's fact
+    validation, including released rows, ancestor blocks and duplicate rejection.
+    # deviation: batch one-hop block edges — 2,501-record count took 9.35s
+    # with individual block probes; canonical containment remains per window.
+    """
+    targets = {}
+    for entry_id, location in locations.items():
+        for node_id, kind in (
+            (entry_id, "entry"),
+            (location.track_id, "track"),
+            (location.app_id, "app"),
+        ):
+            if not node_id:
+                continue
+            value = (kind, location.workspace_id)
+            if node_id in targets and targets[node_id] != value:
+                raise AuthorizationUnavailableError()
+            targets[node_id] = value
+    if not targets:
+        return set()
+    rows = await get_default_context().database.find(
+        "edge",
+        {
+            "source": user.id,
+            "target": {"$in": sorted(targets)},
+            "entity": RESOURCE_ACCESS_BLOCK.__name__,
+        },
+        limit=len(targets) + 1,
+    )
+    if len(rows) > len(targets):
+        raise AuthorizationUnavailableError()
+    seen, blocked = set(), set()
+    for row in rows:
+        target = row.get("target")
+        if target in seen or target not in targets:
+            raise AuthorizationUnavailableError()
+        seen.add(target)
+        kind, workspace = targets[target]
+        fact = _fact(row, user_id=user.id, resource_id=target, workspace_id=workspace)
+        if fact["resource_type"] != kind:
+            raise AuthorizationUnavailableError()
+        if fact["state"] == "blocked":
+            blocked.add(target)
+    return {
+        entry_id
+        for entry_id, location in locations.items()
+        if {entry_id, location.track_id, location.app_id} & blocked
+    }
+
+
 async def require_unblocked(user_id: str, resource_type: str, resource_id: str) -> None:
     """Prevent invitation/token producers from bypassing a retained subtree deny."""
     if await resource_blocked(user_id, resource_type, resource_id):

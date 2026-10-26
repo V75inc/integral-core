@@ -68,6 +68,9 @@ class ResourceLocationWalker(Walker):
     _root_checked: set[str] = PrivateAttr(default_factory=set)
     _parents: dict[tuple[str, str], list[dict]] = PrivateAttr(default_factory=dict)
     _missing: set[str] = PrivateAttr(default_factory=set)
+    _entry_parent_locations: dict[str, ResourceLocation | None] = PrivateAttr(
+        default_factory=dict
+    )
 
     async def read_node(self, model: Any, node_id: str, context: Any) -> Any:
         row = self._records.get(node_id)
@@ -381,6 +384,21 @@ class ResourceLocationWalker(Walker):
         ):
             self.valid = False
             return
+        # Each Entry still validates its complete raw parent cardinality, scalar
+        # binding and visibility above. The shared parent graph is the same
+        # freshly prefetched immutable window; traverse/validate it once per Track.
+        # deviation: 2,501-record counts took 3.95s after query batching, dominated
+        # by repeating the identical Track/App/root Walker prefix for every Entry.
+        parent_id = parents[0]["source"]
+        if parent_id in self._entry_parent_locations:
+            location = self._entry_parent_locations[parent_id]
+            if location is None:
+                self.valid = False
+            else:
+                self.workspace_id = location.workspace_id
+                self.app_id = location.app_id
+                self.track_id = location.track_id
+            return
         parent = await self.source_node(parents[0], (Track,), context)
         if parent is None:
             self.valid = False
@@ -634,12 +652,14 @@ async def locate_resources(
         if records_out is not None:
             records_out.update(records)
         checked: set[str] = set()
+        entry_parents: dict[str, ResourceLocation | None] = {}
         for node_id in ids:
             walker = ResourceLocationWalker(allowed_app_states=allowed_app_states)
             walker._records = records
             walker._parents = parents
             walker._missing = missing
             walker._root_checked = checked
+            walker._entry_parent_locations = entry_parents
             node = await walker.read_node(model, node_id, context)
             if node is None:
                 result[node_id] = None
@@ -655,6 +675,8 @@ async def locate_resources(
                 if walker.valid and walker.workspace_id
                 else None
             )
+            if kind == "entry" and walker.track_id:
+                entry_parents[walker.track_id] = result[node_id]
         return result
     except Exception as exc:
         raise AuthorizationUnavailableError() from exc

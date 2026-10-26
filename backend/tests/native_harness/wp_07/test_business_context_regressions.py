@@ -1,0 +1,341 @@
+"""Generic context regressions found by replaying a populated Business chat."""
+
+from types import SimpleNamespace
+
+import pytest
+from pydantic_ai import Agent
+from pydantic_ai.messages import (
+    InstructionPart,
+    LoadCapabilityCallPart,
+    LoadCapabilityReturnPart,
+    ModelRequest,
+    ModelResponse,
+    SystemPromptPart,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.usage import RequestUsage
+from pydantic_ai_harness.compaction import SummarizingCompaction, TieredCompaction
+
+from app.agentive.harness.pydantic_ai_compat import (
+    IntegralHistorySummary,
+    IntegralToolResultCompaction,
+    IntegralWorkingContext,
+)
+from app.agentive.harness.pydantic_context import (
+    IntegralContextAdmission,
+    IntegralContextPolicy,
+)
+
+
+@pytest.mark.asyncio
+async def test_compaction_uses_admission_wire_estimate_with_optimistic_usage(
+    monkeypatch,
+):
+    """Large instructions must trigger recovery before the final admission guard."""
+    import app.agentive.harness.pydantic_context as context_module
+
+    monkeypatch.setattr(context_module, "estimate_context_tokens", lambda *a, **k: 10)
+    calls = []
+
+    class CheapPass:
+        async def compact(self, messages, ctx):
+            return messages
+
+    async def compact(self, ctx, request):
+        calls.append(True)
+        return request
+
+    monkeypatch.setattr(TieredCompaction, "before_model_request", compact)
+    request = SimpleNamespace(
+        messages=[ModelRequest(parts=[UserPromptPart("A brief request")])],
+        model=SimpleNamespace(context_window=32_768),
+        model_settings={},
+        model_request_parameters=SimpleNamespace(
+            instruction_parts=[
+                InstructionPart(content="large schema catalogue " * 1000)
+            ],
+            function_tools=[],
+        ),
+    )
+    pipeline = IntegralWorkingContext(
+        tiers=[CheapPass()],
+        target_tokens=250,
+        policy=IntegralContextPolicy(trigger_tokens=500, target_tokens=250),
+    )
+    await pipeline.before_model_request(SimpleNamespace(messages=[]), request)
+    assert calls, "Admission's wire-size floor must also trigger compaction"
+
+
+@pytest.mark.asyncio
+async def test_summary_does_not_duplicate_active_capability_load(monkeypatch):
+    """Historical summarization cannot replay an already retained activation pair."""
+    history = [ModelRequest(parts=[UserPromptPart("Earlier task")])]
+    history += [ModelResponse(parts=[TextPart("Completed")]) for _ in range(3)]
+    current = [
+        ModelRequest(parts=[UserPromptPart("New task")]),
+        ModelResponse(
+            parts=[LoadCapabilityCallPart("load-1", args={"id": "workflow"})]
+        ),
+        ModelRequest(
+            parts=[
+                LoadCapabilityReturnPart(
+                    "load-1",
+                    content={"id": "workflow", "instructions": "Read carefully"},
+                )
+            ]
+        ),
+    ]
+
+    async def summarize(self, messages, ctx):
+        return [ModelRequest(parts=[SystemPromptPart("Earlier task completed")])]
+
+    monkeypatch.setattr(SummarizingCompaction, "compact", summarize)
+    result = await IntegralHistorySummary(max_tokens=1, keep_messages=1).compact(
+        history + current,
+        SimpleNamespace(active_capability_ids={"workflow"}, tools={}),
+    )
+    for part_type in (LoadCapabilityCallPart, LoadCapabilityReturnPart):
+        assert (
+            sum(
+                isinstance(part, part_type) and part.tool_call_id == "load-1"
+                for message in result
+                for part in message.parts
+            )
+            == 1
+        )
+    assert result[-len(current) :] == current
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_reads_do_not_fail_admission_on_the_old_provider_usage():
+    """A native clearing pass must reduce Core's guard as well as its own estimate."""
+    usage = RequestUsage(input_tokens=20_000, output_tokens=20)
+    original = "completed read " * 5000
+    history = [
+        ModelRequest(parts=[UserPromptPart("Earlier task")]),
+        ModelResponse(parts=[ToolCallPart("read", {}, "read-1")]),
+        ModelRequest(parts=[ToolReturnPart("read", original, "read-1")]),
+        ModelResponse(parts=[TextPart("Earlier task complete")], usage=usage),
+    ]
+    calls = []
+
+    def respond(messages, info):
+        calls.append(True)
+        assert original not in str(messages)
+        return ModelResponse(parts=[TextPart("Current task complete")])
+
+    policy = IntegralContextPolicy(input_tokens=4096)
+    agent = Agent(
+        FunctionModel(respond),
+        capabilities=[
+            IntegralWorkingContext(
+                tiers=[
+                    IntegralToolResultCompaction(
+                        max_tokens=1,
+                        keep_pairs=0,
+                        clearable_tools=frozenset({"read"}),
+                    )
+                ],
+                target_tokens=4096,
+                policy=policy,
+            ),
+            IntegralContextAdmission(policy=policy),
+        ],
+    )
+    result = await agent.run("A brief new question", message_history=history)
+    assert result.output == "Current task complete"
+    assert calls == [True]
+    assert usage.input_tokens == 20_000
+    assert history[2].parts[0].content == original
+
+
+@pytest.mark.asyncio
+async def test_mixed_wrapper_reads_compact_per_call_and_preserve_writes():
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+    name = "integral_call_workspace_tool"
+    payload = "read row " * 4000
+    messages = [ModelRequest(parts=[UserPromptPart("Current task")])]
+    for index in range(8):
+        messages += [
+            ModelResponse(parts=[ToolCallPart(name, {"tool_key": "read"}, str(index))]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        name,
+                        payload,
+                        str(index),
+                        metadata={"integral_effect_v1": "read"},
+                    )
+                ]
+            ),
+        ]
+    write_payload = {"integral_effect_v1": "read", "receipt": "exact effect"}
+    messages += [
+        ModelResponse(parts=[ToolCallPart(name, {"tool_key": "write"}, "write")]),
+        ModelRequest(parts=[ToolReturnPart(name, write_payload, "write")]),
+    ]
+    # Trusted framework metadata survives a real checkpoint round trip.
+    restored = ModelMessagesTypeAdapter.validate_json(
+        ModelMessagesTypeAdapter.dump_json(messages)
+    )
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset()
+    )
+    result = await compactor.compact(restored, SimpleNamespace())
+    returns = [p for m in result for p in m.parts if type(p) is ToolReturnPart]
+    assert [p.content for p in returns[:6]] == [compactor.placeholder] * 6
+    assert all("Read preview truncated" in p.content for p in returns[6:8])
+    assert returns[-1].content == write_payload
+    assert [p.tool_call_id for p in returns] == [str(i) for i in range(8)] + ["write"]
+    assert messages[2].parts[0].content == payload
+
+
+def test_current_skill_bodies_consume_the_historical_disclosure_budget():
+    from app.agentive.harness.pydantic_context import project_disclosures
+
+    messages = []
+    for name in ("completed", "current"):
+        messages += [
+            ModelRequest(parts=[UserPromptPart(name)]),
+            ModelResponse(parts=[LoadCapabilityCallPart(name, args={"id": name})]),
+            ModelRequest(
+                parts=[
+                    LoadCapabilityReturnPart(
+                        name, content={"id": name, "instructions": "procedure " * 3000}
+                    )
+                ]
+            ),
+        ]
+    projected = project_disclosures(messages, IntegralContextPolicy())
+    loads = [
+        p for m in projected for p in m.parts if isinstance(p, LoadCapabilityReturnPart)
+    ]
+    assert [p.tool_call_id for p in loads] == ["current"]
+    assert projected[-3:] == messages[-3:]
+    assert len(messages) == 6
+
+
+@pytest.mark.asyncio
+async def test_static_and_dynamic_reads_share_one_active_result_window():
+    wrapper = "integral_call_workspace_tool"
+    messages = [ModelRequest(parts=[UserPromptPart("Current task")])]
+    for index, name in enumerate((wrapper, wrapper, "read", "read")):
+        messages += [
+            ModelResponse(parts=[ToolCallPart(name, {}, str(index))]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        name,
+                        "record " * 2000,
+                        str(index),
+                        metadata=(
+                            {"integral_effect_v1": "read"} if name == wrapper else None
+                        ),
+                    )
+                ]
+            ),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({"read"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    returns = [p for m in result for p in m.parts if type(p) is ToolReturnPart]
+    assert [p.content for p in returns[:2]] == [compactor.placeholder] * 2
+    assert all(p.content.startswith("record ") for p in returns[2:])
+
+
+@pytest.mark.asyncio
+async def test_active_navigation_survives_data_reads_as_bounded_addresses():
+    messages = [ModelRequest(parts=[UserPromptPart("What is the current total?")])]
+    for index in range(3):
+        rows = [
+            {
+                "id": f"n.Track.{index}-{row}",
+                "title": f"Exact configured title {index}-{row}",
+                "url": f"/tracks/n.Track.{index}-{row}",
+                "purpose": "description " * 1000,
+            }
+            for row in range(100)
+        ]
+        messages += [
+            ModelResponse(parts=[ToolCallPart("integral_list_tracks", {}, str(index))]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart("integral_list_tracks", {"tracks": rows}, str(index))
+                ]
+            ),
+        ]
+    for index in range(4):
+        messages += [
+            ModelResponse(parts=[ToolCallPart("read", {}, f"data-{index}")]),
+            ModelRequest(
+                parts=[ToolReturnPart("read", "record " * 2000, f"data-{index}")]
+            ),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({"read", "integral_list_tracks"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    returns = [p for m in result for p in m.parts if type(p) is ToolReturnPart]
+    assert returns[0].content == compactor.placeholder
+    for index, part in enumerate(returns[1:3], start=1):
+        assert part.content["navigation_preview"] is True
+        assert part.content["preview_incomplete"] is True
+        assert part.content["tracks"][0]["title"] == f"Exact configured title {index}-0"
+        assert part.content["tracks"][0]["url"] == f"/tracks/n.Track.{index}-0"
+        assert len(str(part.content).encode("utf-8")) < 8192
+    assert returns[3].content == compactor.placeholder
+    assert len(messages[2].parts[0].content["tracks"][0]["purpose"]) > 200
+
+
+@pytest.mark.asyncio
+async def test_admission_budget_can_reclaim_older_reads_after_native_tiers(monkeypatch):
+    async def native(self, ctx, request):
+        return request
+
+    monkeypatch.setattr(TieredCompaction, "before_model_request", native)
+    messages = [ModelRequest(parts=[UserPromptPart("Current task")])]
+    for index in range(3):
+        messages += [
+            ModelResponse(parts=[ToolCallPart("read", {}, str(index))]),
+            ModelRequest(parts=[ToolReturnPart("read", "row " * 3500, str(index))]),
+        ]
+    receipt = {"_kind": "staged_change", "token": "exact pending approval"}
+    messages += [
+        ModelResponse(parts=[ToolCallPart("write", {}, "effect")]),
+        ModelRequest(parts=[ToolReturnPart("write", receipt, "effect")]),
+    ]
+    request = SimpleNamespace(
+        messages=messages,
+        model=SimpleNamespace(context_window=32768),
+        model_settings={},
+        model_request_parameters=SimpleNamespace(
+            instruction_parts=[],
+            function_tools=[],
+            revealed_tool_names=set(),
+        ),
+    )
+    policy = IntegralContextPolicy(input_tokens=6000)
+    pipeline = IntegralWorkingContext(
+        tiers=[
+            IntegralToolResultCompaction(
+                max_tokens=8192, clearable_tools=frozenset({"read"})
+            )
+        ],
+        target_tokens=4000,
+        policy=policy,
+    )
+    result = await pipeline.before_model_request(
+        SimpleNamespace(messages=messages[:]), request
+    )
+    from app.agentive.harness.pydantic_context import request_estimate
+
+    assert request_estimate(result) < 6000
+    assert result.messages[-1].parts[0].content == receipt
+    assert result.messages[0].parts[0].content == "Current task"
+    assert result.messages[-3].parts[0].content == "row " * 3500

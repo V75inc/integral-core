@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.services.hooks.registry import (
@@ -10,6 +12,73 @@ from app.services.hooks.registry import (
 )
 
 WS = "n.Workspace.test-ws-tools"
+
+
+@pytest.mark.asyncio
+async def test_app_scoped_read_catalogue_is_paged_and_live(
+    workspace_tools, monkeypatch
+):
+    from app.services.workspace_tools import list_workspace_tools
+
+    async def app_get(_id):
+        return SimpleNamespace(
+            workspace_id=WS,
+            installed_package_slug="test-bundle",
+            lifecycle_state="active",
+        )
+
+    async def access(*args):
+        return "viewer"
+
+    monkeypatch.setattr("app.models.nodes.App.get", app_get)
+    monkeypatch.setattr("app.services.permissions.resolve_role", access)
+    result = await list_workspace_tools(
+        user_id="u1", workspace_id=WS, app_id="app", read_only=True, limit=1
+    )
+    assert [item["key"] for item in result["tools"]] == ["compute_periods"]
+    assert result["count"] == 1
+    assert result["has_more"] is False
+    page = await list_workspace_tools(user_id="u1", workspace_id=WS, limit=1)
+    next_page = await list_workspace_tools(
+        user_id="u1", workspace_id=WS, limit=1, offset=page["next_offset"]
+    )
+    assert page["has_more"] is True
+    assert next_page["has_more"] is False
+    assert page["tools"][0]["key"] != next_page["tools"][0]["key"]
+    assert (
+        await list_workspace_tools(
+            user_id="u1", workspace_id=WS, tool_key="compute_periods"
+        )
+    )["count"] == 1
+
+    async def revoked(*args):
+        return None
+
+    monkeypatch.setattr("app.services.permissions.resolve_role", revoked)
+    from app.api.errors import InsufficientPermissionsError
+
+    with pytest.raises(InsufficientPermissionsError):
+        await list_workspace_tools(user_id="u1", workspace_id=WS, app_id="app")
+
+
+@pytest.mark.asyncio
+async def test_track_grant_does_not_expose_parent_app_read_catalogue(
+    workspace_tools, monkeypatch
+):
+    from app.services.workspace_tools import track_read_tool_hint
+
+    async def parent(track):
+        return SimpleNamespace(id="private-app", workspace_id=WS)
+
+    async def no_app_access(*args):
+        return None
+
+    monkeypatch.setattr("app.services.query_boundary.parent_app_for_track", parent)
+    monkeypatch.setattr("app.services.permissions.resolve_role", no_app_access)
+    assert (
+        await track_read_tool_hint(user_id="u1", workspace_id=WS, track=object())
+        is None
+    )
 
 
 async def fake_write_tool(payload, ctx):
@@ -194,3 +263,31 @@ def test_new_tools_in_catalogue_and_executors():
     assert "integral_list_workspace_tools" in names
     assert "integral_call_workspace_tool" in names
     assert supports("call_workspace_tool")
+
+
+@pytest.mark.asyncio
+async def test_read_tools_lead_the_default_page_of_a_write_heavy_catalogue(
+    workspace_tools,
+):
+    from app.services.workspace_tools import list_workspace_tools
+
+    register_workspace_tools(
+        WS,
+        "test-bundle",
+        [
+            {
+                "key": "aaa_write",
+                "side_effects": "write",
+                "agent_callable": True,
+                "handler_ref": "tests.test_workspace_tool_agent:fake_write_tool",
+            },
+        ],
+    )
+    result = await list_workspace_tools(user_id="u1", workspace_id=WS, limit=1)
+    assert result["tools"][0]["key"] == "compute_periods"
+    assert result["count"] == 3
+    assert result["has_more"] is True
+    write = await list_workspace_tools(
+        user_id="u1", workspace_id=WS, tool_key="aaa_write"
+    )
+    assert write["tools"][0]["write"] is True

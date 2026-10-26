@@ -69,6 +69,11 @@ async def list_workspace_tools(
     *,
     user_id: str,
     workspace_id: Optional[str] = None,
+    app_id: Optional[str] = None,
+    tool_key: Optional[str] = None,
+    read_only: bool = False,
+    limit: Optional[int] = None,
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """Catalogue of agent-callable workspace tools in the bound workspace.
 
@@ -81,15 +86,85 @@ async def list_workspace_tools(
     if role == "none":
         raise InsufficientPermissionsError(message="Access denied")
     tools = get_workspace_tools(workspace_id)
+    bundle_slug = None
+    if app_id:
+        from app.models.nodes import App
+        from app.services.permissions import resolve_role
+
+        app = await App.get(app_id)
+        if (
+            app is None
+            or app.workspace_id != workspace_id
+            or await resolve_role(user_id, "app", app_id) is None
+        ):
+            raise InsufficientPermissionsError(message="Access denied")
+        if app.lifecycle_state != "active":
+            raise ResourceNotFoundError(message="App is unavailable")
+        bundle_slug = app.installed_package_slug
+        if not bundle_slug:
+            return {"tools": [], "count": 0, "has_more": False, "next_offset": None}
     out = []
     for spec in tools.values():
+        if bundle_slug and spec.get("_bundle_slug") != bundle_slug:
+            continue
+        if tool_key and spec.get("key") != tool_key:
+            continue
+        if read_only and is_write_tool(spec):
+            continue
         if not is_agent_callable(spec):
             continue
         if spec.get("privileged") and role not in ("owner", "admin"):
             continue
         out.append(_public_spec(spec))
-    out.sort(key=lambda s: str(s.get("key") or ""))
-    return {"tools": out, "count": len(out)}
+    # Read tools lead each stable catalogue so a write-heavy App does not
+    # hide its data access behind pages of action schemas. Exact-key lookup
+    # and explicit read_only filtering remain available for either workflow.
+    out.sort(key=lambda s: (bool(s.get("write")), str(s.get("key") or "")))
+    offset = max(0, offset)
+    page_size = max(1, min(limit, 50)) if limit is not None else len(out)
+    page = out[offset : offset + page_size]
+    more = offset + len(page) < len(out)
+    return {
+        "tools": page,
+        "count": len(out),
+        "returned_count": len(page),
+        "has_more": more,
+        "next_offset": offset + len(page) if more else None,
+    }
+
+
+async def track_read_tool_hint(
+    *, user_id: str, workspace_id: str, track: Any
+) -> Optional[Dict[str, Any]]:
+    """Resolve a small live read catalogue after a generic App-record refusal.
+
+    This advertises a route, never executes it or grants authority. A direct
+    Track grant does not imply permission to discover its parent App's tools.
+    """
+    from app.services.permissions import resolve_role
+    from app.services.query_boundary import parent_app_for_track
+
+    app = await parent_app_for_track(track)
+    if (
+        app is None
+        or app.workspace_id != workspace_id
+        or await resolve_role(user_id, "app", app.id) is None
+    ):
+        return None
+    catalogue = await list_workspace_tools(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        app_id=app.id,
+        read_only=True,
+        limit=5,
+    )
+    return {
+        "tool": "integral_list_workspace_tools",
+        "arguments": {"app_id": app.id, "read_only": True},
+        "read_tools": catalogue["tools"],
+        "has_more": catalogue["has_more"],
+        "message": "Use an appropriate returned read tool through integral_call_workspace_tool. Do not repeat the generic query on this App's records.",
+    }
 
 
 async def invoke_workspace_tool(

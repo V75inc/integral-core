@@ -8,7 +8,9 @@ allowed-tools: integral_list_views integral_open_view integral_list_workspace_to
 
 ## Start after loading
 
-For records in an installed App, call `integral_list_workspace_tools` and use
+For records in an installed App, first resolve its App ID from current scoped
+context or `integral_list_apps`. Call
+`integral_list_workspace_tools(app_id=<verified App ID>, read_only=true)` and use
 the matching read-only tool via `integral_call_workspace_tool`, with the exact
 returned key and input schema. These registered tool keys are not declared
 query keys; never pass them to `integral_governed_query`. If none fits, inspect
@@ -17,6 +19,11 @@ a key or use another App's query. A generic read refused with `app_domain`
 did not read records: follow this discovery path once rather than repeating
 generic reads. If neither route is available, explain the limitation briefly
 and answer any other parts already supported by the results.
+
+The catalogue is paged. If it has more results, follow `next_offset` only when
+the current page lacks a matching read. Request `tool_key` for one known schema.
+When an `app_domain` refusal includes `recovery.read_tools`, use those exact
+keys and schemas rather than rediscovering the whole workspace catalogue.
 
 For a question about saved prose, wiki pages or guidance, use `integral_query`
 with `mode="hybrid"` (or semantic for paraphrases), `top_n=3` and

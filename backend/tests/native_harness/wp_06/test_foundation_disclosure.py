@@ -460,7 +460,8 @@ async def test_declared_app_read_is_allowed_under_no_write_request(monkeypatch):
     result = await tool.function(
         ctx, app_id="app", operation_key="read_roster", input={}
     )
-    assert result["count"] == 3
+    assert result.return_value["count"] == 3
+    assert result.metadata == {"integral_effect_v1": "read"}
     invoke.assert_awaited_once()
     monkeypatch.setattr(
         "app.agentive.services.capability_broker.is_declared_app_read",

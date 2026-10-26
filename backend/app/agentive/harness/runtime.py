@@ -20,6 +20,7 @@ from app.agentive.harness.jvspatial_store import JvSpatialStepStore
 from app.agentive.harness.pydantic_ai_compat import (
     Agent,
     ConversationSearch,
+    InitialWorkflowSkill,
     InstructionDisclosureGuard,
     Instrumentation,
     IntegralContextAdmission,
@@ -83,6 +84,7 @@ def build_native_runtime(
     *,
     model: Any,
     protected_instruction_text: str | None = None,
+    initial_skill: tuple[str, str] | None = None,
     instructions: str,
     tools: Sequence[Any],
     step_store_backend: StepStore | None = None,
@@ -198,11 +200,20 @@ def build_native_runtime(
             add_instructions=False,
         ),
     ]
-    if selected_skills:
+    if initial_skill is not None:
+        if initial_skill[0] not in selected_skills:
+            raise ValueError("Initial workflow is not in this run's authorized skills")
+        capabilities.append(
+            InitialWorkflowSkill(id=initial_skill[0], instructions=initial_skill[1])
+        )
+    remaining_skills = selected_skills - (
+        {initial_skill[0]} if initial_skill else set()
+    )
+    if remaining_skills:
         capabilities.append(
             Skills(
                 directories=[path.resolve() for path in skill_directories],
-                include=selected_skills,
+                include=remaining_skills,
                 # Attach a backend only to Skills. No filesystem or shell
                 # capability is added to the resident agent.
                 workspace=LocalWorkspaceBackend(skill_directories[0].resolve()),

@@ -19,6 +19,11 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 All App authors follow the [App settings UI contract](platform/app-settings-ui.md):
 App-specific settings controls belong in the standard App settings dialog.
 
+Use the [efficient agent-read pattern](platform/extension-contract-v1.md#efficient-agent-reads)
+for focused App queries, bounded evidence, concise skills and realistic latency
+qualification. Domain calculations belong in Apps; Core supplies the generic
+governed execution and retrieval boundary.
+
 Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [background jobs for Apps](platform/background-app-jobs.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). Use [declarative indexing and retrieval](backend/semantic-indexing.md) for searchable fields, agent capabilities and permission-aware passages. [Model discovery](backend/operational-model-search-index.md) covers the separate package catalog. The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
 
 The [semantic search improvement contract](platform/knowledge-retrieval-v1.md)

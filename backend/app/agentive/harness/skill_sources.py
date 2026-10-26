@@ -64,3 +64,53 @@ def materialize_standard_skill_library(
         skill_file.chmod(0o600)
         selected.add(name)
     return frozenset(selected)
+
+
+async def routing_skill_candidates(
+    *, workspace_id, principal_id, focused_app_id, query
+):
+    """Advisory public metadata only; do not prepare/load operational skill bodies."""
+    import asyncio
+
+    from app.agentive.harness.capability_search import (
+        _rank,
+        _searchable_skill_description,
+    )
+    from app.agentive.services.agent_skills import list_core_skills
+    from app.agentive.services.skill_registry import get_callable_skills
+    from app.agentive.workspace_agent_profile import _app_slug
+    from app.models.nodes import App
+
+    core = await asyncio.to_thread(list_core_skills)
+    descriptions = {
+        str(row["key"]): str(row.get("description") or "")
+        for row in core
+        if row.get("key")
+    }
+    # The current resolver filters App access and private/disabled skills. Do not
+    # cache its decisions or consult the filesystem/App body composition path.
+    skills = await get_callable_skills(
+        "", workspace_id, user_id=principal_id, active_apps_only=True
+    )
+    apps = {}
+    for skill in skills:
+        if getattr(skill, "kind", "declarative") != "declarative":
+            continue
+        app_id = str(getattr(skill, "app_id", "") or "")
+        if app_id not in apps:
+            apps[app_id] = await App.get(app_id) if app_id else None
+        if apps[app_id] is None:
+            continue
+        key = f"{_app_slug(apps[app_id])}__{skill.key}"
+        descriptions[key] = str(getattr(skill, "description", "") or "")
+    ranked = _rank(
+        query,
+        [
+            (key, _searchable_skill_description(value))
+            for key, value in descriptions.items()
+        ],
+    )
+    return [
+        {"id": key, "description": " ".join(descriptions[key].split())[:500]}
+        for key, _score in ranked[:8]
+    ]

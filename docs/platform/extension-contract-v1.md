@@ -16,6 +16,56 @@ The [commercial host integration guide](commercial-host-integration.md) defines 
 
 The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.
 
+### Efficient agent reads
+
+For recurring domain questions, prefer a focused, registered read that returns
+the facts needed to answer the question. Keep domain calculations and workflow
+meaning in the owning App. Core supplies generic scope, authorization, query,
+retrieval and execution facilities; it must not special-case App names or
+business vocabulary to make a particular prompt fast.
+
+The recommended path is: discover the relevant capability, invoke its governed
+read, then answer from its compact result. A skill should name the actual
+registered tool and its minimal input. A declared query key is a separate
+identifier: call it through the supported query interface or an App-owned tool
+that delegates to that interface. Avoid repeatedly listing Apps, Tracks,
+schemas and tools once the current capability is known. Rediscover after a
+scope/generation change or an unavailable capability; saved instructions and
+prior successful reads do not confer continuing authority.
+
+App authors should:
+
+- Bind reads to the owning installed App and current principal. Prefer stable
+  manifest/resource keys over display titles. Where a facade only supports
+  titles, retain the explicit App boundary and fail on unresolved or ambiguous
+  selection; never clear scope or search another App as a fallback.
+- Apply supported structured filters before hydrating records. Compute exact
+  totals and domain rules deterministically from authoritative records; semantic
+  top-k results cannot establish an exhaustive total or prove absence. Use
+  retrieval for passage discovery and interpretation when that is the question.
+- Return only needed values, readable source links, relevant dates/units and
+  coverage. Distinguish zero from missing, invalid, inaccessible and unavailable
+  data. Expose paging/truncation and uncertainty instead of claiming completeness.
+  A capped detail list must not silently cap an aggregate's source population.
+- Keep read declarations side-effect free. Read-time questions must not provision
+  accounts, create drafts, send messages or trigger hidden writes. Preserve the
+  ordinary staged approval and receipt contracts for subsequent mutations.
+- Bound source work as well as model output. A compact response can still conceal
+  a full scan or N+1 permission/graph reads. Prefer existing batch/projection/page
+  facilities, document remaining scan limits, and measure before adding caches,
+  denormalization or new infrastructure. Caching must preserve current authority,
+  tenant isolation and invalidation; it is not permission evidence.
+
+Qualify this path with ordinary user prompts in a realistically populated
+workspace, including follow-ups, missing/ambiguous results and restricted access.
+Check answers and source links against canonical readback. Record time to the
+first tool request, time to the first domain-data request, full response time,
+tool/model call counts and provider token usage. Separate discovery, graph/query,
+model/provider and compaction costs. Compare repeated cold and warm runs under
+the same data, models, routing and reasoning settings; disclose environmental
+differences. HTTP 200, low passage-token counts or a single fast run do not
+establish accuracy, bounded context or a latency guarantee.
+
 ### Recorded HTTP operation completion
 
 For `POST /extensions/{app_id}/operations/{operation_key}`, retain one
@@ -196,3 +246,26 @@ component properties, installed overrides, previews, coauthor revisions and
 upgrade compatibility. The sandbox and canonical operation boundary remain in
 force. The independent TypeScript client lives in `sdk/ui`; background-job
 facade typing is also available in the Python SDK.
+
+### Bounded App record reads
+
+`OperationContext.read_entry_records(params)` supplies a generic, ordinary-authority
+read within the installed App; callers cannot supply principal, workspace or App
+scope. It accepts the owning Track title, an optional exact EntryType key, scalar
+filters, a compact field projection, `limit` (1–50), sorting and an opaque cursor.
+Track discovery stays inside the rooted App, and type predicates are resolved from
+its rooted schema before selecting Entries. Each raw window retains current
+canonical containment, membership, explicit denies, direct grants and active-App
+checks. These preserve I-ROLE-01/02, I-HARNESS-01, I-SUBSTRATE-01 and I-EXT-01.
+
+Ordinary pages return `count: null`, `count_is_exact: false`, `returned_count`,
+`truncated` and `next_cursor`; they do not implicitly scan for a total. Continue
+with identical parameters and the returned cursor. An exact count requires
+`count_only: true`; optional `group_by` streams the same admitted raw windows
+without retaining the full Track or hydrating every result again for presentation.
+Canonical binding validation still validates each Entry within its fresh window. Groups are bounded and disclose truncation.
+Counts still read matching records to validate current authority; they are not a
+cached or approximate dataset total. Custom-value sorting uses the canonical
+portable bounded-heap path where adapter ordering differs, so it can require a
+scan while keeping memory/page hydration bounded. High-cardinality grouping must
+be narrowed. Pages are live reads, not frozen reports.

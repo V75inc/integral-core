@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import math
@@ -569,11 +568,13 @@ async def pydantic_tool_search_strategy(
 
     lexical = _rank(query, documents)
     try:
-        vectors = await asyncio.gather(
-            _embed_text_for_capability_search(query),
-            *(_definition_vector(text) for _, text in documents),
-        )
-        query_vector, *document_vectors = vectors
+        query_vector = await _embed_text_for_capability_search(query)
+        # Native inference is serialized behind a bounded interactive queue.
+        # Fanning the entire catalogue into that queue makes one ordinary
+        # search overload itself (63 skills / hundreds of tools on Business).
+        # Await definitions in order and reuse only content-addressed vectors;
+        # candidate membership/authority is still checked on every invocation.
+        document_vectors = [await _definition_vector(text) for _, text in documents]
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
         semantic = []
         for (name, _document), vector in zip(documents, document_vectors):
@@ -674,11 +675,8 @@ def build_search_capabilities_tool(
                 for skill in skills
             ],
         )
-        vectors = await asyncio.gather(
-            _embed_text_for_capability_search(query),
-            *(_embed_text_for_capability_search(text) for text in texts),
-        )
-        query_vector, *skill_vectors = vectors
+        query_vector = await _embed_text_for_capability_search(query)
+        skill_vectors = [await _definition_vector(text) for text in texts]
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
         semantic = []
         for skill, vector in zip(skills, skill_vectors):
@@ -714,13 +712,10 @@ def build_search_capabilities_tool(
             for name, document in tool_documents
             if document not in tool_vectors
         ]
-        query_vector, *document_vectors = await asyncio.gather(
-            _embed_text_for_capability_search(query),
-            *(
-                _embed_text_for_capability_search(document)
-                for _name, document in missing
-            ),
-        )
+        query_vector = await _embed_text_for_capability_search(query)
+        document_vectors = [
+            await _definition_vector(document) for _name, document in missing
+        ]
         for (_name, document), vector in zip(missing, document_vectors):
             tool_vectors[document] = vector
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0

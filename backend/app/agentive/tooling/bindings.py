@@ -3962,7 +3962,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     ),
     "integral_list_workspace_tools": ToolBinding(
         service_ref=_h("app.services.workspace_tools", "list_workspace_tools"),
-        service_param_map=_pick(),
+        service_param_map=lambda args: {
+            **_pick("app_id", "tool_key", "read_only", "offset")(args),
+            "limit": args.get("limit") or 20,
+        },
     ),
     # ---- PROPOSE tools (Task 5a) -------------------------------------------
     # Each carries a ``stager`` mapping tool args -> create_staged_change kwargs.

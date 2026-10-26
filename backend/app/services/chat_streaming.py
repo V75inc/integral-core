@@ -98,7 +98,8 @@ _ERROR_MESSAGES: Dict[str, str] = {
     "model_key_required": "AI access hasn't been set up for this workspace. Ask your workspace administrator to connect it in Settings → AI Models.",
     "ai_quota_exceeded": "This workspace has used its AI allowance. Ask your workspace administrator about adding more, or try again when the allowance renews.",
     "walker_failed": "I ran into a problem and couldn't finish. Please try again.",
-    "model_context_limit": "There's more information here than I can work with at once. Try a shorter request, or start a new chat with just the details you need.",
+    "model_context_limit": "The AI service rejected the amount of information in this step. Choose a model with a larger context window, or narrow the task.",
+    "harness_context_limit": "I couldn't keep this task within the model's working context. Your conversation is saved. Choose a model with a larger context window, or narrow the task.",
     "harness_usage_limit": "I couldn't finish everything in one go. Check any saved changes and approvals in this chat, then ask me to continue with what's left.",
     "harness_reconciliation_required": "I couldn't pick up the earlier request reliably. Its actions haven't been repeated. Check what was already saved, then tell me what you'd like to do next in this chat.",
     "model_configuration_invalid": "The AI connection needs attention. Ask your workspace administrator to check Settings → AI Models.",
@@ -153,14 +154,13 @@ def _scaffold_plan_failure_message(exc: BaseException) -> Optional[str]:
             detail = text
             break
         current = current.__cause__ or current.__context__
-    lead = "The approved setup could not be built."
     if detail:
         return (
             "I couldn't build the setup you approved because some of its details "
             "didn't fit together. Ask me to review the setup and try again. "
             "Check anything already saved before repeating changes."
         )
-    return lead
+    return None
 
 
 # These current-state conflicts can happen on a first-ever conversation. Do

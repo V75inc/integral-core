@@ -150,3 +150,91 @@ async def test_bulk_facade_bypasses_inherited_process_permission_cache(monkeypat
     monkeypatch.setattr(projection, "admit_records", admitted)
     assert [row.id for row in await context.find_entries({})] == [entry.id]
     assert calls
+
+
+async def test_bulk_blocks_are_batched_and_released_rows_are_rechecked(monkeypatch):
+    from app.models.access_lifecycle import RESOURCE_ACCESS_BLOCK
+    from app.utils.time import utc_now_iso
+
+    reader, _, ws, app, track, entry, context = await reader_context()
+    for n in range(24):
+        row = await Entry.create(title=f"Block test {n}", track_id=track.id)
+        await track.connect(row, edge=CONTAINS)
+    block = await reader.connect(
+        entry,
+        edge=RESOURCE_ACCESS_BLOCK,
+        workspace_id=ws.id,
+        resource_type="entry",
+        state="blocked",
+        reason="Synthetic regression",
+        revision=1,
+        actor_id=reader.id,
+        changed_at=utc_now_iso(),
+    )
+    database = (await track.get_context()).database
+    original = database.find
+    probes = []
+
+    async def counted(collection, query, **kwargs):
+        if (
+            collection == "edge"
+            and query.get("entity") == RESOURCE_ACCESS_BLOCK.__name__
+        ):
+            probes.append(query)
+        return await original(collection, query, **kwargs)
+
+    monkeypatch.setattr(database, "find", counted)
+    rows = await context.find_entries({"context.track_id": track.id})
+    assert len(rows) == 24 and entry.id not in {row.id for row in rows}
+    assert len(probes) < 6  # parent checks plus one complete window, not 25 probes
+    block.state = "released"
+    block.revision = 2
+    await block.save()
+    rows = await context.find_entries({"context.track_id": track.id})
+    assert len(rows) == 25
+
+
+async def test_count_windows_do_not_reuse_absolute_block_decisions(monkeypatch):
+    from app.models.access_lifecycle import RESOURCE_ACCESS_BLOCK
+    from app.services import entry_access_projection as projection
+    from app.services import resource_access_blocks as blocks
+    from app.utils.time import utc_now_iso
+
+    reader, _, ws, app, track, _, context = await reader_context()
+    for n in range(5):
+        row = await Entry.create(title=f"Block window {n}", track_id=track.id)
+        await track.connect(row, edge=CONTAINS)
+    monkeypatch.setattr(projection, "WINDOW", 2)
+    original = blocks.blocked_entry_ids
+    calls = []
+
+    async def change_after_first(user, locations):
+        result = await original(user, locations)
+        if not locations:
+            return result
+        calls.append(True)
+        if len(calls) == 1:
+            await reader.connect(
+                app,
+                edge=RESOURCE_ACCESS_BLOCK,
+                workspace_id=ws.id,
+                resource_type="app",
+                state="blocked",
+                reason="Synthetic regression",
+                revision=1,
+                actor_id=reader.id,
+                changed_at=utc_now_iso(),
+            )
+        return result
+
+    monkeypatch.setattr(blocks, "blocked_entry_ids", change_after_first)
+    result = await context.read_entry_records(
+        {"track": track.title, "count_only": True}
+    )
+    # A parent-role recheck may observe the new deny even within the first
+    # window. Either way, no later window may reuse the earlier unblocked fact.
+    assert result["count"] <= 2 and len(calls) >= 1
+    current = await context.read_entry_records(
+        {"track": track.title, "count_only": True}
+    )
+    assert not current["ok"] or current["count"] == 0
