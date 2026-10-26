@@ -1,0 +1,39 @@
+name: Contributor attribution
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  push:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: attribution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contributor-attribution:
+    name: Contributor attribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test attribution checks
+        run: python3 -m unittest discover -s scripts/tests -v
+      # No path filters: even a docs-only PR can introduce attributed history.
+      # HEAD is GitHub's test merge (or merge-group/push head), so every
+      # reachable ancestor and the synthetic merge message are inspected.
+      # Event text stays in a file; never interpolate PR text into shell code.
+      - name: Check reachable history and proposed squash text
+        run: python3 scripts/commit_attribution.py check HEAD --event "$GITHUB_EVENT_PATH"
