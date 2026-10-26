@@ -171,3 +171,65 @@ async def test_turn_deadline_cancels_provider_and_resets_context(monkeypatch):
         _ = [event async for event in provider.stream_turn(SimpleNamespace())]
     assert closed.is_set()
     assert current_latency.get() is None
+
+
+@pytest.mark.asyncio
+async def test_native_runtime_warmup_keeps_initialization_off_event_loop(monkeypatch):
+    import threading
+
+    from app import main
+
+    caller = threading.get_ident()
+    imports = []
+
+    def load(name):
+        imports.append((name, threading.get_ident()))
+
+    monkeypatch.setattr(main.importlib, "import_module", load)
+    await main._warm_native_model_runtime()
+    assert len(imports) == 1
+    assert imports[0][0] == "litellm"
+    assert imports[0][1] != caller
+
+
+def test_core_skill_listing_reads_one_consistent_snapshot(monkeypatch):
+    from app.agentive.services import agent_skills as module
+
+    calls = []
+    monkeypatch.setattr(module, "_load_core_skill_names", lambda: {"integral-example"})
+
+    def read(name):
+        calls.append(name)
+        return "Description", "Current body", ["integral_query"]
+
+    monkeypatch.setattr(module, "_parse_core_skill_disk", read)
+    rows = module.list_core_skills()
+    assert calls == ["integral-example"]
+    assert rows[0]["domain_body"] == rows[0]["resolved_body"] == "Current body"
+    # No cross-call body cache: edits remain visible on the next listing.
+    assert module.list_core_skills() == rows
+    assert calls == ["integral-example", "integral-example"]
+
+
+@pytest.mark.asyncio
+async def test_preparation_spans_remain_content_free_and_task_local():
+    from app.services.chat_latency import measure_latency_phase
+
+    async def run(phase):
+        timing = TurnLatency()
+        token = current_latency.set(timing)
+        try:
+            with measure_latency_phase(phase):
+                await asyncio.sleep(0)
+            assert not timing.markers
+            return timing
+        finally:
+            current_latency.reset(token)
+
+    first, second = await asyncio.gather(
+        run("routingDiscovery"), run("workspaceProfile")
+    )
+    assert first.phase_counts == {"routingDiscovery": 1}
+    assert second.phase_counts == {"workspaceProfile": 1}
+    assert first.phase_totals["routingDiscovery"] >= 0
+    assert second.phase_totals["workspaceProfile"] >= 0

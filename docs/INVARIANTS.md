@@ -52,7 +52,14 @@ pass current containment, release admission and snapshot projection. Stop scans
 between records when their work budget expires and return protected progress;
 never report exhaustion or an outage as an empty complete history.
 
-Gates: `test_request_amplification.py`, `test_library_spec_cache.py`,
+An activity-only AuthUser timestamp collision must not reject an otherwise
+unchanged identity. Keep the persisted concurrent activity stamp only after
+rechecking the same account-active, email, password, role and permission facts.
+This reconciliation never retries credential mutations or token consumption
+and never substitutes activity metadata for authority.
+
+Gates: `test_authentication_current_state.py`,
+`test_request_amplification.py`, `test_library_spec_cache.py`,
 `test_event_history.py`, `test_operational_model_import_limits.py`,
 `useSerialPolling.test.tsx` and `useChangeEventInvalidation.test.tsx`.
 

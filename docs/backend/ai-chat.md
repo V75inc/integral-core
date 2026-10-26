@@ -277,6 +277,14 @@ Single-model and Heavy request timeouts/retries retain their configured bounds.
 A route without a conversation reasoning override avoids unnecessary
 metadata-worker hops.
 
+Before accepting traffic, normal server startup initializes LiteLLM's
+process-wide provider/catalog metadata off the event loop. This performs no
+model inference and retains no caller credential or route. LiteLLM may fetch
+its public upstream catalog according to the deployment's LiteLLM settings;
+that initialization is moved out of the first user's turn, not eliminated.
+Test startup skips the warmup. A failed warmup is logged and the normal model
+path still reports any subsequent initialization failure.
+
 Custom OpenAI-compatible routes reuse one guarded SDK connection pool per
 physical model instance within a turn. Separate models and turns own separate
 clients; turn cleanup closes them on success, failure or cancellation. Every
@@ -286,11 +294,16 @@ LiteLLM's existing provider connection reuse; the in-process bridge client is
 not a new network connection to a LiteLLM proxy.
 
 Content-free server diagnostics report `routeResolution`, `modelAdmission`,
-`dispatchReceipt` and `providerStart` aggregate milliseconds and counts per
+`dispatchReceipt`, `providerStart`, `routingDiscovery`, `workspaceProfile`,
+`skillMaterialization` and `runtimeBuild` aggregate milliseconds and counts per
 turn. Route resolution can be nested in admission, so these are not additive
 wall-clock milestones. Provider start ends when the SDK returns a response or
 stream, not when the stream finishes or answer text becomes visible. These
 logs contain no prompts, tool arguments, endpoints or credential material.
+The public `preparationMs` milestone includes the Light routing/model pass
+when used; it must not be reported as pure local setup time. Use these spans,
+`lightPassMs`, first-tool and full-response measurements separately. A small
+sample demonstrates individual timings, not p95 capacity or provider latency.
 
 `INTEGRAL_CHAT_WORKERS` selects 1–16 durable chat workers per API process
 (default 4). Independent conversations can proceed concurrently; per-thread

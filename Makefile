@@ -201,7 +201,7 @@ test-postgres-ci:
 		tests/test_app_jobs.py tests/test_tool_context_own_bundle_workspace.py
 	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
 		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-authority.xml" \
-		tests/test_credentials_delivery.py tests/test_member_provision_authority.py \
+		tests/test_credentials_delivery.py tests/test_authentication_current_state.py tests/test_member_provision_authority.py \
 		tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py tests/test_install_seed_authority.py \
 		tests/test_app_passage_candidates.py
 

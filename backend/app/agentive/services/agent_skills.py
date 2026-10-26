@@ -196,7 +196,6 @@ def list_core_skills() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for name in names:
         resolved, description, tools = _resolve_core_skill_body(name)
-        domain_body = _resolve_core_skill_domain_body(name)
         out.append(
             {
                 "id": f"core:{name}",
@@ -211,7 +210,9 @@ def list_core_skills() -> List[Dict[str, Any]]:
                 "stale_default": False,
                 "tools_required": tools,
                 "resolved_body": resolved,
-                "domain_body": domain_body or resolved,
+                # Core skills have no inherited body. Use the same disk
+                # snapshot for both views instead of parsing each file twice.
+                "domain_body": resolved,
             }
         )
     return out

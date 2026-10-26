@@ -16,6 +16,13 @@ The broad gate covers guards, pinned formatting, types, CI-faithful testing, and
 
 Most guards inspect the staged index; an unstaged pass can be vacuous. The CSP hash guard checks the working tree. Before a commit, stage the intended changes, run the hooks and relevant tests, and fix real failures. Do not bypass a failure to make a commit appear ready.
 
+App public HTML pages in Vite development/preview require explicit directories
+in `VITE_INTEGRAL_APP_PUBLIC_PATHS` (or `INTEGRAL_APP_PUBLIC_PATHS`), separated
+by commas or semicolons. Relative paths resolve from the frontend root. With
+no configured paths, Core serves no App pages and never discovers neighboring
+repositories. Production wheel builds do not run this dev-page plugin; hosted
+App public pages belong to the host's deployment configuration.
+
 ## Implementation boundaries
 
 App-specific settings controls MUST use the standard App settings dialog.

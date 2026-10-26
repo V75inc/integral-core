@@ -71,7 +71,7 @@ def _package_version() -> str:
     try:
         return version("integral-core")
     except PackageNotFoundError:
-        return "0.1.1rc34"
+        return "0.1.1rc35"
 
 
 def _readme(slug: str | None, name: str, core_version: str) -> str:

@@ -393,6 +393,17 @@ from app.models.nodes import (
 )
 
 
+async def _warm_native_model_runtime() -> None:
+    """Initialize provider metadata before accepting the first chat request.
+
+    LiteLLM's first import loads its provider/catalog metadata (and may fetch
+    the upstream catalog according to the operator's LiteLLM settings). This
+    is process-wide library setup, not caller authority or a model inference.
+    Keep it off the event loop; resolve credentials and routes live per turn.
+    """
+    await asyncio.to_thread(importlib.import_module, "litellm")
+
+
 async def _warm_embedding_model() -> None:
     """RET-02 — eagerly warm the ONNX embedding singleton at boot.
 
@@ -674,6 +685,13 @@ async def _startup() -> None:
 
     if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
         return
+
+    try:
+        await _warm_native_model_runtime()
+    except Exception:
+        std_logging.getLogger("app.main").warning(
+            "native model runtime warm failed", exc_info=True
+        )
 
     # Track opens fall back to seeded view specs. Parse those packages once
     # here, off the event loop, so the first click after boot does not stall
