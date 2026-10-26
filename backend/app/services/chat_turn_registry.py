@@ -22,6 +22,7 @@ class InFlightTurn:
     started_at: float
     origin: str = ""
     work_item_id: str = ""
+    work_lease_fence: int = 0
     routine_id: str = ""
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     _cancel_hook: Optional[Callable[[], None]] = None
@@ -98,10 +99,18 @@ async def acquire_turn(
         return handle
 
 
-async def release_turn(thread_id: str) -> None:
+async def release_turn(
+    thread_id: str, *, expected_turn_id: Optional[str] = None
+) -> bool:
     """Drop the in-flight turn handle for a thread after stream completion."""
     async with _registry_lock:
+        current = _in_flight.get(thread_id)
+        if current is None or (
+            expected_turn_id is not None and current.turn_id != expected_turn_id
+        ):
+            return False
         _in_flight.pop(thread_id, None)
+        return True
 
 
 async def cancel_turn(thread_id: str) -> bool:

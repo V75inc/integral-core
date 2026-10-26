@@ -2617,7 +2617,12 @@ domains:
           minute for 5 iterations"), pass max_runs — never bake stop-count language
           into instruction. Do NOT use queue_task for reminders — it is disabled
           here; only this tool creates Inbox / Background Tasks rows. Only callable
-          from a live chat turn (needs a thread to bind to).
+          from a live chat turn (needs a thread to bind to). For periodic reports
+          that need fresh records or facts, use delivery_mode=agent and report a
+          current tool-grounded result now as well. Reminder mode delivers literal
+          text unchanged and cannot execute a task or calculate a count. Every
+          minute for five updates means cron='* * * * *' with max_runs=5, not a
+          range of minute numbers; approval is required before future runs start.
         http: "PROPOSE (routine_task_create)"
         policy_action: routine_task.create
         staging_kind: routine_task_create

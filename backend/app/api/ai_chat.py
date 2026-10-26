@@ -2887,6 +2887,7 @@ async def agent_turn(
     )
     if bound_work is not None:
         turn_handle.work_item_id = bound_work.work_item_id
+        turn_handle.work_lease_fence = int(bound_work.lease_fence or 0)
         turn_handle.routine_id = (
             str((bound_work.input_payload or {}).get("routine_id") or "")
             if bound_work.kind == "routine_turn"
