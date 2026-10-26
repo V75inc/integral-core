@@ -665,3 +665,13 @@ docker-compose up  # builds backend from Dockerfile, runs API on :4000
 - **backend/README.md**: Full backend documentation
 - **docs/backend/**: Operational Model authoring, packages, app bundles v1, search index
 - **jvspatial**: https://github.com/TrueSelph/jvspatial
+
+
+## Multi-repository workspace maintenance
+
+This checkout provides the generic platform used by the sibling Integral Business repository. Before substantial work read the shared [architecture](../docs/ARCHITECTURE.md), [relationships](../docs/REPOSITORY_RELATIONSHIPS.md), [API contracts](../docs/API_CONTRACTS.md) and [development guidelines](../docs/DEVELOPMENT_GUIDELINES.md), when present in this workspace. These shared files live outside this Git repository; preserve existing repository-local specifications as well.
+
+- Check Business App manifests/tools/views, host hooks and commercial overlay, control-plane CellClient and desktop launcher when changing their Core contracts. Verify consumers against their selected Core artifact, not just this source checkout: Business currently defaults to rc27 while this checkout declares rc31.
+- Keep Core free of business-specific fields, copy and imports. Preserve existing substrate invariants, graph conventions, scope checks and extension boundaries.
+- For affected integrations run the relevant Core-only, extension-contract and PostgreSQL lanes plus Business manifest/handler or client checks described in shared development guidelines. Update contracts and architecture documentation whenever APIs, schemas, integration boundaries or deployment assumptions change.
+- Actual implementation takes precedence over documentation. Report architectural inconsistencies, verify assumptions in source, and update affected documents. Never record sensitive environment values.

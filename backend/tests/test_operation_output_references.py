@@ -54,6 +54,22 @@ def test_unknown_canonical_kind_refuses_inspection():
     assert collect({"source": "n.UndeclaredResource.secret"}) is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    ["info.example.com", "notification.example.org", "https://info.example.com/help"],
+)
+def test_domain_label_suffix_is_not_a_canonical_resource_token(text):
+    assert collect({"sender_domain": text}) == set()
+
+
+@pytest.mark.parametrize("prefix", ["", "See ", "(", "https://host/entries/", "id="])
+def test_canonical_tokens_in_text_and_links_still_require_admission(prefix):
+    assert collect({"text": prefix + "n.Entry.private"}) == {
+        ("entry", "n.Entry.private")
+    }
+    assert collect({"text": prefix + "o.UserModelCredential.private"}) is None
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), object()])
 def test_non_json_values_refuse_inspection(value):
     assert collect({"value": value}) is None

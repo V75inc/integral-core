@@ -37,6 +37,7 @@ class OperationContext(ToolContext):
             "get",
             "query",
             "find_entries",
+            "find_entries_page",
             "read_entry_records",
             "find_entries_in_track_type",
             "find_track_id_by_title",

@@ -11,7 +11,11 @@ from app.services.event_snapshot_projection import KINDS
 # Core stores identity/credential objects under o.* as well as graph n.*
 # nodes. Neither namespace can silently become an empty dependency set.
 # Activity snapshots retain their independent, reviewed inspection contract.
-REFERENCE = re.compile(r"[no]\.([A-Za-z][A-Za-z0-9_]*)\.[A-Za-z0-9_-]+")
+# Match canonical identity tokens, not the trailing letter of a domain label
+# (for example the `o.example.com` substring in `info.example.com`).
+REFERENCE = re.compile(
+    r"(?<![A-Za-z0-9_])[no]\.([A-Za-z][A-Za-z0-9_]*)\.[A-Za-z0-9_-]+"
+)
 
 # A standard 100-entry ObjectRef collection includes scope and title fields.
 # Its structure needs more room than an activity-feed snapshot; authority

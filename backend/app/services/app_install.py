@@ -796,6 +796,71 @@ async def _materialize_seed_custom_fields(
     )
 
 
+async def reconcile_seed_entry_identity(entry: Entry) -> int:
+    """Wire missing author/type facts without replacing conflicting history."""
+    from app.models.edges import AUTHORED_BY, IS_OF_TYPE
+    from app.models.nodes import EntryType
+    from app.services.permissions import get_user_node
+
+    author = await get_user_node(str(entry.author_id or ""))
+    entry_type = (
+        await EntryType.get(str(entry.type_id or "")) if entry.type_id else None
+    )
+    if author is None or entry_type is None:
+        raise BadRequestError(
+            message="Seed author or entry type could not be established"
+        )
+    context = await entry.get_context()
+    repaired = 0
+    for edge, target, metadata in (
+        (AUTHORED_BY, author, {"authored_at": entry.created_at or utc_now_iso()}),
+        (IS_OF_TYPE, entry_type, {"assigned_at": entry.created_at or utc_now_iso()}),
+    ):
+        existing = await context.database.find(
+            "edge", {"source": entry.id, "entity": edge._entity_name()}, limit=2
+        )
+        if existing:
+            if len(existing) != 1 or existing[0].get("target") != target.id:
+                raise BadRequestError(
+                    message="Seed identity relationships conflict with the stored author or type"
+                )
+            continue
+        await entry.connect(target, edge=edge, **metadata)
+        repaired += 1
+    return repaired
+
+
+async def reconcile_existing_seed_identities(
+    app_node: App, canonical: Dict[str, Any]
+) -> int:
+    """Upgrade only declared existing seeds; leave their fields and IDs intact."""
+    tracks = await app_node.nodes(edge=[CONTAINS], node=["Track"])
+    by_key = {str(track.template_id or ""): track for track in tracks}
+    repaired = 0
+    for group in (canonical.get("app") or {}).get("seeds") or []:
+        key = str(group.get("track") or "")
+        track = by_key.get(key)
+        if track is None:
+            continue
+        for index, spec in enumerate(group.get("entries") or []):
+            marker = seed_deterministic_id(
+                app_node.id, key, index, str(spec.get("id") or "")
+            )
+            existing = await Entry.find(
+                {
+                    "context.track_id": track.id,
+                    "context.custom_fields.__seed_id": marker,
+                }
+            )
+            if len(existing) > 1:
+                raise BadRequestError(
+                    message="Duplicate seeded records require reconciliation before upgrade"
+                )
+            if existing:
+                repaired += await reconcile_seed_entry_identity(existing[0])
+    return repaired
+
+
 async def plant_seeds(
     app_node: App,
     canonical: Dict[str, Any],
@@ -862,6 +927,7 @@ async def plant_seeds(
                     ent.type_id = type_id
                     ent.updated_at = utc_now_iso()
                     await ent.save()
+                await reconcile_seed_entry_identity(ent)
                 # Heal install seeds that skipped auto_provision / relation wire.
                 # Domain-agnostic: re-materialize when an auto-provision track
                 # anchor is missing, or when the seed declares a relation the
@@ -955,6 +1021,7 @@ async def plant_seeds(
                 updated_at=now,
             )
             await target_track.connect(new_entry, edge=CONTAINS, added_at=now)
+            await reconcile_seed_entry_identity(new_entry)
             await _plant_seed_attachments(
                 entry=new_entry,
                 attachments=entry_spec.get("attachments"),

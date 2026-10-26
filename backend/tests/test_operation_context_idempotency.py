@@ -180,3 +180,71 @@ async def test_sdk_update_routes_revision_and_deferred_events_to_shared_command(
     assert saved is not stale
     assert update.await_count == 1
     assert not operation_write_active()
+
+
+@pytest.mark.asyncio
+async def test_read_only_operation_context_allows_the_bounded_entry_reader():
+    from app.services.hooks.registry import ToolContext
+
+    ctx = OperationContext(
+        user_id="u-reader",
+        workspace_id="ws-reader",
+        app_id="app-reader",
+        scope="app:app-reader",
+        read_only=True,
+    )
+    with patch.object(
+        ToolContext,
+        "find_entries_page",
+        new=AsyncMock(return_value={"entries": [], "total": 0}),
+    ) as read:
+        assert await ctx.find_entries_page({}, track_id="track-reader", limit=5) == {
+            "entries": [],
+            "total": 0,
+        }
+    read.assert_awaited_once_with({}, track_id="track-reader", limit=5)
+
+
+@pytest.mark.asyncio
+async def test_bounded_reader_does_not_query_a_track_outside_its_app():
+    from app.services.hooks.registry import ToolContext
+
+    ctx = OperationContext(
+        user_id="u-reader",
+        workspace_id="ws-reader",
+        app_id="app-reader",
+        scope="app:app-reader",
+        read_only=True,
+    )
+    with (
+        patch.object(
+            ToolContext, "_resource_in_scope", new=AsyncMock(return_value=False)
+        ),
+        patch(
+            "app.services.permissions.get_user_accessible_entry_page", new=AsyncMock()
+        ) as query,
+    ):
+        result = await ctx.find_entries_page({}, track_id="n.Track.foreign", limit=5)
+    assert result["entries"] == []
+    query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_service_bounded_read_still_requires_current_exact_function_authority():
+    from app.api.errors import InsufficientPermissionsError
+
+    ctx = OperationContext(
+        user_id="u-reader",
+        workspace_id="ws-reader",
+        app_id="app-reader",
+        scope="app:app-reader",
+        actor_kind="agent",
+        actor_id="agent-reader",
+        read_only=True,
+    )
+    with patch(
+        "app.services.app_operation_authority.current_operation_actor",
+        new=AsyncMock(return_value=None),
+    ):
+        with pytest.raises(InsufficientPermissionsError):
+            await ctx.find_entries_page({}, track_id="n.Track.foreign", limit=5)

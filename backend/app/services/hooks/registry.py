@@ -363,6 +363,8 @@ class ToolContext:
         resolved_track = track_id or query.get("context.track_id")
         if not isinstance(resolved_track, str) or not resolved_track.startswith("n."):
             raise ValueError("find_entries_page requires a track_id")
+        if not await self._resource_in_scope("track", resolved_track):
+            return {"entries": [], "total": 0, "next_cursor": None, "truncated": False}
         sort_tuples: List[Tuple[str, int]] = []
         for item in sort or []:
             if not isinstance(item, (list, tuple)) or len(item) != 2:

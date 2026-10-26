@@ -1773,6 +1773,9 @@ async def _update_app_from_library(
             )
         await synchronize_track_view_default_flags(t)
     await run_bundle_post_seed(app_node, actor_id)
+    # Legacy seeds predated author/type edges required by current function grants.
+    # Reconcile only declared existing seed identities, preserving tenant fields.
+    await app_install.reconcile_existing_seed_identities(app_node, canonical)
     # Operational layer follows the library package (source of truth on update).
     await sync_operational_layer_from_manifest(app_node, canonical, actor_id=actor_id)
     # Update version + display identity on App row from the new library
