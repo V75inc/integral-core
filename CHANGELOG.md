@@ -6,8 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc35 — 2026-10-26
+
 - Authorize entry update/delete staging before loading private preview details; execution still rechecks current authority.
 - Initialize native model-library metadata off the event loop before accepting traffic, avoid duplicate Core skill parsing, and separate local preparation spans from model/provider latency diagnostics.
+- Require explicit App public-page directories in development/preview and keep the dev-page plugin out of production builds.
 
 ## 0.1.1rc34 — 2026-10-25
 
