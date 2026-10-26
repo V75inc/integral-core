@@ -93,6 +93,16 @@ function resolveEnumOptionLabel(
   return humanizeEnumValue(opt);
 }
 
+/**
+ * Number inputs must let the user clear the box while typing. Coercing an
+ * empty string to 0 on every keystroke redisplays "0" and the next digits land
+ * after it ("01231"). Empty is held as null while editing and settled to 0 on
+ * blur, which keeps the previous empty-means-zero outcome.
+ */
+function numberFromInput(raw: string): number | null {
+  return raw === '' ? null : Number(raw);
+}
+
 function hasMeaningfulValue(value: unknown, fieldType: string): boolean {
   if (value == null || value === '') return false;
   if (fieldType === 'number' && typeof value === 'number' && !Number.isNaN(value)) {
@@ -400,9 +410,14 @@ function LegacyField(props: SeamlessFieldProps) {
           onChange={e =>
             onChange(
               field.type === 'number'
-                ? Number(e.target.value || 0)
+                ? numberFromInput(e.target.value)
                 : e.target.value
             )
+          }
+          onBlur={
+            field.type === 'number' && v == null
+              ? () => onChange(0)
+              : undefined
           }
           onWheel={
             inputType === 'number'
@@ -795,11 +810,14 @@ function SeamlessTextLikeInner({
         value={str}
         onChange={e =>
           onChange(
-            field.type === 'number' ? Number(e.target.value || 0) : e.target.value
+            field.type === 'number' ? numberFromInput(e.target.value) : e.target.value
           )
         }
         onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
+        onBlur={() => {
+          setIsFocused(false);
+          if (field.type === 'number' && value == null) onChange(0);
+        }}
         // Native number inputs also change value on mouse-wheel scroll while
         // focused — surprising when a cell just happens to sit under the
         // cursor during a page scroll. Blur on wheel so scrolling always
