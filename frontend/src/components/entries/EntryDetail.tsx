@@ -1,3 +1,4 @@
+import { useEntryHostRefresh } from '../../hooks/useEntryHostRefresh';
 import { tagFilterHref } from '../../utils/tagFilters';
 import { EntryInlineImageGallery } from './AttachmentGallery';
 import { mergeComments } from '../../utils/commentTree';
@@ -956,6 +957,14 @@ export function EntryDetail({
     [anchoredTrackId]
   );
 
+  // A button bar in the related views changes the record from outside this form
+  // (a status moves, a job finishes); reload it so the bar shows the new state.
+  const applyHostRefresh = useCallback((refreshed: Entry) => {
+    setEntry(refreshed);
+    onUpdate?.(refreshed);
+  }, [onUpdate]);
+  const refreshHostEntry = useEntryHostRefresh(entry.id, activeWorkspace?.id, applyHostRefresh);
+
   const primaryRelatedViewsNode =
     user && !parentEntry ? (
       <RelatedViewsSection
@@ -970,6 +979,7 @@ export function EntryDetail({
         onEntryOpen={handleEmbeddedEntryOpen}
         onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
         onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+        onHostChanged={refreshHostEntry}
         isEditor={canEdit}
         appId={relatedViewAppId}
         heading={null}
@@ -1977,6 +1987,7 @@ export function EntryDetail({
                   onEntryOpen={handleEmbeddedEntryOpen}
                   onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
                   onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+                  onHostChanged={refreshHostEntry}
                   isEditor={canEdit}
                   appId={relatedViewAppId}
                 />

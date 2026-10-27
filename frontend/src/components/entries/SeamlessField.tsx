@@ -93,6 +93,31 @@ function resolveEnumOptionLabel(
   return humanizeEnumValue(opt);
 }
 
+/**
+ * Number inputs must let the user clear the box while typing. Coercing an
+ * empty string to 0 on every keystroke redisplays "0" and the next digits land
+ * after it ("01231"). Empty is held as null while editing and settled to 0 on
+ * blur, which keeps the previous empty-means-zero outcome.
+ */
+function numberFromInput(raw: string): number | null {
+  return raw === '' ? null : Number(raw);
+}
+
+/** Display-only number formats a field can ask for with ``widget``. */
+function groupedNumberFormat(widget: unknown): Intl.NumberFormatOptions | null {
+  if (widget === 'currency' || widget === 'amount') {
+    return { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  }
+  if (widget === 'number' || widget === 'grouped') return { maximumFractionDigits: 2 };
+  return null;
+}
+
+function formatGrouped(value: unknown, options: Intl.NumberFormatOptions): unknown {
+  if (value == null || value === '') return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? new Intl.NumberFormat(undefined, options).format(n) : value;
+}
+
 function hasMeaningfulValue(value: unknown, fieldType: string): boolean {
   if (value == null || value === '') return false;
   if (fieldType === 'number' && typeof value === 'number' && !Number.isNaN(value)) {
@@ -400,9 +425,14 @@ function LegacyField(props: SeamlessFieldProps) {
           onChange={e =>
             onChange(
               field.type === 'number'
-                ? Number(e.target.value || 0)
+                ? numberFromInput(e.target.value)
                 : e.target.value
             )
+          }
+          onBlur={
+            field.type === 'number' && v == null
+              ? () => onChange(0)
+              : undefined
           }
           onWheel={
             inputType === 'number'
@@ -795,11 +825,14 @@ function SeamlessTextLikeInner({
         value={str}
         onChange={e =>
           onChange(
-            field.type === 'number' ? Number(e.target.value || 0) : e.target.value
+            field.type === 'number' ? numberFromInput(e.target.value) : e.target.value
           )
         }
         onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
+        onBlur={() => {
+          setIsFocused(false);
+          if (field.type === 'number' && value == null) onChange(0);
+        }}
         // Native number inputs also change value on mouse-wheel scroll while
         // focused — surprising when a cell just happens to sit under the
         // cursor during a page scroll. Blur on wheel so scrolling always
@@ -1172,11 +1205,14 @@ function SeamlessFieldInner(props: SeamlessFieldProps) {
   }
 
   if (field.type === 'text' || field.type === 'number') {
-    const inputType = field.type === 'number' ? 'number' : 'text';
+    // A read-only number with a money / grouped widget reads as 4,473,333.33,
+    // not 4473333.33. Editing keeps the plain number input.
+    const grouped = field.type === 'number' && (field.readonly || readonly) ? groupedNumberFormat(field.widget) : null;
+    const inputType = field.type === 'number' && !grouped ? 'number' : 'text';
     return (
       <SeamlessTextLikeInner
         field={field}
-        value={value}
+        value={grouped ? formatGrouped(value, grouped) : value}
         onChange={onChange}
         placeholder={placeholder}
         readonly={readonly}

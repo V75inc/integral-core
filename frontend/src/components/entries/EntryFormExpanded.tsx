@@ -13,6 +13,16 @@ import {
 } from 'react';
 import { Link2, X as XIcon } from 'lucide-react';
 import { Button } from '../ui/Button';
+import {
+  BODY_PROBLEM_KEY,
+  FieldProblem,
+  TITLE_PROBLEM_KEY,
+  focusFirstProblem,
+  problemsFromApiError,
+  summarizeProblems,
+  useFieldProblems,
+  type FieldProblems,
+} from '../forms/formFeedback';
 import { AppSelect, Skeleton } from '../ui';
 
 const WikiRichTextEditor = lazy(() =>
@@ -113,6 +123,8 @@ interface LinkPreview {
 }
 
 const CANONICAL_BODY_LABEL = 'Body';
+const NO_PROBLEMS: FieldProblems = {};
+const noopClear = (_key: string) => {};
 const CANONICAL_TITLE_LABEL = 'Title';
 
 type ComposerRow =
@@ -191,6 +203,9 @@ export interface EntryExpandedFormModel {
   setTitle: (t: string) => void;
   body: string;
   setBody: (b: string) => void;
+  /** Optional so callers that build the form object by hand keep working. */
+  problems?: FieldProblems;
+  clearProblem?: (key: string) => void;
   composerRows: ComposerRow[];
   effectiveTitlePlaceholder: string;
   effectiveBodyPlaceholder: string;
@@ -279,6 +294,7 @@ export function useEntryExpandedForm(
 
   const [title, setTitle] = useState<string>(() => (mode === 'create' ? initialTitle ?? '' : ''));
   const [body, setBody] = useState('');
+  const { problems, setProblems, clear: clearProblem, reset: resetProblems } = useFieldProblems();
   const [type, setType] = useState('post');
   const [typeUserTouched, setTypeUserTouched] = useState(false);
   const [selectedTrackId, setSelectedTrackId] = useState(
@@ -1137,11 +1153,13 @@ export function useEntryExpandedForm(
     const locked =
       Boolean(field.readonly) || autoLockedFieldKeys.has(field.key);
     return (
+      <FieldProblem fieldKey={field.key} message={problems[field.key]}>
       <SeamlessField
         field={locked ? { ...field, readonly: true } : field}
         value={fieldValues[field.key]}
         onChange={v => {
           if (autoLockedFieldKeys.has(field.key)) return;
+          clearProblem(field.key);
           setDynamicField(field.key, v);
         }}
         relationChoices={relationChoices[field.key]}
@@ -1153,38 +1171,84 @@ export function useEntryExpandedForm(
         siblingFields={dynamicFields}
         siblingValues={fieldValues}
       />
+      </FieldProblem>
     );
   }
 
-  const validateEmailAndPhone = (
-    fields: OperationalModelFieldSpec[],
-    values: Record<string, unknown>,
-    baseline?: Record<string, unknown> | null
-  ): boolean => {
-    for (const field of fields) {
-      const key = field.key;
-      const val = values[key] !== undefined ? values[key] : (baseline?.[key]);
-      if (val === undefined || val === null || val === '') continue;
+  const titleLabelText = String(titleBase.label || '').trim() || CANONICAL_TITLE_LABEL;
+  const bodyLabelText = String(bodyBase.label || '').trim() || CANONICAL_BODY_LABEL;
 
-      if (key === 'work_email' || key === 'personal_email') {
-        const emailStr = String(val).trim();
-        const emailRegex = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-        if (!emailRegex.test(emailStr)) {
-          showToast(`"${field.name}" must be a valid email address`, 'error');
-          return false;
+  /**
+   * Everything wrong with the form in one pass, so the person sees every
+   * problem at once instead of fixing them one toast at a time.
+   */
+  const gatherProblems = (
+    baseline?: Record<string, unknown> | null
+  ): { found: FieldProblems; labels: Record<string, string> } => {
+    const found: FieldProblems = {};
+    const labels: Record<string, string> = {};
+    const hasPrimaryContent =
+      Boolean(titleEnabled && title.trim()) || Boolean(bodyEnabled && body.trim());
+    if (!ownsForm && (titleEnabled || bodyEnabled) && !hasPrimaryContent) {
+      const key = titleEnabled ? TITLE_PROBLEM_KEY : BODY_PROBLEM_KEY;
+      labels[key] = titleEnabled ? titleLabelText : bodyLabelText;
+      found[key] =
+        titleEnabled && bodyEnabled
+          ? `Add a ${titleLabelText.toLowerCase()} or some ${bodyLabelText.toLowerCase()} text`
+          : `Add a ${(titleEnabled ? titleLabelText : bodyLabelText).toLowerCase()}`;
+    }
+    for (const field of dynamicFields) {
+      const label = String(field.name || field.key);
+      const merged =
+        fieldValues[field.key] !== undefined
+          ? fieldValues[field.key]
+          : baseline
+            ? baseline[field.key]
+            : undefined;
+      if (field.required && !(baseline ? false : field.hide_on_create)) {
+        const empty = Array.isArray(merged)
+          ? merged.length === 0
+          : merged === undefined || merged === null || merged === '';
+        if (empty) {
+          labels[field.key] = label;
+          found[field.key] = 'Required';
+          continue;
         }
       }
-
-      if (key === 'phone' || key === 'emergency_contact_phone') {
-        const phoneStr = String(val).trim();
-        const cleaned = phoneStr.replace(/[^\d]/g, '');
-        const phoneRegex = /^[0-9+\-()\s]+$/;
-        if (cleaned.length < 7 || !phoneRegex.test(phoneStr)) {
-          showToast(`"${field.name}" must be a valid phone number (at least 7 digits)`, 'error');
-          return false;
+      if (merged === undefined || merged === null || merged === '') continue;
+      const text = String(merged).trim();
+      if (field.key === 'work_email' || field.key === 'personal_email') {
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text)) {
+          labels[field.key] = label;
+          found[field.key] = 'Enter a valid email address';
+        }
+      }
+      if (field.key === 'phone' || field.key === 'emergency_contact_phone') {
+        if (text.replace(/[^\d]/g, '').length < 7 || !/^[0-9+\-()\s]+$/.test(text)) {
+          labels[field.key] = label;
+          found[field.key] = 'Enter a valid phone number (at least 7 digits)';
         }
       }
     }
+    return { found, labels };
+  };
+
+  /** Show a failed save: highlight every field, one clear message, cursor on the first. */
+  const reportProblems = (found: FieldProblems, labels: Record<string, string>) => {
+    setProblems(found);
+    showToast(summarizeProblems(found, labels), 'error');
+    window.requestAnimationFrame(() => focusFirstProblem());
+  };
+
+  /** Highlight fields the server named in an error; true when it named any. */
+  const highlightServerProblems = (err: unknown): boolean => {
+    const named = problemsFromApiError(
+      err,
+      dynamicFields.map(f => f.key)
+    );
+    if (Object.keys(named).length === 0) return false;
+    setProblems(named);
+    window.requestAnimationFrame(() => focusFirstProblem());
     return true;
   };
 
@@ -1194,37 +1258,12 @@ export function useEntryExpandedForm(
       showToast('Select a track', 'error');
       return;
     }
-    const hasPrimaryContent =
-      Boolean(titleEnabled && title.trim()) || Boolean(bodyEnabled && body.trim());
-    if (!ownsForm && (titleEnabled || bodyEnabled) && !hasPrimaryContent) {
-      showToast('Add some content', 'error');
+    const { found, labels } = gatherProblems(null);
+    if (Object.keys(found).length > 0) {
+      reportProblems(found, labels);
       return;
     }
-    // Validate required custom fields for the selected entry type before
-    // submitting — prevents a 400 from the backend when required fields are empty.
-    const missingRequiredFields = dynamicFields.filter(field => {
-      if (!field.required) return false;
-      if (field.hide_on_create) return false;
-      const val = fieldValues[field.key];
-      if (Array.isArray(val)) return val.length === 0;
-      return val === undefined || val === null || val === '';
-    });
-    if (missingRequiredFields.length > 0) {
-      const labels = missingRequiredFields.map(f => `"${f.name || f.key}"`).join(', ');
-      const typeName = selectedType?.name
-        ? selectedType.name.replace(/[_-]/g, ' ').replace(/^\w/, c => c.toUpperCase())
-        : 'this type';
-      showToast(
-        `The '${typeName}' type requires ${labels}. Please fill ${missingRequiredFields.length === 1 ? 'it' : 'them'} in before saving.`,
-        'error'
-      );
-      return;
-    }
-
-    // Email and Phone number validation
-    if (!validateEmailAndPhone(dynamicFields, fieldValues, null)) {
-      return;
-    }
+    resetProblems();
 
     const contributionApi = contributionApiRef?.current;
     if (contributionApi?.hasContribution) {
@@ -1446,6 +1485,7 @@ export function useEntryExpandedForm(
       }
     } catch (e: unknown) {
       showToast(errorMessageFromAxios(e, 'Failed to create entry'), 'error');
+      highlightServerProblems(e);
     } finally {
       setLoading(false);
     }
@@ -1457,44 +1497,12 @@ export function useEntryExpandedForm(
       showToast('Nothing to save', 'error');
       throw new Error('missing baseline');
     }
-    const hasPrimaryContent =
-      Boolean(titleEnabled && title.trim()) || Boolean(bodyEnabled && body.trim());
-    if (!ownsForm && (titleEnabled || bodyEnabled) && !hasPrimaryContent) {
-      showToast('Add some content', 'error');
+    const { found, labels } = gatherProblems(baseline.custom_fields || {});
+    if (Object.keys(found).length > 0) {
+      reportProblems(found, labels);
       throw new Error('validation');
     }
-    // Validate required custom fields for the selected entry type before
-    // submitting — prevents a 400 from the backend when the user changes
-    // type (e.g. to "Bug") without filling in required fields (e.g. "Severity").
-    const missingFields = dynamicFields.filter(field => {
-      if (!field.required) return false;
-      const mergedValue =
-        fieldValues[field.key] !== undefined
-          ? fieldValues[field.key]
-          : (baseline.custom_fields || {})[field.key];
-      if (Array.isArray(mergedValue)) return mergedValue.length === 0;
-      return (
-        mergedValue === undefined ||
-        mergedValue === null ||
-        mergedValue === ''
-      );
-    });
-    if (missingFields.length > 0) {
-      const labels = missingFields.map(f => `"${f.name || f.key}"`).join(', ');
-      const typeName = selectedType?.name
-        ? selectedType.name.replace(/[_-]/g, ' ').replace(/^\w/, c => c.toUpperCase())
-        : 'this type';
-      showToast(
-        `The '${typeName}' type requires ${labels}. Please fill ${missingFields.length === 1 ? 'it' : 'them'} in before saving.`,
-        'error'
-      );
-      throw new Error('validation');
-    }
-
-    // Email and Phone number validation
-    if (!validateEmailAndPhone(dynamicFields, fieldValues, baseline.custom_fields)) {
-      throw new Error('validation');
-    }
+    resetProblems();
 
     const contributionApi = contributionApiRef?.current;
     if (contributionApi?.hasContribution) {
@@ -1641,6 +1649,7 @@ export function useEntryExpandedForm(
       return updated;
     } catch (e: unknown) {
       showToast(errorMessageFromAxios(e, 'Failed to update entry'), 'error');
+      highlightServerProblems(e);
       throw e;
     } finally {
       setLoading(false);
@@ -1680,6 +1689,8 @@ export function useEntryExpandedForm(
     titleBase,
     bodyBase,
     titleEnabled,
+    problems,
+    clearProblem,
     bodyEnabled,
     attachmentsEnabled,
     allowFileUpload,
@@ -1776,6 +1787,8 @@ export function EntryFormExpandedView({
   titleBase,
   bodyBase,
   titleEnabled: _titleEnabled,
+  problems = NO_PROBLEMS,
+  clearProblem = noopClear,
   bodyEnabled: _bodyEnabled,
   attachmentsEnabled: _attachmentsEnabled,
   allowFileUpload,
@@ -1935,12 +1948,13 @@ export function EntryFormExpandedView({
           const titleSlotLabel = String(titleBase.label || '').trim() || CANONICAL_TITLE_LABEL;
           return (
             <div key="title" className="space-y-1">
+              <FieldProblem fieldKey={TITLE_PROBLEM_KEY} message={problems[TITLE_PROBLEM_KEY]}>
               <input
                 ref={titleInputRef}
                 key={`title-${type}`}
                 placeholder={effectiveTitlePlaceholder}
                 value={title}
-                onChange={e => setTitle(e.target.value)}
+                onChange={e => { setTitle(e.target.value); clearProblem(TITLE_PROBLEM_KEY); clearProblem(BODY_PROBLEM_KEY); }}
                 autoFocus={!focusTitleOnMount}
                 aria-label={titleSlotLabel}
                 className={
@@ -1949,6 +1963,7 @@ export function EntryFormExpandedView({
                     : 'w-full px-3 text-base font-semibold text-[var(--text)] placeholder:text-[var(--text-muted)] border-none outline-none bg-transparent'
                 }
               />
+              </FieldProblem>
               {titleBase.help ? (
                 <p className="text-xs text-[var(--text-muted)] pl-3">{titleBase.help}</p>
               ) : null}
@@ -1965,8 +1980,8 @@ export function EntryFormExpandedView({
         if (row.kind === 'body') {
           const bodySlotLabel = String(bodyBase.label || '').trim() || CANONICAL_BODY_LABEL;
           return (
+            <FieldProblem key="body" fieldKey={BODY_PROBLEM_KEY} message={problems[BODY_PROBLEM_KEY]}>
             <div
-              key="body"
               className={`space-y-1.5 ${dynamicFieldsCount > 0 ? 'pt-3' : ''}`}
             >
               {isWiki ? (
@@ -1978,7 +1993,7 @@ export function EntryFormExpandedView({
                   <WikiRichTextEditor
                     key={`wiki-body-${type}`}
                     value={body}
-                    onChange={setBody}
+                    onChange={v => { setBody(v); clearProblem(BODY_PROBLEM_KEY); clearProblem(TITLE_PROBLEM_KEY); }}
                     placeholder={effectiveBodyPlaceholder}
                     trackId={selectedTrackId || undefined}
                     aria-label={bodySlotLabel}
@@ -1990,7 +2005,7 @@ export function EntryFormExpandedView({
                   ref={bodyTextareaRef}
                   placeholder={effectiveBodyPlaceholder}
                   value={body}
-                  onChange={setBody}
+                  onChange={v => { setBody(v); clearProblem(BODY_PROBLEM_KEY); clearProblem(TITLE_PROBLEM_KEY); }}
                   rows={1}
                   aria-label={bodySlotLabel}
                   className="w-full px-3 py-0.5 text-sm font-normal leading-normal text-[var(--text)] placeholder:text-[var(--text-muted)] border-none outline-none bg-transparent resize-none overflow-hidden"
@@ -2035,6 +2050,7 @@ export function EntryFormExpandedView({
                 </div>
               )}
             </div>
+            </FieldProblem>
           );
         }
         if (row.kind === 'attachments') {
