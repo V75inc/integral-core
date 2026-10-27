@@ -53,11 +53,11 @@ export function SearchModeSection({ settings, update, navigateToSection }: Props
               ? 'Finds indexed entries by meaning within the current scope.'
               : mode === 'hybrid'
                 ? 'Combines matches by meaning and keywords. Falls back to keyword search if meaning-based search is unavailable.'
-                : 'Filters only the entries already loaded on this screen. Other matching entries may be missed.'
+                : 'Finds indexed entries containing the words in your search.'
           }
         >
           <div role="group" aria-label="Search mode" className="flex flex-wrap gap-1 rounded-[var(--radius-pill)] border border-[var(--panel-border)] bg-[var(--panel-2)] p-1">
-            {(['hybrid', 'semantic', 'graph'] as const).map(m => (
+            {(['hybrid', 'lexical', 'semantic'] as const).map(m => (
               <button
                 key={m}
                 type="button"

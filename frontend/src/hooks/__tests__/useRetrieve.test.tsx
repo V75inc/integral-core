@@ -22,7 +22,7 @@ vi.mock('../../api/retrieve', () => ({
 }));
 
 // Settings mock — each test sets the desired mode before mounting.
-let currentMode: 'graph' | 'semantic' | 'hybrid' = 'semantic';
+let currentMode: 'lexical' | 'semantic' | 'hybrid' = 'semantic';
 vi.mock('../../features/settings/store', () => ({
   useSettings: () => [
     { retrieval: { mode: currentMode } },
@@ -59,10 +59,10 @@ describe('useRetrieve()', () => {
     expect(result.current.mode).toBe('semantic');
   });
 
-  it('honors a Settings-driven graph mode', () => {
-    currentMode = 'graph';
+  it('honors a Settings-driven lexical mode', () => {
+    currentMode = 'lexical';
     const { result } = renderHook(() => useRetrieve(), { wrapper: wrapper() });
-    expect(result.current.mode).toBe('graph');
+    expect(result.current.mode).toBe('lexical');
   });
 
   it('honors a Settings-driven hybrid mode', () => {
@@ -71,13 +71,13 @@ describe('useRetrieve()', () => {
     expect(result.current.mode).toBe('hybrid');
   });
 
-  it('run() is a no-op in graph mode (no API call)', async () => {
-    currentMode = 'graph';
+  it('sends lexical search to the retrieval service', async () => {
+    currentMode = 'lexical';
     const { result } = renderHook(() => useRetrieve(), { wrapper: wrapper() });
     await act(async () => {
       await result.current.run('hello');
     });
-    expect(retrieveApi.retrieve).not.toHaveBeenCalled();
+    expect(retrieveApi.retrieve).toHaveBeenCalledWith({ query: 'hello', scope: undefined, mode: 'lexical' });
     expect(result.current.results).toEqual([]);
   });
 

@@ -28,6 +28,7 @@ export interface TrackDetailMainColumnProps {
   runRetrieval: (q: string) => void;
   retrievalLoading: boolean;
   retrievalError: string | null;
+  retrievalDegraded: string | null;
   canCreateEntry: boolean;
   track: Track;
   activeView: SavedView | null;
@@ -84,6 +85,7 @@ export function TrackDetailMainColumn({
   runRetrieval,
   retrievalLoading,
   retrievalError,
+  retrievalDegraded,
   canCreateEntry,
   track,
   activeView,
@@ -144,9 +146,11 @@ export function TrackDetailMainColumn({
                 search={trackSearch}
                 setSearch={setTrackSearch}
                 retrievalActive={retrievalMode !== 'graph'}
+                liveKeywordSearch={retrievalMode === 'lexical'}
                 onRetrievalSearch={runRetrieval}
                 retrievalLoading={retrievalLoading}
                 retrievalError={retrievalError}
+                retrievalDegraded={retrievalDegraded}
               />
             </div>
             <div className="flex items-center gap-2 shrink-0">

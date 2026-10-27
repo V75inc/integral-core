@@ -2145,8 +2145,8 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
         "template_var_resolvers": get_registered_tokens(),
         "retrieval": {
             "semantic_available": sem,
-            "modes": (["graph", "semantic", "hybrid"] if sem else ["graph"]),
-            "default_mode": ("hybrid" if sem else "graph"),
+            "modes": (["lexical", "semantic", "hybrid"] if sem else ["lexical"]),
+            "default_mode": "hybrid",
             "note": (
                 "Semantic concept search is active."
                 if sem

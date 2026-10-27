@@ -105,16 +105,25 @@ def embedding_profile() -> EmbeddingProfile:
 
 
 def selected_text(entry: Any, definition: IndexDefinition) -> dict[str, str]:
-    """Select only declared canonical text values."""
+    """Select declared text and explicitly searchable scalar metadata."""
     custom = getattr(entry, "custom_fields", None) or {}
     values = {"title": entry.title or "", "body": entry.body or ""}
     values.update(
         {f"custom_fields.{k}": v for k, v in custom.items() if isinstance(v, str)}
     )
+    for path in definition.metadata_fields:
+        value = custom.get(path.removeprefix("custom_fields."))
+        if isinstance(value, (int, float, bool)) and len(str(value)) <= 512:
+            values[path] = str(value)
     selected = {}
     for path, value in values.items():
-        allowed = path in definition.fields or (
-            path.startswith("custom_fields.") and "custom_fields.*" in definition.fields
+        allowed = (
+            path in definition.fields
+            or path in definition.metadata_fields
+            or (
+                path.startswith("custom_fields.")
+                and "custom_fields.*" in definition.fields
+            )
         )
         excluded = path in definition.exclude_fields or (
             path.startswith("custom_fields.")

@@ -110,8 +110,10 @@ export function FeedPage() {
   const {
     mode: retrievalMode,
     results: retrievalResults,
+    submittedQuery: retrievalQuery,
     loading: retrievalLoading,
     error: retrievalError,
+    degraded: retrievalDegraded,
     run: runRetrieval,
     reset: resetRetrieval,
   } = useRetrieve({ scope: undefined, authorityKey: `${workspaceId}:${user?.id}` });
@@ -222,7 +224,7 @@ export function FeedPage() {
   );
 
   const semanticMode =
-    retrievalMode === 'semantic' || retrievalMode === 'hybrid';
+    retrievalMode === 'semantic' || retrievalMode === 'hybrid' || retrievalMode === 'lexical';
   const retrievalIdOrder = useMemo(
     () => retrievalResults.map(r => r.entry_id),
     [retrievalResults]
@@ -319,7 +321,7 @@ export function FeedPage() {
   // search behavior.
   const entries = useMemo(() => {
     let list: Entry[];
-    if (semanticMode && retrievalResults.length > 0) {
+    if (semanticMode && retrievalQuery) {
       // Index by id to preserve ranker order.
       const byId = new Map(allEntries.map(e => [e.id, e]));
       list = retrievalIdOrder
@@ -337,29 +339,6 @@ export function FeedPage() {
     if (filterAuthor) {
       list = list.filter(e => e.author_id === filterAuthor);
     }
-    const useInMemorySearch =
-      !semanticMode ||
-      Boolean(retrievalError) ||
-      (semanticMode &&
-        retrievalResults.length === 0 &&
-        feedSearch.trim().length > 0);
-    if (useInMemorySearch) {
-      const q = feedSearch.trim().toLowerCase();
-      if (q) {
-        list = list.filter(e => {
-          const title = (e.title || '').toLowerCase();
-          const body = (e.body || '').toLowerCase();
-          const type = (e.type || '').toLowerCase();
-          const trackTitle = (e.track?.title || '').toLowerCase();
-          return (
-            title.includes(q) ||
-            body.includes(q) ||
-            type.includes(q) ||
-            trackTitle.includes(q)
-          );
-        });
-      }
-    }
     return list;
   }, [
     allEntries,
@@ -367,6 +346,7 @@ export function FeedPage() {
     filterTags,
     filterAuthor,
     feedSearch,
+    retrievalQuery,
     semanticMode,
     retrievalError,
     retrievalIdOrder,
@@ -448,7 +428,7 @@ export function FeedPage() {
           hasNextPage &&
           !isFetchingNextPage &&
           !isFetchNextPageError &&
-          !(semanticMode && feedSearch.trim())
+          !(semanticMode && retrievalQuery)
         ) {
           fetchNextPage();
         }
@@ -462,7 +442,7 @@ export function FeedPage() {
     // it (and vice versa) — without this, the observer is permanently
     // attached to a stale (or null) node and infinite scroll dies in
     // semantic mode where the initial render is often empty.
-  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, entries.length, semanticMode, feedSearch]);
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, entries.length, semanticMode, retrievalQuery]);
 
   const invalidateFeedEntries = useCallback(() => {
     // Invalidate the entire ['feed'] prefix so Mission Control's
@@ -747,9 +727,13 @@ export function FeedPage() {
                 setFilterAuthor={setFilterAuthor}
                 onClearAll={clearAllFilters}
                 retrievalActive={retrievalMode !== 'graph'}
+                liveKeywordSearch={retrievalMode === 'lexical'}
                 onRetrievalSearch={runRetrieval}
                 retrievalLoading={retrievalLoading}
                 retrievalError={retrievalError}
+                retrievalDegraded={retrievalDegraded ? (retrievalMode === 'lexical'
+                  ? 'The search index is unavailable. Showing limited keyword results.'
+                  : 'Meaning-based search is unavailable. Showing keyword results.') : null}
               />
             </div>
             {creatableTracks.length > 0 ? (
@@ -777,15 +761,15 @@ export function FeedPage() {
                   </IconWell>
                 }
                 title={
-                  semanticMode && feedSearch.trim()
+                  semanticMode && retrievalQuery
                     ? 'No matches'
                     : feedSearch.trim() && allEntries.length
                       ? 'No matching entries'
                       : 'Nothing here yet'
                 }
                 description={
-                  semanticMode && feedSearch.trim()
-                    ? `No entries matched "${feedSearch.trim()}". Try different words, or change the search mode in Settings → Search.`
+                  semanticMode && retrievalQuery
+                    ? `No entries matched "${retrievalQuery}". Try different words, or change the search mode in Settings → Search.`
                     : feedSearch.trim() && allEntries.length
                       ? 'Try different words or clear the search box.'
                       : tracks.length === 0

@@ -144,7 +144,7 @@ async def search_app_entries(
 ) -> dict[str, Any]:
     """Search the current App without claiming unmeasured index coverage."""
     requested = str(mode).casefold()
-    if requested not in {"graph", "hybrid", "semantic"}:
+    if requested not in {"graph", "lexical", "hybrid", "semantic"}:
         return _response(requested, available=False, reason="invalid_request")
     if not str(getattr(context, "app_id", "") or "").strip():
         return _response(requested, available=False, reason="app_scope_required")
@@ -180,7 +180,7 @@ async def search_app_entries(
             attachment_kind=attachment_kind,
             attachment_filename=attachment_filename,
         )
-        if not text:
+        if not text or requested == "lexical":
             payload = payload.model_copy(update={"mode": "graph"})
         with ordinary_authority_only(), isolated_permissions_cache():
             subject = await _read_subject(context)
@@ -229,6 +229,8 @@ async def search_app_entries(
                             **selection_options,
                         )
                     )
+                    if requested == "lexical":
+                        effective = "lexical"
                 except (
                     BadRequestError,
                     InsufficientPermissionsError,
@@ -236,7 +238,7 @@ async def search_app_entries(
                 ):
                     raise
                 except Exception:
-                    if requested == "graph":
+                    if requested in {"graph", "lexical"}:
                         raise
                     results, _dropped, examined, effective, _ = await retrieve_passages(
                         subject,

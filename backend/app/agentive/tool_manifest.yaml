@@ -822,10 +822,10 @@ domains:
         op_class: read
         priority: P0
         summary: >-
-          Unified SEMANTIC / hybrid retrieval across readable entries in the active workspace — the
+          Unified hybrid retrieval across readable indexed entries in the active workspace — the
           tool for open-ended "find anything about X", concept search, and
           "where did we mention Y" questions, including across tracks. It ranks by
-          meaning + graph relevance, NOT by any numeric or date field. IMPORTANT: it
+          meaning and keywords, NOT by any numeric or date field. IMPORTANT: it
           will NOT answer superlatives by a stored value — a query for a word like
           "lucrative", "biggest", or "highest" only matches that text if it literally
           appears; it cannot rank by a `value`/`amount`/`revenue` field. For
@@ -837,7 +837,7 @@ domains:
           integral_resolve_entry when you have a specific entry id.
           ADAPTATION: request `hybrid`/`semantic`; the result reports `mode`/`degraded`
           — if `degraded: true` (semantic unavailable in this deployment) it ran
-          keyword/graph instead, so phrase the query as concise keywords and don't
+          keyword search instead, so phrase the query as concise keywords and don't
           expect concept-level recall. Check
           integral_describe_substrate.retrieval.semantic_available up front to know
           which modes are live.
@@ -853,7 +853,7 @@ domains:
         policy_action: entry.read
         params:
           query: {type: string, required: true, desc: "Natural-language search text describing the concept or thing to find. Matched semantically — phrase it as what the content is about, not as a field comparison."}
-          mode: {type: string, enum: [graph, semantic, hybrid], default: hybrid, desc: "Retrieval strategy: 'semantic' = embedding similarity, 'graph' = relationship/keyword traversal, 'hybrid' = both (default, recommended)."}
+          mode: {type: string, enum: [lexical, semantic, hybrid], default: hybrid, desc: "Retrieval strategy: 'lexical' = indexed keyword matching, 'semantic' = embedding similarity, 'hybrid' = both (default, recommended)."}
           scope: {type: string, optional: true, desc: "Optional narrowing to 'track:<track_id>' or 'app:<app_id>' inside the active workspace. Omit to search readable tracks in that workspace. A different workspace or foreign track is refused."}
           top_n: {type: integer, default: 20, desc: "Maximum number of results to return (default 20). Raise it when you need broad recall before reasoning over the set."}
           context_tokens: {type: integer, default: 1200, desc: "Passage context budget, 64–8192 embedding tokens. Use small budgets for focused RAG; titles and response metadata are additional."}

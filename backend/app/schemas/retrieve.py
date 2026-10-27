@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.provenance import Provenance
 
-RetrieveMode = Literal["graph", "semantic", "hybrid"]
+RetrieveMode = Literal["graph", "lexical", "semantic", "hybrid"]
 
 
 class RetrieveFilters(BaseModel):
@@ -116,7 +116,7 @@ class RetrievedEntry(BaseModel):
     entry_id: str
     track_id: str
     score: float
-    mode_origin: List[Literal["graph", "semantic"]]
+    mode_origin: List[Literal["graph", "lexical", "semantic"]]
     provenance: Optional[Provenance] = None
     snippet: Optional[str] = None
     title: Optional[str] = None

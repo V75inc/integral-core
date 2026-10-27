@@ -79,6 +79,50 @@ async def indexed_graph(driver):
     return user, workspace, app, track, entry
 
 
+async def test_public_keyword_mode_uses_index_without_encoding(
+    vector_driver, monkeypatch
+):
+    from app.api import retrieve as retrieval_api
+    from app.services.retrieval import profile_encoder
+
+    user, workspace, app, track, entry = await indexed_graph(vector_driver)
+
+    async def fail_if_encoded(*args, **kwargs):
+        raise AssertionError("Keyword search must not invoke an embedding model")
+
+    monkeypatch.setattr(profile_encoder, "encode_profile", fail_if_encoded)
+    monkeypatch.setattr(retrieval_api, "get_embedding_store", lambda: vector_driver)
+    token = current_scope_workspace_id.set(workspace.id)
+    try:
+        result = await retrieval_api._dispatch_retrieve_modes(
+            Subject(kind="human", id=user.id),
+            RetrieveRequest(query="batteries", scope=f"app:{app.id}", mode="lexical"),
+            requested_mode="lexical",
+            effective_mode="lexical",
+            degraded=False,
+            k=150,
+            top_n=5,
+        )
+    finally:
+        current_scope_workspace_id.reset(token)
+    assert result[0] and result[0][0].entry_id == entry.id
+    assert result[3:] == ("lexical", False)
+
+
+async def test_declared_scalar_metadata_is_indexed_and_searchable(vector_driver):
+    user, workspace, app, track, entry = await indexed_graph(vector_driver)
+    track.search_index = {"metadata_fields": ["custom_fields.reference"]}
+    await track.save()
+    entry.custom_fields = {"reference": 42791}
+    await entry.save()
+    await indexing.enqueue_entry(entry)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    result = await search(
+        user, workspace, app, vector_driver, query="42791", mode="graph"
+    )
+    assert result[0] and result[0][0].entry_id == entry.id
+
+
 async def test_real_index_and_retrieve_tail_budget_freshness_and_deletion(
     vector_driver,
 ):

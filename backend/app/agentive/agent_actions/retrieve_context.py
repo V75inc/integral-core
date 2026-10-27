@@ -65,7 +65,7 @@ async def retrieve_context(
     query: str,
     scope: Optional[str] = None,
     filters: Optional[RetrieveFilters] = None,
-    mode: Literal["graph", "semantic", "hybrid"] = "hybrid",
+    mode: Literal["graph", "lexical", "semantic", "hybrid"] = "hybrid",
     k: Optional[int] = None,
     top_n: Optional[int] = None,
     context_tokens: int = 1200,
@@ -93,7 +93,8 @@ async def retrieve_context(
         Optional ``RetrieveFilters`` projection (entry_types + tags),
         applied AFTER the permission filter.
     mode
-        ``"graph" | "semantic" | "hybrid"``. Defaults to ``"hybrid"``.
+        ``"lexical" | "semantic" | "hybrid"``. Defaults to ``"hybrid"``;
+        ``"graph"`` remains accepted for older integrations.
     k
         Vector-store over-fetch budget. ``None`` falls through to
         ``_default_k()`` (env-tunable via ``RETRIEVE_K_DEFAULT``).

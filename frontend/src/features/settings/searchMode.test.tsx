@@ -22,8 +22,14 @@ describe('search mode defaults and migration', () => {
     expect(reopened.result.current[0].retrieval.mode).toBe('semantic');
   });
 
-  it.each(['graph', 'hybrid'] as const)('preserves an existing %s preference', mode => {
-    localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, retrieval: { mode } }));
+  it('replaces the retired graph preference with hybrid', () => {
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, retrieval: { mode: 'graph' } }));
+    const { result } = renderHook(() => useSettings());
+    expect(result.current[0].retrieval.mode).toBe('hybrid');
+  });
+
+  it.each(['lexical', 'hybrid'] as const)('preserves an existing %s preference', mode => {
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 5, retrieval: { mode } }));
     const { result } = renderHook(() => useSettings());
     expect(result.current[0].retrieval.mode).toBe(mode);
   });

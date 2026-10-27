@@ -183,8 +183,10 @@ async def retrieve(request: Request) -> Any:
     effective_mode = requested_mode
     degraded = False
     if (
-        payload.attachment_kind is not None or payload.attachment_filename
-    ) and not payload.query.strip():
+        (payload.attachment_kind is not None or payload.attachment_filename)
+        and not payload.query.strip()
+        and requested_mode != "lexical"
+    ):
         effective_mode = "graph"
     if requested_mode in ("semantic", "hybrid") and not semantic_retrieval_available():
         _warn_degraded_once(requested_mode)
@@ -339,6 +341,34 @@ async def _dispatch_retrieve_modes(
         attachment_search = payload.attachment_kind is not None or bool(
             payload.attachment_filename
         )
+        if effective_mode == "lexical":
+            # The passage service's existing graph channel is its independent
+            # indexed keyword projection. Preserve the older wire mode for
+            # existing consumers while exposing the accurate public name.
+            keyword_payload = payload.model_copy(update={"mode": "graph"})
+            if isinstance(driver, PgVectorEmbeddingStore):
+                from app.services.retrieval.search_service import retrieve_passages
+
+                found, dropped, examined, _, _ = await retrieve_passages(
+                    subject, keyword_payload, driver=driver, k=k, top_n=top_n
+                )
+            elif attachment_search:
+                from app.api.errors import ServiceUnavailableError
+
+                raise ServiceUnavailableError(
+                    message="Attachment search needs the PostgreSQL passage index on this deployment"
+                )
+            else:
+                found, dropped, examined = await _retrieve_graph(
+                    subject, keyword_payload, k=k, top_n=top_n
+                )
+                degraded = True
+            for item in found:
+                item.mode_origin = [
+                    "lexical" if origin == "graph" else origin
+                    for origin in item.mode_origin
+                ]
+            return found, dropped, examined, "lexical", degraded
         if isinstance(driver, PgVectorEmbeddingStore) and (
             requested_mode != "graph" or attachment_search
         ):

@@ -35,9 +35,9 @@ function mergeWithDefaults(partial: Partial<SettingsSnapshot>): SettingsSnapshot
   // Earlier versions persisted the semantic default automatically, so a
   // saved semantic value cannot be distinguished from an explicit choice.
   // Move it to the new default once; subsequent choices remain unchanged.
-  const mode = (partial.schemaVersion ?? 0) < 4 && savedMode === 'semantic'
+  const mode = ((partial.schemaVersion ?? 0) < 4 && savedMode === 'semantic') || (savedMode as string) === 'graph'
     ? 'hybrid'
-    : savedMode === 'graph' || savedMode === 'semantic' || savedMode === 'hybrid'
+    : savedMode === 'lexical' || savedMode === 'semantic' || savedMode === 'hybrid'
       ? savedMode
       : DEFAULT_SETTINGS.retrieval.mode;
   return {

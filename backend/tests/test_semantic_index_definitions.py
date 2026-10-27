@@ -39,6 +39,18 @@ def test_selected_fields_exclusions_and_unknown_contract():
         IndexDefinition(workspace_id="forged")
 
 
+def test_explicit_scalar_metadata_is_searchable_but_exclusions_win():
+    entry = SimpleNamespace(
+        title="", body="", custom_fields={"count": 42, "secret": 17, "other": 99}
+    )
+    declaration = IndexDefinition(
+        fields=[],
+        metadata_fields=["custom_fields.count", "custom_fields.secret"],
+        exclude_fields=["custom_fields.secret"],
+    )
+    assert selected_text(entry, declaration) == {"custom_fields.count": "42"}
+
+
 def test_long_text_preserves_tail_offsets_and_bounds():
     profile = embedding_profile()
     text = " ".join(f"word{i}" for i in range(2000)) + " distinct-tail-marker"

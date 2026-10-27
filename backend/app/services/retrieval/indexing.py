@@ -116,6 +116,8 @@ async def index_document(entry: Any, *, location=None, schemas=None) -> dict | N
         path: (entry.custom_fields or {}).get(path.removeprefix("custom_fields."))
         for path in declaration.metadata_fields
         if path.startswith("custom_fields.")
+        and path not in declaration.exclude_fields
+        and "custom_fields.*" not in declaration.exclude_fields
     }
     metadata = {
         k: v

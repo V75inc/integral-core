@@ -660,7 +660,7 @@ async def test_query_planner_accepts_broker_bound_principal_and_scope(
 
 @pytest.mark.asyncio
 @pytest.mark.smoke
-@pytest.mark.parametrize("mode", ["graph", "semantic", "hybrid"])
+@pytest.mark.parametrize("mode", ["graph", "lexical", "semantic", "hybrid"])
 async def test_query_stays_in_bound_workspace_even_when_vector_store_ignores_scope(
     bind_fresh_graph_context_for_async_tests, monkeypatch, mode
 ):
