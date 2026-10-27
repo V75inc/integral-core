@@ -214,6 +214,22 @@ class ToolContext:
     #: Lease the running job holds; progress is accepted only under it.
     job_lease: tuple = ()
 
+    async def current_user_profile(self) -> Dict[str, str]:
+        """Return the active execution principal's bounded public identity.
+
+        The caller cannot choose another identity; authentication identifiers
+        and email addresses are deliberately excluded.
+        """
+        from app.services.identity_admission import resolve_current_profile
+
+        profile = await resolve_current_profile(self.user_id)
+        return {
+            "id": str(profile.id),
+            "display_name": str(getattr(profile, "display_name", "") or "").strip()[
+                :200
+            ],
+        }
+
     async def _resource_in_scope(self, kind: str, resource_id: str) -> bool:
         """Check canonical execution containment independently of caller grants."""
         from app.services.resource_location import locate_resource
@@ -730,7 +746,7 @@ class ToolContext:
         entry_id: str,
         *,
         state_field: str,
-        expected_state: str,
+        expected_state: Optional[str],
         updates: Dict[str, Any],
     ) -> Tuple[bool, Optional[str]]:
         """Atomically transition entry custom_fields when state matches expected."""

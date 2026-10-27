@@ -16,6 +16,14 @@ The [commercial host integration guide](commercial-host-integration.md) defines 
 
 The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.
 
+`current_user_profile()` returns the active execution principal's profile ID and
+bounded display name. It accepts no user identifier and does not disclose email;
+an unavailable or inactive identity is an error, not a substitute identity.
+Apps must not use the display name as authorization evidence.
+Conditional field updates accept `None` as the expected value when the field
+is absent or null, so initializing a lock can use the same atomic comparison
+as later transitions.
+
 ### Efficient agent reads
 
 For recurring domain questions, prefer a focused, registered read that returns

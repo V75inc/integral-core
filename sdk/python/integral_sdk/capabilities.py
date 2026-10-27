@@ -14,21 +14,34 @@ class ToolContextV2(Protocol):
     scope: str
     bundle_slug: str
 
+    async def current_user_profile(self) -> Dict[str, str]:
+        """Return the active principal's profile ID and bounded display name."""
+        ...
+
     async def get(self, object_ref: dict) -> Optional[dict]: ...
 
     async def query(self, query_spec: dict) -> dict: ...
 
-    async def invoke(self, operation_key: str, payload: Optional[dict] = None) -> dict: ...
+    async def invoke(
+        self, operation_key: str, payload: Optional[dict] = None
+    ) -> dict: ...
 
     job_id: Optional[str]
 
     async def enqueue_job(
-        self, tool_key: str, payload: Optional[Dict[str, Any]] = None, *,
-        idempotency_key: str, label: str = "",
+        self,
+        tool_key: str,
+        payload: Optional[Dict[str, Any]] = None,
+        *,
+        idempotency_key: str,
+        label: str = "",
     ) -> Dict[str, Any]: ...
 
     async def report_progress(
-        self, done: Optional[int] = None, total: Optional[int] = None, label: str = "",
+        self,
+        done: Optional[int] = None,
+        total: Optional[int] = None,
+        label: str = "",
     ) -> bool: ...
 
     async def job_status(self, job_id: str) -> Optional[Dict[str, Any]]: ...

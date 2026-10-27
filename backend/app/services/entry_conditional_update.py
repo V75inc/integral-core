@@ -13,7 +13,7 @@ async def conditional_update_entry_custom_fields(
     user_id: str,
     entry_id: str,
     state_field: str,
-    expected_state: str,
+    expected_state: Optional[str],
     updates: Dict[str, Any],
     scope: str = "",
     event_sink: Any = None,

@@ -32,6 +32,7 @@ class OperationContext(ToolContext):
         kind = object.__getattribute__(self, "actor_kind")
         readonly = object.__getattribute__(self, "read_only")
         app_reads = {
+            "current_user_profile",
             "get_entry",
             "get_entry_system",
             "get",
@@ -458,7 +459,7 @@ class OperationContext(ToolContext):
         entry_id: str,
         *,
         state_field: str,
-        expected_state: str,
+        expected_state: Optional[str],
         updates: Dict[str, Any],
     ) -> tuple[bool, Optional[str]]:
         """Validate and scope a conditional Entry update before atomic CAS."""

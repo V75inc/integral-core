@@ -52,3 +52,42 @@ async def test_get_related_entries_is_generic_and_permission_filtered():
     )
     assert [entry.id for entry in related] == [permitted.id]
     assert related[0].custom_fields["example_field"] == "owned by App"
+
+
+@pytest.mark.asyncio
+async def test_current_profile_is_bound_to_active_principal(monkeypatch):
+    from types import SimpleNamespace
+
+    seen = []
+
+    async def resolve(principal):
+        seen.append(principal)
+        return SimpleNamespace(
+            id="n.User.profile",
+            display_name="  Example User  ",
+            email="private@example.com",
+        )
+
+    monkeypatch.setattr(
+        "app.services.identity_admission.resolve_current_profile", resolve
+    )
+    ctx = ToolContext(user_id="o.User.authentication", workspace_id="w1", scope="tool")
+    assert await ctx.current_user_profile() == {
+        "id": "n.User.profile",
+        "display_name": "Example User",
+    }
+    assert seen == ["o.User.authentication"]
+
+
+@pytest.mark.asyncio
+async def test_current_profile_does_not_hide_identity_failures(monkeypatch):
+    async def resolve(principal):
+        raise RuntimeError("identity unavailable")
+
+    monkeypatch.setattr(
+        "app.services.identity_admission.resolve_current_profile", resolve
+    )
+    with pytest.raises(RuntimeError, match="identity unavailable"):
+        await ToolContext(
+            user_id="u1", workspace_id="w1", scope="tool"
+        ).current_user_profile()
