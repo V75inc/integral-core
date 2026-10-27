@@ -1021,3 +1021,111 @@ def test_invalid_model_response_keeps_provider_and_usage_error_precedence():
     assert classify_integral_harness_exception(outer) == "model_authentication_failed"
     invalid.__cause__ = UsageLimitExceeded("private usage detail")
     assert classify_integral_harness_exception(outer) == "harness_usage_limit"
+
+
+@pytest.mark.asyncio
+async def test_skill_loader_schema_uses_current_authorized_ids_without_mutation():
+    from pydantic_ai.tools import ToolDefinition
+
+    original = ToolDefinition(
+        name="load_capability",
+        parameters_json_schema={
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+        },
+    )
+    disclosure = IntegralToolDisclosure(
+        workflow_skill_ids=frozenset(
+            {"integral-entries", "integral-insights", "private-removed"}
+        )
+    )
+    ctx = SimpleNamespace(
+        capabilities={
+            "integral-entries": object(),
+            "integral-insights": object(),
+            "internal-control": object(),
+        },
+        active_capability_ids=frozenset({"integral-insights"}),
+        messages=[],
+    )
+    prepared = await disclosure.prepare_tools(ctx, [original])
+    assert prepared[0].parameters_json_schema["properties"]["id"]["enum"] == [
+        "integral-entries"
+    ]
+    assert "enum" not in original.parameters_json_schema["properties"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_skill_loader_schema_prefers_exact_ids_from_current_search():
+    from pydantic_ai.tools import ToolDefinition
+
+    tool = ToolDefinition(
+        name="load_capability",
+        parameters_json_schema={
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+        },
+    )
+    results = {
+        "results": [
+            {
+                "kind": "skill",
+                "load_with": {"tool": "load_capability", "id": "integral-entries"},
+            },
+            {
+                "kind": "skill",
+                "load_with": {"tool": "load_capability", "id": "private-removed"},
+            },
+        ]
+    }
+    ctx = SimpleNamespace(
+        capabilities={"integral-entries": object(), "integral-insights": object()},
+        active_capability_ids=frozenset(),
+        messages=[
+            ModelRequest(parts=[UserPromptPart("Add a customer")]),
+            ModelRequest(
+                parts=[ToolReturnPart("search_capabilities", results, "lookup")]
+            ),
+        ],
+    )
+    disclosure = IntegralToolDisclosure(workflow_skill_ids=frozenset(ctx.capabilities))
+    prepared = await disclosure.prepare_tools(ctx, [tool])
+    assert prepared[0].parameters_json_schema["properties"]["id"]["enum"] == [
+        "integral-entries"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tiered_direct_compaction_does_not_resummarize_unchanged_history(
+    monkeypatch,
+):
+    from pydantic_ai_harness.compaction import SummarizingCompaction
+
+    from app.agentive.harness.pydantic_ai_compat import IntegralHistorySummary
+
+    # Keep more than keep_messages in the native summary result. This happens
+    # with retained user constraints and capability evidence, even though the
+    # historical prose has already been summarized successfully.
+    history = [ModelRequest(parts=[UserPromptPart(f"Earlier {i}")]) for i in range(8)]
+    current = ModelRequest(parts=[UserPromptPart("Build the requested App")])
+    calls = []
+
+    async def summarize(self, messages, ctx):
+        calls.append(messages)
+        return [ModelRequest(parts=[UserPromptPart(f"Retained {i}")]) for i in range(5)]
+
+    monkeypatch.setattr(SummarizingCompaction, "compact", summarize)
+    ctx = SimpleNamespace(active_capability_ids=set(), tools={})
+    compactor = IntegralHistorySummary(max_messages=6, keep_messages=4)
+    first = await compactor.compact([*history, current], ctx)
+    later = [*first, ModelResponse(parts=[ToolCallPart("read", {}, "next")])]
+    assert await compactor.compact(later, ctx) == later
+    assert len(calls) == 1
+    assert first[-1] is current
+    # A new human task makes the preceding work newly eligible; the guard is
+    # a history identity cache, not a permanent ban on future summaries.
+    await compactor.compact(
+        [*first, ModelRequest(parts=[UserPromptPart("Another task")])], ctx
+    )
+    assert len(calls) == 2

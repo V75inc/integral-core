@@ -45,6 +45,7 @@ CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
     "integral-scaffold",
     "integral-scheduling",
     "integral-workspace",
+    "integral-workspace-inventory",
 )
 
 RESIDENT_DELIVERY_OWNER = "integral-scaffold"

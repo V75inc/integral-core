@@ -4010,6 +4010,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # introspection in _dispatch_service_read), so the maps below carry the
     # NON-identity, NON-scope filter args only. ``group_by`` is required;
     # ``statuses`` is accepted alongside ``status`` (the service merges both).
+    "integral_count_workspace_entries": ToolBinding(
+        service_ref=_h("app.services.workspace_inventory", "count_workspace_entries"),
+        service_param_map=_pick(),
+    ),
     "integral_count_entries": ToolBinding(
         service_ref=_h("app.services.agent_insights", "count_entries_grouped"),
         service_param_map=_pick(

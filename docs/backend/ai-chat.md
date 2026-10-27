@@ -12,6 +12,13 @@ One thread's active binding and session generation determine continuation. Chang
 
 Scheduled reports use `delivery_mode=agent`: each execution performs fresh,
 permission-filtered reads and returns the requested result to its owned chat.
+Each new scheduled fire starts its model-facing dialogue with the current host
+event alone. Earlier answers and tool results in the chat are not evidence for
+the new execution. Core still reconciles the previous run's checkpoint and
+effect receipts before starting; unresolved effects cannot be bypassed by
+discarding model history. The product transcript and durable receipts remain
+intact. A routine that needs a historical comparison must explicitly retrieve
+its authorized prior evidence as well as read current state.
 The lightweight saved-reminder path is only for fixed text, such as a personal
 nudge; reminder delivery does not call a model or execute task instructions.
 
@@ -251,6 +258,19 @@ floor; a request cannot skip recovery just because an old usage anchor is small.
 New provider responses establish fresh anchors. Content-free context metrics
 are logged alongside native compaction spans and existing physical-request
 component sizes; diagnostics must never retain prompt/record/key contents.
+Explicit model context capacity is also passed to the native model profile,
+including the local Ollama window. Admission must not use an unknown-model
+fallback when the provider transport has an explicit capacity. The history
+summarizer remembers the resulting completed-history identity even when native
+tier orchestration invokes it directly; growing protected current work cannot
+trigger repeated summaries of unchanged older prose. A new completed turn can
+be summarized normally.
+
+Capability search keeps a few short authorized workflow alternatives even when
+the model requests only one or two matches. This avoids treating an approximate
+top match as the only available workflow. Procedure bodies and full tool schemas
+are still disclosed only through native loading and search; every invocation
+remains subject to the live broker.
 See I-CONTEXT-02 and the context lifecycle qualification report.
 
 ## Completion links

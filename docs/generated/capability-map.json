@@ -520,6 +520,7 @@
         "integral_aggregate",
         "integral_call_workspace_tool",
         "integral_count_entries",
+        "integral_count_workspace_entries",
         "integral_describe_capabilities",
         "integral_describe_substrate",
         "integral_get_digest",
@@ -549,6 +550,7 @@
         "integral_aggregate",
         "integral_call_workspace_tool",
         "integral_count_entries",
+        "integral_count_workspace_entries",
         "integral_describe_capabilities",
         "integral_get_digest",
         "integral_get_feed",
@@ -921,6 +923,7 @@
         "integral_aggregate",
         "integral_cancel_routine",
         "integral_count_entries",
+        "integral_count_workspace_entries",
         "integral_delete_routine",
         "integral_get_digest",
         "integral_list_routines",
@@ -933,7 +936,7 @@
         "integral_activity_digest",
         "integral_aggregate",
         "integral_cancel_routine",
-        "integral_count_entries",
+        "integral_count_workspace_entries",
         "integral_get_digest",
         "integral_list_routines",
         "integral_query_entries",
@@ -1019,18 +1022,31 @@
       "name": "integral-workspace",
       "source": "agent/skills/integral-workspace/SKILL.md",
       "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_count_workspace_entries"
+      ],
+      "body_tools": [
+        "integral_count_workspace_entries"
+      ],
+      "delegates_to": [],
+      "intent": "Report the current total number of Entries in this workspace, including installed Apps. Use for how many entries or records are in this workspace. This is a content-free inventory count, not a domain metric or App-specific breakdown.",
+      "name": "integral-workspace-inventory",
+      "source": "agent/skills/integral-workspace-inventory/SKILL.md",
+      "unresolved_refs": []
     }
   ],
   "counts": {
-    "advertised": 129,
+    "advertised": 130,
     "apps": 6,
     "by_op_class": {
       "execute": 1,
       "propose": 71,
-      "read": 57
+      "read": 58
     },
-    "core_skills": 17,
-    "tools": 131
+    "core_skills": 18,
+    "tools": 132
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1677,6 +1693,27 @@
       "policy_action": "event_feed.subscribe",
       "skills": [
         "integral-insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.workspace_inventory.count_workspace_entries"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_count_workspace_entries",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral-insights",
+        "integral-scheduling",
+        "integral-workspace-inventory"
       ],
       "status": "existing"
     },

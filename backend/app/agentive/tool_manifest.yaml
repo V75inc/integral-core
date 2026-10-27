@@ -1000,6 +1000,22 @@ domains:
         policy_action: event_feed.subscribe
         params: { app_id: {type: string, optional: true}, track_id: {type: string, optional: true}, cursor: {type: string, optional: true}, limit: {type: integer, default: 50} }
         returns: { items: list, next_cursor: str }
+      - name: integral_count_workspace_entries
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Return the exact current number of entries the caller can read in the
+          active workspace, including installed Apps. Use for a whole-workspace
+          entry count or a recurring workspace-count report. This is content-free
+          inventory: no record fields, names, identifiers, per-App breakdowns or
+          custom filters. Use declared App queries for domain counts or business
+          questions; never infer those from this inventory total.
+        http: "SERVICE (workspace_inventory.count_workspace_entries)"
+        policy_action: entry.read
+        params: {}
+        returns: {total_entries: integer, workspace_id: str, audience: str, coverage: str, counted_at: str}
+        privacy: "Current canonical workspace and Entry read admission; one content-free inventory count only."
       - name: integral_count_entries
         status: existing
         op_class: read
@@ -1013,7 +1029,10 @@ domains:
           <field>" use integral_query_spec sorted on custom_fields.<key>, and for a
           total use integral_aggregate. GROUP_BY IS REQUIRED: when
           the user just asks "how many X" with no breakdown dimension implied, default
-          group_by='track' and sum the buckets in your reply. TIME-BOUND QUESTIONS —
+          group_by='track' and sum the buckets in your reply. For the whole-workspace
+          inventory including installed Apps, use integral_count_workspace_entries;
+          generic domain grouped counts exclude installed-App records.
+          TIME-BOUND QUESTIONS —
           when the question implies a window ('today', 'this week', 'last month', 'in
           October', 'recently'), you MUST compute the ISO-8601 `since` (and optionally
           `until`) yourself from today's date and pass them; the tool does not know
@@ -2753,11 +2772,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 131
-  existing_tools: 129    # status: existing
+  total_tools: 132
+  existing_tools: 130    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 57, propose: 73, execute: 1 }
-  by_priority: { P0: 17, P1: 44, P2: 70 }
+  by_op_class: { read: 58, propose: 73, execute: 1 }
+  by_priority: { P0: 17, P1: 45, P2: 70 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

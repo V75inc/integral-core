@@ -111,9 +111,11 @@ def _effective_reply_to(
 async def send_email(message: EmailMessage) -> bool:
     """Dispatch the message via the configured provider. Never raises.
 
-    Returns True on apparent success, False if the provider rejected the
-    message or raised. The caller should not surface this distinction to the
-    end user (avoid leaking provider state) — it's logged for operators.
+    Returns True on provider acceptance, False if delivery is unconfigured,
+    rejected or raises. Authenticated callers may report a safe delivery
+    failure; public identity-recovery routes keep their non-enumerating reply.
+    Console preview is available only in DEBUG and is never a production
+    fallback for a missing or misspelled mail provider.
 
     When ``workspace_id`` is set and workspace Email Log delivery is enabled,
     sends through that org's provider/from address (except platform-only
@@ -128,8 +130,14 @@ async def send_email(message: EmailMessage) -> bool:
             outcome = await _send_via_sendgrid(message, creds, reply_to=reply_to)
         elif provider == "resend":
             outcome = await _send_via_resend(message, creds, reply_to=reply_to)
-        else:
+        elif provider == "console" and settings.DEBUG:
             outcome = _send_via_console(message, creds)
+        elif provider == "console":
+            outcome = _SendOutcome(
+                success=False, error="Production email delivery is not configured"
+            )
+        else:
+            outcome = _SendOutcome(success=False, error="Unsupported email provider")
     except Exception as exc:
         logger.exception(
             "email_service: provider=%s failed to send to=%s subject=%r",

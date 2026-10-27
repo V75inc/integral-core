@@ -17,8 +17,8 @@ from app.exceptions import (
     BadRequestError,
     OperationalModelValidationError,
 )
-from app.models.edges import CONTAINS, HAS_ATTACHMENT
-from app.models.nodes import App, Attachment, Entry, OperationalModel, Track
+from app.models.edges import CONTAINS, HAS_ATTACHMENT, IS_OF_TYPE
+from app.models.nodes import App, Attachment, Entry, EntryType, OperationalModel, Track
 from app.services.entry_type_resolver import resolve_seed_entry_type_id
 from app.services.operational_model_runtime import slug_manifest_key
 from app.utils.time import utc_now_iso
@@ -796,6 +796,47 @@ async def _materialize_seed_custom_fields(
     )
 
 
+async def _bind_seed_entry_type(entry: Entry, track: Track, type_id: str) -> None:
+    """Keep scalar and named type edge consistent for this manifest-owned seed.
+
+    Installation/reconciliation already owns the App mutation transaction. Repair
+    only a missing link or the seed's known previous type; contradictory graph
+    facts require reconciliation rather than an authorization fallback.
+    """
+    from app.exceptions import AuthorizationUnavailableError
+
+    entry_type = await EntryType.get(type_id)
+    if (
+        entry_type is None
+        or entry_type.track_id != track.id
+        or entry.track_id != track.id
+    ):
+        raise AuthorizationUnavailableError()
+    ctx = await entry.get_context()
+    rows = await ctx.database.find(
+        "edge", {"source": entry.id, "entity": IS_OF_TYPE._entity_name()}, limit=2
+    )
+    if len(rows) > 1:
+        raise AuthorizationUnavailableError()
+    if rows and rows[0].get("target") != type_id:
+        previous_id = str(entry.type_id or "")
+        if not previous_id or rows[0].get("target") != previous_id:
+            raise AuthorizationUnavailableError()
+        old_edges = await ctx.find_edges_between(
+            entry.id, previous_id, edge_class=IS_OF_TYPE
+        )
+        if len(old_edges) != 1:
+            raise AuthorizationUnavailableError()
+        await old_edges[0].delete()
+        rows = []
+    if not rows:
+        await entry.connect(entry_type, edge=IS_OF_TYPE, assigned_at=utc_now_iso())
+    if entry.type_id != type_id:
+        entry.type_id = type_id
+        entry.updated_at = utc_now_iso()
+        await entry.save()
+
+
 async def plant_seeds(
     app_node: App,
     canonical: Dict[str, Any],
@@ -858,10 +899,8 @@ async def plant_seeds(
                 ent = existing[0]
                 if seed_key:
                     seed_key_to_id[seed_key] = ent.id
-                if type_id and (not ent.type_id or ent.type_id != type_id):
-                    ent.type_id = type_id
-                    ent.updated_at = utc_now_iso()
-                    await ent.save()
+                if type_id:
+                    await _bind_seed_entry_type(ent, target_track, type_id)
                 # Heal install seeds that skipped auto_provision / relation wire.
                 # Domain-agnostic: re-materialize when an auto-provision track
                 # anchor is missing, or when the seed declares a relation the
@@ -955,6 +994,7 @@ async def plant_seeds(
                 updated_at=now,
             )
             await target_track.connect(new_entry, edge=CONTAINS, added_at=now)
+            await _bind_seed_entry_type(new_entry, target_track, type_id)
             await _plant_seed_attachments(
                 entry=new_entry,
                 attachments=entry_spec.get("attachments"),

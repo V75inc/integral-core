@@ -31,7 +31,11 @@ def test_live_count_schedules_are_discoverable_as_scheduling(prompt):
             for row in list_core_skills()
         ],
     )
-    assert ranked[0][0] == "integral-scheduling", ranked[:3]
+    # Routing offers eight advisory candidates, then the model selects the
+    # workflow for the whole request. An inventory skill may rank ahead on
+    # "how many entries" while scheduling must remain in that offered set.
+    # Ranking first is not the routing or authority contract.
+    assert "integral-scheduling" in [key for key, _score in ranked[:8]], ranked[:8]
 
 
 @pytest.mark.asyncio
@@ -86,14 +90,14 @@ async def test_five_agent_updates_read_changed_counts_and_then_stop(monkeypatch)
         handle.work_item_id = execution.work_item_id
         handle.work_lease_fence = execution.lease_fence
         result = await dispatch_tool(
-            "integral_count_entries",
-            {"group_by": "track"},
+            "integral_count_workspace_entries",
+            {},
             principal_id=task.user_id,
             scope=task.workspace_id,
             session_id=task.thread_id,
         )
         assert not result.is_error, result
-        counts.append(result.data["total_matched"])
+        counts.append(result.data["total_entries"])
         return True, None
 
     async def forbidden_literal_delivery(*args: object):

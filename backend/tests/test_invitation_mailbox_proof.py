@@ -167,7 +167,8 @@ async def test_legacy_unbound_boolean_requires_mailbox_reverification(
         user.email_verified = True
         await user.save()
         assert (await caller.get("/api/me/invitations")).json()["invitations"] == []
-        assert (await caller.post("/api/auth/resend-verification")).status_code == 200
+        # The signup code is still usable during the short resend cooldown.
+        assert (await caller.post("/api/auth/resend-verification")).status_code == 429
         assert (
             await caller.post("/api/auth/verify-email", json={"code": code})
         ).status_code == 200

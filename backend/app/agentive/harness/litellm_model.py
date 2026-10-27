@@ -1138,4 +1138,33 @@ def build_litellm_sdk_model(
         max_retries=0,
     )
     provider = LiteLLMProvider(openai_client=client)
-    return OpenAIChatModel(route.model, provider=provider)
+    # Admission and native compaction must see the same explicit capacity as
+    # the provider transport. Custom/Ollama identifiers may have no registry
+    # entry; otherwise their configured window silently became the fallback.
+    context_window = route.generation_settings.get("context_window")
+    if context_window is None:
+        context_window = route.ollama_num_ctx
+    if context_window is None:
+        from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+        from app.services.model_settings import model_capabilities
+
+        # Use the same pinned, network-free capability metadata as Settings.
+        # A custom endpoint borrowing a vendor model name does not establish
+        # that vendor's capacity; leave it unknown unless explicitly configured.
+        cloud_ollama = (
+            route.provider == "ollama_chat" and route.api_base == OLLAMA_CLOUD_API_BASE
+        )
+        if route.api_base is None or cloud_ollama:
+            provider_name = "ollama" if cloud_ollama else route.provider
+            model_name = route.model.removeprefix(f"{route.provider}/")
+            context_window = model_capabilities(provider_name, model_name).get(
+                "native_context"
+            )
+    profile = (
+        {"context_window": context_window}
+        if isinstance(context_window, int)
+        and not isinstance(context_window, bool)
+        and context_window > 0
+        else None
+    )
+    return OpenAIChatModel(route.model, provider=provider, profile=profile)

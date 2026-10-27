@@ -195,6 +195,74 @@ class IntegralToolDisclosure(ToolSearch):
     def get_native_tools(self):
         return []
 
+    async def prepare_tools(self, ctx, tool_defs):
+        """Advertise exact loadable procedure IDs through the public schema hook.
+
+        A free-text loader encouraged invented names, followed by a terminal
+        framework retry error. This is disclosure, not authority: the native
+        loader and broker still admit the current capability and every effect.
+        """
+        prepared = await super().prepare_tools(ctx, tool_defs)
+        current = set(getattr(ctx, "capabilities", {}))
+        available = (self.workflow_skill_ids & current) - ctx.active_capability_ids
+        if not available:
+            return prepared
+        # Prefer the last search's small offered set. A different authorized
+        # workflow remains discoverable through another capability search.
+        turn_start = _active_turn_start(ctx.messages)
+        for message in reversed(ctx.messages[turn_start or 0 :]):
+            if not isinstance(message, ModelRequest):
+                continue
+            found = None
+            for part in reversed(message.parts):
+                if (
+                    isinstance(part, ToolReturnPart)
+                    and part.tool_name == "search_capabilities"
+                    and isinstance(part.content, dict)
+                    and not part.content.get("error")
+                ):
+                    found = {
+                        item.get("load_with", {}).get("id")
+                        for item in part.content.get("results", ())
+                        if isinstance(item, dict)
+                        and item.get("kind") == "skill"
+                        and isinstance(item.get("load_with"), dict)
+                        and item["load_with"].get("tool") == "load_capability"
+                    }
+                    break
+            if found is not None:
+                offered = available.intersection(found)
+                if offered:
+                    available = offered
+                break
+        result = []
+        for definition in prepared:
+            if definition.name != "load_capability":
+                result.append(definition)
+                continue
+            schema = definition.parameters_json_schema
+            properties = schema.get("properties", {})
+            if not isinstance(properties.get("id"), dict):
+                result.append(definition)
+                continue
+            result.append(
+                replace(
+                    definition,
+                    parameters_json_schema={
+                        **schema,
+                        "properties": {
+                            **properties,
+                            "id": {
+                                **properties["id"],
+                                "enum": sorted(available),
+                                "description": "Choose an exact offered skill ID; do not invent a name.",
+                            },
+                        },
+                    },
+                )
+            )
+        return result
+
     def get_model_settings(self):
         """Require initial discovery through the library's dynamic tool choice.
 
@@ -998,9 +1066,10 @@ class IntegralHistorySummary(SummarizingCompaction):
         retained_history = (
             processed.messages[:processed_start] if processed_start is not None else []
         )
-        self._compacted_history_digest = hashlib.sha256(
-            ModelMessagesTypeAdapter.dump_json(retained_history)
-        ).hexdigest()
+        if processed.messages != before:
+            self._compacted_history_digest = hashlib.sha256(
+                ModelMessagesTypeAdapter.dump_json(retained_history)
+            ).hexdigest()
         return processed
 
     async def compact(self, messages, ctx):
@@ -1010,6 +1079,14 @@ class IntegralHistorySummary(SummarizingCompaction):
         # bound a long active turn. Summarization owns completed-turn history.
         turn_start = protected_work_start(messages)
         history, active_turn = messages[:turn_start], messages[turn_start:]
+        history_digest = hashlib.sha256(
+            ModelMessagesTypeAdapter.dump_json(history)
+        ).hexdigest()
+        # TieredCompaction invokes compact() directly, bypassing this class's
+        # before_model_request hook. A large protected current task therefore
+        # used to buy another summary of unchanged older prose on every step.
+        if history_digest == self._compacted_history_digest:
+            return messages
         if (
             len(history) <= self.keep_messages
             and len(ModelMessagesTypeAdapter.dump_json(history))
@@ -1096,6 +1173,7 @@ class IntegralHistorySummary(SummarizingCompaction):
                     normalized.append(replace(message, parts=parts))
             compacted = normalized
         if compacted == history:
+            self._compacted_history_digest = history_digest
             return [*history, *active_turn]
         calls = {}
         pairs = {}
@@ -1130,7 +1208,11 @@ class IntegralHistorySummary(SummarizingCompaction):
             )
         # A summary is a leading system request; attach state after it and
         # before the retained current task. No execution is replayed.
-        return [compacted[0], *evidence, *compacted[1:], *active_turn]
+        retained_history = [compacted[0], *evidence, *compacted[1:]]
+        self._compacted_history_digest = hashlib.sha256(
+            ModelMessagesTypeAdapter.dump_json(retained_history)
+        ).hexdigest()
+        return [*retained_history, *active_turn]
 
 
 def build_integral_history_compaction() -> IntegralHistorySummary:

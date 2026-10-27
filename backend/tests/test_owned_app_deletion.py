@@ -34,8 +34,9 @@ async def _delete(client, app_id, channel, test_user, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("entries", [0, 2])
 @pytest.mark.parametrize("channel", ["direct", "agent"])
+@pytest.mark.parametrize("member_owner", [False, True])
 async def test_owner_deletes_populated_app(
-    authenticated_client, entries, channel, test_user, monkeypatch
+    authenticated_client, entries, channel, member_owner, test_user, monkeypatch
 ):
     client = authenticated_client
     response = await client.post("/api/apps", json={"name": "Disposable owner App"})
@@ -57,6 +58,37 @@ async def test_owner_deletes_populated_app(
         )
         assert response.status_code == 200, response.text
         entry_ids.append(response.json()["entry"]["id"])
+    if member_owner:
+        from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF, OWNS
+        from app.models.nodes import Track, User, Workspace
+        from app.services.app_graph import catalog_user
+
+        workspace_id = (await client.get(f"/api/apps/{app_id}")).json()["app"][
+            "workspace_id"
+        ]
+        workspace = await Workspace.get(workspace_id)
+        workspace.kind = "organization"
+        await workspace.save()
+        admin = await User.create(display_name="Separate workspace owner")
+        await catalog_user(admin)
+        await admin.connect(workspace, edge=OWNS)
+        ctx = await workspace.get_context()
+        for target in (workspace.id, track_id):
+            kinds = (
+                (OWNS, IS_MEMBER_OF)
+                if target == workspace.id
+                else (OWNS, COLLABORATES_ON)
+            )
+            for kind in kinds:
+                for edge in await ctx.find_edges_between(
+                    test_user.id, target, edge_class=kind
+                ):
+                    await edge.delete()
+        await test_user.connect(workspace, edge=IS_MEMBER_OF, role="member")
+        from app.services.permissions import can_delete_track
+
+        assert not await can_delete_track(test_user.user_id, track_id)
+        assert await Track.get(track_id) is not None
     await _delete(client, app_id, channel, test_user, monkeypatch)
     assert (await client.get(f"/api/apps/{app_id}")).status_code == 404
     assert (await client.get(f"/api/tracks/{track_id}")).status_code == 404
@@ -176,3 +208,44 @@ async def test_owner_deletes_app_with_entry_anchored_track(
     else:
         assert await Track.find_one({"id": track_ids[1]}) is None
         assert await Entry.find_one({"id": entry_ids[1]}) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["direct", "agent"])
+async def test_owner_deletes_app_with_cross_track_entry_relations(
+    authenticated_client, channel, test_user, monkeypatch
+):
+    """A populated App may contain relations between its own Tracks."""
+    from app.models.edges import REFERENCES
+    from app.models.nodes import Entry
+
+    client = authenticated_client
+    response = await client.post("/api/apps", json={"name": "Related records"})
+    assert response.status_code == 200, response.text
+    app_id = response.json()["app"]["id"]
+    for title in ("BarChart View", "Overview", "PieChart View"):
+        response = await client.post(
+            f"/api/apps/{app_id}/dashboards", json={"name": title}
+        )
+        assert response.status_code == 200, response.text
+    entry_ids = []
+    for title in ("Businesses", "Contacts", "Expenses", "Other"):
+        response = await client.post(
+            "/api/tracks", json={"app_id": app_id, "title": title}
+        )
+        assert response.status_code == 200, response.text
+        response = await client.post(
+            "/api/entries",
+            json={"track_id": response.json()["track"]["id"], "title": title},
+        )
+        assert response.status_code == 200, response.text
+        entry_ids.append(response.json()["entry"]["id"])
+    expense = await Entry.get(entry_ids[2])
+    business = await Entry.get(entry_ids[0])
+    await expense.connect(
+        business, edge=REFERENCES, field_key="business", cross_track=True
+    )
+    await _delete(client, app_id, channel, test_user, monkeypatch)
+    assert (await client.get(f"/api/apps/{app_id}")).status_code == 404
+    for entry_id in entry_ids:
+        assert await Entry.find_one({"id": entry_id}) is None
