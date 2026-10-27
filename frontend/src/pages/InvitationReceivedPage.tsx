@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { sharingApi } from '../api';
 import type { MyInvitation } from '../api/sharing';
-import { Button, PageHeading, PageMeta, Skeleton } from '../components/ui';
+import { Button, PageMeta, Skeleton } from '../components/ui';
 import { Text } from '../ui';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
@@ -92,10 +92,10 @@ export function InvitationReceivedPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="app-card max-w-md w-full p-6 text-center">
-          <PageHeading>Verify your email to continue</PageHeading>
+          <Text as="h1" variant="heading-lg" className="break-words">Verify your email</Text>
           <PageMeta as="p" className="mt-4">
-            Verify your email before viewing or accepting invitations. Once verified,
-            you’ll return here to review this invitation.
+            To accept this invitation, verify your email first. You’ll return here
+            to review and accept it.
           </PageMeta>
           <Button
             className="mt-6 w-full"
@@ -122,7 +122,7 @@ export function InvitationReceivedPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="app-card max-w-md w-full p-6 text-center">
-          <PageHeading>Invitation</PageHeading>
+          <Text as="h1" variant="heading-lg" className="break-words">Invitation</Text>
           <p className="mt-4 text-sm text-[var(--danger-fg)]">
             {error || 'Invitation not found.'}
           </p>
@@ -142,7 +142,7 @@ export function InvitationReceivedPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="app-card max-w-md w-full p-6">
-        <PageHeading>Join {targetLabel}</PageHeading>
+        <Text as="h1" variant="heading-lg" className="break-words">Join {targetLabel}</Text>
         <PageMeta as="p">
           You've been invited to <strong>{targetLabel}</strong> as a{' '}
           <strong>{role}</strong>.

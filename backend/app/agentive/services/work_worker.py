@@ -1188,6 +1188,32 @@ async def _handle_app_tool(
     )
 
 
+async def _release_routine_chat_turn(item: WorkItem) -> None:
+    """Release only this routine attempt's slot after durable worker settlement."""
+    from app.services import chat_turn_registry
+    from app.services.chat_thread_events import notify_thread_stream_update
+
+    handle = chat_turn_registry.get_turn(item.thread_id)
+    if (
+        handle is None
+        or handle.work_item_id != item.work_item_id
+        or handle.work_lease_fence != int(item.lease_fence or 0)
+    ):
+        return
+    released = await chat_turn_registry.release_turn(
+        item.thread_id, expected_turn_id=handle.turn_id
+    )
+    if released:
+        await notify_thread_stream_update(
+            item.principal_id,
+            item.thread_id,
+            status="completed",
+            workspace_id=item.workspace_id or None,
+            turn_id=handle.turn_id,
+            extra={"origin": "routine_task"},
+        )
+
+
 async def execute_claimed_work(
     item: WorkItem,
     *,
@@ -1354,6 +1380,17 @@ async def _execute_claimed_work(
             target="failed",
             fields={"failure": failure.model_dump(by_alias=True)},
         )
+    finally:
+        if kind == "routine_turn":
+            # The stream deliberately leaves leased turns fenced. Unlike a
+            # durable interactive turn, a routine previously had no owner of
+            # this final cleanup, blocking every later fire as thread_busy.
+            try:
+                await _release_routine_chat_turn(item)
+            except Exception:
+                log.exception(
+                    "Failed to release routine chat turn %s", item.work_item_id
+                )
     raise WorkError("work.unknown_kind", f"unhandled kind {kind}")
 
 

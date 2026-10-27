@@ -1385,7 +1385,7 @@ wheels = [
 
 [[package]]
 name = "integral-core"
-version = "0.1.1rc34"
+version = "0.1.1rc35"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

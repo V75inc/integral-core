@@ -182,3 +182,101 @@ async def test_server_auth_routes_and_middleware_use_current_identity(identity_s
         assert refresh.status_code in (400, 401), refresh.text
         current = await server._auth_service._get_user_by_id(identity.id)
         assert current is not None and not current.is_active
+
+
+async def test_activity_touch_collision_preserves_current_stamp(identity_service):
+    service, identity, _ = identity_service
+    first = await service._get_user_by_id(identity.id)
+    second = await service._get_user_by_id(identity.id)
+    first.last_accessed = datetime.now(timezone.utc)
+    await first.save()
+    stored = await service.context.database.find_one("object", {"id": identity.id})
+    second.last_accessed = datetime.now(timezone.utc)
+    await second.save()
+    current = await service.context.database.find_one("object", {"id": identity.id})
+    assert current["context"]["last_accessed"] == stored["context"]["last_accessed"]
+    assert current["context"]["password_hash"] == stored["context"]["password_hash"]
+
+
+async def test_parallel_logins_admit_same_current_identity(
+    identity_service, monkeypatch
+):
+    import asyncio
+
+    from httpx import ASGITransport, AsyncClient
+    from jvspatial.api.config_groups import AuthConfig, DatabaseConfig
+
+    from app.config import settings
+    from app.server import IntegralServer
+
+    _, identity, _ = identity_service
+    server = IntegralServer(
+        title="Concurrent login admission test",
+        database=DatabaseConfig(db_type=None),
+        auth=AuthConfig(
+            enabled=True,
+            test_mode=False,
+            jwt_secret=settings.SECRET_KEY,
+            oauth_enabled=False,
+            password_reset_enabled=False,
+            exempt_paths=["/api/auth/login"],
+        ),
+    )
+    service = server._auth_service
+    find = service._find_user_by_email
+    snapshots = 0
+    ready = asyncio.Event()
+
+    async def observed(email):
+        nonlocal snapshots
+        result = await find(email)
+        snapshots += 1
+        if snapshots == 2:
+            ready.set()
+        await asyncio.wait_for(ready.wait(), 5)
+        return result
+
+    monkeypatch.setattr(service, "_find_user_by_email", observed)
+    async with AsyncClient(
+        transport=ASGITransport(app=server.get_app()), base_url="http://test"
+    ) as client:
+        responses = await asyncio.gather(
+            *(
+                client.post(
+                    "/api/auth/login",
+                    json={"email": identity.email, "password": "testpassword123"},
+                )
+                for _ in range(2)
+            )
+        )
+    assert [r.status_code for r in responses] == [200, 200]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("is_active", False),
+        ("password_hash", "rotated-hash"),
+        ("roles", ["reviewer"]),
+        ("permissions", ["different-permission"]),
+    ],
+)
+async def test_activity_collision_still_rejects_changed_authority(
+    identity_service, field, value
+):
+    service, identity, _ = identity_service
+    identity.last_accessed = datetime.now(timezone.utc)
+    await service.context.database.find_one_and_update(
+        "object",
+        {"id": identity.id},
+        {
+            "$set": {
+                "context.last_accessed": datetime.now(timezone.utc).isoformat(),
+                f"context.{field}": value,
+            }
+        },
+    )
+    with pytest.raises(AuthenticationStateConflict):
+        await identity.save()
+    stored = await service.context.database.find_one("object", {"id": identity.id})
+    assert stored["context"][field] == value

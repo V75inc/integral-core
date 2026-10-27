@@ -1,5 +1,6 @@
 import { accessControlApi } from '../api/accessControl';
 import { useDeployment } from '../hooks/useDeployment';
+import { useAppDeletionNavigation } from '../hooks/useAppDeletionNavigation';
 import { AppIcon } from '../ui';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
@@ -112,6 +113,7 @@ export function AppDetailPage() {
   const { collaboration } = useDeployment();
   const { scope: activeHomeScope } = useScope();
   const { appId } = useParams<{ appId: string }>();
+  useAppDeletionNavigation(appId);
   const navigate = useNavigate();
   const { user: me } = useAuth();
   const { visit: visitRecent } = useRecents();

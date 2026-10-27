@@ -8,6 +8,32 @@ Core derives principal, workspace, binding, and route authority. ChatThread and 
 
 One thread's active binding and session generation determine continuation. Changing a binding preserves historical sessions but cannot silently execute under a mismatched scope. The product transcript remains distinct from private model history, traces, checkpoints, and effect receipts.
 
+## Scheduled reports and literal reminders
+
+Scheduled reports use `delivery_mode=agent`: each execution performs fresh,
+permission-filtered reads and returns the requested result to its owned chat.
+The lightweight saved-reminder path is only for fixed text, such as a personal
+nudge; reminder delivery does not call a model or execute task instructions.
+
+For short monitoring requests, report a tool-grounded current value immediately,
+then stage the requested agent routine. Scheduling is discoverable independently
+of a one-time read skill. Never infer lack of scheduling from the current tool
+subset. Every-minute follow-ups use `cron="* * * * *"`; five requested updates
+use `max_runs=5`, not a cron minute range or a stop instruction in the prompt.
+Approval must occur before the routine is active. The immediate answer does not
+consume its run budget. Execution is best effort and only successful runs consume
+the cap, so failed or busy runs can extend the elapsed window. Explain a real
+read or scheduling failure rather than delivering the task description as output.
+
+A leased scheduled agent turn leaves its local chat slot fenced while its
+WorkItem settles. The routine worker then releases only the matching WorkItem,
+lease fence and turn ID, and emits a completion event to refresh connected chat
+views. This cleanup also runs for failed and cancelled attempts; a busy refusal
+must not release a human turn or a newer worker's slot.
+
+These paths preserve the same workspace access checks (I-RET-01), reviewed
+mutation boundary (I-CRUD-01), owned-thread binding and durable execution fences.
+
 ## Image input
 
 Native chat accepts PNG, JPEG, WebP and GIF through the ordinary persisted
@@ -67,6 +93,14 @@ that keep sending chunks without finishing.
 Graph transaction bodies remain cancellable on disconnect. Their acquisition and commit/rollback cleanup are shielded from ASGI cancellation in the owning task, so rollback completes before returning the connection to its pool. Disconnecting an SSE reader does not cancel the separate durable worker.
 
 ## Collection changes and retrieved evidence
+
+For installed-App commands, `integral_call_workspace_tool` accepts either one
+`input` or up to 500 `inputs` for the same registered write tool. The latter
+validates every input against the live declared schema before staging one batch
+of ordinary command children. It never invokes a handler during preparation;
+approval, current authority, execution receipts and partial-failure recovery
+remain the ordinary batch path. Read tools use the single-input form. Batch
+review shows the literal bound inputs for each command.
 
 `integral_bulk_update_entries` stages the same patch for up to 500 explicitly
 selected records under one itemized approval. Page through the full authorized
@@ -277,6 +311,14 @@ Single-model and Heavy request timeouts/retries retain their configured bounds.
 A route without a conversation reasoning override avoids unnecessary
 metadata-worker hops.
 
+Before accepting traffic, normal server startup initializes LiteLLM's
+process-wide provider/catalog metadata off the event loop. This performs no
+model inference and retains no caller credential or route. LiteLLM may fetch
+its public upstream catalog according to the deployment's LiteLLM settings;
+that initialization is moved out of the first user's turn, not eliminated.
+Test startup skips the warmup. A failed warmup is logged and the normal model
+path still reports any subsequent initialization failure.
+
 Custom OpenAI-compatible routes reuse one guarded SDK connection pool per
 physical model instance within a turn. Separate models and turns own separate
 clients; turn cleanup closes them on success, failure or cancellation. Every
@@ -286,11 +328,16 @@ LiteLLM's existing provider connection reuse; the in-process bridge client is
 not a new network connection to a LiteLLM proxy.
 
 Content-free server diagnostics report `routeResolution`, `modelAdmission`,
-`dispatchReceipt` and `providerStart` aggregate milliseconds and counts per
+`dispatchReceipt`, `providerStart`, `routingDiscovery`, `workspaceProfile`,
+`skillMaterialization` and `runtimeBuild` aggregate milliseconds and counts per
 turn. Route resolution can be nested in admission, so these are not additive
 wall-clock milestones. Provider start ends when the SDK returns a response or
 stream, not when the stream finishes or answer text becomes visible. These
 logs contain no prompts, tool arguments, endpoints or credential material.
+The public `preparationMs` milestone includes the Light routing/model pass
+when used; it must not be reported as pure local setup time. Use these spans,
+`lightPassMs`, first-tool and full-response measurements separately. A small
+sample demonstrates individual timings, not p95 capacity or provider latency.
 
 `INTEGRAL_CHAT_WORKERS` selects 1–16 durable chat workers per API process
 (default 4). Independent conversations can proceed concurrently; per-thread

@@ -118,7 +118,29 @@ async def resource_cascade_scope(
                 root = await _load_resource_node(resource_type, resource_id)
                 if root is None:
                     raise AuthorizationUnavailableError()
-                walker = RehomeInventory()
+                # Rehome inventory includes every linked Track's records. An
+                # App delete instead retains shared Tracks and only unlinks
+                # its own edge, so those branches must never acquire a
+                # destructive permit (or require Entry deletion authority).
+                from jvspatial.core import Node
+                from jvspatial.core.decorators import on_visit
+
+                from app.models.nodes import Track
+                from app.services.app_deletion import _apps_containing_track
+
+                class CascadeInventory(RehomeInventory):
+                    @on_visit(Node)
+                    async def collect(self, here: Node) -> None:
+                        if resource_type == "app" and isinstance(here, Track):
+                            parents = await _apps_containing_track(here)
+                            parent_ids = {parent.id for parent in parents}
+                            if resource_id not in parent_ids:
+                                raise AuthorizationUnavailableError()
+                            if parent_ids != {resource_id}:
+                                return
+                        await super().collect(here)
+
+                walker = CascadeInventory()
                 await walker.spawn(root)
                 report = await walker.get_report()
                 if any(
@@ -158,6 +180,17 @@ async def resource_cascade_scope(
                     yield
                 finally:
                     _active.reset(token)
+
+
+def cascade_manages_tracks() -> bool:
+    """App/workspace commands already own their complete Track deletion order."""
+    permit = _active.get()
+    return bool(
+        permit is not None
+        and permit.task is asyncio.current_task()
+        and permit.database is get_default_context().database
+        and permit.resource_type in {"app", "workspace"}
+    )
 
 
 async def entry_cascade_permitted(actor_id: str, entry_id: str) -> bool:

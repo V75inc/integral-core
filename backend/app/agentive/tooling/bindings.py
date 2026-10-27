@@ -2699,11 +2699,20 @@ async def _stage_call_workspace_tool(args: Dict[str, Any]) -> Dict[str, Any]:
     """
     _require(args, "tool_key")
     tool_key = str(args["tool_key"]).strip()
-    payload = args.get("input")
-    if payload is None:
-        payload = args.get("arguments")
-    if not isinstance(payload, dict):
-        payload = {}
+    batched = args.get("inputs") is not None
+    if batched:
+        if args.get("input") is not None or args.get("arguments") is not None:
+            raise ValueError("Use either input or inputs, not both.")
+        inputs = args["inputs"]
+        if not isinstance(inputs, list) or not 1 <= len(inputs) <= 500:
+            raise ValueError("inputs must contain between 1 and 500 input objects.")
+    else:
+        payload = args.get("input")
+        if payload is None:
+            payload = args.get("arguments")
+        inputs = [payload if payload is not None else {}]
+    if any(not isinstance(payload, dict) for payload in inputs):
+        raise ValueError("Every workspace tool input must be an object.")
 
     from app.services.agent_scope import current_scope_workspace_id
     from app.services.workspace_tools import (
@@ -2711,6 +2720,7 @@ async def _stage_call_workspace_tool(args: Dict[str, Any]) -> Dict[str, Any]:
         is_agent_callable,
         is_write_tool,
         lookup_workspace_tool,
+        require_workspace_tool_access,
     )
 
     workspace_id = current_scope_workspace_id.get() or ""
@@ -2727,17 +2737,64 @@ async def _stage_call_workspace_tool(args: Dict[str, Any]) -> Dict[str, Any]:
             "an in-app action button. Tell the user to click that button "
             "on the entry's page."
         )
-    if not await asyncio.to_thread(is_write_tool, spec):
+    write = await asyncio.to_thread(is_write_tool, spec)
+    if batched and not write:
+        raise ValueError("inputs is for reviewed write batches; use input for a read.")
+    await require_workspace_tool_access(
+        user_id=_bound_propose_principal(), workspace_id=workspace_id, spec=spec
+    )
+    if batched:
+        schema = spec.get("parameters_schema") or spec.get("input_schema") or {}
+        # Validate the complete literal set before creating a proposal. Single
+        # staged calls may use typed references to earlier workflow steps;
+        # those are validated after resolution by the ordinary executor.
+        await asyncio.to_thread(
+            _validate_workspace_tool_inputs, tool_key, inputs, schema
+        )
+
+    if not write:
         output = await invoke_workspace_tool(
             user_id=_bound_propose_principal(),
             workspace_id=workspace_id,
             tool_key=tool_key,
-            payload=payload,
+            payload=inputs[0],
             agent=True,
         )
         return {"_no_stage": True, "data": {"tool_key": tool_key, "output": output}}
 
     label = spec.get("name") or tool_key
+    operations = [
+        _workspace_tool_proposal(tool_key, payload, label) for payload in inputs
+    ]
+    if not batched:
+        return operations[0]
+    return {
+        "kind": "batch",
+        "summary": f"{label} — {len(operations)} records",
+        "diff_human": "\n\n".join(op["diff_human"] for op in operations),
+        "diff_machine": {"operations": operations},
+        "payload": {"operations": operations},
+    }
+
+
+def _validate_workspace_tool_inputs(
+    tool_key: str, inputs: List[Dict[str, Any]], schema: Dict[str, Any]
+) -> None:
+    """Pure preflight runs in a worker, never on the API event loop."""
+    from app.services.hooks.errors import ToolValidationFailedError
+    from app.services.hooks.tool_dispatch import validate_input
+
+    for index, payload in enumerate(inputs, 1):
+        try:
+            validate_input(payload, schema)
+        except ToolValidationFailedError as exc:
+            raise ValueError(f"{tool_key} input {index}: {exc.message}") from exc
+
+
+def _workspace_tool_proposal(
+    tool_key: str, payload: Dict[str, Any], label: str
+) -> Dict[str, Any]:
+    """Reuse ordinary command children so batch receipts and retry rules apply."""
     field_bits = (
         ", ".join(f"`{k}`" for k in sorted(payload.keys())) if payload else "no inputs"
     )

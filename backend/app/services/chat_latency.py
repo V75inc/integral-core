@@ -29,7 +29,16 @@ LATENCY_FIELDS = frozenset(
 )
 
 PHASE_FIELDS = frozenset(
-    {"routeResolution", "modelAdmission", "dispatchReceipt", "providerStart"}
+    {
+        "routeResolution",
+        "modelAdmission",
+        "dispatchReceipt",
+        "providerStart",
+        "routingDiscovery",
+        "workspaceProfile",
+        "skillMaterialization",
+        "runtimeBuild",
+    }
 )
 
 

@@ -38,10 +38,25 @@ class OperationalContextRequest(BaseModel):
 
 
 class SimpleReminderRequest(BaseModel):
-    """A proposal for unconditional literal delivery, never execution authority."""
+    """Propose fixed reminder text, with no tools or AI at delivery time.
+
+    ONLY for literal nudges such as 'Drink water'.
+    Never use for requests to check, count, search, summarize or report current
+    records, facts or conditions: request operational context for those instead.
+    This is a proposal, never execution or approval authority.
+    """
 
     model_config = ConfigDict(extra="forbid")
-    message: str = Field(min_length=1, max_length=2000)
+    message: str = Field(
+        min_length=1,
+        max_length=2000,
+        description=(
+            "The actual fixed reminder text to deliver unchanged. No tools or AI "
+            "will run when it fires. Never put a task instruction here, such as "
+            "'check and report the entry count'; hand off to operational context "
+            "when fresh information or computation is needed."
+        ),
+    )
     cron: str | None = None
     run_at: str | None = None
     timezone: str | None = None
@@ -74,7 +89,16 @@ LIGHT_INSTRUCTIONS = (
     "propose_simple_reminder with its literal message, cadence (5-field cron "
     "or ISO run_at), account timezone and optional max_runs. This proposes a "
     "reviewed card; it never activates the reminder. Edits to saved routines, "
-    "conditional or record-dependent tasks and mixed requests use rule 1.\n"
+    "conditional or record-dependent tasks and mixed requests use rule 1. "
+    "For example, 'every minute tell me how many entries are in this workspace' "
+    "requires fresh reads on each run: request_operational_context, never a "
+    "saved reminder message saying 'check and report the count'. A request to "
+    "tell the user a result is work, even if phrased like a reminder. "
+    "For recurring operational reports, prefer the offered scheduling workflow "
+    "candidate over a one-time read workflow; it can arrange both the immediate "
+    "answer and future executions. "
+    "Cron expresses frequency; max_runs expresses how many deliveries. Every "
+    "minute is '* * * * *', never a range of minute numbers.\n"
     "3. Call answer_conversation only for social replies, general knowledge "
     "independent of workspace state, or writing from text already supplied. "
     "Give a concise answer and choose its matching category.\n"

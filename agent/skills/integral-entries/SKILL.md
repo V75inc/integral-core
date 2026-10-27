@@ -102,6 +102,16 @@ allowed-tools: integral_list_views integral_open_view integral_list_workspace_to
    from the receipt and read back only the information needed to confirm
    the requested result. If a step fails, follow the receipt's progress;
    do not replay completed steps.
+   For an installed App's domain changes, prefer its registered command over
+   direct field edits. Discover the command's schema once, then call
+   `integral_call_workspace_tool(tool_key=..., inputs=[{...}, {...}])` with the
+   complete selected set. This produces one itemized approval without separate
+   begin/commit calls; different records may have different proposed values.
+   For workflows combining different tools, use begin/stage/commit instead.
+   Follow all read pages before claiming the whole selection is covered, use
+   stable record references and current-value/revision guards exposed by the
+   App, and use enum values exactly as the schema declares them. A single
+   pending card does not mean the App only supports one record at a time.
    Mutations are **propose** tools: you call a single tool, it
    **stages** a change the user approves in Integral. There is **no
    separate execute step** — when the user blesses the staged change in
@@ -326,6 +336,16 @@ For filing freeform content where the track/type is inferred, use
    {_kanban_stage: "in_progress"}})` → stage again and wait.
 
 ## Exact changes and monetary provenance
+
+When the user explicitly requests inferred proposals, distinguish evidence from
+the proposed values and explain their basis in the itemized review. For data
+the user explicitly identifies as dummy, sample or synthetic, generate plausible
+values when requested; do not demand an exact value for every record or claim
+the generated values are real facts. Apply the user's supplied fallback to
+unmatched cases and retain it through follow-up turns. Infer values, never
+record identities, schema keys, permissions or current stored facts. Prepare
+the complete requested batch this turn once scope and instructions are clear;
+the normal review card supplies the decision before writes execute.
 
 Update only the fields the user requested. Do not rewrite narrative descriptions
 or historical estimates merely to match a changed structured amount. When those

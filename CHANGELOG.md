@@ -6,6 +6,18 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Distinguish scheduled live reports from fixed-text reminders, report a current count before proposing bounded follow-ups, and discover scheduling alongside one-time reads. Release leased routine chat slots after settlement so later updates run and appear in the open chat.
+- Show compact, wrapping invitation headings with a clear email-verification step instead of truncated titles.
+
+- Fix owned App deletion with anchored collections and populated shared Tracks: avoid deleting anchored siblings twice, and retain shared records without granting destructive authority over them. Clarify App versus dashboard deletion in resident skills, and leave an open App page after its agent-approved deletion completes.
+
+## 0.1.1rc35 — 2026-10-26
+
+- Keep concurrent sign-ins and background activity from rejecting valid credentials when only the activity timestamp changed; retain current account, credential and refresh-token guards.
+- Authorize entry update/delete staging before loading private preview details; execution still rechecks current authority.
+- Initialize native model-library metadata off the event loop before accepting traffic, avoid duplicate Core skill parsing, and separate local preparation spans from model/provider latency diagnostics.
+- Require explicit App public-page directories in development/preview and keep the dev-page plugin out of production builds.
+
 ## 0.1.1rc34 — 2026-10-25
 
 - Bound resident task procedures and tool-result history while protecting current work, pending writes and governed App-read discovery.

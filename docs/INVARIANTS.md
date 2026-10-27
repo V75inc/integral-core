@@ -52,7 +52,14 @@ pass current containment, release admission and snapshot projection. Stop scans
 between records when their work budget expires and return protected progress;
 never report exhaustion or an outage as an empty complete history.
 
-Gates: `test_request_amplification.py`, `test_library_spec_cache.py`,
+An activity-only AuthUser timestamp collision must not reject an otherwise
+unchanged identity. Keep the persisted concurrent activity stamp only after
+rechecking the same account-active, email, password, role and permission facts.
+This reconciliation never retries credential mutations or token consumption
+and never substitutes activity metadata for authority.
+
+Gates: `test_authentication_current_state.py`,
+`test_request_amplification.py`, `test_library_spec_cache.py`,
 `test_event_history.py`, `test_operational_model_import_limits.py`,
 `useSerialPolling.test.tsx` and `useChangeEventInvalidation.test.tsx`.
 
@@ -542,6 +549,17 @@ cross-worker revocation qualification remain separate gates.
 ### I-CRUD-01 — Service-layer canonical mutations
 
 Routes delegate persisted writes to named services; direct graph creation/connection in API modules is forbidden. Internal operations use the appropriate shared writer, not a second mutation implementation. Staged-index guards and behavior tests enforce this boundary.
+
+App deletion admission inventories only the subtree it will destroy. Tracks
+linked to another App are retained and unlinked from the deleted App, so their
+Entries must not enter its destructive permit. Admission and execution use the
+same complete parent-edge set; unreadable or cross-workspace parents fail closed.
+Direct and staged agent deletion share this contract, current owner checks and
+PostgreSQL rollback. Within an admitted App/workspace command, the enclosing
+cascade owns Track deletion order: deleting its Entries must not recurse through
+ANCHORS and delete the same sibling Track twice or reach a retained shared Track.
+Individual Entry deletion retains its normal policy-governed anchor cascade.
+See `tests/test_owned_app_deletion.py` for qualification.
 
 ### I-APP-06 — One library installation path
 

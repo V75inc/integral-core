@@ -1,7 +1,7 @@
 ---
 name: integral-scheduling
-description: Creates, lists, pauses, resumes, edits, and cancels routines — standing or one-shot instructions replayed as agent turns in the same chat thread. Use when the user asks for scheduled, deferred, or repeating agent work.
-allowed-tools: integral_schedule_task integral_list_routines integral_update_routine integral_cancel_routine integral_delete_routine integral_resolve_entry integral_query_entries integral_get_digest integral_activity_digest
+description: Schedule automatic updates and reports in this chat every minute, hour, day or week, including workspace entry counts and checks for the next few minutes. Creates, lists, pauses, resumes, edits and cancels recurring or one-shot routines. Use for periodic monitoring, scheduled or deferred agent work and fixed personal reminders. Live reports execute tools each run; saved reminders deliver literal text.
+allowed-tools: integral_schedule_task integral_list_routines integral_update_routine integral_cancel_routine integral_delete_routine integral_resolve_entry integral_query_entries integral_count_entries integral_aggregate integral_get_digest integral_activity_digest
 ---
 
 # Integral scheduling — SOP
@@ -43,12 +43,41 @@ Before creating or updating a routine:
 2. When the instruction implies writes, `integral_resolve_entry` /
    `integral_query_entries` to obtain real `write_scope` resource ids.
 
+## Live reports versus saved reminder text
+
+A request to report changing facts is **agent work**, even if it sounds like a
+reminder. Use `delivery_mode="agent"` for counts, searches, summaries and checks.
+Each run must use scoped tools and return the result, not repeat the instruction.
+Use `delivery_mode="reminder"` only for a fixed message delivered unchanged, such
+as "Drink water"; that mode executes no tools and cannot calculate an answer.
+
+For a short monitoring request, read and report the current value now, then stage
+its recurring follow-ups. An exact workspace entry total uses
+`integral_count_entries(group_by="track")` and its `total_matched`, without a
+Track restriction. This avoids hydrating records just to count them. Use
+`integral_aggregate(op="count")` only when the requested aggregation requires it;
+do not count a search page or use semantic retrieval as a total. Counts cover only entries the
+caller can read in the active workspace; say so. Do not narrow to the currently
+open App when the user asks about the whole workspace.
+
+For "for the next five minutes, every minute tell me how many entries are in this
+workspace", report the live count, then stage **one** agent routine with
+`cron="* * * * *"`, `max_runs=5`, and an instruction to read the current accessible
+entry total and report it in this chat. The immediate answer does not consume a
+scheduled run. A cron minute range such as `1-5 * * * *` fires only at those
+minutes of each hour and does not mean "the next five minutes". Use the account
+timezone unless the user specifies another. Explain that approval starts the
+five follow-ups, they stop after five successful runs, and timing is best effort.
+If scheduling or the live read fails, state what failed; do not substitute a
+saved task description or promise that recurring updates are running.
+
 ## Creating a routine
 
 1. **Pick recurring vs one-shot.**
    - **Recurring** ("every day at 9am", "every Monday") → compute a 5-field
      `cron` + IANA `timezone`. The tool does **not** parse natural language.
-     If you don't know the user's timezone, ask once; do not guess.
+     Omit `timezone` to use the verified account timezone; ask only if the user
+     requests a different timezone that is not clear.
    - **Deferred one-shot** ("in two minutes", "at 3pm today") → compute an
      absolute ISO-8601 `run_at` and **omit `cron`**. Defaults `max_runs=1`.
      Do not invent a cron that fires once.
@@ -61,9 +90,9 @@ Before creating or updating a routine:
    (open-ended). For a tiny burst that doesn't need to persist at all
    (e.g. "post 3 messages right now"), just do it directly.
 3. **Write a self-contained `instruction` — and make it inert.** It is
-   replayed VERBATIM on every run with no memory of this conversation, AS A
-   NEW MESSAGE the agent receives with no signal that it's a scheduled
-   replay rather than a fresh live ask. Write it as a complete standalone
+   replayed on every run as a new scheduled event, with an explicit host marker.
+   Do not rely on historical results or the original setup conversation.
+   Write it as a complete standalone
    *task description*, not phrasing that could itself read as a request to
    configure something ("Remind the user it's time to join their standup" —
    good; "Remind me in two minutes to join my standup" — bad, still sounds

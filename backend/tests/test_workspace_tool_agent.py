@@ -106,7 +106,10 @@ def workspace_tools(monkeypatch):
                 "handler_ref": "tests.test_workspace_tool_agent:fake_write_tool",
                 "parameters_schema": {
                     "type": "object",
-                    "properties": {"entry_id": {"type": "string"}},
+                    "properties": {
+                        "entry_id": {"type": "string"},
+                        "value": {"type": "number"},
+                    },
                 },
                 "privileged": False,
                 "side_effects": "write",
@@ -198,6 +201,15 @@ async def test_stager_write_stages_and_read_runs_immediately(workspace_tools):
         assert staged["kind"] == "call_workspace_tool"
         assert staged["payload"]["input"]["entry_id"] == "{{step_1.id}}"
         assert staged.get("_no_stage") is None
+        single = await _stage_call_workspace_tool(
+            {
+                "tool_key": "populate_lines",
+                "input": {"entry_id": "n.Entry.one", "value": "{{step_1.amount}}"},
+                "inputs": None,
+            }
+        )
+        assert single["kind"] == "call_workspace_tool"
+        assert single["payload"]["input"]["value"] == "{{step_1.amount}}"
 
         immediate = await _stage_call_workspace_tool(
             {"tool_key": "compute_periods", "input": {}}
@@ -263,6 +275,134 @@ def test_new_tools_in_catalogue_and_executors():
     assert "integral_list_workspace_tools" in names
     assert "integral_call_workspace_tool" in names
     assert supports("call_workspace_tool")
+
+
+@pytest.mark.asyncio
+async def test_per_record_inputs_prepare_one_batch_without_running_handlers(
+    workspace_tools, monkeypatch
+):
+    import threading
+
+    from app.agentive.tooling.bindings import (
+        _propose_principal,
+        _stage_call_workspace_tool,
+    )
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.hooks.tool_dispatch import validate_input
+
+    def off_loop_validation(payload, schema):
+        assert threading.current_thread() is not threading.main_thread()
+        validate_input(payload, schema)
+
+    monkeypatch.setattr(
+        "app.services.hooks.tool_dispatch.validate_input", off_loop_validation
+    )
+
+    async def unexpected_invoke(**kwargs):
+        pytest.fail("Preparing a write batch must not invoke an App handler")
+
+    monkeypatch.setattr(
+        "app.services.workspace_tools.invoke_workspace_tool", unexpected_invoke
+    )
+    inputs = [
+        {"entry_id": "n.Entry.first", "value": 12},
+        {"entry_id": "n.Entry.second", "value": 27},
+    ]
+    scope = current_scope_workspace_id.set(WS)
+    principal = _propose_principal.set("u1")
+    try:
+        proposed = await _stage_call_workspace_tool(
+            {"tool_key": "populate_lines", "inputs": inputs}
+        )
+    finally:
+        _propose_principal.reset(principal)
+        current_scope_workspace_id.reset(scope)
+    assert proposed["kind"] == "batch"
+    children = proposed["payload"]["operations"]
+    assert len(children) == 2
+    assert [child["kind"] for child in children] == ["call_workspace_tool"] * 2
+    assert [child["payload"]["input"] for child in children] == inputs
+    assert [child["diff_machine"]["input"] for child in children] == inputs
+
+
+@pytest.mark.asyncio
+async def test_invalid_last_input_refuses_the_complete_batch_before_staging(
+    workspace_tools,
+):
+    from app.agentive.tooling.bindings import (
+        _propose_principal,
+        _stage_call_workspace_tool,
+    )
+    from app.services.agent_scope import current_scope_workspace_id
+
+    scope = current_scope_workspace_id.set(WS)
+    principal = _propose_principal.set("u1")
+    try:
+        with pytest.raises(ValueError, match="input 2"):
+            await _stage_call_workspace_tool(
+                {
+                    "tool_key": "populate_lines",
+                    "inputs": [
+                        {"entry_id": "n.Entry.first"},
+                        {"entry_id": 123},
+                    ],
+                }
+            )
+    finally:
+        _propose_principal.reset(principal)
+        current_scope_workspace_id.reset(scope)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "arguments, reason",
+    [
+        ({"inputs": []}, "between 1 and 500"),
+        ({"inputs": [{}] * 501}, "between 1 and 500"),
+        ({"inputs": [None]}, "must be an object"),
+        ({"inputs": [{}], "input": {}}, "not both"),
+        ({"inputs": [{}], "arguments": {}}, "not both"),
+    ],
+)
+async def test_invalid_batch_shape_is_refused(workspace_tools, arguments, reason):
+    from app.agentive.tooling.bindings import _stage_call_workspace_tool
+
+    with pytest.raises(ValueError, match=reason):
+        await _stage_call_workspace_tool({"tool_key": "populate_lines", **arguments})
+
+
+@pytest.mark.asyncio
+async def test_batch_reads_and_revoked_write_access_are_refused(
+    workspace_tools, monkeypatch
+):
+    from app.agentive.tooling.bindings import (
+        _propose_principal,
+        _stage_call_workspace_tool,
+    )
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.agent_scope import current_scope_workspace_id
+
+    scope = current_scope_workspace_id.set(WS)
+    principal = _propose_principal.set("u1")
+    try:
+        with pytest.raises(ValueError, match="for reviewed write batches"):
+            await _stage_call_workspace_tool(
+                {"tool_key": "compute_periods", "inputs": [{}]}
+            )
+
+        async def revoked(*args):
+            return "none"
+
+        monkeypatch.setattr(
+            "app.services.workspace_tools.can_access_workspace", revoked
+        )
+        with pytest.raises(InsufficientPermissionsError):
+            await _stage_call_workspace_tool(
+                {"tool_key": "populate_lines", "inputs": [{}]}
+            )
+    finally:
+        _propose_principal.reset(principal)
+        current_scope_workspace_id.reset(scope)
 
 
 @pytest.mark.asyncio

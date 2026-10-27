@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useThreadRuntime } from '@assistant-ui/react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import {
   blessStagingToken,
@@ -11,6 +12,7 @@ import {
   revokeStagingToken,
 } from '../../../api/agentive';
 import { useConfirm } from '../../../context/ConfirmContext';
+import { invalidateAfterAgentWrite } from '../../../services/graphMutationInvalidation';
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
 
@@ -48,6 +50,7 @@ export function usePromptQueue() {
     useChatActivity();
   const threadRuntime = useThreadRuntime();
   const confirm = useConfirm();
+  const queryClient = useQueryClient();
   const [queue, setQueue] = useState<PromptQueue | null>(null);
   const [open, setOpen] = useState(false);
   const [queueScope, setQueueScope] = useState(activeThreadId);
@@ -374,6 +377,9 @@ export function usePromptQueue() {
           return;
         }
         applicationConfirmed = stagedState === 'consumed' || blessRes.consumed === true;
+        if (applicationConfirmed) {
+          await invalidateAfterAgentWrite(queryClient, { staged, executeResult: exec });
+        }
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,
@@ -401,7 +407,7 @@ export function usePromptQueue() {
         setBusy(false);
       }
     },
-    [activeThreadId, applyQueueResult, busy, confirm, current],
+    [activeThreadId, applyQueueResult, busy, confirm, current, queryClient],
   );
 
   const rejectWrite = useCallback(async () => {

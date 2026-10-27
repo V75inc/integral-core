@@ -38,6 +38,7 @@ def _tool_output(monkeypatch, output):
             "file_id": "n.Attachment.retained",
         },
         {"ok": False, "message": "Reconcile uncertain execution"},
+        {"ok": False, "reason": "Current record changed since review"},
         {"ok": False},
     ],
 )
@@ -56,7 +57,8 @@ async def test_explicit_tool_refusal_preserves_output_and_is_not_success(
     assert result["error"] is True
     assert result["error_code"] == "workspace_tool_refused"
     assert result["message"] == output.get(
-        "error", output.get("message", "Workspace tool did not complete")
+        "error",
+        output.get("message", output.get("reason", "Workspace tool did not complete")),
     )
     assert result["output"] == output
 
