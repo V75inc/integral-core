@@ -1,3 +1,4 @@
+import { useEntryHostRefresh } from '../../hooks/useEntryHostRefresh';
 import { tagFilterHref } from '../../utils/tagFilters';
 import { EntryInlineImageGallery } from './AttachmentGallery';
 import { mergeComments } from '../../utils/commentTree';
@@ -958,15 +959,11 @@ export function EntryDetail({
 
   // A button bar in the related views changes the record from outside this form
   // (a status moves, a job finishes); reload it so the bar shows the new state.
-  const refreshHostEntry = useCallback(async () => {
-    try {
-      const refreshed = await entriesApi.get(entry.id);
-      setEntry(refreshed);
-      onUpdate?.(refreshed);
-    } catch {
-      /* keep what is shown; the next refresh tries again */
-    }
-  }, [entry.id, onUpdate]);
+  const applyHostRefresh = useCallback((refreshed: Entry) => {
+    setEntry(refreshed);
+    onUpdate?.(refreshed);
+  }, [onUpdate]);
+  const refreshHostEntry = useEntryHostRefresh(entry.id, activeWorkspace?.id, applyHostRefresh);
 
   const primaryRelatedViewsNode =
     user && !parentEntry ? (
