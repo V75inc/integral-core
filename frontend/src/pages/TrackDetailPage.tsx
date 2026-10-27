@@ -201,7 +201,7 @@ export function TrackDetailPage() {
 
   // Retrieval — Track-detail search is SCOPED TO THIS TRACK (Feed
   // search is global; see FeedPage). Mode is read from global Settings
-  // (Settings → Search → Mode); ``semantic`` is the v1.1 default and
+  // (Settings → Search → Mode); hybrid is the default and
   // surfaces matches across this track by similarity; ``hybrid``
   // RRF-fuses vector + traversal; ``graph`` keeps the in-memory
   // substring filter on the loaded entries.

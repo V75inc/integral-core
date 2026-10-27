@@ -4,7 +4,7 @@
  * The hook now sources its mode from global Settings (Settings → Search
  * → Mode) instead of URL query params. The per-strip inline Mode
  * dropdown was retired so the choice is made once and applied
- * everywhere. ``semantic`` is the default. These tests mock the
+ * everywhere. ``hybrid`` is the default. These tests mock the
  * settings store so each scenario can pin the active mode.
  */
 import React from 'react';
@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 
 describe('useRetrieve()', () => {
-  it('reads mode from global settings — semantic by default', () => {
+  it('reads a semantic mode from global settings', () => {
     currentMode = 'semantic';
     const { result } = renderHook(() => useRetrieve(), { wrapper: wrapper() });
     expect(result.current.mode).toBe('semantic');

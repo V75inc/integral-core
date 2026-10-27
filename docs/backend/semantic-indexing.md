@@ -186,6 +186,12 @@ Hybrid fuses independently limited vector and indexed lexical candidates with
 reciprocal rank fusion. Lexical search uses a weighted stored `tsvector` and GIN
 index. Small admitted scopes use exact cosine candidate selection. Final ranks
 also apply the bounded diversity/evidence policy described under Qualification.
+Feed and Track searches default to this hybrid mode, labeled “Adaptive” in
+browser settings. Existing browser settings that used the previous semantic
+default migrate to Adaptive; older settings did not distinguish that default
+from an explicitly chosen semantic mode. A user can select Meaning afterward.
+“Loaded items only” filters the current browser list, which may be incomplete;
+it is distinct from the API's graph mode and does not run a graph query.
 Larger scopes may use a
 workspace/profile-specific HNSW partial index when `RETRIEVE_ANN_ENABLED=1` and pgvector supports iterative
 filtered scans (0.8+). The worker builds indexes concurrently; reads do not build

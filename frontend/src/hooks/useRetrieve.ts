@@ -3,9 +3,8 @@
  *
  * Reads the global ``retrieval.mode`` (graph | semantic | hybrid) from
  * Settings — the inline per-strip Mode dropdown was retired so the
- * choice is made once globally. ``semantic`` is the default and most
- * common path: vector similarity surfaces matches beyond the in-memory
- * list. ``graph`` keeps the in-memory substring filter (no API call).
+ * choice is made once globally. ``hybrid`` combines semantic and lexical
+ * matches. ``graph`` keeps the loaded-items substring filter (no API call).
  *
  * Consumers (FeedFilterStrip + TrackFilterStrip): pass a ``scope`` string
  * (e.g. ``"track:t-1"``, ``"app:a-1"``) and call ``run(query)`` when

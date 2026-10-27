@@ -106,7 +106,7 @@ export function FeedPage() {
   // so the user surfaces matches regardless of which app they're
   // currently viewing. Track-detail search is app-/track-scoped (see
   // TrackDetailPage). Mode is read from global Settings (Settings →
-  // Search → Mode); ``semantic`` is the v1.1 default.
+  // Search → Mode); hybrid is the default.
   const {
     mode: retrievalMode,
     results: retrievalResults,
