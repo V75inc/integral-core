@@ -16,6 +16,23 @@ An MCP connector mounts an external server's declared tools. Installation, refre
 
 Inbound MCP exposes Integral to external agents; outbound MCP exposes an external server to the resident. Keep credentials, transport origins, and authority distinct in each direction.
 
+### Local stdio credential storage
+
+Set `MCP_STDIO_TOKEN_STORE_ROOT` to a persistent directory writable by the API
+user when Core source or installed packages are mounted read-only. The default
+remains `backend/.data/mcp-stdio` for existing installations. QuickBooks MCP
+writes its rotating refresh-token file here; the child process must see the same
+path on every spawn. Files retain mode `0600`, workspace subdirectories and
+random filenames; connector cleanup refuses paths outside the configured root.
+Changing this root does not migrate previously issued token files. Retain the
+old directory until affected connectors have been reauthorized and cleaned up.
+Do not commit or log token-file contents.
+
+Business's local source overlay sets `/data/mcp-stdio` on its existing persistent
+`/data` volume and provides Node 22, npm/npx and Git for catalog stdio packages.
+Rebuild/recreate the API after changing container configuration; OAuth consent
+and a real provider tools/list still need qualification in the user's session.
+
 ### Cloudflare
 
 The curated Cloudflare entry uses the official Streamable HTTP endpoint at

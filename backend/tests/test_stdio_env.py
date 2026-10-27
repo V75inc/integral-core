@@ -12,6 +12,39 @@ from app.connectors.stdio_env import (
 )
 
 
+def test_token_store_uses_writable_host_directory(tmp_path, monkeypatch):
+    """Read-only source overlays must write and clean tokens under host storage."""
+    import importlib.util
+
+    from app.connectors import stdio_env
+
+    root = tmp_path / "persistent-data" / "mcp-stdio"
+    monkeypatch.setenv("MCP_STDIO_TOKEN_STORE_ROOT", str(root))
+    spec = importlib.util.spec_from_file_location(
+        "isolated_stdio_env", stdio_env.__file__
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.TOKEN_STORE_ROOT == root
+    path, _, persisted = module.persist_quickbooks_token_store(
+        workspace_id="workspace-test",
+        env={
+            "QUICKBOOKS_CLIENT_ID": "synthetic-id",
+            "QUICKBOOKS_CLIENT_SECRET": "synthetic-secret",
+            "QUICKBOOKS_REFRESH_TOKEN": "synthetic-token",
+            "QUICKBOOKS_REALM_ID": "synthetic-realm",
+        },
+    )
+    assert path.is_relative_to(root)
+    assert path.stat().st_mode & 0o777 == 0o600
+    outside = tmp_path / "outside.env"
+    outside.write_text("unrelated", encoding="utf-8")
+    assert not module.delete_token_store_file(outside)
+    assert outside.exists()
+    assert module.purge_token_store_for_auth_state({"env": persisted}) == 1
+    assert not path.exists()
+
+
 def test_merge_install_env_defaults_then_secrets(monkeypatch):
     monkeypatch.delenv("QUICKBOOKS_CLIENT_ID", raising=False)
     monkeypatch.setattr(
