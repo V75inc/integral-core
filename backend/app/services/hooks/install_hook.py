@@ -242,10 +242,16 @@ async def rehydrate_all_installed_bundles() -> None:
             cp = await get_app_attached_operational_model(app_node)
             if cp is None:
                 continue
-            healed = await _heal_stripped_operational_layer(app_node, cp)
+            definition = await get_active_application_definition(app_node)
+            # An activated definition is the installed contract. Legacy library
+            # backfill must not overwrite reviewed local tools/queries at boot.
+            healed = (
+                await _heal_stripped_operational_layer(app_node, cp)
+                if definition is None
+                else False
+            )
             if healed:
                 count_healed += 1
-            definition = await get_active_application_definition(app_node)
             canonical = (
                 await asyncio.to_thread(
                     compile_canonical_manifest, manifest=cp.manifest or {}

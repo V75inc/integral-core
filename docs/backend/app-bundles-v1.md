@@ -27,6 +27,11 @@ Each lifecycle-materialized App has an active immutable ApplicationDefinition re
 
 Attached OperationalModels remain the schema/composition component. Capabilities needing an effective application contract resolve the active definition rather than authorizing from a library file or draft.
 
+Startup tool/hook/query registration follows that same active definition. Legacy
+operational-layer backfill from a library package applies only when no active
+definition exists; it cannot replace an activated local command or read contract
+on restart. See `backend/tests/test_application_definitions.py` for both cases.
+
 ## Lifecycle
 
 States include installing, awaiting_settings, active, paused, uninstalled, and failed. Installation uses recorded compensation for partial steps; failed compensations must not prevent earlier cleanup. Signed setting-completion tokens and abandonment cleanup protect paused installations.
