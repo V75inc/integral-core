@@ -597,6 +597,22 @@ async def unmount_mcp_connector(connector: Any) -> bool:
     return await delete_connector(connector.id)
 
 
+def _awaiting_quickbooks_oauth(auth_state: Dict[str, Any]) -> bool:
+    """QuickBooks MCP row that does not yet have an Intuit token file.
+
+    Install creates the connector before the OAuth callback. Spawning
+    ``npx`` at boot for that row spends the first (slow) package build on
+    a process that cannot authenticate, and a 30s kill leaves a broken
+    cache for the callback that follows.
+    """
+    if str(auth_state.get("catalog_slug") or "") != "quickbooks_mcp":
+        return False
+    if auth_state.get("discovered_tools"):
+        return False
+    env = auth_state.get("env") if isinstance(auth_state.get("env"), dict) else {}
+    return not str(env.get("QUICKBOOKS_TOKEN_STORE_PATH") or "").strip()
+
+
 async def rehydrate_mcp_connectors() -> None:
     """Re-register MCP tools for every mcp Connector after process restart.
 
@@ -610,13 +626,21 @@ async def rehydrate_mcp_connectors() -> None:
         logger.warning("rehydrate_mcp_connectors: find failed: %s", exc)
         return
 
+    from app.agentive.services.connector_registry_node import decrypt_auth_state
+
     ok = 0
     err = 0
     for c in connectors or []:
         workspace_id = getattr(c, "workspace_id", "") or ""
         if not workspace_id:
             continue
-        auth_state = dict(getattr(c, "auth_state", None) or {})
+        auth_state = decrypt_auth_state(dict(getattr(c, "auth_state", None) or {}))
+        if _awaiting_quickbooks_oauth(auth_state):
+            logger.info(
+                "rehydrate_mcp_connectors: skip %s until QuickBooks sign-in finishes",
+                c.id,
+            )
+            continue
         cached = auth_state.get("discovered_tools") or []
         try:
             if cached:

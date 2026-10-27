@@ -19,6 +19,15 @@ logger = logging.getLogger(__name__)
 # Default per-call / health-probe budget (seconds).
 _DEFAULT_TIMEOUT = 30.0
 
+# First stdio spawn of a catalog package such as
+# ``npx -y github:intuit/quickbooks-online-mcp-server`` runs that package's
+# ``prepare`` build before the process speaks MCP. A cold build on this
+# host takes about a minute, so the 30s initialize budget killed the
+# process, left a partial npx cache, and the OAuth callback returned
+# before the server existed. Later tool calls stay on the short budget:
+# once the cache is warm the process is up in a few seconds.
+_STDIO_DISCOVERY_TIMEOUT = 150.0
+
 # ADR-009 §8 health vocabulary — the ONLY values written to
 # ``Connector.health_status``. The stdio path used to write "healthy" while the
 # HTTP path wrote "ok", so any consumer switching on the field was wrong for
@@ -312,7 +321,15 @@ async def open_mcp_session(
 
 async def list_remote_tools(auth_state: Dict[str, Any]) -> List[RemoteTool]:
     """Connect, ``list_tools``, return normalized RemoteTool list."""
-    async with open_mcp_session(auth_state) as session:
+    from app.agentive.services.connector_registry_node import decrypt_auth_state
+
+    state = decrypt_auth_state(auth_state)
+    timeout = (
+        _STDIO_DISCOVERY_TIMEOUT
+        if _transport_from_auth(state) == "stdio"
+        else _DEFAULT_TIMEOUT
+    )
+    async with open_mcp_session(auth_state, timeout=timeout) as session:
         result = await session.list_tools()
         tools: List[RemoteTool] = []
         for t in getattr(result, "tools", None) or []:

@@ -1798,6 +1798,15 @@ async def _finish_quickbooks_mcp_oauth(
         workspace_id=workspace_id,
         env=spawn,
     )
+    # The authorization code is already consumed. Keep the token-file path
+    # on the connector before discovery so a slow first ``npx`` build cannot
+    # orphan the refresh token when the MCP session times out.
+    stored = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
+    stored_env = dict(stored.get("env") or {})
+    stored_env.update(persist_env)
+    stored["env"] = stored_env
+    connector.auth_state = encrypt_auth_state(stored)
+    await connector.save()
     command = str(auth_state.get("command") or entry.get("command") or "").strip()
     args = list(auth_state.get("args") or entry.get("args") or [])
     connector = await complete_stdio_mount(
