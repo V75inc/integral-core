@@ -225,7 +225,7 @@ describe('ActionBarWidget — keeping the record current', () => {
     await waitFor(() => expect(onHostChanged).toHaveBeenCalledTimes(1));
   });
 
-  it('keeps reloading while the record is mid-change, and stops when it settles', () => {
+  it('keeps reloading while the record is mid-change, and stops when it settles', async () => {
     vi.useFakeTimers();
     try {
       const onHostChanged = vi.fn();
@@ -242,15 +242,41 @@ describe('ActionBarWidget — keeping the record current', () => {
         />
       );
       const { rerender } = render(bar('finalizing'));
-      vi.advanceTimersByTime(8100);
+      await vi.advanceTimersByTimeAsync(8100);
       expect(onHostChanged).toHaveBeenCalledTimes(2);
       rerender(bar('approved'));
-      vi.advanceTimersByTime(8100);
+      await vi.advanceTimersByTimeAsync(8100);
       expect(onHostChanged).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
   });
+  it('never overlaps slow refreshes, survives rejection, and stops after unmount', async () => {
+    vi.useFakeTimers();
+    try {
+      let reject!: (reason: Error) => void;
+      const onHostChanged = vi.fn().mockImplementationOnce(() => new Promise<void>((_, fail) => { reject = fail; })).mockResolvedValue(undefined);
+      const props = { entries: [], isLoading: false, onEntryOpen: noop };
+      const configured = (callback: () => Promise<void>) => view([{ key: 'go', label: 'Go', tool: 'some_tool' }], {
+        onHostChanged: callback, entryValues: { status: 'finalizing' },
+        refresh_while: { field: 'status', in: ['finalizing'] },
+      });
+      const { rerender, unmount } = render(<ActionBarWidget {...props} view={configured(onHostChanged)} />);
+      await vi.advanceTimersByTimeAsync(4000);
+      rerender(<ActionBarWidget {...props} view={configured(() => onHostChanged())} />);
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(onHostChanged).toHaveBeenCalledTimes(1);
+      reject(new Error('Temporary network failure'));
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(onHostChanged).toHaveBeenCalledTimes(2);
+      unmount();
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(onHostChanged).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
 
 describe('ActionBarWidget — greyed-out steps', () => {

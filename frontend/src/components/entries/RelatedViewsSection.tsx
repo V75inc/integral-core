@@ -63,7 +63,7 @@ export type RelatedViewsSectionProps = {
   onEntryCreate?: ViewWidgetProps['onEntryCreate'];
   onViewUpdate?: ViewWidgetProps['onViewUpdate'];
   /** Reloads the host entry. Passed to bindings so a button bar can show the record's new status. */
-  onHostChanged?: () => void;
+  onHostChanged?: () => void | Promise<void>;
   isEditor?: boolean;
   /**
    * Owning app id. Extension views embedded here have no ``track`` prop, so

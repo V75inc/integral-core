@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Surface, Text } from '../../ui';
@@ -234,16 +235,22 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
       ? (bindings.onActionComplete as () => void)
       : undefined;
   const onHostChanged =
-    typeof bindings.onHostChanged === 'function' ? (bindings.onHostChanged as () => void) : undefined;
+    typeof bindings.onHostChanged === 'function' ? (bindings.onHostChanged as () => void | Promise<void>) : undefined;
   // While the record's field matches this (e.g. status is "finalizing"), keep reloading
   // it so the buttons follow a change made by a background job.
   const refreshWhile = bindings.refresh_while as VisibleIf | undefined;
   const polling = !!refreshWhile && !!onHostChanged && isVisible(refreshWhile, entryValues);
-  useEffect(() => {
-    if (!polling) return undefined;
-    const timer = window.setInterval(() => onHostChanged?.(), 4000);
-    return () => window.clearInterval(timer);
-  }, [polling, onHostChanged]);
+  const refreshInFlight = useRef(false);
+  const refreshHost = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    try {
+      await onHostChanged?.();
+    } finally {
+      refreshInFlight.current = false;
+    }
+  }, [onHostChanged]);
+  useSerialPolling(refreshHost, 4000, polling);
 
   if (!buttons.length) return null;
 
