@@ -58,6 +58,17 @@ Provision a qualified PostgreSQL deployment and persistent file storage. Keep `D
 
 Provide JWT, OAuth, and model-credential encryption keys through a secret manager. Configure public URL, allowed origins, reverse proxy, TLS, CSP, email delivery, provider policy, retention, and a real attachment scanner as required. Core-only boot does not disable the resident or agentive layer.
 
+Mailbox verification and password recovery use the platform's `EMAIL_PROVIDER`,
+not an individual workspace's email credentials. Configure `resend` with
+`RESEND_API_KEY` or `sendgrid` with `SENDGRID_API_KEY`, plus the verified sender
+in `EMAIL_FROM`. Console mail is an explicit `DEBUG=true` preview only; a
+production console or unknown provider reports delivery failure rather than
+claiming mail was sent or logging a verification code. Confirm provider
+acceptance and actual mailbox arrival separately during deployment smoke.
+Authenticated verification resend has a 60-second cooldown. A failed resend
+retains a previous unexpired code and reports a safe delivery error; it does
+not return a success notice merely because a code already exists.
+
 The durable work runtime fails closed when required transaction/CAS APIs or indexes are unavailable. Mongo is not a qualified production work store; JSON/SQLite are development stores with single-worker limitations. Native chat uses durable WorkItems by default and requires PostgreSQL transaction/CAS support. `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED=false` opts out to legacy request-bound turns, which do not survive browser disconnects or process restarts.
 
 Review App trust tiers and signature policy before loading packages with Python. Configure host extensions deliberately; do not import commercial App logic into Core.

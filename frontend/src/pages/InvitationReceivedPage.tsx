@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { sharingApi } from '../api';
+import { authApi, sharingApi } from '../api';
+import { errorMessageFromAxios } from '../api/helpers';
 import type { MyInvitation } from '../api/sharing';
 import { Button, PageMeta, Skeleton } from '../components/ui';
 import { Text } from '../ui';
@@ -12,7 +13,7 @@ import { invitationAcceptanceMessage } from '../utils/invitationAcceptance';
 
 export function InvitationReceivedPage() {
   const { invitationId = '' } = useParams<{ invitationId: string }>();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -22,6 +23,30 @@ export function InvitationReceivedPage() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const beginVerification = async () => {
+    if (working) return;
+    setWorking(true);
+    const enterCode = () => navigate('/verify-email', {
+      state: { returnTo: `/invitations/received/${encodeURIComponent(invitationId)}` },
+    });
+    try {
+      const result = await authApi.resendVerification();
+      if (result.status === 'already_verified') {
+        await refreshUser();
+        return;
+      }
+      showToast(result.message || 'Verification code sent — check your inbox', 'success');
+      enterCode();
+    } catch (failure) {
+      const status = (failure as { response?: {status?: number} })?.response?.status;
+      showToast(errorMessageFromAxios(failure, 'Could not send a verification code. Try again shortly.'), status === 429 ? 'info' : 'error');
+      // A recently requested code remains usable during the resend cooldown.
+      if (status === 429) enterCode();
+    } finally {
+      setWorking(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,9 +124,8 @@ export function InvitationReceivedPage() {
           </PageMeta>
           <Button
             className="mt-6 w-full"
-            onClick={() => navigate('/verify-email', {
-              state: { returnTo: `/invitations/received/${encodeURIComponent(invitationId)}` },
-            })}
+            disabled={working}
+            onClick={() => void beginVerification()}
           >
             Verify email
           </Button>

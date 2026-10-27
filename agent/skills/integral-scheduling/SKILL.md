@@ -1,7 +1,7 @@
 ---
 name: integral-scheduling
 description: Schedule automatic updates and reports in this chat every minute, hour, day or week, including workspace entry counts and checks for the next few minutes. Creates, lists, pauses, resumes, edits and cancels recurring or one-shot routines. Use for periodic monitoring, scheduled or deferred agent work and fixed personal reminders. Live reports execute tools each run; saved reminders deliver literal text.
-allowed-tools: integral_schedule_task integral_list_routines integral_update_routine integral_cancel_routine integral_delete_routine integral_resolve_entry integral_query_entries integral_count_entries integral_aggregate integral_get_digest integral_activity_digest
+allowed-tools: integral_schedule_task integral_list_routines integral_update_routine integral_cancel_routine integral_delete_routine integral_resolve_entry integral_query_entries integral_count_entries integral_count_workspace_entries integral_aggregate integral_get_digest integral_activity_digest
 ---
 
 # Integral scheduling — SOP
@@ -53,8 +53,11 @@ as "Drink water"; that mode executes no tools and cannot calculate an answer.
 
 For a short monitoring request, read and report the current value now, then stage
 its recurring follow-ups. An exact workspace entry total uses
-`integral_count_entries(group_by="track")` and its `total_matched`, without a
-Track restriction. This avoids hydrating records just to count them. Use
+`integral_count_workspace_entries()` and its `total_entries`. This content-free
+inventory includes installed Apps while enforcing the caller's current Entry
+read audience. It returns no domain fields. Do not use the generic grouped-count
+query for a workspace inventory: that query intentionally excludes installed-App
+domain records. Domain breakdowns still require the owning App's declared query. Use
 `integral_aggregate(op="count")` only when the requested aggregation requires it;
 do not count a search page or use semantic retrieval as a total. Counts cover only entries the
 caller can read in the active workspace; say so. Do not narrow to the currently
@@ -63,7 +66,7 @@ open App when the user asks about the whole workspace.
 For "for the next five minutes, every minute tell me how many entries are in this
 workspace", report the live count, then stage **one** agent routine with
 `cron="* * * * *"`, `max_runs=5`, and an instruction to read the current accessible
-entry total and report it in this chat. The immediate answer does not consume a
+entry total with integral_count_workspace_entries and report it in this chat. The immediate answer does not consume a
 scheduled run. A cron minute range such as `1-5 * * * *` fires only at those
 minutes of each hour and does not mean "the next five minutes". Use the account
 timezone unless the user specifies another. Explain that approval starts the

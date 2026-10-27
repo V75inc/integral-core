@@ -313,6 +313,11 @@ async def test_provider_persists_session_and_resumes_previous_run(
         assert isinstance(part, SystemPromptPart)
         assert part.content == ROUTINE_EVENT_INSTRUCTIONS + ctx.system_context
         assert "Read current records" in part.content
+        # A separate fire must not receive a previous answer/tool result as
+        # apparent current evidence. Its durable run still has its own saved
+        # checkpoint and passes the same completion/admission path.
+        assert len(observed_histories[-1]) == 1
+        assert "answer-run-a" not in repr(observed_histories[-1])
     elif staging_continuation and not second_text:
         from pydantic_ai.messages import SystemPromptPart
 
@@ -345,6 +350,8 @@ async def test_provider_persists_session_and_resumes_previous_run(
             {"type": "text-delta", "delta": "answer-run-b"}
         ]
     assert observed_prompts == ["continue", second_text or None]
+    if not (routine_output and not second_text):
+        assert "answer-run-a" in repr(observed_histories[-1])
     assert len(observed_limits) == 2
     assert all(limit.request_limit == 20 for limit in observed_limits)
     assert all(limit.total_tokens_limit == token_limit for limit in observed_limits)

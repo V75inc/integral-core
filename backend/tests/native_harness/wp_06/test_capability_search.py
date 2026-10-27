@@ -859,3 +859,41 @@ def test_exact_tool_addresses_survive_approximate_ranking_and_skill_slots():
         ranked_tool_ids=[(names[2], 1.0)],
     )
     assert result["results"][0]["name"] == names[2]
+
+
+def test_small_search_retains_alternative_workflows_without_loading_them():
+    """A mixed request must not be trapped by one approximate top match."""
+    skills = [
+        {"name": name, "description": description, "body": "PRIVATE PROCEDURE"}
+        for name, description in (
+            ("charts", "Add dashboards to an existing App."),
+            ("build", "Create an App with Tracks and sample records."),
+            ("records", "Create records in an existing Track."),
+        )
+    ]
+    result = _search_catalog(
+        query="create app tracks sample entries dashboard",
+        limit=2,
+        skills=skills,
+        tools=[
+            {
+                "name": "add_chart",
+                "description": "Create a dashboard.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+        immediately_available_tools=(),
+        ranked_skill_ids=[("charts", 0.9), ("build", 0.8), ("records", 0.7)],
+        ranked_tool_ids=[("add_chart", 0.9)],
+    )
+    assert [r["name"] for r in result["results"] if r["kind"] == "skill"] == [
+        "charts",
+        "build",
+        "records",
+    ]
+    assert len(result["results"]) == 4
+    assert "PRIVATE PROCEDURE" not in str(result)
+    assert all(
+        r["name"] in {"charts", "build", "records", "add_chart"}
+        for r in result["results"]
+    )

@@ -1,12 +1,10 @@
 import { ExpandableChatError } from "../components/ExpandableChatError";
-import { useMemo, useState, type ReactNode } from 'react';
-import { diffBodyWithoutSummary } from '../staging/diffBodyWithoutSummary';
+import { useState, type ReactNode } from 'react';
+import { ApprovalRequestContent } from '../staging/ApprovalRequestContent';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 import { Button } from '../../../components/ui';
-import { MarkdownContent } from '../../../components/ui/MarkdownContent';
 import JsonViewer from '../../../components/ui/JsonViewer';
-import { operationInput, StagedOperationInputs } from '../staging/StagedOperationInputs';
 import { IconButton, Input, Surface, Text } from '../../../ui';
 import { usePromptQueue } from './usePromptQueue';
 import type { PromptQuestionItem, PromptStagedWriteItem } from './types';
@@ -49,7 +47,7 @@ function PromptSheetView({
   return (
     <div
       role="dialog"
-      aria-label="Agent prompts"
+      aria-label={sheet.current.kind === 'question' ? 'Agent prompts' : 'Approve a change'}
       data-prompt-sheet="open"
       className="w-full"
     >
@@ -59,18 +57,17 @@ function PromptSheetView({
         radius="none"
         elevation="card"
         className="
-          w-full rounded-t-2xl border-b-0 px-4 pb-3 pt-2.5
+          w-full rounded-t-2xl border-b-0 px-5 pb-4 pt-3
           shadow-[0_-10px_28px_rgba(0,0,0,0.12)]
         "
       >
-      <div className="mx-auto mb-3 h-1 w-8 rounded-full bg-[var(--border-subtle)]" />
-      <div className="mb-3 flex items-center justify-between gap-2">
+            {sheet.page.total > 1 || sheet.current.kind === 'question' || sheet.current.status !== 'pending' ? <div className="mb-3 flex items-center justify-between gap-2">
         <Text variant="label" tone="muted">
           {sheet.page.total > 1
             ? `Prompt ${sheet.page.index + 1} of ${sheet.page.total}`
             : sheet.current.kind === 'question'
               ? 'Question'
-              : 'Approval'}
+              : 'Your approval is needed'}
           {sheet.current.status !== 'pending'
             ? ` · ${sheet.current.status}`
             : ''}
@@ -93,7 +90,7 @@ function PromptSheetView({
             </IconButton>
           </div>
         ) : null}
-      </div>
+      </div> : null}
 
       {/* keyed by item id: without it React reuses the page component across
           Prev/Next, so a selection made for one prompt stayed picked — and
@@ -122,7 +119,7 @@ function PromptSheetView({
         </ExpandableChatError>
       ) : null}
 
-      <div className="mt-3 flex items-center justify-between border-t border-[var(--border-subtle)] pt-2.5">
+      {sheet.page.total > 1 || sheet.current.kind === 'question' ? <div className="mt-3 flex items-center justify-between border-t border-[var(--border-subtle)] pt-2.5">
         <Button
           type="button"
           variant="ghost"
@@ -133,7 +130,7 @@ function PromptSheetView({
           <X size={12} className="mr-1" />
           Cancel all
         </Button>
-      </div>
+      </div> : null}
     </Surface>
     </div>
   );
@@ -265,28 +262,16 @@ function WritePage({
   const operation = machine && typeof machine === 'object' && !Array.isArray(machine)
     ? { kind: item.write_kind ?? '', summary: item.summary ?? '', diff_machine: machine as Record<string, unknown> }
     : null;
-  const hasInputs = operation && (operationInput(operation) !== null
-    || (operation.kind === 'batch' && Array.isArray(operation.diff_machine.operations)));
-  const human = useMemo(() => {
-    const d = item.diff_human;
-    let raw = '';
-    if (typeof d === 'string') raw = d;
-    else if (d && typeof d === 'object') raw = JSON.stringify(d, null, 2);
-    return diffBodyWithoutSummary(item.summary, raw);
-  }, [item.diff_human, item.summary]);
 
   return (
     <div>
       <Text
         as="p"
-        variant="meta"
-        tone="muted"
-        className="mb-1 uppercase tracking-wide"
+        variant="heading-sm"
+        weight="medium"
+        className="mb-3"
       >
-        Review change
-      </Text>
-      <Text as="p" variant="body" weight="medium" className="mb-2">
-        {item.summary || 'Staged change'}
+        {busy ? 'Applying this change…' : item.last_error ? 'This change needs attention' : item.staged_state === 'blessed' ? 'Your change is being applied' : 'Allow this change?'}
       </Text>
       {item.last_error && (
         <div role="alert" className="mb-2">
@@ -298,36 +283,26 @@ function WritePage({
           </ExpandableChatError>
         </div>
       )}
-      {human ? (
-        <div className="mb-2 max-h-40 overflow-auto rounded border border-[var(--border-subtle)] p-2 text-xs">
-          <MarkdownContent mutedBody={false}>{human}</MarkdownContent>
-        </div>
-      ) : null}
-      {hasInputs && operation ? (
-        <details className="mb-3">
-          <summary className="cursor-pointer">
-            <Text variant="body-sm" as="span">Review exact inputs</Text>
-          </summary>
-          <div className="mt-2 max-h-80 overflow-auto">
-            <StagedOperationInputs staged={operation} />
-          </div>
-          <details className="mt-2">
-            <summary className="cursor-pointer">
-              <Text variant="meta" tone="subtle" as="span">Technical details</Text>
-            </summary>
-            <JsonViewer data={operation.diff_machine} defaultExpandDepth={2} maxHeight="40vh" />
-          </details>
-        </details>
-      ) : null}
+      <div className="mb-4 max-h-[min(50vh,28rem)] overflow-auto overscroll-contain pr-1">
+        <ApprovalRequestContent staged={{
+          kind: item.write_kind ?? '', summary: item.summary ?? '',
+          diff_human: typeof item.diff_human === 'string' ? item.diff_human : '',
+          diff_machine: operation?.diff_machine ?? {},
+        }} />
+        {operation ? <details className="mt-3">
+          <summary className="cursor-pointer"><Text variant="meta" tone="subtle" as="span">Technical details</Text></summary>
+          <div className="mt-2"><JsonViewer data={operation.diff_machine} defaultExpandDepth={2} maxHeight="40vh" /></div>
+        </details> : null}
+      </div>
       {pending ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
           <Button
             type="button"
             size="sm"
             disabled={busy}
             onClick={() => void onApprove()}
           >
-            {item.staged_state === 'blessed' ? 'Retry application' : 'Approve'}
+            {busy ? 'Applying…' : item.staged_state === 'blessed' ? item.last_error ? 'Retry application' : 'Finish applying' : 'Approve'}
           </Button>
           <Button
             type="button"

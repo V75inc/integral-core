@@ -508,6 +508,41 @@ async def test_seeds_planted_on_install():
     titles = {e.title for e in entries}
     assert titles == {"Welcome", "Second"}
     assert all(e.type_id for e in entries)
+    from app.models.edges import IS_OF_TYPE
+
+    for entry in entries:
+        types = await entry.nodes(edge=[IS_OF_TYPE], node=["EntryType"], limit=2)
+        assert [item.id for item in types] == [entry.type_id]
+
+
+@pytest.mark.asyncio
+async def test_delete_installed_app_with_legacy_seed_type_edges():
+    """Older installed Apps can contain seed records without type edges."""
+    from app.models.edges import IS_OF_TYPE
+    from app.services.app_deletion import delete_app_cascade
+
+    ws = await _make_workspace()
+    actor = await workspace_owner_id(ws)
+    manifest = _minimal_app_manifest(
+        package_name="legacy-seed-deletion", with_seeds=True
+    )
+    library = await _make_library_cp(manifest)
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=library.id, actor_id=actor
+    )
+    app = await App.get(result["app_id"])
+    track = (await app.nodes(edge=[CONTAINS], node=["Track"]))[0]
+    entries = await track.nodes(edge=[CONTAINS], node=["Entry"], limit=10)
+    assert len(entries) == 2
+    context = await app.get_context()
+    for entry in entries:
+        for edge in await context.find_edges_between(
+            entry.id, entry.type_id, edge_class=IS_OF_TYPE
+        ):
+            await edge.delete()
+    await delete_app_cascade(app, actor_user_id=actor)
+    assert await App.find_one({"id": app.id}) is None
+    assert all([await Entry.find_one({"id": entry.id}) is None for entry in entries])
 
 
 @pytest.mark.asyncio
@@ -544,6 +579,41 @@ async def test_seeds_repair_mistyped_entries_on_replant():
     refreshed = await Entry.get(legacy.id)
     assert refreshed is not None
     assert refreshed.type_id == expected_type_id
+
+
+@pytest.mark.asyncio
+async def test_replant_repairs_missing_seed_type_edge_without_recreating_entry():
+    from app.models.edges import IS_OF_TYPE
+    from app.services.app_lifecycle import _plant_seeds
+    from app.services.operational_model_runtime import compile_canonical_manifest
+
+    ws = await _make_workspace()
+    actor = await workspace_owner_id(ws)
+    manifest = _minimal_app_manifest(package_name="seed-type-edge", with_seeds=True)
+    lib = await _make_library_cp(manifest)
+    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id=actor)
+    app = await App.get(result["app_id"])
+    track = (await app.nodes(edge=[CONTAINS], node=["Track"]))[0]
+    before = await track.nodes(edge=[CONTAINS], node=["Entry"], limit=10)
+    entry = before[0]
+    ctx = await entry.get_context()
+    for edge in await ctx.find_edges_between(
+        entry.id, entry.type_id, edge_class=IS_OF_TYPE
+    ):
+        await edge.delete()
+    assert (
+        await _plant_seeds(app, compile_canonical_manifest(manifest=manifest), actor)
+        == 0
+    )
+    after = await track.nodes(edge=[CONTAINS], node=["Entry"], limit=10)
+    assert {item.id for item in after} == {item.id for item in before}
+    types = await entry.nodes(edge=[IS_OF_TYPE], node=["EntryType"], limit=2)
+    assert [item.id for item in types] == [entry.type_id]
+    assert (
+        await _plant_seeds(app, compile_canonical_manifest(manifest=manifest), actor)
+        == 0
+    )
+    assert await entry.count_nodes(edge=[IS_OF_TYPE], node=["EntryType"]) == 1
 
 
 @pytest.mark.asyncio

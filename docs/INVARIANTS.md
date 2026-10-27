@@ -681,6 +681,19 @@ Verification: `backend/tests/test_graph_context.py` exercises excluded bridges,
 cross-workspace links whose endpoints are both readable, denied foreign roots,
 permission revocation between captures, installed-App boundaries and HTTP scope.
 
+### Content-free workspace inventory counts
+
+`integral_count_workspace_entries` returns only the current workspace's total
+number of Entries readable by the authenticated caller, audience/coverage and a
+read timestamp. It shares the canonical per-Entry admission projection used by
+human record lists. Installed Apps participate in this inventory; this does not
+open their records to generic domain queries or retrieval. No Entry identifier,
+title, field, relation, inaccessible-candidate count, per-App breakdown or
+caller-defined predicate is exposed. Domain counts, filters and business metrics
+continue to require the owning App's declared query contract. Routines perform a
+fresh authorized read each run. An incomplete admission must fail, not produce a
+complete-coverage total. Verification: `tests/test_workspace_inventory.py`.
+
 ### I-RET-02 — No-Index-Bypass (`no-index-bypass`)
 
 Index/Track prefilters supplement rather than replace per-candidate authorization. Preserve supported sharing and guest semantics. A direct Entry grant can admit that Entry without granting its whole Track. A declaration never grants access or widens host-validated workspace scope.

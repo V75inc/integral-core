@@ -17,6 +17,7 @@ _INTEGRAL_SKILLS = (
     "integral-artifacts",
     "integral-identity",
     "integral-workspace",
+    "integral-workspace-inventory",
     "integral-entries",
     "integral-models",
     "integral-insights",

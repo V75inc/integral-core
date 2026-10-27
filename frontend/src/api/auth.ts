@@ -92,7 +92,7 @@ export const authApi = {
 
   /** Generate and resend a fresh verification OTP to the authenticated
    *  user's registered email address. */
-  resendVerification: (): Promise<{ ok: boolean; message: string }> =>
+  resendVerification: (): Promise<{ ok: boolean; status?: 'sent' | 'already_verified'; message: string }> =>
     apiClient.post('/auth/resend-verification').then(r => r.data),
 
   changePassword: (

@@ -55,6 +55,7 @@ async def test_send_email_uses_workspace_resend_when_enabled(monkeypatch):
 @pytest.mark.asyncio
 async def test_send_email_platform_only_skips_workspace(monkeypatch):
     monkeypatch.setattr("app.config.settings.EMAIL_PROVIDER", "console")
+    monkeypatch.setattr("app.config.settings.DEBUG", True)
 
     resolve = AsyncMock(return_value=MagicMock(provider="resend"))
     with patch(

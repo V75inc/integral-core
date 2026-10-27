@@ -58,7 +58,7 @@ from app.services.email_verification import (
     ERR_EXPIRED_CODE,
     consume_verification_code,
     create_verification_request,
-    has_pending_code,
+    resend_verification_request,
 )
 from app.services.permissions import get_user_node
 from app.utils.time import utc_now_iso
@@ -654,24 +654,19 @@ async def resend_verification(request: Request) -> Dict[str, Any]:
     if not auth_user:
         raise ResourceNotFoundError(message="Auth user not found")
 
-    email = getattr(auth_user, "email", "") or ""
+    email = str(getattr(auth_user, "email", "") or "").strip().casefold()
     if not email:
         raise BadRequestError(message="No email address on file")
     if await verified_current_email(user) == email:
-        return {"ok": True, "message": "Email already verified"}
-
-    # Rate-limit: if an unexpired code is already pending, don't generate a
-    # new one — the existing code is still valid and the user should wait.
-    if has_pending_code(user, email):
         return {
             "ok": True,
-            "message": "A code is already pending. Please check your email.",
+            "status": "already_verified",
+            "message": "Email already verified",
         }
 
-    with contextlib.suppress(Exception):
-        await create_verification_request(user, email)
+    await resend_verification_request(user, email)
 
-    return {"ok": True, "message": "Verification code sent"}
+    return {"ok": True, "status": "sent", "message": "Verification code sent"}
 
 
 @endpoint("/auth/update-password", methods=["POST"], auth=True, tags=["Auth"])

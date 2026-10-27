@@ -396,9 +396,14 @@ def _search_catalog(
     # Preserve room for the strongest tool match while retaining enough skill
     # candidates for similarly worded routes (for example scaffold vs. insights).
     # A workflow and its callable operation are complementary results. Even
-    # limit=1 must retain the best of each when both kinds match; otherwise a
-    # model asking for a specific tool can receive only a skill indefinitely.
+    # Small requests must retain alternatives when multiple workflows match.
+    # A two-result scaffold smoke disclosed only a dashboard workflow and its
+    # tool; the model could not see the App-delivery alternative. Keep at most
+    # three short workflow summaries plus one callable tool, not their bodies
+    # or schemas. Ranking remains advisory and loading stays authorization-bound.
     limit = max(2, limit) if ranked_skills and ranked_tools else limit
+    if len(ranked_skills) > 1 and ranked_tools:
+        limit = max(4, limit)
     skill_slots = min(
         len(ranked_skills), max(1, min(4, limit - max(1, len(exact_tools))))
     )

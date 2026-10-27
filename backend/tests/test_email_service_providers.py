@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.config import settings
+from app.services import email_service
 from app.services.email_service import EmailMessage, send_email
 
 
@@ -123,14 +124,29 @@ async def test_sendgrid_returns_false_on_http_error(
 
 
 @pytest.mark.asyncio
-async def test_unknown_provider_falls_back_to_console(
+async def test_unknown_provider_does_not_claim_delivery_or_log_the_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "EMAIL_PROVIDER", "unknown-provider")
 
     patcher, post_mock = _patch_httpx_post(_fake_response(202))
-    with patcher:
+    with patcher, patch("app.services.email_service._send_via_console") as console:
         ok = await send_email(_sample_message())
 
-    assert ok is True
+    assert ok is False
+    console.assert_not_called()
     assert post_mock.await_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("debug", [False, True])
+async def test_console_is_only_an_explicit_debug_preview(monkeypatch, debug):
+    monkeypatch.setattr(settings, "EMAIL_PROVIDER", "console")
+    monkeypatch.setattr(settings, "DEBUG", debug)
+    with patch(
+        "app.services.email_service._send_via_console",
+        wraps=email_service._send_via_console,
+    ) as console:
+        ok = await send_email(_sample_message())
+    assert ok is debug
+    assert console.call_count == int(debug)

@@ -2810,13 +2810,25 @@ class PydanticAIProvider:
                 # An explicit system-only request marks the new host event.
                 # Ending on the old assistant response can be interpreted as
                 # continuing that response even when run instructions changed.
+                # Each scheduled instruction is self-contained. Earlier chat
+                # answers and tool results are not current evidence: a live
+                # count smoke replay copied an old total without a read on
+                # three of five fires. Keep reconciliation in _prepare above;
+                # omit only the model-facing dialogue for this new fire. The
+                # durable checkpoints, effect receipts and UI transcript stay
+                # intact, and explicit history lookup remains governed.
+                scheduled_event = (
+                    not ctx.text
+                    and (ctx.extra_data or {}).get("origin") == "routine_task"
+                )
+                event_history = [] if scheduled_event else history
                 run_history = (
                     [
-                        *history,
+                        *event_history,
                         build_integral_host_turn(host_outcome, run_id=scope.run_id),
                     ]
                     if host_outcome
-                    else history
+                    else event_history
                 )
                 async with agent.run_stream_events(
                     # No synthetic empty human turn for host-only continuations.

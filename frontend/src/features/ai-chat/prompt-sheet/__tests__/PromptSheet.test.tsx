@@ -13,7 +13,7 @@ vi.mock('../../../../components/entries/relations/RelationValue', () => ({
 
 const approveWrite = vi.fn(async () => undefined);
 
-function renderPendingWrite(failed = false, extra: Partial<PromptStagedWriteItem> = {}) {
+function renderPendingWrite(failed = false, extra: Partial<PromptStagedWriteItem> = {}, busy = false) {
   vi.mocked(usePromptQueue).mockReturnValue({
     open: true,
     current: {
@@ -34,7 +34,7 @@ function renderPendingWrite(failed = false, extra: Partial<PromptStagedWriteItem
       prev: vi.fn(),
       next: vi.fn(),
     },
-    busy: false,
+    busy,
     error: null,
     approveWrite,
     rejectWrite: vi.fn(async () => undefined),
@@ -69,6 +69,14 @@ describe('PromptSheet staged-write approval', () => {
     expect(approveWrite).toHaveBeenCalledOnce();
   });
 
+  it('does not flash a failure message while an approved change is applying', () => {
+    renderPendingWrite(false, {staged_state:'blessed'}, true);
+    expect(screen.getByText('Applying this change…')).toBeVisible();
+    expect(screen.getByRole('button', {name:'Applying…'})).toBeDisabled();
+    expect(screen.queryByText('This change needs attention')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name:'Retry application'})).not.toBeInTheDocument();
+  });
+
   it('reviews the literal batch inputs in the active chat approval sheet', () => {
     const child = (entry: string, value: number) => ({ kind: 'call_workspace_tool', summary: 'Apply selected change',
       diff_machine: { op: 'call_workspace_tool', input: { entry_id: entry, value } },
@@ -76,7 +84,6 @@ describe('PromptSheet staged-write approval', () => {
     renderPendingWrite(false, { write_kind: 'batch', diff_human: 'Narrated value 999',
       diff_machine: { operations: [child('n.Entry.first', 12), child('n.Entry.second', 27)] },
     });
-    fireEvent.click(screen.getByText('Review exact inputs'));
     expect(screen.getByText('12')).toBeVisible();
     expect(screen.getByText('27')).toBeVisible();
     expect(screen.getAllByRole('link', { name: 'Selected record' })).toHaveLength(2);
@@ -87,7 +94,7 @@ describe('PromptSheet staged-write approval', () => {
 
   it('ignores malformed command inputs without blocking the approval controls', () => {
     renderPendingWrite(false, { write_kind: 'batch', diff_machine: [] });
-    expect(screen.queryByText('Review exact inputs')).toBeNull();
+    expect(screen.queryByText('Review change details')).toBeNull();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 });

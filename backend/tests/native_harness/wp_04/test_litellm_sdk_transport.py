@@ -1613,3 +1613,98 @@ async def test_provider_native_reasoning_settings_are_preserved(
         assert captured["extra_body"][key] == value
     assert "reasoning_effort" not in captured
     assert "thinking_enabled" not in captured
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "ollama_chat"])
+@pytest.mark.parametrize("window", [8192, 65536])
+@pytest.mark.asyncio
+async def test_configured_context_capacity_reaches_native_compaction(provider, window):
+    from pydantic_ai_harness.compaction import resolve_context_window
+
+    route = _route().model_copy(
+        update={
+            "provider": provider,
+            "model": f"{provider}/custom-capacity-test",
+            "generation_settings": {"context_window": window},
+            "ollama_num_ctx": 32768 if provider == "ollama_chat" else None,
+        }
+    )
+    model = build_litellm_sdk_model(
+        route=route, scope=_scope(), observer=_ignore_observation
+    )
+    try:
+        assert resolve_context_window(model) == window
+    finally:
+        await model.client.close()
+
+
+@pytest.mark.asyncio
+async def test_local_ollama_capacity_is_native_model_capacity():
+    from pydantic_ai_harness.compaction import resolve_context_window
+
+    route = _route().model_copy(
+        update={
+            "provider": "ollama_chat",
+            "model": "ollama_chat/custom-capacity-test",
+            "ollama_num_ctx": 16384,
+        }
+    )
+    model = build_litellm_sdk_model(
+        route=route, scope=_scope(), observer=_ignore_observation
+    )
+    try:
+        assert resolve_context_window(model) == 16384
+    finally:
+        await model.client.close()
+
+
+@pytest.mark.asyncio
+async def test_cloud_capacity_uses_the_same_metadata_as_settings(monkeypatch):
+    from unittest.mock import Mock
+
+    from pydantic_ai_harness.compaction import resolve_context_window
+
+    from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+
+    metadata = Mock(return_value={"native_context": 1048576})
+    monkeypatch.setattr("app.services.model_settings.model_capabilities", metadata)
+    route = _route().model_copy(
+        update={
+            "provider": "ollama_chat",
+            "model": "ollama_chat/custom-capacity-test",
+            "api_base": OLLAMA_CLOUD_API_BASE,
+        }
+    )
+    model = build_litellm_sdk_model(
+        route=route, scope=_scope(), observer=_ignore_observation
+    )
+    try:
+        assert resolve_context_window(model) == 1048576
+        metadata.assert_called_once_with("ollama", "custom-capacity-test")
+    finally:
+        await model.client.close()
+
+
+@pytest.mark.asyncio
+async def test_custom_endpoint_does_not_inherit_a_borrowed_vendor_capacity(monkeypatch):
+    from unittest.mock import Mock
+
+    from app.agentive.harness.pydantic_context import IntegralContextPolicy
+
+    metadata = Mock(return_value={"native_context": 1048576})
+    monkeypatch.setattr("app.services.model_settings.model_capabilities", metadata)
+    route = _route().model_copy(
+        update={
+            "provider": "openai",
+            "model": "openai/custom-capacity-test",
+            "api_base": "https://custom.example/v1",
+        }
+    )
+    model = build_litellm_sdk_model(
+        route=route, scope=_scope(), observer=_ignore_observation
+    )
+    try:
+        assert IntegralContextPolicy().input_limit(model, {}) < 32768
+        metadata.assert_not_called()
+    finally:
+        await model.client.close()
