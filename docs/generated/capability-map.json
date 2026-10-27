@@ -367,6 +367,7 @@
       "body_tools": [
         "integral_activity_digest",
         "integral_create_dashboard",
+        "integral_delete_dashboard",
         "integral_describe_dashboard_substrate",
         "integral_list_apps",
         "integral_list_dashboards",
@@ -380,7 +381,8 @@
       ],
       "delegates_to": [
         "integral-insights",
-        "integral-models"
+        "integral-models",
+        "integral-workspace"
       ],
       "intent": "Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards \u2014 create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.",
       "name": "integral-dashboards",
@@ -569,9 +571,10 @@
       "delegates_to": [
         "integral-entries",
         "integral-filing",
-        "integral-models"
+        "integral-models",
+        "integral-scheduling"
       ],
-      "intent": "Read workflow instructions. Load with load_capability; this skill name is never a callable tool. Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, explain what could hold up work, dependencies, risks, fallback options and stored intra-workspace relationships; summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.",
+      "intent": "Read workflow instructions. Load with load_capability; this skill name is never a callable tool. Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, explain what could hold up work, dependencies, risks, fallback options and stored intra-workspace relationships; summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For automatic periodic reports or repeated checks, use integral-scheduling; for review deliverables, use integral-review.",
       "name": "integral-insights",
       "source": "agent/skills/integral-insights/SKILL.md",
       "unresolved_refs": []
@@ -915,7 +918,9 @@
     {
       "allowed_tools": [
         "integral_activity_digest",
+        "integral_aggregate",
         "integral_cancel_routine",
+        "integral_count_entries",
         "integral_delete_routine",
         "integral_get_digest",
         "integral_list_routines",
@@ -926,7 +931,9 @@
       ],
       "body_tools": [
         "integral_activity_digest",
+        "integral_aggregate",
         "integral_cancel_routine",
+        "integral_count_entries",
         "integral_get_digest",
         "integral_list_routines",
         "integral_query_entries",
@@ -938,7 +945,7 @@
         "integral-entries",
         "integral-filing"
       ],
-      "intent": "Creates, lists, pauses, resumes, edits, and cancels routines \u2014 standing or one-shot instructions replayed as agent turns in the same chat thread. Use when the user asks for scheduled, deferred, or repeating agent work.",
+      "intent": "Schedule automatic updates and reports in this chat every minute, hour, day or week, including workspace entry counts and checks for the next few minutes. Creates, lists, pauses, resumes, edits and cancels recurring or one-shot routines. Use for periodic monitoring, scheduled or deferred agent work and fixed personal reminders. Live reports execute tools each run; saved reminders deliver literal text.",
       "name": "integral-scheduling",
       "source": "agent/skills/integral-scheduling/SKILL.md",
       "unresolved_refs": []
@@ -954,6 +961,7 @@
         "integral_delete_track",
         "integral_get_access",
         "integral_get_app",
+        "integral_get_page_context",
         "integral_get_scope",
         "integral_get_track_schema",
         "integral_invite",
@@ -987,6 +995,7 @@
         "integral_delete_track",
         "integral_get_access",
         "integral_get_app",
+        "integral_get_page_context",
         "integral_get_scope",
         "integral_get_track_schema",
         "integral_list_apps",
@@ -1006,7 +1015,7 @@
         "integral-navigation",
         "integral-scaffold"
       ],
-      "intent": "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, lifecycle, scope, access, and collaboration. Use for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral-scaffold; for a Track's domain schema, use integral-model.",
+      "intent": "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, deletion, lifecycle, scope, access, and collaboration. Use for deleting a whole App or Track, even after dashboard work, and for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral-scaffold; for a Track's domain schema, use integral-model.",
       "name": "integral-workspace",
       "source": "agent/skills/integral-workspace/SKILL.md",
       "unresolved_refs": []
@@ -1098,7 +1107,8 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral-entries"
+        "integral-entries",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -1688,7 +1698,8 @@
         "integral-dashboards",
         "integral-insights",
         "integral-organize",
-        "integral-review"
+        "integral-review",
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -1707,7 +1718,8 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral-insights"
+        "integral-insights",
+        "integral-scheduling"
       ],
       "status": "existing"
     },

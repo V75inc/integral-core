@@ -54,7 +54,7 @@ describe('Invitation mailbox verification and fresh consent', () => {
   it('returns an unverified recipient to the same invitation after verification', async () => {
     mocks.user.email_verified = false;
     mount();
-    expect(screen.getByText('Verify your email to continue')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Verify your email', level: 1 })).toBeInTheDocument();
     expect(mocks.list).not.toHaveBeenCalled();
     expect(screen.queryByText(/already been handled/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }));

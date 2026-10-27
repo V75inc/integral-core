@@ -111,6 +111,54 @@ async def test_agent_route_receives_the_existing_routine_lease(
             await chat_turn_registry.release_turn(routine.thread_id)
 
 
+async def test_worker_settles_routine_before_releasing_chat_and_notifying(
+    postgres_raw_db, monkeypatch
+):
+    """A completed leased run must unlock its chat and notify the live browser."""
+    from app.agentive.services import work_worker
+    from app.api import ai_chat
+    from app.services import chat_turn_registry
+    from app.services.chat_sse import sse_bytes
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "aa" * 32)
+    provider = SimpleNamespace(
+        id="integral_native", label="Synthetic", is_available=lambda: True
+    )
+    monkeypatch.setattr(
+        ai_chat, "get_registry", lambda: SimpleNamespace(get=lambda _: provider)
+    )
+    events = []
+
+    async def streamed(**kwargs):
+        handle = chat_turn_registry.get_turn(kwargs["thread"].id)
+        assert handle.work_lease_fence == claimed.lease_fence
+        yield sse_bytes("turn-settled", {"status": "succeeded"})
+
+    async def notify(user_id, thread_id, **kwargs):
+        if kwargs["status"] == "completed":
+            from app.agentive.work_models import WorkItem
+
+            current = await WorkItem.find_one({"work_item_id": claimed.work_item_id})
+            assert current.status == "succeeded"
+            assert chat_turn_registry.get_turn(thread_id) is None
+        events.append(kwargs)
+
+    monkeypatch.setattr(ai_chat, "generate_chat_turn_sse", streamed)
+    monkeypatch.setattr(ai_chat, "notify_thread_stream_update", notify)
+    monkeypatch.setattr(
+        "app.services.chat_thread_events.notify_thread_stream_update", notify
+    )
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        _, routine, claimed, _ = await claimed_routine()
+        try:
+            done = await work_worker.execute_claimed_work(claimed)
+            assert done.status == "succeeded"
+            assert [event["status"] for event in events] == ["started", "completed"]
+            assert events[0]["turn_id"] == events[1]["turn_id"]
+        finally:
+            await chat_turn_registry.release_turn(routine.thread_id)
+
+
 @pytest.mark.parametrize("removed", [False, True])
 async def test_other_pool_stop_is_observed_by_the_running_worker(
     postgres_raw_db, removed

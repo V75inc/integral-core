@@ -550,6 +550,17 @@ cross-worker revocation qualification remain separate gates.
 
 Routes delegate persisted writes to named services; direct graph creation/connection in API modules is forbidden. Internal operations use the appropriate shared writer, not a second mutation implementation. Staged-index guards and behavior tests enforce this boundary.
 
+App deletion admission inventories only the subtree it will destroy. Tracks
+linked to another App are retained and unlinked from the deleted App, so their
+Entries must not enter its destructive permit. Admission and execution use the
+same complete parent-edge set; unreadable or cross-workspace parents fail closed.
+Direct and staged agent deletion share this contract, current owner checks and
+PostgreSQL rollback. Within an admitted App/workspace command, the enclosing
+cascade owns Track deletion order: deleting its Entries must not recurse through
+ANCHORS and delete the same sibling Track twice or reach a retained shared Track.
+Individual Entry deletion retains its normal policy-governed anchor cascade.
+See `tests/test_owned_app_deletion.py` for qualification.
+
 ### I-APP-06 — One library installation path
 
 Library Apps install through `app_lifecycle.install_app` or its canonical HTTP route. Partial create-and-merge cannot omit settings, definitions, seeds, skills, tools, or lifecycle. Seed/provisioning callers delegate rather than reconstructing install.

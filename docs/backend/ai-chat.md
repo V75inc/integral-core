@@ -8,6 +8,32 @@ Core derives principal, workspace, binding, and route authority. ChatThread and 
 
 One thread's active binding and session generation determine continuation. Changing a binding preserves historical sessions but cannot silently execute under a mismatched scope. The product transcript remains distinct from private model history, traces, checkpoints, and effect receipts.
 
+## Scheduled reports and literal reminders
+
+Scheduled reports use `delivery_mode=agent`: each execution performs fresh,
+permission-filtered reads and returns the requested result to its owned chat.
+The lightweight saved-reminder path is only for fixed text, such as a personal
+nudge; reminder delivery does not call a model or execute task instructions.
+
+For short monitoring requests, report a tool-grounded current value immediately,
+then stage the requested agent routine. Scheduling is discoverable independently
+of a one-time read skill. Never infer lack of scheduling from the current tool
+subset. Every-minute follow-ups use `cron="* * * * *"`; five requested updates
+use `max_runs=5`, not a cron minute range or a stop instruction in the prompt.
+Approval must occur before the routine is active. The immediate answer does not
+consume its run budget. Execution is best effort and only successful runs consume
+the cap, so failed or busy runs can extend the elapsed window. Explain a real
+read or scheduling failure rather than delivering the task description as output.
+
+A leased scheduled agent turn leaves its local chat slot fenced while its
+WorkItem settles. The routine worker then releases only the matching WorkItem,
+lease fence and turn ID, and emits a completion event to refresh connected chat
+views. This cleanup also runs for failed and cancelled attempts; a busy refusal
+must not release a human turn or a newer worker's slot.
+
+These paths preserve the same workspace access checks (I-RET-01), reviewed
+mutation boundary (I-CRUD-01), owned-thread binding and durable execution fences.
+
 ## Image input
 
 Native chat accepts PNG, JPEG, WebP and GIF through the ordinary persisted

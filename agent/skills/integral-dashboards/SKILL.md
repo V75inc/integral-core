@@ -13,6 +13,11 @@ activity summaries, or a full layout of widgets across the app's tracks.
 
 ## When NOT to use
 
+- Deleting a whole **App** or Track, including after creating a dashboard —
+  use `integral-workspace`. Never substitute `integral_delete_dashboard`
+  for an App deletion. The latest requested resource type takes precedence
+  over the previously edited dashboard; resolve ambiguous selections from
+  current-turn page context, or ask before staging a destructive change.
 - Saving a **track view** (kanban, table, feed) — delegate to the
   `integral-insights` skill for operational surfaces on one track.
 - Schema changes — delegate to the `integral-models` skill.

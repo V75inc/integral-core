@@ -31,7 +31,16 @@ from app.models.edges import (
     TEMPLATED_FROM,
     USES_TEMPLATE,
 )
-from app.models.nodes import App, EntryType, OperationalModel, Tag, Track, View, Views
+from app.models.nodes import (
+    App,
+    EntryType,
+    OperationalModel,
+    Tag,
+    Track,
+    View,
+    Views,
+    Workspace,
+)
 from app.services.app_graph import (
     get_track_attached_operational_model,
 )
@@ -241,8 +250,20 @@ async def _delete_app_models(app_node: App) -> None:
 
 
 async def _apps_containing_track(track: Track) -> List[App]:
-    parents = await track.nodes(edge=[CONTAINS], direction="in", node=["WorkspaceApp"])
-    return list(parents)
+    # A missing/unhydratable parent must not turn a shared Track into an
+    # exclusively owned subtree. Use the same complete parent set for cascade
+    # admission and the later delete-versus-unlink decision.
+    parents = await _named_children(track, [CONTAINS], direction="in")
+    if any(
+        not isinstance(parent, (App, Workspace))
+        or (isinstance(parent, Workspace) and parent.id != track.workspace_id)
+        for parent in parents
+    ):
+        raise AuthorizationUnavailableError()
+    apps = [parent for parent in parents if isinstance(parent, App)]
+    if any(parent.workspace_id != track.workspace_id for parent in apps):
+        raise AuthorizationUnavailableError()
+    return apps
 
 
 async def _other_tracks_sharing_operational_model(
