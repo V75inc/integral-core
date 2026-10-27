@@ -1182,7 +1182,7 @@ async def _x_call_workspace_tool(
         # A tool may have retained partial effects before refusing. Preserve
         # its output for reconciliation; never consume approval as success
         # merely because dispatch returned without raising an exception.
-        message = output.get("error") or output.get("message")
+        message = output.get("error") or output.get("message") or output.get("reason")
         return {
             "ok": False,
             "error": True,

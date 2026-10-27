@@ -68,6 +68,14 @@ Graph transaction bodies remain cancellable on disconnect. Their acquisition and
 
 ## Collection changes and retrieved evidence
 
+For installed-App commands, `integral_call_workspace_tool` accepts either one
+`input` or up to 500 `inputs` for the same registered write tool. The latter
+validates every input against the live declared schema before staging one batch
+of ordinary command children. It never invokes a handler during preparation;
+approval, current authority, execution receipts and partial-failure recovery
+remain the ordinary batch path. Read tools use the single-input form. Batch
+review shows the literal bound inputs for each command.
+
 `integral_bulk_update_entries` stages the same patch for up to 500 explicitly
 selected records under one itemized approval. Page through the full authorized
 selection before claiming a whole-collection update. Every selected Entry must

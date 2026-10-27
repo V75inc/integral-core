@@ -92,6 +92,7 @@ export function StagedChangeReviewModal({
                   No additional change detail beyond the title.
                 </Text>
               )}
+              {staged.kind === 'batch' ? <StagedOperationInputs staged={staged} onNavigate={onClose} /> : null}
             </div>
           </div>
 
