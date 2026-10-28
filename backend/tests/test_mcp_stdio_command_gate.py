@@ -74,6 +74,49 @@ def test_freeform_allowed_only_under_testing(
     assert command == "/usr/bin/env"
 
 
+def test_stdio_tool_call_waits_out_a_cold_npx_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An approved QuickBooks call spawns npx. The 30s budget killed that
+    build before the server spoke MCP, so the card stayed blessed and Retry
+    failed the same way. HTTP calls keep the short budget."""
+    import asyncio
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    seen: dict = {}
+
+    class _Session:
+        async def call_tool(self, tool_name, arguments=None):
+            return SimpleNamespace(isError=False, structuredContent={"report": "ok"})
+
+    @asynccontextmanager
+    async def _session(auth_state, *, timeout=mcp_client._DEFAULT_TIMEOUT):
+        seen["timeout"] = timeout
+        yield _Session()
+
+    monkeypatch.setattr(mcp_client, "open_mcp_session", _session)
+
+    stdio = asyncio.run(
+        mcp_client.call_remote_tool(
+            {"transport": "stdio", "catalog_slug": "quickbooks_mcp"},
+            "get_profit_and_loss",
+            {"start_date": "2023-01-01"},
+        )
+    )
+    assert stdio == {"report": "ok"}
+    assert seen["timeout"] == mcp_client._STDIO_DISCOVERY_TIMEOUT
+
+    asyncio.run(
+        mcp_client.call_remote_tool(
+            {"transport": "streamable_http", "url": "https://example.test/mcp"},
+            "ping",
+            {},
+        )
+    )
+    assert seen["timeout"] == mcp_client._DEFAULT_TIMEOUT
+
+
 def test_spawn_env_is_allowlisted_not_denylisted() -> None:
     """Env contribution is an allowlist; see test_mcp_spawn_env_allowlist.py.
 
