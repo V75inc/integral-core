@@ -112,6 +112,51 @@ async def test_concurrent_consumption_has_one_terminal_transition(postgres_raw_d
         assert errors[0].code == "already_consumed"
 
 
+async def test_consumer_sees_terminal_decision_if_live_row_disappears_before_lock(
+    postgres_raw_db, monkeypatch
+):
+    """Force the stale-read window instead of relying on scheduler timing."""
+    from jvspatial.db.postgres import PostgresTransaction
+
+    waiting = asyncio.Event()
+    resume = asyncio.Event()
+    original = PostgresTransaction.find_one_and_update
+
+    async def pause_loser(self, collection, query, update, *args, **kwargs):
+        task = asyncio.current_task()
+        if (
+            task is not None
+            and task.get_name() == "approval-race-loser"
+            and collection == "object"
+            and update == {"$set": {}}
+        ):
+            waiting.set()
+            await asyncio.wait_for(resume.wait(), timeout=10)
+        return await original(self, collection, query, update, *args, **kwargs)
+
+    monkeypatch.setattr(PostgresTransaction, "find_one_and_update", pause_loser)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, _, _, sc = await proposal()
+        await staging.bless_token(user_id=auth.id, token=sc.token)
+        loser = asyncio.create_task(
+            staging.consume_token(
+                user_id=auth.id, token=sc.token, expected_kind=sc.kind
+            ),
+            name="approval-race-loser",
+        )
+        try:
+            await asyncio.wait_for(waiting.wait(), timeout=10)
+            winner = await staging.consume_token(
+                user_id=auth.id, token=sc.token, expected_kind=sc.kind
+            )
+            assert isinstance(winner, dict)
+        finally:
+            resume.set()
+        with pytest.raises(StagingError) as exc:
+            await loser
+        assert exc.value.code == "already_consumed"
+
+
 async def test_stale_pending_cache_cannot_bless_a_revoked_token(postgres_raw_db):
     import copy
 
