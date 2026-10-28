@@ -53,6 +53,42 @@ def _acknowledged_terminal(snapshot, data, *, token, user_id, target, expected_k
     return replace(snapshot, resolved_at=resolved)
 
 
+async def _resolve_absent_decision(
+    database, *, token, user_id, target, expected_kind, terminal_snapshot
+):
+    """Resolve only a matching durable terminal fact after a missing live row."""
+    terminal = await database.get("object", staging_store._decision_record_id(token))
+    if (
+        terminal is None
+        or terminal.get("entity") != staging_store.StagingDecisionRecord._entity_name()
+    ):
+        raise StagingError(
+            "approval_unavailable", "Current proposal decision is unavailable"
+        )
+    data = terminal.get("context") or {}
+    acknowledged = _acknowledged_terminal(
+        terminal_snapshot,
+        data,
+        token=token,
+        user_id=user_id,
+        target=target,
+        expected_kind=expected_kind,
+    )
+    if acknowledged is not None:
+        return acknowledged
+    if data.get("user_id") == user_id and data.get("state") in {
+        "consumed",
+        "revoked",
+        "expired",
+    }:
+        if expected_kind is not None and data.get("kind") != expected_kind:
+            raise StagingError("wrong_kind", "Token is for another operation kind")
+        raise StagingError(f"already_{data['state']}", "Proposal is already resolved")
+    raise StagingError(
+        "approval_unavailable", "Current proposal decision is unavailable"
+    )
+
+
 async def transition_staged_decision(
     *,
     token: str,
@@ -86,52 +122,28 @@ async def transition_staged_decision(
             limit=2,
         )
         if len(rows) != 1:
-            terminal = await database.get(
-                "object", staging_store._decision_record_id(token)
-            )
-            terminal_data = (terminal or {}).get("context") or {}
-            acknowledged = _acknowledged_terminal(
-                (
-                    terminal_snapshot
-                    if terminal is not None
-                    and terminal.get("entity")
-                    == staging_store.StagingDecisionRecord._entity_name()
-                    else None
-                ),
-                terminal_data,
+            return await _resolve_absent_decision(
+                database,
                 token=token,
                 user_id=user_id,
                 target=target,
                 expected_kind=expected_kind,
-            )
-            if acknowledged is not None:
-                return acknowledged
-            if terminal_data.get("user_id") == user_id and terminal_data.get(
-                "state"
-            ) in {
-                "consumed",
-                "revoked",
-                "expired",
-            }:
-                if (
-                    expected_kind is not None
-                    and terminal_data.get("kind") != expected_kind
-                ):
-                    raise StagingError(
-                        "wrong_kind", "Token is for another operation kind"
-                    )
-                raise StagingError(
-                    f"already_{terminal_data['state']}", "Proposal is already resolved"
-                )
-            raise StagingError(
-                "approval_unavailable", "Current proposal decision is unavailable"
+                terminal_snapshot=terminal_snapshot,
             )
         row = await database.find_one_and_update(
             "object", {"id": rows[0]["id"]}, {"$set": {}}
         )
         if row is None:
-            raise StagingError(
-                "approval_unavailable", "Current proposal decision is unavailable"
+            # A competing transaction can remove the live row after our read
+            # but before its lock is acquired. Re-read the committed terminal
+            # fact under the same scope rather than losing the decision state.
+            return await _resolve_absent_decision(
+                database,
+                token=token,
+                user_id=user_id,
+                target=target,
+                expected_kind=expected_kind,
+                terminal_snapshot=terminal_snapshot,
             )
         data: dict[str, Any] = row.get("context") or {}
         if data.get("user_id") != user_id:

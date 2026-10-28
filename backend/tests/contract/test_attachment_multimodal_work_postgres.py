@@ -33,7 +33,15 @@ async def transactional_graph(postgres_raw_db):
 
 @pytest.mark.parametrize(
     "late_change",
-    [None, "native-reextract", "native-failure", "replacement", "cancel", "disable"],
+    [
+        None,
+        "native-reextract",
+        "native-pending",
+        "native-failure",
+        "replacement",
+        "cancel",
+        "disable",
+    ],
 )
 async def test_multimodal_dispatch_is_bounded_and_late_changes_withhold_publication(
     monkeypatch, late_change
@@ -58,7 +66,7 @@ async def test_multimodal_dispatch_is_bounded_and_late_changes_withhold_publicat
         uploaded_by=owner.id,
         content_hash=hashlib.sha256(blob).hexdigest(),
         scan_status="clean",
-        metadata_status="complete",
+        metadata_status="pending" if late_change == "native-pending" else "complete",
         metadata_extractor_version=(
             0
             if late_change in {"native-reextract", "native-failure"}
@@ -181,11 +189,11 @@ async def test_multimodal_dispatch_is_bounded_and_late_changes_withhold_publicat
     assert metering.await_args.kwargs["source"] == "byok"
     assert metering.await_args.kwargs["user_id"] == owner.id
     current = await Attachment.get(attachment.id)
-    if late_change in {None, "native-reextract"}:
+    if late_change in {None, "native-reextract", "native-pending"}:
         assert done.status == "succeeded"
         assert current.metadata["semantic"]["description"] == "A blue square."
         assert current.metadata["semantic"]["source_hash"] == attachment.content_hash
-        if late_change == "native-reextract":
+        if late_change in {"native-reextract", "native-pending"}:
             assert current.width == current.height == 16
     else:
         assert done.status != "succeeded"

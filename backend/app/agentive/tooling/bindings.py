@@ -3780,6 +3780,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_list_apps": ToolBinding(
         _h("app.api.apps", "list_apps"), _pick("cursor", "limit")
     ),
+    "integral_find_workspace_resources": ToolBinding(
+        service_ref=_h(
+            "app.services.workspace_resource_search", "discover_workspace_resources"
+        ),
+        service_param_map=_pick("query", "limit", "offset", "ranking_mode"),
+    ),
     # GET /api/apps/{app_id} -> get_app. app_id -> handler path kwarg; the
     # handler runs its own app.read policy check for the acting principal.
     "integral_get_app": ToolBinding(_h("app.api.apps", "get_app"), _pick("app_id")),
@@ -3864,6 +3870,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     ),
     "integral_resolve_entry": ToolBinding(
         _h("app.api.entries", "get_entry"), _pick("entry_id")
+    ),
+    "integral_resolve_entry_labels": ToolBinding(
+        service_ref=_h("app.services.agent_entry_labels", "resolve_entry_labels"),
+        service_param_map=_pick("entry_ids"),
     ),
     # GET /api/entries/{entry_id}/related?relation=<field_key>. The route DOES
     # exist (app/api/entry_relations.py:list_entry_relations); it was deferred

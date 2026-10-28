@@ -17,6 +17,7 @@ pytestmark = [pytest.mark.asyncio]
 async def test_selected_workflow_uses_two_model_requests_and_live_broker(
     tmp_path, monkeypatch, allowed
 ):
+    """An admitted workflow uses the native capability and live broker."""
     skill = "sample-workflow"
     name = "integral_sample_read"
     folder = tmp_path / skill
@@ -89,6 +90,7 @@ async def test_selected_workflow_uses_two_model_requests_and_live_broker(
 
 
 async def test_unapproved_initial_skill_is_rejected(tmp_path):
+    """The host cannot activate a workflow outside its approved catalog."""
     with pytest.raises(ValueError, match="authorized skills"):
         build_native_runtime(
             model=FunctionModel(lambda m, i: ModelResponse(parts=[TextPart("No")])),
@@ -101,6 +103,71 @@ async def test_unapproved_initial_skill_is_rejected(tmp_path):
         )
 
 
+@pytest.mark.parametrize("allowed", [True, False])
+async def test_track_schema_is_directly_available_but_live_broker_decides(
+    tmp_path, monkeypatch, allowed
+):
+    """Avoid schema discovery rounds without turning disclosure into access."""
+    name = "integral_get_track_schema"
+    invocations = []
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        return CapabilityResult(
+            ok=allowed,
+            data={"fields": [{"name": "status"}]} if allowed else {},
+            error_code="" if allowed else "insufficient_permissions",
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _name: ("core", "read"),
+    )
+    requests = []
+
+    def respond(messages, info):
+        requests.append(info)
+        assert name in {tool.name for tool in info.function_tools}
+        if len(requests) == 1:
+            return ModelResponse(parts=[ToolCallPart(name, {"track_id": "track-a"})])
+        return ModelResponse(parts=[TextPart("Read" if allowed else "Access denied")])
+
+    scope = _scope("direct-track-schema")
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Inspect the current track.",
+        tools=build_brokered_tools(
+            scope=scope,
+            skill_library=tmp_path,
+            catalogue=[
+                {
+                    "name": name,
+                    "description": "Read the current Track schema.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"track_id": {"type": "string"}},
+                        "required": ["track_id"],
+                    },
+                }
+            ],
+        ),
+        scope=scope,
+        agent_name="sample",
+        step_store_backend=InMemoryStepStore(),
+    )
+    result = await agent.run(
+        "What fields are in this track?",
+        run_id=scope.framework_run_id,
+        conversation_id=scope.framework_conversation_id,
+    )
+    assert result.output == ("Read" if allowed else "Access denied")
+    assert len(requests) == 2 and len(invocations) == 1
+    assert invocations[0]["workspace_id"] == scope.workspace_id
+
+
 @pytest.mark.parametrize(
     "selection,expected",
     [("permitted", "permitted"), ("not-offered", None), (None, None)],
@@ -108,6 +175,7 @@ async def test_unapproved_initial_skill_is_rejected(tmp_path):
 async def test_light_selection_must_be_an_exact_current_candidate(
     monkeypatch, selection, expected
 ):
+    """Only current, exact routing candidates can activate a workflow."""
     from app.agentive.harness.adaptive import EscalatedTurn
     from app.services.chat_providers.pydantic_ai_provider import PydanticAIProvider
     from tests.native_harness.test_adaptive_context import setup_turn

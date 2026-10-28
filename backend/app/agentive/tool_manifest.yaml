@@ -275,6 +275,27 @@ domains:
         params: {}
         returns: { workspaces: [{id: str, name: str, kind: str, role: str}] }
         privacy: "Membership-filtered. PC-2: listing a workspace != reading inside it."
+      - name: integral_find_workspace_resources
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Browse the active workspace's Apps and their readable Tracks for a user
+          question. Names and purposes form a permission-checked hierarchy, ordered
+          by keywords by default without requiring embeddings. Accessible Apps include
+          available read-tool schemas. Use these suggestions to choose declared reads;
+          they are not records, evidence of an answer, or grants of access. Search
+          the next_offset and returned mode as ranking_mode for further candidates or inspect the live catalogue when
+          results are incomplete. Ranking can change when metadata changes.
+        http: "(service workspace_resource_search.discover_workspace_resources)"
+        policy_action: null
+        params:
+          query: {type: string, required: true, minLength: 2, maxLength: 500, desc: "The user's information need, in ordinary language."}
+          limit: {type: integer, optional: true, minimum: 1, maximum: 10, default: 6}
+          offset: {type: integer, optional: true, minimum: 0, maximum: 5000, default: 0}
+          ranking_mode: {type: string, optional: true, enum: [auto, lexical, hybrid], default: lexical, desc: "Use the mode returned by page one for later pages."}
+        returns: {results: list, mode: str, degraded: boolean, has_more: boolean, next_offset: integer}
+        privacy: "Host-bound workspace and live resource policy; no Entry data or inaccessible parent metadata."
       - name: integral_list_apps
         status: existing
         op_class: read
@@ -765,12 +786,12 @@ domains:
         status: existing
         op_class: read
         priority: P1
-        summary: "Inspect search storage readiness, current-profile jobs and source coverage for a list you manage. Readiness alone does not prove full coverage."
+        summary: "Inspect search storage readiness, current-profile jobs and source coverage for a list you manage, including incomplete attachment preparation. Readiness alone does not prove full coverage."
         http: "SERVICE (retrieval.index_management.index_status)"
         policy_action: track.read
         params:
           track_id: {type: string, required: true}
-        returns: {track_id: str, profile_id: str, store_ready: bool, jobs: object, coverage_complete: bool}
+        returns: {track_id: str, profile_id: str, store_ready: bool, jobs: object, coverage_complete: bool, attachment_coverage: object}
         privacy: "Current list administrator in the host-bound workspace only. No copied content or credentials."
       - name: integral_configure_search_index
         status: existing
@@ -822,10 +843,10 @@ domains:
         op_class: read
         priority: P0
         summary: >-
-          Unified SEMANTIC / hybrid retrieval across readable entries in the active workspace — the
+          Unified hybrid retrieval across readable indexed entries in the active workspace — the
           tool for open-ended "find anything about X", concept search, and
           "where did we mention Y" questions, including across tracks. It ranks by
-          meaning + graph relevance, NOT by any numeric or date field. IMPORTANT: it
+          meaning and keywords, NOT by any numeric or date field. IMPORTANT: it
           will NOT answer superlatives by a stored value — a query for a word like
           "lucrative", "biggest", or "highest" only matches that text if it literally
           appears; it cannot rank by a `value`/`amount`/`revenue` field. For
@@ -837,7 +858,7 @@ domains:
           integral_resolve_entry when you have a specific entry id.
           ADAPTATION: request `hybrid`/`semantic`; the result reports `mode`/`degraded`
           — if `degraded: true` (semantic unavailable in this deployment) it ran
-          keyword/graph instead, so phrase the query as concise keywords and don't
+          keyword search instead, so phrase the query as concise keywords and don't
           expect concept-level recall. Check
           integral_describe_substrate.retrieval.semantic_available up front to know
           which modes are live.
@@ -853,7 +874,7 @@ domains:
         policy_action: entry.read
         params:
           query: {type: string, required: true, desc: "Natural-language search text describing the concept or thing to find. Matched semantically — phrase it as what the content is about, not as a field comparison."}
-          mode: {type: string, enum: [graph, semantic, hybrid], default: hybrid, desc: "Retrieval strategy: 'semantic' = embedding similarity, 'graph' = relationship/keyword traversal, 'hybrid' = both (default, recommended)."}
+          mode: {type: string, enum: [lexical, semantic, hybrid], default: hybrid, desc: "Retrieval strategy: 'lexical' = indexed keyword matching, 'semantic' = embedding similarity, 'hybrid' = both (default, recommended)."}
           scope: {type: string, optional: true, desc: "Optional narrowing to 'track:<track_id>' or 'app:<app_id>' inside the active workspace. Omit to search readable tracks in that workspace. A different workspace or foreign track is refused."}
           top_n: {type: integer, default: 20, desc: "Maximum number of results to return (default 20). Raise it when you need broad recall before reasoning over the set."}
           context_tokens: {type: integer, default: 1200, desc: "Passage context budget, 64–8192 embedding tokens. Use small budgets for focused RAG; titles and response metadata are additional."}
@@ -951,6 +972,22 @@ domains:
           entry_id: {type: string, required: true, desc: "Identifier of the entry to fetch."}
         returns: { entry: object }
         privacy: "PC-3 on the exact entry; PC-5 restricted-stub for anchored privileged tracks."
+      - name: integral_resolve_entry_labels
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Resolve several known related Entry IDs to readable titles in one
+          bounded call. Use this instead of resolving each ID individually
+          when comparing or grouping related records. Only readable Entries
+          in the active Workspace are returned; unresolved_count combines
+          missing, inaccessible, and out-of-scope IDs without distinguishing them.
+          This returns labels only, not the full Entry fields.
+        http: "(service agent_entry_labels.resolve_entry_labels)"
+        policy_action: entry.read
+        params:
+          entry_ids: {type: array, required: true, minItems: 1, maxItems: 50, items: {type: string}, desc: "Known Entry IDs to resolve."}
+        returns: {entries: list, unresolved_count: integer}
       - name: integral_get_related
         status: existing
         op_class: read
@@ -2772,11 +2809,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 132
-  existing_tools: 130    # status: existing
+  total_tools: 134
+  existing_tools: 132    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 58, propose: 73, execute: 1 }
-  by_priority: { P0: 17, P1: 45, P2: 70 }
+  by_op_class: { read: 60, propose: 73, execute: 1 }
+  by_priority: { P0: 17, P1: 47, P2: 70 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

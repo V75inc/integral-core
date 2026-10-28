@@ -30,6 +30,7 @@ def isolate_definition_vector_cache():
 
 @pytest.mark.asyncio
 async def test_large_catalogue_does_not_overload_its_own_encoder_queue(monkeypatch):
+    """A large catalog cannot overwhelm the bounded encoder queue."""
     from app.agentive.harness import capability_search
 
     running = 0
@@ -73,6 +74,41 @@ async def test_large_catalogue_does_not_overload_its_own_encoder_queue(monkeypat
     result = (await another.function(query="different request")).return_value
     assert len(seen) - before <= 2
     assert all(item["name"] in {"read_0", "read_1"} for item in result["results"])
+
+
+@pytest.mark.asyncio
+async def test_unified_search_embeds_query_once_for_skills_and_tools(
+    tmp_path, monkeypatch
+):
+    """Both rankings share the query embedding without sharing authorization."""
+    from app.agentive.harness import capability_search
+
+    library = tmp_path / "skills"
+    materialize_standard_skill_library(
+        [("sample-read", "Read sample records.", "Read records.")], root=library
+    )
+    seen = []
+
+    async def embed(text):
+        seen.append(text)
+        return [1.0, 0.0]
+
+    monkeypatch.setattr(capability_search, "_embed_text_for_capability_search", embed)
+    tool = build_search_capabilities_tool(
+        skill_library=library,
+        catalogue=[
+            {
+                "name": "read_sample",
+                "description": "Read samples",
+                "input_schema": {"type": "object"},
+            }
+        ],
+    )
+    result = (await tool.function(query="find my samples")).return_value
+    assert result["ranking_method"] == "hybrid_semantic_lexical"
+    assert seen.count("find my samples") == 1
+    await tool.function(query="find my samples")
+    assert seen.count("find my samples") == 1
 
 
 @pytest.mark.asyncio

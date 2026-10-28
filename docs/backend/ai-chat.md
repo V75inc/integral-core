@@ -213,7 +213,9 @@ sessions receive this policy on their next valid resume.
 
 Static Core reads and registered App reads share one result window: older large
 payloads are cleared beyond five completed-history reads or two current-turn
-reads, with explicit incomplete previews above 16 KiB. Mixed read/write invocation wrappers carry Core-generated
+reads, with explicit incomplete previews above 16 KiB. Up to four complete
+current-turn App read receipts of at most 4 KiB each are also retained for
+synthesis. Mixed read/write invocation wrappers carry Core-generated
 per-call checkpoint metadata; their names are never globally clearable. Unknown
 or legacy classifications and all mutation receipts remain protected. App output
 and model arguments cannot supply this trusted classification. Active read
@@ -225,6 +227,42 @@ incomplete-preview marker, within an 8 KiB envelope. These addresses must surviv
 later data reads: otherwise the model can discover the right Track and then
 guess its name after that discovery disappears. Older inventories expire through
 the same history policy; this does not retain record bodies or grant access.
+
+Within the active turn, up to two App tool catalogue previews retain whole
+schemas under a bounded size; incomplete previews do not imply complete coverage.
+Up to two Track schema reads retain incomplete, bounded previews of Track,
+EntryType and field identifiers; full field options and other schema details are
+not retained. A possible effect clears earlier previews, and previews are
+cleared on a later turn. A new authorized schema read is required when omitted
+or possibly changed details matter. The Track schema read is available directly
+through the broker, which continues to enforce current scope and policy.
+Up to sixteen previously authorized individual Entry reads retain bounded identity
+and label previews, rather than their bodies. Up to four batch label reads retain
+identity-only previews of at most 8 KiB each, with truncation made explicit.
+Previews are evidence from those
+reads, not a new authorization; further details require a current authorized read.
+`integral_resolve_entry_labels` resolves up to 50 known Entry IDs in one call,
+checking the bound Workspace and each Entry's current read policy. Missing,
+out-of-scope and denied IDs contribute to one unresolved count.
+
+`integral_find_workspace_resources` is an on-demand discovery aid for a question
+whose relevant Apps or Tracks are not clear. It builds a bounded hierarchy of
+current authorized App names, purposes and readable Tracks, ordered by keyword
+relevance without requiring an encoder. It includes whole readable App-tool
+schemas where they fit. Optional hybrid ranking uses local semantic signals;
+automatic ranking falls back to lexical matching and marks the result degraded.
+Resource suggestions are not record evidence or authority; declared reads still
+enforce current policy. Recent resource lookup previews are bounded and mark
+omissions. A first page groups readable Tracks under their Apps; directly shared
+Tracks remain discoverable without exposing a hidden parent. Use `next_offset`
+with the returned `mode` as `ranking_mode` for later pages. Page size may be
+smaller than requested to keep complete descriptors within the active-turn
+preview budget; truncation flags identify omitted Track and tool details.
+Paging is not a snapshot: concurrent metadata or access changes can affect
+the ordering, so a partial search is never proof that a resource is absent.
+This first implementation scans current accessible metadata rather than a
+durable index. It does not claim complete semantic coverage and needs scale and
+latency qualification before automatic prefetch is considered.
 
 If native tier escalation stops while Core's conservative admission estimate is
 still too large, the cheap tier clears older classified reads once more, keeping
@@ -371,7 +409,9 @@ so a raced retry cannot reuse an earlier generation.
 This keeps App-job backlogs out of chat-worker candidate reads.
 Deferred discovery reuses immutable description embeddings keyed by document
 hash and embedding model. Current authorized candidates, query embeddings,
-ranking and tool results are not cached.
+ranking and tool results are not cached across runs. A combined search embeds
+its query once for skill and tool ranking; identical searches may reuse their
+result within that run.
 Catalogue definitions are encoded without submitting one concurrent task per
 definition to the bounded encoder queue. A single large catalogue must not
 overload its own search admission. Encoder outages still permit an explicit

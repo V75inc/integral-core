@@ -19,6 +19,7 @@ from jvspatial.core.context import get_default_context
 from .index_definition import (
     IndexDefinition,
     digest,
+    field_types,
     selected_text,
     split_passages,
 )
@@ -98,12 +99,15 @@ async def index_document(entry: Any, *, location=None, schemas=None) -> dict | N
     )
     if location is None or getattr(entry, "status", "") in {"archived", "deleted"}:
         return None
+    schemas = {} if schemas is None else schemas
     declaration = await entry_index_definition(
         entry, location.track_id, schemas=schemas
     )
     if declaration is None:
         return None
-    texts = selected_text(entry, declaration)
+    entry_type = schemas.get(entry.type_id)
+    types = field_types(getattr(entry_type, "form_schema", None))
+    texts = selected_text(entry, declaration, types=types)
     from .attachment_sources import attachment_sources
 
     attachment_text, passage_sources = await attachment_sources(
@@ -116,6 +120,10 @@ async def index_document(entry: Any, *, location=None, schemas=None) -> dict | N
         path: (entry.custom_fields or {}).get(path.removeprefix("custom_fields."))
         for path in declaration.metadata_fields
         if path.startswith("custom_fields.")
+        and path not in declaration.exclude_fields
+        and "custom_fields.*" not in declaration.exclude_fields
+        and types.get(path.removeprefix("custom_fields."))
+        not in {"password", "secret", "relation", "file", "files"}
     }
     metadata = {
         k: v

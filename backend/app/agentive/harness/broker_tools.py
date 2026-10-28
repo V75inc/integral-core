@@ -708,19 +708,25 @@ def build_brokered_tools(
                 "integral_get_page_context",
                 "integral_open_view",
                 "integral_query",
+                "integral_find_workspace_resources",
                 "integral_list_apps",
                 "integral_list_tracks",
+                "integral_get_track_schema",
                 "integral_list_workspace_tools",
                 "integral_call_workspace_tool",
+                "integral_resolve_entry_labels",
             }
         )
     if call_state.get("approved_design_ready") or call_state.get("pending_design"):
         if skill_library is not None:
             immediately_available -= {
                 "integral_list_apps",
+                "integral_find_workspace_resources",
                 "integral_list_tracks",
+                "integral_get_track_schema",
                 "integral_list_workspace_tools",
                 "integral_call_workspace_tool",
+                "integral_resolve_entry_labels",
             }
         # A saved design reply is a semantic decision point for the primary
         # model. Expose only its server-owned build macro for that turn; when

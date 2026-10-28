@@ -16,6 +16,14 @@ The [commercial host integration guide](commercial-host-integration.md) defines 
 
 The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.
 
+`current_user_profile()` returns the active execution principal's profile ID and
+bounded display name. It accepts no user identifier and does not disclose email;
+an unavailable or inactive identity is an error, not a substitute identity.
+Apps must not use the display name as authorization evidence.
+Conditional field updates accept `None` as the expected value when the field
+is absent or null, so initializing a lock can use the same atomic comparison
+as later transitions.
+
 ### Efficient agent reads
 
 For recurring domain questions, prefer a focused, registered read that returns
@@ -261,7 +269,9 @@ checks. These preserve I-ROLE-01/02, I-HARNESS-01, I-SUBSTRATE-01 and I-EXT-01.
 Ordinary pages return `count: null`, `count_is_exact: false`, `returned_count`,
 `truncated` and `next_cursor`; they do not implicitly scan for a total. Continue
 with identical parameters and the returned cursor. An exact count requires
-`count_only: true`; optional `group_by` streams the same admitted raw windows
+`count_only: true`; a `group_by` with `count_only` omitted also requests an exact
+grouped count. An explicit `count_only: false` conflicts with `group_by` and is
+rejected. Grouped counts stream the same admitted raw windows
 without retaining the full Track or hydrating every result again for presentation.
 Canonical binding validation still validates each Entry within its fresh window. Groups are bounded and disclose truncation.
 Counts still read matching records to validate current authority; they are not a

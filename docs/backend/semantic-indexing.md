@@ -32,8 +32,13 @@ Track `search_index` is a complete declaration:
 }
 ```
 
-Defaults select title, body and string custom fields. Non-text values are not
-embedded. Metadata fields name explicit `custom_fields.<key>` scalar paths. Choose fields appropriate to the information; never declare secrets.
+Defaults select title, body and string custom fields, plus schema-declared
+numbers, booleans and multi-select choices. Arbitrary nested values and
+untyped non-text values are not projected. Schema-declared secret, password,
+relation and file fields are withheld, including from explicit metadata;
+attachments use their separate selection and authorization path. Explicit
+metadata fields name `custom_fields.<key>` scalar paths. Choose fields
+appropriate to the information; never declare secrets.
 Paths are canonical, not arbitrary object traversal or SQL. EntryType
 `search_index` in an operational-model manifest (persisted in `form_schema`)
 can narrow the Track selection and disable a type. An omitted declaration uses
@@ -56,8 +61,9 @@ entry_types:
       fields: [title, custom_fields.summary]
 ```
 
-`metadata_fields` stores selected scalar values as derived metadata. It does
-not create a new public metadata-filter API. Comments and linked records are
+`metadata_fields` stores selected scalar values as derived metadata and makes
+those explicitly selected values searchable as text; exclusions still apply.
+It does not create a public metadata-filter API. Comments and linked records are
 not implicitly included. `attachments` separately selects `none`, `metadata`
 or `content` (default). EntryType declarations can narrow this selection.
 Files must belong to the current Entry through `HAS_ATTACHMENT`; a scalar
@@ -186,6 +192,14 @@ Hybrid fuses independently limited vector and indexed lexical candidates with
 reciprocal rank fusion. Lexical search uses a weighted stored `tsvector` and GIN
 index. Small admitted scopes use exact cosine candidate selection. Final ranks
 also apply the bounded diversity/evidence policy described under Qualification.
+Feed and Track searches default to this hybrid mode, labeled “Hybrid” in
+browser settings. Existing browser settings that used the previous semantic
+default migrate to Hybrid; older settings did not distinguish that default
+from an explicitly chosen semantic mode. A user can select Meaning afterward.
+Keyword mode searches the indexed lexical projection without invoking the
+embedding model. Legacy API clients may still request the graph mode.
+In Feed and Track, Keyword searches run after a short typing pause; Hybrid and
+Meaning searches run when the user presses Enter or selects Search.
 Larger scopes may use a
 workspace/profile-specific HNSW partial index when `RETRIEVE_ANN_ENABLED=1` and pgvector supports iterative
 filtered scans (0.8+). The worker builds indexes concurrently; reads do not build
@@ -305,8 +319,14 @@ Current Track configuration authority in the bound workspace is required:
 
 - `GET /api/tracks/{id}/search-index`: storage readiness, jobs and bounded comparison
   of canonical source hashes, delivery receipts and vector/lexical integrity manifests.
-  It performs no inference and does not assert encoder health. `coverage_complete` is a point-in-time observation,
-  never a future guarantee; over 1000 sources/jobs is explicitly truncated.
+  It performs no inference and does not assert encoder health. `coverage_complete`
+  also requires each selected attachment's preparation to be complete and, for
+  image content, a current model-generated description. `attachment_coverage`
+  reports aggregate pending, partial, failed, limited and unavailable image
+  description counts without exposing file contents. Skipped or unsupported
+  extraction is reported as limited, even when its filename is searchable.
+  Coverage is a point-in-time observation, never a future guarantee; over 1000
+  sources/jobs is explicitly truncated.
 - `PUT /api/tracks/{id}/search-index`: validate/save a complete declaration and
   retain a rebuild request and revision-bound audit intent in the same transaction.
   Audit delivery happens after commit; stale agent approvals require a fresh review.

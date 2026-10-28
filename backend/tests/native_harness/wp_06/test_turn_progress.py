@@ -69,6 +69,46 @@ def _receipt(index):
     )
 
 
+def test_evidence_checkpoint_is_advisory_and_resets_after_an_effect():
+    """Long useful reads remain possible; an effect starts a fresh review window."""
+    from app.agentive.harness.turn_progress import TurnProgress
+
+    progress = TurnProgress()
+    for index in range(8):
+        progress.observe(READ, {"cursor": index}, {"items": [index]}, is_read=True)
+        assert progress.evidence_review_due is (index >= 4)
+        assert not progress.should_finalize
+    progress.observe(WRITE, {}, {"accepted": True}, is_read=False)
+    assert not progress.evidence_review_due
+    assert not progress.should_finalize
+
+
+def test_evidence_checkpoint_instructions_preserve_further_authorized_work():
+    """The model receives a review cue without an artificial hard stop."""
+    from types import SimpleNamespace
+
+    from app.agentive.harness.pydantic_ai_compat import build_integral_run_instructions
+    from app.agentive.harness.turn_progress import TurnProgress
+
+    progress = TurnProgress()
+    instructions = build_integral_run_instructions("Base instructions", progress)
+    ctx = SimpleNamespace(
+        active_capability_ids=set(),
+        available_tool_names=set(),
+        messages=[],
+        usage_limits=UsageLimits(request_limit=20, tool_calls_limit=32),
+        usage=SimpleNamespace(requests=1, tool_calls=0, total_tokens=0),
+    )
+    assert "Integral evidence checkpoint" not in instructions(ctx)
+    for index in range(5):
+        progress.observe(READ, {"cursor": index}, {"items": [index]}, is_read=True)
+    text = instructions(ctx)
+    assert "Integral evidence checkpoint" in text
+    assert "not a tool limit" in text
+    assert "incomplete page" in text
+    assert not progress.should_finalize
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failed", [False, True], ids=["identical-read", "identical-refusal"]

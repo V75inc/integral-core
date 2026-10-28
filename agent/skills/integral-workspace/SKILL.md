@@ -1,10 +1,17 @@
 ---
 name: integral-workspace
 description: Orients the user among existing workspaces, Apps, and Tracks, and manages their names, deletion, lifecycle, scope, access, and collaboration. Use for deleting a whole App or Track, even after dashboard work, and for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral-scaffold; for a Track's domain schema, use integral-model.
-allowed-tools: integral_get_page_context integral_list_views integral_open_view integral_whoami integral_get_scope integral_list_workspaces integral_list_apps integral_get_app integral_list_workspace_tools integral_call_workspace_tool integral_invoke_app_operation integral_list_tracks integral_get_track_schema integral_resolve_entry integral_get_access integral_list_share_links integral_create_track integral_update_track integral_delete_track integral_create_app integral_create_app_track integral_update_app integral_delete_app integral_share integral_add_collaborator integral_remove_collaborator integral_invite integral_mint_share_link integral_revoke_share_link integral_set_exclusion integral_remove_exclusion integral_list_conflicts integral_resolve_conflict integral_trigger_sync
+allowed-tools: integral_find_workspace_resources integral_get_page_context integral_list_views integral_open_view integral_whoami integral_get_scope integral_list_workspaces integral_list_apps integral_get_app integral_list_workspace_tools integral_call_workspace_tool integral_invoke_app_operation integral_list_tracks integral_get_track_schema integral_resolve_entry integral_get_access integral_list_share_links integral_create_track integral_update_track integral_delete_track integral_create_app integral_create_app_track integral_update_app integral_delete_app integral_share integral_add_collaborator integral_remove_collaborator integral_invite integral_mint_share_link integral_revoke_share_link integral_set_exclusion integral_remove_exclusion integral_list_conflicts integral_resolve_conflict integral_trigger_sync
 ---
 
 # Integral workspace — SOP
+
+Before changing existing Apps or Tracks, identify every source and destination.
+Use current-turn verified page context only when it and the user request clearly
+identify the targets. Otherwise use `integral_find_workspace_resources` to find
+candidates; follow further pages or use current navigation if incomplete, and
+clarify genuine ambiguity. Suggestions are metadata, not evidence of records,
+permission, or approval.
 
 ## Orientation — "what apps / tracks do I have"
 

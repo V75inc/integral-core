@@ -1,10 +1,17 @@
 ---
 name: integral-scaffold
 description: 'Designs and delivers a new operational App or an app-level schema extension: an equipment or tool tracker, inventory register, maintenance log, or multi-part team workflow. Use when the requested outcome needs new or changed structure; check whether an existing App fits, propose the smallest useful design, build it after approval, and verify it. General how-to advice about an existing workflow does not need a proposal when current structure supports the request. For adding, finding, or changing one record in an existing Track or list, use integral-entries. Keep delivery ownership while consulting integral-model for schema choices and integral-scheduling for requested routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.'
-allowed-tools: integral_whoami integral_describe_substrate integral_list_models integral_list_apps integral_ask_user integral_check_design_coverage integral_verify_build integral_propose_design integral_get_artifact integral_list_artifacts integral_begin_batch integral_build_approved_design integral_create_app integral_create_app_track integral_apply_model_to_track integral_author_model integral_save_view integral_create_entry integral_create_dashboard integral_author_skill integral_create_tag integral_register_track_template integral_commit_batch integral_list_tracks integral_get_track_schema integral_query_entries integral_list_views integral_schedule_task integral_list_routines integral_cancel_batch
+allowed-tools: integral_find_workspace_resources integral_get_page_context integral_whoami integral_describe_substrate integral_list_models integral_list_apps integral_ask_user integral_check_design_coverage integral_verify_build integral_propose_design integral_get_artifact integral_list_artifacts integral_begin_batch integral_build_approved_design integral_create_app integral_create_app_track integral_apply_model_to_track integral_author_model integral_save_view integral_create_entry integral_create_dashboard integral_author_skill integral_create_tag integral_register_track_template integral_commit_batch integral_list_tracks integral_get_track_schema integral_query_entries integral_list_views integral_schedule_task integral_list_routines integral_cancel_batch
 ---
 
 # Operational app delivery
+
+Before changing existing Apps or Tracks, identify every source and destination.
+Use current-turn verified page context only when it and the user request clearly
+identify the targets. Otherwise use `integral_find_workspace_resources` to find
+candidates; follow further pages or use current navigation if incomplete, and
+clarify genuine ambiguity. Suggestions are metadata, not evidence of records,
+permission, or approval.
 
 ## App settings placement (required)
 

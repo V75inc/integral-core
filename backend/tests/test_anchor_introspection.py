@@ -169,14 +169,14 @@ async def test_operational_model_substrate_endpoint_exposes_retrieval_capability
     retrieval = body["retrieval"]
     assert isinstance(retrieval["semantic_available"], bool)
     assert isinstance(retrieval["modes"], list)
-    assert "graph" in retrieval["modes"]
+    assert "lexical" in retrieval["modes"]
     assert "note" in retrieval
     if retrieval["semantic_available"]:
-        assert retrieval["modes"] == ["graph", "semantic", "hybrid"]
+        assert retrieval["modes"] == ["lexical", "semantic", "hybrid"]
         assert retrieval["default_mode"] == "hybrid"
     else:
-        assert retrieval["modes"] == ["graph"]
-        assert retrieval["default_mode"] == "graph"
+        assert retrieval["modes"] == ["lexical"]
+        assert retrieval["default_mode"] == "hybrid"
 
 
 # ===== Section 2 — describe_operational_model round-trips related_views =====

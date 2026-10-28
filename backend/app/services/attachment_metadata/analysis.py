@@ -30,6 +30,15 @@ in_analysis: ContextVar[Any] = ContextVar("attachment_analysis", default=None)
 logger = logging.getLogger(__name__)
 
 
+def _needs_metadata(attachment: Attachment) -> bool:
+    """Use the same recovery condition when scheduling and executing work."""
+    return (
+        attachment.metadata_extractor_version
+        < settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
+        or attachment.metadata_status in {"pending", "processing"}
+    )
+
+
 class ImageDescription(BaseModel):
     """Searchable observations, never inferred real-person identity or authority."""
 
@@ -86,11 +95,7 @@ async def enqueue_analysis(
     declaration = await entry_index_definition(entry, location.track_id)
     if declaration is None or declaration.attachments == "none":
         return
-    needs_metadata = (
-        attachment.metadata_extractor_version
-        < settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
-        or attachment.metadata_status in {"pending", "processing"}
-    )
+    needs_metadata = _needs_metadata(attachment)
     semantic = (attachment.metadata or {}).get("semantic", {})
     if (
         not force
@@ -112,15 +117,19 @@ async def enqueue_analysis(
             return
         vision_generation = digest([route.model, route.credential_ref])
     configuration = await configuration_record(location.workspace_id)
-    revision = digest(
-        [
-            attachment.id,
-            attachment.content_hash,
-            settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION,
-            configuration.attachment_settings_revision if configuration else 0,
-            vision_generation,
-        ]
-    )
+    revision_parts = [
+        attachment.id,
+        attachment.content_hash,
+        settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION,
+        configuration.attachment_settings_revision if configuration else 0,
+        vision_generation,
+    ]
+    if needs_metadata:
+        # A previous worker could have completed without recovering a pending
+        # file. Give that recovery one new idempotency generation, not an
+        # unbounded series of retries on every reconciliation pass.
+        revision_parts.append("metadata-recovery-v2")
+    revision = digest(revision_parts)
     await enqueue_work_item(
         kind="attachment_analysis",
         origin="attachment_indexing",
@@ -251,10 +260,7 @@ async def run_attachment_analysis(item: Any, context: Any) -> None:
     attachment, entry, document = await source()
     token = in_analysis.set(context)
     try:
-        if (
-            attachment.metadata_extractor_version
-            < settings.ATTACHMENT_METADATA_EXTRACTOR_VERSION
-        ):
+        if _needs_metadata(attachment):
             from .service import get_metadata_extraction_service
 
             await get_metadata_extraction_service().extract_now(identity)

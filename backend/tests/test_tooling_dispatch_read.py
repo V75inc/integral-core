@@ -92,6 +92,55 @@ async def test_dispatch_unknown_tool_rejected():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_batch_entry_labels_uses_bound_workspace(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """Batch dispatch resolves real entries while concealing missing IDs."""
+    user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    entry_id = await _seed_entry(user_id, workspace_id, track_id)
+    result = await dispatch_tool(
+        "integral_resolve_entry_labels",
+        {"entry_ids": [entry_id, "n.Entry.missing"]},
+        principal_id=user_id,
+        scope=workspace_id,
+    )
+    assert not result.is_error, result
+    assert result.data["entries"][0]["id"] == entry_id
+    assert result.data["entries"][0]["title"] == "Seeded Entry"
+    assert result.data["unresolved_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_resource_discovery_uses_bound_workspace(
+    bind_fresh_graph_context_for_async_tests, monkeypatch
+):
+    """Real broker dispatch uses its workspace and finds a readable Track."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "app.agentive.harness.capability_search._embed_text_for_capability_search",
+        AsyncMock(side_effect=RuntimeError("unavailable")),
+    )
+    user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    refused = await dispatch_tool(
+        "integral_find_workspace_resources",
+        {"query": "Seeded Track", "workspace_id": "another-workspace"},
+        principal_id=user_id,
+        scope=workspace_id,
+    )
+    assert refused.is_error and refused.error_code == "scope_violation"
+    result = await dispatch_tool(
+        "integral_find_workspace_resources",
+        {"query": "Seeded Track"},
+        principal_id=user_id,
+        scope=workspace_id,
+    )
+    assert not result.is_error, result
+    assert any(item["id"] == track_id for item in result.data["results"])
+    assert result.data["mode"] == "lexical" and result.data["degraded"] is False
+
+
+@pytest.mark.asyncio
 async def test_dispatch_list_tracks_read(bind_fresh_graph_context_for_async_tests):
     """A route-backed read tool dispatches and returns non-error data."""
     auth_user_id, workspace_id, _track_id = await _bootstrap_principal_and_track()
@@ -660,7 +709,7 @@ async def test_query_planner_accepts_broker_bound_principal_and_scope(
 
 @pytest.mark.asyncio
 @pytest.mark.smoke
-@pytest.mark.parametrize("mode", ["graph", "semantic", "hybrid"])
+@pytest.mark.parametrize("mode", ["graph", "lexical", "semantic", "hybrid"])
 async def test_query_stays_in_bound_workspace_even_when_vector_store_ignores_scope(
     bind_fresh_graph_context_for_async_tests, monkeypatch, mode
 ):

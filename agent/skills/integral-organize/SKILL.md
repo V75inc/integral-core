@@ -1,10 +1,17 @@
 ---
 name: integral-organize
 description: Selects multiple existing Entries or Tracks and stages one approved bulk reorganization, migration, or archival change, including status sweeps, tag migrations, and Track merges or splits. Use only when one request changes a set of records; use integral-entries for one record and integral-model for schema changes.
-allowed-tools: integral_list_tracks integral_get_track_schema integral_query_entries integral_query integral_count_entries integral_bulk_move_entries integral_create_tag integral_update_tag integral_merge_tags integral_merge_tracks integral_split_track integral_begin_batch integral_bulk_update_entries integral_add_entry_tag integral_remove_entry_tag integral_bulk_delete_entries integral_delete_entry integral_update_entry integral_commit_batch integral_cancel_batch
+allowed-tools: integral_find_workspace_resources integral_get_page_context integral_list_tracks integral_get_track_schema integral_query_entries integral_query integral_count_entries integral_bulk_move_entries integral_create_tag integral_update_tag integral_merge_tags integral_merge_tracks integral_split_track integral_begin_batch integral_bulk_update_entries integral_add_entry_tag integral_remove_entry_tag integral_bulk_delete_entries integral_delete_entry integral_update_entry integral_commit_batch integral_cancel_batch
 ---
 
 # Integral organize — SOP
+
+Before changing existing Apps or Tracks, identify every source and destination.
+Use current-turn verified page context only when it and the user request clearly
+identify the targets. Otherwise use `integral_find_workspace_resources` to find
+candidates; follow further pages or use current navigation if incomplete, and
+clarify genuine ambiguity. Suggestions are metadata, not evidence of records,
+permission, or approval.
 
 ## Purpose / when to use
 

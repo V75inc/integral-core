@@ -18,6 +18,10 @@ class OperationContext(Protocol):
     idempotency_key: Optional[str]
     correlation_id: Optional[str]
 
+    async def current_user_profile(self) -> Dict[str, str]:
+        """Return the active principal's profile ID and bounded display name."""
+        ...
+
     async def get_entry(self, entry_id: str) -> Any: ...
 
     async def find_entries_in_track_type(
@@ -86,7 +90,7 @@ class OperationContext(Protocol):
         entry_id: str,
         *,
         state_field: str,
-        expected_state: str,
+        expected_state: Optional[str],
         updates: Dict[str, Any],
     ) -> Tuple[bool, Optional[str]]: ...
 
