@@ -104,15 +104,42 @@ def embedding_profile() -> EmbeddingProfile:
     return profile
 
 
-def selected_text(entry: Any, definition: IndexDefinition) -> dict[str, str]:
-    """Select declared text and explicitly searchable scalar metadata."""
+def field_types(form_schema: Any) -> dict[str, str]:
+    """Read declared field types without interpreting arbitrary nested data."""
+    if not isinstance(form_schema, dict) or not isinstance(
+        form_schema.get("fields"), list
+    ):
+        return {}
+    return {
+        field["key"]: str(field.get("type") or "").lower()
+        for field in form_schema["fields"]
+        if isinstance(field, dict) and isinstance(field.get("key"), str)
+    }
+
+
+def selected_text(
+    entry: Any, definition: IndexDefinition, *, types: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Select declared text and safe, schema-typed structured values."""
     custom = getattr(entry, "custom_fields", None) or {}
+    types = types or {}
     values = {"title": entry.title or "", "body": entry.body or ""}
-    values.update(
-        {f"custom_fields.{k}": v for k, v in custom.items() if isinstance(v, str)}
-    )
+    for key, value in custom.items():
+        kind = types.get(key, "")
+        if kind in {"password", "secret", "relation", "file", "files"}:
+            continue
+        if isinstance(value, str):
+            values[f"custom_fields.{key}"] = value
+        elif kind in {"number", "boolean"} and isinstance(value, (int, float, bool)):
+            values[f"custom_fields.{key}"] = str(value)
+        elif kind == "multi_select" and isinstance(value, list):
+            if all(isinstance(item, str) for item in value):
+                values[f"custom_fields.{key}"] = "\n".join(value)
     for path in definition.metadata_fields:
-        value = custom.get(path.removeprefix("custom_fields."))
+        key = path.removeprefix("custom_fields.")
+        if types.get(key) in {"password", "secret", "relation", "file", "files"}:
+            continue
+        value = custom.get(key)
         if isinstance(value, (int, float, bool)) and len(str(value)) <= 512:
             values[path] = str(value)
     selected = {}

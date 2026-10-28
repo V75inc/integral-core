@@ -765,12 +765,12 @@ domains:
         status: existing
         op_class: read
         priority: P1
-        summary: "Inspect search storage readiness, current-profile jobs and source coverage for a list you manage. Readiness alone does not prove full coverage."
+        summary: "Inspect search storage readiness, current-profile jobs and source coverage for a list you manage, including incomplete attachment preparation. Readiness alone does not prove full coverage."
         http: "SERVICE (retrieval.index_management.index_status)"
         policy_action: track.read
         params:
           track_id: {type: string, required: true}
-        returns: {track_id: str, profile_id: str, store_ready: bool, jobs: object, coverage_complete: bool}
+        returns: {track_id: str, profile_id: str, store_ready: bool, jobs: object, coverage_complete: bool, attachment_coverage: object}
         privacy: "Current list administrator in the host-bound workspace only. No copied content or credentials."
       - name: integral_configure_search_index
         status: existing

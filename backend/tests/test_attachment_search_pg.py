@@ -11,6 +11,43 @@ from tests.test_semantic_indexing_pg import search, vector_driver
 pytestmark = [pytest.mark.integration, pytest.mark.slow, pytest.mark.asyncio]
 
 
+async def test_coverage_includes_current_attachment_preparation(vector_driver):
+    from app.services.retrieval.index_management import index_status
+
+    user, workspace, app, track, entry = await graph()
+    image = await Attachment.create(
+        filename="diagram.png",
+        mime_type="image/png",
+        scan_status="clean",
+        metadata_status="complete",
+        content_hash="image-v1",
+    )
+    await entry.connect(image, edge=HAS_ATTACHMENT)
+    await indexing.enqueue_entry(entry)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    status = await index_status(user.id, track.id, workspace.id)
+    assert not status["coverage_complete"]
+    assert status["attachment_coverage"]["image_description_unavailable"] == 1
+
+    image.metadata = {
+        "semantic": {"source_hash": "image-v1", "description": "A blue diagram"}
+    }
+    await image.save()
+    await indexing.enqueue_entry(entry)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    status = await index_status(user.id, track.id, workspace.id)
+    assert status["coverage_complete"]
+    assert status["attachment_coverage"]["complete"] == 1
+
+    image.metadata_status = "failed"
+    await image.save()
+    await indexing.enqueue_entry(entry)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    status = await index_status(user.id, track.id, workspace.id)
+    assert not status["coverage_complete"]
+    assert status["attachment_coverage"]["failed"] == 1
+
+
 async def test_attachment_content_filename_and_visual_descriptions(vector_driver):
     user, workspace, app, track, entry = await graph()
     entry.title, entry.body = "Daily equipment note", "A routine operational update."

@@ -32,10 +32,13 @@ Track `search_index` is a complete declaration:
 }
 ```
 
-Defaults select title, body and string custom fields. Non-text values are not
-embedded unless explicitly selected as metadata. Metadata fields name explicit
-`custom_fields.<key>` scalar paths. Choose fields appropriate to the
-information; never declare secrets.
+Defaults select title, body and string custom fields, plus schema-declared
+numbers, booleans and multi-select choices. Arbitrary nested values and
+untyped non-text values are not projected. Schema-declared secret, password,
+relation and file fields are withheld, including from explicit metadata;
+attachments use their separate selection and authorization path. Explicit
+metadata fields name `custom_fields.<key>` scalar paths. Choose fields
+appropriate to the information; never declare secrets.
 Paths are canonical, not arbitrary object traversal or SQL. EntryType
 `search_index` in an operational-model manifest (persisted in `form_schema`)
 can narrow the Track selection and disable a type. An omitted declaration uses
@@ -316,8 +319,14 @@ Current Track configuration authority in the bound workspace is required:
 
 - `GET /api/tracks/{id}/search-index`: storage readiness, jobs and bounded comparison
   of canonical source hashes, delivery receipts and vector/lexical integrity manifests.
-  It performs no inference and does not assert encoder health. `coverage_complete` is a point-in-time observation,
-  never a future guarantee; over 1000 sources/jobs is explicitly truncated.
+  It performs no inference and does not assert encoder health. `coverage_complete`
+  also requires each selected attachment's preparation to be complete and, for
+  image content, a current model-generated description. `attachment_coverage`
+  reports aggregate pending, partial, failed, limited and unavailable image
+  description counts without exposing file contents. Skipped or unsupported
+  extraction is reported as limited, even when its filename is searchable.
+  Coverage is a point-in-time observation, never a future guarantee; over 1000
+  sources/jobs is explicitly truncated.
 - `PUT /api/tracks/{id}/search-index`: validate/save a complete declaration and
   retain a rebuild request and revision-bound audit intent in the same transaction.
   Audit delivery happens after commit; stale agent approvals require a fresh review.

@@ -123,6 +123,49 @@ async def test_declared_scalar_metadata_is_indexed_and_searchable(vector_driver)
     assert result[0] and result[0][0].entry_id == entry.id
 
 
+async def test_schema_fields_search_and_exclude_secret_and_relation_ids(vector_driver):
+    from app.models.edges import CONTAINS, IS_OF_TYPE
+    from app.models.nodes import EntryType
+
+    user, workspace, app, track, entry = await graph()
+    entry_type = await EntryType.create(
+        name="Inventory",
+        track_id=track.id,
+        form_schema={
+            "fields": [
+                {"key": "quantity", "type": "number"},
+                {"key": "choices", "type": "multi_select"},
+                {"key": "private", "type": "secret"},
+                {"key": "related", "type": "relation"},
+            ]
+        },
+    )
+    await track.connect(entry_type, edge=CONTAINS)
+    await entry.connect(entry_type, edge=IS_OF_TYPE)
+    entry.type_id = entry_type.id
+    entry.custom_fields = {
+        "quantity": 42791,
+        "choices": ["crimson", "indigo"],
+        "private": "secretsearchsentinel",
+        "related": "n.Entry.relationsentinel",
+    }
+    track.search_index = {"metadata_fields": ["custom_fields.private"]}
+    await track.save()
+    await entry.save()
+    document = await indexing.index_document(entry)
+    assert "custom_fields.private" not in document["metadata"]
+    assert (await indexing.enqueue_entry(entry)) is None
+    assert (await indexing.deliver_index_jobs())["indexed"] == 1
+    for query in ("42791", "indigo"):
+        assert (
+            await search(user, workspace, app, vector_driver, query=query, mode="graph")
+        )[0]
+    for query in ("secretsearchsentinel", "relationsentinel"):
+        assert not (
+            await search(user, workspace, app, vector_driver, query=query, mode="graph")
+        )[0]
+
+
 async def test_real_index_and_retrieve_tail_budget_freshness_and_deletion(
     vector_driver,
 ):

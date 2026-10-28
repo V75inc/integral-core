@@ -22,6 +22,54 @@ from tests.test_embedding_configuration import fixture
 pytestmark = [pytest.mark.smoke, pytest.mark.asyncio]
 
 
+@pytest.mark.parametrize(
+    ("status", "mode", "described", "expected"),
+    [
+        ("pending", "content", False, "pending"),
+        ("processing", "content", False, "pending"),
+        ("partial", "content", False, "partial"),
+        ("failed", "content", False, "failed"),
+        ("skipped", "content", False, "limited"),
+        ("complete", "content", False, "image_description_unavailable"),
+        ("complete", "content", True, "complete"),
+        ("complete", "metadata", False, "complete"),
+    ],
+)
+async def test_attachment_coverage_reports_preparation_limits(
+    status, mode, described, expected
+):
+    from app.services.retrieval.index_management import _attachment_coverage
+
+    source = {
+        "attachment_id": "file-1",
+        "origin": "file_metadata",
+        "mime_type": "image/png",
+        "extraction_status": status,
+    }
+    sources = {"attachments.file-1.metadata": source}
+    if described:
+        sources["attachments.file-1.description"] = {
+            "attachment_id": "file-1",
+            "origin": "generated_description",
+        }
+    counts = dict.fromkeys(
+        (
+            "examined",
+            "complete",
+            "pending",
+            "partial",
+            "failed",
+            "limited",
+            "image_description_unavailable",
+        ),
+        0,
+    )
+    _attachment_coverage(
+        {"definition": {"attachments": mode}, "passage_sources": sources}, counts
+    )
+    assert counts["examined"] == counts[expected] == 1
+
+
 async def test_provider_raster_does_not_reveal_invisible_rgb_pixels():
     original = io.BytesIO()
     Image.new("RGBA", (32, 32), (255, 0, 0, 0)).save(original, format="PNG")

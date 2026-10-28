@@ -14,6 +14,42 @@ from .embedding_configuration import resolve_workspace_embedding_profile
 from .index_definition import IndexDefinition, digest
 
 
+def _attachment_coverage(document: dict, counts: dict) -> None:
+    """Count file preparation limitations without exposing file contents.
+
+    Passage receipts prove what was indexed, not that file extraction or image
+    analysis succeeded. Count each canonical file once, including files whose
+    metadata is the only available passage.
+    """
+    sources = document.get("passage_sources", {})
+    descriptions = {
+        source.get("attachment_id")
+        for source in sources.values()
+        if source.get("origin") == "generated_description"
+    }
+    for source in sources.values():
+        if source.get("origin") != "file_metadata":
+            continue
+        counts["examined"] += 1
+        status = source.get("extraction_status") or "pending"
+        if status in {"pending", "processing"}:
+            counts["pending"] += 1
+        elif status == "partial":
+            counts["partial"] += 1
+        elif status == "failed":
+            counts["failed"] += 1
+        elif status != "complete":
+            counts["limited"] += 1
+        elif (
+            document["definition"]["attachments"] == "content"
+            and source.get("mime_type", "").startswith("image/")
+            and source.get("attachment_id") not in descriptions
+        ):
+            counts["image_description_unavailable"] += 1
+        else:
+            counts["complete"] += 1
+
+
 async def admit_track(user_id: str, track_id: str, workspace_id: str | None = None):
     """Require current configuration authority in the bound workspace."""
     from app.models.nodes import Track
@@ -235,6 +271,15 @@ async def index_status(
         store = passage_store(driver, profile)
         stored = await store.verified_sources([r["id"] for r in sources[:1000]])
     current, excluded, invalid = 0, 0, 0
+    attachment_counts = {
+        "examined": 0,
+        "complete": 0,
+        "pending": 0,
+        "partial": 0,
+        "failed": 0,
+        "limited": 0,
+        "image_description_unavailable": 0,
+    }
     for source in sources[:1000]:
         try:
             entry = await Entry.find_one({"id": source["id"]})
@@ -245,6 +290,7 @@ async def index_status(
         if document is None:
             excluded += 1
             continue
+        _attachment_coverage(document, attachment_counts)
         receipt = receipts.get(source["id"], {})
         source_hash = document["source_hash"]
         if (
@@ -265,7 +311,8 @@ async def index_status(
         "jobs": counts,
         "coverage_complete": ready
         and not truncated
-        and current + excluded == len(sources),
+        and current + excluded == len(sources)
+        and attachment_counts["complete"] == attachment_counts["examined"],
         "coverage": {
             "examined": min(len(sources), 1000),
             "current": current,
@@ -273,7 +320,8 @@ async def index_status(
             "invalid": invalid,
         },
         "counts_truncated": truncated,
-        "message": "Coverage is reconciled in bounded pages; readiness is not a freshness guarantee.",
+        "attachment_coverage": attachment_counts,
+        "message": "Coverage compares current indexed content and file preparation in a bounded sample; readiness is not a freshness guarantee.",
     }
 
 

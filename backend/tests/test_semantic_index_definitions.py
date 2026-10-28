@@ -11,6 +11,7 @@ from app.schemas.retrieve import RetrieveRequest
 from app.services.retrieval.index_definition import (
     IndexDefinition,
     embedding_profile,
+    field_types,
     selected_text,
     split_passages,
 )
@@ -49,6 +50,40 @@ def test_explicit_scalar_metadata_is_searchable_but_exclusions_win():
         exclude_fields=["custom_fields.secret"],
     )
     assert selected_text(entry, declaration) == {"custom_fields.count": "42"}
+
+
+def test_schema_typed_values_are_searchable_without_indexing_links_or_secrets():
+    entry = SimpleNamespace(
+        title="",
+        body="",
+        custom_fields={
+            "quantity": 42,
+            "active": True,
+            "topics": ["safety", "equipment"],
+            "related": "n.Entry.internal",
+            "token": "secret-value",
+            "undeclared_number": 33,
+        },
+    )
+    types = field_types(
+        {
+            "fields": [
+                {"key": "quantity", "type": "number"},
+                {"key": "active", "type": "boolean"},
+                {"key": "topics", "type": "multi_select"},
+                {"key": "related", "type": "relation"},
+                {"key": "token", "type": "secret"},
+            ]
+        }
+    )
+    definition = IndexDefinition(metadata_fields=["custom_fields.token"])
+    assert selected_text(entry, definition, types=types) == {
+        "custom_fields.quantity": "42",
+        "custom_fields.active": "True",
+        "custom_fields.topics": "safety\nequipment",
+    }
+    definition = IndexDefinition(exclude_fields=["custom_fields.topics"])
+    assert "custom_fields.topics" not in selected_text(entry, definition, types=types)
 
 
 def test_long_text_preserves_tail_offsets_and_bounds():
