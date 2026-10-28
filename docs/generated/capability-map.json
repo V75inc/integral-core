@@ -354,6 +354,8 @@
         "integral_delete_dashboard",
         "integral_describe_dashboard_substrate",
         "integral_describe_model",
+        "integral_find_workspace_resources",
+        "integral_get_page_context",
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
@@ -369,6 +371,7 @@
         "integral_create_dashboard",
         "integral_delete_dashboard",
         "integral_describe_dashboard_substrate",
+        "integral_find_workspace_resources",
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
@@ -402,6 +405,7 @@
         "integral_delete_comment",
         "integral_delete_entry",
         "integral_edit_comment",
+        "integral_find_workspace_resources",
         "integral_get_page_context",
         "integral_get_related",
         "integral_get_track_schema",
@@ -427,6 +431,7 @@
         "integral_create_entry",
         "integral_create_tag",
         "integral_delete_entry",
+        "integral_find_workspace_resources",
         "integral_get_page_context",
         "integral_get_related",
         "integral_get_track_schema",
@@ -458,6 +463,8 @@
     {
       "allowed_tools": [
         "integral_file_content",
+        "integral_find_workspace_resources",
+        "integral_get_page_context",
         "integral_get_track_schema",
         "integral_list_tracks",
         "integral_query_entries",
@@ -465,6 +472,7 @@
       ],
       "body_tools": [
         "integral_file_content",
+        "integral_find_workspace_resources",
         "integral_get_track_schema",
         "integral_list_tracks",
         "integral_query_entries",
@@ -523,6 +531,7 @@
         "integral_count_workspace_entries",
         "integral_describe_capabilities",
         "integral_describe_substrate",
+        "integral_find_workspace_resources",
         "integral_get_digest",
         "integral_get_feed",
         "integral_get_graph_context",
@@ -553,6 +562,7 @@
         "integral_count_entries",
         "integral_count_workspace_entries",
         "integral_describe_capabilities",
+        "integral_find_workspace_resources",
         "integral_get_digest",
         "integral_get_feed",
         "integral_get_graph_context",
@@ -592,7 +602,9 @@
         "integral_describe_model",
         "integral_describe_substrate",
         "integral_diff_model_draft",
+        "integral_find_workspace_resources",
         "integral_get_model_draft",
+        "integral_get_page_context",
         "integral_get_track_schema",
         "integral_link_entries",
         "integral_list_apps",
@@ -612,6 +624,7 @@
         "integral_describe_model",
         "integral_describe_substrate",
         "integral_diff_model_draft",
+        "integral_find_workspace_resources",
         "integral_get_model_draft",
         "integral_get_track_schema",
         "integral_link_entries",
@@ -764,6 +777,8 @@
         "integral_count_entries",
         "integral_create_tag",
         "integral_delete_entry",
+        "integral_find_workspace_resources",
+        "integral_get_page_context",
         "integral_get_track_schema",
         "integral_list_tracks",
         "integral_merge_tags",
@@ -786,6 +801,7 @@
         "integral_count_entries",
         "integral_create_tag",
         "integral_delete_entry",
+        "integral_find_workspace_resources",
         "integral_get_track_schema",
         "integral_list_tracks",
         "integral_merge_tags",
@@ -865,7 +881,9 @@
         "integral_create_entry",
         "integral_create_tag",
         "integral_describe_substrate",
+        "integral_find_workspace_resources",
         "integral_get_artifact",
+        "integral_get_page_context",
         "integral_get_track_schema",
         "integral_list_apps",
         "integral_list_artifacts",
@@ -897,6 +915,7 @@
         "integral_create_entry",
         "integral_create_tag",
         "integral_describe_substrate",
+        "integral_find_workspace_resources",
         "integral_get_artifact",
         "integral_list_apps",
         "integral_list_models",
@@ -964,6 +983,7 @@
         "integral_create_track",
         "integral_delete_app",
         "integral_delete_track",
+        "integral_find_workspace_resources",
         "integral_get_access",
         "integral_get_app",
         "integral_get_page_context",
@@ -998,6 +1018,7 @@
         "integral_create_track",
         "integral_delete_app",
         "integral_delete_track",
+        "integral_find_workspace_resources",
         "integral_get_access",
         "integral_get_app",
         "integral_get_page_context",
@@ -1040,15 +1061,15 @@
     }
   ],
   "counts": {
-    "advertised": 131,
+    "advertised": 132,
     "apps": 6,
     "by_op_class": {
       "execute": 1,
       "propose": 71,
-      "read": 59
+      "read": 60
     },
     "core_skills": 18,
-    "tools": 133
+    "tools": 134
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1125,7 +1146,12 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
+        "integral-dashboards",
         "integral-entries",
+        "integral-filing",
+        "integral-model",
+        "integral-organize",
+        "integral-scaffold",
         "integral-workspace"
       ],
       "status": "existing"
@@ -1166,6 +1192,32 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
+        "integral-workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.workspace_resource_search.discover_workspace_resources"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_find_workspace_resources",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral-dashboards",
+        "integral-entries",
+        "integral-filing",
+        "integral-insights",
+        "integral-model",
+        "integral-organize",
+        "integral-scaffold",
         "integral-workspace"
       ],
       "status": "existing"

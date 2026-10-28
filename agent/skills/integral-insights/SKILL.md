@@ -1,7 +1,7 @@
 ---
 name: integral-insights
 description: Read workflow instructions. Load with load_capability; this skill name is never a callable tool. Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, explain what could hold up work, dependencies, risks, fallback options and stored intra-workspace relationships; summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For automatic periodic reports or repeated checks, use integral-scheduling; for review deliverables, use integral-review.
-allowed-tools: integral_list_views integral_open_view integral_list_workspace_tools integral_call_workspace_tool integral_get_index_status integral_get_graph_context integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_count_workspace_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_resolve_entry_labels integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
+allowed-tools: integral_list_views integral_open_view integral_find_workspace_resources integral_list_workspace_tools integral_call_workspace_tool integral_get_index_status integral_get_graph_context integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_count_workspace_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_resolve_entry_labels integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
 ---
 
 # Integral insights — SOP
@@ -15,8 +15,16 @@ unavailable because it is not in this skill's tools, or stop after the first
 count. Claim a limitation only when current capability or execution evidence
 establishes it. The scheduled runs must fetch fresh facts, not echo task text.
 
-For records in an installed App, first resolve its App ID from current scoped
-context or `integral_list_apps`. Call
+For a question spanning Apps or when the appropriate App or Track is unclear,
+call `integral_find_workspace_resources` with the user's information need. Its
+ranked metadata and read schemas are suggestions, not record evidence. Follow
+the declared read contract and search further when the result is incomplete or
+does not cover every part of the question. Reuse identified Apps, Tracks and
+complete read schemas from this turn; do not repeat navigation or capability
+searches for details already returned. Read the records before answering.
+For records in an installed App,
+first resolve its App ID from current scoped context, the resource lookup, or
+`integral_list_apps`. If the lookup did not return the matching schema, call
 `integral_list_workspace_tools(app_id=<verified App ID>, read_only=true)` and use
 the matching read-only tool via `integral_call_workspace_tool`, with the exact
 returned key and input schema. These registered tool keys are not declared

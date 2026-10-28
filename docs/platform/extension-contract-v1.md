@@ -269,7 +269,9 @@ checks. These preserve I-ROLE-01/02, I-HARNESS-01, I-SUBSTRATE-01 and I-EXT-01.
 Ordinary pages return `count: null`, `count_is_exact: false`, `returned_count`,
 `truncated` and `next_cursor`; they do not implicitly scan for a total. Continue
 with identical parameters and the returned cursor. An exact count requires
-`count_only: true`; optional `group_by` streams the same admitted raw windows
+`count_only: true`; a `group_by` with `count_only` omitted also requests an exact
+grouped count. An explicit `count_only: false` conflicts with `group_by` and is
+rejected. Grouped counts stream the same admitted raw windows
 without retaining the full Track or hydrating every result again for presentation.
 Canonical binding validation still validates each Entry within its fresh window. Groups are bounded and disclose truncation.
 Counts still read matching records to validate current authority; they are not a

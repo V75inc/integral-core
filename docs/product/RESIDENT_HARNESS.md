@@ -8,6 +8,12 @@ The native resident is always registered, including when no model credentials ha
 
 The harness owns model interaction and reasoning-loop mechanics. Core owns authenticated execution scope, capabilities, policy, staging, effect boundaries, product transcripts, session records, and immutable usage observations. A model output or provider handle cannot select identity or tenancy.
 
+## Harness engineering principle
+
+Use the Pydantic AI Harness and Pydantic AI as fully as practical for the resident agent's runtime behavior. Before implementing or extending a custom harness mechanism, inspect the supported facilities and public extension points in the pinned library versions and prefer them when they meet Integral's requirements. Custom code belongs at Integral's substrate integration boundary or fills a documented gap where the libraries do not provide a suitable facility.
+
+Review existing custom behavior against this principle as it is touched; do not remove safeguards merely because an upstream feature has a similar name. Verify functional and security parity, including authenticated scope, current policy, staging, effect receipts and recovery, before replacement. Discovery and model-provider optimizations remain subject to the same boundary.
+
 The agentive layer is always loaded. `AGENTIVE_ENABLED` is not a supported kill switch. Core-only mode filters domain packages; it does not remove resident intelligence.
 
 ## Context and skills

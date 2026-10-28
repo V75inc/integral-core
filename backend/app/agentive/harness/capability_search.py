@@ -646,7 +646,9 @@ def build_search_capabilities_tool(
     state = run_state if run_state is not None else {}
     state.setdefault("capability_search_completed", False)
 
-    async def rank_skills_semantically(query: str) -> list[tuple[str, float]]:
+    async def rank_skills_semantically(
+        query: str, query_vector: list[float]
+    ) -> list[tuple[str, float]]:
         """Rank authorized skill descriptions by local semantic similarity.
 
         The embedding model is Integral's existing local retrieval model. This
@@ -680,7 +682,6 @@ def build_search_capabilities_tool(
                 for skill in skills
             ],
         )
-        query_vector = await _embed_text_for_capability_search(query)
         skill_vectors = [await _definition_vector(text) for text in texts]
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
         semantic = []
@@ -708,7 +709,9 @@ def build_search_capabilities_tool(
             key=lambda item: (-item[1], item[0]),
         )
 
-    async def rank_tools_semantically(query: str) -> list[tuple[str, float]]:
+    async def rank_tools_semantically(
+        query_vector: list[float],
+    ) -> list[tuple[str, float]]:
         """Rank authorized tools by meaning and cache static catalog vectors."""
         if not tool_documents:
             return []
@@ -717,7 +720,6 @@ def build_search_capabilities_tool(
             for name, document in tool_documents
             if document not in tool_vectors
         ]
-        query_vector = await _embed_text_for_capability_search(query)
         document_vectors = [
             await _definition_vector(document) for _name, document in missing
         ]
@@ -750,8 +752,21 @@ def build_search_capabilities_tool(
             result = cached_results[cache_key]
             return ToolReturn(return_value=result, tools=result["available_tools"])
         state["capability_search_completed"] = True
+        query_vector = None
+        if skills or tool_documents:
+            try:
+                query_vector = await _embed_text_for_capability_search(query)
+            except Exception:
+                logger.warning(
+                    "Local semantic capability query failed; using lexical ranking",
+                    exc_info=True,
+                )
         try:
-            ranked_skills = await rank_skills_semantically(query)
+            ranked_skills = (
+                await rank_skills_semantically(query, query_vector)
+                if query_vector is not None
+                else None
+            )
         except Exception:
             # Keep discovery operational on deployments where local retrieval
             # embeddings are disabled or unavailable. Tool/skill invocation
@@ -762,7 +777,11 @@ def build_search_capabilities_tool(
             )
             ranked_skills = None
         try:
-            ranked_tools = await rank_tools_semantically(query)
+            ranked_tools = (
+                await rank_tools_semantically(query_vector)
+                if query_vector is not None
+                else None
+            )
         except Exception:
             logger.warning(
                 "Local semantic tool ranking failed; using lexical ranking",

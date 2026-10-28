@@ -1,10 +1,17 @@
 ---
 name: integral-filing
 description: Files user-typed unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.
-allowed-tools: integral_file_content integral_rank_destinations integral_list_tracks integral_get_track_schema integral_query_entries
+allowed-tools: integral_find_workspace_resources integral_get_page_context integral_file_content integral_rank_destinations integral_list_tracks integral_get_track_schema integral_query_entries
 ---
 
 # Integral filing — SOP
+
+Before changing existing Apps or Tracks, identify every source and destination.
+Use current-turn verified page context only when it and the user request clearly
+identify the targets. Otherwise use `integral_find_workspace_resources` to find
+candidates; follow further pages or use current navigation if incomplete, and
+clarify genuine ambiguity. Suggestions are metadata, not evidence of records,
+permission, or approval.
 
 ## Tools vs skills — who knows what
 

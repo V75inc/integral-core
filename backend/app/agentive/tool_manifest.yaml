@@ -275,6 +275,27 @@ domains:
         params: {}
         returns: { workspaces: [{id: str, name: str, kind: str, role: str}] }
         privacy: "Membership-filtered. PC-2: listing a workspace != reading inside it."
+      - name: integral_find_workspace_resources
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Browse the active workspace's Apps and their readable Tracks for a user
+          question. Names and purposes form a permission-checked hierarchy, ordered
+          by keywords by default without requiring embeddings. Accessible Apps include
+          available read-tool schemas. Use these suggestions to choose declared reads;
+          they are not records, evidence of an answer, or grants of access. Search
+          the next_offset and returned mode as ranking_mode for further candidates or inspect the live catalogue when
+          results are incomplete. Ranking can change when metadata changes.
+        http: "(service workspace_resource_search.discover_workspace_resources)"
+        policy_action: null
+        params:
+          query: {type: string, required: true, minLength: 2, maxLength: 500, desc: "The user's information need, in ordinary language."}
+          limit: {type: integer, optional: true, minimum: 1, maximum: 10, default: 6}
+          offset: {type: integer, optional: true, minimum: 0, maximum: 5000, default: 0}
+          ranking_mode: {type: string, optional: true, enum: [auto, lexical, hybrid], default: lexical, desc: "Use the mode returned by page one for later pages."}
+        returns: {results: list, mode: str, degraded: boolean, has_more: boolean, next_offset: integer}
+        privacy: "Host-bound workspace and live resource policy; no Entry data or inaccessible parent metadata."
       - name: integral_list_apps
         status: existing
         op_class: read
@@ -2788,11 +2809,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 133
-  existing_tools: 131    # status: existing
+  total_tools: 134
+  existing_tools: 132    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 59, propose: 73, execute: 1 }
-  by_priority: { P0: 17, P1: 46, P2: 70 }
+  by_op_class: { read: 60, propose: 73, execute: 1 }
+  by_priority: { P0: 17, P1: 47, P2: 70 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

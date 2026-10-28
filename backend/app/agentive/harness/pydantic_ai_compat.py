@@ -38,7 +38,12 @@ from pydantic_ai import (
     UsageLimitExceeded,
     UsageLimits,
 )
-from pydantic_ai.capabilities import AbstractCapability, Instrumentation, ToolSearch
+from pydantic_ai.capabilities import (
+    AbstractCapability,
+    Capability,
+    Instrumentation,
+    ToolSearch,
+)
 from pydantic_ai.messages import (
     LoadCapabilityCallPart,
     LoadCapabilityReturnPart,
@@ -823,6 +828,90 @@ class IntegralToolResultCompaction(ClearToolResults):
     _identity_tools = frozenset({"integral_resolve_entry"})
     _batch_identity_tools = frozenset({"integral_resolve_entry_labels"})
     _catalogue_tools = frozenset({"integral_list_workspace_tools"})
+    _resource_lookup_tools = frozenset({"integral_find_workspace_resources"})
+    _track_schema_tools = frozenset({"integral_get_track_schema"})
+
+    def _track_schema_preview(self, part):
+        """Retain bounded substrate schema hints, explicitly marking omissions."""
+        content = part.content
+        if not isinstance(content, dict) or content.get("error"):
+            return replace(part, content=self.placeholder)
+        if content.get("schema_preview_incomplete") is True:
+            if len(json.dumps(content, default=str).encode("utf-8")) <= 6144:
+                return part
+            return replace(part, content=self.placeholder)
+        track = content.get("track")
+        entry_types = content.get("entry_types")
+        if not isinstance(track, dict) or not isinstance(entry_types, list):
+            return replace(part, content=self.placeholder)
+        preview = {
+            "track": {key: track.get(key) for key in ("id", "title") if key in track},
+            "entry_types": [],
+            "schema_preview_incomplete": True,
+            "instruction": (
+                "This is an incomplete discovery preview, not current authority or "
+                "a complete schema. Re-read the schema when omitted details or "
+                "changes since this read matter."
+            ),
+        }
+        for entry_type in entry_types:
+            if not isinstance(entry_type, dict):
+                continue
+            row = {
+                key: entry_type.get(key)
+                for key in ("id", "key", "name")
+                if key in entry_type
+            }
+            form = entry_type.get("form_schema")
+            fields = form.get("fields") if isinstance(form, dict) else None
+            if isinstance(fields, list):
+                row["fields"] = [
+                    {
+                        key: field.get(key)
+                        for key in ("key", "name", "type")
+                        if key in field
+                    }
+                    for field in fields
+                    if isinstance(field, dict)
+                ]
+            candidate = {**preview, "entry_types": [*preview["entry_types"], row]}
+            if len(json.dumps(candidate, default=str).encode("utf-8")) > 6144:
+                break
+            preview["entry_types"].append(row)
+        return replace(part, content=preview)
+
+    def _resource_lookup_preview(self, part):
+        """Keep whole resource descriptors within a bounded active-turn window."""
+        if not isinstance(part.content, dict) or not isinstance(
+            part.content.get("results"), list
+        ):
+            return replace(part, content=self.placeholder)
+        rows = part.content["results"]
+        selected, used = [], 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            size = len(json.dumps(row, default=str).encode("utf-8")) + 2
+            if used + size > 7680:
+                break
+            selected.append(row)
+            used += size
+        return replace(
+            part,
+            content={
+                "results": selected,
+                "mode": part.content.get("mode"),
+                "degraded": bool(part.content.get("degraded")),
+                "next_offset": (
+                    part.content.get("next_offset")
+                    if len(selected) == len(rows)
+                    else None
+                ),
+                "preview_incomplete": len(selected) != len(rows)
+                or bool(part.content.get("has_more")),
+                "instruction": "These are resource suggestions, not record evidence. Search again if additional resources are needed.",
+            },
+        )
 
     def _catalogue_preview(self, part):
         """Retain whole tool schemas within a fixed active-turn budget."""
@@ -1011,6 +1100,38 @@ class IntegralToolResultCompaction(ClearToolResults):
             if messages[key[0]].parts[key[1]].tool_name in self._catalogue_tools
         }
         retained_catalogues = set(sorted(catalogues)[-2:])
+        lookups = {
+            key
+            for key in active_reads
+            if messages[key[0]].parts[key[1]].tool_name in self._resource_lookup_tools
+        }
+        retained_lookups = set(sorted(lookups)[-2:])
+        track_schemas = {
+            key
+            for key in active_reads
+            if messages[key[0]].parts[key[1]].tool_name in self._track_schema_tools
+        }
+        # A subsequent effect can change the schema or access. Treat every
+        # unknown effect as a barrier; framework discovery has no such effect.
+        discovery_tools = {
+            "search_capabilities",
+            "search_tools",
+            "load_capability",
+            "search_conversation_history",
+        }
+        effects = [
+            (index, part_index)
+            for index, message in enumerate(messages[boundary:], start=boundary)
+            if isinstance(message, ModelRequest)
+            for part_index, part in enumerate(message.parts)
+            if isinstance(part, ToolReturnPart)
+            and (index, part_index) not in eligible
+            and part.tool_name not in discovery_tools
+        ]
+        last_effect = max(effects, default=(-1, -1))
+        retained_track_schemas = set(
+            sorted(key for key in track_schemas if key > last_effect)[-2:]
+        )
         # Small complete App read receipts are useful synthesis evidence. Keep
         # only a fixed recent window; large receipts still compact as before.
         # Mixed wrappers qualify only when the broker classified this call as
@@ -1038,11 +1159,21 @@ class IntegralToolResultCompaction(ClearToolResults):
                 key = (index, part_index)
                 if key in eligible:
                     text = str(part.content)
-                    if key in retained_navigation:
+                    if part.tool_name in self._track_schema_tools and index < boundary:
+                        part = replace(part, content=self.placeholder)
+                    elif key in retained_navigation:
                         part = self._navigation_preview(part)
                     elif key in retained_catalogues:
                         part = self._catalogue_preview(part)
                     elif key in catalogues:
+                        part = replace(part, content=self.placeholder)
+                    elif key in retained_lookups:
+                        part = self._resource_lookup_preview(part)
+                    elif key in lookups:
+                        part = replace(part, content=self.placeholder)
+                    elif key in retained_track_schemas:
+                        part = self._track_schema_preview(part)
+                    elif key in track_schemas:
                         part = replace(part, content=self.placeholder)
                     elif key in retained_batch_identities:
                         part = self._batch_identity_preview(part)
@@ -1114,6 +1245,8 @@ class IntegralToolResultCompaction(ClearToolResults):
         protected_tools |= self._identity_tools
         protected_tools |= self._batch_identity_tools
         protected_tools |= self._catalogue_tools
+        protected_tools |= self._resource_lookup_tools
+        protected_tools |= self._track_schema_tools
         active_compaction = ClearToolResults(
             max_tokens=1,
             keep_pairs=2,
@@ -1525,6 +1658,7 @@ __all__ = [
     "Agent",
     "AgentRunResultEvent",
     "BinaryContent",
+    "Capability",
     "CancellationToken",
     "ClearToolResults",
     "build_integral_history_compaction",
@@ -1656,19 +1790,3 @@ class PublicConversationHistorySource:
                 if parts:
                     public.append(replace(response, parts=parts))
         return public
-
-
-@dataclass(kw_only=True)
-class InitialWorkflowSkill(AbstractCapability):
-    """A Light-selected, freshly authorized procedure, using public capability APIs.
-
-    Skills supplies instruction-only capabilities. This equivalent always-on
-    instruction capability removes discovery/loading requests for a model-selected
-    procedure; all broker, write staging and live permission checks remain intact.
-    """
-
-    id: str
-    instructions: str
-
-    def get_instructions(self) -> str:
-        return self.instructions

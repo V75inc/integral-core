@@ -1,10 +1,17 @@
 ---
 name: integral-dashboards
 description: Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.
-allowed-tools: integral_preview_app_home integral_describe_dashboard_substrate integral_list_dashboards integral_read_dashboard_data integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_update_app integral_read_app_home integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
+allowed-tools: integral_find_workspace_resources integral_get_page_context integral_preview_app_home integral_describe_dashboard_substrate integral_list_dashboards integral_read_dashboard_data integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_update_app integral_read_app_home integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
 ---
 
 # Integral dashboards — SOP
+
+Before changing existing Apps or Tracks, identify every source and destination.
+Use current-turn verified page context only when it and the user request clearly
+identify the targets. Otherwise use `integral_find_workspace_resources` to find
+candidates; follow further pages or use current navigation if incomplete, and
+clarify genuine ambiguity. Suggestions are metadata, not evidence of records,
+permission, or approval.
 
 ## When to use
 

@@ -75,6 +75,25 @@ async def test_count_streams_raw_windows_without_entry_hydration(monkeypatch):
     assert result["source_urls"] == [f"/tracks/{track.id}"]
 
 
+async def test_grouping_defaults_to_count_only_but_rejects_explicit_false():
+    """A grouped read is an exact count unless the caller contradicts it."""
+    _, _, _, track, _, ctx = await setup()
+    row = await Entry.create(
+        title="Grouped record", track_id=track.id, custom_fields={"stage": "open"}
+    )
+    await track.connect(row, edge=CONTAINS)
+    result = await ctx.read_entry_records({"track": track.title, "group_by": "stage"})
+    explicit = await ctx.read_entry_records(
+        {"track": track.title, "group_by": "stage", "count_only": True}
+    )
+    assert result == explicit
+    assert result["count_is_exact"] and result["groups"]["open"] == 1
+    with pytest.raises(BadRequestError, match="Grouped counts require count_only"):
+        await ctx.read_entry_records(
+            {"track": track.title, "group_by": "stage", "count_only": False}
+        )
+
+
 async def test_page_and_count_keep_current_denials_and_app_state():
     user, ws, app, track, entry, ctx = await setup()
     await sibling(user, ws)

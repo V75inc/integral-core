@@ -4,6 +4,18 @@
 
 The agentive layer (`backend/app/agentive/`) is always on in Integral. It MUST follow the same jvspatial object-spatial conventions as `backend/app/api/` and `backend/app/services/`, including the **pragmatism clause**: convention is the default, measured-efficiency deviations are permitted with inline justification (see root `AGENTS.md` § jvspatial Object-Spatial Contract → Pragmatism Clause).
 
+## Harness implementation principle
+
+Build the resident agent with the supported facilities and public extension
+points of the pinned Pydantic AI Harness and Pydantic AI wherever they meet
+Integral's needs. Investigate those facilities before introducing custom
+harness logic. Keep custom code for Integral substrate integration or a
+documented gap in the libraries, and reassess existing custom behavior for
+replacement when working nearby. Integral remains responsible for authenticated
+scope, live policy, staging, effect receipts and recovery; demonstrate functional
+and security parity before removing an existing safeguard. See
+[`RESIDENT_HARNESS.md`](../../../docs/product/RESIDENT_HARNESS.md).
+
 **Drift cleared (Plan 06-05, Wave 4 directive-plan remediation).** Every file under `backend/app/agentive/api/` now uses `@endpoint` + `JVSpatialAPIException` + schemas-in-`schemas/agentive/`. The single carve-out is `agent_events.py`'s WebSocket route (jvspatial framework limitation — `@endpoint` does not support WebSocket; documented inline per `# deviation:` annotation). The pre-commit `jvspatial-drift-guard` hook is fully enforcing — any new raw-FastAPI pattern in this directory fails the hook.
 
 ## Required Patterns for New Code in `agentive/`

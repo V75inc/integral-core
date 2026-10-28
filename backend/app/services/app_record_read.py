@@ -82,6 +82,11 @@ async def read_app_records(ctx, raw):
     if not getattr(ctx, "app_id", ""):
         raise BadRequestError(message="Installed App scope required for record reads")
     data = AppRecordRead.model_validate(raw or {})
+    # Grouping is only defined for counts. When the caller omits count_only,
+    # treat its grouping request as an explicit count; a contradictory false
+    # remains an error. Normalize before cursor fingerprinting.
+    if data.group_by and "count_only" not in data.model_fields_set:
+        data = data.model_copy(update={"count_only": True})
     fields = [_field(key) for key in data.fields]
     filters = {_field(key): value for key, value in data.filters.items()}
     group = _field(data.group_by) if data.group_by else ""

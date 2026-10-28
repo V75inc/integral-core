@@ -19,8 +19,8 @@ from app.agentive.harness.disclosure import (
 from app.agentive.harness.jvspatial_store import JvSpatialStepStore
 from app.agentive.harness.pydantic_ai_compat import (
     Agent,
+    Capability,
     ConversationSearch,
-    InitialWorkflowSkill,
     InstructionDisclosureGuard,
     Instrumentation,
     IntegralContextAdmission,
@@ -204,7 +204,7 @@ def build_native_runtime(
         if initial_skill[0] not in selected_skills:
             raise ValueError("Initial workflow is not in this run's authorized skills")
         capabilities.append(
-            InitialWorkflowSkill(id=initial_skill[0], instructions=initial_skill[1])
+            Capability(id=initial_skill[0], instructions=initial_skill[1])
         )
     remaining_skills = selected_skills - (
         {initial_skill[0]} if initial_skill else set()

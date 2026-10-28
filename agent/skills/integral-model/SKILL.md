@@ -1,10 +1,17 @@
 ---
 name: integral-model
 description: 'Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.'
-allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_update_app integral_list_tracks integral_list_views integral_modify_model integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
+allowed-tools: integral_find_workspace_resources integral_get_page_context integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_update_app integral_list_tracks integral_list_views integral_modify_model integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
 ---
 
 # Integral model — SOP
+
+Before changing existing Apps or Tracks, identify every source and destination.
+Use current-turn verified page context only when it and the user request clearly
+identify the targets. Otherwise use `integral_find_workspace_resources` to find
+candidates; follow further pages or use current navigation if incomplete, and
+clarify genuine ambiguity. Suggestions are metadata, not evidence of records,
+permission, or approval.
 
 Greenfield composition (field/view palettes, weave contracts, complete-app
 assembly) lives in skill **integral-scaffold**. This skill owns lookup vs

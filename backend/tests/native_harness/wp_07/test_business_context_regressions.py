@@ -363,6 +363,149 @@ async def test_active_catalogue_keeps_whole_schemas_with_a_bounded_preview():
 
 
 @pytest.mark.asyncio
+async def test_resource_lookup_survives_reads_with_honest_bounded_preview():
+    """Keep recent lookup evidence without cutting schemas or hiding omissions."""
+    name = "integral_find_workspace_resources"
+    rows = [
+        {"id": f"a{n}", "read_tools": [{"description": "é" * 300}]} for n in range(10)
+    ]
+    messages = [ModelRequest(parts=[UserPromptPart("Compare records")])]
+    for n in range(3):
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart(name, {}, str(n))]),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            name,
+                            {"results": rows, "mode": "hybrid", "has_more": True},
+                            str(n),
+                        )
+                    ]
+                ),
+            ]
+        )
+    for n in range(3):
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart("read", {}, f"r{n}")]),
+                ModelRequest(parts=[ToolReturnPart("read", "data " * 500, f"r{n}")]),
+            ]
+        )
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name, "read"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    lookups = [
+        p
+        for m in result
+        for p in m.parts
+        if type(p) is ToolReturnPart and p.tool_name == name
+    ]
+    assert lookups[0].content == compactor.placeholder
+    for part in lookups[1:]:
+        assert part.content["preview_incomplete"]
+        assert part.content["results"] == rows[: len(part.content["results"])]
+        assert len(json.dumps(part.content).encode()) < 8192
+
+
+@pytest.mark.asyncio
+async def test_track_schema_previews_survive_reads_without_unbounded_context():
+    """Retain two clearly incomplete schemas and clear older sensitive detail."""
+    name = "integral_get_track_schema"
+    messages = [ModelRequest(parts=[UserPromptPart("Compare records")])]
+    for index in range(3):
+        schema = {
+            "track": {"id": f"track-{index}", "title": f"Track {index}"},
+            "entry_types": [
+                {
+                    "key": "item",
+                    "name": "Item",
+                    "form_schema": {
+                        "fields": [
+                            {
+                                "key": "status",
+                                "name": "Status",
+                                "type": "select",
+                                "enum": ["private"],
+                            }
+                        ]
+                    },
+                }
+            ],
+            "collaborators": [{"display_name": "Private"}],
+            "extra": "x" * 50000,
+        }
+        messages.extend(
+            [
+                ModelResponse(
+                    parts=[
+                        ToolCallPart(name, {"track_id": f"track-{index}"}, str(index))
+                    ]
+                ),
+                ModelRequest(parts=[ToolReturnPart(name, schema, str(index))]),
+            ]
+        )
+    for index in range(4):
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart("read", {}, f"r{index}")]),
+                ModelRequest(
+                    parts=[ToolReturnPart("read", "data " * 500, f"r{index}")]
+                ),
+            ]
+        )
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name, "read"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    schemas = [
+        part
+        for message in result
+        for part in message.parts
+        if type(part) is ToolReturnPart and part.tool_name == name
+    ]
+    assert schemas[0].content == compactor.placeholder
+    for index, part in enumerate(schemas[1:], start=1):
+        assert part.content["track"]["id"] == f"track-{index}"
+        assert part.content["entry_types"][0]["fields"] == [
+            {"key": "status", "name": "Status", "type": "select"}
+        ]
+        assert part.content["schema_preview_incomplete"] is True
+        assert "collaborators" not in part.content
+        assert len(json.dumps(part.content).encode()) <= 6144
+        assert compactor._track_schema_preview(part).content == part.content
+
+
+@pytest.mark.asyncio
+async def test_track_schema_preview_expires_after_effect_and_new_turn():
+    """Old schema hints cannot survive a possible change or a later turn."""
+    name = "integral_get_track_schema"
+    schema = {"track": {"id": "t", "title": "Track"}, "entry_types": []}
+    messages = [
+        ModelRequest(parts=[UserPromptPart("Earlier question")]),
+        ModelResponse(parts=[ToolCallPart(name, {"track_id": "t"}, "old")]),
+        ModelRequest(parts=[ToolReturnPart(name, schema, "old")]),
+        ModelRequest(parts=[UserPromptPart("Current question")]),
+        ModelResponse(parts=[ToolCallPart(name, {"track_id": "t"}, "current")]),
+        ModelRequest(parts=[ToolReturnPart(name, schema, "current")]),
+        ModelResponse(parts=[ToolCallPart("integral_change_schema", {}, "effect")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart("integral_change_schema", {"status": "staged"}, "effect")
+            ]
+        ),
+    ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name})
+    )
+    projected = compactor._compact_classified_reads(messages)
+    assert projected[2].parts[0].content == compactor.placeholder
+    assert projected[5].parts[0].content == compactor.placeholder
+    assert projected[7].parts[0].content == {"status": "staged"}
+
+
+@pytest.mark.asyncio
 async def test_active_resolved_entry_labels_survive_bounded_compaction():
     """Related labels stay available without retaining private record fields."""
     messages = [ModelRequest(parts=[UserPromptPart("Compare the related records")])]

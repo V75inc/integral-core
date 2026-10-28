@@ -3780,6 +3780,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_list_apps": ToolBinding(
         _h("app.api.apps", "list_apps"), _pick("cursor", "limit")
     ),
+    "integral_find_workspace_resources": ToolBinding(
+        service_ref=_h(
+            "app.services.workspace_resource_search", "discover_workspace_resources"
+        ),
+        service_param_map=_pick("query", "limit", "offset", "ranking_mode"),
+    ),
     # GET /api/apps/{app_id} -> get_app. app_id -> handler path kwarg; the
     # handler runs its own app.read policy check for the acting principal.
     "integral_get_app": ToolBinding(_h("app.api.apps", "get_app"), _pick("app_id")),

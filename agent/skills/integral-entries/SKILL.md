@@ -1,14 +1,19 @@
 ---
 name: integral-entries
 description: 'Handles explicit record requests in an existing Track or list: find records by name, ID, or serial number; answer questions about their status or fields; create, update, delete, tag, comment on, or link entries. Batch compatible records supplied together into one review. Use integral-scaffold for a new App; integral-filing for unstructured content with an unknown destination; integral-organize for bulk reorganization.'
-allowed-tools: integral_list_views integral_open_view integral_list_workspace_tools integral_call_workspace_tool integral_query_entries integral_resolve_entry integral_create_entry integral_update_entry integral_delete_entry integral_add_comment integral_list_comments integral_edit_comment integral_delete_comment integral_get_related integral_list_tags integral_add_entry_tag integral_remove_entry_tag integral_create_tag integral_link_entries integral_transform_entry integral_list_tracks integral_get_track_schema integral_get_page_context integral_begin_batch integral_commit_batch integral_cancel_batch
+allowed-tools: integral_list_views integral_open_view integral_find_workspace_resources integral_list_workspace_tools integral_call_workspace_tool integral_query_entries integral_resolve_entry integral_create_entry integral_update_entry integral_delete_entry integral_add_comment integral_list_comments integral_edit_comment integral_delete_comment integral_get_related integral_list_tags integral_add_entry_tag integral_remove_entry_tag integral_create_tag integral_link_entries integral_transform_entry integral_list_tracks integral_get_track_schema integral_get_page_context integral_begin_batch integral_commit_batch integral_cancel_batch
 ---
 
 # Integral entries — SOP
 
 ## Workflow
 
-1. For a create or change, identify the target track first. If the user names a track without
+1. Before a create or change, identify each source and destination. Use current-turn
+   verified page context only when it and the user's words clearly identify the
+   target. Otherwise use `integral_find_workspace_resources` to find candidates;
+   inspect further pages or navigate when incomplete, and clarify ambiguity.
+   Metadata suggestions do not authorize a change or replace record reads.
+   If the user names a track without
    giving an id, call `integral_list_tracks` (from the
    `integral-workspace` skill) to disambiguate before creating or
    modifying entries. For a known record ID, use `integral_resolve_entry`.
