@@ -213,7 +213,9 @@ sessions receive this policy on their next valid resume.
 
 Static Core reads and registered App reads share one result window: older large
 payloads are cleared beyond five completed-history reads or two current-turn
-reads, with explicit incomplete previews above 16 KiB. Mixed read/write invocation wrappers carry Core-generated
+reads, with explicit incomplete previews above 16 KiB. Up to four complete
+current-turn App read receipts of at most 4 KiB each are also retained for
+synthesis. Mixed read/write invocation wrappers carry Core-generated
 per-call checkpoint metadata; their names are never globally clearable. Unknown
 or legacy classifications and all mutation receipts remain protected. App output
 and model arguments cannot supply this trusted classification. Active read
@@ -229,7 +231,9 @@ the same history policy; this does not retain record bodies or grant access.
 Within the active turn, up to two App tool catalogue previews retain whole
 schemas under a bounded size; incomplete previews do not imply complete coverage.
 Up to sixteen previously authorized individual Entry reads retain bounded identity
-and label previews, rather than their bodies. Previews are evidence from those
+and label previews, rather than their bodies. Up to four batch label reads retain
+identity-only previews of at most 8 KiB each, with truncation made explicit.
+Previews are evidence from those
 reads, not a new authorization; further details require a current authorized read.
 `integral_resolve_entry_labels` resolves up to 50 known Entry IDs in one call,
 checking the bound Workspace and each Entry's current read policy. Missing,

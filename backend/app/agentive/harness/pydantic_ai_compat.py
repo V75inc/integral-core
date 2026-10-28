@@ -821,6 +821,7 @@ class IntegralToolResultCompaction(ClearToolResults):
 
     _navigation_tools = frozenset({"integral_list_apps", "integral_list_tracks"})
     _identity_tools = frozenset({"integral_resolve_entry"})
+    _batch_identity_tools = frozenset({"integral_resolve_entry_labels"})
     _catalogue_tools = frozenset({"integral_list_workspace_tools"})
 
     def _catalogue_preview(self, part):
@@ -875,6 +876,45 @@ class IntegralToolResultCompaction(ClearToolResults):
                 "instruction": "Only identity and label are retained; other fields require a fresh authorized read.",
             },
         )
+
+    def _batch_identity_preview(self, part):
+        """Retain bounded authorized labels without implying a complete batch."""
+        if not isinstance(part.content, dict) or not isinstance(
+            part.content.get("entries"), list
+        ):
+            return replace(part, content=self.placeholder)
+        rows = part.content["entries"]
+        selected, used = [], 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            item = {
+                key: row[key]
+                for key in ("id", "title", "track_id", "url")
+                if isinstance(row.get(key), str) and len(row[key]) <= 512
+            }
+            size = len(json.dumps(item).encode("utf-8")) + 2
+            if used + size > 7680:
+                break
+            selected.append(item)
+            used += size
+        incomplete = len(selected) != len(rows) or any(
+            any(
+                isinstance(row.get(key), str) and len(row[key]) > 512
+                for key in ("id", "title", "track_id", "url")
+            )
+            for row in rows
+            if isinstance(row, dict)
+        )
+        content = {
+            "entries": selected,
+            "identity_preview": True,
+            "preview_incomplete": incomplete,
+            "instruction": "Only authorized labels are retained; request a fresh read for omitted labels or other fields.",
+        }
+        if isinstance(part.content.get("unresolved_count"), int):
+            content["unresolved_count"] = part.content["unresolved_count"]
+        return replace(part, content=content)
 
     def _navigation_preview(self, part):
         """Retain exact addresses, not record bodies, for active read planning."""
@@ -959,12 +999,35 @@ class IntegralToolResultCompaction(ClearToolResults):
             if messages[key[0]].parts[key[1]].tool_name in self._identity_tools
         }
         retained_identities = set(sorted(identities)[-16:])
+        batch_identities = {
+            key
+            for key in active_reads
+            if messages[key[0]].parts[key[1]].tool_name in self._batch_identity_tools
+        }
+        retained_batch_identities = set(sorted(batch_identities)[-4:])
         catalogues = {
             key
             for key in active_reads
             if messages[key[0]].parts[key[1]].tool_name in self._catalogue_tools
         }
         retained_catalogues = set(sorted(catalogues)[-2:])
+        # Small complete App read receipts are useful synthesis evidence. Keep
+        # only a fixed recent window; large receipts still compact as before.
+        # Mixed wrappers qualify only when the broker classified this call as
+        # read, so mutations and legacy metadata retain their existing rules.
+        bounded_app_reads = [
+            key
+            for key in active_reads
+            if messages[key[0]].parts[key[1]].tool_name
+            in {"integral_call_workspace_tool", "integral_invoke_app_operation"}
+            and len(
+                json.dumps(messages[key[0]].parts[key[1]].content, default=str).encode(
+                    "utf-8"
+                )
+            )
+            <= 4096
+        ]
+        retained_app_reads = set(bounded_app_reads[-4:])
         projected = []
         for index, message in enumerate(messages):
             if not isinstance(message, ModelRequest):
@@ -981,8 +1044,14 @@ class IntegralToolResultCompaction(ClearToolResults):
                         part = self._catalogue_preview(part)
                     elif key in catalogues:
                         part = replace(part, content=self.placeholder)
+                    elif key in retained_batch_identities:
+                        part = self._batch_identity_preview(part)
+                    elif key in batch_identities:
+                        part = replace(part, content=self.placeholder)
                     elif key in retained_identities and key not in recent:
                         part = self._identity_preview(part)
+                    elif key in retained_app_reads:
+                        pass
                     elif (
                         (key in identities and key not in retained_identities)
                         or key in navigation
@@ -1043,6 +1112,7 @@ class IntegralToolResultCompaction(ClearToolResults):
         # Identity previews were bounded above; keep their evidence together
         # through the subsequent upstream compaction pass.
         protected_tools |= self._identity_tools
+        protected_tools |= self._batch_identity_tools
         protected_tools |= self._catalogue_tools
         active_compaction = ClearToolResults(
             max_tokens=1,

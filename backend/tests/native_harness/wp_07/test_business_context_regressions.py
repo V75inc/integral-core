@@ -1,5 +1,6 @@
 """Generic context regressions found by replaying a populated Business chat."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -250,6 +251,82 @@ async def test_static_and_dynamic_reads_share_one_active_result_window():
 
 
 @pytest.mark.asyncio
+async def test_small_app_reads_keep_only_a_bounded_recent_evidence_window():
+    """Keep recent complete reads without accumulating unbounded receipts."""
+    wrapper = "integral_call_workspace_tool"
+    messages = [ModelRequest(parts=[UserPromptPart("Compare the records")])]
+    for index in range(6):
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart(wrapper, {}, str(index))]),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            wrapper,
+                            {"output": {"value": str(index), "data": "x" * 1500}},
+                            str(index),
+                            metadata={"integral_effect_v1": "read"},
+                        )
+                    ]
+                ),
+            ]
+        )
+    for index in range(3):
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart("read", {}, f"r{index}")]),
+                ModelRequest(
+                    parts=[ToolReturnPart("read", "data " * 500, f"r{index}")]
+                ),
+            ]
+        )
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({"read"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    returns = [
+        p
+        for m in result
+        for p in m.parts
+        if type(p) is ToolReturnPart and p.tool_name == wrapper
+    ]
+    assert [p.content for p in returns[:2]] == [compactor.placeholder] * 2
+    assert [p.content["output"]["value"] for p in returns[2:]] == ["2", "3", "4", "5"]
+
+
+@pytest.mark.asyncio
+async def test_app_evidence_limit_counts_serialized_unicode_bytes():
+    """Escaped multibyte content cannot bypass the retained read budget."""
+    wrapper = "integral_call_workspace_tool"
+    messages = [
+        ModelRequest(parts=[UserPromptPart("Compare records")]),
+        ModelResponse(parts=[ToolCallPart(wrapper, {}, "app")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    wrapper,
+                    {"output": "é" * 1500},
+                    "app",
+                    metadata={"integral_effect_v1": "read"},
+                )
+            ]
+        ),
+    ]
+    for index in range(3):
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart("read", {}, str(index))]),
+                ModelRequest(parts=[ToolReturnPart("read", "data " * 500, str(index))]),
+            ]
+        )
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({"read"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    assert result[2].parts[0].content == compactor.placeholder
+
+
+@pytest.mark.asyncio
 async def test_active_catalogue_keeps_whole_schemas_with_a_bounded_preview():
     """Discovered schemas survive subsequent reads without hiding truncation."""
     name = "integral_list_workspace_tools"
@@ -323,6 +400,63 @@ async def test_active_resolved_entry_labels_survive_bounded_compaction():
         assert part.content["entry"]["title"] == f"Label {index}"
         assert "body" not in part.content["entry"]
     assert all("body" in p.content["entry"] for p in returns[18:])
+
+
+@pytest.mark.asyncio
+async def test_batch_labels_survive_later_reads_with_bounded_honest_previews():
+    """Keep authorized labels while marking omitted results explicitly."""
+    name = "integral_resolve_entry_labels"
+    messages = [ModelRequest(parts=[UserPromptPart("Compare related records")])]
+    for index in range(5):
+        rows = [
+            {
+                "id": f"n.Entry.{index}-{i}",
+                "title": "label " + "é" * 200,
+                "track_id": "n.Track.test",
+                "url": "/entry",
+                "body": "private",
+            }
+            for i in range(50)
+        ]
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart(name, {}, str(index))]),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            name, {"entries": rows, "unresolved_count": 2}, str(index)
+                        )
+                    ]
+                ),
+            ]
+        )
+    for index in range(3):
+        messages.extend(
+            [
+                ModelResponse(parts=[ToolCallPart("read", {}, f"r{index}")]),
+                ModelRequest(
+                    parts=[ToolReturnPart("read", "data " * 500, f"r{index}")]
+                ),
+            ]
+        )
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name, "read"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    returns = [
+        p
+        for m in result
+        for p in m.parts
+        if type(p) is ToolReturnPart and p.tool_name == name
+    ]
+    assert returns[0].content == compactor.placeholder
+    for part in returns[1:]:
+        preview = part.content
+        assert preview["identity_preview"] and preview["preview_incomplete"]
+        assert preview["unresolved_count"] == 2
+        assert 0 < len(preview["entries"]) < 50
+        assert all("body" not in row for row in preview["entries"])
+        assert len(json.dumps(preview).encode()) < 8192
 
 
 @pytest.mark.asyncio
