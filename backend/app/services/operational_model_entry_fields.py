@@ -404,9 +404,14 @@ def resolve_entry_type_spec(
         for raw in _as_list(
             form_schema.get("fields"), where="entry_type.form_schema.fields"
         ):
-            field = _normalize_field_spec(
-                _as_dict(raw, where="entry_type.form_schema field")
-            )
+            raw_field = _as_dict(raw, where="entry_type.form_schema field")
+            field_key = str(raw_field.get("key") or "").strip()
+            if field_key in known:
+                # The compiled tier is authoritative and already normalized in
+                # its manifest-scoped composite registry. Re-normalizing a known
+                # field here loses that registry and rejects valid composites.
+                continue
+            field = _normalize_field_spec(raw_field)
             field_key = str(field.get("key") or "")
             # Workflow status is normalized separately into the kanban stage
             # field unless the runtime contract explicitly owns `status`.

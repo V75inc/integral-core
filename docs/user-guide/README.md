@@ -65,6 +65,21 @@ If a library or package is available, inspect its description and requirements b
 
 If you need a structure your installation does not provide, ask the resident to draft a design first. Explain the kinds of records, relationships, views, audience, and operations you need. Review the design before asking for implementation.
 
+### Export and import
+
+Open **Manage Apps** or **Manage Tracks**, then **Import / export**. Select one
+or more items and choose **Configuration only** to reuse their structure, or
+**Configuration and data** to include records and attached files. Select related
+items together so their record links can be restored.
+
+To import, choose the downloaded `.integral.zip` file, review its names and counts,
+then select **Import copies**. Copies are private and do not replace existing
+content. Track imports opened inside an App stay inside that App. Sharing,
+credentials and activity history are not transferred. Some installed Apps require
+their original package's migration tools. See [portability details and limits](../platform/resource-portability.md).
+The separate **Import template** action still accepts existing YAML/JSON templates
+and template bundles for the library.
+
 ## 5. Entries: meaningful records
 
 Use titles people will recognize. The title is useful in lists, relations, links, and AI responses. Complete required fields so the record fits its declared type.

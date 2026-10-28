@@ -12,6 +12,8 @@ The [concept](product/CONCEPT.md) states the purpose. The [architecture](product
 
 Start your own workspace with the [local installation and CLI guide](ops/LOCAL_INSTALLATION.md). Then follow the [user guide](user-guide/README.md) for workspaces, Apps and Tracks, records, views, sharing, the resident AI, and approvals.
 
+Use [App and Track export/import](platform/resource-portability.md) to transfer configuration or records and attachments between workspaces.
+
 Understand dependencies and decision evidence with [workspace graph context](product/GRAPH_CONTEXT.md).
 
 ## Build on it
