@@ -142,7 +142,9 @@ async def test_list_tools_returns_catalogue():
     # 124 -> 127: index status and two approval-gated maintenance capabilities.
     # 128 -> 129: read-only native App Home preview.
     # 129 -> 130: content-free workspace inventory under the current read audience.
-    assert len(tools) == 130, len(tools)
+    # 130 -> 131: bounded, permission-checked Entry label resolution.
+    assert len(tools) == 131, len(tools)
+    assert any(tool.name == "integral_resolve_entry_labels" for tool in tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

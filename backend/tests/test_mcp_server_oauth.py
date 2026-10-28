@@ -438,7 +438,9 @@ async def test_mcp_tools_list_authenticated(
     # 124 -> 127: index status and two approval-gated maintenance capabilities.
     # 128 -> 129: read-only native App Home preview.
     # 129 -> 130: content-free workspace inventory under the current read audience.
-    assert len(tools) == 130, len(tools)
+    # 130 -> 131: bounded, permission-checked Entry label resolution.
+    assert len(tools) == 131, len(tools)
+    assert any(tool["name"] == "integral_resolve_entry_labels" for tool in tools)
     assert any(tool["name"] == "integral_open_view" for tool in tools)
 
 

@@ -615,6 +615,7 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
             "integral_query",
             "integral_list_workspace_tools",
             "integral_call_workspace_tool",
+            "integral_resolve_entry_labels",
         }
     )
     assert len(by_name) > 100

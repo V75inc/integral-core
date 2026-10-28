@@ -250,6 +250,82 @@ async def test_static_and_dynamic_reads_share_one_active_result_window():
 
 
 @pytest.mark.asyncio
+async def test_active_catalogue_keeps_whole_schemas_with_a_bounded_preview():
+    """Discovered schemas survive subsequent reads without hiding truncation."""
+    name = "integral_list_workspace_tools"
+    rows = [
+        {"key": f"tool-{index}", "parameters_schema": {"description": "x" * 1200}}
+        for index in range(12)
+    ]
+    messages = [
+        ModelRequest(parts=[UserPromptPart("Compare the records")]),
+        ModelResponse(parts=[ToolCallPart(name, {}, "catalogue")]),
+        ModelRequest(parts=[ToolReturnPart(name, {"tools": rows}, "catalogue")]),
+    ]
+    for index in range(3):
+        messages += [
+            ModelResponse(parts=[ToolCallPart("read", {}, str(index))]),
+            ModelRequest(parts=[ToolReturnPart("read", "data " * 500, str(index))]),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name, "read"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    preview = result[2].parts[0].content
+    assert preview["preview_incomplete"] is True
+    assert 0 < len(preview["tools"]) < len(rows)
+    assert preview["tools"] == rows[: len(preview["tools"])]
+    assert len(str(preview).encode()) < 8192
+    complete_page = compactor._catalogue_preview(
+        ToolReturnPart(
+            name, {"tools": rows[:1], "has_more": True, "next_offset": 1}, "page"
+        )
+    ).content
+    assert complete_page["preview_incomplete"] is True
+    assert complete_page["next_offset"] == 1
+
+
+@pytest.mark.asyncio
+async def test_active_resolved_entry_labels_survive_bounded_compaction():
+    """Related labels stay available without retaining private record fields."""
+    messages = [ModelRequest(parts=[UserPromptPart("Compare the related records")])]
+    for index in range(20):
+        name = "integral_resolve_entry"
+        messages += [
+            ModelResponse(
+                parts=[ToolCallPart(name, {"entry_id": str(index)}, str(index))]
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        name,
+                        {
+                            "entry": {
+                                "id": f"n.Entry.{index}",
+                                "title": f"Label {index}",
+                                "track_id": "n.Track.test",
+                                "body": "sensitive " * 200,
+                            }
+                        },
+                        str(index),
+                    )
+                ]
+            ),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({"integral_resolve_entry"})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    returns = [p for m in result for p in m.parts if type(p) is ToolReturnPart]
+    assert all(p.content == compactor.placeholder for p in returns[:4])
+    for index, part in enumerate(returns[4:18], start=4):
+        assert part.content["identity_preview"] is True
+        assert part.content["entry"]["title"] == f"Label {index}"
+        assert "body" not in part.content["entry"]
+    assert all("body" in p.content["entry"] for p in returns[18:])
+
+
+@pytest.mark.asyncio
 async def test_active_navigation_survives_data_reads_as_bounded_addresses():
     messages = [ModelRequest(parts=[UserPromptPart("What is the current total?")])]
     for index in range(3):

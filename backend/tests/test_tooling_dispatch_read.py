@@ -92,6 +92,25 @@ async def test_dispatch_unknown_tool_rejected():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_batch_entry_labels_uses_bound_workspace(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """Batch dispatch resolves real entries while concealing missing IDs."""
+    user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    entry_id = await _seed_entry(user_id, workspace_id, track_id)
+    result = await dispatch_tool(
+        "integral_resolve_entry_labels",
+        {"entry_ids": [entry_id, "n.Entry.missing"]},
+        principal_id=user_id,
+        scope=workspace_id,
+    )
+    assert not result.is_error, result
+    assert result.data["entries"][0]["id"] == entry_id
+    assert result.data["entries"][0]["title"] == "Seeded Entry"
+    assert result.data["unresolved_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_dispatch_list_tracks_read(bind_fresh_graph_context_for_async_tests):
     """A route-backed read tool dispatches and returns non-error data."""
     auth_user_id, workspace_id, _track_id = await _bootstrap_principal_and_track()

@@ -23,10 +23,16 @@ class TurnProgress:
     _discovery_rounds: int = 0
     _available: frozenset[str] = frozenset()
     _seen_discovery: set[str] = field(default_factory=set, repr=False)
+    _read_count: int = 0
 
     @property
     def should_finalize(self) -> bool:
         return bool(self.reason)
+
+    @property
+    def evidence_review_due(self) -> bool:
+        """Ask for synthesis without cutting off useful reads or mutations."""
+        return self._read_count >= 5
 
     def observe(self, name: str, arguments: Any, result: Any, *, is_read: bool):
         failed = isinstance(result, dict) and bool(
@@ -37,7 +43,9 @@ class TurnProgress:
             self.reason = "Repeated tool failures have not established an answer."
         if not is_read:
             self._reads.clear()
+            self._read_count = 0
             return
+        self._read_count += 1
         self._discovery_rounds = 0
         # Receipt identities and replay bookkeeping are not new evidence.
         evidence = (

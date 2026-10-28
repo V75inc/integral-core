@@ -951,6 +951,22 @@ domains:
           entry_id: {type: string, required: true, desc: "Identifier of the entry to fetch."}
         returns: { entry: object }
         privacy: "PC-3 on the exact entry; PC-5 restricted-stub for anchored privileged tracks."
+      - name: integral_resolve_entry_labels
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Resolve several known related Entry IDs to readable titles in one
+          bounded call. Use this instead of resolving each ID individually
+          when comparing or grouping related records. Only readable Entries
+          in the active Workspace are returned; unresolved_count combines
+          missing, inaccessible, and out-of-scope IDs without distinguishing them.
+          This returns labels only, not the full Entry fields.
+        http: "(service agent_entry_labels.resolve_entry_labels)"
+        policy_action: entry.read
+        params:
+          entry_ids: {type: array, required: true, minItems: 1, maxItems: 50, items: {type: string}, desc: "Known Entry IDs to resolve."}
+        returns: {entries: list, unresolved_count: integer}
       - name: integral_get_related
         status: existing
         op_class: read
@@ -2772,11 +2788,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 132
-  existing_tools: 130    # status: existing
+  total_tools: 133
+  existing_tools: 131    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 58, propose: 73, execute: 1 }
-  by_priority: { P0: 17, P1: 45, P2: 70 }
+  by_op_class: { read: 59, propose: 73, execute: 1 }
+  by_priority: { P0: 17, P1: 46, P2: 70 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

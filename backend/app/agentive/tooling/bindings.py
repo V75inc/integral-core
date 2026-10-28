@@ -3865,6 +3865,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_resolve_entry": ToolBinding(
         _h("app.api.entries", "get_entry"), _pick("entry_id")
     ),
+    "integral_resolve_entry_labels": ToolBinding(
+        service_ref=_h("app.services.agent_entry_labels", "resolve_entry_labels"),
+        service_param_map=_pick("entry_ids"),
+    ),
     # GET /api/entries/{entry_id}/related?relation=<field_key>. The route DOES
     # exist (app/api/entry_relations.py:list_entry_relations); it was deferred
     # only because the stub lacked query_params, which Part A now supplies.

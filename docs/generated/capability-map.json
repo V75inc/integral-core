@@ -542,6 +542,7 @@
         "integral_query_entries",
         "integral_query_spec",
         "integral_resolve_entry",
+        "integral_resolve_entry_labels",
         "integral_save_view",
         "integral_search_cross_track"
       ],
@@ -568,6 +569,7 @@
         "integral_query_entries",
         "integral_query_spec",
         "integral_resolve_entry",
+        "integral_resolve_entry_labels",
         "integral_save_view"
       ],
       "delegates_to": [
@@ -1038,15 +1040,15 @@
     }
   ],
   "counts": {
-    "advertised": 130,
+    "advertised": 131,
     "apps": 6,
     "by_op_class": {
       "execute": 1,
       "propose": 71,
-      "read": 58
+      "read": 59
     },
     "core_skills": 18,
-    "tools": 132
+    "tools": 133
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1615,6 +1617,25 @@
         "integral-insights",
         "integral-scheduling",
         "integral-workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.agent_entry_labels.resolve_entry_labels"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_resolve_entry_labels",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral-insights"
       ],
       "status": "existing"
     },

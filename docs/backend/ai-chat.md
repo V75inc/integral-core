@@ -226,6 +226,15 @@ later data reads: otherwise the model can discover the right Track and then
 guess its name after that discovery disappears. Older inventories expire through
 the same history policy; this does not retain record bodies or grant access.
 
+Within the active turn, up to two App tool catalogue previews retain whole
+schemas under a bounded size; incomplete previews do not imply complete coverage.
+Up to sixteen previously authorized individual Entry reads retain bounded identity
+and label previews, rather than their bodies. Previews are evidence from those
+reads, not a new authorization; further details require a current authorized read.
+`integral_resolve_entry_labels` resolves up to 50 known Entry IDs in one call,
+checking the bound Workspace and each Entry's current read policy. Missing,
+out-of-scope and denied IDs contribute to one unresolved count.
+
 If native tier escalation stops while Core's conservative admission estimate is
 still too large, the cheap tier clears older classified reads once more, keeping
 the newest result. It never discards current user input, approvals or effects.

@@ -708,11 +708,29 @@ def build_integral_run_instructions(
             "capability is missing or refused, explain the precise evidence gap; "
             "do not enumerate unrelated records or keep rediscovering the same tools. "
             "Use a corrected argument or a genuinely different authorized approach "
-            "after failure. When results suffice, answer immediately. For a count "
-            "question, give the count and relevant scope, not a roster or unsolicited "
+            "after failure. When results suffice, answer immediately. "
+            "When several authorized reads are independent and their arguments "
+            "are already known, request them together rather than serially. Do "
+            "not batch a read that depends on another result or bypass discovery. "
+            "For several known related Entry IDs, use the available batch label "
+            "resolver when only their readable titles are needed; resolve an "
+            "individual Entry when its full details are needed. "
+            "For a count question, give the count and relevant scope, not a roster or unsolicited "
             "analysis. Do not infer causes or intent from numeric values and statuses "
             "alone, or contradict explicit coverage flags in the returned evidence."
         )
+        if turn_progress and turn_progress.evidence_review_due:
+            blocks.append(
+                "Integral evidence checkpoint: review the evidence already gathered "
+                "against the user's question. If it supports an answer, respond now "
+                "with relevant sources and limitations. If essential evidence is "
+                "missing, identify the specific source or fact needed; use a further "
+                "authorized read only when it can reasonably supply that evidence. "
+                "Otherwise explain what is known and what is missing. Do not treat "
+                "sparse search results, inaccessible data, or an incomplete page as "
+                "proof of absence. Continue required pagination, verification, and "
+                "authorized actions when needed; this checkpoint is not a tool limit."
+            )
         if final_response_reserved(ctx) or (
             turn_progress and turn_progress.should_finalize
         ):
@@ -802,6 +820,61 @@ class IntegralToolResultCompaction(ClearToolResults):
     active_keep_pairs: int = 2
 
     _navigation_tools = frozenset({"integral_list_apps", "integral_list_tracks"})
+    _identity_tools = frozenset({"integral_resolve_entry"})
+    _catalogue_tools = frozenset({"integral_list_workspace_tools"})
+
+    def _catalogue_preview(self, part):
+        """Retain whole tool schemas within a fixed active-turn budget."""
+        if not isinstance(part.content, dict) or not isinstance(
+            part.content.get("tools"), list
+        ):
+            return replace(part, content=self.placeholder)
+        rows = part.content["tools"]
+        selected, used = [], 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            size = len(json.dumps(row, default=str).encode("utf-8")) + 2
+            if used + size > 7680:
+                break
+            selected.append(row)
+            used += size
+        truncated = len(selected) != len(rows)
+        content = {
+            "tools": selected,
+            "preview_incomplete": truncated or bool(part.content.get("has_more")),
+            "instruction": "These are discovered tool schemas, not records. Re-read the catalogue when another schema or page is needed.",
+        }
+        if not truncated:
+            for key in ("count", "returned_count", "has_more", "next_offset"):
+                if key in part.content:
+                    content[key] = part.content[key]
+        return replace(part, content=content)
+
+    def _identity_preview(self, part):
+        """Keep only already-authorized identity and label evidence for synthesis."""
+        if not isinstance(part.content, dict):
+            return replace(part, content=self.placeholder)
+        entry = part.content.get("entry")
+        if not isinstance(entry, dict):
+            return replace(part, content=self.placeholder)
+        identity = {
+            key: entry[key][:512]
+            for key in ("id", "title", "track_id", "action_url", "url")
+            if isinstance(entry.get(key), str)
+        }
+        return replace(
+            part,
+            content={
+                "entry": identity,
+                "identity_preview": True,
+                "preview_truncated": any(
+                    isinstance(entry.get(key), str) and len(entry[key]) > 512
+                    for key in ("id", "title", "track_id", "action_url", "url")
+                ),
+                "instruction": "Only identity and label are retained; other fields require a fresh authorized read.",
+            },
+        )
 
     def _navigation_preview(self, part):
         """Retain exact addresses, not record bodies, for active read planning."""
@@ -880,6 +953,18 @@ class IntegralToolResultCompaction(ClearToolResults):
             if messages[key[0]].parts[key[1]].tool_name in self._navigation_tools
         }
         retained_navigation = set(sorted(navigation)[-2:])
+        identities = {
+            key
+            for key in active_reads
+            if messages[key[0]].parts[key[1]].tool_name in self._identity_tools
+        }
+        retained_identities = set(sorted(identities)[-16:])
+        catalogues = {
+            key
+            for key in active_reads
+            if messages[key[0]].parts[key[1]].tool_name in self._catalogue_tools
+        }
+        retained_catalogues = set(sorted(catalogues)[-2:])
         projected = []
         for index, message in enumerate(messages):
             if not isinstance(message, ModelRequest):
@@ -892,7 +977,17 @@ class IntegralToolResultCompaction(ClearToolResults):
                     text = str(part.content)
                     if key in retained_navigation:
                         part = self._navigation_preview(part)
-                    elif key in navigation or (key not in recent and len(text) > 1024):
+                    elif key in retained_catalogues:
+                        part = self._catalogue_preview(part)
+                    elif key in catalogues:
+                        part = replace(part, content=self.placeholder)
+                    elif key in retained_identities and key not in recent:
+                        part = self._identity_preview(part)
+                    elif (
+                        (key in identities and key not in retained_identities)
+                        or key in navigation
+                        or (key not in recent and len(text) > 1024)
+                    ):
                         part = replace(part, content=self.placeholder)
                     elif len(text) > 16_384:
                         part = replace(
@@ -945,6 +1040,10 @@ class IntegralToolResultCompaction(ClearToolResults):
         # Clearing those a second time makes a discovered Track disappear while
         # the model is still preparing its read, causing guesses and retries.
         protected_tools |= self._navigation_tools
+        # Identity previews were bounded above; keep their evidence together
+        # through the subsequent upstream compaction pass.
+        protected_tools |= self._identity_tools
+        protected_tools |= self._catalogue_tools
         active_compaction = ClearToolResults(
             max_tokens=1,
             keep_pairs=2,
