@@ -598,7 +598,7 @@ async def unmount_mcp_connector(connector: Any) -> bool:
 
 
 def _awaiting_quickbooks_oauth(auth_state: Dict[str, Any]) -> bool:
-    """QuickBooks MCP row that does not yet have an Intuit token file.
+    """Return whether a QuickBooks MCP row still lacks an Intuit token file.
 
     Install creates the connector before the OAuth callback. Spawning
     ``npx`` at boot for that row spends the first (slow) package build on
