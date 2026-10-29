@@ -19,6 +19,15 @@ logger = logging.getLogger(__name__)
 # Default per-call / health-probe budget (seconds).
 _DEFAULT_TIMEOUT = 30.0
 
+# First stdio spawn of a catalog package such as
+# ``npx -y github:intuit/quickbooks-online-mcp-server`` runs that package's
+# ``prepare`` build before the process speaks MCP. A cold build on this
+# host takes about a minute. The 30s budget killed the process mid-install,
+# left a partial npx cache, and the approved tool call never reached Intuit.
+# Tool calls spawn a new process too, so they share this budget. A warm
+# process still returns as soon as it responds.
+_STDIO_DISCOVERY_TIMEOUT = 150.0
+
 # ADR-009 §8 health vocabulary — the ONLY values written to
 # ``Connector.health_status``. The stdio path used to write "healthy" while the
 # HTTP path wrote "ok", so any consumer switching on the field was wrong for
@@ -54,6 +63,22 @@ def guarded_mcp_http_client(
     from app.services.url_safety import guarded_async_client
 
     return guarded_async_client(headers=headers, timeout=timeout, auth=auth)
+
+
+def _session_timeout(auth_state: Dict[str, Any]) -> float:
+    """Per-request budget for one MCP session, including stdio startup.
+
+    HTTP sessions have no build step. Stdio sessions do: ``initialize`` and
+    ``call_tool`` cannot start until ``npx`` has finished preparing the
+    package, and that work is inside the same read timeout.
+    """
+    try:
+        transport = _transport_from_auth(auth_state)
+    except ValueError:
+        return _DEFAULT_TIMEOUT
+    if transport == "stdio":
+        return _STDIO_DISCOVERY_TIMEOUT
+    return _DEFAULT_TIMEOUT
 
 
 def _transport_from_auth(auth_state: Dict[str, Any]) -> str:
@@ -312,7 +337,11 @@ async def open_mcp_session(
 
 async def list_remote_tools(auth_state: Dict[str, Any]) -> List[RemoteTool]:
     """Connect, ``list_tools``, return normalized RemoteTool list."""
-    async with open_mcp_session(auth_state) as session:
+    from app.agentive.services.connector_registry_node import decrypt_auth_state
+
+    state = decrypt_auth_state(auth_state)
+    timeout = _session_timeout(state)
+    async with open_mcp_session(auth_state, timeout=timeout) as session:
         result = await session.list_tools()
         tools: List[RemoteTool] = []
         for t in getattr(result, "tools", None) or []:
@@ -378,7 +407,10 @@ async def call_remote_tool(
     arguments: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """Connect, ``call_tool``, return structured content or text payload."""
-    async with open_mcp_session(auth_state) as session:
+    from app.agentive.services.connector_registry_node import decrypt_auth_state
+
+    timeout = _session_timeout(decrypt_auth_state(auth_state))
+    async with open_mcp_session(auth_state, timeout=timeout) as session:
         result = await session.call_tool(tool_name, arguments=dict(arguments or {}))
     if bool(getattr(result, "isError", False)):
         # Protocol failure is authoritative even when the server supplies

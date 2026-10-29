@@ -376,8 +376,11 @@ async def test_bundle_rehydration_uses_active_definition_not_unactivated_profile
 
 
 @pytest.mark.asyncio
-async def test_bundle_rehydration_uses_healed_attached_manifest(monkeypatch):
-    """A repaired package layer must supersede a stale definition snapshot."""
+@pytest.mark.parametrize("has_definition", [False, True])
+async def test_bundle_rehydration_limits_library_backfill_to_legacy_apps(
+    monkeypatch, has_definition
+):
+    """Library drift cannot replace an activated App's reviewed local contract."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -414,18 +417,15 @@ async def test_bundle_rehydration_uses_healed_attached_manifest(monkeypatch):
     monkeypatch.setattr(
         application_definitions,
         "get_active_application_definition",
-        AsyncMock(return_value=stale_definition),
+        AsyncMock(return_value=stale_definition if has_definition else None),
     )
     monkeypatch.setattr(
         operational_model_runtime,
         "compile_canonical_manifest",
         lambda **_kwargs: attached.manifest,
     )
-    monkeypatch.setattr(
-        install_hook,
-        "_heal_stripped_operational_layer",
-        AsyncMock(return_value=True),
-    )
+    heal = AsyncMock(return_value=True)
+    monkeypatch.setattr(install_hook, "_heal_stripped_operational_layer", heal)
     monkeypatch.setattr(
         install_hook, "register_bundle_on_install", capture_registration
     )
@@ -433,7 +433,12 @@ async def test_bundle_rehydration_uses_healed_attached_manifest(monkeypatch):
     await install_hook.rehydrate_all_installed_bundles()
 
     assert len(captured) == 1
-    assert [query["key"] for query in captured[0]["app"]["queries"]] == ["current"]
+    expected = "stale" if has_definition else "current"
+    assert [query["key"] for query in captured[0]["app"]["queries"]] == [expected]
+    if has_definition:
+        heal.assert_not_awaited()
+    else:
+        heal.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -13,8 +13,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-# backend/app/connectors/stdio_env.py → backend/.data/mcp-stdio
-TOKEN_STORE_ROOT = Path(__file__).resolve().parents[2] / ".data" / "mcp-stdio"
+# Hosts with read-only source/package mounts must select a persistent writable
+# directory. Keep the existing default so current token-file references survive.
+TOKEN_STORE_ROOT = Path(
+    os.getenv("MCP_STDIO_TOKEN_STORE_ROOT", "").strip()
+    or Path(__file__).resolve().parents[2] / ".data" / "mcp-stdio"
+)
 
 _QB_REQUIRED_AFTER_FILL = (
     "QUICKBOOKS_CLIENT_ID",

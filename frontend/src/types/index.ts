@@ -278,6 +278,8 @@ export interface OperationalModelFieldSpec {
      */
     target?: 'entry' | 'track';
     target_entry_types?: string[];
+    target_app?: string;
+    allow_cross_app?: boolean;
     target_track_types?: string[];
     /** Phase 3.1 (ANC-02). When target='track', the template key under the
      * containing App's ``app.track_templates`` registry that the auto-
