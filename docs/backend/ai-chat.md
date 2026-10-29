@@ -19,6 +19,22 @@ effect receipts before starting; unresolved effects cannot be bypassed by
 discarding model history. The product transcript and durable receipts remain
 intact. A routine that needs a historical comparison must explicitly retrieve
 its authorized prior evidence as well as read current state.
+Saved schedules may refer to substrate skill keys such as `app__skill_key`.
+For each agent fire, Core annotates references from the current authorized
+skill library with the exact portable IDs exposed by native Pydantic Skills.
+The instruction text, literal record values, mandate fingerprint and review remain unchanged;
+missing or revoked skills are not guessed or granted. Native capability
+loading and the live Core broker still decide whether the work may execute.
+
+App-bundled `default_schedules` retain their `name`, selected `skill`, `params`,
+cadence and description. A selected skill must be registered under the same
+App; it does not mean "run every skill assigned to this agent". Parameters
+are supplied as data, not write authority. During authorized App registration,
+an existing routine is repaired only if its instruction still exactly matches
+the old generated all-skills instruction. Owner-edited tasks and cancelled
+tasks remain unchanged; repairs preserve status, cadence, run budgets and
+write grants. Previously queued work with the old mandate must fail admission.
+An unavailable schedule lookup never causes a replacement routine to be created.
 The lightweight saved-reminder path is only for fixed text, such as a personal
 nudge; reminder delivery does not call a model or execute task instructions.
 

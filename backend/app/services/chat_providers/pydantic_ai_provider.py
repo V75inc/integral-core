@@ -2006,6 +2006,18 @@ class PydanticAIProvider:
             (doc.name, doc.description, doc.body)
             for doc in skill_profile.overlay_skill_docs
         )
+        if not ctx.text and (ctx.extra_data or {}).get("origin") == "routine_task":
+            from app.agentive.harness.skill_sources import project_skill_references
+
+            # Saved App schedules predate the portable Agent Skills names.
+            # Project their references for the native loader without changing
+            # the reviewed mandate, its fingerprint, or the user's dialogue.
+            ctx = replace(
+                ctx,
+                system_context=project_skill_references(
+                    ctx.system_context or "", (key for key, _, _ in skill_sources)
+                ),
+            )
         requested_run_id = str((ctx.extra_data or {}).get("run_id") or "").strip()
         if not requested_run_id:
             raise ValueError("native provider requires the host execution run ID")
@@ -2293,6 +2305,7 @@ class PydanticAIProvider:
                     },
                 )
             run_state: dict[str, Any] = {
+                "scheduled_instruction": ctx.system_context or "",
                 "turn_progress": TurnProgress(),
                 "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
                 "adaptive_tokens": (
@@ -2805,7 +2818,7 @@ class PydanticAIProvider:
                     from app.services.scheduled_turn import ROUTINE_EVENT_INSTRUCTIONS
 
                     host_outcome = ROUTINE_EVENT_INSTRUCTIONS + (
-                        ctx.system_context or ""
+                        run_state.get("scheduled_instruction", ctx.system_context or "")
                     )
                 if (
                     not ctx.text

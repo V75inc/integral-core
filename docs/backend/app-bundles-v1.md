@@ -38,6 +38,20 @@ States include installing, awaiting_settings, active, paused, uninstalled, and f
 
 Pause withdraws active behavior as required. Uninstall checks dependencies and references; a forced path is explicitly destructive and emits its own audit action. Upgrades consider schema, definitions, requirements, and instance customizations rather than blindly replacing all state.
 
+## Scheduled workflows
+
+An agent's `default_schedules` selects one registered same-App `skill` per
+schedule, with its `name`, `cron`, `description` and optional `params` retained.
+The selected skill defines the work; the agent's full skill list is not a task
+list. Parameters are data and grant no additional authority. Legacy schedules
+without a selected skill retain their previous agent-level fallback.
+
+Authorized registration can repair an unchanged legacy-generated instruction,
+preserving owner controls and write grants. It must not replace custom task text,
+revive cancelled work or duplicate schedules when persistence is unavailable.
+See [resident chat and scheduling](ai-chat.md#scheduled-reports-and-literal-reminders)
+for native skill references, approval boundaries, run limits and delivery.
+
 ## Boundary
 
 Bundles never import private Core services or models into tools. They use ToolContext and published contracts. Tool/hook registrations are workspace/package owned, collision-checked, and removed through lifecycle. Skill overlays include active accessible Apps only. Long work leaves the request through `ctx.enqueue_job`: a durable, resumable background job that runs as the same person in the same workspace; see [Background jobs for Apps](../platform/background-app-jobs.md).

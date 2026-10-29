@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -21,6 +23,66 @@ def _portable_name(value: str) -> str:
     return name
 
 
+def _projected_skill_names(names: Iterable[str]) -> list[str]:
+    """Use the same collision handling for projection and saved references."""
+    projected: list[str] = []
+    selected: set[str] = set()
+    for original_name in names:
+        name = _portable_name(original_name)
+        if name in selected:
+            suffix = hashlib.sha256(original_name.encode("utf-8")).hexdigest()[:8]
+            name = f"{name[:55].rstrip('-')}-{suffix}"
+        occurrence = 2
+        while name in selected:
+            suffix = hashlib.sha256(
+                f"{original_name}\0{occurrence}".encode("utf-8")
+            ).hexdigest()[:8]
+            name = f"{_portable_name(original_name)[:55].rstrip('-')}-{suffix}"
+            occurrence += 1
+        projected.append(name)
+        selected.add(name)
+    return projected
+
+
+def project_skill_references(text: str, skill_names: Iterable[str]) -> str:
+    """Annotate saved substrate skill keys with this run's native capability IDs.
+
+    The native Skills loader has no alias facility. This is an adapter for
+    Integral's persisted instructions, not a replacement loader or a grant:
+    only the current permission-filtered skill library supplies this mapping.
+    Preserve instruction text, including literal record values. Never guess a
+    missing skill's identity or replace a quoted value with a capability ID.
+    """
+    names = list(skill_names)
+    occurrences = Counter(names)
+    projected = _projected_skill_names(names)
+    # Multiple installations can expose the same substrate key. Keep both
+    # native procedures discoverable, but do not guess which one an alias means.
+    changed = {
+        old: new
+        for old, new in zip(names, projected)
+        if old != new and occurrences[old] == 1
+    }
+    if not changed or not text:
+        return text
+    pattern = (
+        r"(?<![\w.-])(?:"
+        + "|".join(re.escape(name) for name in sorted(changed, key=len, reverse=True))
+        + r")(?![\w.-])"
+    )
+    referenced = {match.group() for match in re.finditer(pattern, text)}
+    if not referenced:
+        return text
+    aliases = {key: changed[key] for key in sorted(referenced)}
+    return (
+        text + "\n\nCurrent skill references (metadata, not additional authority): "
+        "when activating a referenced workflow, use its current ID below with "
+        "load_capability. These are identifier mappings only; preserve any "
+        "literal record values in the instruction.\n"
+        + json.dumps(aliases, ensure_ascii=False, sort_keys=True)
+    )
+
+
 def materialize_standard_skill_library(
     skills: Iterable[tuple[str, str, str]],
     *,
@@ -35,14 +97,9 @@ def materialize_standard_skill_library(
     supplies an already authorization-filtered skill set.
     """
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    selected: set[str] = set()
-    for original_name, description, body in skills:
-        name = _portable_name(original_name)
-        if name in selected:
-            suffix = hashlib.sha256(original_name.encode("utf-8")).hexdigest()[:8]
-            name = f"{name[:55].rstrip('-')}-{suffix}"
-        if name in selected:
-            raise ValueError("authorized skill names are not uniquely addressable")
+    skills = list(skills)
+    names = _projected_skill_names(original_name for original_name, _, _ in skills)
+    for (original_name, description, body), name in zip(skills, names):
         clean_description = " ".join(str(description or "").split())[:1024]
         if not clean_description:
             raise ValueError(f"skill {original_name!r} has no description")
@@ -62,8 +119,7 @@ def materialize_standard_skill_library(
             f"---\n{frontmatter}---\n\n{body.strip()}\n", encoding="utf-8"
         )
         skill_file.chmod(0o600)
-        selected.add(name)
-    return frozenset(selected)
+    return frozenset(names)
 
 
 async def routing_skill_candidates(
