@@ -45,3 +45,11 @@ edits. Cancelling leaves the parent draft intact. Uncertain results retain exact
 command identity; withheld results do not verify current state. User/workspace
 changes replace the drawer and partition query/intent state. Apps own kind names,
 forms, fields, commands and permissions; Core supplies the neutral renderer.
+
+Drawer selection and recovery also belong to the current App, Track, parent
+Entry, contribution mode and field/operation binding. Changing that identity
+discards late responses before they can patch another draft. Normal edits to
+the same draft retain the pending command. A withheld completed result stays
+visible and locked after closing/reopening; **Start a new record** explicitly
+acknowledges a separate task with a fresh command identity. Uncertain writes
+continue to retry their exact original command instead.

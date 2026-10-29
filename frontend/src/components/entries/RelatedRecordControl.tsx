@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -52,12 +51,31 @@ export function RelatedRecordControl(props: RelatedRecordControlProps) {
   const scope = useScopeOptional();
   const principalId = auth?.user?.id || '';
   const workspaceId = scope?.scope?.workspaceId || '';
+  const lifecycle = useContributionLifecycle();
+  // A pending create/read belongs to one parent contribution, not just its
+  // user and workspace. Changing that parent replaces all recovery/selection
+  // state before an old response can patch the new draft.
+  const sessionKey = JSON.stringify([
+    principalId,
+    workspaceId,
+    lifecycle?.appId,
+    lifecycle?.trackId,
+    lifecycle?.entryId,
+    lifecycle?.entryTypeKey,
+    lifecycle?.mode,
+    lifecycle?.placement,
+    props.props.field.key,
+    props.config.kind,
+    props.config.form_operation,
+    props.config.create_operation,
+  ]);
   return (
     <RelatedRecordSession
-      key={`${principalId}:${workspaceId}`}
+      key={sessionKey}
       {...props}
       principalId={principalId}
       workspaceId={workspaceId}
+      sessionKey={sessionKey}
     />
   );
 }
@@ -68,7 +86,12 @@ function RelatedRecordSession({
   renderField: Field,
   principalId,
   workspaceId,
-}: RelatedRecordControlProps & { principalId: string; workspaceId: string }) {
+  sessionKey,
+}: RelatedRecordControlProps & {
+  principalId: string;
+  workspaceId: string;
+  sessionKey: string;
+}) {
   const lifecycle = useContributionLifecycle();
   const latestLifecycle = useRef(lifecycle);
   useLayoutEffect(() => {
@@ -76,7 +99,7 @@ function RelatedRecordSession({
   }, [lifecycle]);
   const appId = lifecycle?.appId || '';
   const mounted = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
@@ -114,6 +137,22 @@ function RelatedRecordSession({
       }
     }
     intent.current = undefined;
+  };
+  const clearForm = () => {
+    setValues({});
+    setError('');
+    setCandidates([]);
+    setDuplicateConfirmed(false);
+  };
+  const startNewRecord = () => {
+    // Only a known completed outcome can be acknowledged as a separate task.
+    // An uncertain write must retain its exact intent for safe replay.
+    if (!withheld || busy) return;
+    releaseIntent();
+    setWithheld(false);
+    setUncertain(false);
+    setSearch('');
+    clearForm();
   };
   const trigger = useRef<HTMLButtonElement | null>(null);
   const selection = useRef('');
@@ -259,7 +298,7 @@ function RelatedRecordSession({
           const digest = Array.from(new Uint8Array(hash), (byte) =>
             byte.toString(16).padStart(2, '0')
           ).join('');
-          storageKey = `integral.related.intent:${principalId}:${workspaceId}:${appId}:${config.create_operation}:${digest}`;
+          storageKey = `integral.related.intent:${sessionKey}:${digest}`;
           try {
             key = sessionStorage.getItem(storageKey) || key;
             sessionStorage.setItem(storageKey, key);
@@ -419,13 +458,10 @@ function RelatedRecordSession({
           type="button"
           size="xs"
           variant="ghost"
+          disabled={busy || uncertain}
           onClick={(event) => {
             trigger.current = event.currentTarget;
-            setValues({});
-            setError('');
-            setCandidates([]);
-            setDuplicateConfirmed(false);
-            setWithheld(false);
+            if (!withheld) clearForm();
             setOpen(true);
           }}
         >
@@ -449,6 +485,12 @@ function RelatedRecordSession({
               <div role="alert">
                 <Text variant="body">{error}</Text>
               </div>
+            )}
+            {withheld && (
+              <Text variant="body-sm" tone="muted">
+                The earlier action is complete. Start a new record only if you
+                need a separate one.
+              </Text>
             )}
             {form.isPending && (
               <div role="status">
@@ -554,6 +596,16 @@ function RelatedRecordSession({
               )}
             </fieldset>
             <div className="flex flex-wrap gap-2">
+              {withheld && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={startNewRecord}
+                >
+                  Start a new record
+                </Button>
+              )}
               <Button
                 type="button"
                 loading={busy}
