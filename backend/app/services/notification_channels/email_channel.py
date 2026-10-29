@@ -92,15 +92,35 @@ class EmailChannel:
         # bucket for the user's inbox).
         subject = payload.get("subject") or f"Integral: {kind}"
 
-        ok = await send_email(
-            EmailMessage(
-                to=recipient,
-                subject=subject,
-                text=txt,
-                html=html,
-            )
+        from app.middleware.agentive_scope import get_scope_key
+        from app.services.email_delivery import enqueue_email
+
+        workspace_id = str(
+            (notification.metadata or {}).get("email_workspace_id")
+            or get_scope_key()
+            or ""
         )
-        return ChannelDispatchResult(
-            channel="email",
-            status="sent" if ok else "failed",
+        message = EmailMessage(
+            to=recipient,
+            subject=subject,
+            text=txt,
+            html=html,
+            workspace_id=workspace_id or None,
+            source_kind="notification",
+            source_id=notification.id,
+            actor_user_id=user.id,
         )
+        if workspace_id:
+            try:
+                result = await enqueue_email(
+                    message, idempotency_key=f"notification:{notification.id}:email"
+                )
+                return ChannelDispatchResult(
+                    channel="email", status="queued", external_ref=result.message_id
+                )
+            except Exception:
+                return ChannelDispatchResult(
+                    channel="email", status="failed", reason="email_enqueue_failed"
+                )
+        ok = await send_email(message)
+        return ChannelDispatchResult(channel="email", status="sent" if ok else "failed")

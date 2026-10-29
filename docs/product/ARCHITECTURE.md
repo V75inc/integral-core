@@ -99,3 +99,11 @@ PostgreSQL retrieval uses [declarative, versioned passage indexing](../backend/s
 The architecture aims to make application generation increasingly complete while keeping Core generic. Remaining work includes public bounded-work admission, provider and connector matrices, comprehensive interruption/recovery qualification, and wider shared-worker acceptance.
 
 A feature's implementation, package publication, CI, local browser acceptance, and production qualification are separate facts. The [qualification guide](../ops/QUALIFICATION.md) records that distinction. The [roadmap](ROADMAP.md) describes priorities without attaching invented release dates.
+
+
+### Workspace outbound email
+
+Core owns native Resend, SendGrid and SMTP configuration independently of Apps.
+Workspace email uses encrypted intents and leased dispatch; account recovery
+remains immediate platform-only mail. See [workspace email](../platform/workspace-email.md)
+for administration, status semantics, signed events and legacy migration.

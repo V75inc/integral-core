@@ -44,6 +44,24 @@ PHASE_2_7_ENDPOINTS: List[Dict[str, object]] = [
         "test_file_glob": "test_design_decision_endpoints",
         "phase": "October QA",
     },
+    *[
+        {
+            "path": "/api/workspace/email" + suffix,
+            "methods": [method],
+            "test_file_glob": "test_native_email_api*",
+            "phase": "Native email",
+            **({"exempt_axes": ["invalid"]} if suffix == "" else {}),
+        }
+        for suffix, method in [
+            ("", "GET"),
+            ("/draft", "PUT"),
+            ("/test", "POST"),
+            ("/activate", "POST"),
+            ("/disable", "POST"),
+            ("/history", "GET"),
+            ("/webhooks/{connection_id}", "POST"),
+        ]
+    ],
     # Phase 2 ---------------------------------------------------------
     {
         "path": "/api/audit-log",
@@ -351,6 +369,13 @@ def test_phase_2_7_endpoint_coverage_audit() -> None:
 # carries forward.
 # ---------------------------------------------------------------------------
 PHASE_7_NEW_FILES: List[str] = [
+    "app/api/workspace_email.py",
+    "app/schemas/workspace_email.py",
+    "app/services/email_configuration.py",
+    "app/services/email_delivery.py",
+    "app/services/email_events.py",
+    "app/services/email_migration.py",
+    "app/services/email_providers.py",
     "app/api/approvals.py",
     "app/services/approval_executor.py",
     "app/services/approval_ttl.py",

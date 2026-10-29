@@ -335,8 +335,15 @@ class Settings(BaseSettings):
     CREDENTIALS_DELIVERY_MAX_ATTEMPTS: int = 5
 
     # ===== Transactional email =====
-    # Provider: "console" | "resend" | "sendgrid"
+    # Provider: "console" (DEBUG only) | "resend" | "sendgrid" | "smtp"
     EMAIL_PROVIDER: str = "console"
+    EMAIL_WEBHOOK_BASE_URL: str = ""
+    EMAIL_HISTORY_RETENTION_DAYS: int = 90
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_TLS: str = "starttls"
     RESEND_API_KEY: Optional[str] = None
     SENDGRID_API_KEY: Optional[str] = None
     EMAIL_FROM: str = "noreply@gointegral.app"

@@ -28,6 +28,7 @@ from typing import Optional
 import httpx
 
 from app.config import settings
+from app.schemas.workspace_email import EmailConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,9 @@ logger = logging.getLogger(__name__)
 PLATFORM_ONLY_SOURCE_KINDS = frozenset(
     {"password_reset", "email_verification", "credentials_delivery_verification"},
 )
+
+
+SENSITIVE_SOURCE_KINDS = PLATFORM_ONLY_SOURCE_KINDS | frozenset({"member_provision"})
 
 
 @dataclass
@@ -59,6 +63,8 @@ class _SendCredentials:
     from_name: str
     api_key: Optional[str] = None
     default_reply_to: Optional[str] = None
+    native_configuration: Optional[EmailConfiguration] = None
+    connection_id: str = "platform"
 
 
 @dataclass
@@ -66,6 +72,7 @@ class _SendOutcome:
     success: bool
     error: Optional[str] = None
     provider_message_id: Optional[str] = None
+    status: Optional[str] = None
 
 
 async def _resolve_send_credentials(message: EmailMessage) -> _SendCredentials:
@@ -73,15 +80,9 @@ async def _resolve_send_credentials(message: EmailMessage) -> _SendCredentials:
     ws_id = str(message.workspace_id or "").strip()
     kind = str(message.source_kind or "").strip()
     if ws_id and kind not in PLATFORM_ONLY_SOURCE_KINDS:
-        try:
-            from app.services.workspace_email_delivery import resolve_active_delivery
+        from app.services.workspace_email_delivery import resolve_active_delivery
 
-            delivery = await resolve_active_delivery(ws_id)
-        except Exception:
-            logger.exception(
-                "email_service: workspace delivery resolve failed ws=%s", ws_id
-            )
-            delivery = None
+        delivery = await resolve_active_delivery(ws_id)
         if delivery is not None:
             return _SendCredentials(
                 provider=delivery.provider,
@@ -89,6 +90,18 @@ async def _resolve_send_credentials(message: EmailMessage) -> _SendCredentials:
                 from_name=delivery.from_name,
                 api_key=delivery.api_key,
                 default_reply_to=delivery.reply_to,
+                connection_id=(
+                    delivery.connection_id
+                    if isinstance(getattr(delivery, "connection_id", None), str)
+                    else "platform"
+                ),
+                native_configuration=(
+                    getattr(delivery, "configuration", None)
+                    if isinstance(
+                        getattr(delivery, "configuration", None), EmailConfiguration
+                    )
+                    else None
+                ),
             )
 
     platform = (settings.EMAIL_PROVIDER or "console").strip().lower()
@@ -121,12 +134,33 @@ async def send_email(message: EmailMessage) -> bool:
     sends through that org's provider/from address (except platform-only
     ``source_kind`` values).
     """
-    creds = await _resolve_send_credentials(message)
+    try:
+        creds = await _resolve_send_credentials(message)
+    except Exception:
+        logger.warning("email_service: configured workspace delivery is unavailable")
+        return False
     provider = creds.provider
     outcome = _SendOutcome(success=False, error="unknown provider outcome")
     reply_to = _effective_reply_to(message, creds)
     try:
-        if provider == "sendgrid":
+        if creds.native_configuration is not None or provider == "smtp":
+            import secrets
+
+            from app.services.email_delivery import platform_configuration
+            from app.services.email_providers import deliver
+
+            result = await deliver(
+                creds.native_configuration or platform_configuration(),
+                message,
+                secrets.token_hex(16),
+            )
+            outcome = _SendOutcome(
+                success=result.status == "accepted",
+                error=result.error,
+                provider_message_id=result.provider_message_id,
+                status=result.status,
+            )
+        elif provider == "sendgrid":
             outcome = await _send_via_sendgrid(message, creds, reply_to=reply_to)
         elif provider == "resend":
             outcome = await _send_via_resend(message, creds, reply_to=reply_to)
@@ -138,14 +172,16 @@ async def send_email(message: EmailMessage) -> bool:
             )
         else:
             outcome = _SendOutcome(success=False, error="Unsupported email provider")
-    except Exception as exc:
-        logger.exception(
+    except Exception:
+        logger.warning(
             "email_service: provider=%s failed to send to=%s subject=%r",
             provider,
             message.to,
             message.subject,
         )
-        outcome = _SendOutcome(success=False, error=str(exc)[:500])
+        outcome = _SendOutcome(
+            success=False, error="Email provider request failed", status="unknown"
+        )
 
     platform_mail_log_id = await _persist_mail_attempt(
         message, provider, creds, outcome
@@ -163,29 +199,13 @@ async def _persist_mail_attempt(
     outcome: _SendOutcome,
 ) -> Optional[str]:
     try:
-        from app.services.mail_log import record_mail_attempt
-    except ModuleNotFoundError:
-        return None
-    try:
-        return await record_mail_attempt(
-            to=message.to,
-            from_email=creds.from_email,
-            from_name=creds.from_name,
-            reply_to=message.reply_to,
-            subject=message.subject,
-            text=message.text,
-            html=message.html,
-            provider=provider,
-            status="sent" if outcome.success else "failed",
-            error=outcome.error,
-            provider_message_id=outcome.provider_message_id,
+        from app.services.email_delivery import retain_immediate_attempt
+
+        return await retain_immediate_attempt(
+            message, provider, outcome, connection_id=creds.connection_id
         )
     except Exception:
-        logger.exception(
-            "email_service: platform mail_log persist failed to=%s subject=%r",
-            message.to,
-            message.subject,
-        )
+        logger.warning("email_service: attempt metadata could not be retained")
         return None
 
 
@@ -200,7 +220,7 @@ async def _dispatch_workspace_email_hooks(
 ) -> None:
     # Authentication material must never enter workspace/App hook payloads,
     # even when a request carries an ambient workspace scope.
-    if message.source_kind in PLATFORM_ONLY_SOURCE_KINDS:
+    if message.source_kind in SENSITIVE_SOURCE_KINDS:
         return
     try:
         from app.middleware.agentive_scope import get_actor_id, get_scope_key
@@ -297,15 +317,14 @@ async def _send_via_sendgrid(
             json=payload,
         )
 
-    if resp.status_code >= 400:
+    if not 200 <= resp.status_code < 300:
         logger.error(
-            "email_service[sendgrid]: send failed status=%s body=%s",
+            "email_service[sendgrid]: send failed status=%s",
             resp.status_code,
-            resp.text[:500],
         )
         return _SendOutcome(
             success=False,
-            error=f"sendgrid status={resp.status_code} body={resp.text[:500]}",
+            error=f"SendGrid rejected request (HTTP {resp.status_code})",
         )
 
     logger.info(
@@ -313,7 +332,9 @@ async def _send_via_sendgrid(
         message.to,
         message.subject,
     )
-    return _SendOutcome(success=True)
+    return _SendOutcome(
+        success=True, provider_message_id=resp.headers.get("x-message-id")
+    )
 
 
 async def _send_via_resend(
@@ -352,15 +373,14 @@ async def _send_via_resend(
             json=payload,
         )
 
-    if resp.status_code >= 400:
+    if not 200 <= resp.status_code < 300:
         logger.error(
-            "email_service[resend]: send failed status=%s body=%s",
+            "email_service[resend]: send failed status=%s",
             resp.status_code,
-            resp.text[:500],
         )
         return _SendOutcome(
             success=False,
-            error=f"resend status={resp.status_code} body={resp.text[:500]}",
+            error=f"Resend rejected request (HTTP {resp.status_code})",
         )
 
     provider_message_id = (resp.json() or {}).get("id")

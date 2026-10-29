@@ -219,3 +219,11 @@ for admission, recovery, measurement limitations and rollback to Single model.
 The AI Models page shows deployment roles and their validated tuning as read-only
 server-managed settings. ENV keys are not copied into personal Providers. Under
 `hybrid`, a usable owner BYOK profile takes precedence; `byo_strict` requires it.
+
+### Workspace email providers
+
+Native workspace SMTP/Resend/SendGrid setup, platform environment variables,
+public signed webhooks, queue behavior and the explicit legacy migration are
+specified in [workspace email](../platform/workspace-email.md). Configure a real
+platform provider for account recovery; console delivery is DEBUG-only. Run the
+migration before upgrading existing Business Email Log configuration surfaces.

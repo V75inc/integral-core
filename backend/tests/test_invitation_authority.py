@@ -37,7 +37,7 @@ async def test_admin_cannot_delegate_owner_only_rights(
     )
     email = "delegation-ceiling@example.com"
     delivery = AsyncMock()
-    monkeypatch.setattr(invitations, "send_email", delivery)
+    monkeypatch.setattr("app.services.email_delivery.enqueue_email", delivery)
     with pytest.raises(InsufficientPermissionsError):
         if surface == "service":
             await invitations.create_invitation(

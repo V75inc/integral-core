@@ -171,6 +171,8 @@ async def dispatch(
 
     action_url = resolve_notification_action_url(kind, payload)
 
+    from app.middleware.agentive_scope import get_scope_key
+
     notif = await create_notification(
         user_id=user_id,
         type=kind,
@@ -179,6 +181,7 @@ async def dispatch(
         action_url=action_url,
         metadata={
             "payload": payload,
+            "email_workspace_id": get_scope_key(),
             "idempotency_key": idempotency_key,
             "dispatched_to": [],
         },
@@ -208,7 +211,7 @@ async def dispatch(
         # Idempotency check — A1 invariant. The ledger drives this; no new
         # ChangeEventAction Literal members are introduced.
         already_sent = any(
-            d.get("channel") == channel_name and d.get("status") == "sent"
+            d.get("channel") == channel_name and d.get("status") in {"sent", "queued"}
             for d in (notif.metadata.get("dispatched_to") or [])
         )
         if already_sent:

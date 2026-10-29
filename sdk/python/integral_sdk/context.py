@@ -117,3 +117,22 @@ class OperationContext(Protocol):
     async def query(self, query_spec: dict) -> dict: ...
 
     async def invoke(self, operation_key: str, payload: dict | None = None) -> dict: ...
+
+    async def enqueue_workspace_transactional_email(
+        self,
+        *,
+        to: str,
+        subject: str,
+        text: str,
+        html: str,
+        source_kind: str,
+        idempotency_key: str,
+        reply_to: Optional[str] = None,
+        source_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Queue authorized workspace email; returns message_id and status=queued.
+
+        A queued result is not provider acceptance or confirmed delivery. Reuse
+        the same key and exact content for retries of one logical message.
+        """
+        ...
