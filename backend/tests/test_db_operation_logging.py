@@ -20,7 +20,7 @@ def test_core_pins_published_jvspatial_version():
     # Read Core's installed wheel metadata rather than resolving the dependency
     # distribution by name: source-checkout tests may put the JV repository on
     # sys.path, whose generated egg-info intentionally has another version.
-    assert "jvspatial==0.2.2" in distribution("integral-core").requires
+    assert "jvspatial==0.2.3" in distribution("integral-core").requires
 
 
 @pytest.mark.asyncio

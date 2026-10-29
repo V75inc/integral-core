@@ -83,7 +83,7 @@ its obsolete slot names are not the new profile-based routing contract.
 When repairing duplicate `UserModelCredential` records, query through
 `GraphContext.find` before creating a unique index. Test real PostgreSQL duplicates
 and rejection of another duplicate after repair. See the
-[release gate](../ops/DEPLOY.md#jvspatial-022-release-gate).
+[release gate](../ops/DEPLOY.md#jvspatial-compatibility-release-gate).
 
 Voice preferences and provider-backed/local-default embeddings are documented in
 [voice and embedding models](voice-and-embedding-models.md).
