@@ -1,3 +1,4 @@
+import { RoutineRunLink } from './RoutineRunLink';
 import { CollapsibleUserMessage } from './CollapsibleUserMessage';
 import { ConversationModelPicker } from './ConversationModelPicker';
 import { ExpandableChatError } from "./ExpandableChatError";
@@ -506,24 +507,8 @@ const assistantMessageGroupBy = (part: PartState) => {
 // routine_task_scheduler.py). Badge them distinctly so a proactive run
 // doesn't read as something the user asked for in this session.
 function RoutineRunBadge() {
-  const origin = useAuiState(
-    (s) =>
-      (
-        s.message.metadata?.custom as {
-          interactPayload?: { origin?: string };
-        }
-      )?.interactPayload?.origin,
-  );
-  if (origin !== "routine_task") return null;
-  return (
-    <div
-      data-slot="aui_routine-run-badge"
-      className="mb-1 inline-flex items-center gap-1 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-muted)]"
-    >
-      <span aria-hidden="true">{"🕐"}</span>
-      Scheduled routine
-    </div>
-  );
+  const metadata = useAuiState(s => s.message.metadata?.custom);
+  return <RoutineRunLink metadata={metadata} />;
 }
 
 function AssistantMessage() {

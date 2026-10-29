@@ -180,3 +180,18 @@ it("waits for the selected transcript before enabling the composer", async () =>
   await waitFor(() => expect(result.current.composerReady).toBe(true));
   expect(result.current.runtime.thread.getState().messages.map(message => message.id)).toEqual(["accepted-user", "saved-assistant"]);
 });
+
+
+it.each([
+  { origin: 'routine_task', routine_id: 'routine-1', delivery_mode: 'reminder' },
+  { interact_payload: { origin: 'routine_task', routine_id: 'routine-1' } },
+  { interactPayload: { origin: 'routine_task', routine_id: 'routine-1' } },
+])('retains the exact scheduled routine when restoring a transcript', async provider_metadata => {
+  __resetThreadSessionStoreForTests();
+  vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
+  vi.mocked(aiChatApi.getThread).mockResolvedValue({ ...thread, messages: [{ ...assistant, provider_metadata }] });
+  const { result } = renderHook(() => useAIChatRuntime(nativeProvider(async function* () {}), { initialThreadId: 't1' }));
+  await waitFor(() => expect(result.current.composerReady).toBe(true));
+  const message = result.current.runtime.thread.getState().messages[0];
+  expect(message.metadata?.custom).toMatchObject({ interactPayload: { origin: 'routine_task', routine_id: 'routine-1' } });
+});

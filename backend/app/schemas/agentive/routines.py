@@ -119,5 +119,6 @@ class RoutineActivityResponse(BaseModel):
     thread_id: str
     events: List[RoutineActivityEvent]
     write_scope_links: List[RoutineActivityLink] = Field(default_factory=list)
+    context_links: List[RoutineActivityLink] = Field(default_factory=list)
 
     model_config = {"extra": "forbid"}

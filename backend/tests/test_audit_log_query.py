@@ -21,9 +21,14 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_audit_log_returns_user_visible_events(
-    authenticated_client: AsyncClient, test_user
+    authenticated_client: AsyncClient, test_user, monkeypatch
 ):
     """Happy path — caller's own track-create + entry-create events visible."""
+    from app.services import event_history
+
+    # A scan budget may yield a partial page even below the requested limit.
+    # Exercise that contract deterministically, independent of machine load.
+    monkeypatch.setattr(event_history, "MAX_SCAN_SECONDS", 0)
     track_resp = await authenticated_client.post(
         "/api/tracks", json={"title": "Audit Log Track"}
     )
@@ -35,10 +40,27 @@ async def test_audit_log_returns_user_visible_events(
     )
     assert entry_resp.status_code in (200, 201), entry_resp.text
 
-    resp = await authenticated_client.get(f"/api/audit-log?scope=track:{track_id}")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    actions = [e["action"] for e in body["events"]]
+    cursor = None
+    events = []
+    seen = set()
+    for _ in range(10):
+        params = {"scope": f"track:{track_id}"}
+        if cursor:
+            params["cursor"] = cursor
+        resp = await authenticated_client.get("/api/audit-log", params=params)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        for event in body["events"]:
+            assert event["id"] not in seen
+            seen.add(event["id"])
+            events.append(event)
+        if not body["has_more"]:
+            break
+        assert body["next_cursor"] and body["next_cursor"] != cursor
+        cursor = body["next_cursor"]
+    else:
+        pytest.fail("Audit history did not exhaust within ten bounded pages")
+    actions = [e["action"] for e in events]
     assert "entry.create" in actions
     # `track.create` scope is f"track:{track.id}" so it's also under this scope.
     assert "track.create" in actions

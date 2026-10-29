@@ -118,36 +118,6 @@ async def _links_from_text(text: str) -> List[Dict[str, str]]:
     return links
 
 
-async def _write_scope_links(
-    write_scope: List[Dict[str, str]],
-) -> List[Dict[str, str]]:
-    links: List[Dict[str, str]] = []
-    for grant in write_scope or []:
-        rtype = (grant.get("resource_type") or "").lower()
-        rid = grant.get("resource_id") or ""
-        if not rid:
-            continue
-        if rtype == "track":
-            href = f"/tracks/{rid}"
-        elif rtype == "entry":
-            href = await _entry_href(rid)
-            if not href:
-                continue
-        elif rtype in ("app", "space"):
-            href = f"/apps/{rid}"
-        else:
-            continue
-        links.append(
-            {
-                "kind": rtype or "other",
-                "id": rid,
-                "label": f"{rtype}:{rid}" if rtype else rid,
-                "href": href,
-            }
-        )
-    return links
-
-
 def _message_origin(meta: Any) -> Optional[str]:
     if not isinstance(meta, dict):
         return None
@@ -273,9 +243,28 @@ async def build_routine_activity(
     if limit > 0:
         events = events[:limit]
 
+    from app.services.task_navigation import task_context_links
+
+    context_links = await task_context_links(
+        [
+            {"resource_type": "app", "resource_id": routine.source_app_id},
+            *list(routine.write_scope or []),
+        ],
+        user_id=routine.user_id,
+        workspace_id=routine.workspace_id,
+    )
     return {
+        "context_links": context_links,
         "routine_id": routine.id,
         "thread_id": routine.thread_id or "",
         "events": events,
-        "write_scope_links": await _write_scope_links(list(routine.write_scope or [])),
+        "write_scope_links": [
+            link
+            for link in context_links
+            if any(
+                grant.get("resource_type") == link["kind"]
+                and grant.get("resource_id") == link["id"]
+                for grant in routine.write_scope or []
+            )
+        ],
     }

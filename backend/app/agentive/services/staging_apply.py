@@ -355,6 +355,12 @@ async def execute_blessed_change(
                             "build_receipt_unavailable",
                             "The batch applied but its design receipt could not be persisted.",
                         )
+            # Publish optional destinations before consumption becomes visible
+            # to queue polling. Otherwise a closing receipt can permanently
+            # lose its links while this request finishes transcript updates.
+            # This records no approval/terminal state and follows the successful
+            # effect check above; consume remains the completion boundary.
+            await persist_consumed_nav_in_transcript(sc, result, effect_applied=True)
             # Consume clears the execution claim.
             await consume_token(user_id=user_id, token=token, expected_kind=sc.kind)
             response["consumed"] = True
@@ -366,7 +372,6 @@ async def execute_blessed_change(
             # authoritative state instead of "approved" alongside a separate
             # success flag and accidentally narrate an applied change as pending.
             response["staged_change"] = sc.to_dict()
-            await persist_consumed_nav_in_transcript(sc, result)
             # Hand the output back to the agent. The transcript patch above
             # feeds the FE card; agent runtime's history build reads only
             # utterance + response, so without this a blessed external READ

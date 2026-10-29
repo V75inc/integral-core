@@ -300,3 +300,44 @@ async def test_routine_activity_keeps_shared_thread_messages_separate():
         event["summary"] for event in activity["events"] if event["kind"] == "message"
     }
     assert messages == {"First result", "Reminder result"}
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_routine_details_include_its_source_app_and_readable_targets(
+    authenticated_client, test_user
+):
+    from app.services.chat_threads import create_thread
+
+    app = (
+        await authenticated_client.post(
+            "/api/apps", json={"name": "Routine source App"}
+        )
+    ).json()["app"]
+    track = (
+        await authenticated_client.post(
+            "/api/tracks", json={"title": "Routine target Track", "app_id": app["id"]}
+        )
+    ).json()["track"]
+    thread = await create_thread(
+        user_id=test_user.user_id,
+        provider_id="integral_native",
+        title="Routine context",
+        workspace_id=app["workspace_id"],
+    )
+    routine = await create_routine_task(
+        user_id=test_user.user_id,
+        workspace_id=app["workspace_id"],
+        thread_id=thread.id,
+        instruction="Prepare a summary",
+        cron="0 9 * * *",
+        source_app_id=app["id"],
+        write_scope=[{"resource_type": "track", "resource_id": track["id"]}],
+    )
+    response = await authenticated_client.get(
+        f"/api/agentive/routines/{routine.id}/activity"
+    )
+    assert response.status_code == 200, response.text
+    assert [
+        (link["kind"], link["label"]) for link in response.json()["context_links"]
+    ] == [("app", "Routine source App"), ("track", "Routine target Track")]

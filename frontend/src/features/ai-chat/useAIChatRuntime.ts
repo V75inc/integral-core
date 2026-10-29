@@ -564,6 +564,9 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
             tps?: number;
           };
           interactPayload?: Record<string, unknown>;
+          interact_payload?: Record<string, unknown>;
+          origin?: string;
+          routine_id?: string;
           finalContent?: string;
           finalPayload?: Record<string, unknown>;
           error?: { code?: string; message?: string } | null;
@@ -571,7 +574,13 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
       | undefined;
     const pmSteps = Array.isArray(pm?.steps) ? pm!.steps : [];
     const pmTiming = pm?.timing;
-    const pmInteract = pm?.interactPayload;
+    // Literal reminders and older scheduled turns persist origin at the top
+    // level. Retain only their recorded identity for schedule navigation.
+    const pmInteract = pm?.interactPayload ?? pm?.interact_payload ?? (
+      pm?.origin === 'routine_task'
+        ? { origin: pm.origin, routine_id: pm.routine_id }
+        : undefined
+    );
     const pmFinalContent = pm?.finalContent;
     const pmFinalPayload = pm?.finalPayload;
     const toolCallCount = content.filter(

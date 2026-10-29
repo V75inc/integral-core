@@ -1137,14 +1137,22 @@ async def _persist_staged_envelope_patch(
 async def persist_consumed_nav_in_transcript(
     sc: StagedChange,
     execute_result: Any,
+    *,
+    effect_applied: bool = False,
 ) -> None:
     """Persist navigable resource ids from a successful executor run.
 
     After consume, the FE ``StagedChangeCard`` needs ``consumed_nav`` on the
     frozen tool-call envelope so reload can render React Router links without
-    re-blessing. Best-effort — failures only log.
+    re-blessing. The executor may also publish navigation after a successful
+    effect but before consumption: this preserves links if a queue observer
+    closes the review immediately on consumption. It never changes the
+    proposal or queue item's approval/terminal state. Best-effort — failures
+    only log.
     """
-    if not sc.session_id or sc.state != "consumed":
+    if not sc.session_id or (
+        sc.state != "consumed" and not (effect_applied and sc.state == "blessed")
+    ):
         return
     try:
         from app.services import chat_threads

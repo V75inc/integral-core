@@ -45,3 +45,21 @@ describe('background task cleanup', () => {
     expect(onChanged).toHaveBeenCalledOnce();
   });
 });
+
+it('focuses and expands only the requested routine, with readable resource links', async () => {
+  const api = await import('../../api/routines');
+  vi.mocked(api.getRoutineActivity).mockResolvedValue({
+    routine_id: 'selected', thread_id: 'thread', events: [], write_scope_links: [],
+    context_links: [{ kind: 'track', id: 'track-1', label: 'Pantry Items', href: '/tracks/track-1' }],
+  });
+  render(<MemoryRouter><ConfirmProvider><RoutinesListBody
+    rows={[routine('other', 'active'), routine('selected', 'paused')]}
+    selectedRoutineId="selected" loading={false} error={null} onRetry={vi.fn()}
+  /></ConfirmProvider></MemoryRouter>);
+  const selected = screen.getByLabelText('Selected routine: selected');
+  expect(selected).toHaveFocus();
+  expect(await screen.findByRole('link', { name: /Pantry Items/ })).toHaveAttribute('href', '/tracks/track-1');
+  expect(api.getRoutineActivity).toHaveBeenCalledOnce();
+  expect(api.getRoutineActivity).toHaveBeenCalledWith('selected');
+  expect(screen.getByRole('button', { name: 'Resume task' })).toBeEnabled();
+});

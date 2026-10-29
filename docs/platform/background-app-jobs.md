@@ -113,3 +113,22 @@ Call your job tool directly in a test with a fake context that implements `repor
 - Anything that must finish inside the user's click (keep it synchronous).
 - Work that cannot be repeated safely.
 - Cross-App orchestration. Queue your own tool, and let it call another App's exported tool.
+
+## Navigating task context
+
+Background Tasks keeps its initial work list lightweight. **Task details** loads
+current, permission-checked links to the owning App and explicitly supplied
+`track_id` or `entry_id` in an App job's `input`. Use those stable identifiers
+when a job is associated with a particular collection or record. Core does not
+infer ownership from instruction text or expose the job's raw arguments.
+Missing, deleted, foreign-workspace or unreadable resources produce no link;
+the task status and recovery controls remain available.
+
+Successful schedule creation/update receipts and scheduled chat messages link to
+`/background-tasks?routine=<encoded-routine-id>#scheduled-routines`. The page
+loads that exact owned routine, including cancelled routines excluded from the
+usual list, highlights it, and expands its details and activity. Pause, resume
+and edit use the existing authorized routine endpoints. Older messages without
+a recorded routine identity link to the general schedule list instead of
+choosing a routine from the message text. Routine details also link back to the
+conversation, its declared source App, and currently readable allowed targets.
