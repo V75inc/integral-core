@@ -20,6 +20,16 @@ Use static create/edge checks and runtime reachability audits in `test_graph_con
 
 An approved App operation may repair a missing legacy `IS_OF_TYPE` edge only inside its effect transaction. The rooted Entry must have one containing Track, that Track one attached Operational Model, and that model one EntryType matching the persisted type cache. Recheck the exact operation permit or the human's ordinary record authority before connecting the edge. Conflicting, multiple or unverifiable graph facts fail closed; the scalar cache alone never authorizes a repair. A refused or rolled-back effect must also roll back the repair.
 
+An Entry's `HAS_COMMENT` edges index its complete discussion. A reply also has
+a `HAS_COMMENT` edge from its parent Comment; these two paths are a valid
+diamond, not shared ownership or a cycle. Deletion walks thread roots and then
+replies once, verifies that every indexed comment was reached, and rejects
+foreign Entry/thread parents, duplicate parents, cycles and incomplete graphs.
+Legacy replies reachable only through their comment parent remain supported.
+Comment parent caches never substitute for those named edges or grant authority.
+Gates: the threaded-comment and refusal cases in `test_owned_app_deletion.py`,
+run against both JSON and PostgreSQL.
+
 ### I-GRAPH-02 — Object-For-Non-Graph-Records (`object-for-non-graph-records`)
 
 Use jvspatial Object for log-shaped/scalar-keyed records that have no meaningful graph relationship, permission resolution, cascade, traversal, or Walker computation. Graph participants remain Nodes. Conversion between these primitives is a substrate change. ChangeEvent persistence uses DBLog(Object) through the canonical logger; it does not need a graph migration. Private execution records can use scoped encrypted Objects while their owning sessions remain rooted Nodes.
@@ -1006,6 +1016,18 @@ and admission. Authenticated HTTP/SDK/broker/MCP, approval, worker and transcrip
 release/readback qualification remains required before exposing the new path.
 
 ### I-WORK-09 — A reviewed local operation has one effect owner
+
+An execution lease must be current when a local effect transaction acquires
+its command row lock. That same task and transaction may finish its effects
+and receipt after the lease's wall-clock expiry while retaining the lock.
+The current owner, fence, identity and state must still match. This proof is
+transaction-local, covers only claims actually admitted under that lock, and
+cannot be inherited by another task or reused after the transaction exits.
+An expired unadmitted or displaced worker must still be refused.
+After verified local rollback, only the exact unchanged owner/fence may release
+its unapplied claim, even if its lease elapsed. Partial batch evidence remains
+available for the existing fenced step-recovery protocol. A committed result
+cannot be released for retry, and completed steps must never execute again.
 
 Staged local App operations use the canonical operation receipt, not another
 staging effect journal. The exact original declaration and complete reviewed

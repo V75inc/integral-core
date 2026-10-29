@@ -98,6 +98,172 @@ async def test_owner_deletes_populated_app(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("channel", ["direct", "agent"])
+@pytest.mark.parametrize("legacy_thread_only", [False, True])
+async def test_owner_deletes_app_with_threaded_comments(
+    authenticated_client, channel, legacy_thread_only, test_user, monkeypatch
+):
+    """Replies are indexed by their Entry as well as linked to their parent."""
+    from app.models.nodes import Comment
+
+    client = authenticated_client
+    response = await client.post("/api/apps", json={"name": "Threaded records App"})
+    assert response.status_code == 200, response.text
+    app_id = response.json()["app"]["id"]
+    response = await client.post(
+        "/api/tracks", json={"title": "Discussion records", "app_id": app_id}
+    )
+    assert response.status_code == 200, response.text
+    track_id = response.json()["track"]["id"]
+    response = await client.post(
+        "/api/entries", json={"track_id": track_id, "title": "Discussed record"}
+    )
+    assert response.status_code == 200, response.text
+    entry_id = response.json()["entry"]["id"]
+    comment_ids = []
+    for index in range(3):
+        response = await client.post(
+            f"/api/entries/{entry_id}/comments",
+            json={
+                "text": f"Discussion level {index}",
+                "parent_id": comment_ids[-1] if comment_ids else None,
+            },
+        )
+        assert response.status_code == 200, response.text
+        comment_ids.append(response.json()["comment"]["id"])
+    if legacy_thread_only:
+        from app.models.edges import HAS_COMMENT
+        from app.models.nodes import Entry
+
+        entry = await Entry.get(entry_id)
+        graph = await entry.get_context()
+        for comment_id in comment_ids[1:]:
+            for edge in await graph.find_edges_between(
+                entry_id, comment_id, edge_class=HAS_COMMENT
+            ):
+                await edge.delete()
+    await _delete(client, app_id, channel, test_user, monkeypatch)
+    assert (await client.get(f"/api/apps/{app_id}")).status_code == 404
+    for comment_id in comment_ids:
+        assert await Comment.find_one({"id": comment_id}) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target_kind", ["entry", "track"])
+async def test_delete_record_or_track_with_indexed_comment_replies(
+    authenticated_client, target_kind
+):
+    from app.models.nodes import Comment, Entry
+
+    client = authenticated_client
+    response = await client.post("/api/tracks", json={"title": "Discussion records"})
+    assert response.status_code == 200, response.text
+    track_id = response.json()["track"]["id"]
+    response = await client.post(
+        "/api/entries", json={"track_id": track_id, "title": "Discussed record"}
+    )
+    assert response.status_code == 200, response.text
+    entry_id = response.json()["entry"]["id"]
+    comment_ids = []
+    for parent_id in [None, "root", "root", None]:
+        response = await client.post(
+            f"/api/entries/{entry_id}/comments",
+            json={
+                "text": "Discussion message",
+                "parent_id": comment_ids[0] if parent_id else None,
+            },
+        )
+        assert response.status_code == 200, response.text
+        comment_ids.append(response.json()["comment"]["id"])
+    identity = entry_id if target_kind == "entry" else track_id
+    collection = "entries" if target_kind == "entry" else "tracks"
+    response = await client.delete(f"/api/{collection}/{identity}")
+    assert response.status_code == 200, response.text
+    assert await Entry.find_one({"id": entry_id}) is None
+    assert (await client.get(f"/api/entries/{entry_id}")).status_code in {403, 404}
+    for comment_id in comment_ids:
+        assert await Comment.find_one({"id": comment_id}) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_relation", ["foreign_entry", "foreign_thread", "cycle"]
+)
+@pytest.mark.parametrize("target_kind", ["entry", "app"])
+async def test_comment_cascade_refuses_foreign_or_cyclic_threads(
+    authenticated_client, invalid_relation, target_kind
+):
+    from app.models.edges import HAS_COMMENT
+    from app.models.nodes import App, Comment, Entry
+
+    client = authenticated_client
+    response = await client.post("/api/apps", json={"name": "Bounded discussion App"})
+    assert response.status_code == 200, response.text
+    app_id = response.json()["app"]["id"]
+    response = await client.post(
+        "/api/tracks", json={"title": "Scoped records", "app_id": app_id}
+    )
+    assert response.status_code == 200, response.text
+    track_id = response.json()["track"]["id"]
+    response = await client.post(
+        "/api/entries", json={"track_id": track_id, "title": "Protected discussion"}
+    )
+    assert response.status_code == 200, response.text
+    entry_id = response.json()["entry"]["id"]
+    comment_ids = []
+    for parent_id in [None, "root"]:
+        response = await client.post(
+            f"/api/entries/{entry_id}/comments",
+            json={
+                "text": "Discussion message",
+                "parent_id": comment_ids[0] if parent_id else None,
+            },
+        )
+        assert response.status_code == 200, response.text
+        comment_ids.append(response.json()["comment"]["id"])
+    response = await client.post("/api/tracks", json={"title": "Unrelated discussion"})
+    assert response.status_code == 200, response.text
+    other_track_id = response.json()["track"]["id"]
+    response = await client.post(
+        "/api/entries", json={"track_id": other_track_id, "title": "Unrelated record"}
+    )
+    assert response.status_code == 200, response.text
+    other_entry_id = response.json()["entry"]["id"]
+    root, reply = [await Comment.get(identity) for identity in comment_ids]
+    other_comment_id = None
+    if invalid_relation == "foreign_entry":
+        other = await Entry.get(other_entry_id)
+        await other.connect(reply, edge=HAS_COMMENT)
+    elif invalid_relation == "foreign_thread":
+        response = await client.post(
+            f"/api/entries/{other_entry_id}/comments", json={"text": "Other discussion"}
+        )
+        assert response.status_code == 200, response.text
+        other_comment_id = response.json()["comment"]["id"]
+        other_comment = await Comment.get(other_comment_id)
+        context = await root.get_context()
+        for edge in await context.find_edges_between(
+            root.id, reply.id, edge_class=HAS_COMMENT
+        ):
+            await edge.delete()
+        await other_comment.connect(reply, edge=HAS_COMMENT)
+    else:
+        await reply.connect(root, edge=HAS_COMMENT)
+    identity = entry_id if target_kind == "entry" else app_id
+    collection = "entries" if target_kind == "entry" else "apps"
+    response = await client.delete(f"/api/{collection}/{identity}")
+    assert response.status_code == 503, response.text
+    assert response.json()["error_code"] == "authorization_unavailable"
+    assert await App.find_one({"id": app_id}) is not None
+    assert await Entry.find_one({"id": entry_id}) is not None
+    assert await Entry.find_one({"id": other_entry_id}) is not None
+    for comment_id in comment_ids:
+        assert await Comment.find_one({"id": comment_id}) is not None
+    if other_comment_id:
+        assert await Comment.find_one({"id": other_comment_id}) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["direct", "agent"])
 async def test_owner_deletes_app_with_legacy_entry_missing_type_edge(
     authenticated_client, channel, test_user, monkeypatch
 ):

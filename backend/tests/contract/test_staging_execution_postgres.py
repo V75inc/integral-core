@@ -83,6 +83,154 @@ async def test_local_effect_and_encrypted_result_commit_together(
         assert exc.value.code == "application_reconciliation_required"
 
 
+async def test_admitted_effect_can_commit_after_lease_expiry(
+    postgres_raw_db, monkeypatch
+):
+    from app.agentive.services import staging_execution
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "11" * 32)
+    now = staging_execution._now()
+    monkeypatch.setattr(staging_execution, "_now", lambda: now)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        intent = identity()
+        claim = await claim_staging_execution(**intent)
+        async with staging_execution_effect(claim) as database:
+            now += timedelta(seconds=120)
+            await record_staging_execution_result(
+                claim=claim, database=database, result={"completed": True}
+            )
+        row = await postgres_raw_db.get("object", claim.object_id)
+        assert row["context"]["state"] == "applied"
+        with pytest.raises(StagingError) as exc:
+            await claim_staging_execution(**intent)
+        assert exc.value.code == "application_reconciliation_required"
+
+
+async def test_expired_claim_cannot_enter_effect_or_write_unadmitted_receipt(
+    postgres_raw_db, monkeypatch
+):
+    from app.agentive.services import staging_execution
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    now = staging_execution._now()
+    monkeypatch.setattr(staging_execution, "_now", lambda: now)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        claim = await claim_staging_execution(**identity())
+        now += timedelta(seconds=120)
+        with pytest.raises(StagingError) as exc:
+            async with staging_execution_effect(claim):
+                pytest.fail("Expired worker entered its effect")
+        assert exc.value.code == "execution_claim_lost"
+        with pytest.raises(StagingError) as exc:
+            async with postgres_graph_transaction() as database:
+                await record_staging_execution_result(
+                    claim=claim, database=database, result={"unadmitted": True}
+                )
+        assert exc.value.code == "execution_claim_lost"
+        row = await postgres_raw_db.get("object", claim.object_id)
+        assert row["context"]["state"] == "claimed"
+        assert not row["context"]["result_ciphertext"]
+
+
+async def test_admitted_effect_still_requires_its_current_owner_and_fence(
+    postgres_raw_db, monkeypatch
+):
+    from app.agentive.services import staging_execution
+
+    now = staging_execution._now()
+    monkeypatch.setattr(staging_execution, "_now", lambda: now)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        claim = await claim_staging_execution(**identity())
+        with pytest.raises(StagingError) as exc:
+            async with staging_execution_effect(claim) as database:
+                now += timedelta(seconds=120)
+                await database.find_one_and_update(
+                    "object", {"id": claim.object_id}, {"$inc": {"context.fence": 1}}
+                )
+                await record_staging_execution_result(
+                    claim=claim, database=database, result={"stale": True}
+                )
+        assert exc.value.code == "execution_claim_lost"
+        row = await postgres_raw_db.get("object", claim.object_id)
+        assert row["context"]["fence"] == claim.fence
+        assert not row["context"]["result_ciphertext"]
+
+
+async def test_child_task_cannot_inherit_admitted_effect_lease(
+    postgres_raw_db, monkeypatch
+):
+    from app.agentive.services import staging_execution
+    from app.services.app_operations.transaction_scope import (
+        OperationTransactionUnavailable,
+    )
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "11" * 32)
+    now = staging_execution._now()
+    monkeypatch.setattr(staging_execution, "_now", lambda: now)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        claim = await claim_staging_execution(**identity())
+        async with staging_execution_effect(claim) as database:
+            now += timedelta(seconds=120)
+            with pytest.raises(OperationTransactionUnavailable):
+                await asyncio.create_task(
+                    record_staging_execution_result(
+                        claim=claim, database=database, result={"inherited": True}
+                    )
+                )
+            await record_staging_execution_result(
+                claim=claim, database=database, result={"owner": True}
+            )
+        row = await postgres_raw_db.get("object", claim.object_id)
+        assert row["context"]["state"] == "applied"
+
+
+async def test_verified_rollback_can_release_expired_unchanged_owner(
+    postgres_raw_db, monkeypatch
+):
+    from app.agentive.services import staging_execution
+
+    now = staging_execution._now()
+    monkeypatch.setattr(staging_execution, "_now", lambda: now)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        intent = identity()
+        claim = await claim_staging_execution(**intent)
+        with pytest.raises(RuntimeError, match="rollback"):
+            async with staging_execution_effect(claim):
+                now += timedelta(seconds=120)
+                raise RuntimeError("rollback")
+        await staging_execution.release_unapplied_staging_claim(claim)
+        row = await postgres_raw_db.get("object", claim.object_id)
+        assert row["context"]["state"] == "ready"
+        replacement = await claim_staging_execution(**intent)
+        assert replacement.fence == claim.fence + 1
+        with pytest.raises(StagingError) as exc:
+            await staging_execution.release_unapplied_staging_claim(claim)
+        assert exc.value.code == "execution_claim_lost"
+
+
+async def test_release_keeps_partial_batch_evidence_for_fenced_resume(postgres_raw_db):
+    from app.agentive.services import staging_execution
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        intent = {**identity(), "kind": "batch"}
+        claim = await claim_staging_execution(**intent)
+        async with postgres_graph_transaction() as database:
+            await database.find_one_and_update(
+                "object",
+                {"id": claim.object_id},
+                {"$set": {"context.local_effect_state": "partial"}},
+            )
+        await staging_execution.release_unapplied_staging_claim(claim)
+        row = await postgres_raw_db.get("object", claim.object_id)
+        assert row["context"]["state"] == "ready"
+        assert row["context"]["local_effect_state"] == "partial"
+        replacement = await claim_staging_execution(**intent)
+        assert replacement.fence == claim.fence + 1
+        row = await postgres_raw_db.get("object", claim.object_id)
+        assert row["context"]["local_effect_state"] == "partial"
+
+
 @pytest.mark.parametrize("failure", ["missing_receipt", "receipt_write", "cancelled"])
 async def test_local_effect_rolls_back_without_a_completed_receipt(
     postgres_raw_db, monkeypatch, failure
