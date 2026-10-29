@@ -114,20 +114,21 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
     </div>
     {tab === 'export' ? <div className="space-y-4">
       <fieldset disabled={busy} className="space-y-2">
-        <legend><Text variant="body-sm">What to include</Text></legend>
-        <Surface as="label" padding="sm" className="flex cursor-pointer items-start gap-3">
-          <input type="radio" name="export-mode" checked={mode === 'configuration'} onChange={() => setMode('configuration')} />
-          <span><Text as="span">Configuration only</Text><Text variant="body-sm" tone="muted" as="span" className="block">Structure, fields, tags and saved views. No records or files.</Text></span>
+        <legend className="mb-2"><Text variant="body-sm" weight="medium">What to include</Text></legend>
+        <Surface as="label" padding="md" tone={mode === 'configuration' ? 'panel-2' : 'panel'} hoverTone="panel-2" className="grid cursor-pointer grid-cols-[1rem_minmax(0,1fr)] items-start gap-3">
+          <input className="mt-0.5 h-4 w-4 accent-[var(--brand-accent)]" type="radio" name="export-mode" checked={mode === 'configuration'} onChange={() => setMode('configuration')} />
+          <span className="min-w-0"><Text variant="body-sm" weight="medium" as="span" className="block">Configuration only</Text><Text variant="body-sm" tone="muted" as="span" className="block">Structure, fields, tags and saved views. No records or files.</Text></span>
         </Surface>
-        <Surface as="label" padding="sm" className="flex cursor-pointer items-start gap-3">
-          <input type="radio" name="export-mode" checked={mode === 'full'} onChange={() => setMode('full')} />
-          <span><Text as="span">Configuration and data</Text><Text variant="body-sm" tone="muted" as="span" className="block">Also includes records, their relationships and attached files.</Text></span>
+        <Surface as="label" padding="md" tone={mode === 'full' ? 'panel-2' : 'panel'} hoverTone="panel-2" className="grid cursor-pointer grid-cols-[1rem_minmax(0,1fr)] items-start gap-3">
+          <input className="mt-0.5 h-4 w-4 accent-[var(--brand-accent)]" type="radio" name="export-mode" checked={mode === 'full'} onChange={() => setMode('full')} />
+          <span className="min-w-0"><Text variant="body-sm" weight="medium" as="span" className="block">Configuration and data</Text><Text variant="body-sm" tone="muted" as="span" className="block">Also includes records, their relationships and attached files.</Text></span>
         </Surface>
       </fieldset>
+      <Text variant="body-sm" weight="medium">Choose {title} to export</Text>
       <Input aria-label={`Filter loaded ${title}`} placeholder={`Find in loaded ${title}…`} value={filter} disabled={busy} onChange={event => setFilter(event.target.value)} />
-      <Surface padding="sm" tone="panel-2" className="max-h-64 space-y-1 overflow-y-auto" aria-label={`Choose ${title} to export`}>
-        {visible.map(item => <Surface as="label" key={item.id} padding="xs" border="none" hoverTone="panel-2" className="flex cursor-pointer items-center gap-3">
-          <input type="checkbox" disabled={busy || (!selected.has(item.id) && selected.size >= 100)} checked={selected.has(item.id)} onChange={() => setSelected(previous => { const next = new Set(previous); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />
+      <Surface padding="sm" tone="panel-2" className="max-h-48 space-y-1 overflow-y-auto" aria-label={`Choose ${title} to export`}>
+        {visible.map(item => <Surface as="label" key={item.id} padding="sm" border="none" hoverTone="panel-2" className="flex cursor-pointer items-center gap-3">
+          <input className="h-4 w-4 shrink-0 accent-[var(--brand-accent)]" type="checkbox" disabled={busy || (!selected.has(item.id) && selected.size >= 100)} checked={selected.has(item.id)} onChange={() => setSelected(previous => { const next = new Set(previous); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />
           <Text as="span">{item.name || item.title}</Text>
         </Surface>)}
         {!loading && !visible.length && <Text variant="body-sm" tone="muted">No {title} found.</Text>}
