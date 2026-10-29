@@ -443,15 +443,19 @@ async def test_worker_refuses_replaced_intent_fingerprint(configured):
     assert item.status == "failed"
     assert delivery.deliver.await_count == before
 
+
 async def test_disable_then_reenable_cannot_revive_old_pending_mail(configured):
     from app.agentive.services import work_worker
-    actor, workspace, active=configured
-    _, result, item_id=await queued(configured,'disabled-generation')
-    disabled=await config.activate(actor,workspace,active['revision'],disable=True)
-    await config.test_draft(actor,workspace,disabled['revision'])
-    await config.activate(actor,workspace,disabled['revision'])
-    before=delivery.deliver.await_count
+
+    actor, workspace, active = configured
+    _, result, item_id = await queued(configured, "disabled-generation")
+    disabled = await config.activate(actor, workspace, active["revision"], disable=True)
+    await config.test_draft(actor, workspace, disabled["revision"])
+    await config.activate(actor, workspace, disabled["revision"])
+    before = delivery.deliver.await_count
     await work_worker.process_one_due_item(work_item_id=item_id)
-    assert delivery.deliver.await_count==before
-    row=await delivery.database().get('object',delivery.message_object(result.message_id))
-    assert row['context']['status']=='failed'
+    assert delivery.deliver.await_count == before
+    row = await delivery.database().get(
+        "object", delivery.message_object(result.message_id)
+    )
+    assert row["context"]["status"] == "failed"

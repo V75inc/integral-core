@@ -321,7 +321,11 @@ async def run_email_work(item: Any, context: Any) -> None:
     try:
         await _admit(item.principal_id, item.workspace_id)
         snapshot, generation = await delivery_binding(item.workspace_id)
-        if generation != data.get("delivery_generation", 0) or (snapshot["connection_id"] if snapshot else "platform") != data["connection_id"]:
+        if (
+            generation != data.get("delivery_generation", 0)
+            or (snapshot["connection_id"] if snapshot else "platform")
+            != data["connection_id"]
+        ):
             raise BadRequestError("The sending provider was changed or disabled")
         config = (
             unseal(snapshot, item.workspace_id)
@@ -382,7 +386,11 @@ async def run_email_work(item: Any, context: Any) -> None:
         await _admit(item.principal_id, item.workspace_id)
         await _admit_source(message)
         current, current_generation = await delivery_binding(item.workspace_id)
-        if current_generation != data.get("delivery_generation", 0) or (current["connection_id"] if current else "platform") != data["connection_id"]:
+        if (
+            current_generation != data.get("delivery_generation", 0)
+            or (current["connection_id"] if current else "platform")
+            != data["connection_id"]
+        ):
             raise BadRequestError("The sending provider changed before dispatch")
     except (BadRequestError, InsufficientPermissionsError):
         async with postgres_graph_transaction():

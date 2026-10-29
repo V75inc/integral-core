@@ -24,7 +24,7 @@ pytestmark = [pytest.mark.smoke, pytest.mark.asyncio]
 
 
 async def setup_accounts(client, owner_client, monkeypatch, verified=True, admin=False):
-    monkeypatch.setattr("app.services.invitations.send_email", AsyncMock())
+    monkeypatch.setattr("app.services.email_delivery.enqueue_email", AsyncMock())
     monkeypatch.setattr(
         "app.services.member_provision.send_email", AsyncMock(return_value=True)
     )
