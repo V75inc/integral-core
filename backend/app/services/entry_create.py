@@ -196,6 +196,11 @@ async def _create_entry_in_track(
     )
 
     resolved_type_id = resolved_type.id
+    from app.services.entry_import_reservations import consume_import_entry
+
+    reserved_entry = consume_import_entry(
+        track_id=track_id, user_id=user_id, type_id=resolved_type_id
+    )
     operational_model, runtime_tier, _ = await resolve_track_runtime_profile(track)
     schema_revision = schema_revision_from_profile_version(
         getattr(operational_model, "version_number", None)
@@ -324,7 +329,14 @@ async def _create_entry_in_track(
         idempotency_key=idempotency_key,
         **({"provenance": provenance} if provenance is not None else {}),
     )
-    if idempotency_key:
+    if reserved_entry is not None:
+        if idempotency_key:
+            raise ValueError("Portable imports cannot select connector identities")
+        entry = reserved_entry
+        for key, value in attributes.items():
+            setattr(entry, key, value)
+        await entry.save()
+    elif idempotency_key:
         # The runtime supplies a fully scoped key. The unique Node id is the
         # final insertion fence, including destination-rebinding races.
         from app.api.errors import ResourceConflictError
@@ -341,7 +353,8 @@ async def _create_entry_in_track(
         entry = await Entry.create(**attributes)
 
     try:
-        await track.connect(entry, edge=CONTAINS, added_at=now)
+        if reserved_entry is None:
+            await track.connect(entry, edge=CONTAINS, added_at=now)
     except Exception:
         logger.exception(
             "create_entry_in_track: CONTAINS wire failed for track=%s entry=%s; "

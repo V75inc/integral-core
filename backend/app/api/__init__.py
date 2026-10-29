@@ -41,6 +41,7 @@ for _mod in (
     "notifications",
     "oauth_consent",  # M3b-1 — SPA-driven OAuth consent (CORE: completes the unconditional OAuth AS + /api/mcp mount regardless of AGENTIVE_ENABLED)
     "approvals",  # Phase 7 Plan 07-04 — UX-03 approval review surface
+    "portable_transfer",
     "policies",  # Plan 06-05 — migrated from include_router to @endpoint
     "query_spec",
     "graph_context",

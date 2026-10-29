@@ -1061,6 +1061,7 @@ export function AppDetailPage() {
         open={showTrackModal}
         onClose={() => setShowTrackModal(false)}
         appId={appId}
+        onImported={() => { void load(); }}
         onCreated={async () => {
           load();
         }}

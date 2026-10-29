@@ -33,6 +33,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useScope } from '../../context/ScopeContext';
 import { ImportPackageModal } from '../library/ImportPackageModal';
+import { ResourceTransferDialog } from '../portability/ResourceTransferDialog';
 import { usePlatformAdmin } from '../../hooks/usePlatformAdmin';
 import { useToast } from '../../context/ToastContext';
 import { isSamePrincipal } from '../../utils';
@@ -78,6 +79,7 @@ export function AppManagerDialog({
   const { user } = useAuth();
   const isPlatformAdmin = usePlatformAdmin();
   const [importOpen, setImportOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const { scope, workspaces } = useScope();
   const workspaceId = scope?.workspaceId;
@@ -479,6 +481,7 @@ export function AppManagerDialog({
             initialDetailId={initialDetailId}
             libraryActions={<div className="flex flex-wrap gap-2 py-3">
               {workspaceId && <Button variant="outline" size="sm" disabled={submitting} onClick={() => setImportOpen(true)}>Import template</Button>}
+              {workspaceId && <Button variant="outline" size="sm" disabled={submitting} onClick={() => setTransferOpen(true)}>Import / export Apps</Button>}
               {isPlatformAdmin && <Button variant="ghost" size="sm" disabled={submitting || refreshing} onClick={() => void refreshLibrary()}> {refreshing ? 'Refreshing…' : 'Refresh library'}</Button>}
             </div>}
             profiles={profiles} apps={apps} installedApps={apps.filter(app => app.lifecycle_state !== 'uninstalled')}
@@ -510,6 +513,8 @@ export function AppManagerDialog({
         )}
       </Modal>
       {workspaceId && <ImportPackageModal key={workspaceId} open={isOpen && importOpen} workspaceId={workspaceId} onClose={() => setImportOpen(false)} onSuccess={() => { setImportOpen(false); setLibraryRevision(value => value + 1); }} />}
+
+      {workspaceId && <ResourceTransferDialog key={`transfer:${workspaceId}`} open={isOpen && transferOpen} workspaceId={workspaceId} kind="app" onClose={() => setTransferOpen(false)} onImported={() => onChanged?.()} />}
 
       {uninstallTarget ? (
         <AppUninstallModal
