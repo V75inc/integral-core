@@ -46,13 +46,29 @@ def _view(
 
 @pytest.fixture
 def authorized_create_entry(monkeypatch):
-    """These view-shape tests use a fake Track; permit its create preflight."""
+    """Isolate view resolution from admission against the fake Track/schema.
+
+    Required-field admission has separate unit and PostgreSQL coverage; these
+    tests intentionally do not persist the types returned by their view doubles.
+    """
     from app.services import policy_engine
 
     monkeypatch.setattr(
         policy_engine,
         "evaluate",
         AsyncMock(return_value=SimpleNamespace(allowed=True)),
+    )
+    monkeypatch.setattr(
+        "app.agentive.staging_executors._resolve_entry_type_id",
+        AsyncMock(return_value="n.EntryType.view-fixture"),
+    )
+    monkeypatch.setattr(
+        "app.models.nodes.EntryType.get",
+        AsyncMock(return_value=SimpleNamespace(id="n.EntryType.view-fixture")),
+    )
+    monkeypatch.setattr(
+        "app.agentive.tooling.stagers_filing.missing_create_inputs",
+        AsyncMock(return_value=[]),
     )
 
 

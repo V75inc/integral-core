@@ -938,6 +938,24 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     if blocked:
         raise ValueError(blocked)
 
+    if not pending_track and entry_type:
+        from app.agentive.staging_executors import _resolve_entry_type_id
+        from app.agentive.tooling.stagers_filing import missing_create_inputs
+        from app.models.nodes import EntryType
+
+        type_id = await _resolve_entry_type_id(track_id, str(entry_type), exact=True)
+        resolved_type = await EntryType.get(type_id) if type_id else None
+        if resolved_type is None:
+            raise ValueError(
+                "create_entry: choose a record type from this track's current schema. Nothing was staged."
+            )
+        missing = await missing_create_inputs(track_node, resolved_type, fields)
+        if missing:
+            labels = ", ".join(f"{label} (`{key}`)" for key, label in missing)
+            raise ValueError(
+                f"create_entry: missing required values: {labels}. Ask the user for the missing information, then retry. Nothing was staged."
+            )
+
     date_block = await date_left_in_title_block(
         track_id=track_id,
         title=title,

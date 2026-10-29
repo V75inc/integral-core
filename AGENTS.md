@@ -522,6 +522,13 @@ completion; never describe the collection command as atomic. See
 
 ### Chat approvals and registered tools
 
+Pending Entry edits reuse the standard form in proposal-only mode. They must
+mint a new pending review through the transactional revision service, never
+write the record directly or mutate the old proposal. Keep targets fixed,
+preserve file bindings, reject stale records/schemas, and clear capability
+origin proof on human-authored replacements. See I-APPROVAL-05 and
+[the record-review contract](docs/backend/ai-chat.md#editing-a-proposed-record).
+
 Ordinary terminal card approvals, denials and cancellations end with the host
 receipt, without a second model run. Resume only for questions and approved
 design/draft workflows that still need agent work. Keep registered App tool

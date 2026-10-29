@@ -30,6 +30,10 @@ adapters that don't speak the assistant-ui card protocol):
 All routes are JWT-authenticated; the staging store is keyed by user_id
 so a token minted for one user cannot be blessed/revoked/consumed by
 another even if the token leaks.
+
+``GET .../token/{token}/entry-form`` and ``POST .../token/{token}/revise-entry``
+also require the current workspace. They read or replace pending Entry content;
+replacement never grants approval or changes the Entry itself.
 """
 
 from typing import Annotated, Any, Dict, List, Literal, cast
@@ -46,6 +50,7 @@ from app.agentive.staging import (
 )
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
+from app.schemas.agentive.staging import ReviseEntryProposalRequest
 
 
 def _ok(staged_change_to_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -71,6 +76,59 @@ def _resolve_user(request: Request) -> str:
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
     return user_id
+
+
+@endpoint(
+    "/agentive/staging/token/{token}/entry-form",
+    methods=["GET"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def entry_proposal_form_endpoint(request: Request, token: str) -> Dict[str, Any]:
+    """Read an authorized, prefilled record draft without granting write authority."""
+    from app.agentive.services.entry_proposal_revision import entry_proposal_form
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = _resolve_user(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    try:
+        return await entry_proposal_form(
+            token=token, user_id=user_id, workspace_id=workspace_id
+        )
+    except StagingError as exc:
+        return _err(exc)
+
+
+@endpoint(
+    "/agentive/staging/token/{token}/revise-entry",
+    methods=["POST"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def revise_entry_proposal_endpoint(
+    request: Request, token: str
+) -> Dict[str, Any]:
+    """Replace a pending proposal; approval remains a separate explicit action."""
+    from app.agentive.services.entry_proposal_revision import revise_entry_proposal
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = _resolve_user(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    from pydantic import ValidationError
+
+    from app.api.errors import BadRequestError
+
+    try:
+        body = ReviseEntryProposalRequest.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise BadRequestError(message="Invalid proposed record edits") from exc
+    try:
+        sc = await revise_entry_proposal(
+            token=token, user_id=user_id, workspace_id=workspace_id, request=body
+        )
+        return _ok(sc.to_dict())
+    except StagingError as exc:
+        return _err(exc)
 
 
 @endpoint(

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PromptSheetHost } from '../PromptSheet';
 import { usePromptQueue } from '../usePromptQueue';
 import type { PromptStagedWriteItem } from '../types';
+import { ToastProvider } from '../../../../context/ToastContext';
 
 vi.mock('../usePromptQueue', () => ({
   usePromptQueue: vi.fn(),
@@ -42,9 +43,9 @@ function renderPendingWrite(failed = false, extra: Partial<PromptStagedWriteItem
   } as never);
 
   render(
-    <PromptSheetHost>
+    <ToastProvider><PromptSheetHost>
       {({ sheet }) => <>{sheet}</>}
-    </PromptSheetHost>,
+    </PromptSheetHost></ToastProvider>,
   );
 }
 

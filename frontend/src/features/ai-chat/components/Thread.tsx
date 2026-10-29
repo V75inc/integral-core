@@ -399,6 +399,9 @@ export function latestActiveTool(parts: readonly {
  * activity and the steps. A manual expansion survives completion.
  */
 export function WorkTrail({ children }: { children: ReactNode }) {
+  const humanRevision = useAuiState((s) =>
+    (s.message.metadata?.custom as { interactPayload?: { origin?: string } } | undefined)?.interactPayload?.origin === 'human_proposal_revision',
+  );
   const running = useAuiState((s) => s.message.status?.type === "running");
   const interruptedReason = useAuiState((s) =>
     s.message.status?.type === "incomplete" ? s.message.status.reason : undefined,
@@ -429,6 +432,9 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     }),
   );
   const [open, setOpen] = useState(false);
+
+  // A host-saved human edit is an audit artifact, not a model/tool round.
+  if (humanRevision) return null;
 
   const live = liveWorkSynopsis(
     activityText ?? statusLabel,

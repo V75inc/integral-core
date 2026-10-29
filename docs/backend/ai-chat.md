@@ -99,6 +99,40 @@ that keep sending chunks without finishing.
 
 Graph transaction bodies remain cancellable on disconnect. Their acquisition and commit/rollback cleanup are shielded from ASGI cancellation in the owning task, so rollback completes before returning the connection to its pool. Disconnecting an SSE reader does not cancel the separate durable worker.
 
+## Editing a proposed record
+
+On PostgreSQL, chat, the expanded review and the approvals inbox can open the
+standard prefilled record form for a pending Entry create/update. Straightforward
+content filings are revised as canonical Entry creates. Existing-track Entry
+steps in a canonical batch can be edited individually; the other steps remain
+unchanged. App operations and not-yet-created destinations retain their original
+read-only review contracts.
+
+Saving the form creates a new pending token. It does not write an Entry or grant
+approval. The original token is revoked with a supersession link, and its linked
+WorkApproval, if present, is rejected without changing its original authority
+digest. The replacement is human-authored and carries no agent capability
+origin proof. Retirement, the new token, the conversation queue and its audit
+message commit together. Only committed state is published to process caches.
+Ordinary approval and canonical Entry execution still recheck current access.
+
+The form locks the destination/type and retains attachment bindings. It does not
+upload files or commit App UI contributions. Record revisions and the schema
+observed by the form reject stale edits; edited proposals also retain a schema
+fingerprint checked within the eventual canonical effect transaction. Cancelling
+the form leaves the original proposal untouched. Nontransactional local stores
+require rejecting the proposal and requesting a corrected one instead of
+offering unsafe multi-write replacement semantics.
+
+For an existing destination with a resolved record type, create-entry and
+content-filing preparation report missing required inputs together before staging.
+Literal defaults, existing App-setting defaults and
+declared deferred generators/materializers are respected. Preparation never
+invokes a default tool, reserves a number or creates a related record merely
+to make an approval preview valid. New destinations created earlier in a batch
+remain subject to canonical execution validation once their schema exists.
+Execution remains the final validation gate.
+
 ## Collection changes and retrieved evidence
 
 For installed-App commands, `integral_call_workspace_tool` accepts either one

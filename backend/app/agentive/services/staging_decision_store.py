@@ -370,6 +370,7 @@ async def _write_locked_decision(database, *, row, data, updates, expires):
                     "user_id": user_id,
                     "state": target,
                     "kind": data["kind"],
+                    "superseded_by": updates.get("superseded_by"),
                     "intent_fingerprint": staging_store.decision_intent_fingerprint(
                         data
                     ),

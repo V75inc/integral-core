@@ -10,6 +10,7 @@ import { ApprovalRequestContent } from './ApprovalRequestContent';
 import type { StagedChange } from './types';
 import type { UseStagedChangeResult } from './useStagedChange';
 import './staging.css';
+import { EditEntryProposal } from './EditEntryProposal';
 
 /**
  * Room to actually read a staged change before approving it.
@@ -35,6 +36,7 @@ export interface StagedChangeReviewModalProps {
    * two renderings.
    */
   controls: UseStagedChangeResult;
+  onRevised?: (staged: StagedChange) => void;
 }
 
 export function StagedChangeReviewModal({
@@ -42,6 +44,7 @@ export function StagedChangeReviewModal({
   open,
   onClose,
   controls,
+  onRevised,
 }: StagedChangeReviewModalProps) {
   const { status, error, isBlessed, isTerminal, bless, revoke } = controls;
   const busy = status.kind === 'loading';
@@ -87,6 +90,7 @@ export function StagedChangeReviewModal({
       <Modal.Footer>
         {status.state === 'pending' ? (
           <div className="flex w-full flex-wrap items-center gap-2">
+            {staged.can_edit_entries ? <EditEntryProposal token={staged.token} disabled={busy} onRevised={onRevised} /> : null}
             <button
               type="button"
               onClick={() => void bless()}

@@ -24,6 +24,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Set, Tuple
 
@@ -169,6 +170,10 @@ class StagedChange:
     execution_contract_version: str = ""
     # Private server provenance; never emitted by to_dict or accepted in payload.
     origin_proof: Optional[Dict[str, Any]] = None
+    # Human revisions are new proposals, never edits to an approved payload.
+    supersedes_token: Optional[str] = None
+    superseded_by: Optional[str] = None
+    entry_edit_fences: Dict[str, Any] = dataclass_field(default_factory=dict)
 
     def is_expired(self, *, now: Optional[datetime] = None) -> bool:
         """Return True when ``expires_at`` is at or before ``now``."""
@@ -180,6 +185,8 @@ class StagedChange:
         Guarded by a type guard on the TS side; do not rename keys
         without coordinating a frontend update.
         """
+        from app.agentive.services.entry_proposal_revision import editable_operations
+
         return {
             "token": self.token,
             # Conversation/session this token was minted in. The
@@ -207,6 +214,11 @@ class StagedChange:
                 effect_class(self.kind, self.payload).value == "destructive_security"
             ),
             "decision_source": self.decision_source,
+            "supersedes_token": self.supersedes_token,
+            "superseded_by": self.superseded_by,
+            "can_edit_entries": self.state == "pending"
+            and bool(editable_operations(self))
+            and _durable_decisions_available(),
             # Sentinel the frontend type guard checks for. Letting the
             # whole shape stand on its own (token + kind + state etc.)
             # would also work; this is belt-and-suspenders so a future
@@ -969,6 +981,7 @@ def _rewrite_staged_envelope_in_parts(
     execute_result: Optional[Dict[str, Any]] = None,
     rolled_back_at: Optional[str] = None,
     rollback_event_ids: Optional[List[str]] = None,
+    superseded_by: Optional[str] = None,
 ) -> Tuple[List[Any], bool]:
     """Return (new_parts, changed) patching a staged-change tool-call result.
 
@@ -993,6 +1006,11 @@ def _rewrite_staged_envelope_in_parts(
                 patch: Dict[str, Any] = {}
                 if state is not None and envelope.get("state") != state:
                     patch["state"] = state
+                if (
+                    superseded_by is not None
+                    and envelope.get("superseded_by") != superseded_by
+                ):
+                    patch["superseded_by"] = superseded_by
                 if (
                     consumed_nav is not None
                     and envelope.get("consumed_nav") != consumed_nav
@@ -1259,8 +1277,11 @@ async def _persist_terminal_state_in_transcript(sc: StagedChange) -> None:
         for thread in threads:
             messages = await chat_threads.list_messages(thread)
             for message in messages:
-                new_parts, changed = _rewrite_staged_state_in_parts(
-                    message.parts or [], sc.token, sc.state
+                new_parts, changed = _rewrite_staged_envelope_in_parts(
+                    message.parts or [],
+                    sc.token,
+                    state=sc.state,
+                    superseded_by=sc.superseded_by,
                 )
                 if changed:
                     # Reassign the whole list so jvspatial's JSON-column

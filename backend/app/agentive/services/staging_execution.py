@@ -625,6 +625,14 @@ async def staged_command_effect(
                 "Current approved decision does not match this effect",
             )
 
+        from app.agentive.services.entry_proposal_revision import (
+            validate_entry_edit_fence,
+        )
+
+        await validate_entry_edit_fence(
+            decision, bound.batch_step.index if bound.batch_step is not None else 0
+        )
+
         async def complete(result: dict[str, Any]) -> None:
             await record_staging_execution_result(
                 claim=claim,

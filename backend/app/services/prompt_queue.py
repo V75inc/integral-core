@@ -845,6 +845,7 @@ async def enqueue_staged_write(
             "staged_state": staged.get("state"),
             "autonomy_grant_used": bool(staged.get("autonomy_grant_used")),
             "expires_at": staged.get("expires_at"),
+            "can_edit_entries": bool(staged.get("can_edit_entries")),
         }
     )
     thread.prompt_queue = queue
@@ -1162,7 +1163,7 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
             "closed": False,
         }
 
-    from app.agentive.staging import get_token
+    from app.agentive.staging import StagedChange, get_token
 
     changed = False
     for item in queue["items"]:
@@ -1184,6 +1185,8 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
             # Keep execution failure/progress visible across reloads without
             # treating approval as proof that the write landed.
             snapshot = {}
+            if isinstance(staged, StagedChange):
+                snapshot["can_edit_entries"] = staged.to_dict()["can_edit_entries"]
             if state != item.get("staged_state", state):
                 snapshot["staged_state"] = state
             last_error = getattr(staged, "last_error", None)

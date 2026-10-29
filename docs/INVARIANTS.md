@@ -395,9 +395,21 @@ separate contracts. Expired state receipts are pruned in bounded batches on
 subsequent closure writes and individually on read; this is not permanent audit
 history or a background retention SLA.
 
+Editing pending Entry content creates a new, independently approved proposal;
+it never mutates an existing reviewed payload. On transactional storage, retiring
+the old token, persisting the replacement and updating the owned conversation
+are atomic. A linked WorkApproval retains its original digest and is rejected,
+not rebound to the edited payload. The human-authored replacement cannot inherit
+an agent capability proof. Destination, workspace and principal remain fixed;
+current access, record revision and schema fences apply. File bindings remain
+unchanged. Nontransactional stores must not emulate atomic replacement with
+independent best-effort writes.
+
 Verification: `tests/test_staging_decision_readback.py`, staging persistence and
 terminal-durability suites, Approvals/Inbox review and modal shared-state tests,
 and `NotificationsHeaderButton.approvals.test.tsx`.
+Human revision coverage: `tests/contract/test_entry_proposal_revision_postgres.py`
+and `EditEntryProposal.test.tsx`.
 Literal input and App-owned label projection are covered by
 `StagedOperationInputs.test.tsx` and `test_app_operation_staging.py`.
 Preserve I-SUBSTRATE-01, I-GRAPH-02, I-APPROVAL-01/02/04 and I-ROLE-01/02.
