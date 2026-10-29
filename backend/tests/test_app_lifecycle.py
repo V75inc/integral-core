@@ -1280,6 +1280,40 @@ async def test_upgrade_work_idempotency_is_scoped_to_target_version(monkeypatch)
     ]
 
 
+@pytest.mark.asyncio
+async def test_upgrade_retry_only_requeues_known_prewrite_conflicts(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.agentive.services import work_items
+
+    app = App(id="app-1", workspace_id="ws-1", active_definition_revision=4)
+    calls = []
+    previous = SimpleNamespace(
+        status="failed",
+        work_item_id="failed-one",
+        failure={"code": "application_definition_upgrade_conflict"},
+    )
+    replacement = SimpleNamespace(status="queued", work_item_id="new-one", failure=None)
+
+    async def enqueue(**kwargs):
+        calls.append(kwargs["idempotency_key"])
+        return previous if len(calls) == 1 else replacement
+
+    monkeypatch.setattr(work_items, "enqueue_work_item", enqueue)
+    result = await enqueue_upgrade_work(app_node=app, actor_id="u-1")
+    assert result == {"status": "queued", "work_item_id": "new-one"}
+    assert calls == [
+        "upgrade:app-1:4:latest",
+        "upgrade:app-1:4:latest:retry:failed-one",
+    ]
+
+    calls.clear()
+    previous.failure = {"code": "unknown_outcome"}
+    result = await enqueue_upgrade_work(app_node=app, actor_id="u-1")
+    assert result == {"status": "failed", "work_item_id": "failed-one"}
+    assert calls == ["upgrade:app-1:4:latest"]
+
+
 # ---------------------------------------------------------------------------
 # Legacy-track adoption (June 30 review R1)
 # ---------------------------------------------------------------------------

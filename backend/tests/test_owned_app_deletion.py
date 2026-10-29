@@ -98,6 +98,45 @@ async def test_owner_deletes_populated_app(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("channel", ["direct", "agent"])
+async def test_owner_deletes_app_with_legacy_entry_missing_type_edge(
+    authenticated_client, channel, test_user, monkeypatch
+):
+    """Older records can lack the type edge while still belonging to a Track."""
+    from app.models.edges import IS_OF_TYPE
+    from app.models.nodes import Entry
+
+    client = authenticated_client
+    response = await client.post("/api/apps", json={"name": "Disposable legacy App"})
+    assert response.status_code == 200, response.text
+    app_id = response.json()["app"]["id"]
+    response = await client.post(
+        f"/api/apps/{app_id}/dashboards", json={"name": "BarChart View"}
+    )
+    assert response.status_code == 200, response.text
+    response = await client.post(
+        "/api/tracks", json={"title": "Legacy records", "app_id": app_id}
+    )
+    assert response.status_code == 200, response.text
+    track_id = response.json()["track"]["id"]
+    response = await client.post(
+        "/api/entries", json={"track_id": track_id, "title": "Legacy entry"}
+    )
+    assert response.status_code == 200, response.text
+    entry = await Entry.get(response.json()["entry"]["id"])
+    graph = await entry.get_context()
+    assert entry.type_id
+    type_edges = await graph.find_edges_between(
+        entry.id, entry.type_id, edge_class=IS_OF_TYPE
+    )
+    assert len(type_edges) == 1
+    await type_edges[0].delete()
+    await _delete(client, app_id, channel, test_user, monkeypatch)
+    assert (await client.get(f"/api/apps/{app_id}")).status_code == 404
+    assert (await client.get(f"/api/entries/{entry.id}")).status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["direct", "agent"])
 async def test_owner_delete_preserves_populated_shared_track(
     authenticated_client, channel, test_user, monkeypatch
 ):

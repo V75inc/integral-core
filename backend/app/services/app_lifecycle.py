@@ -208,21 +208,35 @@ async def enqueue_upgrade_work(
     if target_fingerprint:
         target_identity = f"{target_identity}:{target_fingerprint}"
 
-    work = await enqueue_work_item(
-        kind="app_lifecycle",
-        origin="app_lifecycle",
-        principal_id=actor_id,
-        workspace_id=app_node.workspace_id,
-        app_id=app_node.id,
-        definition_id=app_node.active_definition_id or None,
-        idempotency_key=(
-            f"upgrade:{app_node.id}:{app_node.active_definition_revision}:"
-            f"{target_identity}"
-        ),
-        input_payload={"action": "upgrade", "version": version or ""},
-        plan={"action": "upgrade", "app_id": app_node.id},
-        remaining_obligations=[{"kind": "lifecycle_completion", "action": "upgrade"}],
+    key = (
+        f"upgrade:{app_node.id}:{app_node.active_definition_revision}:"
+        f"{target_identity}"
     )
+    for _ in range(32):
+        work = await enqueue_work_item(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id=actor_id,
+            workspace_id=app_node.workspace_id,
+            app_id=app_node.id,
+            definition_id=app_node.active_definition_id or None,
+            idempotency_key=key,
+            input_payload={"action": "upgrade", "version": version or ""},
+            plan={"action": "upgrade", "app_id": app_node.id},
+            remaining_obligations=[
+                {"kind": "lifecycle_completion", "action": "upgrade"}
+            ],
+        )
+        failure = getattr(work, "failure", None) or {}
+        # Only this pre-write conflict is known to have made no effects. Never
+        # automatically repeat a failed upgrade with an uncertain outcome.
+        if (
+            work.status != "failed"
+            or not isinstance(failure, dict)
+            or failure.get("code") != "application_definition_upgrade_conflict"
+        ):
+            break
+        key = f"{key}:retry:{work.work_item_id}"
     return {"status": work.status, "work_item_id": work.work_item_id}
 
 

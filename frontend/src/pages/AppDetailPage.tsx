@@ -522,10 +522,16 @@ export function AppDetailPage() {
     if (!ok) return;
     try {
       const work = await appsApi.updateFromLibrary(appId);
+      if (['failed', 'cancelled', 'expired', 'dead_letter'].includes(work.status)) {
+        showToast('The previous App update did not complete. No new update was queued.', 'error');
+        return;
+      }
       showToast(
         work.status === 'queued'
           ? `App update queued (${work.work_item_id})`
-          : `App update submitted (${work.work_item_id})`,
+          : work.status === 'succeeded'
+            ? 'App update already completed.'
+            : `App update is already in progress (${work.work_item_id})`,
         'success'
       );
     } catch (e: unknown) {

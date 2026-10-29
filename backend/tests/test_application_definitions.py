@@ -128,6 +128,68 @@ def test_three_way_upgrade_preview_reports_only_true_divergent_changes():
     assert preview["conflicts"][0]["path"] == "$.app.defaults.timezone"
 
 
+def test_upgrade_accepts_skill_reordering_but_rejects_real_local_edits():
+    skills = [
+        {
+            "key": "alpha",
+            "name": "Alpha",
+            "kind": "declarative",
+            "prompt_template": "Alpha guidance",
+        },
+        {
+            "key": "beta",
+            "name": "Beta",
+            "kind": "declarative",
+            "prompt_template": "Beta guidance",
+        },
+    ]
+    base = {
+        "operational_model_schema_version": 2,
+        "scope": "app",
+        "package": {"slug": "example"},
+        "app": {"tracks": [], "skills": skills},
+    }
+    incoming = {
+        **base,
+        "app": {
+            **base["app"],
+            "skills": skills
+            + [
+                {
+                    "key": "gamma",
+                    "name": "Gamma",
+                    "kind": "declarative",
+                    "prompt_template": "Gamma guidance",
+                }
+            ],
+        },
+    }
+    reordered = {**base, "app": {**base["app"], "skills": list(reversed(skills))}}
+    assert (
+        preview_three_way_package_upgrade(
+            base_package_manifest=base,
+            effective_manifest=reordered,
+            incoming_package_manifest=incoming,
+        )["status"]
+        == "ready"
+    )
+
+    edited = {
+        **base,
+        "app": {
+            **base["app"],
+            "skills": [skills[1], {**skills[0], "name": "Local Alpha"}],
+        },
+    }
+    preview = preview_three_way_package_upgrade(
+        base_package_manifest=base,
+        effective_manifest=edited,
+        incoming_package_manifest=incoming,
+    )
+    assert preview["status"] == "conflicts"
+    assert any(item["path"] == "$.app.skills" for item in preview["conflicts"])
+
+
 def test_three_way_upgrade_guard_rejects_conflicts():
     from app.exceptions import ApplicationDefinitionUpgradeConflictError
     from app.models.nodes import ApplicationDefinition

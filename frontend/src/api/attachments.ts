@@ -1,6 +1,6 @@
 import type { AxiosProgressEvent } from 'axios';
 import apiClient from './client';
-import { toArr, unwrapResource } from './helpers';
+import { errorMessageFromAxios, toArr, unwrapResource } from './helpers';
 
 /**
  * Phase 1 + 1.5 (Plan 03) shape.
@@ -415,7 +415,7 @@ export const attachmentsApi = {
           };
         } catch (e) {
           results[i] = {
-            error: e instanceof Error ? e.message : 'Upload failed',
+            error: errorMessageFromAxios(e, 'Upload failed'),
             filename: files[i].name,
           };
         }

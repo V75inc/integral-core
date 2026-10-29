@@ -3060,6 +3060,10 @@ async def agent_turn(
         "origin": origin,
         "run_id": run.run_id,
     }
+    # Routine messages share their conversation with other scheduled work.
+    # Preserve the authenticated, worker-bound routine identity for readback.
+    if turn_handle.routine_id:
+        interact_payload["routine_id"] = turn_handle.routine_id
 
     notify_extra = {"origin": origin}
     await notify_thread_stream_update(

@@ -259,3 +259,44 @@ async def test_routine_activity_endpoint():
     assert data["thread_id"] == thread.id
     assert isinstance(data["events"], list)
     assert isinstance(data["write_scope_links"], list)
+
+
+@pytest.mark.asyncio
+async def test_routine_activity_keeps_shared_thread_messages_separate():
+    """A shared conversation is not a shared routine activity stream."""
+    from app.services.chat_threads import append_message
+
+    user_id, workspace_id, thread = await _bootstrap(
+        "routines-api-activity-isolation@example.com"
+    )
+    first = await _seed(user_id, workspace_id, thread.id, instruction="Count entries")
+    second = await _seed(user_id, workspace_id, thread.id, instruction="Report time")
+    for message, metadata in [
+        (
+            "First result",
+            {"interactPayload": {"origin": "routine_task", "routine_id": first.id}},
+        ),
+        (
+            "Second result",
+            {"interactPayload": {"origin": "routine_task", "routine_id": second.id}},
+        ),
+        ("Reminder result", {"origin": "routine_task", "routine_id": first.id}),
+        ("Unattributed legacy result", {"origin": "routine_task"}),
+        ("Ordinary conversation", {"origin": "user", "routine_id": first.id}),
+    ]:
+        await append_message(
+            thread=thread,
+            role="assistant",
+            parts=[{"type": "text", "text": message}],
+            provider_metadata=metadata,
+        )
+    activity = await invoke_route_in_process(
+        get_routine_activity,
+        principal_id=user_id,
+        scope=workspace_id,
+        routine_id=first.id,
+    )
+    messages = {
+        event["summary"] for event in activity["events"] if event["kind"] == "message"
+    }
+    assert messages == {"First result", "Reminder result"}

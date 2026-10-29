@@ -159,6 +159,18 @@ def _message_origin(meta: Any) -> Optional[str]:
     return None
 
 
+def _message_routine_id(meta: Any) -> Optional[str]:
+    """Return the recorded routine identity, or None for legacy unscoped turns."""
+    if not isinstance(meta, dict):
+        return None
+    interact = meta.get("interactPayload") or meta.get("interact_payload") or {}
+    if isinstance(interact, dict) and interact.get("routine_id"):
+        return str(interact["routine_id"])
+    if meta.get("routine_id"):
+        return str(meta["routine_id"])
+    return None
+
+
 async def build_routine_activity(
     routine: RoutineTask, *, limit: int = 40
 ) -> Dict[str, Any]:
@@ -221,7 +233,12 @@ async def build_routine_activity(
                 messages = await chat_store.list_messages(thread)
                 for msg in messages:
                     meta = msg.provider_metadata or {}
-                    if _message_origin(meta) != "routine_task":
+                    # Old turns without a routine identity cannot be safely
+                    # attributed when several routines use the same thread.
+                    if (
+                        _message_origin(meta) != "routine_task"
+                        or _message_routine_id(meta) != routine.id
+                    ):
                         continue
                     text = _text_from_parts(msg.parts)
                     if not text and isinstance(meta, dict):

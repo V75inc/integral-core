@@ -98,11 +98,8 @@ export function Layout() {
     () => stitchLayoutCrumbs(crumbs, location.pathname, activeWorkspace),
     [crumbs, activeWorkspace, location.pathname],
   );
-  // First-login surface. When the agentive layer is reachable the dock
-  // auto-opens seeded for onboarding (OnboardingDockAutoOpen); when it is
-  // not, the GetStarted banner stands in so the UI never breaks just
-  // because the harness is off.
-  const { shouldOnboard, agentiveEnabled } = useFirstLoginOnboarding();
+  // The brief guide remains available independently of the assistant dock.
+  const { shouldOnboard } = useFirstLoginOnboarding();
 
   useEffect(() => {
     if (isMdUp) setMobileNavOpen(false);
@@ -177,7 +174,7 @@ export function Layout() {
       {getRegisteredLayoutBanners().map((Banner, i) => (
         <Banner key={i} />
       ))}
-      {shouldOnboard && !agentiveEnabled ? (
+      {shouldOnboard ? (
         <OnboardingGetStartedBanner />
       ) : null}
       {/* Skip link — first focusable element on the page. Sighted users never

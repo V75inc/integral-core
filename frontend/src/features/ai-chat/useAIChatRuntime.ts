@@ -1372,8 +1372,17 @@ export function useAIChatRuntime(
       void loadThread(threadId);
     };
     window.addEventListener("integral:thread-stream-update", handler);
+    // A completed background turn can arrive while the socket is down.
+    // Catch up the visible conversation on reconnect without overwriting a
+    // locally streaming turn; loadThread performs the normal merge guards.
+    const onReconnect = () => {
+      const threadId = activeThreadIdRef.current;
+      if (threadId && !threadId.startsWith("local-")) void loadThread(threadId);
+    };
+    window.addEventListener("integral:agent-events-reconnected", onReconnect);
     return () => {
       window.removeEventListener("integral:thread-stream-update", handler);
+      window.removeEventListener("integral:agent-events-reconnected", onReconnect);
     };
   }, [provider.serverPersisted, loadThread]);
 

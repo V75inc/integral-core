@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 from httpx import AsyncClient
 
+from app.config import settings
 from app.models.edges import HAS_ATTACHMENT
 from app.models.nodes import Attachment, Entry
 from app.services.attachment_storage import get_attachment_storage_service
@@ -98,6 +99,64 @@ class TestAttachmentsCRUD:
         assert "attachment" in data
         assert data["attachment"]["filename"] == "test.txt"
 
+    async def test_image_limit_is_enforced_without_blocking_other_files(
+        self, authenticated_client: AsyncClient, test_user, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "ATTACHMENT_MAX_IMAGE_BYTES", 16)
+        track_id = await self._create_track(authenticated_client)
+        entry_id = await self._create_entry(authenticated_client, track_id)
+        image = b"\x89PNG\r\n\x1a\n" + b"x" * 32
+        response = await authenticated_client.post(
+            f"/api/entries/{entry_id}/attachments",
+            files={"file": ("large.png", image, "image/png")},
+        )
+        assert response.status_code == 400, response.text
+        assert "Image too large" in response.text
+        # A mislabeled image must not bypass the limit on a host without libmagic.
+        monkeypatch.setattr(
+            "app.services.attachment_content_sniffer._MAGIC_AVAILABLE", False
+        )
+        disguised = await authenticated_client.post(
+            f"/api/entries/{entry_id}/attachments",
+            files={"file": ("notes.txt", image, "text/plain")},
+        )
+        assert disguised.status_code == 400, disguised.text
+        assert "Image too large" in disguised.text
+        response = await authenticated_client.post(
+            f"/api/entries/{entry_id}/attachments",
+            files={"file": ("notes.txt", b"a" * 40, "text/plain")},
+        )
+        assert response.status_code == 200, response.text
+
+    async def test_entry_image_limit_at_both_sides_of_boundary(
+        self, authenticated_client: AsyncClient, monkeypatch
+    ):
+        import io
+
+        from PIL import Image
+
+        stream = io.BytesIO()
+        Image.new("RGB", (2, 2), color="white").save(stream, format="PNG")
+        image = stream.getvalue()
+        track_id = await self._create_track(authenticated_client)
+        for limit, expected in [
+            (len(image) + 1, 200),
+            (len(image), 200),
+            (len(image) - 1, 400),
+        ]:
+            entry_id = await self._create_entry(authenticated_client, track_id)
+            monkeypatch.setattr(settings, "ATTACHMENT_MAX_IMAGE_BYTES", limit)
+            response = await authenticated_client.post(
+                f"/api/entries/{entry_id}/attachments",
+                files={"file": ("boundary.png", image, "image/png")},
+            )
+            assert response.status_code == expected, response.text
+            entry = await Entry.get(entry_id)
+            attached = await entry.nodes(
+                edge=[HAS_ATTACHMENT], node=["Attachment"], direction="out", limit=2
+            )
+            assert len(attached) == (1 if expected == 200 else 0)
+
     async def test_signed_inline_attachment_rechecks_scan_and_downloads_active_content(
         self, authenticated_client: AsyncClient, client: AsyncClient, test_user
     ):
@@ -190,6 +249,40 @@ class TestAttachmentsCRUD:
         assert response.status_code == 200
         assert response.content == payload
         assert response.headers.get("content-type", "").startswith("text/plain")
+
+    async def test_filed_chat_attachment_can_be_read_without_deleting_chat_copy(
+        self, authenticated_client: AsyncClient, test_user
+    ):
+        from app.models.nodes import Track
+        from app.services import chat_threads
+
+        track_id = await self._create_track(authenticated_client)
+        entry_id = await self._create_entry(authenticated_client, track_id)
+        user_id = getattr(test_user, "user_id", None) or test_user.id
+        attachment_id = await self._create_attachment_programmatically(
+            entry_id, user_id, "receipt.txt", b"synthetic receipt", persist_blob=True
+        )
+        track = await Track.get(track_id)
+        thread = await chat_threads.create_thread(
+            user_id=user_id,
+            provider_id="integral_native",
+            workspace_id=track.workspace_id,
+        )
+        attachment = await Attachment.get(attachment_id)
+        await thread.connect(attachment, edge=HAS_ATTACHMENT)
+
+        metadata = await authenticated_client.get(f"/api/attachments/{attachment_id}")
+        assert metadata.status_code == 200, metadata.text
+        download = await authenticated_client.get(
+            f"/api/attachments/{attachment_id}/download"
+        )
+        assert download.status_code == 200, download.text
+        assert download.content == b"synthetic receipt"
+        deletion = await authenticated_client.delete(
+            f"/api/attachments/{attachment_id}"
+        )
+        assert deletion.status_code == 409, deletion.text
+        assert await Attachment.get(attachment_id) is not None
 
     async def test_delete_attachment(
         self, authenticated_client: AsyncClient, test_user

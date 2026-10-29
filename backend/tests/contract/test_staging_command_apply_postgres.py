@@ -25,7 +25,7 @@ from app.services.app_graph import (
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
-async def proposal():
+async def proposal(*, source_operational_model_slug=None):
     suffix = uuid.uuid4().hex
     await ensure_integral_app_graph(include_library=False)
     auth = await AuthUser.create(
@@ -36,7 +36,11 @@ async def proposal():
     workspace = await Workspace.create(name="Staging QA", kind="organization")
     await catalog_workspace(workspace)
     await user.connect(workspace, edge=IS_MEMBER_OF, role="owner")
-    app = await App.create(name="Staging QA", workspace_id=workspace.id)
+    app = await App.create(
+        name="Staging QA",
+        workspace_id=workspace.id,
+        source_operational_model_slug=source_operational_model_slug,
+    )
     await catalog_app(app)
     await user.connect(app, edge=OWNS)
     track = await Track.create(title="Staging QA", workspace_id=workspace.id)
@@ -410,7 +414,9 @@ async def test_hook_intent_preserves_behavior_and_never_replays_unknown_outcome(
 
     monkeypatch.setattr(tool_dispatch, "resolve_handler", lambda ref: handler)
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
-        auth, workspace, track, sc = await proposal()
+        auth, workspace, track, sc = await proposal(
+            source_operational_model_slug="qualification"
+        )
         registry.register_workspace_tools(
             workspace.id,
             "qualification",

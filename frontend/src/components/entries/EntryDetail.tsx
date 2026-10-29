@@ -1,4 +1,5 @@
 import { useEntryHostRefresh } from '../../hooks/useEntryHostRefresh';
+import { errorMessageFromAxios } from '../../api/helpers';
 import { tagFilterHref } from '../../utils/tagFilters';
 import { EntryInlineImageGallery } from './AttachmentGallery';
 import { mergeComments } from '../../utils/commentTree';
@@ -1098,12 +1099,14 @@ export function EntryDetail({
     showToast(pendingMsg, 'info');
     try {
       const uploaded: AttachmentRecord[] = [];
+      const failures: string[] = [];
       if (files.length === 1) {
         uploaded.push(await attachmentsApi.smartUploadForEntry(entry.id, files[0]));
       } else {
         const result = await attachmentsApi.uploadManyForEntry(entry.id, files);
         result.results.forEach(r => {
           if ('attachment' in r) uploaded.push(r.attachment);
+          else failures.push(`${r.filename ? `${r.filename}: ` : ''}${r.error}`);
         });
       }
       if (uploaded.length) {
@@ -1120,11 +1123,12 @@ export function EntryDetail({
             : `${uploaded.length} attachments uploaded`,
           'success'
         );
-      } else {
+      } else if (!failures.length) {
         showToast('Upload failed', 'error');
       }
+      if (failures.length) showToast(failures.join('; '), 'error');
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Upload failed';
+      const msg = errorMessageFromAxios(e, 'Upload failed');
       showToast(msg, 'error');
     }
   };

@@ -291,6 +291,7 @@ async def update_entry_in_track(
                 try:
                     validated = await run_entry_before_write_hooks(
                         workspace_id=track.workspace_id,
+                        track_id=str(track.id),
                         actor_id=admitted_principal_id,
                         hook_point="entry.update",
                         entry_type_slug=entry_type_hook_slug(entry_type),

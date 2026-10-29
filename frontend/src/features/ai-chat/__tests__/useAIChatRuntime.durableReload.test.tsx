@@ -71,6 +71,16 @@ function nativeProvider(streamTurn: ChatProvider["streamTurn"]): ChatProvider {
 
 describe("owned durable work after reload", () => {
   beforeEach(() => { vi.clearAllMocks(); __resetThreadSessionStoreForTests(); localStorage.clear(); });
+  it("loads background messages missed while the events socket was disconnected", async () => {
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
+    vi.mocked(aiChatApi.getThread).mockResolvedValue({...thread, messages: [user]});
+    const {result} = renderHook(() => useAIChatRuntime(nativeProvider(async function* () {}), {initialThreadId: "t1"}));
+    await waitFor(() => expect(result.current.composerReady).toBe(true));
+    vi.mocked(aiChatApi.getThread).mockResolvedValue({...thread, messages: [user, assistant]});
+    act(() => window.dispatchEvent(new Event("integral:agent-events-reconnected")));
+    await waitFor(() => expect(result.current.runtime.thread.getState().messages.map(message => message.id))
+      .toEqual(["accepted-user", "saved-assistant"]));
+  });
   it("attaches once without another user message and reloads the canonical result", async () => {
     vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
     vi.mocked(aiChatApi.getThread)

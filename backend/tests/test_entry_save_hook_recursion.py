@@ -25,9 +25,21 @@ def hook_entry(monkeypatch):
     monkeypatch.setattr(
         resolver,
         "find_matching_bindings",
-        lambda *args: [{"key": "mirror-save", "mode": "tool", "tool": "mirror"}],
+        lambda *args: [
+            {
+                "key": "mirror-save",
+                "mode": "tool",
+                "tool": "mirror",
+                "_bundle_slug": "test-bundle",
+            }
+        ],
     )
-    return SimpleNamespace(id="entry-hook", type_id="type-note")
+
+    async def owner(_workspace_id, _track_id):
+        return "test-bundle"
+
+    monkeypatch.setattr(entry_save_runtime, "_owning_bundle_slug", owner)
+    return SimpleNamespace(id="entry-hook", type_id="type-note", track_id="track-hook")
 
 
 async def dispatch(entry):

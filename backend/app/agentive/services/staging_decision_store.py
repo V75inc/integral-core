@@ -97,6 +97,7 @@ async def transition_staged_decision(
     expected_kind: str | None = None,
     decision_source: str | None = None,
     terminal_snapshot: StagedChange | None = None,
+    pending_only: bool = False,
 ) -> StagedChange:
     """Use fresh locked facts; stale caches never bless, revoke or consume.
 
@@ -151,6 +152,10 @@ async def transition_staged_decision(
         if expected_kind is not None and data.get("kind") != expected_kind:
             raise StagingError("wrong_kind", "Token is for another operation kind")
         state = data.get("state")
+        if pending_only and state != "pending":
+            raise StagingError(
+                "proposal_changed", "The proposal is no longer awaiting review."
+            )
         if state not in {"pending", "blessed"}:
             acknowledged = _acknowledged_terminal(
                 terminal_snapshot,

@@ -29,6 +29,25 @@ class _Deny:
     allowed = False
 
 
+def test_image_size_boundary_and_heif_signature():
+    from app.api.errors import BadRequestError
+    from app.services.attachment_upload_shared import (
+        fallback_mime_from_filename,
+        image_signature,
+        validate_image_upload_size,
+    )
+
+    validate_image_upload_size("image/png", 15, 16)
+    validate_image_upload_size("image/png", 16, 16)
+    with pytest.raises(BadRequestError, match="Image too large"):
+        validate_image_upload_size("image/png", 17, 16)
+    assert fallback_mime_from_filename("photo.HEIC") == "image/heic"
+    assert fallback_mime_from_filename("photo.avif") == "image/avif"
+    assert image_signature(b"\x00\x00\x00\x18ftypheic" + b"\x00" * 12)
+    assert image_signature(b"\x00\x00\x00\x18ftypavif" + b"\x00" * 12)
+    assert not image_signature(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 12)
+
+
 def _async(value):
     async def _inner(**kwargs):
         return value
@@ -118,6 +137,26 @@ async def _seed_entry():
 
 
 @pytest.mark.asyncio
+async def test_oversized_chat_image_cannot_be_filed_to_entry(monkeypatch):
+    from app.config import settings
+    from app.services import attachment_agent
+
+    monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
+    monkeypatch.setattr(settings, "ATTACHMENT_MAX_IMAGE_BYTES", 16)
+    _thread, attachment_id = await _seed_chat_attachment("o.User.filing-owner")
+    attachment = await Attachment.get(attachment_id)
+    attachment.mime_type = "image/png"
+    attachment.size = 17
+    await attachment.save()
+    entry = await _seed_entry()
+    result = await attach_uploaded_file_to_entry(
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
+    )
+    assert result["error_code"] == "image_too_large"
+    assert not await entry.nodes(edge=[HAS_ATTACHMENT], node=["Attachment"])
+
+
+@pytest.mark.asyncio
 async def test_attach_uploaded_file_wires_entry_edge(monkeypatch):
     from app.services import attachment_agent
 
@@ -172,6 +211,34 @@ async def test_attach_uploaded_file_stays_reachable_from_thread(monkeypatch):
         edge=[HAS_ATTACHMENT], node=["Attachment"], direction="out"
     )
     assert any(a.id == attachment_id for a in still_on_thread)
+
+
+@pytest.mark.asyncio
+async def test_filed_chat_upload_streams_through_entry_policy(monkeypatch):
+    """The ChatThread edge is created first and must never be treated as Entry."""
+    from app.api import attachments
+    from app.services import attachment_agent
+
+    monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
+    thread, attachment_id = await _seed_chat_attachment("o.User.filing-owner")
+    entry = await _seed_entry()
+    await attach_uploaded_file_to_entry(
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
+    )
+    monkeypatch.setattr(
+        attachments, "resolve_principal_id", lambda request: thread.user_id
+    )
+    scope = AsyncMock()
+    monkeypatch.setattr(attachments, "_require_entry_scope", scope)
+    monkeypatch.setattr(attachments, "policy_evaluate", _async(_Allow()))
+    result = await attachments.stream_attachment(object(), attachment_id)
+    assert result.status_code == 200
+    assert scope.await_args.args[2].id == entry.id
+    monkeypatch.setattr(attachments, "policy_evaluate", _async(_Deny()))
+    from app.api.errors import InsufficientPermissionsError
+
+    with pytest.raises(InsufficientPermissionsError):
+        await attachments.stream_attachment(object(), attachment_id)
 
 
 @pytest.mark.asyncio

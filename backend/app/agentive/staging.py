@@ -1541,7 +1541,11 @@ async def record_execute_progress(
 
 
 async def revoke_token(
-    *, user_id: str, token: str, decision_source: Optional[str] = None
+    *,
+    user_id: str,
+    token: str,
+    decision_source: Optional[str] = None,
+    pending_only: bool = False,
 ) -> StagedChange:
     """Reject a staged change.
 
@@ -1577,6 +1581,7 @@ async def revoke_token(
             user_id=user_id,
             target="revoked",
             decision_source=decision_source,
+            pending_only=pending_only,
         )
         sc = await _cache_durable_decision(fresh)
         await reject_linked_approval()
@@ -1589,6 +1594,10 @@ async def revoke_token(
             raise StagingError("unknown_token", f"No staged change for token {token!r}")
         if sc.user_id != user_id:
             raise StagingError("wrong_user", "Token does not belong to this user")
+        if pending_only and sc.state != "pending":
+            raise StagingError(
+                "proposal_changed", "The proposal is no longer awaiting review."
+            )
         if sc.state in ("consumed", "revoked", "expired"):
             raise StagingError(
                 f"already_{sc.state}",

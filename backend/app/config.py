@@ -462,6 +462,8 @@ class Settings(BaseSettings):
     # Files larger than this should land via chunked/resumable upload
     # (Phase 6 — not yet implemented).
     ATTACHMENT_MAX_UPLOAD_BYTES: int = 500 * 1024 * 1024
+    # Match the default limit for images supplied to chat and App templates.
+    ATTACHMENT_MAX_IMAGE_BYTES: int = 5 * 1024 * 1024
     # Extra MIME types accepted on upload, comma separated, on top of the built-in
     # document / image / audio / video list. Executables stay refused unless named.
     ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES: str = ""

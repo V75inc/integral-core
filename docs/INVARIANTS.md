@@ -18,6 +18,8 @@ Every persisted Node has a named structural path from Root through IntegralApp. 
 
 Use static create/edge checks and runtime reachability audits in `test_graph_contiguousness.py`. Any legacy allowlist must remain drained, not become a permanent exemption. Existing structural attachments include uploads/files/conflicts beneath records, drafts beneath published models, sessions beneath threads, and notifications beneath users through their canonical helpers.
 
+An approved App operation may repair a missing legacy `IS_OF_TYPE` edge only inside its effect transaction. The rooted Entry must have one containing Track, that Track one attached Operational Model, and that model one EntryType matching the persisted type cache. Recheck the exact operation permit or the human's ordinary record authority before connecting the edge. Conflicting, multiple or unverifiable graph facts fail closed; the scalar cache alone never authorizes a repair. A refused or rolled-back effect must also roll back the repair.
+
 ### I-GRAPH-02 — Object-For-Non-Graph-Records (`object-for-non-graph-records`)
 
 Use jvspatial Object for log-shaped/scalar-keyed records that have no meaningful graph relationship, permission resolution, cascade, traversal, or Walker computation. Graph participants remain Nodes. Conversion between these primitives is a substrate change. ChangeEvent persistence uses DBLog(Object) through the canonical logger; it does not need a graph migration. Private execution records can use scoped encrypted Objects while their owning sessions remain rooted Nodes.
@@ -610,7 +612,7 @@ The current catalog is entry.transform, entry.public_share, entry.precompute, en
 
 Merges preserve hooks/tools and unstaged declarations where applicable. Startup rehydrates active package registrations and heals missing declared operational blocks through the canonical source path. Handler resolution uses verified package/module identity, including external packages, rather than a hardcoded domain import.
 
-Entry hooks match type keys. ToolContext reads validate entries through their owning Tracks and active workspace. Only the explicit own-personal-workspace facade contract can select that narrow alternate target; mutating context is forbidden. Tools cannot import private Core services/models. Registration collisions fail; same-package idempotent registration does not replace another package.
+Entry hooks match type keys only within the package of the App structurally owning the Track. Standalone Tracks do not acquire an App package hook. Ambiguous App ownership or a cross-workspace App edge rejects the write rather than silently skipping its save rules. Installing Apps retain this scope for seed writes. ToolContext reads validate entries through their owning Tracks and active workspace. Only the explicit own-personal-workspace facade contract can select that narrow alternate target; mutating context is forbidden. Tools cannot import private Core services/models. Registration collisions fail; same-package idempotent registration does not replace another package.
 
 ### I-BUNDLE-01 — Package manifest required
 

@@ -128,6 +128,19 @@ async def start_session(
     _ensure_enabled()
     if total_bytes <= 0:
         raise BadRequestError(message="total_bytes must be a positive integer")
+    from app.services.attachment_upload_shared import (
+        fallback_mime_from_filename,
+        validate_image_upload_size,
+    )
+
+    claimed_mime = (mime_type or "").strip().lower()
+    filename_mime = fallback_mime_from_filename(filename or "") or ""
+    validate_image_upload_size(
+        claimed_mime, total_bytes, settings.ATTACHMENT_MAX_IMAGE_BYTES
+    )
+    validate_image_upload_size(
+        filename_mime, total_bytes, settings.ATTACHMENT_MAX_IMAGE_BYTES
+    )
     if total_bytes > settings.CHUNKED_UPLOAD_MAX_TOTAL_BYTES:
         raise BadRequestError(
             message=(
