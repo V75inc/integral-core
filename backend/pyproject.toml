@@ -24,7 +24,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc39"
+version = "0.1.1rc40"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 license-files = ["LICENSE", "NOTICE"]
@@ -77,6 +77,8 @@ dependencies = [
     # Keep OAuth and jvspatial's MongoDB dependencies above audited advisories,
     # including when downstream installations resolve without this lockfile.
     "authlib>=1.9.1",
+    # Reject joserfc releases flagged by the release dependency audit.
+    "joserfc>=1.7.6",
     "dnspython>=2.9.0",
     "pymongo>=4.18.3",
     "httpx>=0.24.0",
