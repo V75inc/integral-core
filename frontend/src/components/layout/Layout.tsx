@@ -168,8 +168,8 @@ export function Layout() {
       // corresponding padding-top for the push-down squeeze.
       style={{ minHeight: 'calc(100vh - var(--system-bar-h, 0px))' }}
     >
-      {/* Banner sits above the skip link so screen readers hear the
-          welcome status before navigating into the main content. */}
+      {/* Register notices with the single global bar. Guidance queues behind
+          operational notices without introducing a separate layout strip. */}
       <EmailVerificationBanner />
       {getRegisteredLayoutBanners().map((Banner, i) => (
         <Banner key={i} />

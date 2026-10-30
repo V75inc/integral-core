@@ -39,6 +39,7 @@ export interface RetrieveResponse {
   requested_mode: RetrievalMode;
   degraded: boolean;
   candidates_examined: number;
+  boundary?: { declared_query_required?: boolean } | null;
 }
 
 // ── Endpoint ──────────────────────────────────────────────

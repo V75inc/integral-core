@@ -40,6 +40,7 @@ import {
   type EntryComposeSeed
 } from '../components/entries/EntryComposer';
 import { useRetrieve } from '../hooks/useRetrieve';
+import { RecordReadBoundaryNotice } from '../components/entries/RecordReadBoundaryNotice';
 import { useSearchResultEntries } from '../hooks/useSearchResultEntries';
 import { useOpenEntryModalRefetch } from '../hooks/useOpenEntryModalRefetch';
 import { EntryDetail } from '../components/entries/EntryDetail';
@@ -212,6 +213,7 @@ export function TrackDetailPage() {
     loading: retrievalLoading,
     error: retrievalError,
     degraded: retrievalDegraded,
+    appQueryRequired: retrievalAppQueryRequired,
     run: runRetrieval,
     reset: resetRetrieval
   } = useRetrieve({ scope: id ? `track:${id}` : undefined, authorityKey: `${scope?.workspaceId}:${user?.id}` });
@@ -1680,6 +1682,9 @@ export function TrackDetailPage() {
       : trackCrumbs
   );
 
+  const appQueryRequired = retrievalAppQueryRequired
+    || Boolean(matchedPage?.appQueryRequired)
+    || Boolean(entriesData?.pages.some(page => page.appQueryRequired));
   const emptyStateContent = entryResultsLoading ? (
     <div className="space-y-4">
       {[1, 2, 3].map(i => (
@@ -1893,6 +1898,9 @@ export function TrackDetailPage() {
             void fetchNextPage();
           }}
           emptyStateContent={emptyStateContent}
+          recordReadBoundaryNotice={appQueryRequired && !entryResultsLoading ? (
+            <RecordReadBoundaryNotice appId={track?.app?.id} searching={Boolean(retrievalQuery)} />
+          ) : undefined}
           trackEntriesSentinelRef={trackEntriesSentinelRef}
         />
 

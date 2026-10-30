@@ -74,7 +74,7 @@ fi
 
 # Frozen baseline — update only when removing entries (never increase).
 # Matches service_layer_drift_check.sh ratchet pattern.
-MAX_TEXT_ALLOWLIST_ENTRIES=164
+MAX_TEXT_ALLOWLIST_ENTRIES=163
 if [ "${#allowlist[@]}" -gt "$MAX_TEXT_ALLOWLIST_ENTRIES" ]; then
   echo "FAIL: ui_drift_allowlist grew (${#allowlist[@]} > $MAX_TEXT_ALLOWLIST_ENTRIES)."
   echo "  Drain debt by migrating files to <Text>, then remove allowlist paths —"

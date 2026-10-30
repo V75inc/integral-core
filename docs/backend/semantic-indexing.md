@@ -220,6 +220,29 @@ The same workspace, App/Track/view filters and canonical access admission apply.
 The UI preserves retrieval order, stops automatic paging during a search and
 does not replay 429/5xx errors through a compatibility endpoint. Retry is explicit.
 
+Native Feed and search include authorized records in active installed Apps when
+the REST request carries a verified sign-in session for the authenticated user.
+The adapter checks the configured session signature and principal and excludes
+service-auth handoffs. API-key/OAuth requests and resident/MCP tools retain the
+declared-App query boundary; no body field or client actor header can enable the
+native projection. Current membership, canonical containment, entry policy and
+source checks still apply, including explicit exclusions. Native search does not
+make these records available to a generic agent query or open paused Apps.
+Feed applies its selected App/Track scope before ranking and limiting candidates;
+otherwise unrelated workspace hits can crowd out genuine scoped matches.
+Clients retain
+`boundary.declared_query_required` and explicit `refused` metadata as a coverage
+notice, with a link to the selected App or the Apps list. Excluded rows are not
+presented as an empty workspace or a complete negative search. Partial Feed
+counts label records **shown** and never display excluded record details or
+counts. When an excluded first page has another cursor, a manual **Load more
+entries** action allows continued browsing without an automatic request loop.
+Search restrictions reset with the query, principal, workspace and search mode;
+stale responses cannot restore a previous scope's notice.
+Coverage notices reflect the server's actual decision, never an inference from
+an App's installation metadata. An excluded empty result replaces the widget's
+own empty message, including widgets that do not consume the page's empty state.
+
 `k` defaults to `RETRIEVE_K_DEFAULT` (150, cap 500), `top_n` to
 `RETRIEVE_TOP_N_DEFAULT` (20, cap 50). Omitted request values honor deployment
 settings. `context_tokens` bounds returned passage text (default 1200,

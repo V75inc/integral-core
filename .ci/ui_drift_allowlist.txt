@@ -65,7 +65,6 @@ frontend/src/components/library/ImportPackageModal.tsx
 frontend/src/components/library/LibraryPackageDetailModal.tsx
 frontend/src/components/mentions/MentionPopover.tsx
 frontend/src/components/notifications/NotificationsListBody.tsx
-frontend/src/components/onboarding/OnboardingGetStartedBanner.tsx
 frontend/src/components/settings/WhatsAppSettings.tsx
 frontend/src/components/sidebar/PinButton.tsx
 frontend/src/components/system/SystemNotificationBar.tsx

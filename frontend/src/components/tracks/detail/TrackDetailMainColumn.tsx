@@ -67,6 +67,7 @@ export interface TrackDetailMainColumnProps {
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
   emptyStateContent: ReactNode;
+  recordReadBoundaryNotice?: ReactNode;
   trackEntriesSentinelRef: RefObject<HTMLDivElement>;
 }
 
@@ -118,6 +119,7 @@ export function TrackDetailMainColumn({
   isFetchingNextPage,
   fetchNextPage,
   emptyStateContent,
+  recordReadBoundaryNotice,
   trackEntriesSentinelRef,
 }: TrackDetailMainColumnProps) {
   return (
@@ -199,7 +201,8 @@ export function TrackDetailMainColumn({
         </div>
       ) : null}
 
-      {activeView ? (
+      {recordReadBoundaryNotice}
+      {recordReadBoundaryNotice && filteredEntries.length === 0 ? null : activeView ? (
         <>
           <ViewRenderer
             view={activeView}

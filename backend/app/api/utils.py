@@ -5,6 +5,51 @@ from typing import Any, Dict, List, Optional
 from starlette.requests import Request
 
 
+def is_native_session_request(request: Request, principal_id: str) -> bool:
+    """Recognize a sign-in session after the endpoint's normal authentication.
+
+    jvspatial normalizes session and OAuth identities to the same UserResponse,
+    without recording the authentication method. For native record search we
+    additionally verify the session signature and its current authenticated id.
+    This is not authentication or a permission grant: current workspace, record
+    audience and containment checks still run. API keys, OAuth and signed
+    service-auth handoffs must keep the declared-App query boundary.
+    """
+    if getattr(request.state, "service_auth", False) or getattr(
+        request.state, "actor_kind", None
+    ) not in (None, "human"):
+        return False
+    user = getattr(request.state, "user", None)
+    if (isinstance(user, dict) and user.get("api_key_id")) or getattr(
+        user, "api_key_id", None
+    ):
+        return False
+    authorization = request.headers.get("authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+
+    import jwt
+
+    from app.config import settings
+
+    try:
+        claims = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"require": ["user_id", "exp", "jti"]},
+        )
+    except (jwt.InvalidTokenError, TypeError):
+        return False
+    return (
+        claims.get("user_id") == principal_id
+        and isinstance(claims.get("jti"), str)
+        and bool(claims["jti"])
+        and not claims.get("svc_auth")
+    )
+
+
 def _admit_desktop_principal(principal: str) -> str:
     from app.runtime.composition import admits_human
 

@@ -53,6 +53,59 @@ beforeEach(() => {
 });
 
 describe('useRetrieve()', () => {
+  it('preserves restricted App coverage and clears it on workspace change and reset', async () => {
+    vi.mocked(retrieveApi.retrieve).mockResolvedValue({
+      results: [], dropped_for_permission: 0, mode: 'semantic', requested_mode: 'semantic',
+      degraded: false, candidates_examined: 1, boundary: { declared_query_required: true },
+    });
+    const { result, rerender } = renderHook(
+      ({ workspace }) => useRetrieve({ authorityKey: workspace }),
+      { initialProps: { workspace: 'first' }, wrapper: wrapper() },
+    );
+    await act(async () => { await result.current.run('receipt'); });
+    expect(result.current.appQueryRequired).toBe(true);
+    rerender({ workspace: 'second' });
+    expect(result.current.appQueryRequired).toBe(false);
+    await act(async () => { await result.current.run('receipt'); });
+    expect(result.current.appQueryRequired).toBe(true);
+    act(() => result.current.reset());
+    expect(result.current.appQueryRequired).toBe(false);
+  });
+
+  it('does not let an old restricted response contaminate a newer open search', async () => {
+    let finishOld!: (value: retrieveApi.RetrieveResponse) => void;
+    vi.mocked(retrieveApi.retrieve)
+      .mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockResolvedValueOnce({ results: [], dropped_for_permission: 0, mode: 'semantic',
+        requested_mode: 'semantic', degraded: false, candidates_examined: 0 });
+    const { result } = renderHook(() => useRetrieve(), { wrapper: wrapper() });
+    let old!: Promise<void>;
+    act(() => { old = result.current.run('old search'); });
+    await act(async () => { await result.current.run('new search'); });
+    await act(async () => {
+      finishOld({ results: [], dropped_for_permission: 0, mode: 'semantic',
+        requested_mode: 'semantic', degraded: false, candidates_examined: 1,
+        boundary: { declared_query_required: true } });
+      await old;
+    });
+    expect(result.current.submittedQuery).toBe('new search');
+    expect(result.current.appQueryRequired).toBe(false);
+  });
+
+  it('clears previous read restrictions when a later search fails', async () => {
+    vi.mocked(retrieveApi.retrieve)
+      .mockResolvedValueOnce({ results: [], dropped_for_permission: 0, mode: 'semantic',
+        requested_mode: 'semantic', degraded: false, candidates_examined: 1,
+        boundary: { declared_query_required: true } })
+      .mockRejectedValueOnce(new Error('Unavailable'));
+    const { result } = renderHook(() => useRetrieve(), { wrapper: wrapper() });
+    await act(async () => { await result.current.run('receipt'); });
+    expect(result.current.appQueryRequired).toBe(true);
+    await act(async () => { await result.current.run('other'); });
+    expect(result.current.appQueryRequired).toBe(false);
+    expect(result.current.error).toBe('Unavailable');
+  });
+
   it('reads a semantic mode from global settings', () => {
     currentMode = 'semantic';
     const { result } = renderHook(() => useRetrieve(), { wrapper: wrapper() });

@@ -1,48 +1,37 @@
 /**
- * Phase 9 Plan 09-05 (ONBD-01) — A5 fallback banner.
+ * First-login guidance registered with the shared system notification bar.
  *
- * Brief first-login guidance with a link to the reusable help content.
+ * Guidance waits behind operational notices instead of adding a second strip
+ * that the fixed sidebar and assistant dock can obscure.
  */
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { useFirstLoginOnboarding } from '../../hooks/useFirstLoginOnboarding';
+import { useSystemNotifications } from '../system';
+
+const NOTIFICATION_ID = 'onboarding:get-started';
 
 export function OnboardingGetStartedBanner() {
-  const { dismiss } = useFirstLoginOnboarding();
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="
-        sticky top-0 z-topbar flex items-center justify-between gap-3
-        border-b border-[var(--border-subtle)]
-        bg-[var(--brand-accent-soft)]
-        px-4 py-2 text-sm text-[var(--text)]
-      "
-    >
-      <span>
-        Welcome to Integral. Apps bring related work together, Tracks organize it, and Entries hold individual records. Visit{' '}
-        <Link
-          to="/settings#get-started"
-          className="text-[var(--brand-accent)] underline"
-        >
-          Help and getting started
-        </Link>{' '}
-        to begin.
-      </span>
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Dismiss welcome banner"
-        className="
-          flex h-6 w-6 items-center justify-center rounded-[var(--radius-input)]
-          text-[var(--text-muted)]
-          hover:bg-[var(--panel-2)] hover:text-[var(--text)] transition
-          focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
-        "
-      >
-        ×
-      </button>
-    </div>
-  );
+  const { shouldOnboard, dismiss: dismissWelcome } = useFirstLoginOnboarding();
+  const { notify, dismiss } = useSystemNotifications();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!shouldOnboard) return;
+    notify({
+      id: NOTIFICATION_ID,
+      type: 'info',
+      // Verification, connectivity, quota and update notices come first.
+      priority: 10,
+      title: 'Welcome to Integral',
+      body: 'Learn how Apps, Tracks and Entries organize your work.',
+      actions: [{ label: 'Getting started', onClick: () => navigate('/settings#get-started') }],
+      onUserDismiss: dismissWelcome,
+    });
+    // Layout unmounts at sign-out; guidance must not remain on the login page.
+    return () => dismiss(NOTIFICATION_ID);
+  }, [shouldOnboard, dismissWelcome, notify, dismiss, navigate]);
+
+  return null;
 }

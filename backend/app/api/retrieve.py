@@ -27,7 +27,7 @@ from app.api.errors import (
     InsufficientPermissionsError,
     MissingAuthenticationError,
 )
-from app.api.utils import resolve_principal_id
+from app.api.utils import is_native_session_request, resolve_principal_id
 from app.models.nodes import Entry, Track
 from app.schemas.policy import Resource, Subject
 from app.schemas.retrieve import (
@@ -103,6 +103,7 @@ async def retrieve(request: Request) -> Any:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    native_user = is_native_session_request(request, user_id)
 
     # Parse + validate body via Pydantic boundary directly so the
     # ``extra='forbid'`` model_config is enforced on the request body
@@ -160,10 +161,8 @@ async def retrieve(request: Request) -> Any:
     else:
         raise BadRequestError(message="Invalid retrieval scope")
 
-    # Reuse the cached actor_kind set by the auth middleware when present
-    # (service-auth agent paths flow through here too). Default to
-    # "human" for the JWT path which is the only path currently exercised
-    # by the user-facing client.
+    # Actor kind comes only from trusted server context. The native projection
+    # separately requires a verified sign-in session, not a caller actor label.
     actor_kind = getattr(request.state, "actor_kind", None) or "human"
     if actor_kind not in ("human", "agent", "connector", "system"):
         actor_kind = "human"
@@ -217,17 +216,26 @@ async def retrieve(request: Request) -> Any:
         effective_mode=effective_mode,
         requested_mode=requested_mode,
         degraded=degraded,
+        native_user=native_user,
     )
     return response.model_dump(mode="json")
 
 
 async def finalize_retrieval(
-    payload, results, *, dropped, examined, effective_mode, requested_mode, degraded
+    payload,
+    results,
+    *,
+    dropped,
+    examined,
+    effective_mode,
+    requested_mode,
+    degraded,
+    native_user=False,
 ) -> RetrieveResponse:
     """One governed read boundary and context envelope for REST and agent actions."""
     from app.services.query_boundary import keep_open_entries
 
-    results, excluded_tracks = await keep_open_entries(results)
+    results, excluded_tracks = await keep_open_entries(results, native_user=native_user)
     boundary = None
     if excluded_tracks:
         boundary = {
