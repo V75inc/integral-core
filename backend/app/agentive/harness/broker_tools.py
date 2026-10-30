@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
@@ -812,16 +813,33 @@ def build_brokered_tools(
                 )
             )
     skill_owners: dict[str, set[str]] = {}
-    small_workflows: set[str] = set()
+    starter_tool_owners: dict[str, set[str]] = {}
     if skill_library is not None:
         from app.agentive.workspace_agent_profile import allowed_tools_from_skill_path
 
-        for path in skill_library.glob("*/SKILL.md"):
+        definitions = {item.get("name"): item for item in catalogue}
+        for path in sorted(skill_library.glob("*/SKILL.md")):
             declared = allowed_tools_from_skill_path(path)
-            if len(declared) <= 8:
-                small_workflows.add(path.parent.name)
+            # Skills owns activation; Tool.prepare discloses a bounded starter
+            # set in declaration order. The former all-or-nothing eight-tool
+            # cutoff made broad read skills rediscover even their first read.
+            # This is schema presentation, never a cached permission/result.
+            read_count = 0
+            read_bytes = 0
             for tool_name in declared:
                 skill_owners.setdefault(tool_name, set()).add(path.parent.name)
+                definition = definitions.get(tool_name)
+                if definition is None:
+                    continue
+                source, effect = infer_source_and_op_class(tool_name)
+                if source != "core" or effect != "read":
+                    continue
+                size = len(json.dumps(definition, ensure_ascii=False).encode("utf-8"))
+                if read_count >= 8 or read_bytes + size > 16000:
+                    continue
+                read_count += 1
+                read_bytes += size
+                starter_tool_owners.setdefault(tool_name, set()).add(path.parent.name)
     for item in catalogue:
         name = str(item.get("name") or "").strip()
         schema = item.get("input_schema")
@@ -893,7 +911,7 @@ def build_brokered_tools(
                 workflow_tool_owners=frozenset(
                     owner
                     for owner in skill_owners.get(name, ())
-                    if op_class != "read" or owner in small_workflows
+                    if op_class != "read" or owner in starter_tool_owners.get(name, ())
                 ),
             ),
             defer_loading=name not in immediately_available,
@@ -951,9 +969,9 @@ def _prepare_capability_tool(
             return replace(tool_def, defer_loading=False)
         # Skills supplies instructions; Core binds its standard allowed-tools
         # declarations to the already authorized catalogue. Reveal schemas
-        # needed to propose changes on activation. Independent read schemas
-        # stay deferred until discovery selects them: a broad read procedure
-        # must not inject every reporting/query schema into every model call.
+        # needed to propose changes and a bounded starter set of reads on
+        # activation. Remaining reads stay deferred until discovery selects
+        # them, rather than injecting an entire reporting/query catalogue.
         # Shared tools may belong to several procedures. This is presentation,
         # never permission: dispatch still rechecks scope, policy and approval.
         if workflow_tool_owners.intersection(ctx.active_capability_ids):

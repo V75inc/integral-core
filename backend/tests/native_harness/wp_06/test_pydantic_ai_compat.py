@@ -151,8 +151,10 @@ async def test_skill_loader_is_not_disclosed_until_current_turn_search_succeeds(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("direct_load", [False, True])
 async def test_native_skills_loader_remains_available_after_integral_catalog_search(
     tmp_path: Path,
+    direct_load: bool,
 ):
     """Use Pydantic AI's real Skills loader after Integral catalog discovery."""
     skill_dir = tmp_path / "integral-workspace"
@@ -185,7 +187,12 @@ async def test_native_skills_loader_remains_available_after_integral_catalog_sea
         visible = {tool.name for tool in info.function_tools}
         observed_tools.append(visible)
         choice = (info.model_settings or {}).get("tool_choice", "auto")
-        if choice == ["search_capabilities"]:
+        if len(observed_tools) == 1 and direct_load:
+            assert "load_capability" in choice
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "integral-workspace"})]
+            )
+        if "search_capabilities" in choice:
             return ModelResponse(
                 parts=[
                     ToolCallPart("search_capabilities", {"query": "workspace tracks"})
@@ -202,7 +209,9 @@ async def test_native_skills_loader_remains_available_after_integral_catalog_sea
         FunctionModel(respond),
         tools=[search_capabilities],
         capabilities=[
-            IntegralToolDisclosure(),
+            IntegralToolDisclosure(
+                workflow_skill_ids=frozenset({"integral-workspace"})
+            ),
             Skills(
                 tmp_path,
                 include={"integral-workspace"},
@@ -213,7 +222,7 @@ async def test_native_skills_loader_remains_available_after_integral_catalog_sea
     result = await agent.run("What workspace and tracks do I have?")
 
     assert result.output == "The current workspace is ready."
-    assert len(observed_tools) == 3
+    assert len(observed_tools) == (2 if direct_load else 3)
     assert all("load_capability" in names for names in observed_tools)
     assert "Unknown tool name" not in str(result.all_messages())
 
@@ -238,6 +247,7 @@ def test_only_a_recorded_successful_search_releases_initial_choice(failed):
     settings = IntegralToolDisclosure().get_model_settings()
     ctx = SimpleNamespace(
         model=SimpleNamespace(profile={}),
+        active_capability_ids=set(),
         messages=[
             ModelRequest(
                 parts=[ToolReturnPart("search_capabilities", {"error": failed}, "call")]
@@ -251,6 +261,7 @@ def test_loading_a_skill_without_search_does_not_release_initial_choice():
     settings = IntegralToolDisclosure().get_model_settings()
     ctx = SimpleNamespace(
         model=SimpleNamespace(profile={}),
+        active_capability_ids=set(),
         messages=[
             ModelRequest(
                 parts=[
@@ -325,6 +336,7 @@ def test_old_discovery_does_not_select_a_new_user_workflow():
     choice = IntegralToolDisclosure().get_model_settings()
     ctx = SimpleNamespace(
         model=SimpleNamespace(profile={}),
+        active_capability_ids=set(),
         messages=[
             ModelRequest(
                 parts=[ToolReturnPart("search_capabilities", {"matches": []}, "old")]

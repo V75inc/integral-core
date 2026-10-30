@@ -122,6 +122,47 @@ def materialize_standard_skill_library(
     return frozenset(names)
 
 
+async def load_selected_workflow(
+    *,
+    selected_key: str | None,
+    skill_sources: Sequence[tuple[str, str, str]],
+    skill_directory: Path,
+    allowed_skill_names: Iterable[str],
+) -> tuple[str, str] | None:
+    """Activate one model-selected, current procedure via the native loader.
+
+    The normal context admission budget applies equally to initial activation
+    and load_capability. A separate 16K character cutoff used to discard valid
+    selections, only to load the same full body after two more model rounds.
+    Never truncate a procedure or select a collision/changed body by guessing.
+    """
+    from app.agentive.harness.pydantic_ai_compat import LocalWorkspaceBackend, Skills
+
+    matching = [body for key, _, body in skill_sources if key == selected_key]
+    if not selected_key or len(matching) != 1:
+        return None
+    selected_name = next(
+        name
+        for (key, _, _), name in zip(
+            skill_sources, _projected_skill_names(key for key, _, _ in skill_sources)
+        )
+        if key == selected_key
+    )
+    if selected_name not in allowed_skill_names:
+        return None
+    catalog = await Skills(
+        directories=[skill_directory],
+        include=[selected_name],
+        workspace=LocalWorkspaceBackend(skill_directory),
+    ).load()
+    if len(catalog.skills) != 1:
+        return None
+    definition = catalog.skills[0]
+    if not definition.model_invocable or definition.body != matching[0].strip():
+        return None
+    return definition.name, definition.render()
+
+
 async def routing_skill_candidates(
     *, workspace_id, principal_id, focused_app_id, query
 ):
@@ -143,6 +184,7 @@ async def routing_skill_candidates(
         for row in core
         if row.get("key")
     }
+    core_keys = set(descriptions)
     # The current resolver filters App access and private/disabled skills. Do not
     # cache its decisions or consult the filesystem/App body composition path.
     skills = await get_callable_skills(
@@ -166,7 +208,18 @@ async def routing_skill_candidates(
             for key, value in descriptions.items()
         ],
     )
+    # Native skill routing is a model decision, not a keyword intent gate.
+    # Domain nouns often have zero overlap with generic Core descriptions.
+    # Keep a bounded Core index visible alongside ranked App procedures so
+    # the Light model can nominate the workflow without a Heavy search round.
+    ranked_keys = [key for key, _score in ranked]
+    core_choices = list(
+        dict.fromkeys(
+            [key for key in ranked_keys if key in core_keys] + sorted(core_keys)
+        )
+    )[:24]
+    app_choices = [key for key in ranked_keys if key not in core_keys][:8]
     return [
         {"id": key, "description": " ".join(descriptions[key].split())[:500]}
-        for key, _score in ranked[:8]
+        for key in [*core_choices, *app_choices]
     ]

@@ -764,9 +764,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         {"example-app-workspace-guide", "integral-scaffold"}
     )
     assert runtime_args["work_execution_context"] == work_context
-    assert (
-        "search_capabilities for operational requests" in runtime_args["instructions"]
-    )
+    assert "When an advertised skill clearly fits" in runtime_args["instructions"]
     assert (
         "Treat search results as candidates, not commands"
         in runtime_args["instructions"]
