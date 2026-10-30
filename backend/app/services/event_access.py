@@ -43,32 +43,17 @@ async def _current_connector(resource_id: str) -> Any:
 
 async def _notification_audience(user_id: str, event: ChangeEventEnvelope) -> Any:
     """Require the current record and its unique canonical recipient edge."""
-    from jvspatial.core.context import get_default_context
-
-    from app.models.edges import HAS_NOTIFICATION
-    from app.models.nodes import Notification
-    from app.services.authority_facts import primary_node_record
+    from app.services.notification_authority import owned_notification
     from app.services.permissions import get_user_node
 
     caller = await get_user_node(user_id)
-    if caller is None:
+    if caller is None or event.scope not in {
+        f"user:{identity}"
+        for identity in (user_id, caller.id, caller.user_id)
+        if identity
+    }:
         return None
-    own_ids = {value for value in (user_id, caller.id, caller.user_id) if value}
-    if event.scope not in {f"user:{identity}" for identity in own_ids}:
-        return None
-    context = get_default_context()
-    row = await primary_node_record(context.database, Notification, event.resource_id)
-    if row is None:
-        return None
-    notification = await context._deserialize_entity(Notification, row)
-    if notification.user_id not in own_ids:
-        return None
-    recipients = await notification.nodes(
-        edge=[HAS_NOTIFICATION], direction="in", node=["User"], limit=2
-    )
-    if len(recipients) != 1 or recipients[0].id != caller.id:
-        return None
-    return notification
+    return await owned_notification(user_id, event.resource_id)
 
 
 async def event_release_workspace(event: ChangeEventEnvelope) -> str | None:

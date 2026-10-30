@@ -1,9 +1,8 @@
 """Email channel adapter (Phase 9 Plan 09-03a, NOTIF-02).
 
 Renders ``<kind>.txt.j2`` + ``<kind>.html.j2`` via Jinja2 and dispatches
-via the existing ``app.services.email_service.send_email`` transport
-(reuses the Phase 1 console / Resend provider switch — adapter is
-provider-agnostic).
+via workspace delivery when transactional storage is available. Other stores
+use the existing platform transport after the same current-authority checks.
 
 XSS gate (T-09-03a-T01): the Jinja2 ``Environment`` is built with
 ``autoescape=select_autoescape(['html','j2'])`` so HTML templates escape
@@ -42,11 +41,12 @@ _env = Environment(
 
 
 class EmailChannel:
-    """Email channel — Jinja-rendered + ``email_service.send_email`` transport.
+    """Render a notification and deliver through the available system-mail path.
 
     Returns:
 
-    - ``status="sent"`` when ``send_email`` returns True.
+    - ``status="queued"`` when durable workspace delivery accepts the intent.
+    - ``status="sent"`` when immediate platform delivery succeeds.
     - ``status="failed"`` when ``send_email`` returns False (provider rejected
       the message) or when the Jinja templates fail to render
       (``reason="template_error:<exc>"``).
@@ -92,15 +92,37 @@ class EmailChannel:
         # bucket for the user's inbox).
         subject = payload.get("subject") or f"Integral: {kind}"
 
-        ok = await send_email(
-            EmailMessage(
-                to=recipient,
-                subject=subject,
-                text=txt,
-                html=html,
-            )
+        from app.middleware.agentive_scope import get_scope_key
+        from app.services.email_delivery import send_system_email
+
+        workspace_id = str(
+            (notification.metadata or {}).get("email_workspace_id")
+            or get_scope_key()
+            or ""
         )
-        return ChannelDispatchResult(
-            channel="email",
-            status="sent" if ok else "failed",
+        message = EmailMessage(
+            to=recipient,
+            subject=subject,
+            text=txt,
+            html=html,
+            workspace_id=workspace_id or None,
+            source_kind="notification",
+            source_id=notification.id,
+            actor_user_id=user.id,
         )
+        if workspace_id:
+            try:
+                result = await send_system_email(
+                    message, idempotency_key=f"notification:{notification.id}:email"
+                )
+                return ChannelDispatchResult(
+                    channel="email",
+                    status=result["status"],
+                    external_ref=result.get("message_id"),
+                )
+            except Exception:
+                return ChannelDispatchResult(
+                    channel="email", status="failed", reason="email_enqueue_failed"
+                )
+        ok = await send_email(message)
+        return ChannelDispatchResult(channel="email", status="sent" if ok else "failed")

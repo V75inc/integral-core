@@ -95,6 +95,9 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
         try:
             await run_recovery_pass(reclaim_worker_id="periodic-recovery")
             await deliver_pending_operation_events()
+            from app.services.email_delivery import purge_email_history
+
+            await purge_email_history()
         except Exception:  # noqa: BLE001
             log.exception("work recovery loop failed")
 

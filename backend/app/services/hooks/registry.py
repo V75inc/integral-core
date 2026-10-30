@@ -1691,6 +1691,8 @@ class ToolContext:
 
     async def get_workspace_email_delivery_redacted(self) -> Dict[str, Any]:
         """Redacted workspace email delivery config for the bound workspace."""
+        if not await self.is_workspace_administrator():
+            return {"ok": False, "error": "workspace admin required"}
         from app.services.workspace_email_delivery import get_redacted
 
         return await get_redacted(self.workspace_id)
@@ -1714,43 +1716,74 @@ class ToolContext:
     ) -> Dict[str, Any]:
         if not await self.is_workspace_administrator():
             return {"ok": False, "error": "workspace admin required"}
-        from app.services.workspace_email_delivery import (
-            resolve_api_key_for_validation,
-            validate_delivery_provider,
-        )
+        if payload:
+            return {
+                "ok": False,
+                "message": "Save changes to the draft before testing its credentials",
+                "settings_url": "/settings#email",
+            }
+        from app.services.email_configuration import describe
 
-        provider, api_key = await resolve_api_key_for_validation(
-            self.workspace_id, payload or {}
+        current = await describe(self.user_id, self.workspace_id)
+        tested = (
+            current["draft"] is not None
+            and current["tested_revision"] == current["revision"]
         )
-        valid, msg = await validate_delivery_provider(provider, api_key)
-        return {"ok": valid, "message": msg}
+        return {
+            "ok": tested,
+            "status": "tested" if tested else "test_required",
+            "message": (
+                "The saved draft was accepted in a test"
+                if tested
+                else "Send a test email for the saved draft to validate provider credentials"
+            ),
+            "settings_url": "/settings#email",
+        }
 
     async def send_workspace_test_email(
         self, to: Optional[str] = None
     ) -> Dict[str, Any]:
         if not await self.is_workspace_administrator():
             return {"ok": False, "error": "workspace admin required"}
-        from app.models.nodes import User
-        from app.services.email_service import EmailMessage, send_email
+        from app.services.email_configuration import describe, test_draft
 
-        recipient = (to or "").strip()
-        if not recipient:
-            user = await User.get(self.user_id)
-            recipient = str(getattr(user, "email", "") or "").strip()
-        if not recipient:
-            return {"ok": False, "error": "recipient email required"}
-        ok = await send_email(
-            EmailMessage(
-                to=recipient,
-                subject="Integral — workspace email test",
-                text="This is a test message from your workspace email delivery settings.",
-                html="<p>This is a test message from your workspace email delivery settings.</p>",
-                workspace_id=self.workspace_id,
-                source_kind="email_log_test",
-                actor_user_id=self.user_id,
-            )
+        current = await describe(self.user_id, self.workspace_id)
+        result = await test_draft(
+            self.user_id, self.workspace_id, current["revision"], requested_recipient=to
         )
-        return {"ok": bool(ok)}
+        return {"ok": result["status"] == "accepted", **result}
+
+    async def enqueue_workspace_transactional_email(
+        self,
+        *,
+        to: str,
+        subject: str,
+        text: str,
+        html: str,
+        source_kind: str,
+        idempotency_key: str,
+        reply_to: Optional[str] = None,
+        source_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Queue already-authorized App email with an explicit durable retry key."""
+        from app.services.email_delivery import enqueue_email
+        from app.services.email_service import EmailMessage
+
+        result = await enqueue_email(
+            EmailMessage(
+                to=to,
+                subject=subject,
+                text=text,
+                html=html,
+                reply_to=reply_to,
+                workspace_id=self.workspace_id,
+                source_kind=source_kind,
+                source_id=source_id,
+                actor_user_id=self.user_id,
+            ),
+            idempotency_key=idempotency_key,
+        )
+        return result.model_dump()
 
     async def send_workspace_transactional_email(
         self,
@@ -1764,7 +1797,11 @@ class ToolContext:
         source_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send mail through the workspace/platform resolver (any trusted bundle tool)."""
-        from app.services.email_service import EmailMessage, send_email
+        from app.services.email_service import (
+            SENSITIVE_SOURCE_KINDS,
+            EmailMessage,
+            send_email,
+        )
 
         recipient = str(to or "").strip()
         if not recipient:
@@ -1772,6 +1809,8 @@ class ToolContext:
         kind = str(source_kind or "").strip()
         if not kind:
             return {"ok": False, "error": "source_kind is required"}
+        if kind in SENSITIVE_SOURCE_KINDS:
+            return {"ok": False, "error": "Account email sources are reserved for Core"}
         ok = await send_email(
             EmailMessage(
                 to=recipient,

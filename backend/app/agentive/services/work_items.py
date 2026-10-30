@@ -513,6 +513,7 @@ async def schedule_retry(
     lease_token: str,
     lease_fence: int,
     failure: WorkFailure,
+    retry_after_seconds: float = 0.0,
 ) -> WorkItem:
     """Move a leased running item to retry_wait or dead_letter."""
     if not isinstance(failure, WorkFailure):
@@ -543,6 +544,7 @@ async def schedule_retry(
     delay = compute_retry_delay(
         work_item_id=item.work_item_id, attempt=attempt, retry_policy=policy
     )
+    delay = max(delay, min(max(0.0, retry_after_seconds), 86400.0))
     next_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
     return await transition_leased(
         work_item_id,

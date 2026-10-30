@@ -163,11 +163,13 @@ async def _delete_admitted_workspace(
     threads = await _collect_chat_threads(workspace)
     from app.models.edges import (
         HAS_AUTHORIZATION_STATE,
+        HAS_EMAIL_CONFIGURATION,
         HAS_LIBRARY_MODEL,
         HAS_MODEL_CONFIGURATION,
     )
     from app.models.nodes import (
         WorkspaceAuthorizationState,
+        WorkspaceEmailConfiguration,
         WorkspaceModelConfiguration,
     )
     from app.services.access_delegation import (
@@ -239,6 +241,16 @@ async def _delete_admitted_workspace(
     for configuration in await workspace.nodes(
         edge=[HAS_MODEL_CONFIGURATION],
         node=[WorkspaceModelConfiguration._entity_name()],
+        direction="out",
+        limit=2,
+    ):
+        await configuration.delete()
+    from app.services.email_delivery import delete_workspace_email
+
+    await delete_workspace_email(workspace.id)
+    for configuration in await workspace.nodes(
+        edge=[HAS_EMAIL_CONFIGURATION],
+        node=[WorkspaceEmailConfiguration._entity_name()],
         direction="out",
         limit=2,
     ):

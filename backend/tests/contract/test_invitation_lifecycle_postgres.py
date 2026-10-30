@@ -32,7 +32,7 @@ async def test_nested_issuance_refuses_before_state_or_token_delivery(
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         owner, workspace, _, _, _ = await graph()
         email = f"nested-invitation-{uuid.uuid4().hex}@example.com"
-        monkeypatch.setattr(invitations, "send_email", delivered)
+        monkeypatch.setattr("app.services.email_delivery.enqueue_email", delivered)
         async with postgres_graph_transaction(postgres_raw_db):
             with pytest.raises(OperationTransactionUnavailable):
                 await invitations.create_invitation(
@@ -73,7 +73,7 @@ async def test_issuance_fault_rolls_back_invitation_and_prevents_delivery(
             monkeypatch.setattr(invitations, "catalog_invitation", fail)
         else:
             monkeypatch.setattr(event_outbox, "insert_revision_event", fail)
-        monkeypatch.setattr(invitations, "send_email", delivered)
+        monkeypatch.setattr("app.services.email_delivery.enqueue_email", delivered)
         with pytest.raises(RuntimeError, match="issuance unit fault"):
             if kind == "workspace":
                 await invitations.create_invitation(

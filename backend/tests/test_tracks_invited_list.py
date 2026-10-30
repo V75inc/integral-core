@@ -101,7 +101,7 @@ async def test_accepted_track_invitation_can_list_tracks(
     async def suppress_email(_message):
         return None
 
-    monkeypatch.setattr("app.services.invitations.send_email", suppress_email)
+    monkeypatch.setattr("app.services.email_delivery.enqueue_email", suppress_email)
     workspace = await authenticated_client.post(
         "/api/workspaces", json={"name": "Accepted Invitation Tracks QA"}
     )

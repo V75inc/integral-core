@@ -324,6 +324,18 @@ class Workspace(Node):
     applied_profiles: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class WorkspaceEmailConfiguration(Node):
+    """Private, workspace-rooted email drafts and active connection revisions."""
+
+    workspace_id: str = attribute(default="", indexed=True)
+    revision: int = 0
+    delivery_generation: int = 0
+    draft: Dict[str, Any] = Field(default_factory=dict)
+    active: Optional[Dict[str, Any]] = None
+    tested_revision: Optional[int] = None
+    updated_at: Optional[str] = None
+
+
 class WorkspaceModelConfiguration(Node):
     """Workspace-attached model selection, isolated from ordinary settings saves.
 

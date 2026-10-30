@@ -35,7 +35,7 @@ class ChannelDispatchResult(BaseModel):
     """
 
     channel: str
-    status: Literal["sent", "skipped", "failed"]
+    status: Literal["sent", "queued", "skipped", "failed"]
     reason: Optional[str] = None
     external_ref: Optional[str] = None
     ts: Optional[str] = None

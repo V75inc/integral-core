@@ -21,6 +21,7 @@ WorkStatus = Literal[
 ]
 
 WorkKind = Literal[
+    "email_dispatch",
     "capability",
     "chat_turn",
     "chat_title",
@@ -83,6 +84,7 @@ class WorkError(Exception):
     def __init__(self, code: str, message: str = "") -> None:
         self.code = code
         self.message = message or code
+        self.retry_after: float = 0.0
         super().__init__(self.code, self.message)
 
 

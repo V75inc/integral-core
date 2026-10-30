@@ -44,6 +44,7 @@ APP_JOB_KINDS = frozenset({"app_tool"})
 # occupy either the interactive chat workers or the dedicated App job lane.
 HANDLED_KINDS = frozenset(
     {
+        "email_dispatch",
         "capability",
         "routine_turn",
         "approval_resume",
@@ -1290,6 +1291,25 @@ async def _execute_claimed_work(
             return await _handle_app_tool(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
+        if kind == "email_dispatch":
+            from app.services.email_delivery import run_email_work
+
+            context = work_execution.build_work_execution_context(
+                work_item=item, logical_step_key="email_dispatch:0"
+            )
+            await _with_supervised_heartbeat(
+                item,
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                body=lambda: run_email_work(item, context),
+            )
+            return await work_items.transition_leased(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=int(item.lease_fence or 0),
+                expected_status="running",
+                target="succeeded",
+            )
         if kind == "chat_title":
             from app.services.chat_titles import run_conversation_title_work
 
@@ -1371,6 +1391,9 @@ async def _execute_claimed_work(
                 lease_token=item.lease_token,
                 lease_fence=int(item.lease_fence or 0),
                 failure=failure,
+                retry_after_seconds=(
+                    exc.retry_after if kind == "email_dispatch" else 0.0
+                ),
             )
         return await work_items.transition_leased(
             item.work_item_id,

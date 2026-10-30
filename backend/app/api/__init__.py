@@ -67,6 +67,7 @@ for _mod in (
     "views",
     "work_items",  # Durable work observation surface
     "workspaces",
+    "workspace_email",
 ):
     importlib.import_module(f"app.api.{_mod}")
 

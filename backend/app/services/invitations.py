@@ -30,7 +30,7 @@ from app.config import settings
 from app.models.edges import INVITED_TO, IS_MEMBER_OF
 from app.models.nodes import Invitation, User, Workspace
 from app.services.app_graph import catalog_invitation
-from app.services.email_service import render_invitation_email, send_email
+from app.services.email_service import render_invitation_email
 
 logger = logging.getLogger(__name__)
 
@@ -424,7 +424,15 @@ async def _deliver_new_invitation(
                 message=invitation.message,
                 expires_days=settings.INVITATION_EXPIRY_DAYS,
             )
-            await send_email(msg)
+            msg.workspace_id = invitation.workspace_id
+            msg.actor_user_id = (
+                invitation.adopted_by_user_id or invitation.invited_by_user_id
+            )
+            msg.source_kind = "invitation"
+            msg.source_id = invitation.id
+            from app.services.email_delivery import send_system_email
+
+            await send_system_email(msg, idempotency_key=f"invitation:{invitation.id}")
     if invitation.invited_user_id:
         await _emit_invitation_in_app_notification(
             invitation=invitation,

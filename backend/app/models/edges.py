@@ -727,3 +727,12 @@ class ReactsTo(Edge):
 
 
 REACTS_TO = ReactsTo
+
+
+class HasEmailConfiguration(Edge):
+    """Workspace → its private revision-bound email configuration."""
+
+    bidirectional: bool = False
+
+
+HAS_EMAIL_CONFIGURATION = HasEmailConfiguration
