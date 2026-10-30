@@ -98,6 +98,18 @@ _command_execution: ContextVar[StagingCommandExecution | None] = ContextVar(
 )
 
 
+@dataclass
+class _LockedExecutions:
+    database: Any
+    task: object
+    claims: set[StagingExecutionClaim] = field(default_factory=set)
+
+
+_locked_executions: ContextVar[_LockedExecutions | None] = ContextVar(
+    "integral_locked_staging_executions", default=None
+)
+
+
 @asynccontextmanager
 async def bind_staging_command_execution(
     claim: StagingExecutionClaim,
@@ -239,10 +251,8 @@ async def claim_staging_execution(
         return StagingExecutionClaim(oid, **identity, owner=owner, fence=fence)
 
 
-async def _lock_current(
-    database: Any, claim: StagingExecutionClaim, *, dispatched: bool = False
-) -> dict[str, Any]:
-    query = {
+def _claim_identity_query(claim: StagingExecutionClaim) -> dict[str, Any]:
+    return {
         "id": claim.object_id,
         "entity": StagingExecutionRecord._entity_name(),
         **{
@@ -257,16 +267,36 @@ async def _lock_current(
             )
         },
     }
-    row = await database.find_one_and_update("object", query, {"$set": {}})
+
+
+async def _lock_current(
+    database: Any, claim: StagingExecutionClaim, *, dispatched: bool = False
+) -> dict[str, Any]:
+    row = await database.find_one_and_update(
+        "object", _claim_identity_query(claim), {"$set": {}}
+    )
     current = (row or {}).get("context") or {}
+    held = _locked_executions.get()
+    same_scope = (
+        held is not None
+        and held.database is database
+        and held.task is asyncio.current_task()
+    )
+    admitted = held is not None and same_scope and claim in held.claims
     if (
         row is None
         or current.get("state") != ("dispatched" if dispatched else "claimed")
-        or (not dispatched and datetime.fromisoformat(current["expires_at"]) <= _now())
+        or (
+            not dispatched
+            and not admitted
+            and datetime.fromisoformat(current["expires_at"]) <= _now()
+        )
     ):
         raise StagingError(
             "execution_claim_lost", "This worker no longer owns the approved execution"
         )
+    if held is not None and same_scope:
+        held.claims.add(claim)
     return current
 
 
@@ -280,17 +310,33 @@ async def staging_execution_effect(
     leaving. Exceptions/cancellation roll effects and completion back together.
     """
     async with postgres_graph_transaction(get_default_context().database) as database:
-        await _lock_current(database, claim, dispatched=dispatched)
-        yield database
-        row = await database.get("object", claim.object_id)
-        current = (row or {}).get("context") or {}
-        if current.get("local_effect_state") != "applied" or not current.get(
-            "result_ciphertext"
-        ):
-            raise StagingError(
-                "execution_receipt_required",
-                "Local effects cannot commit without their result receipt",
-            )
+        # Lease expiry fences admission. Once admitted, PostgreSQL's retained
+        # row lock fences this task through effect/receipt commit, even if a
+        # large command outlasts the lease. Never extend that proof to another
+        # task, transaction, owner or fence, or to unadmitted batch claims.
+        parent = _locked_executions.get()
+        held = (
+            parent
+            if parent is not None
+            and parent.database is database
+            and parent.task is asyncio.current_task()
+            else _LockedExecutions(database, asyncio.current_task())
+        )
+        reset = _locked_executions.set(held)
+        try:
+            await _lock_current(database, claim, dispatched=dispatched)
+            yield database
+            row = await database.get("object", claim.object_id)
+            current = (row or {}).get("context") or {}
+            if current.get("local_effect_state") != "applied" or not current.get(
+                "result_ciphertext"
+            ):
+                raise StagingError(
+                    "execution_receipt_required",
+                    "Local effects cannot commit without their result receipt",
+                )
+        finally:
+            _locked_executions.reset(reset)
 
 
 async def record_staging_execution_result(
@@ -460,8 +506,26 @@ async def release_unapplied_staging_claim(
 ) -> None:
     """Release only an exact undispatched owner after verified local rollback."""
     async with postgres_graph_transaction(get_default_context().database) as database:
-        current = await _lock_current(database, claim, dispatched=dispatched)
-        if current.get("local_effect_state") == "applied":
+        # A verified rollback must remain releasable after lease expiry. This
+        # admits no effect: lock the exact unchanged owner/fence and refuse
+        # completed results. Keep partial batch evidence for fenced step recovery.
+        row = await database.find_one_and_update(
+            "object",
+            {
+                **_claim_identity_query(claim),
+                "context.state": "dispatched" if dispatched else "claimed",
+            },
+            {"$set": {}},
+        )
+        if row is None:
+            raise StagingError(
+                "execution_claim_lost",
+                "This worker no longer owns the approved execution",
+            )
+        current = row.get("context") or {}
+        if current.get("local_effect_state") == "applied" or current.get(
+            "result_ciphertext"
+        ):
             raise StagingError(
                 "application_reconciliation_required",
                 "A committed effect cannot be released for retry",
@@ -624,6 +688,14 @@ async def staged_command_effect(
                 "approval_unavailable",
                 "Current approved decision does not match this effect",
             )
+
+        from app.agentive.services.entry_proposal_revision import (
+            validate_entry_edit_fence,
+        )
+
+        await validate_entry_edit_fence(
+            decision, bound.batch_step.index if bound.batch_step is not None else 0
+        )
 
         async def complete(result: dict[str, Any]) -> None:
             await record_staging_execution_result(

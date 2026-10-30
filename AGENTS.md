@@ -15,7 +15,7 @@ Backend uses jvspatial graph-based data model — all entities are Nodes with ex
 
 **Harness engineering principle:** Prefer the supported facilities and public extension points of the pinned Pydantic AI Harness and Pydantic AI for agent runtime behavior. Before adding or extending custom harness behavior, examine those libraries for an appropriate facility and use it when it meets Integral's requirements. Custom code is justified for Integral substrate integration or when the libraries do not furnish a suitable facility; document the gap and preserve current authorization, tenancy, staging, receipts and recovery. Review existing custom behavior for replacement where practical, and verify semantic and security parity before removing it. See [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md).
 
-**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.59.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-022-release-gate).
+**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.3` and `pydantic-ai-harness[skills]==0.59.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-compatibility-release-gate).
 
 When repairing legacy `UserModelCredential` duplicates, read through `GraphContext.find` so the unique index is not created before deduplication. Validate the migration against a PostgreSQL schema containing actual duplicate rows, then verify the index rejects a new duplicate.
 
@@ -521,6 +521,13 @@ completion; never describe the collection command as atomic. See
 [chat contracts](docs/backend/ai-chat.md#collection-changes-and-retrieved-evidence).
 
 ### Chat approvals and registered tools
+
+Pending Entry edits reuse the standard form in proposal-only mode. They must
+mint a new pending review through the transactional revision service, never
+write the record directly or mutate the old proposal. Keep targets fixed,
+preserve file bindings, reject stale records/schemas, and clear capability
+origin proof on human-authored replacements. See I-APPROVAL-05 and
+[the record-review contract](docs/backend/ai-chat.md#editing-a-proposed-record).
 
 Ordinary terminal card approvals, denials and cancellations end with the host
 receipt, without a second model run. Resume only for questions and approved

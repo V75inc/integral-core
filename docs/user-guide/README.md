@@ -116,7 +116,7 @@ Empty and unavailable are different states. If a widget reports an unavailable d
 
 ## 8. Files and attachments
 
-Upload files through the provided attachment controls. Supported types and limits are set by the installation. Core's defaults allow up to 500 MiB per attachment, with separate batch limits; your host can choose lower values.
+Upload files through the provided attachment controls. Supported types and limits are set by the installation. Core's defaults allow Entry images up to 5 MiB and other attachments up to 500 MiB, with separate batch limits; your host can change these values.
 
 A file is linked to its record and read through an authorized preview or download path. Duplicate detection may reuse content rather than uploading another identical copy. Generated documents are distinct from arbitrary files pasted into a chat message.
 

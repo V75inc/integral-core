@@ -14,6 +14,29 @@ from tests.contract.test_staging_command_apply_postgres import proposal
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+async def test_pending_only_replacement_cannot_race_approval(postgres_raw_db):
+    from app.agentive.services.staging_decision_store import transition_staged_decision
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, _, _, sc = await proposal()
+        results = await asyncio.gather(
+            transition_staged_decision(
+                token=sc.token, user_id=auth.id, target="blessed"
+            ),
+            transition_staged_decision(
+                token=sc.token, user_id=auth.id, target="revoked", pending_only=True
+            ),
+            return_exceptions=True,
+        )
+        successes = [
+            result for result in results if isinstance(result, staging.StagedChange)
+        ]
+        failures = [result for result in results if isinstance(result, StagingError)]
+        assert len(successes) == 1
+        assert len(failures) == 1
+        assert successes[0].state in {"blessed", "revoked"}
+
+
 async def test_terminal_closure_does_not_poison_enclosing_effect_transaction(
     postgres_raw_db, monkeypatch
 ):

@@ -1,12 +1,18 @@
 ---
 name: integral-insights
 description: Read workflow instructions. Load with load_capability; this skill name is never a callable tool. Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, explain what could hold up work, dependencies, risks, fallback options and stored intra-workspace relationships; summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For automatic periodic reports or repeated checks, use integral-scheduling; for review deliverables, use integral-review.
-allowed-tools: integral_list_views integral_open_view integral_find_workspace_resources integral_list_workspace_tools integral_call_workspace_tool integral_get_index_status integral_get_graph_context integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_count_workspace_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_resolve_entry_labels integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
+allowed-tools: integral_query_entries integral_query integral_count_entries integral_find_workspace_resources integral_list_workspace_tools integral_call_workspace_tool integral_list_tracks integral_get_track_schema integral_list_views integral_open_view integral_get_index_status integral_get_graph_context integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_count_workspace_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_resolve_entry integral_resolve_entry_labels integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
 ---
 
 # Integral insights — SOP
 
 ## Start after loading
+
+Use the read tools already available for this workflow. Load the workflow only
+once. If current-turn page context has already been returned, reuse it rather
+than requesting the same snapshot again; it identifies scope, not live record
+values. Fetch record values using the scoped read tools. Search capabilities
+only for a missing operation, not to reconfirm an available schema.
 
 If the user also asks for automatic future updates, this read is only the
 immediate part. Discover and load `integral-scheduling` for the cadence and stage
@@ -34,6 +40,15 @@ a key or use another App's query. A generic read refused with `app_domain`
 did not read records: follow this discovery path once rather than repeating
 generic reads. If neither route is available, explain the limitation briefly
 and answer any other parts already supported by the results.
+
+A registered read tool's complete input schema is its contract. If it already
+defines the requested report, grouping or filter, call it directly; do not
+inspect the underlying Track schema just to reconfirm or reconstruct that
+report. Track schemas are needed when composing a generic field-based query
+whose keys are still unknown, or when the registered tool explicitly requires
+that information. A complete, successful unfiltered result with zero records
+also rules out narrower filters within that same scope. Do not repeat it with
+each filter; this does not apply to partial, paginated, denied or failed reads.
 
 When several known Entry IDs need readable labels, call `integral_resolve_entry_labels` once for the set. Treat unresolved IDs as unavailable, not absent. Use `integral_resolve_entry` when full Entry details are required.
 

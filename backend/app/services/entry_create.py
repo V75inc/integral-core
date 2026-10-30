@@ -245,6 +245,7 @@ async def _create_entry_in_track(
     try:
         validated_custom_fields = await run_entry_before_write_hooks(
             workspace_id=ws_id,
+            track_id=str(track.id),
             actor_id=user_id,
             hook_point="entry.create",
             entry_type_slug=entry_type_hook_slug(resolved_type),

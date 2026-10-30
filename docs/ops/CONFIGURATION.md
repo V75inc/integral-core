@@ -127,6 +127,7 @@ If chat reports that storage encryption is not configured, correct the deploymen
 | Setting | Default | Meaning |
 |---|---|---|
 | `ATTACHMENT_MAX_UPLOAD_BYTES` | 500 MiB | Individual upload limit |
+| `ATTACHMENT_MAX_IMAGE_BYTES` | 5 MiB | Entry image limit, including chunked uploads and images filed from chat |
 | `ATTACHMENT_MAX_BATCH_BYTES` | 1 GiB | Batch byte limit |
 | `ATTACHMENT_MAX_BATCH_FILES` | 10 | Batch count limit |
 | `ATTACHMENT_EXTRACTED_TEXT_MAX_BYTES` | 10 MiB | Extracted text bound |

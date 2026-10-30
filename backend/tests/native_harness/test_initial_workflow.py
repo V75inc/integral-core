@@ -14,16 +14,18 @@ pytestmark = [pytest.mark.asyncio]
 
 
 @pytest.mark.parametrize("allowed", [True, False])
+@pytest.mark.parametrize("catalogue_size", [1, 80])
 async def test_selected_workflow_uses_two_model_requests_and_live_broker(
-    tmp_path, monkeypatch, allowed
+    tmp_path, monkeypatch, allowed, catalogue_size
 ):
     """An admitted workflow uses the native capability and live broker."""
     skill = "sample-workflow"
     name = "integral_sample_read"
+    names = [name] + [f"integral_extra_read_{i}" for i in range(catalogue_size - 1)]
     folder = tmp_path / skill
     folder.mkdir()
     (folder / "SKILL.md").write_text(
-        f"---\nname: {skill}\ndescription: Read a sample.\nallowed-tools: {name}\n---\nRead the sample."
+        f"---\nname: {skill}\ndescription: Read a sample.\nallowed-tools: {' '.join(names)}\n---\nRead the sample."
     )
     calls = []
 
@@ -48,6 +50,13 @@ async def test_selected_workflow_uses_two_model_requests_and_live_broker(
         requests.append(info)
         assert "Read the sample." in str(info.instructions)
         assert name in {tool.name for tool in info.function_tools}
+        visible = {tool.name for tool in info.function_tools}
+        assert len(set(names) & visible) <= 8
+        # One oversized declaration must stay deferred without excluding the
+        # smaller useful reads that follow it in the same broad procedure.
+        if catalogue_size > 1:
+            assert names[1] not in visible
+            assert names[2] in visible
         if len(requests) == 1:
             return ModelResponse(parts=[ToolCallPart(name, {})])
         return ModelResponse(
@@ -60,10 +69,15 @@ async def test_selected_workflow_uses_two_model_requests_and_live_broker(
         skill_library=tmp_path,
         catalogue=[
             {
-                "name": name,
-                "description": "Read sample",
+                "name": tool_name,
+                "description": (
+                    "Read sample" * 2000
+                    if tool_name == "integral_extra_read_0"
+                    else "Read sample"
+                ),
                 "input_schema": {"type": "object", "properties": {}},
             }
+            for tool_name in names
         ],
     )
     agent, _ = build_native_runtime(
@@ -202,3 +216,107 @@ async def test_light_selection_must_be_an_exact_current_candidate(
     )
     result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
     assert isinstance(result, EscalatedTurn) and result.skill_id == expected
+
+
+@pytest.mark.parametrize("size", [200, 32000])
+async def test_routed_workflow_uses_native_loader_without_a_smaller_body_limit(
+    tmp_path, size
+):
+    from app.agentive.harness.skill_sources import (
+        load_selected_workflow,
+        materialize_standard_skill_library,
+    )
+
+    body = "Read current records. " * (size // 20)
+    sources = [("domain-read", "Read the domain.", body)]
+    allowed = materialize_standard_skill_library(sources, root=tmp_path)
+    selected = await load_selected_workflow(
+        selected_key="domain-read",
+        skill_sources=sources,
+        skill_directory=tmp_path,
+        allowed_skill_names=allowed,
+    )
+    assert selected is not None and selected[0] == "domain-read"
+    assert body.strip() in selected[1]
+
+
+@pytest.mark.parametrize(
+    "invalid", ["not_allowed", "duplicate", "changed", "unoffered"]
+)
+async def test_routed_workflow_revalidates_current_catalog_and_body(tmp_path, invalid):
+    from app.agentive.harness.skill_sources import (
+        load_selected_workflow,
+        materialize_standard_skill_library,
+    )
+
+    sources = [("domain-read", "Read the domain.", "Current procedure.")]
+    allowed = materialize_standard_skill_library(sources, root=tmp_path)
+    if invalid == "duplicate":
+        sources = sources + sources
+    if invalid == "changed":
+        sources = [("domain-read", "Read the domain.", "Replaced procedure.")]
+    selected = await load_selected_workflow(
+        selected_key="unknown" if invalid == "unoffered" else "domain-read",
+        skill_sources=sources,
+        skill_directory=tmp_path,
+        allowed_skill_names=() if invalid == "not_allowed" else allowed,
+    )
+    assert selected is None
+
+
+async def test_routed_workflow_uses_collision_safe_native_identifier(tmp_path):
+    from app.agentive.harness.skill_sources import (
+        load_selected_workflow,
+        materialize_standard_skill_library,
+    )
+
+    sources = [
+        ("domain/read", "First.", "First procedure."),
+        ("domain-read", "Second.", "Second procedure."),
+    ]
+    allowed = materialize_standard_skill_library(sources, root=tmp_path)
+    selected = await load_selected_workflow(
+        selected_key="domain-read",
+        skill_sources=sources,
+        skill_directory=tmp_path,
+        allowed_skill_names=allowed,
+    )
+    assert selected is not None and selected[0] in allowed
+    assert selected[0] != "domain-read"
+    assert "Second procedure." in selected[1]
+    assert "First procedure." not in selected[1]
+
+
+@pytest.mark.parametrize("core_count", [19, 40])
+async def test_light_receives_core_procedures_even_without_keyword_overlap(
+    monkeypatch, core_count
+):
+    """Natural domain language must not hide the generic Core read workflow."""
+    from app.agentive.harness.skill_sources import routing_skill_candidates
+
+    monkeypatch.setattr(
+        "app.agentive.services.agent_skills.list_core_skills",
+        lambda: [
+            {"key": f"workflow-{index}", "description": "Independent procedure."}
+            for index in range(core_count)
+        ],
+    )
+    checked = []
+
+    async def callable_skills(caller, workspace, **kwargs):
+        checked.append((workspace, kwargs))
+        return []
+
+    monkeypatch.setattr(
+        "app.agentive.services.skill_registry.get_callable_skills", callable_skills
+    )
+    choices = await routing_skill_candidates(
+        workspace_id="workspace",
+        principal_id="user",
+        focused_app_id=None,
+        query="How many bags of rice do we have?",
+    )
+    assert {row["id"] for row in choices} == {
+        *sorted(f"workflow-{index}" for index in range(core_count))[:24]
+    }
+    assert checked == [("workspace", {"user_id": "user", "active_apps_only": True})]

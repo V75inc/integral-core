@@ -87,6 +87,9 @@ FILENAME_EXT_TO_MIME = {
     ".jpeg": "image/jpeg",
     ".gif": "image/gif",
     ".webp": "image/webp",
+    ".avif": "image/avif",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
     ".svg": "image/svg+xml",
     ".txt": "text/plain",
     ".csv": "text/csv",
@@ -191,8 +194,30 @@ def fallback_mime_from_filename(filename: str) -> Optional[str]:
     return FILENAME_EXT_TO_MIME.get(ext)
 
 
+def validate_image_upload_size(mime_type: str, size: int, limit: int) -> None:
+    """Enforce the entry image limit after resolving the content type."""
+    if mime_type.lower().startswith("image/") and size > limit:
+        raise BadRequestError(
+            message=f"Image too large (maximum {limit // (1024 * 1024)} MB)."
+        )
+
+
+def image_signature(head: bytes) -> bool:
+    """Recognize common image headers even when optional libmagic is absent."""
+    return (
+        head.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a"))
+        or (head.startswith(b"RIFF") and head[8:12] == b"WEBP")
+        or (
+            head[4:8] == b"ftyp"
+            and head[8:12]
+            in (b"avif", b"avis", b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1")
+        )
+        or head.startswith((b"II*\x00", b"MM\x00*", b"BM"))
+    )
+
+
 async def read_upload_streaming(
-    file: UploadFile, *, max_bytes: int
+    file: UploadFile, *, max_bytes: int, image_max_bytes: Optional[int] = None
 ) -> Tuple[bytes, str, str, bytes]:
     """Read a multipart upload chunk-by-chunk under ``max_bytes``.
 
@@ -208,13 +233,23 @@ async def read_upload_streaming(
     head: Optional[bytes] = None
     total = 0
     hasher = hashlib.sha256()
+    is_image = False
     while True:
         chunk = await file.read(UPLOAD_READ_CHUNK)
         if not chunk:
             break
         if head is None:
             head = chunk[:4096]
+            if image_max_bytes is not None:
+                mime = resolve_effective_mime(
+                    head_bytes=head,
+                    content_type_claim=file.content_type or "",
+                    filename=file.filename or "unnamed",
+                )
+                is_image = mime.startswith("image/") or image_signature(head)
         total += len(chunk)
+        if is_image and image_max_bytes is not None:
+            validate_image_upload_size("image/", total, image_max_bytes)
         if total > max_bytes:
             raise BadRequestError(
                 message=(

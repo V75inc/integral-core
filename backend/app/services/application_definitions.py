@@ -77,6 +77,31 @@ def preview_three_way_package_upgrade(
         if local_value == incoming_value:
             counts["converged"] += 1
             return
+        if path == "$.app.skills" and all(
+            isinstance(value, list) for value in (base_value, local_value)
+        ):
+            # Installed skills are rebuilt from graph membership, whose order is
+            # not stable. The library merge preserves the installed order and
+            # merges by key, so a reorder alone is not a tenant edit. Restrict
+            # this equivalence to unique, fully equal skill definitions: a real
+            # local edit must still go through the existing conflict gate.
+            def by_key(items: list) -> Optional[Dict[str, Any]]:
+                result: Dict[str, Any] = {}
+                for item in items:
+                    if not isinstance(item, dict) or not isinstance(
+                        item.get("key"), str
+                    ):
+                        return None
+                    key = item["key"]
+                    if not key or key in result:
+                        return None
+                    result[key] = item
+                return result
+
+            base_skills, local_skills = by_key(base_value), by_key(local_value)
+            if base_skills is not None and base_skills == local_skills:
+                counts["upstream_only"] += 1
+                return
         if local_value == base_value:
             counts["upstream_only"] += 1
             return

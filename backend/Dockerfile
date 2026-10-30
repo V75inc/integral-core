@@ -46,7 +46,7 @@ RUN /opt/venv/bin/python -c 'import importlib.metadata as m, tomllib; \
 assert m.version("integral-core") == tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; \
 assert m.version("integral-sdk") == "0.2.0"; \
 from integral_sdk import OperationContext; \
-assert m.version("jvspatial") == "0.2.2", "Expected jvspatial 0.2.2, installed " + m.version("jvspatial"); \
+assert m.version("jvspatial") == "0.2.3", "Expected jvspatial 0.2.3, installed " + m.version("jvspatial"); \
 assert m.version("pydantic-ai-harness") == "0.59.0"; \
 assert m.distribution("jvspatial").read_text("direct_url.json") is None'
 

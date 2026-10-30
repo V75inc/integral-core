@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _collect_descendant_comments(entry: Entry) -> List[Comment]:
-    """Capture the complete named comment subtree or refuse destructive effects."""
+    """Capture roots and replies once, including the Entry's reply index edges."""
     from jvspatial.core import Walker
     from jvspatial.core.context import get_default_context
     from jvspatial.core.decorators import on_visit
@@ -86,6 +86,7 @@ async def _collect_descendant_comments(entry: Entry) -> List[Comment]:
     class CommentInventory(Walker):
         comments: List[Comment] = []
         visited_ids: set[str] = set()
+        indexed_ids: set[str] = set()
 
         @on_visit(Entry, Comment)
         async def collect(self, here):
@@ -112,9 +113,35 @@ async def _collect_descendant_comments(entry: Entry) -> List[Comment]:
                 parents = await database.find(
                     "edge",
                     {"target": target, "entity": HAS_COMMENT._entity_name()},
-                    limit=2,
+                    limit=3,
                 )
-                if len(parents) != 1 or parents[0].get("source") != here.id:
+                sources = [parent.get("source") for parent in parents]
+                if (
+                    not 1 <= len(sources) <= 2
+                    or len(set(sources)) != len(sources)
+                    or here.id not in sources
+                ):
+                    raise AuthorizationUnavailableError()
+                if isinstance(here, Entry):
+                    self.indexed_ids.add(target)
+                    if len(sources) == 2:
+                        # Every current reply is indexed directly by its Entry
+                        # AND linked from its parent Comment. Traverse only the
+                        # thread roots here; following both paths mistakes this
+                        # legitimate diamond for a cycle or shared ownership.
+                        parent_id = next(
+                            source for source in sources if source != here.id
+                        )
+                        if (
+                            await primary_node_record(database, Comment, parent_id)
+                            is None
+                        ):
+                            raise AuthorizationUnavailableError()
+                        continue
+                elif any(source not in {here.id, entry.id} for source in sources):
+                    # A reply may have its Entry index edge, or just the legacy
+                    # thread edge. Neither permits another Entry/thread to be
+                    # pulled into this authorized deletion subtree.
                     raise AuthorizationUnavailableError()
                 record = await primary_node_record(database, Comment, target)
                 if record is None:
@@ -130,7 +157,9 @@ async def _collect_descendant_comments(entry: Entry) -> List[Comment]:
     if any(
         isinstance(item, dict) and "hook_error" in item
         for item in await walker.get_report()
-    ):
+    ) or not walker.indexed_ids.issubset(walker.visited_ids):
+        # Unreachable indexed replies identify a cycle or a foreign parent;
+        # skipping their index edge must never hide incomplete deletion.
         raise AuthorizationUnavailableError()
     return walker.comments
 
@@ -387,18 +416,18 @@ async def _delete_admitted_entry(
          incoming edges (CONTAINS from Track) and outgoing edges
          (HAS_COMMENT, HAS_ATTACHMENT, TAGGED_WITH, ANCHORS) in O(edge count)
          without traversing.
-      3. Delete the collected comments (also with ``cascade=False``)
-         concurrently.
-      4. Soft-delete the entry's embedding row (I-RET-03).
+      3. Delete the collected comments child first, once each (also with
+         ``cascade=False``).
+      4. Deliver the retained post-commit cleanup, including the entry's
+         embedding soft-delete (I-RET-03).
 
     Before step 2 the entry's UploadSessions are cancelled + deleted and
     its ShareLinks / Invitations are removed (they are only reachable via
     the entry and would otherwise dangle once the edges are dropped).
 
-    Comment delete failures are logged but never raised — leaving an
-    orphaned comment row in the DB is preferable to a 500 to the user
-    when the entry itself is already gone. Periodic orphan cleanup can
-    address those out of band.
+    The canonical command runs this work in its transaction. Incomplete
+    comment inventory or a failed deletion aborts the command, preserving
+    the entry and its discussion instead of reporting partial success.
 
     Phase 3.1 cascade kwargs:
       ``actor_user_id`` + ``actor_kind`` thread the authenticated principal

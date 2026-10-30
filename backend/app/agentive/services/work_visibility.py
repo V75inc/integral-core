@@ -42,7 +42,26 @@ async def get_visible_work_item(
             message="Caller may not inspect this work item"
         )
 
-    return _project_work_status(item.model_dump())
+    result = _project_work_status(item.model_dump())
+    from app.schemas.agentive.work import WorkContextLink
+    from app.services.task_navigation import task_context_links
+
+    refs = [{"resource_type": "app", "resource_id": item.app_id}]
+    # Only the App-job envelope has this declared input contract. Never expose
+    # arbitrary plans, tokens, tool arguments or model-provided URLs.
+    inputs = (item.input_payload or {}).get("input")
+    if item.kind == "app_tool" and isinstance(inputs, dict):
+        refs.extend(
+            {"resource_type": kind, "resource_id": inputs.get(f"{kind}_id")}
+            for kind in ("track", "entry")
+        )
+    result.context_links = [
+        WorkContextLink(**link)
+        for link in await task_context_links(
+            refs, user_id=principal_id, workspace_id=item.workspace_id
+        )
+    ]
+    return result
 
 
 def _project_work_status(fields: dict) -> WorkItemStatusResponse:

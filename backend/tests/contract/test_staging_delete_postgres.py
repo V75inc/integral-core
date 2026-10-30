@@ -282,16 +282,46 @@ async def test_track_cascade_receipt_fault_rolls_back_subtree(
 
 
 @pytest.mark.parametrize("fault", [False, True])
+@pytest.mark.parametrize("lease_elapsed", [False, True])
 async def test_app_hard_delete_retains_bundle_identity_with_graph_commit(
-    postgres_raw_db, monkeypatch, fault
+    postgres_raw_db, monkeypatch, fault, lease_elapsed
 ):
+    from datetime import timedelta
+
+    from app.agentive.services import staging_execution
     from app.agentive.services.staging_command_apply import apply_staged_command_once
     from app.agentive.staging_executors import dispatch_under_scope
     from app.models.nodes import App
+    from app.services import app_deletion
+    from app.services.comment_creation import create_comment_record
 
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "77" * 32)
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
-        auth, workspace, _, _ = await proposal()
+        auth, workspace, track, create = await proposal()
+        made = await staging_apply.bless_and_execute(
+            user_id=auth.id, token=create.token
+        )
+        entry_id = made["execute_result"]["entry"]["id"]
+        root = await create_comment_record(
+            user_id=auth.id, entry_id=entry_id, text="Discussion"
+        )
+        reply = await create_comment_record(
+            user_id=auth.id, entry_id=entry_id, text="Reply", parent_id=root.comment.id
+        )
+        now = staging_execution._now()
+        monkeypatch.setattr(staging_execution, "_now", lambda: now)
+        if lease_elapsed:
+            original = app_deletion._delete_app_admitted
+
+            async def finish_after_lease(*args, **kwargs):
+                nonlocal now
+                result = await original(*args, **kwargs)
+                now += timedelta(seconds=120)
+                return result
+
+            monkeypatch.setattr(
+                app_deletion, "_delete_app_admitted", finish_after_lease
+            )
         app = (await App.find({"workspace_id": workspace.id}))[0]
         reset = current_scope_workspace_id.set(workspace.id)
         try:
@@ -338,3 +368,6 @@ async def test_app_hard_delete_retains_bundle_identity_with_graph_commit(
             assert await postgres_raw_db.get("node", app.id) is None
             assert len(facts) == 1
             assert facts[0]["context"]["workspace_id"] == workspace.id
+        for identity in (track.id, entry_id, root.comment.id, reply.comment.id):
+            row = await postgres_raw_db.get("node", identity)
+            assert (row is not None) is fault

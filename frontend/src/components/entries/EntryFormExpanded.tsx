@@ -183,6 +183,8 @@ export interface UseEntryExpandedFormOptions {
   contributionApiRef?: React.MutableRefObject<EntryContributionSlotHandle | null>;
   /** Which contribution placement owns this form (compose vs detail edit). */
   contributionPlacement?: 'entry_compose' | 'entry_detail';
+  /** Side-effect-free review form. Existing file bindings remain unchanged. */
+  proposalOnly?: boolean;
 }
 
 export interface EntryExpandedFormModel {
@@ -245,6 +247,7 @@ export interface EntryExpandedFormModel {
   ) => ReactNode;
   handleSubmitCreate: () => Promise<void>;
   handleSubmitEdit: (entryId: string) => Promise<Entry>;
+  getValidatedDraft?: () => { title: string; body: string; fields: Record<string, unknown>; tags: string[] } | null;
   cancelCreate: () => void;
   /** Collapsed row invite placeholder; title/body placeholders come from the Operational Model when expanded. */
   composerInviteText: string;
@@ -287,6 +290,7 @@ export function useEntryExpandedForm(
     composeExtraSection = null,
     contributionApiRef,
     contributionPlacement = 'entry_compose',
+    proposalOnly = false,
   } = options;
 
   const tracksListNorm =
@@ -671,7 +675,7 @@ export function useEntryExpandedForm(
 
   const entryTypeFormSchema = selectedType?.form_schema ?? null;
   const appId = track?.app?.id;
-  const ownsForm = contributionOwnsForm(entryTypeFormSchema, contributionPlacement);
+  const ownsForm = !proposalOnly && contributionOwnsForm(entryTypeFormSchema, contributionPlacement);
   const titleFromFields = contributionTitleFromFields(
     entryTypeFormSchema,
     contributionPlacement
@@ -692,7 +696,7 @@ export function useEntryExpandedForm(
   // (e.g. Finance invoice_number via ``preview_document_number`` when
   // auto-generate is on). When auto-generate is on the field is read-only.
   useEffect(() => {
-    if (!enabled || (mode !== 'create' && mode !== 'edit')) {
+    if (!enabled || proposalOnly || (mode !== 'create' && mode !== 'edit')) {
       setAutoLockedFieldKeys(new Set());
       return;
     }
@@ -741,7 +745,7 @@ export function useEntryExpandedForm(
     return () => {
       cancelled = true;
     };
-  }, [enabled, mode, appId, dynamicFields, type]);
+  }, [enabled, mode, appId, dynamicFields, type, proposalOnly]);
 
   // Prefill fields that declare ``default_from_setting`` from the parent
   // App's settings (e.g. Finance currency ← default_currency). Editable —
@@ -1151,7 +1155,7 @@ export function useEntryExpandedForm(
     }
   ): ReactNode {
     const locked =
-      Boolean(field.readonly) || autoLockedFieldKeys.has(field.key);
+      Boolean(field.readonly) || autoLockedFieldKeys.has(field.key) || (proposalOnly && ['file', 'files'].includes(field.composite?.base || field.type));
     return (
       <FieldProblem fieldKey={field.key} message={problems[field.key]}>
       <SeamlessField
@@ -1205,7 +1209,8 @@ export function useEntryExpandedForm(
           : baseline
             ? baseline[field.key]
             : undefined;
-      if (field.required && !(baseline ? false : field.hide_on_create)) {
+      const deferredProposalDefault = proposalOnly && !initialEntry?.id && Boolean(field.validation?.preview_default_tool);
+      if (field.required && !(baseline ? false : field.hide_on_create) && !deferredProposalDefault) {
         const empty = Array.isArray(merged)
           ? merged.length === 0
           : merged === undefined || merged === null || merged === '';
@@ -1250,6 +1255,17 @@ export function useEntryExpandedForm(
     setProblems(named);
     window.requestAnimationFrame(() => focusFirstProblem());
     return true;
+  };
+
+  const getValidatedDraft = () => {
+    const { found, labels } = gatherProblems(initialEntry?.custom_fields);
+    if (Object.keys(found).length > 0) {
+      reportProblems(found, labels);
+      return null;
+    }
+    resetProblems();
+    // Do not invoke a writer, upload, contribution commit or App tool here.
+    return { title, body, fields: { ...(initialEntry?.custom_fields || {}), ...fieldValues }, tags: [...selectedTagIds] };
   };
 
   const handleSubmitCreate = async () => {
@@ -1709,6 +1725,7 @@ export function useEntryExpandedForm(
     renderDynamicField,
     handleSubmitCreate,
     handleSubmitEdit,
+    getValidatedDraft,
     cancelCreate,
     composerInviteText,
     composerActionLabel,
@@ -1750,6 +1767,8 @@ export interface EntryFormExpandedViewProps
   hideLinkPreview?: boolean;
   /** Wiki: actions live in a sticky page header — omit the bottom action row. */
   hideActions?: boolean;
+  /** A proposal edit cannot change its destination or record type. */
+  typeLocked?: boolean;
   /** Ref for the title input — wired to Modal initialFocusRef on create dialogs. */
   // React 18's RefObject<T> already types `current` as T | null; the extra
   // `| null` here made it un-assignable to the DOM `ref` prop. Callers pass
@@ -1771,6 +1790,7 @@ export function EntryFormExpandedView({
   setSelectedTrackId,
   type,
   setType,
+  typeLocked = false,
   typeOptions,
   entryTypes,
   profileInformedTags,
@@ -1866,6 +1886,7 @@ export function EntryFormExpandedView({
                 variant="field"
                 value={type}
                 onValueChange={setType}
+                disabled={typeLocked}
                 options={typeOptions.map(t => {
                   const matchingType = entryTypes.find(x => entryTypeSlug(x) === slug(t));
                   return {
@@ -1908,6 +1929,7 @@ export function EntryFormExpandedView({
           variant="pill"
           value={type}
           onValueChange={setType}
+          disabled={typeLocked}
           options={typeOptions.map(t => {
             const matchingType = entryTypes.find(x => entryTypeSlug(x) === slug(t));
             return {

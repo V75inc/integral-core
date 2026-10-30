@@ -157,3 +157,85 @@ async def test_successful_bulk_acknowledgement_links_the_canonical_track():
     links = await completion_links({"updated": 2, "total": 2}, **args)
     assert len(links) == 1 and links[0]["url"] == f"/tracks/{track.id}"
     assert await completion_links({"updated": 1, "total": 2}, **args) == []
+
+
+@pytest.mark.asyncio
+async def test_routine_completion_links_only_the_exact_owned_schedule(monkeypatch):
+    from app.agentive.services import routine_tasks
+    from app.api.errors import ResourceNotFoundError
+
+    async def owned(*, user_id, routine_id):
+        if user_id != "owner" or routine_id != "routine-1":
+            raise ResourceNotFoundError(message="Routine not found")
+        return SimpleNamespace(id="routine-1", workspace_id="workspace-1")
+
+    monkeypatch.setattr(routine_tasks, "get_routine_task", owned)
+    for kind in ("routine_task_create", "routine_task_update", "routine_task_cancel"):
+        links = await completion_links(
+            {"id": "routine-1"},
+            kind=kind,
+            arguments={},
+            user_id="owner",
+            workspace_id="workspace-1",
+        )
+        assert links == [
+            {
+                "kind": "routine",
+                "id": "routine-1",
+                "label": "scheduled routine",
+                "url": "/background-tasks?routine=routine-1#scheduled-routines",
+            }
+        ]
+        assert (
+            "[scheduled routine](/background-tasks?routine=routine-1#scheduled-routines)"
+            in append_completion_links("Saved.", links)
+        )
+        assert (
+            await completion_links(
+                {"id": "routine-1"},
+                kind=kind,
+                arguments={},
+                user_id="other",
+                workspace_id="workspace-1",
+            )
+            == []
+        )
+        assert (
+            await completion_links(
+                {"id": "routine-1"},
+                kind=kind,
+                arguments={},
+                user_id="owner",
+                workspace_id="other-workspace",
+            )
+            == []
+        )
+        assert (
+            await completion_links(
+                {"id": "routine-1", "error": True},
+                kind=kind,
+                arguments={},
+                user_id="owner",
+                workspace_id="workspace-1",
+            )
+            == []
+        )
+
+
+@pytest.mark.asyncio
+async def test_schedule_links_withhold_pending_results_and_read_outages(monkeypatch):
+    from app.agentive.services import routine_tasks
+
+    read = AsyncMock(side_effect=OSError("Read unavailable"))
+    monkeypatch.setattr(routine_tasks, "get_routine_task", read)
+    arguments = dict(
+        kind="routine_task_create",
+        arguments={},
+        user_id="owner",
+        workspace_id="workspace",
+    )
+    for flags in ({"skipped": True}, {"needs_agent_build": True}, {"filed": False}):
+        assert await completion_links({"id": "routine-1", **flags}, **arguments) == []
+    read.assert_not_awaited()
+    assert await completion_links({"id": "routine-1"}, **arguments) == []
+    read.assert_awaited_once()

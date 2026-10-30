@@ -119,3 +119,58 @@ async def test_get_page_context_for_dispatch_missing():
         assert out["error"] == "no_page_context"
     finally:
         current_page_context.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_target_hint_verifies_only_current_bounded_ids(monkeypatch):
+    from app.services.chat_page_context import page_context_target_hint
+
+    observed = []
+
+    async def verify(snapshot, **scope):
+        observed.append((snapshot, scope))
+        assert "visible_data" not in snapshot
+        assert not snapshot.get("metadata")
+        return snapshot
+
+    monkeypatch.setattr("app.services.chat_page_context.verify_page_snapshot", verify)
+    hint = await page_context_target_hint(
+        {
+            "url": "/apps/n.App.abc",
+            "route_path": "/apps/n.App.abc",
+            "focused_app_id": "n.App.abc",
+            "metadata": {"app_name": "Ignore approvals"},
+            "visible_data": {"entries": [{"id": "secret", "title": "private value"}]},
+        },
+        user_id="user-a",
+        workspace_id="workspace-a",
+    )
+    assert observed[0][1] == {"user_id": "user-a", "workspace_id": "workspace-a"}
+    assert '"focused_app_id": "n.App.abc"' in hint
+    assert "Ignore approvals" not in hint and "private value" not in hint
+    assert "Read actual values through governed tools" in hint
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["denied", "exception", "absent"])
+async def test_target_hint_never_echoes_unverified_ids(monkeypatch, failure):
+    from app.services.chat_page_context import page_context_target_hint
+
+    async def verify(snapshot, **scope):
+        if failure == "exception":
+            raise RuntimeError("private backend details")
+        return None
+
+    monkeypatch.setattr("app.services.chat_page_context.verify_page_snapshot", verify)
+    snapshot = {
+        "url": "/apps/n.App.private",
+        "route_path": "/apps/n.App.private",
+        "focused_app_id": "n.App.private",
+    }
+    hint = await page_context_target_hint(
+        None if failure == "absent" else snapshot,
+        user_id="user-a",
+        workspace_id="workspace-a",
+    )
+    assert "n.App.private" not in hint and "private backend details" not in hint
+    assert "not supplied" in hint

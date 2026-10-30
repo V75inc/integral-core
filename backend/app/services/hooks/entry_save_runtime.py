@@ -36,6 +36,53 @@ def entry_type_hook_slug(entry_type: Any) -> str:
     return manifest_key or _entry_type_slug(str(getattr(entry_type, "name", "") or ""))
 
 
+async def _owning_bundle_slug(workspace_id: str, track_id: str) -> str:
+    """Resolve the package from the Track's structural App edge, failing closed."""
+    from app.models.nodes import Track
+
+    track = await Track.get(track_id) if track_id else None
+    if not track or str(track.workspace_id) != str(workspace_id):
+        return ""
+    owners = await track.nodes(
+        edge=["CONTAINS"], node=["WorkspaceApp"], direction="in", limit=2
+    )
+    if len(owners) > 1:
+        from app.api.errors import ResourceConflictError
+
+        raise ResourceConflictError(
+            message="This track has more than one owning App; its save rules cannot be determined."
+        )
+    if not owners:
+        return ""
+    if str(owners[0].workspace_id) != str(workspace_id):
+        from app.api.errors import ResourceConflictError
+
+        raise ResourceConflictError(
+            message="The track and its owning App belong to different workspaces; its save rules cannot be determined."
+        )
+    # Seed writes occur while installation is in flight. A paused, failed or
+    # uninstalled App must not inherit hooks from another active installation.
+    if str(getattr(owners[0], "lifecycle_state", "active") or "active") not in {
+        "active",
+        "installing",
+    }:
+        return ""
+    # Legacy installations predate the immutable package identity column.
+    return str(
+        getattr(owners[0], "installed_package_slug", "")
+        or getattr(owners[0], "source_operational_model_slug", "")
+        or ""
+    )
+
+
+async def _scoped_bindings(workspace_id: str, track_id: str, bindings: list) -> list:
+    """Bundle hooks only run on entries belonging to that bundle's App."""
+    if not bindings:
+        return []
+    slug = await _owning_bundle_slug(workspace_id, track_id)
+    return [b for b in bindings if slug and b.get("_bundle_slug") == slug]
+
+
 async def run_entry_before_write_hooks(
     *,
     workspace_id: str,
@@ -45,6 +92,7 @@ async def run_entry_before_write_hooks(
     entry_type_id: str,
     operation: str,
     custom_fields: Dict[str, Any],
+    track_id: str = "",
     entry_id: str = "",
     write_actor: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -80,7 +128,8 @@ async def run_entry_before_write_hooks(
         scope=f"entry:{entry_id}" if entry_id else f"entry_type:{entry_type_id}",
     )
 
-    for binding in find_matching_bindings(workspace_id, hook_point, payload):
+    bindings = find_matching_bindings(workspace_id, hook_point, payload)
+    for binding in await _scoped_bindings(workspace_id, track_id, bindings):
         if str(binding.get("mode") or "") != "tool":
             continue
         tool_key = str(binding.get("tool") or "")
@@ -157,7 +206,10 @@ async def run_entry_save_hooks(
         scope=f"entry:{entry.id}",
     )
 
-    for binding in find_matching_bindings(workspace_id, hook_point, payload):
+    bindings = find_matching_bindings(workspace_id, hook_point, payload)
+    for binding in await _scoped_bindings(
+        workspace_id, str(getattr(entry, "track_id", "") or ""), bindings
+    ):
         if str(binding.get("mode") or "") != "tool":
             continue
         tool_key = str(binding.get("tool") or "")
@@ -208,7 +260,10 @@ async def run_entry_validation_hooks(
     ctx = ToolContext(
         user_id=actor_id, workspace_id=workspace_id, scope="entry:validate"
     )
-    for binding in find_matching_bindings(workspace_id, "entry.validate", payload):
+    bindings = find_matching_bindings(workspace_id, "entry.validate", payload)
+    for binding in await _scoped_bindings(
+        workspace_id, str(payload.get("track_id") or ""), bindings
+    ):
         if str(binding.get("mode") or "") != "tool":
             continue
         spec = tools.get(str(binding.get("tool") or ""))

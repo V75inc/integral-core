@@ -71,6 +71,7 @@ class StagingDecisionRecord(Object):
     retained_until: str = ""
     # Private immutable-intent proof; never included in public decision readback.
     intent_fingerprint: str = ""
+    superseded_by: Optional[str] = None
 
 
 def _decision_record_id(token: str) -> str:
@@ -102,6 +103,8 @@ def decision_intent_fingerprint(fields: Dict[str, Any]) -> str:
     intent = {name: fields.get(name) for name in names}
     if fields.get("origin_proof") is not None:
         intent["origin_proof"] = fields["origin_proof"]
+    if fields.get("entry_edit_fences"):
+        intent["entry_edit_fences"] = fields["entry_edit_fences"]
     value = ["staged-decision-intent-v1", intent]
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     # json.dumps silently coerces integer object keys and tuples. Such Python
@@ -141,6 +144,7 @@ async def persist_decision(sc: "StagedChange") -> None:
             state=sc.state,
             kind=sc.kind,
             intent_fingerprint=decision_intent_fingerprint(_sc_to_fields(sc)),
+            superseded_by=sc.superseded_by,
             created_at=sc.created_at.isoformat(),
             expires_at=sc.expires_at.isoformat(),
             resolved_at=(sc.resolved_at or now).isoformat(),
@@ -199,6 +203,7 @@ async def load_decision_state(token: str, user_id: str) -> Optional[Dict[str, An
             "autonomy_grant_used": False,
             "requires_strong_confirmation": False,
             "decision_state_only": True,
+            "superseded_by": record.superseded_by,
         }
     except Exception as exc:  # noqa: BLE001
         from app.services.app_operations.transaction_scope import (
@@ -257,6 +262,9 @@ class StagedChangeRecord(Object):
     decision_source: Optional[str] = None
     execution_contract_version: str = ""
     origin_proof: Optional[Dict[str, Any]] = None
+    supersedes_token: Optional[str] = None
+    superseded_by: Optional[str] = None
+    entry_edit_fences: Dict[str, Any] = Field(default_factory=dict)
 
 
 class OpenBatchRecord(Object):
@@ -417,6 +425,9 @@ def _sc_to_fields(sc: "StagedChange") -> Dict[str, Any]:
         "decision_source": sc.decision_source,
         "execution_contract_version": sc.execution_contract_version,
         "origin_proof": dict(sc.origin_proof) if sc.origin_proof else None,
+        "supersedes_token": sc.supersedes_token,
+        "superseded_by": sc.superseded_by,
+        "entry_edit_fences": dict(sc.entry_edit_fences),
     }
 
 
@@ -455,6 +466,9 @@ def _record_to_sc(rec: StagedChangeRecord) -> Optional["StagedChange"]:
         decision_source=getattr(rec, "decision_source", None),
         execution_contract_version=getattr(rec, "execution_contract_version", ""),
         origin_proof=dict(rec.origin_proof) if rec.origin_proof else None,
+        supersedes_token=rec.supersedes_token,
+        superseded_by=rec.superseded_by,
+        entry_edit_fences=dict(rec.entry_edit_fences),
     )
 
 

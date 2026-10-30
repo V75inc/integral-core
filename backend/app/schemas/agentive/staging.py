@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class EntryProposalDraft(BaseModel):
+    """Editable content only. Targets, identity and authority remain server-held."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(max_length=10000)
+    body: str = Field(default="", max_length=1000000)
+    fields: dict[str, Any] = Field(default_factory=dict, max_length=500)
+    tags: list[str] = Field(default_factory=list, max_length=500)
+
+
+class ReviseEntryProposalRequest(BaseModel):
+    """One selected record in an immutable, still-pending proposal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_index: int = Field(default=0, ge=0, le=499)
+    revision: str = Field(min_length=64, max_length=64)
+    draft: EntryProposalDraft
 
 
 class BlessTokenRequest(BaseModel):

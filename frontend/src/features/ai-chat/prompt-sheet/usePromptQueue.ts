@@ -101,7 +101,9 @@ export function usePromptQueue() {
     const episode = resultQueue?.items.length ? resultQueue
       : reviewEpisode.current?.threadId === threadId ? reviewEpisode.current.queue : undefined;
     // Deduplicate one resolved review, not identical wording across new reviews.
-    const key = JSON.stringify([threadId, episode?.opened_at, episode?.items.map((item) => item.id), text]);
+    // Readback links can improve between the completion event and the action
+    // response. Their wording must not create a second receipt for one review.
+    const key = JSON.stringify([threadId, episode?.opened_at, episode?.items.map((item) => item.id), episode?.items.length ? undefined : text]);
     if (resumeRequired && resumedRefreshes.current.has(key)) return;
     if (resumeRequired) resumedRefreshes.current.add(key);
     if (resumedRefreshes.current.size > 64) resumedRefreshes.current.delete(resumedRefreshes.current.values().next().value!);

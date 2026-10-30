@@ -22,7 +22,10 @@ class ScheduledRunSpec(BaseModel):
         Degradation path per app_bundles_v1.md §6.4.
     """
 
+    name: str = ""
     cron: str = ""
+    skill: str = ""
+    params: Dict[str, Any] = Field(default_factory=dict)
     description: str = ""
     status: Literal["scheduled", "manual"] = "manual"
 

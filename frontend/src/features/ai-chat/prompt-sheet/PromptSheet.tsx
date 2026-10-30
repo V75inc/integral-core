@@ -1,6 +1,7 @@
 import { ExpandableChatError } from "../components/ExpandableChatError";
 import { useState, type ReactNode } from 'react';
 import { ApprovalRequestContent } from '../staging/ApprovalRequestContent';
+import { EditEntryProposal } from '../staging/EditEntryProposal';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 import { Button } from '../../../components/ui';
@@ -110,6 +111,7 @@ function PromptSheetView({
           busy={sheet.busy}
           onApprove={sheet.approveWrite}
           onReject={sheet.rejectWrite}
+          onRevised={() => void sheet.refresh()}
         />
       )}
 
@@ -251,11 +253,13 @@ function WritePage({
   busy,
   onApprove,
   onReject,
+  onRevised,
 }: {
   item: PromptStagedWriteItem;
   busy: boolean;
   onApprove: () => Promise<void>;
   onReject: () => Promise<void>;
+  onRevised: () => void;
 }) {
   const pending = item.status === 'pending';
   const machine = item.diff_machine;
@@ -296,6 +300,7 @@ function WritePage({
       </div>
       {pending ? (
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
+          {item.staged_state !== 'blessed' && (item.can_edit_entries ?? ['create_entry', 'update_entry', 'file_content'].includes(item.write_kind || '')) ? <EditEntryProposal token={item.token} disabled={busy} onRevised={onRevised} /> : null}
           <Button
             type="button"
             size="sm"

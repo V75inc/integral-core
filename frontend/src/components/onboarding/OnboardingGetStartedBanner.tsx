@@ -1,10 +1,7 @@
 /**
  * Phase 9 Plan 09-05 (ONBD-01) — A5 fallback banner.
  *
- * Renders when ``useAgentiveCapability().enabled === false`` AND the
- * user has not yet onboarded. Replaces the modal with a thin banner
- * pointing the caller at Settings → Get started so the UI is never
- * broken when the agentive layer is unreachable.
+ * Brief first-login guidance with a link to the reusable help content.
  */
 import { Link } from 'react-router-dom';
 
@@ -24,12 +21,12 @@ export function OnboardingGetStartedBanner() {
       "
     >
       <span>
-        Welcome to Integral. Visit{' '}
+        Welcome to Integral. Apps bring related work together, Tracks organize it, and Entries hold individual records. Visit{' '}
         <Link
           to="/settings#get-started"
           className="text-[var(--brand-accent)] underline"
         >
-          Settings → Get started
+          Help and getting started
         </Link>{' '}
         to begin.
       </span>

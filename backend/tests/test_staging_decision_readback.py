@@ -28,6 +28,16 @@ async def mint():
     )
 
 
+@pytest.mark.asyncio
+async def test_pending_only_revoke_cannot_replace_an_approved_proposal():
+    sc = await mint()
+    await staging.bless_token(user_id="u1", token=sc.token)
+    with pytest.raises(staging.StagingError) as error:
+        await staging.revoke_token(user_id="u1", token=sc.token, pending_only=True)
+    assert error.value.code == "proposal_changed"
+    assert (await staging.get_token(sc.token)).state == "blessed"
+
+
 @pytest.mark.smoke
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["revoked", "consumed", "expired"])

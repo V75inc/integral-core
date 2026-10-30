@@ -66,6 +66,44 @@ async def test_start_session_creates_pending_node():
 
 
 @pytest.mark.asyncio
+async def test_chunked_image_limit_applies_before_creating_a_session(monkeypatch):
+    monkeypatch.setattr(settings, "ATTACHMENT_MAX_IMAGE_BYTES", 16)
+    entry = await _make_entry()
+    with pytest.raises(BadRequestError, match="Image too large"):
+        await start_session(
+            entry=entry,
+            user_id="u1",
+            filename="photo.png",
+            mime_type="application/octet-stream",
+            total_bytes=17,
+        )
+    session = await start_session(
+        entry=entry,
+        user_id="u1",
+        filename="document.txt",
+        mime_type="text/plain",
+        total_bytes=17,
+    )
+    assert session.total_bytes == 17
+
+
+@pytest.mark.asyncio
+async def test_assembled_image_is_checked_against_actual_content(monkeypatch):
+    from app.api.attachments import _persist_assembled_content
+
+    monkeypatch.setattr(settings, "ATTACHMENT_MAX_IMAGE_BYTES", 16)
+    with pytest.raises(BadRequestError, match="Image too large"):
+        await _persist_assembled_content(
+            entry=await _make_entry(),
+            user_id="u1",
+            filename="photo.png",
+            content=b"\x89PNG\r\n\x1a\n" + b"x" * 32,
+            declared_mime="application/octet-stream",
+            sha256_hex="unused",
+        )
+
+
+@pytest.mark.asyncio
 async def test_append_chunks_in_order_advances_state():
     entry = await _make_entry()
     session = await start_session(

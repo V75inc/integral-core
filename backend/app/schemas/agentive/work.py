@@ -295,6 +295,17 @@ class WorkExecutionContext(BaseModel):
         return value
 
 
+class WorkContextLink(BaseModel):
+    """A currently readable resource related to one background task."""
+
+    kind: Literal["app", "track", "entry"]
+    id: str
+    label: str
+    href: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkItemStatusResponse(BaseModel):
     """Safe, caller-visible projection of a durable work item.
 
@@ -306,6 +317,7 @@ class WorkItemStatusResponse(BaseModel):
     work_item_id: str
     kind: str
     operation: str = ""
+    context_links: list[WorkContextLink] = Field(default_factory=list)
     status: WorkStatus
     workspace_id: str
     app_id: str = ""

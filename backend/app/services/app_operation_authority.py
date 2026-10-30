@@ -371,6 +371,17 @@ async def entry_mutation_permitted(
     type_edges = await database.find(
         "edge", {"source": entry_id, "entity": IS_OF_TYPE._entity_name()}, limit=2
     )
+    if not type_edges:
+        return await _repair_unambiguous_legacy_entry_type(
+            entry_id=entry_id,
+            type_id=type_id,
+            app_id=app_id,
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            custom_fields=custom_fields,
+            mutation_kind=mutation_kind,
+            top_level=top_level,
+        )
     if len(type_edges) != 1 or type_edges[0].get("target") != type_id:
         raise AuthorizationUnavailableError()
     entry_type = await primary_node_record(
@@ -395,6 +406,174 @@ async def entry_mutation_permitted(
         top_level=set(top_level or {}),
         principal_id=principal_id,
     )
+
+
+async def _repair_unambiguous_legacy_entry_type(
+    *,
+    entry_id: str,
+    type_id: str,
+    app_id: str,
+    principal_id: str,
+    workspace_id: str,
+    custom_fields: dict,
+    mutation_kind: str,
+    top_level: dict | None,
+) -> bool:
+    """Restore a missing type edge only when the rooted graph proves one type.
+
+    Historical records can have a type cache but no IS_OF_TYPE edge. The cache
+    alone is not authority: the containing Track must have exactly one model
+    and that model exactly one EntryType, agreeing with the persisted cache.
+    The exact operation permit is checked before the repair, which commits or
+    rolls back with the approved operation and its receipt.
+    """
+    from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, IS_OF_TYPE
+    from app.models.nodes import Entry, EntryType, OperationalModel, Track
+    from app.services.app_operations.transaction_scope import (
+        current_graph_transaction_database,
+    )
+    from app.services.authority_facts import primary_node_record, required_node_text
+    from app.services.operational_model_compile import _slug
+    from app.utils.time import utc_now_iso
+
+    database = current_graph_transaction_database(required=False)
+    if database is None:
+        raise AuthorizationUnavailableError()
+    # Serialize with canonical Entry writes; after the lock, re-read all facts.
+    locked = await database.find_one_and_update(
+        "node", {"id": entry_id, "entity": Entry._entity_name()}, {"$set": {}}
+    )
+    if locked is None or required_node_text(locked, "type_id") != type_id:
+        raise AuthorizationUnavailableError()
+    edges = await database.find(
+        "edge", {"source": entry_id, "entity": IS_OF_TYPE._entity_name()}, limit=2
+    )
+    if edges:
+        # A concurrent canonical update won the lock. Restart from its facts.
+        if len(edges) != 1 or edges[0].get("target") != type_id:
+            raise AuthorizationUnavailableError()
+        return await entry_mutation_permitted(
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            entry_id=entry_id,
+            custom_fields=custom_fields,
+            mutation_kind=mutation_kind,
+            top_level=top_level,
+        )
+    track_id = required_node_text(locked, "track_id")
+    parents = await database.find(
+        "edge", {"target": entry_id, "entity": CONTAINS._entity_name()}, limit=2
+    )
+    if len(parents) != 1 or parents[0].get("source") != track_id:
+        raise AuthorizationUnavailableError()
+    track = await Track.get(track_id)
+    if track is None or str(track.workspace_id) != workspace_id:
+        raise AuthorizationUnavailableError()
+    model_edges = await database.find(
+        "edge",
+        {"source": track_id, "entity": HAS_OPERATIONAL_MODEL._entity_name()},
+        limit=2,
+    )
+    if len(model_edges) != 1:
+        raise AuthorizationUnavailableError()
+    models = await track.nodes(
+        edge=[HAS_OPERATIONAL_MODEL],
+        node=["OperationalModel"],
+        direction="out",
+        limit=2,
+    )
+    if (
+        len(models) != 1
+        or not isinstance(models[0], OperationalModel)
+        or model_edges[0].get("target") != models[0].id
+    ):
+        raise AuthorizationUnavailableError()
+    types = await models[0].nodes(
+        edge=[CONTAINS], node=["EntryType"], direction="out", limit=2
+    )
+    if len(types) != 1 or types[0].id != type_id:
+        raise AuthorizationUnavailableError()
+    type_membership = await database.find(
+        "edge",
+        {"source": models[0].id, "target": type_id, "entity": CONTAINS._entity_name()},
+        limit=2,
+    )
+    if len(type_membership) != 1:
+        raise AuthorizationUnavailableError()
+    type_record = await primary_node_record(database, EntryType, type_id)
+    if type_record is None or required_node_text(type_record, "track_id") != track_id:
+        raise AuthorizationUnavailableError()
+    fields = type_record["context"].get("form_schema") or {}
+    key = _slug(
+        str(
+            fields.get("_manifest_entry_type_key")
+            or type_record["context"].get("name")
+            or ""
+        )
+    )
+    exact = await permits_mutation(
+        workspace_id=workspace_id,
+        entry_type_key=key,
+        fields=set(custom_fields),
+        entry_id=entry_id,
+        mutation_kind=mutation_kind,
+        top_level=set(top_level or {}),
+        principal_id=principal_id,
+    )
+    if not exact:
+        # Legacy operations have no field-level delegation declaration. Allow
+        # only the ordinary human authority already required by the operation
+        # facade; agents and connectors cannot use that human fallback.
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.permissions import get_user_node, resolve_role
+        from app.services.policy_engine import evaluate
+        from app.services.workspace_governance import ordinary_authority_only
+
+        permit = _permit.get()
+        actor = await get_user_node(principal_id)
+        bound_actor = await get_user_node(permit.principal_id) if permit else None
+        if (
+            permit is None
+            or permit.subject.kind != "human"
+            or permit.task is not asyncio.current_task()
+            or permit.app_id != app_id
+            or permit.workspace_id != workspace_id
+            or mutation_kind != "update"
+            or actor is None
+            or bound_actor is None
+            or actor.id != bound_actor.id
+        ):
+            raise AuthorizationUnavailableError()
+        location = await locate_resource("entry", entry_id)
+        _, definition = await current_definition(app_id)
+        if (
+            location is None
+            or location.workspace_id != workspace_id
+            or location.app_id != app_id
+            or definition["id"] != permit.definition_id
+            or definition["context"]["manifest_fingerprint"] != permit.fingerprint
+        ):
+            raise AuthorizationUnavailableError()
+        with isolated_permissions_cache(), ordinary_authority_only():
+            if await resolve_role(principal_id, "entry", entry_id) not in (
+                "owner",
+                "admin",
+                "editor",
+            ):
+                raise AuthorizationUnavailableError()
+            decision = await evaluate(
+                subject=Subject(kind="human", id=principal_id),
+                action="entry.update",
+                resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
+            )
+            if not decision.allowed:
+                raise AuthorizationUnavailableError()
+    entry, entry_type = await Entry.get(entry_id), await EntryType.get(type_id)
+    if entry is None or entry_type is None:
+        raise AuthorizationUnavailableError()
+    await entry.connect(entry_type, edge=IS_OF_TYPE, assigned_at=utc_now_iso())
+    return True
 
 
 async def current_operation_delegator(

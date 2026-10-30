@@ -355,7 +355,9 @@ class IntegralToolDisclosure(ToolSearch):
                     # replies select no-decision; no text classifier participates.
                     resolved["tool_choice"] = [self.pending_decision_tool]
                     return resolved
-            if not self.require_initial_search:
+            if not self.require_initial_search or self.workflow_skill_ids.intersection(
+                ctx.active_capability_ids
+            ):
                 return resolved
             searched = any(
                 isinstance(part, ToolReturnPart)
@@ -375,7 +377,12 @@ class IntegralToolDisclosure(ToolSearch):
                     # arbitrary operational answers before a workflow is loaded.
                     resolved["tool_choice"] = "auto"
                 elif not any(name.startswith("integral_") for name in available):
-                    resolved["tool_choice"] = ["search_capabilities"]
+                    # Native Skills already advertises procedure descriptions.
+                    # Permit a direct model-selected load instead of forcing a
+                    # redundant search round before the same native loader.
+                    resolved["tool_choice"] = ["search_capabilities"] + (
+                        ["load_capability"] if "load_capability" in available else []
+                    )
             else:
                 candidates = {
                     item.get("load_with", {}).get("id")

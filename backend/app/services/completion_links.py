@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlsplit
@@ -12,6 +13,8 @@ from app.services.notification_paths import entry_path
 from app.services.permissions import resolve_role
 from app.services.resource_location import DATA_APP_STATES, locate_resource
 from app.services.staging_consumed_nav import extract_consumed_nav
+
+logger = logging.getLogger(__name__)
 
 
 def app_section_path(app_id: str, section: str, dashboard_id: str = "") -> str:
@@ -77,6 +80,40 @@ async def completion_links(
     workspace_id: str,
 ) -> list[dict[str, str]]:
     """Resolve actual rooted resources; supplied ids never grant link visibility."""
+    if kind in {"routine_task_create", "routine_task_update", "routine_task_cancel"}:
+        if (
+            result.get("error")
+            or result.get("ok") is False
+            or result.get("skipped")
+            or result.get("needs_agent_build")
+            or result.get("filed") is False
+        ):
+            return []
+        from app.agentive.services.routine_tasks import get_routine_task
+        from app.api.errors import ResourceNotFoundError
+
+        identifier = result.get("id")
+        if not isinstance(identifier, str) or not identifier:
+            return []
+        try:
+            routine = await get_routine_task(user_id=user_id, routine_id=identifier)
+        except ResourceNotFoundError:
+            return []
+        except Exception:
+            # Navigation is optional after a completed effect. Withhold the
+            # link on a read outage rather than misreporting a saved schedule.
+            logger.warning("Scheduled routine navigation unavailable", exc_info=True)
+            return []
+        if routine.workspace_id != workspace_id:
+            return []
+        return [
+            {
+                "kind": "routine",
+                "id": routine.id,
+                "label": "scheduled routine",
+                "url": f"/background-tasks?routine={quote(routine.id, safe='')}#scheduled-routines",
+            }
+        ]
     refs = completion_refs(result, kind, arguments)
     candidates = [
         r for r in refs if isinstance(r, dict) and isinstance(r.get("id"), str)
@@ -227,7 +264,9 @@ def append_completion_links(
     for link in links:
         url = link.get("url", "")
         if (
-            not url.startswith(("/apps/", "/tracks/", "/entries/"))
+            not url.startswith(
+                ("/apps/", "/tracks/", "/entries/", "/background-tasks?routine=")
+            )
             or f"]({url})" in output
         ):
             continue

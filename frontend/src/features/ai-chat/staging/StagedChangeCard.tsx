@@ -26,6 +26,7 @@ import {
 } from './StagedChangeReviewModal';
 import { Text } from '../../../ui';
 import { describeConsumed } from './consumedSummary';
+import { EditEntryProposal } from './EditEntryProposal';
 
 export interface StagedChangeCardProps {
   staged: StagedChange;
@@ -40,6 +41,12 @@ export interface StagedChangeCardProps {
 }
 
 export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) {
+  const [revision, setRevision] = useState<{ base: string; staged: StagedChange } | null>(null);
+  const effective = revision?.base === staged.token ? revision.staged : staged;
+  return <StagedChangeCardBody key={effective.token} staged={effective} onTerminal={onTerminal} onRevised={next => setRevision({ base: staged.token, staged: next })} />;
+}
+
+function StagedChangeCardBody({ staged, onTerminal, onRevised }: StagedChangeCardProps & { onRevised: (next: StagedChange) => void }) {
   const [showRaw, setShowRaw] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const confirm = useConfirm();
@@ -106,6 +113,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
         controls={controls}
+        onRevised={onRevised}
       />
       {/* Header — title on the left (may wrap to 2 lines), status pill pinned
           top-right and NEVER wrapping. items-start keeps the pill on the first
@@ -182,6 +190,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
 
       {status.state === 'pending' && (
         <div className="flex flex-wrap items-center gap-2">
+          {staged.can_edit_entries ? <EditEntryProposal token={staged.token} disabled={status.kind === 'loading'} onRevised={onRevised} /> : null}
           <button
             onClick={() => bless()}
             disabled={status.kind === 'loading'}
@@ -279,7 +288,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
 
       {status.state === 'revoked' && (
         <div className="flex items-center gap-1 text-xs text-[var(--text-subtle)]">
-          <X size={12} /> Rejected.
+          <X size={12} /> {staged.superseded_by ? 'Replaced by your edited proposal.' : 'Rejected.'}
         </div>
       )}
 

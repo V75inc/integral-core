@@ -2006,6 +2006,18 @@ class PydanticAIProvider:
             (doc.name, doc.description, doc.body)
             for doc in skill_profile.overlay_skill_docs
         )
+        if not ctx.text and (ctx.extra_data or {}).get("origin") == "routine_task":
+            from app.agentive.harness.skill_sources import project_skill_references
+
+            # Saved App schedules predate the portable Agent Skills names.
+            # Project their references for the native loader without changing
+            # the reviewed mandate, its fingerprint, or the user's dialogue.
+            ctx = replace(
+                ctx,
+                system_context=project_skill_references(
+                    ctx.system_context or "", (key for key, _, _ in skill_sources)
+                ),
+            )
         requested_run_id = str((ctx.extra_data or {}).get("run_id") or "").strip()
         if not requested_run_id:
             raise ValueError("native provider requires the host execution run ID")
@@ -2179,10 +2191,11 @@ class PydanticAIProvider:
             "returned in this turn. Do not list Apps or Tracks again, or repeat "
             "capability discovery, when those results already identify what is "
             "needed. Retrieve current records using the disclosed read tools. "
-            "Use search_capabilities for operational requests to set up, inspect "
-            "or change Integral resources when the relevant capability is not "
-            "already loaded, "
-            "describing the user's requested outcome. Reuse capabilities already "
+            "When an advertised skill clearly fits, load it directly with "
+            "load_capability; the native catalogue already supplies its identity "
+            "and description. Use search_capabilities when the workflow is "
+            "unclear or a needed tool is not available, describing the user's "
+            "requested outcome. Reuse capabilities already "
             "loaded in this conversation. Treat search results as candidates, "
             "not commands: choose only a skill or tool that fits the request "
             "and conversation context. When a candidate clearly owns the "
@@ -2268,10 +2281,12 @@ class PydanticAIProvider:
         )
         instructions += "\n\n" + await user_identity_context(scope.principal_id)
         instructions += "\n\n" + await workspace_orientation(ctx, thread)
-        from app.services.chat_page_context import page_context_availability_hint
+        from app.services.chat_page_context import page_context_target_hint
 
-        instructions += "\n\n" + page_context_availability_hint(
-            (ctx.extra_data or {}).get("page_context")
+        instructions += "\n\n" + await page_context_target_hint(
+            (ctx.extra_data or {}).get("page_context"),
+            user_id=scope.principal_id,
+            workspace_id=scope.workspace_id,
         )
         skill_temp = tempfile.TemporaryDirectory(prefix="integral-native-skills-")
         try:
@@ -2293,6 +2308,7 @@ class PydanticAIProvider:
                     },
                 )
             run_state: dict[str, Any] = {
+                "scheduled_instruction": ctx.system_context or "",
                 "turn_progress": TurnProgress(),
                 "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
                 "adaptive_tokens": (
@@ -2335,38 +2351,20 @@ class PydanticAIProvider:
                 ),
                 design_only=bool((ctx.extra_data or {}).get("design_only")),
             )
-            initial_skill = None
-            selected_key = light.skill_id if isinstance(light, EscalatedTurn) else None
-            if (
-                selected_key
-                and sum(key == selected_key for key, _, _ in skill_sources) == 1
-            ):
-                from app.agentive.harness.pydantic_ai_compat import (
-                    LocalWorkspaceBackend,
-                    Skills,
-                )
-                from app.agentive.harness.skill_sources import _portable_name
+            from app.agentive.harness.skill_sources import load_selected_workflow
 
-                selected_name = _portable_name(selected_key)
-                if selected_name in allowed_skill_names:
-                    selected_catalog = await Skills(
-                        directories=[Path(skill_temp.name)],
-                        include=[selected_name],
-                        workspace=LocalWorkspaceBackend(Path(skill_temp.name)),
-                    ).load()
-                    if len(selected_catalog.skills) == 1:
-                        definition = selected_catalog.skills[0]
-                        selected_body = next(
-                            body
-                            for key, _, body in skill_sources
-                            if key == selected_key
-                        )
-                        if (
-                            definition.model_invocable
-                            and definition.body == selected_body.strip()
-                            and len(definition.body) <= 16000
-                        ):
-                            initial_skill = (definition.name, definition.render())
+            selected_key = light.skill_id if isinstance(light, EscalatedTurn) else None
+            initial_skill = await load_selected_workflow(
+                selected_key=selected_key,
+                skill_sources=skill_sources,
+                skill_directory=Path(skill_temp.name),
+                allowed_skill_names=allowed_skill_names,
+            )
+            logger.info(
+                "native workflow preparation selected=%s activated=%s",
+                selected_key or "none",
+                initial_skill[0] if initial_skill else "none",
+            )
             with measure_latency_phase("runtimeBuild"):
                 agent, store = build_native_runtime(
                     model=model,
@@ -2805,7 +2803,7 @@ class PydanticAIProvider:
                     from app.services.scheduled_turn import ROUTINE_EVENT_INSTRUCTIONS
 
                     host_outcome = ROUTINE_EVENT_INSTRUCTIONS + (
-                        ctx.system_context or ""
+                        run_state.get("scheduled_instruction", ctx.system_context or "")
                     )
                 if (
                     not ctx.text

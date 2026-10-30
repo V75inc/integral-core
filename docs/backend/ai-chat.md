@@ -19,6 +19,22 @@ effect receipts before starting; unresolved effects cannot be bypassed by
 discarding model history. The product transcript and durable receipts remain
 intact. A routine that needs a historical comparison must explicitly retrieve
 its authorized prior evidence as well as read current state.
+Saved schedules may refer to substrate skill keys such as `app__skill_key`.
+For each agent fire, Core annotates references from the current authorized
+skill library with the exact portable IDs exposed by native Pydantic Skills.
+The instruction text, literal record values, mandate fingerprint and review remain unchanged;
+missing or revoked skills are not guessed or granted. Native capability
+loading and the live Core broker still decide whether the work may execute.
+
+App-bundled `default_schedules` retain their `name`, selected `skill`, `params`,
+cadence and description. A selected skill must be registered under the same
+App; it does not mean "run every skill assigned to this agent". Parameters
+are supplied as data, not write authority. During authorized App registration,
+an existing routine is repaired only if its instruction still exactly matches
+the old generated all-skills instruction. Owner-edited tasks and cancelled
+tasks remain unchanged; repairs preserve status, cadence, run budgets and
+write grants. Previously queued work with the old mandate must fail admission.
+An unavailable schedule lookup never causes a replacement routine to be created.
 The lightweight saved-reminder path is only for fixed text, such as a personal
 nudge; reminder delivery does not call a model or execute task instructions.
 
@@ -98,6 +114,40 @@ extended by browser reconnects; the total request deadline also bounds streams
 that keep sending chunks without finishing.
 
 Graph transaction bodies remain cancellable on disconnect. Their acquisition and commit/rollback cleanup are shielded from ASGI cancellation in the owning task, so rollback completes before returning the connection to its pool. Disconnecting an SSE reader does not cancel the separate durable worker.
+
+## Editing a proposed record
+
+On PostgreSQL, chat, the expanded review and the approvals inbox can open the
+standard prefilled record form for a pending Entry create/update. Straightforward
+content filings are revised as canonical Entry creates. Existing-track Entry
+steps in a canonical batch can be edited individually; the other steps remain
+unchanged. App operations and not-yet-created destinations retain their original
+read-only review contracts.
+
+Saving the form creates a new pending token. It does not write an Entry or grant
+approval. The original token is revoked with a supersession link, and its linked
+WorkApproval, if present, is rejected without changing its original authority
+digest. The replacement is human-authored and carries no agent capability
+origin proof. Retirement, the new token, the conversation queue and its audit
+message commit together. Only committed state is published to process caches.
+Ordinary approval and canonical Entry execution still recheck current access.
+
+The form locks the destination/type and retains attachment bindings. It does not
+upload files or commit App UI contributions. Record revisions and the schema
+observed by the form reject stale edits; edited proposals also retain a schema
+fingerprint checked within the eventual canonical effect transaction. Cancelling
+the form leaves the original proposal untouched. Nontransactional local stores
+require rejecting the proposal and requesting a corrected one instead of
+offering unsafe multi-write replacement semantics.
+
+For an existing destination with a resolved record type, create-entry and
+content-filing preparation report missing required inputs together before staging.
+Literal defaults, existing App-setting defaults and
+declared deferred generators/materializers are respected. Preparation never
+invokes a default tool, reserves a number or creates a related record merely
+to make an approval preview valid. New destinations created earlier in a batch
+remain subject to canonical execution validation once their schema exists.
+Execution remains the final validation gate.
 
 ## Collection changes and retrieved evidence
 
@@ -416,11 +466,14 @@ Catalogue definitions are encoded without submitting one concurrent task per
 definition to the bounded encoder queue. A single large catalogue must not
 overload its own search admission. Encoder outages still permit an explicit
 lexical fallback; ranking never grants capability or record authority.
-Small skill procedures (up to eight declared tools) retain their immediate
-tool bundle. Broad procedures keep independent read schemas deferred until
-discovery selects them; loading a reporting skill does not disclose every
-query/report schema. Procedure-dependent write tools retain their existing
-skill and approval requirements.
+Activating a skill exposes up to eight Core read schemas, in its standard
+`allowed-tools` declaration order, within a 16,000-byte definition budget.
+Authors should list the usual starting reads first. Larger and remaining read
+schemas remain searchable through native deferred tools; a broad skill does
+not disclose its whole catalogue. Existing foundational navigation tools remain
+available independently. Procedure-dependent write tools retain their existing
+skill and approval requirements. The model may load an advertised native skill
+directly rather than searching again for a procedure it can already identify.
 
 `integral_list_workspace_tools` defaults to 20 results for resident/MCP calls.
 It accepts an accessible `app_id`, exact `tool_key`, `read_only`, `limit` (up to
@@ -462,15 +515,32 @@ outcomes, returned counts and elapsed time, without private reasoning or raw
 arguments. The fallback status is “Responding…”; activity is described as
 “Activity, tool results, and model usage are shown here.”
 
+The operational pass also admits only the current page's focused resource IDs
+through the shared live workspace/ACL verifier. This bounded pointer avoids an
+orientation model round for an explicit "this App/Track/record" request. It does
+not inject visible records, titles, breadcrumbs or arbitrary browser metadata.
+Explicit named targets override page focus; the on-demand page-context tool
+remains available for additional details. Every actual read and write still
+passes the live broker. Missing, mismatched or denied pointers are not exposed.
+
 #### Sharing discovery with the Light pass
 
-Automatic routing may nominate one exact skill from at most eight current,
+Automatic routing may nominate one exact skill from current,
 authorization-filtered public metadata candidates. This is a model choice in the
 existing Light request, not a host keyword router or execution authority. The
 operational pass revalidates its source against the freshly composed skill catalog
 and loads the procedure through public Pydantic capability/Skills interfaces.
-Invalid, ambiguous, unavailable or oversized selections fall back to ordinary
-capability discovery. Other workflows stay deferred and remain discoverable.
+Invalid, ambiguous or unavailable selections fall back to ordinary capability
+discovery. Initial activation and native `load_capability` use the same context
+admission budget. Do not impose a smaller body-length cutoff on the Light
+handoff: that forces the Heavy model to rediscover and load the identical body.
+The preparation log records the nominated and activated procedure IDs.
+Light receives a bounded Core procedure index (up to 24 descriptions) alongside
+up to eight ranked App procedures, each description capped at 500 characters.
+Generic Core skills remain eligible even when domain wording has no keyword
+overlap. The model chooses a fitting procedure or leaves the choice unset; this
+metadata cannot authorize any tool or bypass the live skill resolver. Other
+workflows stay deferred and remain discoverable.
 Social replies do not compose operational skill bodies or advance the operational
 checkpoint. Tool invocation still uses the current Core broker, App/principal
 scope, service-actor checks and ordinary staging/approval path. No discovery or

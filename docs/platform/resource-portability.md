@@ -6,6 +6,12 @@ archive. Import previews the archive before creating new private copies in the
 current workspace. From inside an App, Track imports stay inside that App.
 Name collisions receive an `(import N)` suffix; imports never overwrite a resource.
 
+In the export tab, choose what to include and select the Apps or Tracks to
+download. The search field filters the items currently loaded; use **Load more**
+to browse additional pages. Selections remain checked across pages. In Manage
+Apps, **Import template** is a separate action for adding a library template;
+**Import / export Apps** transfers installed Apps and their contents.
+
 ## Contents
 
 | Mode | Contents |

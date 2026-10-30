@@ -660,6 +660,23 @@ async def validate_chat_attachment_for_entry(
             },
         )
 
+    from app.config import settings
+
+    if (
+        str(getattr(attachment, "mime_type", "") or "").lower().startswith("image/")
+        and int(getattr(attachment, "size", 0) or 0)
+        > settings.ATTACHMENT_MAX_IMAGE_BYTES
+    ):
+        return (
+            None,
+            None,
+            {
+                "error": True,
+                "error_code": "image_too_large",
+                "message": f"Image too large (maximum {settings.ATTACHMENT_MAX_IMAGE_BYTES // (1024 * 1024)} MB).",
+            },
+        )
+
     return attachment, entry, None
 
 

@@ -63,7 +63,7 @@ describe('approval queue refresh', () => {
     const closed = { ...closedQueue, resume_text: 'No changes applied.', closed: true };
     vi.mocked(getPromptQueue).mockResolvedValueOnce(closed);
     await act(async () => { await result.current.refresh(); });
-    await act(async () => { resolveAction({ ...closed, queue: { ...openQueue().queue, status: 'closed' } } as Awaited<ReturnType<typeof markPromptWrite>>); await rejection; });
+    await act(async () => { resolveAction({ ...closed, resume_text: 'No changes applied. Updated record link is now available.', queue: { ...openQueue().queue, status: 'closed' } } as Awaited<ReturnType<typeof markPromptWrite>>); await rejection; });
     expect(state.append).toHaveBeenCalledTimes(1); expect(state.startRun).toHaveBeenCalledTimes(1);
     vi.mocked(getPromptQueue).mockResolvedValueOnce(openQueue('token-b'));
     await act(async () => { await result.current.refresh(); });

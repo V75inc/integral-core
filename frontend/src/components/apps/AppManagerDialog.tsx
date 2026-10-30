@@ -3,7 +3,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ExternalLink } from 'lucide-react';
+import { ArrowDownUp, Check, ExternalLink, RefreshCw, Upload } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui';
 import { AppIcon, Surface, Text } from '../../ui';
@@ -480,9 +480,9 @@ export function AppManagerDialog({
           <AppManagerLibrary key={workspaceId}
             initialDetailId={initialDetailId}
             libraryActions={<div className="flex flex-wrap gap-2 py-3">
-              {workspaceId && <Button variant="outline" size="sm" disabled={submitting} onClick={() => setImportOpen(true)}>Import template</Button>}
-              {workspaceId && <Button variant="outline" size="sm" disabled={submitting} onClick={() => setTransferOpen(true)}>Import / export Apps</Button>}
-              {isPlatformAdmin && <Button variant="ghost" size="sm" disabled={submitting || refreshing} onClick={() => void refreshLibrary()}> {refreshing ? 'Refreshing…' : 'Refresh library'}</Button>}
+              {workspaceId && <Button variant="ghost" size="sm" icon={<Upload size={16} strokeWidth={LINE_STROKE} aria-hidden />} disabled={submitting} onClick={() => setImportOpen(true)}>Import template</Button>}
+              {workspaceId && <Button variant="ghost" size="sm" icon={<ArrowDownUp size={16} strokeWidth={LINE_STROKE} aria-hidden />} disabled={submitting} onClick={() => setTransferOpen(true)}>Import / export Apps</Button>}
+              {isPlatformAdmin && <Button variant="ghost" size="sm" icon={<RefreshCw size={16} strokeWidth={LINE_STROKE} aria-hidden />} disabled={submitting || refreshing} onClick={() => void refreshLibrary()}>{refreshing ? 'Refreshing…' : 'Refresh library'}</Button>}
             </div>}
             profiles={profiles} apps={apps} installedApps={apps.filter(app => app.lifecycle_state !== 'uninstalled')}
             selected={selectedInstall} loading={loading} submitting={submitting}

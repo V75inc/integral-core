@@ -195,6 +195,164 @@ async def test_schedule_degradation_when_scheduler_unavailable(monkeypatch, capl
     assert matching, "expected degradation warning in log"
 
 
+async def _scheduled_app_with_two_skills(monkeypatch):
+    from app.models.nodes import User
+
+    monkeypatch.setattr(uplink_module, "_scheduler_available", lambda: True)
+    owner = await User.create(display_name="Schedule fixture owner")
+    app = await _make_app("Schedule selection fixture")
+    app.owner_user_id = owner.id
+    await app.save()
+    for key in ("daily_read", "manual_write"):
+        await register_skill(
+            app_id=app.id,
+            workspace_id=app.workspace_id,
+            skill_spec={
+                "key": key,
+                "kind": "declarative",
+                "description": key,
+                "prompt_template_ref": f"skills/{key}/SKILL.md",
+            },
+        )
+    spec = {
+        "key": "resident",
+        "skills": ["daily_read", "manual_write"],
+        "default_schedules": [
+            {
+                "name": "daily_digest",
+                "cron": "0 9 * * *",
+                "skill": "daily_read",
+                "params": {"days": 14, "only_open": True},
+                "description": "Review upcoming items",
+            }
+        ],
+    }
+    return app, spec
+
+
+@pytest.mark.asyncio
+async def test_app_schedule_retains_its_selected_skill_and_parameters(monkeypatch):
+    import json
+
+    from app.agentive.nodes import RoutineTask
+
+    app, spec = await _scheduled_app_with_two_skills(monkeypatch)
+    cfg = await register_app_agent(app.id, app.workspace_id, spec)
+    saved = cfg.scheduled_runs[0]
+    assert saved["skill"] == "daily_read"
+    assert saved["params"] == {"days": 14, "only_open": True}
+    assert saved["name"] == "daily_digest"
+    routine = await RoutineTask.get(saved["routine_task_id"])
+    assert "__daily_read`" in routine.instruction
+    assert "manual_write" not in routine.instruction
+    assert json.loads(routine.instruction.rsplit("\n", 1)[-1]) == saved["params"]
+
+
+@pytest.mark.asyncio
+async def test_schedule_skill_must_belong_to_the_same_app(monkeypatch):
+    app, spec = await _scheduled_app_with_two_skills(monkeypatch)
+    spec["default_schedules"][0]["skill"] = "unregistered_workflow"
+    materialized = []
+
+    async def materialize(**kwargs):
+        materialized.append(kwargs)
+
+    monkeypatch.setattr(uplink_module, "_materialize_default_schedule", materialize)
+    with pytest.raises(AgentRegistrationError):
+        await register_app_agent(app.id, app.workspace_id, spec)
+    assert materialized == []
+
+
+@pytest.mark.asyncio
+async def test_schedule_lookup_failure_does_not_create_duplicate(monkeypatch):
+    from app.agentive.nodes import RoutineTask
+
+    app, spec = await _scheduled_app_with_two_skills(monkeypatch)
+    created = []
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("Schedule store unavailable")
+
+    async def create(**kwargs):
+        created.append(kwargs)
+
+    monkeypatch.setattr(RoutineTask, "find", unavailable)
+    monkeypatch.setattr(
+        "app.agentive.services.routine_tasks.create_routine_task", create
+    )
+    cfg = await register_app_agent(app.id, app.workspace_id, spec)
+    assert cfg.scheduled_runs[0]["status"] == "manual"
+    assert created == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("edited", [False, True])
+@pytest.mark.parametrize("status", ["active", "paused", "cancelled"])
+async def test_registration_repairs_only_unchanged_generated_schedule(
+    monkeypatch, edited, status
+):
+    from app.agentive.nodes import RoutineTask
+    from app.agentive.workspace_agent_profile import _app_slug
+
+    app, spec = await _scheduled_app_with_two_skills(monkeypatch)
+    cfg = await register_app_agent(app.id, app.workspace_id, spec)
+    routine = await RoutineTask.get(cfg.scheduled_runs[0]["routine_task_id"])
+    correct = routine.instruction
+    routine.instruction = (
+        "My custom schedule instruction."
+        if edited
+        else uplink_module._schedule_instruction(
+            slug=_app_slug(app),
+            agent_key=spec["key"],
+            skills=spec["skills"],
+            description=spec["default_schedules"][0]["description"],
+        )
+    )
+    routine.status = status
+    routine.run_count = 3
+    await routine.save()
+    before = routine.model_dump()
+    refreshed = await register_app_agent(app.id, app.workspace_id, spec)
+    after = (await RoutineTask.get(routine.id)).model_dump()
+    if not edited and status != "cancelled":
+        assert after.pop("instruction") == correct
+        before.pop("instruction")
+        after.pop("updated_at")
+        before.pop("updated_at")
+    assert after == before
+    rows = await RoutineTask.find({"source_app_id": app.id})
+    assert len(rows) == 1
+    if status == "cancelled":
+        assert "routine_task_id" not in refreshed.scheduled_runs[0]
+    else:
+        assert refreshed.scheduled_runs[0]["routine_task_id"] == routine.id
+
+
+@pytest.mark.asyncio
+async def test_registration_observes_cancellation_after_schedule_lookup(monkeypatch):
+    from app.agentive.nodes import RoutineTask
+
+    app, spec = await _scheduled_app_with_two_skills(monkeypatch)
+    cfg = await register_app_agent(app.id, app.workspace_id, spec)
+    routine_id = cfg.scheduled_runs[0]["routine_task_id"]
+    resolve = uplink_module._resolve_installing_principal
+
+    async def cancel_after_lookup(app_node):
+        principal = await resolve(app_node)
+        routine = await RoutineTask.get(routine_id)
+        routine.status = "cancelled"
+        await routine.save()
+        return principal
+
+    monkeypatch.setattr(
+        uplink_module, "_resolve_installing_principal", cancel_after_lookup
+    )
+    cfg = await register_app_agent(app.id, app.workspace_id, spec)
+    assert cfg.scheduled_runs[0]["status"] == "manual"
+    assert "routine_task_id" not in cfg.scheduled_runs[0]
+    assert (await RoutineTask.get(routine_id)).status == "cancelled"
+
+
 @pytest.mark.asyncio
 async def test_staging_defaults_to_required():
     """Per app_bundles_v1.md §6.5: v1 default staging mode is 'required'."""

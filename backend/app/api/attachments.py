@@ -53,10 +53,16 @@ from app.services.attachment_scanner import (
 from app.services.attachment_storage import get_attachment_storage_service
 from app.services.attachment_thumbnails import ensure_thumbnail
 from app.services.attachment_upload_shared import (
+    image_signature,
+)
+from app.services.attachment_upload_shared import (
     read_upload_streaming as _read_upload_streaming,
 )
 from app.services.attachment_upload_shared import (
     resolve_effective_mime as _resolve_effective_mime,
+)
+from app.services.attachment_upload_shared import (
+    validate_image_upload_size,
 )
 from app.services.attachment_urls import enrich_attachment_export, is_visible_to_user
 from app.services.change_event import emit_change_event
@@ -118,7 +124,9 @@ async def _persist_uploaded_file(
     (single-file failure, used by the batch endpoint to keep going).
     """
     content, filename, sha256_hex, head_bytes = await _read_upload_streaming(
-        file, max_bytes=settings.ATTACHMENT_MAX_UPLOAD_BYTES
+        file,
+        max_bytes=settings.ATTACHMENT_MAX_UPLOAD_BYTES,
+        image_max_bytes=settings.ATTACHMENT_MAX_IMAGE_BYTES,
     )
     file_size = len(content)
     mime_type = _resolve_effective_mime(
@@ -801,7 +809,9 @@ async def download_attachment(
     if not attachment or not is_visible_to_user(attachment):
         raise ResourceNotFoundError(message="Attachment not found")
 
-    entries = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    entries = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["Entry"], direction="in", limit=2
+    )
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
 
@@ -850,7 +860,9 @@ async def stream_attachment(
     if not attachment or not is_visible_to_user(attachment):
         raise ResourceNotFoundError(message="Attachment not found")
 
-    entries = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    entries = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["Entry"], direction="in", limit=2
+    )
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
@@ -993,7 +1005,9 @@ async def reprocess_attachment_metadata(
     attachment = await Attachment.get(attachment_id)
     if not attachment:
         raise ResourceNotFoundError(message="Attachment not found")
-    entries = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    entries = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["Entry"], direction="in", limit=2
+    )
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
@@ -1045,7 +1059,9 @@ async def stream_attachment_thumbnail(
     attachment = await Attachment.get(attachment_id)
     if not attachment or not is_visible_to_user(attachment):
         raise ResourceNotFoundError(message="Attachment not found")
-    entries = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    entries = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["Entry"], direction="in", limit=2
+    )
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
@@ -1108,7 +1124,9 @@ async def stream_attachment_preview(
     attachment = await Attachment.get(attachment_id)
     if not attachment or not is_visible_to_user(attachment):
         raise ResourceNotFoundError(message="Attachment not found")
-    entries = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    entries = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["Entry"], direction="in", limit=2
+    )
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
@@ -1403,6 +1421,11 @@ async def _persist_assembled_content(
         filename=filename,
     )
     file_size = len(content)
+    validate_image_upload_size(
+        "image/" if image_signature(head_bytes) else mime_type,
+        file_size,
+        settings.ATTACHMENT_MAX_IMAGE_BYTES,
+    )
 
     existing = await _find_duplicate_hash_on_entry(entry, sha256_hex)
     if existing is not None:
@@ -1665,7 +1688,9 @@ async def delete_attachment(
     if not attachment:
         raise ResourceNotFoundError(message="Attachment not found")
 
-    entries = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    entries = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["Entry"], direction="in", limit=2
+    )
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
 
@@ -1684,6 +1709,17 @@ async def delete_attachment(
     if not _decision.allowed:
         raise InsufficientPermissionsError(
             message="You do not have permission to delete this attachment"
+        )
+
+    # Deleting the node and bytes would also erase the original chat upload or
+    # another Entry's attachment. A future unlink operation can detach just
+    # this Entry; until then, fail closed rather than destroying shared data.
+    thread_parents = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["ChatThread"], direction="in", limit=1
+    )
+    if len(entries) > 1 or thread_parents:
+        raise ResourceConflictError(
+            message="This file is shared with another record or conversation and cannot be deleted here."
         )
 
     prior_snapshot = await export_node(attachment)  # D-03 before-snapshot

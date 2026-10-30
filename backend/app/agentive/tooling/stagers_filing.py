@@ -62,30 +62,83 @@ def _missing_required_fields(
     schema: Dict[str, Any],
     fields: Dict[str, Any],
 ) -> List[Tuple[str, str]]:
-    """``[(key, display_name), ...]`` for required fields neither supplied
-    nor defaulted.
+    """Report all missing user inputs without running tools or creating records.
 
-    ``operational_model_entry_fields.py`` (the actual create-time validator)
-    falls back to ``field.default`` when a required field is omitted — a
-    field with a default is satisfied either way, so only a required field
-    with NO default and no supplied value is genuinely blocking. Checked
-    here, before staging, so a create with a real gap (e.g. Pay run's
-    ``frequency``, which has no default) surfaces one clear, actionable
-    message instead of: stage → bless → execute-time failure → the create/
-    drop-field retry dance in staging_executors.py futilely dropping the
-    one field that can never be fixed by dropping it.
+    Declared generators and relation materializers run only after approval.
+    Their presence permits a preview, not a promise that execution will succeed.
+    Explicit clears override literal defaults, as in the canonical validator.
     """
     missing: List[Tuple[str, str]] = []
     for f in schema.get("fields", []) if isinstance(schema, dict) else []:
-        if not isinstance(f, dict) or not f.get("required"):
-            continue
-        if f.get("default") is not None:
+        if (
+            not isinstance(f, dict)
+            or not f.get("required")
+            or f.get("type") == "computed"
+        ):
             continue
         key = str(f.get("key") or "")
-        if not key or key in fields:
+        if not key:
             continue
+        value = fields.get(key, f.get("default"))
+        if (
+            value is not None
+            and value != ""
+            and not (isinstance(value, str) and not value.strip())
+        ):
+            continue
+        validation = f.get("validation") or {}
+        relation = f.get("relation") or {}
+        if isinstance(validation, dict) and validation.get("preview_default_tool"):
+            continue
+        if f.get("type") == "relation" and isinstance(relation, dict):
+            if (
+                relation.get("target") == "track"
+                and relation.get("auto_provision")
+                and relation.get("target_track_template")
+            ):
+                continue
+            label_key = (
+                validation.get("write_label_to")
+                if isinstance(validation, dict)
+                else None
+            )
+            if (
+                isinstance(validation, dict)
+                and validation.get("create_from_label")
+                and str(fields.get(label_key) or "").strip()
+            ):
+                continue
         missing.append((key, str(f.get("name") or key)))
     return missing
+
+
+async def missing_create_inputs(
+    track: Any, entry_type: Any, fields: Dict[str, Any]
+) -> List[Tuple[str, str]]:
+    """Read the live schema and settings; never reserve numbers or invoke tools."""
+    from app.services.operational_model_entry_fields import (
+        _resolve_setting_default,
+        resolve_entry_type_spec,
+    )
+    from app.services.operational_model_runtime import resolve_track_runtime_profile
+
+    _, tier, _ = await resolve_track_runtime_profile(track)
+    schema = resolve_entry_type_spec(entry_type, tier)
+    effective = dict(fields)
+    for field in schema.get("fields") or []:
+        if not isinstance(field, dict) or not field.get("required"):
+            continue
+        key = str(field.get("key") or "")
+        value = effective.get(key, field.get("default"))
+        if (
+            value is None or isinstance(value, str) and not value.strip()
+        ) and field.get("default_from_setting"):
+            setting = await _resolve_setting_default(
+                track, str(field["default_from_setting"])
+            )
+            if setting is not None:
+                effective[key] = setting
+    return _missing_required_fields(schema, effective)
 
 
 def _derive_title(text: str, *, limit: int = 80) -> str:
@@ -350,7 +403,7 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     else:
         merged = {}
 
-    missing_required = _missing_required_fields(schema, merged)
+    missing_required = await missing_create_inputs(track, entry_type, merged)
     if missing_required:
         names = ", ".join(f"`{k}` ({n})" for k, n in missing_required)
         return _no_stage_candidates(

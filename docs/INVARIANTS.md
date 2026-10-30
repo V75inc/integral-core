@@ -18,6 +18,18 @@ Every persisted Node has a named structural path from Root through IntegralApp. 
 
 Use static create/edge checks and runtime reachability audits in `test_graph_contiguousness.py`. Any legacy allowlist must remain drained, not become a permanent exemption. Existing structural attachments include uploads/files/conflicts beneath records, drafts beneath published models, sessions beneath threads, and notifications beneath users through their canonical helpers.
 
+An approved App operation may repair a missing legacy `IS_OF_TYPE` edge only inside its effect transaction. The rooted Entry must have one containing Track, that Track one attached Operational Model, and that model one EntryType matching the persisted type cache. Recheck the exact operation permit or the human's ordinary record authority before connecting the edge. Conflicting, multiple or unverifiable graph facts fail closed; the scalar cache alone never authorizes a repair. A refused or rolled-back effect must also roll back the repair.
+
+An Entry's `HAS_COMMENT` edges index its complete discussion. A reply also has
+a `HAS_COMMENT` edge from its parent Comment; these two paths are a valid
+diamond, not shared ownership or a cycle. Deletion walks thread roots and then
+replies once, verifies that every indexed comment was reached, and rejects
+foreign Entry/thread parents, duplicate parents, cycles and incomplete graphs.
+Legacy replies reachable only through their comment parent remain supported.
+Comment parent caches never substitute for those named edges or grant authority.
+Gates: the threaded-comment and refusal cases in `test_owned_app_deletion.py`,
+run against both JSON and PostgreSQL.
+
 ### I-GRAPH-02 — Object-For-Non-Graph-Records (`object-for-non-graph-records`)
 
 Use jvspatial Object for log-shaped/scalar-keyed records that have no meaningful graph relationship, permission resolution, cascade, traversal, or Walker computation. Graph participants remain Nodes. Conversion between these primitives is a substrate change. ChangeEvent persistence uses DBLog(Object) through the canonical logger; it does not need a graph migration. Private execution records can use scoped encrypted Objects while their owning sessions remain rooted Nodes.
@@ -393,9 +405,21 @@ separate contracts. Expired state receipts are pruned in bounded batches on
 subsequent closure writes and individually on read; this is not permanent audit
 history or a background retention SLA.
 
+Editing pending Entry content creates a new, independently approved proposal;
+it never mutates an existing reviewed payload. On transactional storage, retiring
+the old token, persisting the replacement and updating the owned conversation
+are atomic. A linked WorkApproval retains its original digest and is rejected,
+not rebound to the edited payload. The human-authored replacement cannot inherit
+an agent capability proof. Destination, workspace and principal remain fixed;
+current access, record revision and schema fences apply. File bindings remain
+unchanged. Nontransactional stores must not emulate atomic replacement with
+independent best-effort writes.
+
 Verification: `tests/test_staging_decision_readback.py`, staging persistence and
 terminal-durability suites, Approvals/Inbox review and modal shared-state tests,
 and `NotificationsHeaderButton.approvals.test.tsx`.
+Human revision coverage: `tests/contract/test_entry_proposal_revision_postgres.py`
+and `EditEntryProposal.test.tsx`.
 Literal input and App-owned label projection are covered by
 `StagedOperationInputs.test.tsx` and `test_app_operation_staging.py`.
 Preserve I-SUBSTRATE-01, I-GRAPH-02, I-APPROVAL-01/02/04 and I-ROLE-01/02.
@@ -610,7 +634,7 @@ The current catalog is entry.transform, entry.public_share, entry.precompute, en
 
 Merges preserve hooks/tools and unstaged declarations where applicable. Startup rehydrates active package registrations and heals missing declared operational blocks through the canonical source path. Handler resolution uses verified package/module identity, including external packages, rather than a hardcoded domain import.
 
-Entry hooks match type keys. ToolContext reads validate entries through their owning Tracks and active workspace. Only the explicit own-personal-workspace facade contract can select that narrow alternate target; mutating context is forbidden. Tools cannot import private Core services/models. Registration collisions fail; same-package idempotent registration does not replace another package.
+Entry hooks match type keys only within the package of the App structurally owning the Track. Standalone Tracks do not acquire an App package hook. Ambiguous App ownership or a cross-workspace App edge rejects the write rather than silently skipping its save rules. Installing Apps retain this scope for seed writes. ToolContext reads validate entries through their owning Tracks and active workspace. Only the explicit own-personal-workspace facade contract can select that narrow alternate target; mutating context is forbidden. Tools cannot import private Core services/models. Registration collisions fail; same-package idempotent registration does not replace another package.
 
 ### I-BUNDLE-01 — Package manifest required
 
@@ -992,6 +1016,18 @@ and admission. Authenticated HTTP/SDK/broker/MCP, approval, worker and transcrip
 release/readback qualification remains required before exposing the new path.
 
 ### I-WORK-09 — A reviewed local operation has one effect owner
+
+An execution lease must be current when a local effect transaction acquires
+its command row lock. That same task and transaction may finish its effects
+and receipt after the lease's wall-clock expiry while retaining the lock.
+The current owner, fence, identity and state must still match. This proof is
+transaction-local, covers only claims actually admitted under that lock, and
+cannot be inherited by another task or reused after the transaction exits.
+An expired unadmitted or displaced worker must still be refused.
+After verified local rollback, only the exact unchanged owner/fence may release
+its unapplied claim, even if its lease elapsed. Partial batch evidence remains
+available for the existing fenced step-recovery protocol. A committed result
+cannot be released for retry, and completed steps must never execute again.
 
 Staged local App operations use the canonical operation receipt, not another
 staging effect journal. The exact original declaration and complete reviewed
