@@ -1110,3 +1110,27 @@ for direct calls, jobs and tools. Product signup and receipts are host concerns.
 I-DESKTOP-01's existing identity, storage, recovery and local transport guarantees
 remain binding through the neutral local preset and legacy profile compatibility.
 See [runtime composition](platform/runtime-composition-v1.md).
+
+
+### I-EMAIL-01 — Current notification release and declared App email effects
+
+Queued notification delivery proves the current unique recipient edge, current
+workspace access and current permission on every referenced primary resource.
+A retained notification, previous read or continued membership never substitutes
+for that resource authority. Canonical containment must agree with the encrypted
+intent's captured scope; moved, deleted, foreign or revoked resources withhold
+transport. Guest recipients may receive readable notifications without gaining
+App email sending authority. Non-resource system notices retain recipient and
+workspace checks. System invitation/notification delivery on nontransactional
+stores retains the supported immediate provider path; a transport failure never
+selects a different provider.
+
+An App operation may enqueue email only with the explicit `email.enqueue`
+effect declaration, its exact current task-bound command permit, unchanged
+definition, current action decision and required approval, inside its command
+transaction. Read-only handlers and child tasks cannot acquire this effect.
+Enqueue joins the intent and worker command to the originating transaction;
+rollback removes both. Accepted queue state does not claim provider acceptance.
+
+Gates: `test_email_delivery_authority.py`, `test_email_operation_effect.py`,
+`contract/test_email_notification_postgres.py`, `contract/test_native_email_postgres.py`.

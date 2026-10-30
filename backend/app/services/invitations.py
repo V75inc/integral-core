@@ -430,9 +430,9 @@ async def _deliver_new_invitation(
             )
             msg.source_kind = "invitation"
             msg.source_id = invitation.id
-            from app.services.email_delivery import enqueue_email
+            from app.services.email_delivery import send_system_email
 
-            await enqueue_email(msg, idempotency_key=f"invitation:{invitation.id}")
+            await send_system_email(msg, idempotency_key=f"invitation:{invitation.id}")
     if invitation.invited_user_id:
         await _emit_invitation_in_app_notification(
             invitation=invitation,

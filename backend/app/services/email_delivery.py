@@ -34,6 +34,17 @@ def database():
     return get_default_context().database
 
 
+def _content_fingerprint(payload: dict) -> str:
+    # Admission provenance is encrypted alongside content, but is not a caller
+    # input. Keep retry identities compatible with pre-provenance messages.
+    content = {
+        key: value for key, value in payload.items() if key != "notification_scope"
+    }
+    return hashlib.sha256(
+        json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def platform_configuration() -> EmailConfiguration:
     """Validate platform sending configuration from operator settings."""
     from app.config import settings
@@ -55,14 +66,11 @@ def platform_configuration() -> EmailConfiguration:
     )
 
 
-async def _admit(actor: str, workspace: str) -> None:
+async def _admit(actor: str, workspace: str, *, notification: bool = False) -> None:
     from app.services.workspace_permissions import can_access_workspace
 
-    if not actor or await can_access_workspace(actor, workspace) not in {
-        "owner",
-        "admin",
-        "member",
-    }:
+    roles = {"owner", "admin", "member"} | ({"guest"} if notification else set())
+    if not actor or await can_access_workspace(actor, workspace) not in roles:
         raise InsufficientPermissionsError(
             "Current workspace membership is required to send email"
         )
@@ -70,7 +78,7 @@ async def _admit(actor: str, workspace: str) -> None:
 
 async def _admit_source(message: Any) -> None:
     """Recheck source identity and live authority at enqueue and dispatch."""
-    from app.models.nodes import Invitation, Notification
+    from app.models.nodes import Invitation
 
     if message.source_kind == "invitation":
         from app.services.invitation_authority import require_current_invitation_issuer
@@ -92,14 +100,40 @@ async def _admit_source(message: Any) -> None:
             raise InsufficientPermissionsError("Invitation is no longer sendable")
         await require_current_invitation_issuer(invitation)
     if message.source_kind == "notification":
-        notification = await Notification.find_one({"id": message.source_id})
+        from app.services.notification_authority import email_scope
+
+        current = await email_scope(
+            message.actor_user_id, message.workspace_id, message.source_id
+        )
         if (
-            not notification
-            or notification.user_id != message.actor_user_id
-            or (notification.metadata or {}).get("email_workspace_id")
-            != message.workspace_id
+            message.notification_scope is not None
+            and message.notification_scope != current
         ):
-            raise InsufficientPermissionsError("Notification is no longer sendable")
+            raise InsufficientPermissionsError("Notification resource scope changed")
+        message.notification_scope = current
+
+
+async def send_system_email(message: Any, *, idempotency_key: str) -> dict:
+    """Keep platform system mail available on stores without durable enqueue.
+
+    Select the storage path before sending; a custom provider failure never
+    falls back to another provider or causes a second send.
+    """
+    from app.services.email_configuration import storage_available
+    from app.services.email_service import send_email
+
+    if message.source_kind not in {"invitation", "notification"}:
+        raise BadRequestError("This delivery path is reserved for system mail")
+    if storage_available():
+        result = await enqueue_email(message, idempotency_key=idempotency_key)
+        return {"status": "queued", "message_id": result.message_id}
+    await _admit(
+        message.actor_user_id,
+        message.workspace_id,
+        notification=message.source_kind == "notification",
+    )
+    await _admit_source(message)
+    return {"status": "sent" if await send_email(message) else "failed"}
 
 
 async def enqueue_email(message: Any, *, idempotency_key: str) -> EmailEnqueueResult:
@@ -128,11 +162,13 @@ async def enqueue_email(message: Any, *, idempotency_key: str) -> EmailEnqueueRe
     require_storage()
     namespace = json.dumps([workspace, actor, idempotency_key], separators=(",", ":"))
     identity = hashlib.sha256(namespace.encode()).hexdigest()
-    payload = json.dumps(asdict(message), sort_keys=True, separators=(",", ":"))
-    fingerprint = hashlib.sha256(payload.encode()).hexdigest()
     async with postgres_graph_transaction() as tx:
-        await _admit(actor, workspace)
+        await _admit(
+            actor, workspace, notification=message.source_kind == "notification"
+        )
         await _admit_source(message)
+        payload = json.dumps(asdict(message), sort_keys=True, separators=(",", ":"))
+        fingerprint = _content_fingerprint(asdict(message))
         existing = await tx.get("object", message_object(identity))
         if existing:
             if existing["context"]["fingerprint"] != fingerprint:
@@ -319,7 +355,11 @@ async def run_email_work(item: Any, context: Any) -> None:
             "email.outcome_unknown", "Previous dispatch could not be confirmed"
         )
     try:
-        await _admit(item.principal_id, item.workspace_id)
+        await _admit(
+            item.principal_id,
+            item.workspace_id,
+            notification=data["source_kind"] == "notification",
+        )
         snapshot, generation = await delivery_binding(item.workspace_id)
         if (
             generation != data.get("delivery_generation", 0)
@@ -343,7 +383,7 @@ async def run_email_work(item: Any, context: Any) -> None:
         if not raw:
             raise BadRequestError("Queued message content is unavailable")
         if (
-            hashlib.sha256(raw.encode()).hexdigest() != data["fingerprint"]
+            _content_fingerprint(json.loads(raw)) != data["fingerprint"]
             or item.input_payload.get("message_fingerprint") != data["fingerprint"]
         ):
             raise BadRequestError("Queued email no longer matches the accepted command")
@@ -383,7 +423,11 @@ async def run_email_work(item: Any, context: Any) -> None:
         return
     await assert_effect_boundary_allowed(context)
     try:
-        await _admit(item.principal_id, item.workspace_id)
+        await _admit(
+            item.principal_id,
+            item.workspace_id,
+            notification=data["source_kind"] == "notification",
+        )
         await _admit_source(message)
         current, current_generation = await delivery_binding(item.workspace_id)
         if (

@@ -506,3 +506,48 @@ async def current_operation_actor(
     except InsufficientPermissionsError:
         return None
     return author
+
+
+async def email_enqueue_actor(
+    *, subject: Subject, workspace_id: str, app_id: str, operation_key: str
+) -> str | None:
+    """Admit the declared enqueue effect under the current exact reviewed command.
+
+    Unlike audit/read release this rechecks the full current operation decision,
+    including its before-state conditions and any required approval replay.
+    The caller must enqueue inside that command's task-owned transaction.
+    """
+    permit = _permit.get()
+    if (
+        permit is None
+        or permit.task is not asyncio.current_task()
+        or permit.subject != subject
+        or permit.workspace_id != workspace_id
+        or permit.app_id != app_id
+        or permit.operation_key != operation_key
+        or permit.declaration is None
+        or "email.enqueue" not in permit.declaration.effects
+    ):
+        return None
+    _, definition = await current_definition(app_id)
+    if (
+        definition["id"] != permit.definition_id
+        or definition["context"]["manifest_fingerprint"] != permit.fingerprint
+    ):
+        return None
+    specs = [
+        op
+        for op in (definition["context"]["canonical_manifest"].get("app") or {}).get(
+            "operations", []
+        )
+        if op.get("key") == operation_key
+    ]
+    if len(specs) != 1 or specs[0].get("kind", "execute") == "read":
+        return None
+    decision, author = await operation_decision(
+        subject=subject,
+        app_id=app_id,
+        operation_key=operation_key,
+        payload=permit.payload,
+    )
+    return author if decision.allowed and author == permit.delegator_id else None

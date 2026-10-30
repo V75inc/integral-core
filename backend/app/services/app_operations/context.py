@@ -50,6 +50,7 @@ class OperationContext(ToolContext):
             "document_render",
         }
         typed_effects = {
+            "enqueue_workspace_transactional_email",
             "create_entry",
             "update_entry_fields",
             "conditional_update_entry_fields",
@@ -200,6 +201,63 @@ class OperationContext(ToolContext):
             },
         )
         return str(created.id)
+
+    async def enqueue_workspace_transactional_email(
+        self,
+        *,
+        to: str,
+        subject: str,
+        text: str,
+        html: str,
+        source_kind: str,
+        idempotency_key: str,
+        reply_to: Optional[str] = None,
+        source_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Queue a declared email effect atomically with its approved App command."""
+        from app.api.errors import InsufficientPermissionsError
+        from app.schemas.policy import Subject
+        from app.services.app_operation_authority import email_enqueue_actor
+        from app.services.app_operations.transaction_scope import (
+            current_graph_transaction_database,
+        )
+
+        if self.read_only:
+            raise InsufficientPermissionsError(
+                "Read-only operations cannot enqueue email"
+            )
+        if not idempotency_key.strip():
+            from app.api.errors import BadRequestError
+
+            raise BadRequestError("Email enqueue requires a stable retry key")
+        current_graph_transaction_database()
+        author = await email_enqueue_actor(
+            subject=Subject(kind=self.actor_kind, id=self.actor_id or self.user_id),
+            workspace_id=self.workspace_id,
+            app_id=self.app_id,
+            operation_key=self.operation_key,
+        )
+        if author and author != self.user_id:
+            from app.services.permissions import get_user_node
+
+            issuer = await get_user_node(author)
+            caller = await get_user_node(self.user_id)
+            if issuer is None or caller is None or issuer.id != caller.id:
+                author = None
+        if not author:
+            raise InsufficientPermissionsError(
+                "Current declared email effect and operation approval required"
+            )
+        return await super().enqueue_workspace_transactional_email(
+            to=to,
+            subject=subject,
+            text=text,
+            html=html,
+            source_kind=source_kind,
+            idempotency_key=f"operation:{self.app_id}:{self.operation_key}:{idempotency_key}",
+            reply_to=reply_to,
+            source_id=source_id,
+        )
 
     async def create_entry(
         self,

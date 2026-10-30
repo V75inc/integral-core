@@ -132,6 +132,8 @@ class OperationContext(Protocol):
     ) -> Dict[str, Any]:
         """Queue authorized workspace email; returns message_id and status=queued.
 
+        Requires authorization.effects: [email.enqueue], a current approved
+        command permit and its transaction. Read operations cannot enqueue.
         A queued result is not provider acceptance or confirmed delivery. Reuse
         the same key and exact content for retries of one logical message.
         """

@@ -54,6 +54,7 @@ class EmailMessage:
     source_kind: Optional[str] = None
     source_id: Optional[str] = None
     actor_user_id: Optional[str] = None
+    notification_scope: Optional[dict] = None
 
 
 @dataclass

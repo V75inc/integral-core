@@ -54,6 +54,7 @@ class ActionAuthorization(BaseModel):
     targets: list[ActionTarget] = Field(default_factory=list, max_length=16)
     conditions: list[ActionCondition] = Field(default_factory=list, max_length=16)
     mutations: list[ActionMutation] = Field(default_factory=list, max_length=32)
+    effects: list[Literal["email.enqueue"]] = Field(default_factory=list, max_length=1)
 
     @field_validator("version", mode="before")
     @classmethod

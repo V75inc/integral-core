@@ -304,7 +304,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <Ctx.Provider value={value}>
-    {children}
+    {/* Session-owned providers and portals must not outlive their principal.
+        Keep this key stable across token renewal and profile edits. */}
+    <React.Fragment key={user?.id ?? 'signed-out'}>{children}</React.Fragment>
     {!isHostManagedSession() && !publicPage && profileVerified && recovery && user && <SessionRenewalDialog mode={recovery} user={user}
       onSignOut={() => { void logout(); }}
       onResume={(tokens, verifiedUser) => {
