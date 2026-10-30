@@ -682,6 +682,13 @@ Bundle manifest descriptions match disk frontmatter after the canonical synchron
 
 Every indexed candidate passes current entry.read policy, canonical workspace/containment and the governed App query boundary before any title, passage, metadata or citation is exposed. Current source hashes and passage offsets must agree with the canonical record; stale derived content is excluded. Retrieval is a projection, not another authority store.
 
+Clients preserve read-boundary metadata on both record lists and search responses.
+When App records require a declared query, explain that coverage and link to the
+App surface; do not present an excluded result set as an empty workspace or an
+exhaustive negative search. Partial-page counts describe records shown, not the
+workspace inventory. The notice never exposes excluded record details or counts
+and never retries through an endpoint that bypasses the App query contract.
+
 ### I-CONTEXT-01 — Intra-workspace insight evidence
 
 The graph-context insight surface is confined to the requesting user's active,

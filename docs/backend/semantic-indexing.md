@@ -220,6 +220,22 @@ The same workspace, App/Track/view filters and canonical access admission apply.
 The UI preserves retrieval order, stops automatic paging during a search and
 does not replay 429/5xx errors through a compatibility endpoint. Retry is explicit.
 
+Installed-App records require the App's declared query surface; generic Feed and
+retrieval endpoints do not open that boundary. Clients retain
+`boundary.declared_query_required` and explicit `refused` metadata as a coverage
+notice, with a link to the selected App or the Apps list. Excluded rows are not
+presented as an empty workspace or a complete negative search. Partial Feed
+counts label records **shown** and never display excluded record details or
+counts. When an excluded first page has another cursor, a manual **Load more
+entries** action allows continued browsing without an automatic request loop.
+Search restrictions reset with the query, principal, workspace and search mode;
+stale responses cannot restore a previous scope's notice.
+An installed App's Track view can return records through a declared query while
+generic search has no candidates to attach a refusal to. The Track page also
+uses its already-authorized parent App installation metadata for that display
+hint. It grants no read access. An excluded empty result replaces the widget's
+own empty message, including widgets that do not consume the page's empty state.
+
 `k` defaults to `RETRIEVE_K_DEFAULT` (150, cap 500), `top_n` to
 `RETRIEVE_TOP_N_DEFAULT` (20, cap 50). Omitted request values honor deployment
 settings. `context_tokens` bounds returned passage text (default 1200,
