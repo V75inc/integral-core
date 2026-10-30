@@ -682,6 +682,14 @@ Bundle manifest descriptions match disk frontmatter after the canonical synchron
 
 Every indexed candidate passes current entry.read policy, canonical workspace/containment and the governed App query boundary before any title, passage, metadata or citation is exposed. Current source hashes and passage offsets must agree with the canonical record; stale derived content is excluded. Retrieval is a projection, not another authority store.
 
+Native Feed and search requests backed by a verified sign-in session include
+currently authorized records in active installed Apps, matching native App/Track
+record lists. The REST adapter verifies the configured session signature and its
+authenticated principal; no request field enables this behavior. Service-auth
+handoffs, API keys, OAuth tokens, resident tools and MCP retain the declared-App
+query boundary. This native projection does not authorize a record, change
+workspace scope, open paused/removed Apps or expand agent context.
+
 Clients preserve read-boundary metadata on both record lists and search responses.
 When App records require a declared query, explain that coverage and link to the
 App surface; do not present an excluded result set as an empty workspace or an

@@ -102,12 +102,8 @@ export function FeedPage() {
   const [feedSearch, setFeedSearch] = useState('');
   const { setPageContext, clearPageContext } = useChatPageFocus();
 
-  // Retrieval — Feed search is GLOBAL: even when the page is filtered
-  // to a specific space, the search itself spans the entire workspace
-  // so the user surfaces matches regardless of which app they're
-  // currently viewing. Track-detail search is app-/track-scoped (see
-  // TrackDetailPage). Mode is read from global Settings (Settings →
-  // Search → Mode); hybrid is the default.
+  // Apply the selected App/Track before retrieval ranks and caps candidates.
+  // Filtering a workspace-wide top-N afterwards can hide genuine scoped hits.
   const {
     mode: retrievalMode,
     results: retrievalResults,
@@ -118,7 +114,12 @@ export function FeedPage() {
     appQueryRequired: retrievalAppQueryRequired,
     run: runRetrieval,
     reset: resetRetrieval,
-  } = useRetrieve({ scope: undefined, authorityKey: `${workspaceId}:${user?.id}` });
+  } = useRetrieve({
+    scope: filterTrack
+      ? `track:${filterTrack}`
+      : appIdFromQuery ? `app:${appIdFromQuery}` : undefined,
+    authorityKey: `${workspaceId}:${user?.id}`,
+  });
 
   // URL-write helpers for the tag/author filters. Toggling matches the
   // existing pattern (click the active filter again → clear).

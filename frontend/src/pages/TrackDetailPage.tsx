@@ -1684,11 +1684,7 @@ export function TrackDetailPage() {
 
   const appQueryRequired = retrievalAppQueryRequired
     || Boolean(matchedPage?.appQueryRequired)
-    || Boolean(entriesData?.pages.some(page => page.appQueryRequired))
-    // Declared App views can load records while a generic search returns no
-    // candidates (and therefore no boundary envelope). This authorized Track's
-    // installation metadata is only a display hint, never permission to read.
-    || Boolean(retrievalQuery && track?.app?.installed_package_slug?.trim());
+    || Boolean(entriesData?.pages.some(page => page.appQueryRequired));
   const emptyStateContent = entryResultsLoading ? (
     <div className="space-y-4">
       {[1, 2, 3].map(i => (

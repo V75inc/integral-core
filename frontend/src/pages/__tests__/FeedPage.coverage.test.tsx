@@ -14,7 +14,8 @@ const mocks = vi.hoisted(() => ({
   scope: { workspaceId: 'workspace-one' },
 }));
 vi.mock('../../api', () => ({
-  appsApi: { list: vi.fn().mockResolvedValue([]) },
+  appsApi: { list: vi.fn().mockResolvedValue([]), listTracks: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockResolvedValue({ id: "installed-app", name: "Installed App" }) },
   tracksApi: { list: vi.fn().mockResolvedValue([]) },
   tagsApi: { list: vi.fn().mockResolvedValue([]) },
   entriesApi: {},
@@ -34,9 +35,9 @@ vi.mock('../../components/entries/EntryDetail', () => ({ EntryDetail: () => null
 const ordinary = { id: 'ordinary-entry', track_id: 'ordinary-track', title: 'Ordinary note', type: 'note' } as Entry;
 const emptyPage = { entries: [], nextCursor: null, hasMore: false };
 
-function mount() {
+function mount(path = "/feed") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter><FeedPage /></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><FeedPage /></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -108,4 +109,37 @@ describe('Feed read coverage', () => {
       expect(screen.queryByRole('status', { name: 'App record coverage' })).not.toBeInTheDocument();
     }
   });
+});
+
+
+it('ranks within the selected App before hydrating matching records', async () => {
+  mount('/feed?app=installed-app');
+  await screen.findByText('Nothing here yet');
+  const input = screen.getByPlaceholderText('Search across the workspace');
+  fireEvent.change(input, { target: { value: 'designer' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(retrieve).toHaveBeenCalledWith(
+    expect.objectContaining({ query: 'designer', scope: 'app:installed-app' }),
+  ));
+});
+
+it('displays installed-App search hits after ranked hydration', async () => {
+  vi.mocked(feedApi.getEntriesPage).mockImplementation(async params => (
+    params?.entry_ids ? { ...emptyPage, entries: [{ ...ordinary, title: 'App designer' }] } : emptyPage
+  ));
+  vi.mocked(retrieve).mockResolvedValue({
+    results: [{ entry_id: ordinary.id, track_id: ordinary.track_id, score: 1, mode_origin: ['lexical'] }],
+    mode: 'hybrid', requested_mode: 'hybrid', degraded: false,
+    dropped_for_permission: 0, candidates_examined: 1,
+  });
+  mount('/feed?app=installed-app');
+  await screen.findByText('Nothing here yet');
+  const input = screen.getByPlaceholderText('Search across the workspace');
+  fireEvent.change(input, { target: { value: 'designer' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(await screen.findByRole('heading', { name: 'App designer' })).toBeVisible();
+  expect(feedApi.getEntriesPage).toHaveBeenCalledWith(expect.objectContaining({
+    app_id: 'installed-app', entry_ids: ordinary.id,
+  }));
+  expect(screen.queryByRole('status', { name: 'App record coverage' })).not.toBeInTheDocument();
 });

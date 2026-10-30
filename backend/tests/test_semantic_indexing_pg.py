@@ -447,31 +447,39 @@ async def test_direct_entry_grant_without_track_read_and_other_workspace(vector_
         current_scope_workspace_id.reset(token)
 
 
+@pytest.mark.parametrize("native_user", [False, True])
+@pytest.mark.parametrize("requested_mode", ["lexical", "semantic", "hybrid"])
 async def test_governed_app_boundary_is_shared_by_rest_and_agent_response(
-    vector_driver, monkeypatch
+    vector_driver, monkeypatch, native_user, requested_mode
 ):
     user, workspace, app, track, entry = await indexed_graph(vector_driver)
     from app.api import retrieve as retrieve_api
 
     results, dropped, examined, mode, degraded = await search(
-        user, workspace, app, vector_driver
+        user, workspace, app, vector_driver, mode=requested_mode
     )
     assert results
     app.installed_package_slug = "reference-protected"
     await app.save()
     monkeypatch.setattr(retrieve_api, "get_embedding_store", lambda: vector_driver)
     response = await retrieve_api.finalize_retrieval(
-        RetrieveRequest(query="safety", scope=f"app:{app.id}"),
+        RetrieveRequest(query="safety", scope=f"app:{app.id}", mode=requested_mode),
         results,
         dropped=dropped,
         examined=examined,
         effective_mode=mode,
         requested_mode=mode,
         degraded=degraded,
+        native_user=native_user,
     )
-    assert response.results == []
-    assert response.boundary["declared_query_required"]
-    assert response.dropped_for_boundary == 1
+    if native_user:
+        assert [row.entry_id for row in response.results] == [entry.id]
+        assert response.boundary is None
+        assert response.dropped_for_boundary == 0
+    else:
+        assert response.results == []
+        assert response.boundary["declared_query_required"]
+        assert response.dropped_for_boundary == 1
 
 
 async def test_type_declaration_narrows_track_fields_without_dropping_explicit_fields(

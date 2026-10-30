@@ -3,7 +3,9 @@
 Workspace-authored tracks accept generic reads while their App is active.
 An installed package does not: business fields, rankings, and traversals
 belong to a declared query. Skill text and a caller-supplied App id do
-not open that path. Pause and uninstall close generic reads. Export of an
+not open that path. Native sign-in sessions can search the same currently
+authorized records shown by native App/Track lists; this does not open agent
+or MCP queries. Pause and uninstall close reads. Export of an
 active or paused App stays the retention exception and does not use this
 gate.
 """
@@ -37,7 +39,7 @@ class ReadDecision:
         return body
 
 
-def decide_app(app: Any) -> ReadDecision:
+def decide_app(app: Any, *, native_user: bool = False) -> ReadDecision:
     """Classify an App. A track outside any App is workspace-authored, so open."""
     if app is None:
         return ReadDecision(True, "open")
@@ -45,7 +47,7 @@ def decide_app(app: Any) -> ReadDecision:
     slug = str(getattr(app, "installed_package_slug", "") or "").strip()
     if state != "active":
         return ReadDecision(False, "app_unavailable")
-    if slug:
+    if slug and not native_user:
         return ReadDecision(False, "app_domain")
     return ReadDecision(True, "open")
 
@@ -62,9 +64,9 @@ async def parent_app_for_track(track: Any) -> Any:
     return parents[0] if parents else None
 
 
-async def generic_entry_read(track: Any) -> ReadDecision:
+async def generic_entry_read(track: Any, *, native_user: bool = False) -> ReadDecision:
     """Decision for a generic read of entries on this track."""
-    return decide_app(await parent_app_for_track(track))
+    return decide_app(await parent_app_for_track(track), native_user=native_user)
 
 
 async def relation_visible(
@@ -98,10 +100,15 @@ async def relation_visible(
     return decide_app(anchor_app).allowed and decide_app(other_app).allowed
 
 
-async def keep_open_entries(entries: List[Any]) -> Tuple[List[Any], int]:
+async def keep_open_entries(
+    entries: List[Any], *, native_user: bool = False
+) -> Tuple[List[Any], int]:
     """Drop entries on tracks a generic read may not return.
 
     The count is tracks, not entries, and the dropped rows are not returned.
+    Only trusted native REST adapters may set native_user, after recognizing a
+    sign-in session. Input rows must already pass current record permissions;
+    this gate never grants access. Agent/MCP callers retain the closed default.
     A graph Entry whose track cannot be resolved is dropped. A test stub
     that is not a graph Node cannot be App-domain, so it stays.
     """
@@ -125,7 +132,9 @@ async def keep_open_entries(entries: List[Any]) -> Tuple[List[Any], int]:
                 )
                 track = parents[0] if parents else None
             if track is not None:
-                allowed = (await generic_entry_read(track)).allowed
+                allowed = (
+                    await generic_entry_read(track, native_user=native_user)
+                ).allowed
             else:
                 allowed = not isinstance(entry, GraphNode)
             if tid:

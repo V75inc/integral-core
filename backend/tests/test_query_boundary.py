@@ -458,3 +458,209 @@ async def test_related_returns_outbound_and_anchors_without_packaged_hops(
     assert inbound["related"]
     assert all(row["direction"] == "in" for row in inbound["related"])
     assert world.other_open.id in {row["id"] for row in inbound["entries"]}
+
+
+def _search_request(world, *, body=None, service=False, session=True, principal=None):
+    """Simulate a request AFTER normal authentication; signature is still checked."""
+    import time
+
+    import jwt
+
+    from app.config import settings
+
+    principal = principal or world.user.id
+    headers = [(b"x-integral-scope", f"ws:{world.workspace.id}".encode())]
+    if session:
+        token = jwt.encode(
+            {
+                "user_id": principal,
+                "jti": "native-search-test",
+                "exp": int(time.time()) + 300,
+                **({"svc_auth": True} if service else {}),
+            },
+            settings.SECRET_KEY,
+            algorithm=settings.ALGORITHM,
+        )
+        headers.append((b"authorization", f"Bearer {token}".encode()))
+
+    async def receive():
+        return {"type": "http.request", "body": json.dumps(body or {}).encode()}
+
+    request = Request(
+        {"type": "http", "headers": headers, "query_string": b""}, receive
+    )
+    request.state.user = {"id": principal}
+    return request
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+@pytest.mark.parametrize("mode", ["lexical", "semantic", "hybrid"])
+@pytest.mark.parametrize(
+    "session,service", [(True, False), (True, True), (False, False)]
+)
+async def test_native_search_keeps_installed_app_hits_but_machine_queries_do_not(
+    monkeypatch, mode, session, service
+):
+    from app.api import retrieve as retrieve_api
+    from app.schemas.retrieve import RetrievedEntry
+
+    world = await _world()
+    hit = RetrievedEntry(
+        entry_id=world.packaged_entry.id,
+        track_id=world.packaged_track.id,
+        title=world.packaged_entry.title,
+        score=1,
+        mode_origin=["lexical"],
+    )
+
+    async def dispatch(*args, **kwargs):
+        # Channel matching/permissions are covered by the retrieval suites; this
+        # regression pins the final REST adapter that discarded admitted hits.
+        return [hit], 0, 1, mode, False
+
+    monkeypatch.setattr(retrieve_api, "_dispatch_retrieve_modes", dispatch)
+    request = _search_request(
+        world,
+        session=session,
+        service=service,
+        body={
+            "query": "drill",
+            "mode": mode,
+            "scope": f"track:{world.packaged_track.id}",
+        },
+    )
+    response = await retrieve_api.retrieve(request)
+    if session and not service:
+        assert [row["entry_id"] for row in response["results"]] == [
+            world.packaged_entry.id
+        ]
+        assert response["boundary"] is None
+    else:
+        assert response["results"] == []
+        assert response["boundary"]["declared_query_required"]
+        assert world.packaged_entry.id not in _blob(response)
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_native_feed_and_ranked_hit_hydration_keep_authorized_app_records():
+    from app.api.feed import get_feed
+
+    world = await _world()
+    request = _search_request(world)
+    for selection in (
+        {"track_id": world.packaged_track.id},
+        {"app_id": world.packaged.id},
+        {"entry_ids": world.packaged_entry.id},
+        {},
+    ):
+        result = await get_feed(request, **selection)
+        assert world.packaged_entry.id in {row["id"] for row in result["entries"]}
+        # The unfiltered fixture also contains a paused App, which remains
+        # excluded; that must not discard the active installed-App records.
+        if selection:
+            assert not result.get("boundary")
+        assert world.paused_entry.id not in {row["id"] for row in result["entries"]}
+        assert not result.get("refused")
+    for request in (
+        _search_request(world, service=True),
+        _search_request(world, session=False),
+    ):
+        result = await get_feed(request, track_id=world.packaged_track.id)
+        assert result["entries"] == []
+        assert result["refused"]["code"] == "app_domain"
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_native_read_still_closes_paused_and_removed_apps():
+    from app.api.feed import get_feed
+    from app.services.query_boundary import keep_open_entries
+
+    world = await _world()
+    for state in ("paused", "uninstalled"):
+        world.packaged.lifecycle_state = state
+        await world.packaged.save()
+        rows, excluded = await keep_open_entries(
+            [world.packaged_entry], native_user=True
+        )
+        assert rows == [] and excluded == 1
+        response = await get_feed(_search_request(world), app_id=world.packaged.id)
+        assert response["entries"] == []
+        assert response["refused"]["code"] == "app_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_native_search_has_no_client_controlled_boundary_override():
+    from app.api.retrieve import retrieve
+
+    world = await _world()
+    response = await retrieve(
+        _search_request(
+            world,
+            session=False,
+            body={
+                "query": "drill",
+                "mode": "lexical",
+                "native_user": True,
+            },
+        )
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_native_search_cannot_change_host_workspace():
+    from app.api.errors import InsufficientPermissionsError
+    from app.api.retrieve import retrieve
+
+    world = await _world()
+    with pytest.raises(InsufficientPermissionsError):
+        await retrieve(
+            _search_request(
+                world,
+                body={
+                    "query": "drill",
+                    "mode": "lexical",
+                    "scope": "workspace:outside",
+                },
+            )
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_native_session_is_not_a_record_permission_grant():
+    from app.api.feed import get_feed
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.app_graph import catalog_user
+
+    world = await _world()
+    now = utc_now_iso()
+    reader = await User.create(
+        user_id="search-reader",
+        display_name="Search reader",
+        created_at=now,
+        updated_at=now,
+    )
+    await catalog_user(reader)
+    await reader.connect(
+        world.workspace, edge=IS_MEMBER_OF, role="member", joined_at=now
+    )
+    request = _search_request(world, principal=reader.id)
+    with isolated_permissions_cache():
+        response = await get_feed(request, entry_ids=world.packaged_entry.id)
+        assert response["entries"] == []
+    await reader.connect(
+        world.packaged_track, edge=COLLABORATES_ON, role="viewer", granted_at=now
+    )
+    with isolated_permissions_cache():
+        response = await get_feed(request, entry_ids=world.packaged_entry.id)
+        assert [row["id"] for row in response["entries"]] == [world.packaged_entry.id]
+    await reader.connect(world.packaged_entry, edge=EXCLUDED_FROM, granted_at=now)
+    with isolated_permissions_cache():
+        response = await get_feed(request, entry_ids=world.packaged_entry.id)
+        assert response["entries"] == []

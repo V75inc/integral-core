@@ -16,7 +16,7 @@ from app.api.entries import (
     update_entry,
 )
 from app.api.errors import MissingAuthenticationError
-from app.api.utils import resolve_principal_id
+from app.api.utils import is_native_session_request, resolve_principal_id
 from app.services.entry_listing import (
     fetch_accessible_entries_page,
     selected_entry_ids,
@@ -49,6 +49,7 @@ async def get_feed(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    native_user = is_native_session_request(request, user_id)
     workspace_id: Optional[str]
     if cross_workspace:
         workspace_id = None
@@ -64,7 +65,11 @@ async def get_feed(
 
     if track_id:
         track = await Track.get(track_id)
-        decision = await generic_entry_read(track) if track is not None else None
+        decision = (
+            await generic_entry_read(track, native_user=native_user)
+            if track is not None
+            else None
+        )
         if decision is not None and not decision.allowed:
             return {
                 "entries": [],
@@ -75,7 +80,7 @@ async def get_feed(
             }
     if app_id:
         app_node = await App.get(app_id)
-        decision = decide_app(app_node)
+        decision = decide_app(app_node, native_user=native_user)
         if not decision.allowed:
             return {
                 "entries": [],
@@ -96,7 +101,9 @@ async def get_feed(
         filters=tag_filter_clauses(tag_id, tag_ids),
         entry_ids=selected_entry_ids(entry_ids),
     )
-    page_entries, excluded_tracks = await keep_open_entries(page_entries)
+    page_entries, excluded_tracks = await keep_open_entries(
+        page_entries, native_user=native_user
+    )
     if excluded_tracks:
         base_response["boundary"] = {
             "excluded_tracks": excluded_tracks,
