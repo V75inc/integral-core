@@ -6,6 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc39 — 2026-10-30
+
+- Add governed workspace email with scoped providers, durable delivery and current recipient authorization.
+- Clear dialogs and pending confirmations when sessions expire or users sign out, including immediate sign-in with the same account.
+- Repair App deletion with nested comments and pin jvspatial 0.2.3 for bounded non-cascading graph deletion.
+- Improve approval prose, scheduled-task navigation and recovery, attachment handling, and resident-harness preparation while preserving live authorization and staged writes.
+
 ## 0.1.1rc36 — 2026-10-27
 
 - Review per-record App command inputs in a single approval while preserving scoped authorization and durable partial-failure recovery.
