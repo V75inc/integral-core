@@ -6,6 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc40 — 2026-10-30
+
+- Restore keyword, semantic and hybrid search results for signed-in users who can read records in active installed Apps. Keep live workspace/record permissions and declared App-query boundaries for machine callers and the resident harness.
+- Apply selected App and Track scope before retrieval ranking, preserve restricted-read coverage metadata through result hydration, and avoid misleading empty states and counts.
+- Queue welcome guidance through the shared system notification bar so stacked notices do not overlap the sidebar or clip their content; clear the notice at sign-out.
+- Require joserfc 1.7.6 or newer and update the frozen lock to address the release dependency audit findings.
+
 ## 0.1.1rc39 — 2026-10-30
 
 - Add governed workspace email with scoped providers, durable delivery and current recipient authorization.
