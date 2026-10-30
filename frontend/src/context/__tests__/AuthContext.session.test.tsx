@@ -281,3 +281,31 @@ describe('session-owned dialogs', () => {
     expect(document.body.style.overflow).not.toBe('hidden');
   });
 });
+
+
+it('cancels old confirmation even if the same account signs back in during the logout batch', async () => {
+  vi.mocked(authApi.me).mockResolvedValue(cachedUser as never);
+  vi.mocked(authApi.login).mockResolvedValueOnce({ access_token: 'new-session' } as never);
+  let signIn!: () => Promise<void>;
+  const performDelete = vi.fn();
+  function Dialogs() {
+    const { user, login } = useAuth();
+    signIn = () => login(cachedUser.email, 'synthetic-password');
+    const confirm = useConfirm();
+    if (!user) return <p>Signed out</p>;
+    return <button onClick={() => { void (async () => {
+      if (await confirm({ title: 'Old confirmation', message: 'Old session' })) performDelete();
+    })(); }}>Request deletion</button>;
+  }
+  render(<ConfirmProvider><Dialogs /></ConfirmProvider>, { wrapper });
+  await waitFor(() => expect(screen.getByText('Request deletion')).toBeInTheDocument());
+  fireEvent.click(screen.getByText('Request deletion'));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  await act(async () => {
+    window.dispatchEvent(new Event('integral:logout'));
+    await signIn();
+  });
+  expect(screen.getByText('Request deletion')).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(performDelete).not.toHaveBeenCalled();
+});

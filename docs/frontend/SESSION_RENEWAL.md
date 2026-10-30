@@ -26,7 +26,8 @@ pages never show it.
   clear a newer login. Explicit sign-out/account changes in another tab also
   retire the old page. Session-owned providers and portal dialogs unmount when
   the principal is cleared or replaced, including global confirmation prompts.
-  Pending confirmations resolve as cancelled and cannot authorize an action in
+  A retired session gets a new UI lifetime even if the same account signs back
+  in immediately. Pending confirmations resolve as cancelled and cannot authorize an action in
   a later session. Token renewal and same-account profile edits retain UI state.
 
 ## Security and delivery boundaries
