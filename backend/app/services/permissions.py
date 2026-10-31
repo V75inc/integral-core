@@ -1724,7 +1724,9 @@ async def count_user_accessible_entries_for_tracks(
     if not admitted:
         return result
     ids = [track.id for track in admitted]
-    async for records in iter_records(user_id, {"context.track_id": {"$in": ids}}):
+    async for records in iter_records(
+        user_id, {"context.track_id": {"$in": ids}}, projection=[], batch_size=2500
+    ):
         for record in records:
             track_id = record["context"]["track_id"]
             if track_id in result:
@@ -1734,13 +1736,22 @@ async def count_user_accessible_entries_for_tracks(
 
 async def count_user_accessible_entries(user_id: str, track_id: str) -> int:
     """Count only Entries admitted by current canonical authority."""
-    from app.services.entry_access_projection import candidate_query, iter_records
+    from app.services.entry_access_projection import (
+        candidate_query,
+        count_bound_records,
+        iter_records,
+    )
 
     query = await candidate_query(user_id, track_id=track_id)
     if query is None:
         return 0
+    exact = await count_bound_records(user_id, track_id, query)
+    if exact is not None:
+        return exact
     total = 0
-    async for records in iter_records(user_id, query, track_id=track_id):
+    async for records in iter_records(
+        user_id, query, track_id=track_id, projection=[], batch_size=2500
+    ):
         total += len(records)
     return total
 

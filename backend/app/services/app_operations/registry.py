@@ -72,3 +72,14 @@ def list_workspace_operations(
 def clear_workspace_operations(workspace_id: str) -> None:
     """Clear the operation table for a workspace (tests)."""
     _OPERATIONS.pop(workspace_id, None)
+
+
+def operation_policy_action(app_id: str, key: str, spec: Dict[str, Any]) -> str:
+    """The advertised action must equal the action used by dispatch."""
+    action = str(spec.get("policy_action") or "app.read").strip()
+    if spec.get("authorization"):
+        return f"app:{app_id}:{key}"
+    kind = str(spec.get("kind") or "execute").strip().lower()
+    if kind in {"propose", "execute", "destructive"} and action == "app.read":
+        return "entry.create"
+    return action
