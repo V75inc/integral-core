@@ -15,18 +15,8 @@ task are visible to the outer middleware.
 
 from __future__ import annotations
 
-import os
 from contextvars import ContextVar
 from typing import Any, Optional
-
-
-def _slow_query_threshold_seconds() -> float:
-    raw = os.environ.get("JVSPATIAL_SLOW_QUERY_MS", "")
-    try:
-        ms = float(raw) if raw != "" else 100.0
-    except ValueError:
-        ms = 100.0
-    return ms / 1000.0
 
 
 class _RequestDBOps:
@@ -57,8 +47,8 @@ class RequestDBOpRecorder:
         if holder is None:
             return
         holder.duration_seconds += max(0.0, float(seconds))
-        if float(seconds) >= _slow_query_threshold_seconds():
-            holder.slow_ops += 1
+        # ObservableDatabase emits a separate slow_count event using its own
+        # configured threshold. Counting here as well duplicates that event.
 
     def increment_counter(
         self, name: str, /, *, amount: int = 1, **labels: Any
@@ -75,15 +65,44 @@ class RequestDBOpRecorder:
         return None
 
 
+class _RequestAndUpstreamRecorder:
+    """Preserve an installed recorder while collecting request-local metrics."""
+
+    def __init__(self, upstream: Any) -> None:
+        self.upstream = upstream
+        self.request = RequestDBOpRecorder()
+
+    def record_duration(self, name: str, seconds: float, /, **labels: Any) -> None:
+        self.request.record_duration(name, seconds, **labels)
+        try:
+            self.upstream.record_duration(name, seconds, **labels)
+        except Exception:
+            pass  # Metrics are best-effort; a backend cannot break a DB operation.
+
+    def increment_counter(
+        self, name: str, /, *, amount: int = 1, **labels: Any
+    ) -> None:
+        self.request.increment_counter(name, amount=amount, **labels)
+        try:
+            self.upstream.increment_counter(name, amount=amount, **labels)
+        except Exception:
+            pass
+
+    def record_value(self, name: str, value: float, /, **labels: Any) -> None:
+        try:
+            self.upstream.record_value(name, value, **labels)
+        except Exception:
+            pass
+
+
 def install_request_op_recorder_on_prime_db() -> bool:
     """Best-effort: point the prime ObservableDatabase at our recorder.
 
     Covers the path where jvspatial's own ``DatabaseConfigurator`` built the
     prime DB (json/sqlite/mongodb server boot with
     ``JVSPATIAL_OBSERVABILITY_ENABLED=1``) — it wires a NullMetricsRecorder we
-    cannot parameterize. Only replaces the recorder when it is the Null one,
-    so an OpenTelemetry (or other real) backend configured upstream is never
-    clobbered. Returns True when the recorder is in place.
+    cannot parameterize. Composes with a real upstream recorder, preserving its events while
+    collecting request-local counts; a Null recorder is replaced directly. Returns True when the recorder is in place.
     """
     try:
         from jvspatial.db import get_prime_database
@@ -93,11 +112,12 @@ def install_request_op_recorder_on_prime_db() -> bool:
         db = get_prime_database()
         if not isinstance(db, ObservableDatabase):
             return False
-        if isinstance(db.metrics, RequestDBOpRecorder):
+        if isinstance(db.metrics, (RequestDBOpRecorder, _RequestAndUpstreamRecorder)):
             return True
         if isinstance(db.metrics, NullMetricsRecorder):
             db.metrics = RequestDBOpRecorder()
             return True
-        return False
+        db.metrics = _RequestAndUpstreamRecorder(db.metrics)
+        return True
     except Exception:
         return False

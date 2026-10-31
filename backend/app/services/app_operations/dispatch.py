@@ -305,12 +305,9 @@ async def _prepare_app_operation(
         original_input=original_body,
         resolved_input=body,
     )
-    declared_policy_action = str(spec.get("policy_action") or "app.read").strip()
-    policy_action = (
-        f"app:{app_id}:{key}" if spec.get("authorization") else declared_policy_action
-    )
-    if operation_kind in _MUTATION_KINDS and policy_action == "app.read":
-        policy_action = "entry.create"
+    from app.services.app_operations.registry import operation_policy_action
+
+    policy_action = operation_policy_action(app_id, key, spec)
     resource = Resource(kind="app", id=app_id, scope=f"app:{app_id}")
     if spec.get("authorization"):
         from app.services.app_operation_authority import operation_decision

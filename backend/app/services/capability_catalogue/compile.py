@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-import uuid
-from typing import Dict, List, Optional
+from copy import deepcopy
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from app.models.catalogue_generation import CatalogueGeneration
 from app.schemas.capabilities import (
@@ -19,6 +20,70 @@ logger = logging.getLogger(__name__)
 # Read-through cache: workspace_id → generation_id
 _ACTIVE_GENERATION: Dict[str, str] = {}
 _ACTIVE_SNAPSHOT: Dict[str, CapabilityCatalogueSnapshot] = {}
+_ACTIVE_REGISTRY_DEFINITIONS: Dict[str, str] = {}
+_ACTIVE_APP_DEFINITIONS: Dict[str, str] = {}
+
+
+async def _app_source_records(workspace_id: str) -> AsyncIterator[dict]:
+    """Bound fresh primary App records; hydration must not hide bad sources."""
+    from jvspatial.core.context import get_default_context
+
+    from app.api.errors import QueryUnavailableError
+    from app.models.nodes import App
+    from app.services.authority_facts import required_node_text
+
+    database = get_default_context().database
+    position = None
+    while True:
+        query: dict[str, Any] = {
+            "entity": App._entity_name(),
+            "context.workspace_id": workspace_id,
+        }
+        if position:
+            query["id"] = {"$gt": position}
+        try:
+            page = await database.find("node", query, limit=500, sort=[("id", 1)])
+        except Exception as exc:
+            raise QueryUnavailableError() from exc
+        for row in page:
+            if (
+                not isinstance(row.get("context"), dict)
+                or row.get("entity") != App._entity_name()
+                or not isinstance(row.get("id"), str)
+                or not row["id"]
+                or (position and row["id"] <= position)
+                or required_node_text(row, "workspace_id") != workspace_id
+            ):
+                raise QueryUnavailableError(message="Invalid App catalogue source")
+            position = row["id"]
+            yield row
+        if len(page) < 500:
+            return
+
+
+async def _app_definition_fingerprint(workspace_id: str) -> str:
+    """Hash current lifecycle/manifest metadata; this never caches a grant."""
+    fields = (
+        "lifecycle_state",
+        "installed_package_slug",
+        "name",
+        "description",
+        "installed_package_version",
+        "installed_artifact_fingerprint",
+        "trust_tier",
+        "metadata",
+    )
+    digest = hashlib.sha256()
+    async for row in _app_source_records(workspace_id):
+        data = row["context"]
+        value = (
+            row["id"],
+            {key: data[key] for key in fields if key in data},
+            {key: row[key] for key in fields if key in row},
+        )
+        digest.update(json.dumps(value, sort_keys=True).encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def _core_descriptors() -> List[CapabilityDescriptor]:
@@ -63,16 +128,30 @@ async def compile_workspace_catalogue(
     """Build descriptors from Core + registered App ops/queries/views."""
     from app.models.nodes import App
 
+    registry_before = _registry_definition_fingerprint(workspace_id)
+    apps_before = await _app_definition_fingerprint(workspace_id)
     caps: List[CapabilityDescriptor] = list(_core_descriptors())
     diagnostics: List[str] = []
     digests: Dict[str, str] = {}
 
-    apps = await App.find({"workspace_id": workspace_id})
-    app_by_id = {a.id: a for a in apps}
-    # Also include apps present only in in-process registries (install race /
-    # find-index lag must not yield an active App with empty catalogue).
+    from jvspatial.core.context import get_default_context
+
+    from app.api.errors import QueryUnavailableError
+
+    context = get_default_context()
+    app_by_id = {}
+    async for row in _app_source_records(workspace_id):
+        node = await context._deserialize_entity(App, row)
+        if node is None:
+            raise QueryUnavailableError(message="Invalid App catalogue payload")
+        app_by_id[node.id] = node
+    # Registrations cannot resurrect deleted, foreign or malformed App nodes.
+    # The final source fingerprint rejects concurrent installation races.
     from app.services.app_operations import registry as ops_reg
-    from app.services.app_operations.registry import list_registered_operations
+    from app.services.app_operations.registry import (
+        list_registered_operations,
+        operation_policy_action,
+    )
     from app.services.app_queries.registry import (
         all_workspace_query_apps,
         list_registered_queries,
@@ -82,30 +161,26 @@ async def compile_workspace_catalogue(
     q_apps = set(all_workspace_query_apps(workspace_id).keys())
     for app_id in op_apps | q_apps:
         if app_id not in app_by_id:
-            node = await App.get(app_id)
-            if node is not None:
-                app_by_id[app_id] = node
-            else:
-                # Registry (query/operation) holds an app_id with no App node —
-                # the signature of a stale bucket left by an earlier install
-                # whose unregister did not run in this process. This id is
-                # dropped from the catalogue but still counts as a match in
-                # _run_declared, producing "ambiguous; pass app_id".
-                logger.warning(
-                    "catalogue: registry app_id %s in workspace %s has no App node "
-                    "(stale query/operation bucket?)",
-                    app_id,
-                    workspace_id,
-                )
+            # Registry (query/operation) holds an app_id with no App node —
+            # the signature of a stale bucket left by an earlier install
+            # whose unregister did not run in this process. This id is
+            # dropped from the catalogue but still counts as a match in
+            # _run_declared, producing "ambiguous; pass app_id".
+            logger.warning(
+                "catalogue: registry app_id %s in workspace %s has no App node "
+                "(stale query/operation bucket?)",
+                app_id,
+                workspace_id,
+            )
 
     for app in app_by_id.values():
         app_id = app.id
         state = str(getattr(app, "lifecycle_state", "active") or "active")
         slug = str(getattr(app, "installed_package_slug", "") or "") or str(
-            getattr(app, "title", "") or app_id
+            getattr(app, "name", "") or app_id
         )
         version = str(getattr(app, "installed_package_version", "") or "0.0.0")
-        digests[slug] = str(
+        digests[app_id] = str(
             getattr(app, "installed_artifact_fingerprint", "") or version
         )
         availability = "active"
@@ -113,12 +188,7 @@ async def compile_workspace_catalogue(
             availability = "paused"
         elif state in ("activation_failed", "failed"):
             availability = "activation_failed"
-        elif state == "installing":
-            # Install registers the bundle before flipping lifecycle to
-            # ``active``. Advertise as active so the post-register catalogue
-            # is usable; a follow-up compile after activate confirms.
-            availability = "active"
-        elif state not in ("active", "awaiting_settings"):
+        elif state != "active":
             availability = "unavailable"
 
         ns = slug.replace(" ", "-").lower() or f"app-{app_id[:8]}"
@@ -133,8 +203,8 @@ async def compile_workspace_catalogue(
                     kind="query",
                     name=str(spec.get("name") or key),
                     description=str(spec.get("description") or ""),
-                    input_schema=dict(spec.get("input_schema") or {}),
-                    output_schema=dict(spec.get("output_schema") or {}),
+                    input_schema=deepcopy(spec.get("input_schema") or {}),
+                    output_schema=deepcopy(spec.get("output_schema") or {}),
                     effects="read",
                     policy_action=str(spec.get("policy_action") or "app.read"),
                     availability=availability,  # type: ignore[arg-type]
@@ -157,10 +227,10 @@ async def compile_workspace_catalogue(
                     kind="operation",
                     name=str(spec.get("name") or key),
                     description=str(spec.get("description") or ""),
-                    input_schema=dict(spec.get("input_schema") or {}),
-                    output_schema=dict(spec.get("output_schema") or {}),
+                    input_schema=deepcopy(spec.get("input_schema") or {}),
+                    output_schema=deepcopy(spec.get("output_schema") or {}),
                     effects=effects,  # type: ignore[arg-type]
-                    policy_action=str(spec.get("policy_action") or "app.read"),
+                    policy_action=operation_policy_action(app_id, str(key), spec),
                     availability=availability,  # type: ignore[arg-type]
                     trust_tier=str(getattr(app, "trust_tier", "") or "") or None,
                     app_id=app_id,
@@ -191,7 +261,37 @@ async def compile_workspace_catalogue(
                     )
                 )
 
-    generation_id = str(uuid.uuid4())
+    caps.sort(
+        key=lambda cap: (
+            cap.app_id or "",
+            cap.namespace,
+            cap.kind,
+            cap.key,
+            cap.version,
+        )
+    )
+    # Identical contracts have the same identity after restart and across
+    # workers. Timestamp/random UUID changes are not schema generations.
+    generation_id = hashlib.sha256(
+        json.dumps(
+            {
+                "workspace": workspace_id,
+                "capabilities": [cap.model_dump() for cap in caps],
+                "packages": digests,
+                "registry": registry_before,
+                "apps": apps_before,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    if registry_before != _registry_definition_fingerprint(
+        workspace_id
+    ) or apps_before != await _app_definition_fingerprint(workspace_id):
+        from app.api.errors import QueryUnavailableError
+
+        raise QueryUnavailableError(
+            message="Capability definitions changed during compilation; retry"
+        )
     compiled_at = utc_now_iso()
     snapshot = CapabilityCatalogueSnapshot(
         workspace_id=workspace_id,
@@ -202,6 +302,7 @@ async def compile_workspace_catalogue(
     )
 
     record = CatalogueGeneration(
+        id=f"o.{CatalogueGeneration._entity_name()}.{generation_id}{'a' if activate else 'p'}",
         workspace_id=workspace_id,
         generation_id=generation_id,
         package_digests_json=json.dumps(digests, sort_keys=True),
@@ -228,6 +329,8 @@ async def compile_workspace_catalogue(
             logger.warning("catalogue supersede failed: %s", exc)
         _ACTIVE_GENERATION[workspace_id] = generation_id
         _ACTIVE_SNAPSHOT[workspace_id] = snapshot
+        _ACTIVE_REGISTRY_DEFINITIONS[workspace_id] = registry_before
+        _ACTIVE_APP_DEFINITIONS[workspace_id] = apps_before
 
     return snapshot
 
@@ -237,31 +340,39 @@ def get_cached_snapshot(workspace_id: str) -> Optional[CapabilityCatalogueSnapsh
     return _ACTIVE_SNAPSHOT.get(workspace_id)
 
 
-def _registry_capability_fingerprint(workspace_id: str) -> frozenset:
-    """Stable set of (app_id, kind, key) from in-process registries."""
+def _registry_definition_fingerprint(workspace_id: str) -> str:
+    """Detect same-key contract edits without caching executable authority."""
     from app.services.app_operations import registry as ops_reg
     from app.services.app_queries.registry import all_workspace_query_apps
 
-    fp: set = set()
-    for app_id, queries in all_workspace_query_apps(workspace_id).items():
-        for key in queries:
-            fp.add((app_id, "query", key))
-    for app_id, ops in (
-        ops_reg._OPERATIONS.get(workspace_id) or {}
-    ).items():  # noqa: SLF001
-        for key in ops:
-            fp.add((app_id, "operation", key))
-    return frozenset(fp)
-
-
-def _snapshot_capability_fingerprint(
-    snapshot: CapabilityCatalogueSnapshot,
-) -> frozenset:
-    return frozenset(
-        (c.app_id, c.kind, c.key)
-        for c in snapshot.capabilities
-        if c.app_id and c.kind in ("query", "operation")
+    fields = (
+        "name",
+        "description",
+        "input_schema",
+        "output_schema",
+        "kind",
+        "policy_action",
+        "handler_ref",
+        "tool",
+        "query_template",
+        "authorization",
+        "agent_invocation",
     )
+    rows = []
+    for kind, apps in (
+        ("query", all_workspace_query_apps(workspace_id)),
+        ("operation", ops_reg._OPERATIONS.get(workspace_id) or {}),
+    ):
+        for app_id, specs in apps.items():
+            for key, spec in specs.items():
+                rows.append(
+                    (app_id, kind, key, {field: spec.get(field) for field in fields})
+                )
+    return hashlib.sha256(
+        json.dumps(
+            sorted(rows, key=lambda row: row[:3]), sort_keys=True, default=str
+        ).encode()
+    ).hexdigest()
 
 
 async def get_or_compile_catalogue(
@@ -270,14 +381,15 @@ async def get_or_compile_catalogue(
     """Return the active catalogue, recompiling when registries have drifted."""
     cached = get_cached_snapshot(workspace_id)
     if cached is not None:
-        reg_fp = _registry_capability_fingerprint(workspace_id)
-        cached_fp = _snapshot_capability_fingerprint(cached)
-        # Also bust when any app-scoped cap is still marked unavailable while
-        # registries know the app (install-time stale compile).
-        stale_unavailable = any(
-            c.app_id and c.availability == "unavailable" for c in cached.capabilities
-        )
-        if reg_fp <= cached_fp and not stale_unavailable:
+        if _ACTIVE_REGISTRY_DEFINITIONS.get(
+            workspace_id
+        ) == _registry_definition_fingerprint(
+            workspace_id
+        ) and _ACTIVE_APP_DEFINITIONS.get(
+            workspace_id
+        ) == await _app_definition_fingerprint(
+            workspace_id
+        ):
             return cached
     return await compile_workspace_catalogue(workspace_id, activate=True)
 

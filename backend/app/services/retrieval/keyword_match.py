@@ -1,26 +1,18 @@
-"""Shared keyword normalizer for mode-adaptive (degraded) retrieval.
+"""Shared lexical term matching for compact entry queries.
 
-When the deployment has no live vector store (the ``null`` driver is
-active), ``mode=semantic`` / ``mode=hybrid`` degrade to ``mode=graph`` and
-the agent's text queries can no longer be answered by meaning. The two
-text paths that previously matched a LITERAL full-query substring —
-
-* ``app/api/retrieve.py::_entry_matches_query`` (graph mode), and
-* ``app/services/agent_insights.py::query_entries`` —
-
-would then match NOTHING for a natural-language or ``"A OR B OR C"`` query.
-This module supplies a tiny, dependency-free tokenizer + term-overlap
-matcher both paths share so a multi-word / NL / boolean query degrades to
-keyword recall instead of an empty result set.
-
-Pure + unit-testable: no I/O, no graph access, no imports from
-``app.services`` / ``app.models``.
+This dependency-free matcher is a keyword fallback, not semantic retrieval.
+The storage prefilter narrows candidates before payload hydration; canonical
+text matching and current graph admission still determine the returned rows.
+Ranked lexical, semantic and hybrid retrieval remain a separate service.
 """
 
 from __future__ import annotations
 
 import re
-from typing import List
+import sys
+from functools import lru_cache
+from threading import Lock
+from typing import Any, List
 
 # Small, hand-curated stopword set. Keeps recall sensible for NL queries
 # ("what is the budget of a project") and boolean blobs ("Acme OR Globex")
@@ -118,4 +110,62 @@ def matches_keywords(text: str, terms: List[str], *, require: str = "any") -> bo
     return any(term in haystack for term in terms)
 
 
-__all__ = ["tokenize", "keyword_overlap", "matches_keywords"]
+_ALPHABET_LOCK = Lock()
+
+
+@lru_cache(maxsize=1)
+def _lowercase_candidate_alphabet() -> dict[str, str] | None:
+    """Character classes containing every source of an ASCII lowercase unit.
+
+    Do not depend on a database locale's case folding. Python's lowercase
+    matcher also recognizes, for example, the Kelvin sign. Extra matches from
+    expansions such as dotted I are harmless: the canonical matcher runs after
+    admission. If a future Unicode version expands one character into multiple
+    ASCII units, disable this optimization rather than risk a false negative.
+    """
+    alphabet: dict[str, set[str]] = {
+        unit: set() for unit in "abcdefghijklmnopqrstuvwxyz0123456789"
+    }
+    for point in range(sys.maxunicode + 1):
+        char = chr(point)
+        lowered = char.lower()
+        units = [unit for unit in lowered if unit in alphabet]
+        if not lowered or len(units) > 1:
+            return None
+        if units:
+            alphabet[units[0]].add(char)
+    return {
+        unit: "[" + re.escape("".join(sorted(chars))) + "]"
+        for unit, chars in alphabet.items()
+    }
+
+
+def keyword_candidate_query(query: str) -> dict[str, Any]:
+    """A bounded storage prefilter, never an authority or final text evaluator.
+
+    Significant terms contain only ASCII alphanumerics and cannot cross the
+    space separating title and body. These literal character-class alternatives
+    are a superset of the shared lowercase substring matcher on either field.
+    Oversized predicates and unsupported Unicode mappings retain the complete
+    canonical scan instead of silently dropping terms.
+    """
+    terms = tokenize(query)
+    if not terms or len(terms) > 16 or any(len(term) > 128 for term in terms):
+        return {}
+    # A cold lookup is pure CPU work; async callers offload it. The lock
+    # coalesces concurrent cold requests before entering the bounded cache.
+    with _ALPHABET_LOCK:
+        alphabet = _lowercase_candidate_alphabet()
+    if alphabet is None:
+        return {}
+    pattern = (
+        "(" + "|".join("".join(alphabet[unit] for unit in term) for term in terms) + ")"
+    )
+    return {
+        "$or": [
+            {field: {"$regex": pattern}} for field in ("context.title", "context.body")
+        ]
+    }
+
+
+__all__ = ["tokenize", "keyword_overlap", "matches_keywords", "keyword_candidate_query"]

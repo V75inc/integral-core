@@ -521,7 +521,7 @@ domains:
               additionalProperties: false
               properties:
                 field: {type: string}
-                op: {type: string, enum: [eq, neq, in, contains, gte, lte, exists]}
+                op: {type: string, enum: [eq, neq, in, not_in, contains, gt, lt, gte, lte, exists]}
                 value: {}
               required: [field]
           projection:
@@ -533,7 +533,7 @@ domains:
           limit: {type: integer, optional: true, desc: "Max rows (1-200)."}
           cursor: {type: string, optional: true, desc: "Opaque pagination cursor."}
           max_depth: {type: integer, optional: true, desc: "Maximum traversal depth (0-2)."}
-          retrieval_mode: {type: string, optional: true, enum: [deterministic, semantic, hybrid], desc: "Retrieval strategy."}
+          retrieval_mode: {type: string, optional: true, enum: [deterministic], desc: "Structured exact reads only. Use integral_retrieve for ranked lexical, semantic or hybrid search."}
           catalogue_generation: {type: string, optional: true, desc: "Expected capability catalogue generation."}
         returns: { rows: list, object_refs: list, evidence: object, mode: str }
       - name: integral_list_models
