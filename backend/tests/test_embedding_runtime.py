@@ -37,6 +37,38 @@ async def test_query_takes_next_slice_before_queued_background():
     assert order == ["first", "query", "background"]
 
 
+async def test_encoder_queue_rejects_past_its_cap(monkeypatch):
+    """A full encoder queue rejects more work and then drains."""
+    from app.services.retrieval.embedding_store import EmbeddingBusy
+
+    monkeypatch.setenv("EMBEDDING_QUEUE_LIMIT", "2")
+    monkeypatch.setenv("EMBEDDING_QUEUE_TIMEOUT_MS", "2000")
+    started, release = threading.Event(), threading.Event()
+
+    def blocking():
+        started.set()
+        release.wait(3)
+
+    holder = asyncio.create_task(run_encoding(blocking))
+    await asyncio.to_thread(started.wait, 2)
+    admission = asyncio.get_running_loop()._integral_embedding_admission
+    admission.peak_waiting = 0
+    waiters = [asyncio.create_task(run_encoding(lambda: None)) for _ in range(2)]
+    for _ in range(50):
+        if admission.waiting >= 2:
+            break
+        await asyncio.sleep(0.01)
+    assert admission.waiting == 2
+    with pytest.raises(EmbeddingBusy):
+        await run_encoding(lambda: None)
+    assert admission.peak_waiting <= 2
+    release.set()
+    await holder
+    await asyncio.gather(*waiters)
+    assert admission.waiting == 0
+    assert admission.running is False
+
+
 async def test_cancelled_native_work_retains_admission_until_completion():
     started, release = threading.Event(), threading.Event()
     entered = []
