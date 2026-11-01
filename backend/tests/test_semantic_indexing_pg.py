@@ -970,3 +970,72 @@ async def test_delegated_app_search_uses_real_exact_function_authority(vector_dr
             await ctx.search_entries(
                 query="batteries", track_type="inventory", mode="graph"
             )
+
+
+async def test_labelled_evidence_rubric_across_modes(vector_driver):
+    """Exact and paraphrase queries cite the labelled source and do not double-index."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.models.edges import CONTAINS
+    from app.models.nodes import Entry
+
+    user, workspace, app, track, target = await graph()
+    target.title = "Battery handling"
+    target.body = (
+        "Damaged lithium batteries must go to the council recycling point. "
+        "The lot marker is battery-lot-77QX."
+    )
+    await target.save()
+    distractor = await Entry.create(
+        title="Furniture",
+        track_id=track.id,
+        body="Office chairs are stored in the east cupboard.",
+    )
+    await track.connect(distractor, edge=CONTAINS)
+    await indexing.enqueue_entry(target)
+    await indexing.enqueue_entry(distractor)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 2
+
+    rubric = {
+        "battery-lot-77QX": ("lexical", "hybrid", "semantic"),
+        "Where should damaged lithium batteries be taken?": ("hybrid", "semantic"),
+    }
+    for query, modes in rubric.items():
+        for mode in modes:
+            found, *_ = await search(
+                user, workspace, app, vector_driver, query=query, mode=mode
+            )
+            assert found and found[0].entry_id == target.id, (query, mode)
+            assert found[0].action_url and found[0].source_revision
+            assert found[0].entry_id != distractor.id
+
+    pool = await vector_driver._get_pool()
+    passage_table = vector_driver._table + "_passage"
+
+    async def passage_count():
+        async with pool.acquire() as conn:
+            return await conn.fetchval(
+                f"SELECT count(*) FROM {passage_table} WHERE entry_id=$1",
+                target.id,
+            )
+
+    before = await passage_count()
+    assert before
+    await indexing.enqueue_entry(target)
+    assert (await indexing.deliver_index_jobs())["indexed"] == 0
+    assert await passage_count() == before
+
+    from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services.app_graph import catalog_user
+
+    reader = await User.create(display_name="Rubric reader")
+    await catalog_user(reader)
+    await reader.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    await reader.connect(app, edge=COLLABORATES_ON, role="viewer")
+    deny = await reader.connect(target, edge=EXCLUDED_FROM)
+    with isolated_permissions_cache():
+        hidden, *_ = await search(
+            reader, workspace, app, vector_driver, query="battery-lot-77QX"
+        )
+        assert all(item.entry_id != target.id for item in hidden)
+    await deny.delete()
