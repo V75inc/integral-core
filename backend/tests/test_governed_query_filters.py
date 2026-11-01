@@ -313,3 +313,82 @@ def test_governed_cursor_binds_new_pages_and_accepts_legacy_offsets():
     assert _decode_cursor(_encode_cursor(3, "same-scope"), "same-scope") == 3
     with pytest.raises(BadRequestError):
         _decode_cursor(_encode_cursor(3, "another-scope"), "same-scope")
+
+
+@pytest.mark.asyncio
+async def test_declared_queries_preserve_sdk_and_model_metadata_without_duplicate_rows(
+    monkeypatch,
+):
+    from unittest.mock import AsyncMock
+
+    from app.schemas.governed_query import QueryResult
+    from app.services.governed_query import engine
+    from app.services.hooks.registry import ToolContext
+
+    app_id = "n.WorkspaceApp.report-fixture"
+    cap = SimpleNamespace(
+        kind="query",
+        key="report.exact",
+        capability_id="report:exact",
+        app_id=app_id,
+        availability="active",
+        owner_package="report-fixture",
+    )
+    monkeypatch.setattr(
+        engine,
+        "get_or_compile_catalogue",
+        AsyncMock(
+            return_value=SimpleNamespace(capabilities=[cap], generation_id="generation")
+        ),
+    )
+    output = {
+        "rows": [{"id": "n.Entry.first", "amount": 12.5}],
+        "total": 12.5,
+        "next_cursor": "next-page",
+        "coverage": "authorized page",
+    }
+    invoked = AsyncMock(return_value={"output": output, "policy_revision": "revision"})
+    monkeypatch.setattr("app.services.app_queries.dispatch.invoke_app_query", invoked)
+    gate = AsyncMock(return_value=True)
+    result = await engine._run_declared(
+        user_id="user",
+        workspace_id="workspace",
+        spec=QuerySpec(
+            mode="declared_capability", app_id=app_id, capability_key="report.exact"
+        ),
+        catalogue_generation=None,
+        target_gate=gate,
+    )
+    assert result.rows == output["rows"]
+    assert result.result_metadata == {
+        "total": 12.5,
+        "next_cursor": "next-page",
+        "coverage": "authorized page",
+    }
+    assert result.total_estimate is None and result.cursor == "next-page"
+    assert "source_output" not in result.model_dump()
+    assert invoked.await_args.kwargs["app_id"] == app_id
+    monkeypatch.setattr(
+        "app.services.governed_query.execute_query", AsyncMock(return_value=result)
+    )
+    ctx = ToolContext(user_id="user", workspace_id="workspace", scope="workspace")
+    sdk = await ctx.query(
+        {
+            "mode": "declared_capability",
+            "app_id": app_id,
+            "capability_key": "report.exact",
+        }
+    )
+    assert sdk.source_output == output and sdk["rows"] == result.rows
+    import json
+
+    assert "source_output" not in json.loads(json.dumps(sdk))
+    from pydantic_core import to_jsonable_python
+
+    assert "source_output" not in to_jsonable_python(sdk)
+    # Private SDK transport must stay absent even if a core-open result were
+    # accidentally constructed with it; resident/MCP serialization never duplicates it.
+    assert (
+        "source_output"
+        not in QueryResult(mode="core_open", source_output=output).model_dump()
+    )

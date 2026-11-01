@@ -62,7 +62,13 @@ async def test_discovery_reuses_document_vectors_but_not_authorized_membership(
     monkeypatch,
 ):
     from app.agentive.harness import capability_search as module
+    from app.services.retrieval import index_definition
 
+    monkeypatch.setattr(
+        index_definition,
+        "embedding_profile",
+        lambda: SimpleNamespace(id="synthetic-reuse", dimensions=2),
+    )
     module._DEFINITION_VECTORS.clear()
     calls = []
 

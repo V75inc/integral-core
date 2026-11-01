@@ -292,7 +292,7 @@ class ToolContext:
     async def query(self, query_spec: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a governed QuerySpec (ADR-012)."""
         from app.middleware.permissions_cache import isolated_permissions_cache
-        from app.schemas.governed_query import QuerySpec
+        from app.schemas.governed_query import QuerySpec, SDKQueryResult
         from app.services.governed_query import execute_query
 
         spec = QuerySpec.model_validate(query_spec)
@@ -303,7 +303,7 @@ class ToolContext:
                 spec=spec,
                 target_gate=self._resource_in_scope,
             )
-        return result.model_dump()
+        return SDKQueryResult(result.model_dump())
 
     async def invoke(
         self, operation_key: str, payload: Optional[Dict[str, Any]] = None
@@ -389,6 +389,20 @@ class ToolContext:
         want = _slug(track_type or "")
         if not want:
             return []
+        from app.services.walkers.app_passage_candidates import _legacy_title_query
+
+        # Use the public neighbour predicate before hydration. Unicode labels
+        # remain a superset so Python's legacy lower/slug equivalence is kept
+        # (for example, dotted I and Kelvin signs). The sentinel can represent
+        # entirely punctuation/non-ASCII labels, so it retains the full filter.
+        name_filter = {}
+        if want != "item":
+            name_filter = {
+                "$or": [
+                    _legacy_title_query("context.title", want),
+                    {"context.title": {"$regex": r"[^\x01-\x7f]"}},
+                ]
+            }
         out: List[Any] = []
         app_id = str(getattr(self, "app_id", "") or "")
         if app_id:
@@ -401,13 +415,18 @@ class ToolContext:
                 cursor = None
                 while True:
                     page, cursor = await app.nodes_page(
-                        edge=[CONTAINS], node=[Track], limit=100, cursor=cursor
+                        edge=[CONTAINS],
+                        node=[{"Track": name_filter}],
+                        limit=100,
+                        cursor=cursor,
                     )
                     tracks.extend(page)
                     if not cursor:
                         break
         else:
-            tracks = await Track.find({"context.workspace_id": self.workspace_id})
+            tracks = await Track.find(
+                {"context.workspace_id": self.workspace_id, **name_filter}
+            )
         for track in tracks:
             if _slug(getattr(track, "title", "") or "") != want:
                 continue
@@ -429,24 +448,55 @@ class ToolContext:
         do a workspace-scoped, type-filtered entry walk — the substrate stays
         the single scope/audit gate. Returns ``[]`` for an empty type.
         """
+        if getattr(self, "app_id", ""):
+            # Preserve this legacy full-list interface, but push the exact type
+            # predicate down before hydrating records. New consumers should use
+            # read_entry_records for bounded pages or explicit streamed counts.
+            from app.middleware.permissions_cache import isolated_permissions_cache
+            from app.services.app_record_read import select_app_record_sources
+            from app.services.entry_access_projection import (
+                hydrate_records,
+                iter_records,
+            )
+            from app.services.resource_location import ACTIVE_APP_STATES
+            from app.services.workspace_governance import ordinary_authority_only
+
+            with ordinary_authority_only(), isolated_permissions_cache():
+                selection, _ = await select_app_record_sources(
+                    self, track_type, entry_type or ""
+                )
+                selected = []
+                async for records in iter_records(
+                    self.user_id,
+                    selection,
+                    workspace_id=self.workspace_id,
+                    app_id=self.app_id,
+                    allowed_app_states=ACTIVE_APP_STATES,
+                ):
+                    selected.extend(await hydrate_records(records))
+                return selected
         from app.models.nodes import Entry, EntryType
         from app.services.operational_model_compile import _slug
 
-        wanted_type = _slug(entry_type) if entry_type else ""
-        type_key_cache: Dict[str, str] = {}
+        wanted_type = str(entry_type or "").strip()
+        type_key_cache: Dict[str, tuple[str, bool]] = {}
 
-        async def _entry_type_slug(type_id: str) -> str:
+        async def _entry_type_key(type_id: str) -> tuple[str, bool]:
             if not type_id:
-                return ""
+                return "", False
             if type_id not in type_key_cache:
                 et = await EntryType.find_one({"id": type_id})
                 if et is None:
-                    type_key_cache[type_id] = ""
+                    type_key_cache[type_id] = ("", False)
                 else:
                     manifest_key = str(
                         (et.form_schema or {}).get("_manifest_entry_type_key") or ""
                     ).strip()
-                    type_key_cache[type_id] = _slug(manifest_key or et.name)
+                    type_key_cache[type_id] = (
+                        (manifest_key, True)
+                        if manifest_key
+                        else (_slug(et.name), False)
+                    )
             return type_key_cache[type_id]
 
         out: List[Any] = []
@@ -455,8 +505,10 @@ class ToolContext:
             for e in entries:
                 if not isinstance(e, Entry):
                     continue
-                if wanted_type and await _entry_type_slug(e.type_id) != wanted_type:
-                    continue
+                if wanted_type:
+                    key, declared = await _entry_type_key(e.type_id)
+                    if key != (wanted_type if declared else _slug(wanted_type)):
+                        continue
                 out.append(e)
         return out
 

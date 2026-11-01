@@ -548,19 +548,25 @@ async def _run_core_open(
     raise BadRequestError(message=f"unsupported core resource {spec.resource!r}")
 
 
-def _rows_from_output(output: Dict[str, Any]) -> List[Any]:
-    """Prefer standard collections; retain a single legacy named collection."""
+def _output_collection_key(output: Dict[str, Any]) -> str | None:
+    """Identify the existing row collection without discarding its envelope."""
     for key in ("rows", "items", "entries"):
         if isinstance(output.get(key), list):
-            return list(output[key])
+            return key
     collections = [
-        value
+        key
         for key, value in output.items()
         if key not in {"object_refs", "warnings"}
         and isinstance(value, list)
         and all(isinstance(item, dict) for item in value)
     ]
-    return list(collections[0]) if len(collections) == 1 else [output]
+    return collections[0] if len(collections) == 1 else None
+
+
+def _rows_from_output(output: Dict[str, Any]) -> List[Any]:
+    """Retain normalized rows; sibling report fields travel in result_metadata."""
+    collection = _output_collection_key(output)
+    return list(output[collection]) if collection is not None else [output]
 
 
 def _refs_from_output(
@@ -687,6 +693,12 @@ async def _run_declared(
     output = dict(invoked.get("output") or {})
     refs = _refs_from_output(output, workspace_id=workspace_id, app_id=app_id)
     rows = _rows_from_output(output)
+    collection = _output_collection_key(output)
+    result_metadata = (
+        {key: value for key, value in output.items() if key != collection}
+        if collection is not None
+        else {}
+    )
     source_warnings = output.get("warnings")
     warnings = (
         [item for item in source_warnings if isinstance(item, str)]
@@ -698,7 +710,9 @@ async def _run_declared(
         warnings.append("The source returned incomplete results.")
     return QueryResult(
         mode="declared_capability",
+        row_collection=collection,
         rows=rows,
+        result_metadata=result_metadata,
         object_refs=refs,
         evidence=Evidence(
             object_refs=refs,
@@ -711,15 +725,10 @@ async def _run_declared(
             warnings=warnings,
         ),
         cursor=output.get("next_cursor"),
-        total_estimate=(
-            output["total_estimate"]
-            if "total_estimate" in output
-            else (
-                output["total"]
-                if "total" in output
-                else None if degraded else len(rows)
-            )
-        ),
+        # A page length or a report's generic `total` is not a scoped count.
+        # Preserve only an explicitly declared estimate; exact counts remain in
+        # their validated report fields.
+        total_estimate=output.get("total_estimate"),
         degraded=degraded,
         warnings=warnings,
         explain={"capability_key": selected.key, "app_id": app_id},

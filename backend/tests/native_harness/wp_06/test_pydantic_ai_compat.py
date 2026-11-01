@@ -782,6 +782,7 @@ async def test_history_summary_never_distills_active_batch_receipts(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_compaction_clears_only_stale_active_reads():
+    # Large results exercise the two-preview window; small facts use a separate budget.
     messages = [ModelRequest(parts=[UserPromptPart("Prepare the related records")])]
     for index in range(12):
         name = "write" if index == 5 else "read"
@@ -792,7 +793,7 @@ async def test_compaction_clears_only_stale_active_reads():
                     parts=[
                         ToolReturnPart(
                             name,
-                            {"record_id": str(index), "details": "x" * 256},
+                            {"record_id": str(index), "details": "x" * 6144},
                             str(index),
                         )
                     ]
@@ -812,11 +813,11 @@ async def test_compaction_clears_only_stale_active_reads():
     assert [part.content for part in returns[:5]] == ["[tool result cleared]"] * 5
     assert returns[5].content == {
         "record_id": "5",
-        "details": "x" * 256,
+        "details": "x" * 6144,
     }  # write receipt retained
     assert [part.content for part in returns[6:10]] == ["[tool result cleared]"] * 4
     assert [part.content for part in returns[-2:]] == [
-        {"record_id": str(index), "details": "x" * 256} for index in range(10, 12)
+        {"record_id": str(index), "details": "x" * 6144} for index in range(10, 12)
     ]
     first_read_call = next(
         part
@@ -828,22 +829,22 @@ async def test_compaction_clears_only_stale_active_reads():
     assert compacted[0] == messages[0]  # exact user task remains available
     assert messages[2].parts[0].content == {
         "record_id": "0",
-        "details": "x" * 256,
+        "details": "x" * 6144,
     }  # source untouched
 
 
 @pytest.mark.asyncio
-async def test_active_read_compaction_does_not_wait_for_history_threshold():
+async def test_active_large_read_compaction_does_not_wait_for_history_threshold():
     call_index = 0
 
     async def read_1():
-        return {"record_id": "1", "details": "x" * 2048}
+        return {"record_id": "1", "details": "x" * 6144}
 
     async def read_2():
-        return {"record_id": "2", "details": "x" * 2048}
+        return {"record_id": "2", "details": "x" * 6144}
 
     async def read_3():
-        return {"record_id": "3", "details": "x" * 2048}
+        return {"record_id": "3", "details": "x" * 6144}
 
     def respond(messages, info):
         nonlocal call_index
@@ -878,8 +879,8 @@ async def test_active_read_compaction_does_not_wait_for_history_threshold():
         "read_3",
     ]
     assert seen_returns[0].content == "[tool result cleared]"
-    assert seen_returns[1].content == {"record_id": "2", "details": "x" * 2048}
-    assert seen_returns[2].content == {"record_id": "3", "details": "x" * 2048}
+    assert seen_returns[1].content == {"record_id": "2", "details": "x" * 6144}
+    assert seen_returns[2].content == {"record_id": "3", "details": "x" * 6144}
 
 
 @pytest.mark.asyncio

@@ -613,6 +613,7 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
             "integral_get_page_context",
             "integral_open_view",
             "integral_query",
+            "integral_governed_query",
             "integral_get_track_schema",
             "integral_list_workspace_tools",
             "integral_call_workspace_tool",

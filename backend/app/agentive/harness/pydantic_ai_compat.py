@@ -830,6 +830,8 @@ class IntegralToolResultCompaction(ClearToolResults):
 
     clearable_tools: frozenset[str] | None = None
     active_keep_pairs: int = 2
+    active_fact_pairs: int = 32
+    active_fact_bytes: int = 16_384
 
     _navigation_tools = frozenset({"integral_list_apps", "integral_list_tracks"})
     _identity_tools = frozenset({"integral_resolve_entry"})
@@ -1139,23 +1141,22 @@ class IntegralToolResultCompaction(ClearToolResults):
         retained_track_schemas = set(
             sorted(key for key in track_schemas if key > last_effect)[-2:]
         )
-        # Small complete App read receipts are useful synthesis evidence. Keep
-        # only a fixed recent window; large receipts still compact as before.
-        # Mixed wrappers qualify only when the broker classified this call as
-        # read, so mutations and legacy metadata retain their existing rules.
-        bounded_app_reads = [
-            key
-            for key in active_reads
-            if messages[key[0]].parts[key[1]].tool_name
-            in {"integral_call_workspace_tool", "integral_invoke_app_operation"}
-            and len(
+        # Small current-task facts share one byte/count budget across all read
+        # transports. Per-call classification still protects mixed effects.
+        retained_facts: set[tuple[int, int]] = set()
+        fact_bytes = 0
+        for key in reversed(active_reads):
+            size = len(
                 json.dumps(messages[key[0]].parts[key[1]].content, default=str).encode(
                     "utf-8"
                 )
             )
-            <= 4096
-        ]
-        retained_app_reads = set(bounded_app_reads[-4:])
+            if size > 4096 or fact_bytes + size > self.active_fact_bytes:
+                continue
+            if len(retained_facts) >= self.active_fact_pairs:
+                break
+            retained_facts.add(key)
+            fact_bytes += size
         projected = []
         for index, message in enumerate(messages):
             if not isinstance(message, ModelRequest):
@@ -1188,12 +1189,12 @@ class IntegralToolResultCompaction(ClearToolResults):
                         part = replace(part, content=self.placeholder)
                     elif key in retained_identities and key not in recent:
                         part = self._identity_preview(part)
-                    elif key in retained_app_reads:
+                    elif key in retained_facts:
                         pass
                     elif (
                         (key in identities and key not in retained_identities)
                         or key in navigation
-                        or (key not in recent and len(text) > 1024)
+                        or key not in recent
                     ):
                         part = replace(part, content=self.placeholder)
                     elif len(text) > 16_384:
@@ -1254,9 +1255,28 @@ class IntegralToolResultCompaction(ClearToolResults):
         protected_tools |= self._catalogue_tools
         protected_tools |= self._resource_lookup_tools
         protected_tools |= self._track_schema_tools
+        # Native keep_pairs counts every pair, including protected receipts
+        # and already-cleared reads. Keep the span containing Core's bounded
+        # current facts; otherwise interleaved large reads evict smaller facts.
+        returns = [
+            part
+            for message in active_turn
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        oldest_fact = next(
+            (
+                index
+                for index, part in enumerate(returns)
+                if part.tool_name in self.clearable_tools
+                and part.content != self.placeholder
+            ),
+            len(returns),
+        )
         active_compaction = ClearToolResults(
-            max_tokens=1,
-            keep_pairs=2,
+            max_tokens=8_192,
+            keep_pairs=max(self.active_fact_pairs, len(returns) - oldest_fact),
             exclude_tools=self.exclude_tools | frozenset(protected_tools),
             # Retain read arguments so the model can repeat a query whose
             # earlier receipt was compacted.
@@ -1266,7 +1286,7 @@ class IntegralToolResultCompaction(ClearToolResults):
             tokenizer=self.tokenizer,
         )
         compacted = await active_compaction.compact(active_turn, ctx)
-        # Even the two most recent read results need a size ceiling. Retain a
+        # Even the recent read results need a size ceiling. Retain a
         # clearly marked preview, never imply that a truncated collection is
         # complete. Mutation/capability returns and accepted user input are exact.
         compacted = [
@@ -1602,9 +1622,13 @@ class IntegralWorkingContext(TieredCompaction):
                 prior = list(request_context.messages)
                 request_context.messages = account_context_reclaim(
                     prior,
-                    await replace(tier, keep_pairs=0, active_keep_pairs=1).compact(
-                        prior, ctx
-                    ),
+                    await replace(
+                        tier,
+                        keep_pairs=0,
+                        active_keep_pairs=1,
+                        active_fact_pairs=1,
+                        active_fact_bytes=4096,
+                    ).compact(prior, ctx),
                 )
         if request_context.messages != before:
             ctx.messages[:] = request_context.messages

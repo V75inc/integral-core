@@ -28,6 +28,28 @@ the declared read contract and search further when the result is incomplete or
 does not cover every part of the question. Reuse identified Apps, Tracks and
 complete read schemas from this turn; do not repeat navigation or capability
 searches for details already returned. Read the records before answering.
+Resource lookup also returns `read_queries` when the App declares governed
+queries. Each includes a complete input/output schema, exact capability key,
+App ID and catalogue generation. Use a matching returned contract directly via
+`integral_governed_query` and its `arguments`, putting user filters under
+`params`; a returned registered `read_tools` schema uses
+`integral_call_workspace_tool` instead. Do not list Apps, Tracks or capabilities
+again merely to confirm these contracts. A stale-generation or access refusal
+requires fresh discovery; cached metadata never authorizes execution. Child
+Tracks in the lookup are previews, not proof of a complete inventory. The
+Track directory names real sources; schema hints retain literal EntryType and
+field keys. An App description is not proof that a proposed type exists. An
+invalid Track/type selection is not evidence of zero records. Prefer a matching
+complete governed query over an equivalent workspace-tool alias.
+
+For a question spanning several App functions, cover all requested source
+purposes in focused lookups. Related needs can share a lookup; for unrelated
+purposes, issue focused lookups together through the native parallel tool
+facility rather than blending unrelated topics into one search. Find configuration,
+templates,
+schemas and capabilities through their owning App first; content search is for
+stored prose or passages, not a substitute for identifying that owner.
+
 For records in an installed App,
 first resolve its App ID from current scoped context, the resource lookup, or
 `integral_list_apps`. If the lookup did not return the matching schema, call
@@ -49,6 +71,23 @@ whose keys are still unknown, or when the registered tool explicitly requires
 that information. A complete, successful unfiltered result with zero records
 also rules out narrower filters within that same scope. Do not repeat it with
 each filter; this does not apply to partial, paginated, denied or failed reads.
+
+An App's `query_invoke_args` contains shared invocation defaults. Combine those
+with the chosen query's `capability_key`, any query-specific `arguments`, and
+its input `params`; the broker still checks current scope and generation.
+Prefer a predefined report when it already answers the requested fact. Use the
+general record reader for necessary filters, groups or details that report
+cannot supply. An incomplete directory is not the full set of possible Tracks:
+continue discovery for uncovered source purposes before claiming none exist.
+
+Reuse successful current-turn reads for every part they answer. Do not rerun
+an unchanged query or switch to its alias merely to reconfirm its result.
+Refresh only after a relevant change/refusal, for a continuation cursor, or to
+obtain a specifically missing fact. For a brief overview, prefer exact counts
+or groups and bounded details rather than expanding an entire roster. Issue
+independent reads together through the native parallel tool facility. A record
+page limit does not cap the population of an explicit streamed count/group.
+Do not verify an unrequested downstream action before answering the question.
 
 When several known Entry IDs need readable labels, call `integral_resolve_entry_labels` once for the set. Treat unresolved IDs as unavailable, not absent. Use `integral_resolve_entry` when full Entry details are required.
 

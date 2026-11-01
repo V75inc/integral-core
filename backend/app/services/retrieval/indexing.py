@@ -680,6 +680,14 @@ async def indexing_loop() -> None:
 
     while True:
         try:
+            from .definition_vectors import prune_definition_vectors
+
+            await prune_definition_vectors()
+            from app.services.resource_metadata_index import (
+                reconcile_requested_metadata,
+            )
+
+            await reconcile_requested_metadata()
             if isinstance(get_embedding_store(), PgVectorEmbeddingStore):
                 from .index_management import process_reindex_requests
                 from .workspace_reindex import process_workspace_rebuilds

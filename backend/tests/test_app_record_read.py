@@ -138,6 +138,16 @@ async def test_type_predicate_precedes_record_selection_and_no_type_fallback(
         }
     )
     assert result["count"] == 1
+    with pytest.raises(BadRequestError, match="not evidence of zero records"):
+        await ctx.read_entry_records(
+            {"track": track.title, "entry_type": "other", "count_only": True}
+        )
+    other = await EntryType.create(
+        name="Empty known type",
+        track_id=track.id,
+        form_schema={"_manifest_entry_type_key": "other"},
+    )
+    await track.connect(other, edge=CONTAINS)
     empty = await ctx.read_entry_records(
         {"track": track.title, "entry_type": "other", "count_only": True}
     )
@@ -177,3 +187,95 @@ async def test_scalar_sort_is_numeric_before_paging_and_keeps_missing_last():
         }
     )
     assert second["rows"][0]["id"] == ids[0]
+
+
+async def test_legacy_app_read_pushes_literal_type_selection_before_hydration(
+    monkeypatch,
+):
+    _, _, _, track, _, ctx = await setup()
+    types = []
+    for key in ["item_one", "item-one"]:
+        kind = await EntryType.create(
+            name=key, track_id=track.id, form_schema={"_manifest_entry_type_key": key}
+        )
+        await track.connect(kind, edge=CONTAINS)
+        types.append(kind)
+    wanted = await Entry.create(
+        title="Exact type", track_id=track.id, type_id=types[0].id
+    )
+    await track.connect(wanted, edge=CONTAINS)
+    for number in range(20):
+        other = await Entry.create(
+            title=f"Other type {number}", track_id=track.id, type_id=types[1].id
+        )
+        await track.connect(other, edge=CONTAINS)
+    from app.services import entry_access_projection as projection
+
+    hydrate = projection.hydrate_records
+    sizes = []
+
+    async def observed(records):
+        sizes.append(len(records))
+        return await hydrate(records)
+
+    monkeypatch.setattr(projection, "hydrate_records", observed)
+    selected = await ctx.find_entries_in_track_type(track.title, entry_type="item_one")
+    assert [record.id for record in selected] == [wanted.id]
+    assert sum(sizes) == 1
+    with pytest.raises(BadRequestError, match="not evidence of zero records"):
+        await ctx.find_entries_in_track_type(track.title, entry_type="unknown")
+    # The retained workspace-level compatibility path also preserves literal
+    # declarations; only an unkeyed legacy display name permits slug matching.
+    from app.services.hooks.registry import ToolContext
+
+    unbound_ctx = ToolContext(
+        user_id=ctx.user_id,
+        workspace_id=ctx.workspace_id,
+        scope=f"ws:{ctx.workspace_id}",
+    )
+    assert not hasattr(unbound_ctx, "app_id")
+    unbound = await unbound_ctx.find_entries_in_track_type(
+        track.title, entry_type="item_one"
+    )
+    assert [record.id for record in unbound] == [wanted.id]
+
+
+async def test_track_lookup_preserves_legacy_label_equivalence():
+    from app.models.nodes import Track
+    from app.services.app_graph import catalog_track
+    from app.services.operational_model_compile import _slug
+
+    _, ws, app, original, _, ctx = await setup()
+    labels = [
+        "Renewals 2026",
+        "renewals_2026",
+        "İtem",
+        "i_tem",
+        "Kelvin",
+        "Kelvin",
+        "文書",
+        "!!!",
+    ]
+    tracks = [original]
+    for title in labels:
+        track = await Track.create(title=title, workspace_id=ws.id)
+        await catalog_track(track)
+        await app.connect(track, edge=CONTAINS)
+        tracks.append(track)
+    for title in ["renewals-2026", "i_tem", "kelvin", "文書"]:
+        selected = await ctx._tracks_by_title(title)
+        assert {track.id for track in selected} == {
+            track.id for track in tracks if _slug(track.title) == _slug(title)
+        }, title
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"track": "Notes", "limit": 51}, {"track": "Notes", "extra": "private-input"}],
+)
+async def test_invalid_record_parameters_are_repairable_without_input_echo(params):
+    with pytest.raises(BadRequestError, match="Invalid record query") as error:
+        await record_read.read_app_records(
+            SimpleNamespace(app_id="n.WorkspaceApp.test"), params
+        )
+    assert "private-input" not in str(error.value)

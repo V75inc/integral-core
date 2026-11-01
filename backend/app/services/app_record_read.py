@@ -11,8 +11,10 @@ import re
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from functools import cmp_to_key
+from typing import Any
 
 from jvspatial.core.pager import encode_keyset_cursor
+from pydantic import ValidationError
 
 from app.api.errors import BadRequestError
 from app.middleware.permissions_cache import isolated_permissions_cache
@@ -72,6 +74,36 @@ def _short(value):
     return value
 
 
+async def select_app_record_sources(ctx, track_title: str, entry_type: str = ""):
+    """Share exact schema selection across native pages and legacy SDK reads."""
+    tracks = await ctx._tracks_by_title(track_title)
+    if not tracks:
+        return {"id": {"$in": []}}, []
+    selectors = []
+    type_known = not entry_type
+    for track in tracks:
+        selection, capped = await _candidate_ids(
+            ctx, track.id, entry_type or None, None, metadata_only=True
+        )
+        if capped:
+            raise BadRequestError(message="Narrow the Track/type selection")
+        if not isinstance(selection, dict):
+            raise RuntimeError("Record source selection must return schema metadata")
+        for track_id, types in selection.items():
+            type_known = type_known or bool(types)
+            selector = {"context.track_id": track_id}
+            if types is not None:
+                selector["context.type_id"] = {"$in": types}
+            selectors.append(selector)
+    if not type_known:
+        raise BadRequestError(
+            message="That entry type is not defined in the selected Track. Use its current schema; this is not evidence of zero records.",
+            details={"error_code": "entry_type_not_found"},
+        )
+    query: dict[str, Any] = {"$or": selectors} if selectors else {"id": {"$in": []}}
+    return query, tracks
+
+
 async def read_app_records(ctx, raw):
     """Pages never count implicitly. Counts stream admitted raw windows.
 
@@ -81,7 +113,20 @@ async def read_app_records(ctx, raw):
     """
     if not getattr(ctx, "app_id", ""):
         raise BadRequestError(message="Installed App scope required for record reads")
-    data = AppRecordRead.model_validate(raw or {})
+    try:
+        data = AppRecordRead.model_validate(raw or {})
+    except ValidationError as exc:
+        # Use Pydantic's public diagnostic API without copying caller values
+        # into an error. Parameter mistakes are repairable, not server faults.
+        errors = exc.errors(include_input=False, include_url=False)
+        summary = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in errors[:3]
+        )
+        raise BadRequestError(
+            message=f"Invalid record query: {summary}",
+            details={"error_code": "invalid_record_query"},
+        ) from exc
     # Grouping is only defined for counts. When the caller omits count_only,
     # treat its grouping request as an explicit count; a contradictory false
     # remains an error. Normalize before cursor fingerprinting.
@@ -92,22 +137,11 @@ async def read_app_records(ctx, raw):
     group = _field(data.group_by) if data.group_by else ""
     sort = _field(data.sort_by) if data.sort_by else ""
     with ordinary_authority_only(), isolated_permissions_cache():
-        tracks = await ctx._tracks_by_title(data.track)
+        query, tracks = await select_app_record_sources(
+            ctx, data.track, data.entry_type
+        )
         if not tracks:
             return {"ok": False, "reason": "Selected Track is unavailable"}
-        selectors = []
-        for track in tracks:
-            selection, capped = await _candidate_ids(
-                ctx, track.id, data.entry_type or None, None, metadata_only=True
-            )
-            if capped:
-                raise BadRequestError(message="Narrow the Track/type selection")
-            for track_id, types in selection.items():
-                selector = {"context.track_id": track_id}
-                if types is not None:
-                    selector["context.type_id"] = {"$in": types}
-                selectors.append(selector)
-        query = {"$or": selectors} if selectors else {"id": {"$in": []}}
         query = merge_queries(
             query,
             *[

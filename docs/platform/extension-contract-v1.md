@@ -62,6 +62,15 @@ schemas and tools once the current capability is known. Rediscover after a
 scope/generation change or an unavailable capability; saved instructions and
 prior successful reads do not confer continuing authority.
 
+Declared governed queries return normalized `rows`, with the original collection
+name in `row_collection` and its sibling report fields in `result_metadata`.
+`ctx.query(...)` remains a mapping and offers a computed `.source_output` view
+that reconstructs that declared report for SDK consumers. This view is not a
+JSON field; resident and MCP payloads do not duplicate the source collection.
+Preserve its paging, coverage and uncertainty. Neither a generic report `total`
+(which may be money) nor a returned page length establishes a record count;
+`total_estimate` is populated only when the source explicitly provides it.
+
 App authors should:
 
 - Bind reads to the owning installed App and current principal. Prefer stable

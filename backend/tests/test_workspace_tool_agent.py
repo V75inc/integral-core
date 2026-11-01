@@ -18,22 +18,39 @@ WS = "n.Workspace.test-ws-tools"
 async def test_app_scoped_read_catalogue_is_paged_and_live(
     workspace_tools, monkeypatch
 ):
+    from unittest.mock import AsyncMock
+
+    from jvspatial.core.context import get_default_context
+
+    from app.models.nodes import App
     from app.services.workspace_tools import list_workspace_tools
 
-    async def app_get(_id):
-        return SimpleNamespace(
-            workspace_id=WS,
-            installed_package_slug="test-bundle",
-            lifecycle_state="active",
-        )
+    app_id = "n.WorkspaceApp.catalogue-fixture"
+    primary = AsyncMock(
+        return_value=[
+            {
+                "id": app_id,
+                "entity": App._entity_name(),
+                "context": {
+                    "workspace_id": WS,
+                    "installed_package_slug": "test-bundle",
+                    "lifecycle_state": "active",
+                },
+            }
+        ]
+    )
+    monkeypatch.setattr(get_default_context().database, "find", primary)
+    monkeypatch.setattr(
+        "app.services.resource_location.locate_resource",
+        AsyncMock(return_value=SimpleNamespace(workspace_id=WS)),
+    )
 
     async def access(*args):
         return "viewer"
 
-    monkeypatch.setattr("app.models.nodes.App.get", app_get)
     monkeypatch.setattr("app.services.permissions.resolve_role", access)
     result = await list_workspace_tools(
-        user_id="u1", workspace_id=WS, app_id="app", read_only=True, limit=1
+        user_id="u1", workspace_id=WS, app_id=app_id, read_only=True, limit=1
     )
     assert [item["key"] for item in result["tools"]] == ["compute_periods"]
     assert result["count"] == 1
@@ -58,7 +75,7 @@ async def test_app_scoped_read_catalogue_is_paged_and_live(
     from app.api.errors import InsufficientPermissionsError
 
     with pytest.raises(InsufficientPermissionsError):
-        await list_workspace_tools(user_id="u1", workspace_id=WS, app_id="app")
+        await list_workspace_tools(user_id="u1", workspace_id=WS, app_id=app_id)
 
 
 @pytest.mark.asyncio
@@ -431,3 +448,29 @@ async def test_read_tools_lead_the_default_page_of_a_write_heavy_catalogue(
         user_id="u1", workspace_id=WS, tool_key="aaa_write"
     )
     assert write["tools"][0]["write"] is True
+
+
+@pytest.mark.asyncio
+async def test_app_tool_ownership_uses_current_primary_metadata():
+    from app.models.nodes import App
+    from app.services.workspace_tools import list_workspace_tools
+    from tests.test_resource_location import graph
+
+    user, workspace, app, _, _ = await graph()
+    app.installed_package_slug = "old-bundle"
+    await app.save()
+    await App.get(app.id)  # A previously loaded instance must not select the owner.
+    for slug, key in [("old-bundle", "old_read"), ("current-bundle", "current_read")]:
+        register_workspace_tools(
+            workspace.id, slug, [{"key": key, "side_effects": "read_only"}]
+        )
+    context = await app.get_context()
+    await context.database.find_one_and_update(
+        "node",
+        {"id": app.id},
+        {"$set": {"context.installed_package_slug": "current-bundle"}},
+    )
+    result = await list_workspace_tools(
+        user_id=user.id, workspace_id=workspace.id, app_id=app.id, read_only=True
+    )
+    assert [tool["key"] for tool in result["tools"]] == ["current_read"]
