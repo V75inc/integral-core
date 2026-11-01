@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -605,36 +604,6 @@ class ToolContext:
                 if current is not None:
                     allowed.append(current)
         return allowed
-
-    async def get_employee_compensation(self, employee_id: str) -> Optional[float]:
-        """Deprecated payroll compatibility shim; move this logic into the App.
-
-        Removed after the F1 consumer migration. New extensions should use
-        :meth:`get_related_entries` and interpret their own domain fields.
-        """
-        warnings.warn(
-            "get_employee_compensation is deprecated; use get_related_entries "
-            "and implement domain logic in the owning App",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        related = await self.get_related_entries(
-            employee_id, edge_type="REFERENCES", direction="in"
-        )
-        for entry in sorted(
-            related,
-            key=lambda item: str(
-                (getattr(item, "custom_fields", {}) or {}).get("effective_date") or ""
-            ),
-            reverse=True,
-        ):
-            value = (getattr(entry, "custom_fields", {}) or {}).get("base_salary")
-            if value is not None:
-                try:
-                    return float(value)
-                except (TypeError, ValueError):
-                    continue
-        return None
 
     async def get_app_settings(self, app_key: str) -> Dict[str, Any]:
         """Return the ``settings`` dict of the App installed from ``app_key``

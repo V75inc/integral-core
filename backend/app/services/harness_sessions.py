@@ -15,6 +15,7 @@ from app.models.edges import HAS_HARNESS_SESSION
 from app.models.harness_records import (
     HarnessCheckpointManifestRecord,
     HarnessEventRecord,
+    HarnessMessageRecord,
     HarnessModelRequestRecord,
     HarnessPlanState,
     HarnessRunRecord,
@@ -565,6 +566,7 @@ async def _purge_session_payload_records(scope_key: str) -> int:
         HarnessRunRecord,
         HarnessEventRecord,
         HarnessSnapshotRecord,
+        HarnessMessageRecord,
         HarnessCheckpointManifestRecord,
         HarnessToolEffectRecord,
         HarnessModelRequestRecord,

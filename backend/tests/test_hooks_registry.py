@@ -67,7 +67,8 @@ def test_tool_context_facade_has_required_methods():
     # Compile-time API surface check — methods exist on the class.
     assert callable(getattr(ctx, "get_entry"))
     assert callable(getattr(ctx, "find_entries"))
-    assert callable(getattr(ctx, "get_employee_compensation"))
+    assert callable(getattr(ctx, "get_related_entries"))
+    assert not hasattr(ctx, "get_employee_compensation")
     assert callable(getattr(ctx, "emit_audit"))
     assert callable(getattr(ctx, "get_entry_system"))
     assert callable(getattr(ctx, "update_entry_fields"))

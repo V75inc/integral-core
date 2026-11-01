@@ -1151,7 +1151,7 @@ session IPC tests, and a clean native install/App/record/restart walkthrough.
 Preserve I-GRAPH-01/02, I-ROLE-01/02 and existing server authority semantics.
 
 
-### I-RUNTIME-01 — Runtime limits precede authorization grants
+### I-RUNTIME-02 — Runtime limits precede authorization grants
 
 Trusted startup selects one validated local or hosted composition. Every declared
 policy action has explicit operation metadata. Runtime limits apply before human,
