@@ -80,7 +80,6 @@ app:
       properties:
         message:
           type: string
-      required: [message]
   hooks:
   - key: note_created
     point: entry.create
