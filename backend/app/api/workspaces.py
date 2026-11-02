@@ -14,6 +14,7 @@ from fastapi import Request
 from fastapi.responses import Response
 from jvspatial.api import endpoint
 from jvspatial.api.exceptions import FileTooLargeError, ValidationError
+from pydantic import BaseModel
 
 from app.api.attachments import _read_multipart_files
 from app.api.errors import (
@@ -750,8 +751,102 @@ async def provision_workspace_member_route(
         credentials_email=(
             str(body.credentials_email) if body.credentials_email else None
         ),
+        personal_email=str(body.personal_email) if body.personal_email else None,
+        application_mailbox_proof_id=(
+            str(body.application_mailbox_proof_id)
+            if body.application_mailbox_proof_id
+            else None
+        ),
+        candidate_entry_id=(
+            str(body.candidate_entry_id) if body.candidate_entry_id else None
+        ),
         actor_id=user_id,
     )
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/members/{member_user_id}/activation-delivery",
+    methods=["GET"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def get_member_activation_delivery_status(
+    request: Request, workspace_id: str, member_user_id: str
+) -> Dict[str, Any]:
+    """Safe activation delivery snapshot for workspace account management."""
+    from app.schemas.api.credentials_delivery import ActivationDeliveryStatusResponse
+    from app.services.credential_delivery import activation_delivery_public_status
+    from app.services.permissions import get_user_node
+    from app.services.workspace_kind import is_collaborative_kind
+    from app.services.workspace_permissions import read_member_facts
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    ws, _ = await _require_workspace_role(workspace_id, user_id, "admin")
+    if not is_collaborative_kind(ws.kind):
+        raise BadRequestError(message="Personal workspaces have no members to manage")
+    member = await get_user_node(member_user_id)
+    if member is None or await read_member_facts(member, workspace_id) is None:
+        raise InsufficientPermissionsError(
+            message="Member unavailable in this workspace"
+        )
+    payload = activation_delivery_public_status(member)
+    return ActivationDeliveryStatusResponse.model_validate(payload).model_dump()
+
+
+class RetryActivationDeliveryRequest(BaseModel):
+    intent_id: str | None = None
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/members/{member_user_id}/activation-delivery/retry",
+    methods=["POST"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def retry_member_activation_delivery(
+    request: Request, workspace_id: str, member_user_id: str
+) -> Dict[str, Any]:
+    """Retry pending application-proof activation mail for an existing member."""
+    from pydantic import ValidationError
+
+    from app.schemas.api.credentials_delivery import ActivationDeliveryStatusResponse
+    from app.services.credential_delivery import (
+        retry_application_proof_activation_delivery,
+    )
+    from app.services.workspace_kind import is_collaborative_kind
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    ws, _ = await _require_workspace_role(workspace_id, user_id, "admin")
+    if not is_collaborative_kind(ws.kind):
+        raise BadRequestError(message="Personal workspaces have no members to manage")
+    if request.query_params:
+        raise BadRequestError(message="Activation retry accepts JSON fields only")
+    try:
+        body = RetryActivationDeliveryRequest.model_validate(await request.json())
+    except ValidationError as exc:
+        raise BadRequestError(message="Invalid activation retry request") from exc
+    try:
+        payload = await retry_application_proof_activation_delivery(
+            workspace_id=workspace_id,
+            member_user_id=member_user_id,
+            actor_user_id=user_id,
+            intent_id=body.intent_id,
+        )
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+    safe_fields = set(ActivationDeliveryStatusResponse.model_fields)
+    merged = ActivationDeliveryStatusResponse.model_validate(
+        {k: payload[k] for k in safe_fields if k in payload}
+    ).model_dump()
+    if payload.get("activation_emailed") is not None:
+        merged["activation_emailed"] = bool(payload.get("activation_emailed"))
+    if payload.get("delivery_retryable") is not None:
+        merged["delivery_retryable"] = bool(payload.get("delivery_retryable"))
+    return merged
 
 
 @endpoint(

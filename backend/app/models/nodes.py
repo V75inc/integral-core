@@ -259,6 +259,9 @@ class User(Node):
     # Server-owned mailbox binding. A legacy boolean alone grants no
     # invitation-discovery authority; changed addresses require new proof.
     verified_email: str = ""
+    # Personal inbox used for one-time activation delivery at hire; login
+    # email remains on AuthUser. Ordinary notifications use the work mailbox.
+    personal_email: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

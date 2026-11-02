@@ -139,6 +139,9 @@ async def provision_workspace_member(
     send_credentials: bool = True,
     welcome_message: Optional[str] = None,
     credentials_email: Optional[str] = None,
+    personal_email: Optional[str] = None,
+    application_mailbox_proof_id: Optional[str] = None,
+    candidate_entry_id: Optional[str] = None,
     actor_id: str,
 ) -> Dict[str, Any]:
     """Provision through current canonical membership admission and audit."""
@@ -154,6 +157,9 @@ async def provision_workspace_member(
                 "send_credentials": send_credentials,
                 "welcome_message": welcome_message,
                 "credentials_email": credentials_email,
+                "personal_email": personal_email,
+                "application_mailbox_proof_id": application_mailbox_proof_id,
+                "candidate_entry_id": candidate_entry_id,
             }
         )
     except ValidationError as exc:
@@ -162,17 +168,53 @@ async def provision_workspace_member(
     name = body.display_name.strip()
     if not name:
         raise BadRequestError(message="Display name is required")
-    deliver_norm = (
-        str(body.credentials_email).strip().lower()
-        if body.credentials_email
-        else email_norm
+    personal_norm = (
+        str(body.personal_email).strip().lower() if body.personal_email else ""
     )
+    proof_id = str(body.application_mailbox_proof_id or "").strip()
+    candidate_id = str(body.candidate_entry_id or "").strip()
+    application_proof_delivery = False
+    if proof_id or personal_norm or candidate_id:
+        if not (proof_id and personal_norm and candidate_id):
+            raise BadRequestError(
+                message=(
+                    "Application mailbox proof requires personal email and "
+                    "candidate reference"
+                )
+            )
+        from app.services.application_mailbox_verification import proof_ready_for_hire
+
+        if personal_norm == email_norm:
+            raise BadRequestError(
+                message="Personal email must differ from the work login email"
+            )
+        if not await proof_ready_for_hire(
+            proof_id=proof_id,
+            candidate_entry_id=candidate_id,
+            workspace_id=str(workspace.id),
+            personal_email=personal_norm,
+        ):
+            raise BadRequestError(
+                message="Application mailbox proof is invalid or expired"
+            )
+        application_proof_delivery = True
+        deliver_norm = personal_norm
+    else:
+        deliver_norm = (
+            str(body.credentials_email).strip().lower()
+            if body.credentials_email
+            else email_norm
+        )
     alternate_delivery = deliver_norm != email_norm
     if alternate_delivery and not body.send_credentials:
         raise BadRequestError(
             message="Alternate credentials recipient requires send_credentials"
         )
-    if alternate_delivery and body.send_credentials:
+    if application_proof_delivery and body.credentials_email:
+        raise BadRequestError(
+            message="Use application mailbox proof or credentials email, not both"
+        )
+    if alternate_delivery and body.send_credentials and not application_proof_delivery:
         from app.services.credential_crypto import encryption_available
         from app.services.credential_delivery import require_delivery_storage
 
@@ -189,6 +231,12 @@ async def provision_workspace_member(
                     "Alternate credential delivery is only allowed for newly "
                     "created accounts"
                 )
+            )
+    if application_proof_delivery:
+        existing_for_proof = await _find_auth_user_by_email(email_norm)
+        if existing_for_proof is not None:
+            raise BadRequestError(
+                message="Application mailbox proof applies only to new accounts"
             )
     if (
         is_postgres_entry_transaction(get_default_context().database)
@@ -264,6 +312,7 @@ async def provision_workspace_member(
                 user_id=response.id,
                 display_name=name,
                 email_verified=False,
+                personal_email=personal_norm if application_proof_delivery else "",
                 created_at=now,
                 updated_at=now,
             )
@@ -331,8 +380,47 @@ async def provision_workspace_member(
                     provision_after,
                 )
     await membership._deliver(outbox_id)
+    if application_proof_delivery and created and user_node is not None:
+        from app.services.application_mailbox_verification import (
+            consume_application_mailbox_proof,
+        )
+
+        ok, _err = await consume_application_mailbox_proof(
+            proof_id=proof_id,
+            candidate_entry_id=candidate_id,
+            workspace_id=str(workspace.id),
+            personal_email=personal_norm,
+            consumed_for_user_id=user_node.id,
+        )
+        if not ok:
+            raise BadRequestError(
+                message="Application mailbox proof could not be consumed"
+            )
     deliver_to = deliver_norm
-    if alternate_delivery and send_credentials and created and user_node is not None:
+    if (
+        alternate_delivery
+        and send_credentials
+        and created
+        and user_node is not None
+        and application_proof_delivery
+    ):
+        from app.services.credential_delivery import (
+            deliver_application_proof_setup_link,
+        )
+
+        user_node = await get_user_node(user_node.id)
+        if user_node is None:
+            raise AuthorizationUnavailableError()
+        delivery_meta = await deliver_application_proof_setup_link(
+            user_node=user_node,
+            recipient_email=deliver_norm,
+            account_email=email_norm,
+            workspace_id=str(workspace.id),
+            display_name=name,
+            actor_user_id=str(actor_id or ""),
+        )
+        credentials_emailed = bool(delivery_meta.get("activation_emailed"))
+    elif alternate_delivery and send_credentials and created and user_node is not None:
         from app.services.credential_delivery import (
             begin_alternate_credentials_delivery,
         )
@@ -384,6 +472,8 @@ async def provision_workspace_member(
         "credentials_delivery_expires_at": delivery_meta.get("expires_at"),
         "credentials_verify_url": delivery_meta.get("verify_url"),
         "credentials_challenge_emailed": delivery_meta.get("challenge_emailed"),
+        "credentials_activation_emailed": delivery_meta.get("activation_emailed"),
+        "credentials_delivery_retryable": delivery_meta.get("delivery_retryable"),
         "must_change_password": must_change_password(user_node),
         "grant_outcome": outcome,
         "granted_role": actual["role"],

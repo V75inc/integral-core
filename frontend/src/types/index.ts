@@ -250,6 +250,8 @@ export interface OperationalModelFieldSpec {
   /** When false, show a traditional label above the control (opt-out of seamless composer styling). */
   seamless?: boolean;
   group?: string;
+  /** Optional subsection heading within a form group. */
+  section?: string;
   order?: number;
   /** Field-type-specific validation knobs (min/max/step for number, pattern for text, etc.). */
   validation?: Record<string, unknown>;

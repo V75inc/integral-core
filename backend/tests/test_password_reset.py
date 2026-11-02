@@ -165,6 +165,13 @@ async def test_forgot_password_invalid_email_format_returns_422(client: AsyncCli
 async def test_reset_password_success_changes_password_and_invalidates_token(
     client: AsyncClient, test_user, captured_emails
 ):
+    from app.services.member_provision import (
+        must_change_password,
+        set_must_change_password,
+    )
+
+    set_must_change_password(test_user, True)
+    await test_user.save()
     email = getattr(test_user, "email", None) or "test@example.com"
 
     # 1. Trigger reset.
@@ -182,6 +189,8 @@ async def test_reset_password_success_changes_password_and_invalidates_token(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body.get("ok") is True
+    refreshed_rows = await type(test_user).find({"id": test_user.id})
+    assert refreshed_rows and must_change_password(refreshed_rows[0])
 
     # 3. Reusing the token must fail (single-use).
     resp = await client.post(
