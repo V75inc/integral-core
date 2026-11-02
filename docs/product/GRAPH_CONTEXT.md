@@ -1,6 +1,6 @@
 # Workspace graph context
 
-Workspace graph context uses the published `jvspatial==0.2.3` dependency. The initial [current qualification](../ops/QUALIFICATION.md)
+Workspace graph context uses the published `jvspatial==0.2.4` dependency. The initial [current qualification](../ops/QUALIFICATION.md)
 covers 0.2.0 and its remaining production limits. The 0.2.2 logging upgrade is
 covered separately by the [current qualification guidance](../ops/QUALIFICATION.md).
 

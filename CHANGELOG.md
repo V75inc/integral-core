@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Pin jvspatial 0.2.4 so PostgreSQL transaction reads, counts and projections stay on the held connection and walker setup is cheaper. Update the pypdf lock to 6.21.4.
+
 ## 0.1.1rc40 — 2026-10-30
 
 - Restore keyword, semantic and hybrid search results for signed-in users who can read records in active installed Apps. Keep live workspace/record permissions and declared App-query boundaries for machine callers and the resident harness.
