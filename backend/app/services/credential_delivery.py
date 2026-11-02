@@ -338,7 +338,7 @@ async def begin_alternate_credentials_delivery(
     }
 
 
-async def deliver_verified_mailbox_activation_link(
+async def stage_verified_mailbox_activation_delivery(
     *,
     user_node: User,
     recipient_email: str,
@@ -346,8 +346,11 @@ async def deliver_verified_mailbox_activation_link(
     workspace_id: str,
     display_name: str,
     actor_user_id: str,
+    proof_id: str,
+    subject_entry_id: str,
+    purpose: str,
 ) -> Dict[str, Any]:
-    """Email a password-setup link after a verified mailbox proof is consumed."""
+    """Persist activation state and consume its proof in the caller's transaction."""
     from app.services.credential_crypto import encrypt_secret_for_storage
     from app.services.entry_write_scope import entry_write_scope
     from app.services.password_reset import _store_token_on_user, generate_reset_token
@@ -436,6 +439,60 @@ async def deliver_verified_mailbox_activation_link(
         user.updated_at = _now_utc().isoformat()
         await user.save()
 
+        from app.services.mailbox_verification import (
+            consume_mailbox_verification_proof,
+        )
+
+        consumed, _error = await consume_mailbox_verification_proof(
+            proof_id=proof_id,
+            subject_entry_id=subject_entry_id,
+            workspace_id=workspace_id,
+            personal_email=recipient_norm,
+            purpose=purpose,
+            consumed_for_user_id=user.id,
+        )
+        if not consumed:
+            from app.api.errors import BadRequestError
+
+            raise BadRequestError(
+                message="Mailbox verification proof could not be consumed"
+            )
+
+    return {
+        "member_user_id": user_node.id,
+        "recipient_email": recipient_norm,
+        "intent_id": intent_id,
+        "attempt_id": attempt_id,
+        "slot": slot,
+        "setup_token": token,
+    }
+
+
+async def deliver_staged_verified_mailbox_activation_link(
+    prepared: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Send a previously staged activation link after its transaction commits."""
+    from app.services.permissions import get_user_node
+
+    member_user_id = str(prepared.get("member_user_id") or "").strip()
+    recipient_norm = str(prepared.get("recipient_email") or "").strip()
+    intent_id = str(prepared.get("intent_id") or "").strip()
+    attempt_id = str(prepared.get("attempt_id") or "").strip()
+    slot = prepared.get("slot")
+    token = str(prepared.get("setup_token") or "")
+    if not (
+        member_user_id
+        and recipient_norm
+        and intent_id
+        and attempt_id
+        and isinstance(slot, dict)
+        and token
+    ):
+        raise ValueError("Verified mailbox activation stage is invalid")
+    user_node = await get_user_node(member_user_id)
+    if user_node is None:
+        raise ValueError("Account unavailable")
+
     emailed, category, provider_message_id = (
         await _dispatch_verified_mailbox_activation_send(
             user_node=user_node, slot=slot, setup_token=token
@@ -443,7 +500,7 @@ async def deliver_verified_mailbox_activation_link(
     )
 
     finalized = await _finalize_verified_mailbox_activation_send(
-        member_user_id=user_node.id,
+        member_user_id=member_user_id,
         intent_id=intent_id,
         attempt_id=attempt_id,
         recipient_norm=recipient_norm,

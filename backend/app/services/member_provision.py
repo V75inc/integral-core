@@ -263,6 +263,7 @@ async def provision_workspace_member(
     credentials_pending_verification = False
     delivery_meta: Dict[str, Any] = {}
     outbox_id = None
+    activation_stage: Optional[Dict[str, Any]] = None
     database = get_default_context().database
     transaction = (
         postgres_graph_transaction(database)
@@ -385,46 +386,31 @@ async def provision_workspace_member(
                     None,
                     provision_after,
                 )
-    await membership._deliver(outbox_id)
-    if verified_mailbox_delivery and created and user_node is not None:
-        from app.services.mailbox_verification import (
-            consume_mailbox_verification_proof,
-        )
-
-        ok, _err = await consume_mailbox_verification_proof(
-            proof_id=proof_id,
-            subject_entry_id=subject_id,
-            workspace_id=str(workspace.id),
-            personal_email=personal_norm,
-            purpose=purpose,
-            consumed_for_user_id=user_node.id,
-        )
-        if not ok:
-            raise BadRequestError(
-                message="Mailbox verification proof could not be consumed"
+        if verified_mailbox_delivery and created and user_node is not None:
+            from app.services.credential_delivery import (
+                stage_verified_mailbox_activation_delivery,
             )
+
+            activation_stage = await stage_verified_mailbox_activation_delivery(
+                user_node=user_node,
+                recipient_email=deliver_norm,
+                account_email=email_norm,
+                workspace_id=str(workspace.id),
+                display_name=name,
+                actor_user_id=str(actor_id or ""),
+                proof_id=proof_id,
+                subject_entry_id=subject_id,
+                purpose=purpose,
+            )
+    await membership._deliver(outbox_id)
     deliver_to = deliver_norm
-    if (
-        alternate_delivery
-        and send_credentials
-        and created
-        and user_node is not None
-        and verified_mailbox_delivery
-    ):
+    if activation_stage is not None:
         from app.services.credential_delivery import (
-            deliver_verified_mailbox_activation_link,
+            deliver_staged_verified_mailbox_activation_link,
         )
 
-        user_node = await get_user_node(user_node.id)
-        if user_node is None:
-            raise AuthorizationUnavailableError()
-        delivery_meta = await deliver_verified_mailbox_activation_link(
-            user_node=user_node,
-            recipient_email=deliver_norm,
-            account_email=email_norm,
-            workspace_id=str(workspace.id),
-            display_name=name,
-            actor_user_id=str(actor_id or ""),
+        delivery_meta = await deliver_staged_verified_mailbox_activation_link(
+            activation_stage
         )
         credentials_emailed = bool(delivery_meta.get("activation_emailed"))
     elif alternate_delivery and send_credentials and created and user_node is not None:

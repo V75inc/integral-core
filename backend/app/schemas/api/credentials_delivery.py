@@ -28,3 +28,9 @@ class ActivationDeliveryStatusResponse(BaseModel):
     send_attempt_count: int = 0
     last_attempt_at: Optional[StrictStr] = None
     provider_message_id: Optional[StrictStr] = None
+
+
+class RetryActivationDeliveryRequest(BaseModel):
+    """Request body for retrying a member's activation email."""
+
+    intent_id: Optional[str] = None

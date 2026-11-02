@@ -14,7 +14,6 @@ from fastapi import Request
 from fastapi.responses import Response
 from jvspatial.api import endpoint
 from jvspatial.api.exceptions import FileTooLargeError, ValidationError
-from pydantic import BaseModel
 
 from app.api.attachments import _read_multipart_files
 from app.api.errors import (
@@ -802,10 +801,6 @@ async def get_member_activation_delivery_status(
     return ActivationDeliveryStatusResponse.model_validate(payload).model_dump()
 
 
-class RetryActivationDeliveryRequest(BaseModel):
-    intent_id: str | None = None
-
-
 @endpoint(
     "/workspaces/{workspace_id}/members/{member_user_id}/activation-delivery/retry",
     methods=["POST"],
@@ -818,7 +813,10 @@ async def retry_member_activation_delivery(
     """Retry pending verified-mailbox activation mail for an existing member."""
     from pydantic import ValidationError
 
-    from app.schemas.api.credentials_delivery import ActivationDeliveryStatusResponse
+    from app.schemas.api.credentials_delivery import (
+        ActivationDeliveryStatusResponse,
+        RetryActivationDeliveryRequest,
+    )
     from app.services.credential_delivery import (
         retry_verified_mailbox_activation_delivery,
     )

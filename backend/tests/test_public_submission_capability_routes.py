@@ -65,8 +65,8 @@ async def _public_candidates(authenticated_client, test_user):
                 "read_entries": True,
                 "create_entries": True,
                 "update_entries": True,
-                "read_comments": False,
-                "create_comments": False,
+                "read_comments": True,
+                "create_comments": True,
             },
         },
     )
@@ -132,6 +132,71 @@ async def _public_candidates(authenticated_client, test_user):
         capabilities[0],
         capabilities[1],
     )
+
+
+@pytest.mark.asyncio
+async def test_capability_protects_public_reads_comments_and_reactions(
+    authenticated_client, test_user
+):
+    token, _track, _entry_type, _entry_a, entry_b, capability_a, capability_b = (
+        await _public_candidates(authenticated_client, test_user)
+    )
+    auth = authenticated_client.headers.pop("Authorization", None)
+    entry_url = f"/api/public-share/track/{token}/entries/{entry_b.id}"
+    comments_url = f"{entry_url}/comments"
+    reactions_url = f"{entry_url}/reactions"
+    try:
+        denied_requests = [
+            ("get", entry_url, {}),
+            ("get", comments_url, {}),
+            ("post", comments_url, {"json": {"text": "Applicant A comment"}}),
+            ("post", reactions_url, {"json": {"emoji": "👍"}}),
+            ("delete", f"{reactions_url}/👍", {}),
+        ]
+        for method, url, kwargs in denied_requests:
+            denied = await getattr(authenticated_client, method)(url, **kwargs)
+            assert denied.status_code == 404, denied.text
+
+        for method, url, kwargs in denied_requests:
+            denied = await getattr(authenticated_client, method)(
+                url, headers={"X-Entry-Capability": capability_a}, **kwargs
+            )
+            assert denied.status_code == 404, denied.text
+
+        unchanged = await Entry.get(entry_b.id)
+        assert not unchanged.reactions
+        assert await unchanged.nodes(edge=["HAS_COMMENT"], node=["Comment"]) == []
+
+        own_entry = await authenticated_client.get(
+            entry_url, headers={"X-Entry-Capability": capability_b}
+        )
+        assert own_entry.status_code == 200, own_entry.text
+        own_comments = await authenticated_client.get(
+            comments_url, headers={"X-Entry-Capability": capability_b}
+        )
+        assert own_comments.status_code == 200, own_comments.text
+        assert own_comments.json()["total"] == 0
+
+        own_comment = await authenticated_client.post(
+            comments_url,
+            json={"text": "Applicant B comment"},
+            headers={"X-Entry-Capability": capability_b},
+        )
+        assert own_comment.status_code == 200, own_comment.text
+        own_reaction = await authenticated_client.post(
+            reactions_url,
+            json={"emoji": "👍"},
+            headers={"X-Entry-Capability": capability_b},
+        )
+        assert own_reaction.status_code == 200, own_reaction.text
+        remove_reaction = await authenticated_client.delete(
+            f"{reactions_url}/👍",
+            headers={"X-Entry-Capability": capability_b},
+        )
+        assert remove_reaction.status_code == 200, remove_reaction.text
+    finally:
+        if auth:
+            authenticated_client.headers["Authorization"] = auth
 
 
 @pytest.mark.asyncio

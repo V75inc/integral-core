@@ -13,8 +13,8 @@ secret is returned once to the submitting browser and sent on later requests as
 maximum lifetime is 24 hours.
 
 After the OTP succeeds and the host creates the Entry, it binds the same
-capability to that exact Entry ID. Core's generic public attachment and update
-routes enforce the contract for Entries marked with
+capability to that exact Entry ID. Core's generic public entry read, comment,
+reaction, attachment, and update routes enforce the contract for Entries marked with
 `PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD`. The marker is an opt-in guard,
 not the secret or the ownership check. The Core routes still apply the share
 link's normal admission and permission checks.

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.models.mailbox_verification import MailboxVerificationProof
 from app.services import mailbox_verification as mailbox
 from app.services.credential_delivery import (
     _activation_failure_category,
@@ -44,19 +45,39 @@ async def test_verified_mailbox_activation_persists_purpose_tagged_token(
         AsyncMock(return_value={"activation_emailed": True}),
     )
 
-    result = await delivery.deliver_verified_mailbox_activation_link(
+    started = await mailbox.start_mailbox_verification(
+        subject_entry_id="n.Entry.activation-test",
+        workspace_id="workspace-1",
+        email="personal@example.com",
+        purpose="account_creation",
+    )
+    ok, _, proof_id = await mailbox.confirm_mailbox_verification(
+        subject_entry_id="n.Entry.activation-test",
+        workspace_id="workspace-1",
+        purpose="account_creation",
+        code=started["code"],
+        proof_id=started["proof_id"],
+    )
+    assert ok is True
+    prepared = await delivery.stage_verified_mailbox_activation_delivery(
         user_node=test_user,
         recipient_email="personal@example.com",
         account_email="work@example.com",
         workspace_id="workspace-1",
         display_name="First Hire",
         actor_user_id="admin-1",
+        proof_id=proof_id,
+        subject_entry_id="n.Entry.activation-test",
+        purpose="account_creation",
     )
+    result = await delivery.deliver_staged_verified_mailbox_activation_link(prepared)
 
     prefs = test_user.preferences
     token_slot = prefs["reset_token"]
     delivery_slot = prefs["credentials_delivery"]
+    proof = await MailboxVerificationProof.get(proof_id)
     assert result["activation_emailed"] is True
+    assert proof is not None and proof.consumed_at
     assert token_slot["purpose"] == "account_activation"
     assert token_slot["hash"] == delivery_slot["setup_token_hash"]
     from app.services.credential_crypto import decrypt_secret_from_storage

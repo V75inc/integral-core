@@ -835,6 +835,7 @@ async def get_public_track_entry(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
     await _reject_public_onboarding_form_entry(entry)
 
     entry_type = await EntryType.get(entry.type_id)
@@ -1166,6 +1167,8 @@ async def get_public_track_entry_comments(
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
 
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+
     comments = await entry.nodes(edge=["HAS_COMMENT"], node=["Comment"])
     items = [await export_node(c) for c in comments]
     await attach_author_exports(items)
@@ -1196,6 +1199,8 @@ async def create_public_track_entry_comment(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
+
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
 
     raw = await request.json()
     req = PublicCommentCreateRequest.model_validate(raw)
@@ -1259,6 +1264,8 @@ async def add_public_track_entry_reaction(
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
 
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+
     raw = await request.json()
     req = PublicReactionCreateRequest.model_validate(raw)
     emoji = req.emoji
@@ -1321,6 +1328,8 @@ async def remove_public_track_entry_reaction(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
+
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
 
     prior_snapshot = await export_node(entry)
 
