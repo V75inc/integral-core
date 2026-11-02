@@ -1,36 +1,67 @@
-"""Opt-in PostgreSQL evidence for 50k Entry query and aggregate paths.
+"""Independent 50K PostgreSQL correctness and performance gates.
 
-Run explicitly with::
-
-    INTEGRAL_TEST_DB=postgres INTEGRAL_RUN_SLOW_TESTS=1 \
-      .venv/bin/pytest tests/test_scale_query_benchmark.py -s
-
-The fixture uses a private test user, App, Track, and database rows. It reports
-the p95 of the same query with and without exact scalar-filter pushdown; the
-comparison is diagnostic, while row identity and completeness are assertions.
+The optional disabled-pushdown comparison is isolated from native qualification.
+Passing cells collect every sample; failing cells stop only once the existing
+nearest-rank p95 bound is mathematically impossible. Partial samples never pass.
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import math
 import os
-import statistics
+import sys
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.postgres, pytest.mark.slow]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.postgres,
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        (os.getenv("INTEGRAL_TEST_DB") or "json").lower()
+        not in ("postgres", "postgresql"),
+        reason="50k scale evidence requires isolated PostgreSQL test DB",
+    ),
+    pytest.mark.skipif(
+        not os.getenv("INTEGRAL_RUN_SLOW_TESTS"), reason="50k scale evidence is opt-in"
+    ),
+]
 
 
-@pytest.mark.skipif(
-    (os.getenv("INTEGRAL_TEST_DB") or "json").lower() not in ("postgres", "postgresql"),
-    reason="50k scale evidence requires isolated PostgreSQL test DB",
-)
-@pytest.mark.skipif(
-    not os.getenv("INTEGRAL_RUN_SLOW_TESTS"),
-    reason="50k scale evidence is opt-in",
-)
-async def test_query_entries_50k_scalar_filter_p95(monkeypatch):
+def _runtime_source_fingerprint():
+    import jvspatial
+
+    roots = [
+        Path(__file__).resolve().parents[1] / "app",
+        Path(jvspatial.__file__).resolve().parent,
+    ]
+    digest = hashlib.sha256()
+    for root in roots:
+        for path in sorted(
+            path
+            for path in root.rglob("*")
+            if path.suffix in {".py", ".yaml", ".yml", ".json"}
+        ):
+            digest.update(str(path.relative_to(root)).encode())
+            digest.update(path.read_bytes())
+    backend = Path(__file__).resolve().parents[1]
+    for path in (
+        Path(__file__).resolve(),
+        backend / "pyproject.toml",
+        backend / "uv.lock",
+    ):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+@pytest.fixture
+async def scale_records():
     from jvspatial.api.auth.models import UserCreate
     from jvspatial.db import get_prime_database
 
@@ -43,6 +74,11 @@ async def test_query_entries_50k_scalar_filter_p95(monkeypatch):
     from app.services.app_graph import catalog_user
     from app.services.personal_workspace import ensure_personal_workspace
 
+    runtime_source = _runtime_source_fingerprint()
+    print(
+        f"Reference runtime: {sys.version.split()[0]}; source SHA256: {runtime_source}",
+        flush=True,
+    )
     run_id = uuid.uuid4().hex[:12]
     auth = await _get_auth_service().register_user(
         UserCreate(email=f"scale-{run_id}@example.com", password="scale-test-pass")
@@ -79,6 +115,10 @@ async def test_query_entries_50k_scalar_filter_p95(monkeypatch):
 
     track = await __import__("app.models.nodes", fromlist=["Track"]).Track.get(track_id)
     context = await track.get_context()
+    from app.models.nodes import Entry
+
+    # Bulk seeding bypasses Node.save; reproduce the production boot indexes.
+    await context.ensure_indexes(Entry)
     node_collection = context._get_collection_name("n")
     edge_collection = context._get_collection_name("e")
     schema = inner.schema_name
@@ -121,138 +161,31 @@ async def test_query_entries_50k_scalar_filter_p95(monkeypatch):
         assert await database.bulk_save(node_collection, node_rows) == len(node_rows)
         assert await database.bulk_save(edge_collection, edge_rows) == len(edge_rows)
 
-        original = permissions.get_user_accessible_entries
-
-        async def without_candidate_pushdown(user_id, requested_track_id, **kwargs):
-            kwargs.pop("candidate_query", None)
-            return await original(user_id, requested_track_id, **kwargs)
-
-        async def measure(repetitions: int) -> list[float]:
-            values = []
-            for _ in range(repetitions):
-                started = time.perf_counter()
-                result = await query_entries(
-                    user_id=auth.id,
-                    track_id=track_id,
-                    filters=[
-                        {"field": "title", "op": "eq", "value": "Selective match"}
-                    ],
-                    limit=20,
-                )
-                values.append((time.perf_counter() - started) * 1000)
-                assert result["total"] == 1
-                assert [row["id"] for row in result["entries"]] == [match_id]
-            return values
-
-        from app.services.agent_insights import (
-            activity_digest,
-            count_entries_grouped,
-            query_entries,
-        )
-
-        # Warm both query plans, then compare 20 runs so p95 is meaningful.
-        await measure(1)
-        pushed = await measure(20)
-        monkeypatch.setattr(
-            "app.services.permissions.get_user_accessible_entries",
-            without_candidate_pushdown,
-        )
-        await measure(1)
-        baseline = await measure(20)
-
-        pushed_p95 = sorted(pushed)[18]
-        baseline_p95 = sorted(baseline)[18]
-        print(
-            "\n50k query_entries p95 (ms): "
-            f"persistence pushdown={pushed_p95:.1f}, "
-            f"candidate hydration={baseline_p95:.1f}, "
-            f"median pushed={statistics.median(pushed):.1f}"
-        )
-        assert pushed_p95 <= 250, (
-            "selective scalar-filter query exceeded the frozen 250ms p95 budget: "
-            f"{pushed_p95:.1f}ms"
-        )
-
-        async def measure_operation(operation, repetitions: int = 20) -> list[float]:
-            values = []
-            for _ in range(repetitions):
-                started = time.perf_counter()
-                result = await operation()
-                values.append((time.perf_counter() - started) * 1000)
-                assert result is not None
-            return values
-
-        plain = await measure_operation(
-            lambda: query_entries(user_id=auth.id, track_id=track_id, limit=20)
-        )
-        keyword = await measure_operation(
-            lambda: query_entries(
-                user_id=auth.id,
-                track_id=track_id,
-                query="Selective match",
-                limit=20,
-            ),
-            repetitions=5,
-        )
-        grouped = await measure_operation(
-            lambda: count_entries_grouped(
-                user_id=auth.id,
-                group_by="track",
-                workspace_id=workspace.id,
-            )
-        )
-        digests = await measure_operation(
-            lambda: activity_digest(
-                user_id=auth.id,
-                scope="track",
-                scope_id=track_id,
-                workspace_id=workspace.id,
-            )
-        )
-        assert (await query_entries(user_id=auth.id, track_id=track_id, limit=20))[
-            "total"
-        ] == 50_000
-        keyword_result = await query_entries(
-            user_id=auth.id,
-            track_id=track_id,
-            query="Selective match",
-            limit=20,
-        )
-        assert keyword_result["total"] == 1
-        assert [row["id"] for row in keyword_result["entries"]] == [match_id]
         assert (
-            await count_entries_grouped(
-                user_id=auth.id, group_by="track", workspace_id=workspace.id
+            await database.count(
+                node_collection, {"entity": "Entry", "context.track_id": track_id}
             )
-        )["total_matched"] == 50_000
+            == 50_000
+        )
         assert (
-            await activity_digest(
-                user_id=auth.id,
-                scope="track",
-                scope_id=track_id,
-                workspace_id=workspace.id,
+            await database.count(
+                edge_collection, {"entity": "CONTAINS", "source": track_id}
             )
-        )["total_entries"] == 50_000
+            == 50_000
+        )
 
-        aggregate_p95 = {
-            "unfiltered query": sorted(plain)[18],
-            "grouped count": sorted(grouped)[18],
-            "activity digest": sorted(digests)[18],
+        # Warm qualification includes normal planner statistics after bulk seed.
+        async with inner._acquire_conn() as connection:
+            await connection.execute(f"ANALYZE {schema}.{node_collection}")
+            await connection.execute(f"ANALYZE {schema}.{edge_collection}")
+        del node_rows, edge_rows
+        yield {
+            "actor": auth.id,
+            "workspace": workspace.id,
+            "track": track_id,
+            "ids": set(ids),
+            "match": match_id,
         }
-        keyword_p95 = sorted(keyword)[4]
-        print(
-            "\n50k query surface p95 (ms): "
-            + ", ".join(f"{name}={value:.1f}" for name, value in aggregate_p95.items())
-        )
-        print(f"50k bounded keyword query p95 (ms): {keyword_p95:.1f}")
-        assert all(value <= 500 for value in aggregate_p95.values()), (
-            "50k broad query/count/digest exceeded the 500ms p95 budget: "
-            f"{aggregate_p95}"
-        )
-        assert keyword_p95 <= 2_000, (
-            "50k bounded keyword query exceeded the 2,000ms p95 budget: "
-            f"{keyword_p95:.1f}ms"
-        )
     finally:
         async with inner._acquire_conn() as connection:
             await connection.execute(
@@ -266,3 +199,134 @@ async def test_query_entries_50k_scalar_filter_p95(monkeypatch):
                 f"DELETE FROM {schema}.{node_collection} WHERE id = ANY($1::text[])",
                 ids,
             )
+
+        assert (
+            _runtime_source_fingerprint() == runtime_source
+        ), "Runtime source changed during qualification; rerun against a stable candidate"
+
+
+@pytest.mark.parametrize(
+    "surface,budget_ms,samples",
+    [
+        ("selective", 250, 20),
+        ("page", 500, 20),
+        ("governed", 500, 20),
+        ("keyword", 2000, 5),
+        ("count", 500, 20),
+        ("digest", 500, 20),
+    ],
+)
+async def test_50k_surface_accuracy_and_budget(
+    scale_records, surface, budget_ms, samples
+):
+    from app.services.agent_insights import (
+        activity_digest,
+        count_entries_grouped,
+        query_entries,
+    )
+
+    f = scale_records
+
+    async def operation():
+        if surface == "governed":
+            from app.schemas.governed_query import QuerySpec
+            from app.services.governed_query.engine import execute_query
+
+            result = await execute_query(
+                user_id=f["actor"],
+                workspace_id=f["workspace"],
+                spec=QuerySpec(mode="core_open", resource="entry", limit=20),
+            )
+            assert result.total_estimate == 50000
+            assert [row["id"] for row in result.rows] == sorted(f["ids"])[:20]
+            assert all(
+                ref.url_path and ref.workspace_id == f["workspace"]
+                for ref in result.object_refs
+            )
+        elif surface == "count":
+            result = await count_entries_grouped(
+                user_id=f["actor"], group_by="track", workspace_id=f["workspace"]
+            )
+            assert result["total_matched"] == 50000
+            assert len(result["groups"]) == 1 and result["groups"][0]["count"] == 50000
+        elif surface == "digest":
+            result = await activity_digest(
+                user_id=f["actor"],
+                workspace_id=f["workspace"],
+                scope="track",
+                scope_id=f["track"],
+            )
+            assert result["total_entries"] == 50000
+        else:
+            kwargs = {"user_id": f["actor"], "track_id": f["track"], "limit": 20}
+            if surface == "selective":
+                kwargs["filters"] = [
+                    {"field": "title", "op": "eq", "value": "Selective match"}
+                ]
+            elif surface == "keyword":
+                kwargs["query"] = "Selective match"
+            result = await query_entries(**kwargs)
+            if surface in {"keyword", "selective"}:
+                assert result["total"] == 1
+                assert [entry["id"] for entry in result["entries"]] == [f["match"]]
+            else:
+                assert result["total"] == 50000
+                selected = [entry["id"] for entry in result["entries"]]
+                assert len(selected) == len(set(selected)) == 20
+                assert set(selected).issubset(f["ids"])
+        return result
+
+    # Every timed invocation validates records; one warm-up is also validated.
+    await asyncio.wait_for(operation(), timeout=30)
+    values = []
+    allowed_exceedances = samples - math.ceil(0.95 * samples)
+    for index in range(samples):
+        started = time.perf_counter()
+        await asyncio.wait_for(operation(), timeout=30)
+        elapsed = (time.perf_counter() - started) * 1000
+        values.append(elapsed)
+        print(
+            f"{surface} sample {index + 1}/{samples}: {elapsed:.1f}ms; exact records verified",
+            flush=True,
+        )
+        assert sum(value > budget_ms for value in values) <= allowed_exceedances, (
+            f"{surface}: frozen {budget_ms}ms p95 budget cannot pass after {len(values)} samples; "
+            f"partial observations={values!r}; no passing percentile claimed"
+        )
+    p95 = sorted(values)[math.ceil(0.95 * samples) - 1]
+    print(
+        f"50k {surface} empirical p95: {p95:.1f}ms over {samples} samples", flush=True
+    )
+    assert p95 <= budget_ms
+
+
+@pytest.mark.skipif(
+    os.getenv("INTEGRAL_COMPARE_UNOPTIMIZED") != "1",
+    reason="disabled-pushdown comparison is explicitly opt-in",
+)
+async def test_50k_unoptimized_comparator_is_isolated(scale_records, monkeypatch):
+    from app.services import permissions
+    from app.services.agent_insights import query_entries
+
+    f = scale_records
+    original = permissions.get_user_accessible_entries
+
+    async def without_candidate_pushdown(user_id, track_id, **kwargs):
+        kwargs.pop("candidate_query", None)
+        return await original(user_id, track_id, **kwargs)
+
+    with monkeypatch.context() as comparison:
+        comparison.setattr(
+            permissions, "get_user_accessible_entries", without_candidate_pushdown
+        )
+        result = await asyncio.wait_for(
+            query_entries(
+                user_id=f["actor"],
+                track_id=f["track"],
+                filters=[{"field": "title", "op": "eq", "value": "Selective match"}],
+                limit=20,
+            ),
+            timeout=30,
+        )
+        assert result["total"] == 1 and result["entries"][0]["id"] == f["match"]
+    assert permissions.get_user_accessible_entries is original

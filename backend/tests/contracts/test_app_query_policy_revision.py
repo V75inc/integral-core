@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.schemas.capabilities import CapabilityDescriptor
 from app.schemas.governed_query import QuerySpec
 from app.schemas.policy import Decision
 from app.services.app_queries.dispatch import invoke_app_query
@@ -101,7 +102,20 @@ async def test_governed_query_unwraps_query_spec_items_and_scopes_refs() -> None
         ),
         patch(
             "app.services.governed_query.engine.get_or_compile_catalogue",
-            new=AsyncMock(return_value=SimpleNamespace(generation_id="catalogue-1")),
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    generation_id="catalogue-1",
+                    capabilities=[
+                        CapabilityDescriptor(
+                            namespace="example",
+                            key=spec.capability_key,
+                            kind="query",
+                            name="Read",
+                            app_id=app_id,
+                        )
+                    ],
+                )
+            ),
         ),
     ):
         result = await _run_declared(

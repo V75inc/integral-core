@@ -122,3 +122,24 @@ repository root before building the Core wheel, following `RELEASING.md`. The
 desktop bundler requires `desktop_assets_available` and desktop contract version
 1. Its ready probe waits for completed startup and registered audit storage;
 root `/health` alone does not qualify a desktop runtime.
+
+### Governed-read performance qualification
+
+The scale fixture in `tests/test_scale_query_benchmark.py` uses an isolated
+PostgreSQL test database, 50,000 actual Entries and containment edges, and a known
+record oracle. Run it separately from competing test suites with
+`INTEGRAL_TEST_DB=postgres`, `INTEGRAL_TEST_POSTGRES_DSN` pointing to a disposable
+service, and `INTEGRAL_RUN_SLOW_TESTS=1`. It fingerprints the runtime sources,
+configuration and fixture so edits during a run invalidate its evidence.
+Selective lookup, record pages, governed pages, counts and digests collect 20
+samples per cell; keyword lookup collects five. These are regression signals,
+not hosted release p95 qualification. A mathematically impossible passing cell
+fails early without presenting partial observations as a passing percentile.
+The optional disabled-pushdown comparator runs independently and cannot alter
+the native cells. Missing request measurements fail the query-budget test.
+
+Counts use fresh authority metadata rather than presentation payloads. Keyword
+candidates can be narrowed before hydration; the canonical matcher and graph
+admission still decide results. The bounded Unicode candidate derivation is
+coalesced and offloaded from asynchronous request handling. It introduces no
+embedding dependency and does not replace ranked hybrid search.

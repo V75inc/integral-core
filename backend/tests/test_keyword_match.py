@@ -1,15 +1,8 @@
-"""Unit tests for the shared keyword normalizer (mode-adaptive retrieval).
-
-``app/services/retrieval/keyword_match.py`` underpins the degraded
-(keyword/graph) retrieval path: when semantic search is OFF, both the
-graph-mode handler (``app/api/retrieve.py``) and the agent insight query
-(``app/services/agent_insights.py::query_entries``) tokenize the query and
-match by term overlap instead of literal full-string substring. These
-tests pin the tokenizer + matcher contract so that behaviour stays pure
-and dependency-free.
-"""
+"""Shared lexical matcher and conservative storage-prefilter regressions."""
 
 from __future__ import annotations
+
+import pytest
 
 from app.services.retrieval.keyword_match import (
     keyword_overlap,
@@ -115,3 +108,48 @@ def test_matches_keywords_empty_terms_matches_all():
     # No significant terms -> "no text filter" -> match everything.
     assert matches_keywords("anything at all", []) is True
     assert matches_keywords("", []) is True
+
+
+@pytest.mark.parametrize(
+    "query,text",
+    [
+        ("selective match", "A SELECTIVE match"),
+        ("kelvin", "\u212aelvin"),
+        ("hi", "h\u0130"),
+        ("file 42", "FILE 42"),
+        ("budget OR invoice", "An invoice"),
+        ("niño", "NIÑO"),
+    ],
+)
+def test_storage_candidate_never_drops_a_canonical_keyword_hit(query, text):
+    import re
+
+    from app.services.retrieval.keyword_match import keyword_candidate_query
+
+    assert matches_keywords(text, tokenize(query))
+    predicate = keyword_candidate_query(query)
+    pattern = predicate["$or"][0]["context.title"]["$regex"]
+    assert re.search(pattern, text)
+
+
+def test_candidate_is_only_a_prefilter_and_never_embeds_user_regex():
+    import re
+
+    from app.services.retrieval.keyword_match import keyword_candidate_query
+
+    pattern = keyword_candidate_query("id")["$or"][0]["context.title"]["$regex"]
+    assert re.search(pattern, "\u0130d")
+    assert not matches_keywords("\u0130d", tokenize("id"))
+    pattern = keyword_candidate_query("literal.*[evil]")["$or"][0]["context.title"][
+        "$regex"
+    ]
+    assert not re.search(pattern, "something else")
+
+
+@pytest.mark.parametrize(
+    "query", ["", "AND OR the", "x", "x" * 129, " ".join(f"term{i}" for i in range(17))]
+)
+def test_unbounded_or_empty_text_prefilters_fall_back_without_dropping_terms(query):
+    from app.services.retrieval.keyword_match import keyword_candidate_query
+
+    assert keyword_candidate_query(query) == {}

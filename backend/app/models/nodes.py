@@ -622,7 +622,13 @@ class EntryType(Node):
     updated_at: Optional[str] = None
 
 
-@compound_index([("track_id", 1), ("created_at", -1)], name="idx_entry_track_created")
+@compound_index(
+    [("track_id", 1), ("created_at", -1), ("id", -1)], name="idx_entry_track_created"
+)
+@compound_index(
+    [("track_id", 1), ("updated_at", -1), ("id", -1)], name="idx_entry_track_updated"
+)
+@compound_index([("track_id", 1), ("id", 1)], name="idx_entry_track_identity")
 @compound_index([("author_id", 1), ("created_at", -1)], name="idx_entry_author_created")
 class Entry(Node):
     """Fundamental unit of content within a Track."""

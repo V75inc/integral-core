@@ -22,7 +22,7 @@ class FilterExpr(BaseModel):
 
 
 class QuerySpec(BaseModel):
-    """v1 hybrid query: declared App capability OR open Core primitives only."""
+    """Structured reads through declared App or open Core contracts."""
 
     mode: QueryMode
     # declared_capability
@@ -37,7 +37,14 @@ class QuerySpec(BaseModel):
     cursor: Optional[str] = None
     limit: int = Field(default=50, ge=1, le=200)
     max_depth: int = Field(default=1, ge=0, le=2)
-    retrieval_mode: RetrievalMode = "deterministic"
+    retrieval_mode: RetrievalMode = Field(
+        default="deterministic",
+        description=(
+            "Structured QuerySpec supports deterministic reads. Semantic/hybrid "
+            "values are reserved and explicitly rejected; use the retrieval service "
+            "for ranked evidence search."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_mode_fields(self) -> "QuerySpec":

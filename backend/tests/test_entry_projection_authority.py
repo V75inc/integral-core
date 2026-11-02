@@ -235,6 +235,7 @@ async def test_entry_candidate_storage_failure_is_unavailable(projection, monkey
     database = context.database
     original_find = database.find
     original_count = database.count
+    original_projected = getattr(database, "find_projected", None)
 
     def selects_entries(query):
         return query.get("entity") == Entry._entity_name() or any(
@@ -253,8 +254,15 @@ async def test_entry_candidate_storage_failure_is_unavailable(projection, monkey
             raise RuntimeError("injected primary candidate count outage")
         return await original_count(collection, query, **kwargs)
 
+    async def failing_projected(collection, query, **kwargs):
+        if selects_entries(query):
+            raise RuntimeError("injected projected candidate read outage")
+        return await original_projected(collection, query, **kwargs)
+
     monkeypatch.setattr(database, "find", failing_find)
     monkeypatch.setattr(database, "count", failing_count)
+    if callable(original_projected):
+        monkeypatch.setattr(database, "find_projected", failing_projected)
     with pytest.raises(AuthorizationUnavailableError):
         await project(projection, reader.id, workspace, track)
 
@@ -628,3 +636,27 @@ async def test_scrolling_page_admits_only_page_sized_windows(monkeypatch):
     assert windows == [3]
     assert metadata["total"] is None
     assert metadata["has_more"] and metadata["next_cursor"]
+
+
+async def test_exact_count_keeps_authorized_entity_when_payload_cannot_render():
+    """Payload quality is not an authority fact or a reason to invent zero."""
+    owner, workspace, _, track, entry = await graph()
+    database = (await track.get_context()).database
+    await database.find_one_and_update(
+        "node", {"id": entry.id}, {"$set": {"context.title": None}}
+    )
+    assert await count_user_accessible_entries(owner.id, track.id) == 1
+    with pytest.raises(AuthorizationUnavailableError):
+        await get_user_accessible_entry_page(
+            owner.id, track.id, limit=20, workspace_id=workspace.id
+        )
+
+
+async def test_metadata_admission_still_fails_closed_on_invalid_authority_fact():
+    owner, _, _, track, entry = await graph()
+    database = (await track.get_context()).database
+    await database.find_one_and_update(
+        "node", {"id": entry.id}, {"$set": {"context.visibility": "invalid"}}
+    )
+    with pytest.raises(AuthorizationUnavailableError):
+        await count_user_accessible_entries(owner.id, track.id)

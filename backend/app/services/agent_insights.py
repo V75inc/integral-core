@@ -17,6 +17,7 @@ helper — keeps the agent from having to do date math itself.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -511,12 +512,24 @@ async def query_entries(
 
     normalized_filters = normalize_filter_expressions(filters)
     candidate_query = _entry_persistence_candidate_query(normalized_filters)
+    from app.services.entry_access_projection import merge_queries
+    from app.services.retrieval.keyword_match import keyword_candidate_query, tokenize
+
+    query_terms = tokenize(query or "")
+    # Text narrows candidates before Node construction. Current graph admission
+    # and the canonical matcher below still decide every returned row. A pinned
+    # result set must read its complete membership before classifying absences.
+    if query_terms and result_set_id is None:
+        candidate_query = merge_queries(
+            candidate_query or {},
+            await asyncio.to_thread(keyword_candidate_query, query or ""),
+        )
 
     # Plain reads and exact scalar filters use database keyset pages. Complex
     # predicates continue through the canonical in-memory evaluator below.
     if (
         result_set_id is None
-        and not query
+        and not query_terms
         and not status
         and not statuses
         and not tags
@@ -557,7 +570,6 @@ async def query_entries(
                             "context.created_at",
                             {
                                 "$or": [
-                                    {"context.updated_at": {"$exists": False}},
                                     {"context.updated_at": None},
                                     {"context.updated_at": ""},
                                 ]
@@ -1103,7 +1115,6 @@ async def activity_digest(
                     "$and": [
                         {
                             "$or": [
-                                {"context.updated_at": {"$exists": False}},
                                 {"context.updated_at": None},
                                 {"context.updated_at": ""},
                             ]

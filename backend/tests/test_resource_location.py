@@ -614,3 +614,20 @@ async def test_bulk_entry_prefix_reuse_does_not_hide_invalid_later_visibility():
         await locate_resources(
             "entry", [first.id, bad.id], workspace_hints=[workspace.id]
         )
+
+
+@pytest.mark.asyncio
+async def test_reused_parent_still_rejects_unhydratable_later_entry():
+    from app.services.resource_location import locate_resources
+
+    _, workspace, _, track, first = await graph()
+    bad = await Entry.create(title="Invalid payload", track_id=track.id)
+    await track.connect(bad, edge=CONTAINS)
+    database = (await track.get_context()).database
+    await database.find_one_and_update(
+        "node", {"id": bad.id}, {"$set": {"context.title": None}}
+    )
+    with pytest.raises(AuthorizationUnavailableError):
+        await locate_resources(
+            "entry", [first.id, bad.id], workspace_hints=[workspace.id]
+        )

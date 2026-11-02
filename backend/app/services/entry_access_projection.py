@@ -18,7 +18,7 @@ from jvspatial.core.pager import (
 from jvspatial.db.database import resolve_sort_value
 
 from app.exceptions import AuthorizationUnavailableError, BadRequestError
-from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, OWNS
+from app.models.edges import COLLABORATES_ON, CONTAINS, EXCLUDED_FROM, OWNS
 from app.models.nodes import Entry, Track, Workspace
 from app.services.authority_facts import relationship_literal
 from app.services.resource_location import (
@@ -28,6 +28,15 @@ from app.services.resource_location import (
 )
 
 WINDOW = 500
+METADATA_WINDOW = 2500
+_AUTHORITY_FIELDS = [
+    "id",
+    "entity",
+    "context.track_id",
+    "context.visibility",
+    "track_id",
+    "visibility",
+]
 
 
 def _encode_position(record: dict, fields: list[tuple[str, int]]) -> str:
@@ -290,8 +299,61 @@ async def admit_records(
         allowed_app_states=allowed_app_states,
         selected_records=records,
         records_out=canonical_records,
+        validate_entry_payload=False,
     )
     context = await user.get_context()
+    if owner_governance_allowed():
+        # Match point resolution: protected ownership is an independent grant,
+        # not an inherited role supplemented by per-Entry collaborator facts.
+        # Complete containment and authority validation above still apply; the
+        # ordinary/delegated authority mode never takes this path.
+        owner_workspaces: dict[str, str] = {}
+        owner_rows = []
+        for record in records:
+            location = locations.get(record["id"])
+            if (
+                location is None
+                or (workspace_id and location.workspace_id != workspace_id)
+                or (track_id and location.track_id != track_id)
+                or (app_id and location.app_id != app_id)
+            ):
+                break
+            if location.workspace_id not in owner_workspaces:
+                workspace = await context._deserialize_entity(
+                    Workspace, canonical_records[location.workspace_id]
+                )
+                owner_workspaces[location.workspace_id] = (
+                    await _current_workspace_role(user, workspace)
+                    if workspace
+                    else "none"
+                )
+            if owner_workspaces[location.workspace_id] != "owner":
+                break
+            owner_rows.append(
+                {
+                    **canonical_records[record["id"]],
+                    "__parent_navigation": {
+                        "track": _parent_navigation_record(
+                            canonical_records,
+                            location.track_id,
+                            location.workspace_id,
+                            "title",
+                        ),
+                        "app": (
+                            _parent_navigation_record(
+                                canonical_records,
+                                location.app_id,
+                                location.workspace_id,
+                                "name",
+                            )
+                            if location.app_id
+                            else None
+                        ),
+                    },
+                }
+            )
+        if len(owner_rows) == len(records):
+            return owner_rows
     grants = await context.database.find(
         "edge",
         {
@@ -431,23 +493,76 @@ async def iter_records(
     batch_size: int = WINDOW,
     cursor: str | None = None,
     allowed_app_states: frozenset[str] = DATA_APP_STATES,
+    projection: list[str] | None = None,
 ) -> AsyncIterator[list[dict]]:
     """Advance by raw rows, including rejected/unhydratable candidate windows."""
     context = get_default_context()
     fields = keyset_sort_fields(sort)
-    size = max(1, min(WINDOW, batch_size))
+    projected_reader = getattr(context.database, "find_projected", None)
+    projected = projection is not None and callable(projected_reader)
+    native_projection = projected and getattr(
+        context.database, "supports_native_projected_reads", False
+    )
+    ceiling = METADATA_WINDOW if native_projection else WINDOW
+    size = max(1, min(ceiling, batch_size))
+    projected_fields = list(
+        dict.fromkeys(_AUTHORITY_FIELDS + (projection or []) + [f for f, _ in fields])
+    )
     position = decode_keyset_cursor(cursor)
     if position and "ts" in position and "sort" not in position:
         position = {"id": position.get("id"), "sort": position["ts"]}
     try:
         while True:
             after = _after_position(fields, position)
-            rows = await context.database.find(
-                "node",
-                merge_queries({"entity": Entry._entity_name()}, query, after or {}),
-                limit=size + 1,
-                sort=fields,
+            candidate = merge_queries(
+                {"entity": Entry._entity_name()}, query, after or {}
             )
+            if projected:
+                flat_rows = await projected_reader(
+                    "node",
+                    candidate,
+                    fields=projected_fields,
+                    limit=size + 1,
+                    sort=fields,
+                )
+                rows = []
+                for flat in flat_rows:
+                    if not isinstance(flat, dict) or not set(flat).issubset(
+                        projected_fields
+                    ):
+                        raise AuthorizationUnavailableError()
+                    # A projection is an internal authority/ranking envelope,
+                    # never an Entry payload. Missing and explicit null stay
+                    # distinct; do not fill model defaults into these records.
+                    row: dict[str, Any] = {"context": {}, "__entry_projection": True}
+                    for path, value in flat.items():
+                        target = row
+                        segments = path.split(".")
+                        for segment in segments[:-1]:
+                            target = target.setdefault(segment, {})
+                        target[segments[-1]] = value
+                    rows.append(row)
+                legacy = [
+                    row["id"]
+                    for row in rows
+                    if "track_id" not in row["context"]
+                    or "visibility" not in row["context"]
+                ]
+                if legacy:
+                    # A missing canonical field can be a legitimate legacy
+                    # representation, or a malformed context container. Read
+                    # those complete records rather than inventing context={}.
+                    complete = await context.database.find(
+                        "node", {"id": {"$in": legacy}}, limit=len(legacy) + 1
+                    )
+                    by_id = {row.get("id"): row for row in complete}
+                    if len(complete) != len(legacy) or set(by_id) != set(legacy):
+                        raise AuthorizationUnavailableError()
+                    rows = [by_id.get(row["id"], row) for row in rows]
+            else:
+                rows = await context.database.find(
+                    "node", candidate, limit=size + 1, sort=fields
+                )
             page = rows[:size]
             admitted = await admit_records(
                 user_id,
@@ -477,12 +592,111 @@ async def hydrate_records(records: list[dict]) -> list[Entry]:
     context = get_default_context()
     result = []
     for record in records:
+        if record.get("__entry_projection"):
+            raise AuthorizationUnavailableError()
         node = await context._deserialize_entity(Entry, record)
         if node is None:
             raise AuthorizationUnavailableError()
         node._read_parent_navigation = record.get("__parent_navigation")
         result.append(node)
     return result
+
+
+@_unavailable_on_source_error
+async def count_bound_records(
+    user_id: str,
+    track_id: str,
+    query: dict[str, Any],
+    *,
+    workspace_id: str | None = None,
+    app_id: str | None = None,
+) -> int | None:
+    """Use optional storage facts only after current protected-owner admission.
+
+    The framework supplies literal health and one-hop cardinality, never a
+    permission. Ordinary authority, unsupported adapters/predicates and bounded
+    aggregate overflow retain the canonical streaming executor. No summary is
+    reused across calls, and a projected/partial total is never returned.
+    """
+    from app.services.permissions import get_user_node
+    from app.services.workspace_governance import owner_governance_allowed
+    from app.services.workspace_permissions import _current_workspace_role
+
+    context = get_default_context()
+    if not owner_governance_allowed() or not getattr(
+        context.database, "supports_native_graph_binding_summary", False
+    ):
+        return None
+    reader = getattr(context.database, "summarize_graph_bindings", None)
+    if not callable(reader):
+        return None
+    candidate = merge_queries(
+        {"entity": Entry._entity_name()}, query, {"context.track_id": track_id}
+    )
+    if not await context.database.find_ids("node", candidate, limit=1):
+        # The canonical stream also returns zero without an audience to admit.
+        # A raw empty result grants nothing; source failures still propagate.
+        # This avoids repeating ancestor/role discovery for empty partitions.
+        return 0
+
+    # Feature-detected: the published baseline need not expose these new types.
+    from jvspatial.db.graph_bindings import GraphBindingSummary, LiteralBindingFact
+
+    async def current_owner_location():
+        user = await get_user_node(user_id)
+        if user is None:
+            return None
+        records: dict[str, dict] = {}
+        locations = await locate_resources(
+            "track",
+            [track_id],
+            records_out=records,
+            workspace_hints=[workspace_id] if workspace_id else [],
+            allowed_app_states=DATA_APP_STATES,
+        )
+        location = locations.get(track_id)
+        if (
+            location is None
+            or (workspace_id and location.workspace_id != workspace_id)
+            or (app_id and location.app_id != app_id)
+        ):
+            return None
+        workspace = await context._deserialize_entity(
+            Workspace, records[location.workspace_id]
+        )
+        if (
+            workspace is None
+            or await _current_workspace_role(user, workspace) != "owner"
+        ):
+            return None
+        return location
+
+    before = await current_owner_location()
+    if before is None:
+        return None
+    summary = await reader(
+        candidate,
+        record_entity=Entry._entity_name(),
+        edge_entity=CONTAINS._entity_name(),
+        parent_id=track_id,
+        facts=(
+            LiteralBindingFact("context.track_id", (track_id,), "track_id"),
+            LiteralBindingFact(
+                "context.visibility", ("inherit", "private"), "visibility"
+            ),
+        ),
+    )
+    if summary is None:
+        return None
+    if not isinstance(summary, GraphBindingSummary):
+        raise AuthorizationUnavailableError()
+    if not summary.complete:
+        return None
+    if summary.invalid_facts or summary.invalid_edges:
+        raise AuthorizationUnavailableError()
+    if not owner_governance_allowed() or await current_owner_location() != before:
+        raise AuthorizationUnavailableError()
+    return summary.bound
 
 
 def _compare_values(
@@ -547,9 +761,10 @@ async def _select_portable_page(
     jvspatial 0.1.1 PostgreSQL sorts custom values as text, while its JSON
     adapter uses native values. Scalar/custom sorts need this portable path:
     an adapter LIMIT before numeric ordering otherwise loses the true top N.
-    ID/date ordering keeps the storage keyset path. This fallback scans the
-    candidate audience; indexed typed sorting and global work budgets remain
-    qualification work, rather than silently returning a wrong page.
+    Exact-total reads also use this single ID-ordered admission scan, avoiding
+    repeated database sorts of the whole audience for each count window.
+    Reads without totals keep indexed storage keyset ordering when supported.
+    Every raw window still receives current canonical admission.
     """
     after = _cursor_values(decode_keyset_cursor(cursor), fields)
 
@@ -570,6 +785,8 @@ async def _select_portable_page(
         track_id=track_id,
         app_id=app_id,
         sort=[("id", 1)],
+        projection=[field for field, _ in fields],
+        batch_size=METADATA_WINDOW,
     ):
         total += len(records)
         for record in records:
@@ -587,7 +804,30 @@ async def _select_portable_page(
     ordered = sorted([item.obj for item in heap], key=cmp_to_key(compare))
     page = ordered[offset : offset + limit]
     has_more = remaining > offset + len(page)
-    return await hydrate_records(page), {
+    if page and page[0].get("__entry_projection"):
+        context = get_default_context()
+        ids = [record["id"] for record in page]
+        current = await context.database.find(
+            "node", {"id": {"$in": ids}}, limit=len(ids) + 1
+        )
+        by_id = {record.get("id"): record for record in current}
+        if len(current) != len(ids) or set(by_id) != set(ids):
+            raise AuthorizationUnavailableError()
+        # Selection isn't a permission lease. Fetch the complete current
+        # payload and repeat canonical admission before rendering any Entry.
+        current = await admit_records(
+            user_id,
+            [by_id[node_id] for node_id in ids],
+            workspace_id=workspace_id,
+            track_id=track_id,
+            app_id=app_id,
+        )
+        if [record["id"] for record in current] != ids:
+            raise AuthorizationUnavailableError()
+        hydrated = await hydrate_records(current)
+    else:
+        hydrated = await hydrate_records(page)
+    return hydrated, {
         "total": total if include_total else None,
         "has_more": has_more,
         "next_cursor": (
@@ -611,9 +851,41 @@ async def select_page(
 ) -> tuple[list[Entry], dict]:
     """Count the admitted audience and refill pages past rejected raw records."""
     fields = keyset_sort_fields(sort)
+    if (
+        include_total
+        and track_id
+        and all(
+            field in {"id", "context.created_at", "context.updated_at"}
+            for field, _ in fields
+        )
+    ):
+        exact = await count_bound_records(
+            user_id, track_id, query, workspace_id=workspace_id, app_id=app_id
+        )
+        if exact is not None:
+            # The aggregate proves the exact audience without shipping it to
+            # Python. A separate current page still performs canonical
+            # admission and full-payload hydration, including denied refill.
+            entries, metadata = await select_page(
+                user_id,
+                query,
+                limit=limit,
+                offset=offset,
+                cursor=cursor,
+                include_total=False,
+                sort=sort,
+                workspace_id=workspace_id,
+                track_id=track_id,
+                app_id=app_id,
+            )
+            return entries, {**metadata, "total": exact}
     # The portable comparator is needed for custom/numeric values and
     # labels whose database collation can differ from native ordering.
-    if any(
+    # The 50K PostgreSQL fixture repeated 400–470ms sorts per 501-row window
+    # when exact totals walked the entire audience in presentation order.
+    # A bounded heap over one ID-ordered scan preserves exact scope/counts
+    # without requiring a full sorted audience for each window.
+    if include_total or any(
         field not in {"id", "context.created_at", "context.updated_at"}
         for field, _ in fields
     ):

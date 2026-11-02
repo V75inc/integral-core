@@ -16,6 +16,27 @@ The [commercial host integration guide](commercial-host-integration.md) defines 
 
 The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.
 
+`QuerySpec` is a structured read contract. Its `retrieval_mode` supports
+`deterministic`; the reserved `semantic` and `hybrid` values produce an explicit
+`unsupported_retrieval_mode` error rather than silently running a structured
+query. Use the retrieval/search facade for ranked lexical, semantic or hybrid
+evidence. Ranked top-k results do not establish an exact count or absence.
+
+Open-Core Entry queries stream candidate pages, retain only the requested
+page/offset selection and count the complete authorized match set. Exact stable
+identity filters can narrow persistence candidates; current target gates,
+permissions and canonical field evaluation still decide results. Broad exact
+counts can require a complete admission scan; an output limit is not a source
+work limit or a latency guarantee. Resource references carry canonical relative
+navigation paths.
+
+New open-Core cursors bind the query, principal and workspace. Send unchanged
+query parameters with the returned opaque cursor; malformed offsets and a
+mismatched new cursor are rejected. Original offset-only cursors remain readable
+for compatibility. Every page rechecks current authority; cursors grant no
+permission and provide no snapshot guarantee across concurrent changes.
+
+
 `current_user_profile()` returns the active execution principal's profile ID and
 bounded display name. It accepts no user identifier and does not disclose email;
 an unavailable or inactive identity is an error, not a substitute identity.
@@ -279,3 +300,54 @@ cached or approximate dataset total. Custom-value sorting uses the canonical
 portable bounded-heap path where adapter ordering differs, so it can require a
 scan while keeping memory/page hydration bounded. High-cardinality grouping must
 be narrowed. Pages are live reads, not frozen reports.
+
+### Authority, payloads and contract generations
+
+An exact count proves the current audience from persisted identity, leaf binding,
+visibility, complete ancestry and current grants. Presentation payloads do not
+supply authority. An authorized stored Entry with an unrenderable payload still
+counts; selecting that Entry returns an unavailable error rather than silently
+hiding it or inventing empty fields. Malformed or conflicting authority facts
+remain unavailable. Noncanonical containment never grants access.
+
+Where the adapter supports it, internal scans project only authority and sort
+metadata. Legacy field representations retain conflict checks, and incomplete
+legacy envelopes fall back to a complete primary record. A projected envelope is
+never hydrated as an Entry. Selected results reload their full payload and repeat
+current admission before export. This optimization is feature-detected; adapters
+without it retain the bounded complete-record path. Counts and pages remain live
+reads, not transaction snapshots or reusable permission grants.
+
+Capability generations identify workspace contract content, not a process boot
+or compile timestamp. Registry definitions and current persisted App lifecycle,
+package revisions and extension-view metadata participate in cache invalidation.
+Removed Apps cannot be revived from a process-local registry or cached Node.
+A supplied generation is refreshed and checked before query dispatch, including
+on a cold worker. Different contracts reject stale generations; identical
+contracts retain their generation across workers and restarts. Current policy
+and canonical scope are still checked when a capability runs. Preview compilation
+does not replace the active generation.
+
+Structured `QuerySpec` executes deterministic reads. Its reserved `semantic` and
+`hybrid` values fail explicitly; ranked lexical, semantic and hybrid evidence
+search uses the retrieval service. The resident tool schema advertises only the
+implemented structured mode. Open Entry queries share the same current admission
+and bounded page/stream primitives as ordinary reads. Additional target gates
+are evaluated before page positions and totals, including continuation past
+denied candidates.
+
+Declared query selection uses current catalogue definitions and the caller's
+visible Apps, rather than process-local orphan registrations. Namespaced keys
+must match the advertised namespace; periods inside a declared key are preserved.
+Query results preserve explicit zero and unknown totals and carry the evaluated
+policy revision. Standard `rows`, `items` and `entries` collections, plus a single
+legacy named collection, are recognized without App-specific vocabulary.
+References use typed substrate IDs and local routes; provider-supplied URLs do
+not control navigation, and following a link checks access again. Operation
+advertisements use the same effective policy-action resolver as dispatch.
+
+Optional framework aggregates are an optimization for a freshly proved protected
+Workspace owner. They do not replace ordinary authority. Incomplete or unsupported
+aggregates retain the canonical executor; malformed facts and source failures
+cannot become a successful zero. Candidate framework wheels must be qualified
+separately from the published dependency before release and pinning.

@@ -1,4 +1,4 @@
-"""Optional response header with per-request DB round-trip count."""
+"""Optional pre-response snapshot of logical database operation metrics."""
 
 from __future__ import annotations
 
@@ -20,7 +20,11 @@ def _enabled() -> bool:
 
 
 class PerfHeaderMiddleware:
-    """Emit ``X-DB-Round-Trip-Count`` when perf headers are enabled.
+    """Emit the compatibility ``X-DB-Round-Trip-Count`` when metrics are available.
+
+    This counts observable adapter operations before response start, not driver
+    statements or later streaming/background work. An unavailable recorder
+    omits the header rather than presenting a false zero.
 
     Pure ASGI middleware. Counting goes through the mutable holder in
     ``app.services.db_metrics`` (see that module for why the int-valued
@@ -42,17 +46,22 @@ class PerfHeaderMiddleware:
             return
 
         enabled = _enabled()
+        instrumented = False
         if enabled:
             # Prime DB may have been built by jvspatial's DatabaseConfigurator
             # with a Null recorder; swap in the counting one (idempotent).
-            install_request_op_recorder_on_prime_db()
+            instrumented = install_request_op_recorder_on_prime_db()
 
         holder = _RequestDBOps()
         ops_token = request_db_ops.set(holder)
         imap_token = begin_request_identity_map()
 
         async def send_with_header(message: Dict[str, Any]) -> None:
-            if message.get("type") == "http.response.start" and enabled:
+            if (
+                message.get("type") == "http.response.start"
+                and enabled
+                and instrumented
+            ):
                 headers = list(message.get("headers") or [])
                 headers.append(
                     (b"x-db-round-trip-count", str(holder.ops).encode("latin-1"))

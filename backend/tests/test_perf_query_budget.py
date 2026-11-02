@@ -57,7 +57,8 @@ async def test_list_feed_query_budget(
     monkeypatch.setenv("INTEGRAL_PERF_HEADER_ENABLED", "1")
     resp = await authenticated_client.get("/api/feed", params={"limit": 20})
     assert resp.status_code == 200
-    count = int(resp.headers.get("X-DB-Round-Trip-Count") or "0")
+    assert "X-DB-Round-Trip-Count" in resp.headers
+    count = int(resp.headers["X-DB-Round-Trip-Count"])
     # Measured 29 on 0.0.18 (2026-09-13); prior ceiling 30.
     assert count <= 32, f"feed used {count} DB round-trips (budget 32)"
 
@@ -124,7 +125,8 @@ async def test_retrieve_graph_query_budget(
         },
     )
     assert resp.status_code == 200, resp.text
-    count = int(resp.headers.get("X-DB-Round-Trip-Count") or "0")
+    assert "X-DB-Round-Trip-Count" in resp.headers
+    count = int(resp.headers["X-DB-Round-Trip-Count"])
     for i in range(12):
         created = await authenticated_client.post(
             "/api/entries",

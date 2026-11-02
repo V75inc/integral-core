@@ -54,6 +54,23 @@ class ResourceLocation:
     track_id: str = ""
 
 
+def _entry_parent_source(record: dict, parents: list[dict]) -> str | None:
+    """Validate the fresh leaf binding independently of shared parent traversal."""
+    relationship_literal(record, "visibility", {"inherit", "private"})
+    scalar_parent = required_node_text(record, "track_id")
+    for row in parents:
+        if (
+            row.get("target") != record["id"]
+            or row.get("entity") != CONTAINS._entity_name()
+            or not isinstance(row.get("source"), str)
+            or not row["source"]
+        ):
+            raise AuthorizationUnavailableError()
+    if len(parents) != 1 or scalar_parent != parents[0]["source"]:
+        return None
+    return parents[0]["source"]
+
+
 class ResourceLocationWalker(Walker):
     """Resolve the complete raw parent set before hydrating or granting."""
 
@@ -64,12 +81,14 @@ class ResourceLocationWalker(Walker):
     allowed_app_states: frozenset[str] = ACTIVE_APP_STATES
     expected_view_model_id: str = ""
     view_model_matched: bool = False
-    _records: dict[str, dict] = PrivateAttr(default_factory=dict)
-    _root_checked: set[str] = PrivateAttr(default_factory=set)
-    _parents: dict[tuple[str, str], list[dict]] = PrivateAttr(default_factory=dict)
-    _missing: set[str] = PrivateAttr(default_factory=set)
+    _records: dict[str, dict] = PrivateAttr(default_factory=lambda: {})
+    _root_checked: set[str] = PrivateAttr(default_factory=lambda: set())
+    _parents: dict[tuple[str, str], list[dict]] = PrivateAttr(
+        default_factory=lambda: {}
+    )
+    _missing: set[str] = PrivateAttr(default_factory=lambda: set())
     _entry_parent_locations: dict[str, ResourceLocation | None] = PrivateAttr(
-        default_factory=dict
+        default_factory=lambda: {}
     )
 
     async def read_node(self, model: Any, node_id: str, context: Any) -> Any:
@@ -374,14 +393,9 @@ class ResourceLocationWalker(Walker):
     @on_visit(Entry)
     async def on_entry(self, here: Entry) -> None:
         context = await here.get_context()
-        relationship_literal(
-            self._records[here.id], "visibility", {"inherit", "private"}
-        )
         parents = await self.parent_rows(here.id, CONTAINS, 1, context)
-        if len(parents) != 1 or (
-            required_node_text(self._records[here.id], "track_id")
-            != parents[0]["source"]
-        ):
+        parent_id = _entry_parent_source(self._records[here.id], parents)
+        if parent_id is None:
             self.valid = False
             return
         # Each Entry still validates its complete raw parent cardinality, scalar
@@ -389,7 +403,6 @@ class ResourceLocationWalker(Walker):
         # freshly prefetched immutable window; traverse/validate it once per Track.
         # deviation: 2,501-record counts took 3.95s after query batching, dominated
         # by repeating the identical Track/App/root Walker prefix for every Entry.
-        parent_id = parents[0]["source"]
         if parent_id in self._entry_parent_locations:
             location = self._entry_parent_locations[parent_id]
             if location is None:
@@ -528,6 +541,7 @@ async def locate_resources(
     allowed_app_states: frozenset[str] = ACTIVE_APP_STATES,
     records_out: dict[str, dict] | None = None,
     selected_records: list[dict] | None = None,
+    validate_entry_payload: bool = True,
 ) -> dict[str, ResourceLocation | None]:
     """Batch fresh raw ancestors; each candidate still traverses its complete path.
 
@@ -540,20 +554,25 @@ async def locate_resources(
     if model is None or not resource_ids:
         return {}
     ids = list(dict.fromkeys(resource_ids))
-    if len(ids) > 500:
+    # Thin admission envelopes omit content. Larger bounded frontiers avoid
+    # repeating the same complete parent proof for every 500 small leaves.
+    maximum = 2500 if kind == "entry" and not validate_entry_payload else 500
+    if len(ids) > maximum:
         bulk_result: dict[str, ResourceLocation | None] = {}
-        for offset in range(0, len(ids), 500):
+        for offset in range(0, len(ids), maximum):
+            selected_ids = set(ids[offset : offset + maximum])
             bulk_result.update(
                 await locate_resources(
                     kind,
-                    ids[offset : offset + 500],
+                    ids[offset : offset + maximum],
                     workspace_hints=workspace_hints,
                     allowed_app_states=allowed_app_states,
                     records_out=records_out,
+                    validate_entry_payload=validate_entry_payload,
                     selected_records=[
                         row
                         for row in selected_records or []
-                        if row.get("id") in ids[offset : offset + 500]
+                        if row.get("id") in selected_ids
                     ],
                 )
             )
@@ -561,10 +580,11 @@ async def locate_resources(
     try:
         context = get_default_context()
         records: dict[str, dict] = {}
+        selected_ids = set(ids)
         for row in selected_records or []:
             node_id = row.get("id")
             if (
-                node_id not in ids
+                node_id not in selected_ids
                 or node_id in records
                 or row.get("entity") != model._entity_name()
                 or not isinstance(row.get("context"), dict)
@@ -612,10 +632,20 @@ async def locate_resources(
             edge_rows = await context.database.find(
                 "edge",
                 {
-                    "target": {"$in": sorted(frontier)},
-                    "entity": {
-                        "$in": [CATALOGS._entity_name(), CONTAINS._entity_name()]
-                    },
+                    "$or": [
+                        {
+                            "target": {"$in": sorted(frontier)},
+                            "entity": CONTAINS._entity_name(),
+                        },
+                        {
+                            "target": {
+                                "$in": sorted(
+                                    frontier - set(ids) if kind == "entry" else frontier
+                                )
+                            },
+                            "entity": CATALOGS._entity_name(),
+                        },
+                    ],
                 },
                 limit=4 * len(frontier) + 1,
             )
@@ -654,6 +684,63 @@ async def locate_resources(
         checked: set[str] = set()
         entry_parents: dict[str, ResourceLocation | None] = {}
         for node_id in ids:
+            if kind == "entry" and not validate_entry_payload and node_id in records:
+                # Admission uses fresh raw authority facts, not presentation
+                # fields. Full Entry validation happens when a row is hydrated
+                # for export; exact counts must not silently drop stored rows
+                # because an unrelated payload field cannot be rendered.
+                record = records[node_id]
+                if record.get("entity") != Entry._entity_name():
+                    raise AuthorizationUnavailableError()
+                parent_id = _entry_parent_source(
+                    record, parents.get((node_id, CONTAINS._entity_name()), [])
+                )
+                if parent_id is None:
+                    result[node_id] = None
+                    continue
+                if parent_id not in entry_parents:
+                    walker = ResourceLocationWalker(
+                        allowed_app_states=allowed_app_states
+                    )
+                    walker._records, walker._parents = records, parents
+                    walker._missing, walker._root_checked = missing, checked
+                    parent = await walker.read_node(Track, parent_id, context)
+                    if parent is None:
+                        entry_parents[parent_id] = None
+                    else:
+                        await walker.spawn(parent)
+                        if any(
+                            isinstance(item, dict) and "hook_error" in item
+                            for item in await walker.get_report()
+                        ):
+                            raise AuthorizationUnavailableError()
+                        entry_parents[parent_id] = (
+                            ResourceLocation(
+                                walker.workspace_id, walker.app_id, walker.track_id
+                            )
+                            if walker.valid and walker.workspace_id
+                            else None
+                        )
+                result[node_id] = entry_parents[parent_id]
+                continue
+            if kind == "entry" and node_id in records:
+                # The complete raw window and each unique ancestor path are
+                # fresh in this invocation. Reuse the Walker-proved parent, not
+                # a cached permission. Every leaf is still hydrated and checks
+                # raw edge cardinality, scalar binding and visibility.
+                # deviation: profiling the 50K fixture spent 17.6s constructing
+                # 7,551 Walkers versus 0.29s in Entry visit hooks; constructing
+                # another multi-hop Walker for an already-proved parent repeats
+                # framework setup rather than adding an authority check.
+                record = records[node_id]
+                parent_rows = parents.get((node_id, CONTAINS._entity_name()), [])
+                parent_id = _entry_parent_source(record, parent_rows)
+                if parent_id in entry_parents:
+                    node = await context._deserialize_entity(Entry, record)
+                    if node is None:
+                        raise AuthorizationUnavailableError()
+                    result[node_id] = entry_parents[parent_id]
+                    continue
             walker = ResourceLocationWalker(allowed_app_states=allowed_app_states)
             walker._records = records
             walker._parents = parents
