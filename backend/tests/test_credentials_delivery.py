@@ -231,15 +231,17 @@ import asyncio, json, os, sys
 from jvspatial.db.factory import create_database
 from jvspatial.db import get_database_manager
 from jvspatial.core.context import GraphContext, scoped_default_context_async
+from app.services import email_service
 from app.services import credential_delivery as service
+from app.services.email_service import _SendOutcome
 async def main():
     db = create_database(db_type="postgres", dsn=os.environ["JVSPATIAL_POSTGRES_DSN"])
     get_database_manager().set_prime_database(db)
     async def send(message):
         with open(sys.argv[3], "a") as f: f.write("send\n")
         await asyncio.sleep(2)
-        return True
-    service.send_email = send
+        return _SendOutcome(success=True, status="accepted")
+    email_service.send_email_with_outcome = send
     try:
         async with scoped_default_context_async(GraphContext(database=db)):
             result = await service.consume_credentials_delivery_code(member_user_id=sys.argv[1], intent_id=sys.argv[2], code="123456")
