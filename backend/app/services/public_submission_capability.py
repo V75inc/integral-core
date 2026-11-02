@@ -17,9 +17,7 @@ from app.models.public_submission_capability import PublicSubmissionCapability
 from app.services.entry_write_scope import entry_write_scope
 from app.utils.time import utc_now_iso
 
-PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD = (
-    "_public_submission_capability_required"
-)
+PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD = "_public_submission_capability_required"
 DEFAULT_CAPABILITY_TTL = timedelta(hours=24)
 MAX_CAPABILITY_TTL = timedelta(hours=24)
 
@@ -56,6 +54,7 @@ def _normalize_scope(
 
 
 async def ensure_public_submission_capability_indexes() -> None:
+    """Ensure the capability Object's lookup indexes exist."""
     from jvspatial.core.context import get_default_context
 
     await get_default_context().ensure_indexes(PublicSubmissionCapability)
@@ -107,9 +106,7 @@ async def _find_capability(capability: str) -> Optional[PublicSubmissionCapabili
     if not (32 <= len(raw) <= 256):
         return None
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    rows = await PublicSubmissionCapability.find(
-        {"context.capability_hash": digest}
-    )
+    rows = await PublicSubmissionCapability.find({"context.capability_hash": digest})
     if len(rows or []) != 1:
         return None
     row = rows[0]

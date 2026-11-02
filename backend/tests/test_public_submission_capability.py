@@ -12,7 +12,6 @@ from app.services.public_submission_capability import (
     validate_public_submission_capability,
 )
 
-
 _SCOPE = {
     "workspace_id": "n.Workspace.w1",
     "track_id": "n.Track.t1",
@@ -23,17 +22,13 @@ _SCOPE = {
 
 
 async def _issued(**overrides):
-    return await issue_public_submission_capability(
-        **(_SCOPE | overrides)
-    )
+    return await issue_public_submission_capability(**(_SCOPE | overrides))
 
 
 @pytest.mark.asyncio
 async def test_capability_binds_pending_submission_then_exact_entry():
     issued = await _issued()
-    assert await validate_public_submission_capability(
-        issued["capability"], **_SCOPE
-    )
+    assert await validate_public_submission_capability(issued["capability"], **_SCOPE)
     assert await bind_public_submission_capability(
         issued["capability"],
         **_SCOPE,

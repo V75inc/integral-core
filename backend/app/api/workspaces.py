@@ -752,13 +752,20 @@ async def provision_workspace_member_route(
             str(body.credentials_email) if body.credentials_email else None
         ),
         personal_email=str(body.personal_email) if body.personal_email else None,
-        application_mailbox_proof_id=(
-            str(body.application_mailbox_proof_id)
-            if body.application_mailbox_proof_id
+        mailbox_verification_proof_id=(
+            str(body.mailbox_verification_proof_id)
+            if body.mailbox_verification_proof_id
             else None
         ),
-        candidate_entry_id=(
-            str(body.candidate_entry_id) if body.candidate_entry_id else None
+        mailbox_subject_entry_id=(
+            str(body.mailbox_subject_entry_id)
+            if body.mailbox_subject_entry_id
+            else None
+        ),
+        mailbox_verification_purpose=(
+            str(body.mailbox_verification_purpose)
+            if body.mailbox_verification_purpose
+            else None
         ),
         actor_id=user_id,
     )
@@ -808,12 +815,12 @@ class RetryActivationDeliveryRequest(BaseModel):
 async def retry_member_activation_delivery(
     request: Request, workspace_id: str, member_user_id: str
 ) -> Dict[str, Any]:
-    """Retry pending application-proof activation mail for an existing member."""
+    """Retry pending verified-mailbox activation mail for an existing member."""
     from pydantic import ValidationError
 
     from app.schemas.api.credentials_delivery import ActivationDeliveryStatusResponse
     from app.services.credential_delivery import (
-        retry_application_proof_activation_delivery,
+        retry_verified_mailbox_activation_delivery,
     )
     from app.services.workspace_kind import is_collaborative_kind
 
@@ -830,7 +837,7 @@ async def retry_member_activation_delivery(
     except ValidationError as exc:
         raise BadRequestError(message="Invalid activation retry request") from exc
     try:
-        payload = await retry_application_proof_activation_delivery(
+        payload = await retry_verified_mailbox_activation_delivery(
             workspace_id=workspace_id,
             member_user_id=member_user_id,
             actor_user_id=user_id,

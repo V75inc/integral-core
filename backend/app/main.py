@@ -617,14 +617,14 @@ async def _ensure_model_indexes() -> None:
                 result_set_ix_err,
             )
         try:
-            from app.models.application_mailbox_verification import (
-                ApplicationMailboxVerification,
+            from app.models.mailbox_verification import (
+                MailboxVerificationProof,
             )
 
-            await ctx_for_indexes.ensure_indexes(ApplicationMailboxVerification)
+            await ctx_for_indexes.ensure_indexes(MailboxVerificationProof)
         except Exception as app_mb_ix_err:  # noqa: BLE001
             log.warning(
-                "ensure_indexes failed for ApplicationMailboxVerification: %s",
+                "ensure_indexes failed for MailboxVerificationProof: %s",
                 app_mb_ix_err,
             )
         # Durable work kernel Objects (I-GRAPH-02). Production fails closed —

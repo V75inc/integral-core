@@ -19,8 +19,9 @@ class ProvisionWorkspaceMemberRequest(BaseModel):
     welcome_message: Optional[StrictStr] = None
     credentials_email: Optional[EmailStr] = None
     personal_email: Optional[EmailStr] = None
-    application_mailbox_proof_id: Optional[StrictStr] = None
-    candidate_entry_id: Optional[StrictStr] = None
+    mailbox_verification_proof_id: Optional[StrictStr] = None
+    mailbox_verification_purpose: Optional[StrictStr] = None
+    mailbox_subject_entry_id: Optional[StrictStr] = None
 
 
 class SetMemberAssignedFormPromptRequest(BaseModel):

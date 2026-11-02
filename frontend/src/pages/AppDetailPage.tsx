@@ -81,7 +81,7 @@ import { useToast } from '../context/ToastContext';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { useChatPageFocus } from '../context/ChatPageFocusContext';
 import { AppDashboardPanel } from '../features/app-dashboards/AppDashboardPanel';
-import { AppHomePanel } from '../host/app-dashboards/AppHomePanel';
+import { AppHomePanel } from '../features/app-dashboards/AppHomePanel';
 import { dashboardsApi } from '../api/dashboards';
 import { useScope } from '../context/ScopeContext';
 import { useWorkspaceCrumbPrefix } from '../hooks/useWorkspaceCrumbPrefix';

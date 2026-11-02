@@ -1,4 +1,4 @@
-"""Application-proof activation delivery retry (same setup token)."""
+"""Verified mailbox activation delivery retry (same setup token)."""
 
 import hashlib
 from contextlib import asynccontextmanager
@@ -7,18 +7,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services import application_mailbox_verification as mailbox
+from app.services import mailbox_verification as mailbox
 from app.services.credential_delivery import (
     _activation_failure_category,
     activation_delivery_public_status,
-    retry_application_proof_activation_delivery,
+    retry_verified_mailbox_activation_delivery,
 )
 from app.services.email_service import EmailMessage, _send_via_resend, _SendCredentials
 from app.services.permissions import get_user_node
 
 
 @pytest.mark.asyncio
-async def test_application_activation_persists_purpose_tagged_token(
+async def test_verified_mailbox_activation_persists_purpose_tagged_token(
     test_user, monkeypatch
 ):
     from app.services import credential_delivery as delivery
@@ -35,16 +35,16 @@ async def test_application_activation_persists_purpose_tagged_token(
     monkeypatch.setattr("app.services.entry_write_scope.entry_write_scope", no_op_scope)
     monkeypatch.setattr(
         delivery,
-        "_dispatch_application_proof_send",
+        "_dispatch_verified_mailbox_activation_send",
         AsyncMock(return_value=(True, "accepted", "message-1")),
     )
     monkeypatch.setattr(
         delivery,
-        "_finalize_application_proof_send",
+        "_finalize_verified_mailbox_activation_send",
         AsyncMock(return_value={"activation_emailed": True}),
     )
 
-    result = await delivery.deliver_application_proof_setup_link(
+    result = await delivery.deliver_verified_mailbox_activation_link(
         user_node=test_user,
         recipient_email="personal@example.com",
         account_email="work@example.com",
@@ -102,7 +102,7 @@ async def test_retry_reuses_setup_token_after_transient_failure(
     assert member is not None
     slot = {
         "version": 3,
-        "application_proof": True,
+        "mailbox_verification_proof": True,
         "intent_id": "intent-retry-1",
         "recipient_email": "personal@example.com",
         "account_email": "work@example.com",
@@ -154,14 +154,14 @@ async def test_retry_reuses_setup_token_after_transient_failure(
         auth.password_hash = "pw"
         auth.is_active = True
         auth_svc.return_value._get_user_by_id = AsyncMock(return_value=auth)
-        first = await retry_application_proof_activation_delivery(
+        first = await retry_verified_mailbox_activation_delivery(
             workspace_id=str(workspace.id),
             member_user_id=member.id,
             actor_user_id=owner.id,
             intent_id="intent-retry-1",
         )
         assert first["state"] in ("pending_retry", "suppressed", "sending")
-        second = await retry_application_proof_activation_delivery(
+        second = await retry_verified_mailbox_activation_delivery(
             workspace_id=str(workspace.id),
             member_user_id=member.id,
             actor_user_id=owner.id,
@@ -187,7 +187,7 @@ async def test_unauthorized_cross_workspace_retry_denied(
     member.preferences = {
         "credentials_delivery": {
             "version": 3,
-            "application_proof": True,
+            "mailbox_verification_proof": True,
             "intent_id": "intent-x",
             "workspace_id": "n.Workspace.other",
             "recipient_email": "a@example.com",
@@ -199,7 +199,7 @@ async def test_unauthorized_cross_workspace_retry_denied(
     await member.save()
     owner_member = await get_user_node(owner.id)
     assert owner_member is not None
-    result = await retry_application_proof_activation_delivery(
+    result = await retry_verified_mailbox_activation_delivery(
         workspace_id=str(workspace.id),
         member_user_id=owner_member.id,
         actor_user_id=owner.id,
@@ -221,13 +221,16 @@ async def test_mailbox_proof_flow_on_ui_core_base(
     _caller, owner, _recipient, workspace, _email = await setup_accounts(
         client, authenticated_client, monkeypatch, verified=True, admin=False
     )
-    started = await mailbox.start_application_mailbox_verification(
-        candidate_entry_id="n.Entry.ui-core",
+    started = await mailbox.start_mailbox_verification(
+        subject_entry_id="n.Entry.ui-core",
         workspace_id=str(workspace.id),
         email="personal@example.com",
+        purpose="account_creation",
     )
-    ok, _, proof_id = await mailbox.confirm_application_mailbox_verification(
-        candidate_entry_id="n.Entry.ui-core",
+    ok, _, proof_id = await mailbox.confirm_mailbox_verification(
+        subject_entry_id="n.Entry.ui-core",
+        workspace_id=str(workspace.id),
+        purpose="account_creation",
         code=started["code"],
         proof_id=started["proof_id"],
     )
@@ -291,13 +294,13 @@ async def test_resend_suppression_maps_safe_outcome_without_raw_payload(monkeypa
     assert "secret-setup-token" not in str(outcome)
 
 
-async def _seed_application_proof_member(
+async def _seed_mailbox_verification_proof_member(
     member, *, workspace_id: str, owner_id: str, intent_id: str = "intent-proof"
 ):
     token_hash = "hash-stable"
     slot = {
         "version": 3,
-        "application_proof": True,
+        "mailbox_verification_proof": True,
         "intent_id": intent_id,
         "recipient_email": "personal@example.com",
         "account_email": "work@example.com",
@@ -336,7 +339,7 @@ async def test_suppression_retry_stays_pending_with_same_token_material(
     )
     member = await get_user_node(owner.id)
     assert member is not None
-    await _seed_application_proof_member(
+    await _seed_mailbox_verification_proof_member(
         member, workspace_id=str(workspace.id), owner_id=owner.id
     )
 
@@ -355,7 +358,7 @@ async def test_suppression_retry_stays_pending_with_same_token_material(
         auth.password_hash = "pw"
         auth.is_active = True
         auth_svc.return_value._get_user_by_id = AsyncMock(return_value=auth)
-        result = await retry_application_proof_activation_delivery(
+        result = await retry_verified_mailbox_activation_delivery(
             workspace_id=str(workspace.id),
             member_user_id=member.id,
             actor_user_id=owner.id,
@@ -387,7 +390,7 @@ async def test_successful_retry_clears_pending_secret_slot(
     )
     member = await get_user_node(owner.id)
     assert member is not None
-    await _seed_application_proof_member(
+    await _seed_mailbox_verification_proof_member(
         member, workspace_id=str(workspace.id), owner_id=owner.id
     )
 
@@ -406,7 +409,7 @@ async def test_successful_retry_clears_pending_secret_slot(
         auth.password_hash = "pw"
         auth.is_active = True
         auth_svc.return_value._get_user_by_id = AsyncMock(return_value=auth)
-        result = await retry_application_proof_activation_delivery(
+        result = await retry_verified_mailbox_activation_delivery(
             workspace_id=str(workspace.id),
             member_user_id=member.id,
             actor_user_id=owner.id,
@@ -420,8 +423,8 @@ async def test_successful_retry_clears_pending_secret_slot(
     assert not prefs.get("credentials_delivery")
     released = prefs.get("credentials_delivery_released") or {}
     assert released.get("at")
-    assert released.get("application_proof") is True
-    second = await retry_application_proof_activation_delivery(
+    assert released.get("mailbox_verification_proof") is True
+    second = await retry_verified_mailbox_activation_delivery(
         workspace_id=str(workspace.id),
         member_user_id=member.id,
         actor_user_id=owner.id,
@@ -448,7 +451,7 @@ async def test_concurrent_retry_while_sending_returns_public_sending_state(
     member.preferences = {
         "credentials_delivery": {
             "version": 3,
-            "application_proof": True,
+            "mailbox_verification_proof": True,
             "intent_id": "intent-proof",
             "workspace_id": str(workspace.id),
             "recipient_email": "p@example.com",
@@ -472,7 +475,7 @@ async def test_concurrent_retry_while_sending_returns_public_sending_state(
         auth.password_hash = "pw"
         auth.is_active = True
         auth_svc.return_value._get_user_by_id = AsyncMock(return_value=auth)
-        result = await retry_application_proof_activation_delivery(
+        result = await retry_verified_mailbox_activation_delivery(
             workspace_id=str(workspace.id),
             member_user_id=member.id,
             actor_user_id=owner.id,
@@ -497,7 +500,7 @@ async def test_activation_delivery_api_admin_only_and_safe_payload(
     )
     owner_node = await get_user_node(owner.id)
     assert owner_node is not None
-    await _seed_application_proof_member(
+    await _seed_mailbox_verification_proof_member(
         owner_node,
         workspace_id=str(workspace.id),
         owner_id=owner.id,

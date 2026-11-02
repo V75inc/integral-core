@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.nodes import Entry
+from app.services.app_graph import catalog_track, catalog_workspace
 from app.services.public_submission_capability import (
     PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD,
     bind_public_submission_capability,
     issue_public_submission_capability,
 )
-from app.services.app_graph import catalog_track, catalog_workspace
 from app.utils.time import utc_now_iso
 
 
@@ -44,7 +44,12 @@ async def _public_candidates(authenticated_client, test_user):
         track_id=track.id,
         form_schema={
             "fields": [
-                {"key": "priority", "type": "select", "enum": ["high", "low"], "required": True},
+                {
+                    "key": "priority",
+                    "type": "select",
+                    "enum": ["high", "low"],
+                    "required": True,
+                },
                 {"key": "resume", "type": "text", "required": False},
                 {"key": "cover_letter", "type": "text", "required": False},
                 {"key": "notes", "type": "text", "required": False},
@@ -118,7 +123,15 @@ async def _public_candidates(authenticated_client, test_user):
         }
         await entry.save()
         capabilities.append(issued["capability"])
-    return token, track, entry_type, entries[0], entries[1], capabilities[0], capabilities[1]
+    return (
+        token,
+        track,
+        entry_type,
+        entries[0],
+        entries[1],
+        capabilities[0],
+        capabilities[1],
+    )
 
 
 @pytest.mark.asyncio
@@ -145,7 +158,13 @@ async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
         for field in ("resume", "cover_letter"):
             denied = await authenticated_client.post(
                 f"/api/public-share/track/{token}/entries/{entry_b.id}/attachments?field_key={field}",
-                files={"file": (f"{field}.pdf", b"synthetic applicant A", "application/pdf")},
+                files={
+                    "file": (
+                        f"{field}.pdf",
+                        b"synthetic applicant A",
+                        "application/pdf",
+                    )
+                },
                 headers={"X-Entry-Capability": capability_a},
             )
             assert denied.status_code == 404, denied.text
@@ -172,14 +191,22 @@ async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
         assert unchanged.custom_fields["resume"] == "old-Applicant B-resume"
         assert unchanged.custom_fields["cover_letter"] == "old-Applicant B-cover"
         assert unchanged.custom_fields["notes"] == "old-Applicant B-notes"
-        assert unchanged.custom_fields[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] is True
+        assert (
+            unchanged.custom_fields[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] is True
+        )
         persist.assert_not_awaited()
         send_email.assert_not_awaited()
 
         for field in ("resume", "cover_letter"):
             owner_upload = await authenticated_client.post(
                 f"/api/public-share/track/{token}/entries/{entry_b.id}/attachments?field_key={field}",
-                files={"file": (f"{field}.pdf", b"synthetic applicant B", "application/pdf")},
+                files={
+                    "file": (
+                        f"{field}.pdf",
+                        b"synthetic applicant B",
+                        "application/pdf",
+                    )
+                },
                 headers={"X-Entry-Capability": capability_b},
             )
             assert owner_upload.status_code == 200, owner_upload.text
@@ -193,7 +220,9 @@ async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
         assert updated.title == "Applicant B updated own record"
         assert updated.custom_fields["resume"] == "n.Attachment.synthetic-resume-b"
         assert updated.custom_fields["cover_letter"] == "n.Attachment.synthetic-cover-b"
-        assert updated.custom_fields[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] is True
+        assert (
+            updated.custom_fields[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] is True
+        )
         assert persist.await_count == 2
         send_email.assert_not_awaited()
     finally:

@@ -84,6 +84,7 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
+
 async def _require_public_entry_capability(
     request: Request, *, link: ShareLink, track: Track, entry: Entry
 ) -> None:
@@ -866,9 +867,7 @@ async def upload_public_track_entry_attachment(
     from app.api.attachments import _persist_uploaded_file, _read_multipart_files
 
     link, track, entry, _perms = await _public_share_form_entry(token, entry_id)
-    await _require_public_entry_capability(
-        request, link=link, track=track, entry=entry
-    )
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
 
     files = await _read_multipart_files(request, "file")
     if not files:
@@ -886,10 +885,8 @@ async def upload_public_track_entry_attachment(
         entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
         if entry_type:
             _, runtime_tier, _ = await resolve_track_runtime_profile(track)
-            capability_required = (
-                (entry.custom_fields or {}).get(
-                    PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
-                )
+            capability_required = (entry.custom_fields or {}).get(
+                PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
             )
             merged_cfs = {
                 **{
@@ -946,9 +943,7 @@ async def update_public_track_entry(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
-    await _require_public_entry_capability(
-        request, link=link, track=track, entry=entry
-    )
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
     await _reject_public_onboarding_form_entry(entry)
 
     raw = await request.json()

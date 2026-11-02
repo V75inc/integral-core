@@ -1,4 +1,4 @@
-"""Provision a workspace member with a login account (Core hire overlay)."""
+"""Provision a workspace member with a login account."""
 
 from __future__ import annotations
 
@@ -140,8 +140,9 @@ async def provision_workspace_member(
     welcome_message: Optional[str] = None,
     credentials_email: Optional[str] = None,
     personal_email: Optional[str] = None,
-    application_mailbox_proof_id: Optional[str] = None,
-    candidate_entry_id: Optional[str] = None,
+    mailbox_verification_proof_id: Optional[str] = None,
+    mailbox_subject_entry_id: Optional[str] = None,
+    mailbox_verification_purpose: Optional[str] = None,
     actor_id: str,
 ) -> Dict[str, Any]:
     """Provision through current canonical membership admission and audit."""
@@ -158,8 +159,9 @@ async def provision_workspace_member(
                 "welcome_message": welcome_message,
                 "credentials_email": credentials_email,
                 "personal_email": personal_email,
-                "application_mailbox_proof_id": application_mailbox_proof_id,
-                "candidate_entry_id": candidate_entry_id,
+                "mailbox_verification_proof_id": mailbox_verification_proof_id,
+                "mailbox_subject_entry_id": mailbox_subject_entry_id,
+                "mailbox_verification_purpose": mailbox_verification_purpose,
             }
         )
     except ValidationError as exc:
@@ -171,33 +173,37 @@ async def provision_workspace_member(
     personal_norm = (
         str(body.personal_email).strip().lower() if body.personal_email else ""
     )
-    proof_id = str(body.application_mailbox_proof_id or "").strip()
-    candidate_id = str(body.candidate_entry_id or "").strip()
-    application_proof_delivery = False
-    if proof_id or personal_norm or candidate_id:
-        if not (proof_id and personal_norm and candidate_id):
+    proof_id = str(body.mailbox_verification_proof_id or "").strip()
+    subject_id = str(body.mailbox_subject_entry_id or "").strip()
+    purpose = str(body.mailbox_verification_purpose or "").strip()
+    verified_mailbox_delivery = False
+    if proof_id or personal_norm or subject_id or purpose:
+        if not (proof_id and personal_norm and subject_id and purpose):
             raise BadRequestError(
                 message=(
-                    "Application mailbox proof requires personal email and "
-                    "candidate reference"
+                    "Mailbox verification requires a purpose, subject reference, "
+                    "and alternate email"
                 )
             )
-        from app.services.application_mailbox_verification import proof_ready_for_hire
+        from app.services.mailbox_verification import (
+            proof_ready_for_account_provisioning,
+        )
 
         if personal_norm == email_norm:
             raise BadRequestError(
                 message="Personal email must differ from the work login email"
             )
-        if not await proof_ready_for_hire(
+        if not await proof_ready_for_account_provisioning(
             proof_id=proof_id,
-            candidate_entry_id=candidate_id,
+            subject_entry_id=subject_id,
             workspace_id=str(workspace.id),
             personal_email=personal_norm,
+            purpose=purpose,
         ):
             raise BadRequestError(
-                message="Application mailbox proof is invalid or expired"
+                message="Mailbox verification proof is invalid or expired"
             )
-        application_proof_delivery = True
+        verified_mailbox_delivery = True
         deliver_norm = personal_norm
     else:
         deliver_norm = (
@@ -210,11 +216,11 @@ async def provision_workspace_member(
         raise BadRequestError(
             message="Alternate credentials recipient requires send_credentials"
         )
-    if application_proof_delivery and body.credentials_email:
+    if verified_mailbox_delivery and body.credentials_email:
         raise BadRequestError(
-            message="Use application mailbox proof or credentials email, not both"
+            message="Use mailbox verification proof or credentials email, not both"
         )
-    if alternate_delivery and body.send_credentials and not application_proof_delivery:
+    if alternate_delivery and body.send_credentials and not verified_mailbox_delivery:
         from app.services.credential_crypto import encryption_available
         from app.services.credential_delivery import require_delivery_storage
 
@@ -232,11 +238,11 @@ async def provision_workspace_member(
                     "created accounts"
                 )
             )
-    if application_proof_delivery:
+    if verified_mailbox_delivery:
         existing_for_proof = await _find_auth_user_by_email(email_norm)
         if existing_for_proof is not None:
             raise BadRequestError(
-                message="Application mailbox proof applies only to new accounts"
+                message="Mailbox verification proof applies only to new accounts"
             )
     if (
         is_postgres_entry_transaction(get_default_context().database)
@@ -312,7 +318,7 @@ async def provision_workspace_member(
                 user_id=response.id,
                 display_name=name,
                 email_verified=False,
-                personal_email=personal_norm if application_proof_delivery else "",
+                personal_email=personal_norm if verified_mailbox_delivery else "",
                 created_at=now,
                 updated_at=now,
             )
@@ -380,21 +386,22 @@ async def provision_workspace_member(
                     provision_after,
                 )
     await membership._deliver(outbox_id)
-    if application_proof_delivery and created and user_node is not None:
-        from app.services.application_mailbox_verification import (
-            consume_application_mailbox_proof,
+    if verified_mailbox_delivery and created and user_node is not None:
+        from app.services.mailbox_verification import (
+            consume_mailbox_verification_proof,
         )
 
-        ok, _err = await consume_application_mailbox_proof(
+        ok, _err = await consume_mailbox_verification_proof(
             proof_id=proof_id,
-            candidate_entry_id=candidate_id,
+            subject_entry_id=subject_id,
             workspace_id=str(workspace.id),
             personal_email=personal_norm,
+            purpose=purpose,
             consumed_for_user_id=user_node.id,
         )
         if not ok:
             raise BadRequestError(
-                message="Application mailbox proof could not be consumed"
+                message="Mailbox verification proof could not be consumed"
             )
     deliver_to = deliver_norm
     if (
@@ -402,16 +409,16 @@ async def provision_workspace_member(
         and send_credentials
         and created
         and user_node is not None
-        and application_proof_delivery
+        and verified_mailbox_delivery
     ):
         from app.services.credential_delivery import (
-            deliver_application_proof_setup_link,
+            deliver_verified_mailbox_activation_link,
         )
 
         user_node = await get_user_node(user_node.id)
         if user_node is None:
             raise AuthorizationUnavailableError()
-        delivery_meta = await deliver_application_proof_setup_link(
+        delivery_meta = await deliver_verified_mailbox_activation_link(
             user_node=user_node,
             recipient_email=deliver_norm,
             account_email=email_norm,
