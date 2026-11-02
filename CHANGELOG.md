@@ -6,7 +6,12 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
-- Pin jvspatial 0.2.4 so PostgreSQL transaction reads, counts and projections stay on the held connection and walker setup is cheaper. Update the pypdf lock to 6.21.4.
+## 0.1.1rc41 — 2026-11-02
+
+- Bound governed reads, catalogue coherence, and request database telemetry so equivalent queries share one execution path.
+- Index App and Track metadata incrementally and cut repeated agent discovery rounds.
+- Store each checkpoint message once per execution scope, cap new-message inserts, and load only the latest snapshot row.
+- Pin jvspatial 0.2.4 so PostgreSQL transaction reads, counts, and projections stay on the held connection and walker setup is cheaper.
 
 ## 0.1.1rc40 — 2026-10-30
 
