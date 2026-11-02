@@ -79,3 +79,56 @@ async def governed_query(
         catalogue_generation=catalogue_generation,
     )
     return result.model_dump()
+
+
+async def app_read_contracts(
+    *, workspace_id: str, app_ids: list[str]
+) -> dict[str, list[dict]]:
+    """Bundle live declared read schemas for already-admitted discovery Apps.
+
+    This internal bridge does not authorize Apps: callers must admit every App
+    first. Execution still requires the broker and current catalogue generation.
+    """
+    from app.services.app_queries.registry import all_workspace_query_apps
+    from app.services.capability_catalogue import get_or_compile_catalogue
+
+    selected = set(app_ids)
+    if not any(app_id in selected for app_id in all_workspace_query_apps(workspace_id)):
+        return {}
+    snapshot = await get_or_compile_catalogue(workspace_id)
+    result: dict[str, list[dict]] = {}
+    for capability in snapshot.capabilities:
+        if (
+            capability.app_id not in selected
+            or capability.kind != "query"
+            or capability.effects != "read"
+            or capability.availability != "active"
+            or not capability.discoverable
+        ):
+            continue
+        result.setdefault(capability.app_id, []).append(
+            {
+                "capability_key": capability.capability_id,
+                "name": capability.name,
+                "description": capability.description,
+                "input_schema": capability.input_schema,
+                "output_schema": capability.output_schema,
+                "invoke_with": "integral_governed_query",
+                "arguments": {
+                    "mode": "declared_capability",
+                    "app_id": capability.app_id,
+                    "capability_key": capability.capability_id,
+                    "catalogue_generation": snapshot.generation_id,
+                },
+            }
+        )
+    for contracts in result.values():
+        contracts.sort(
+            key=lambda item: not {
+                "track",
+                "filters",
+                "count_only",
+                "group_by",
+            }.issubset((item.get("input_schema") or {}).get("properties") or {})
+        )
+    return result

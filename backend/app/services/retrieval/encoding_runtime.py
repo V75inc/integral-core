@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Callable, TypeVar
@@ -51,6 +52,15 @@ class _Admission:
         self.waiting = 0
         self.queries = 0
         self.query_streak = 0
+        self.peak_waiting = 0
+        self.query_wait_s = 0.0
+        self.background_wait_s = 0.0
+
+    def _record_wait(self, query: bool, waited: float) -> None:
+        if query:
+            self.query_wait_s = max(self.query_wait_s, waited)
+        else:
+            self.background_wait_s = max(self.background_wait_s, waited)
 
     async def run(self, operation: Callable[[], T]) -> T:
         query = is_interactive()
@@ -59,6 +69,7 @@ class _Admission:
             if self.waiting >= limit:
                 raise EmbeddingBusy("Search encoding is busy; retry shortly")
             self.waiting += 1
+            self.peak_waiting = max(self.peak_waiting, self.waiting)
             self.queries += int(query)
             try:
                 # Background work receives a slice after eight queries. Query
@@ -73,11 +84,14 @@ class _Admission:
                 timeout = (
                     bounded_setting("EMBEDDING_QUEUE_TIMEOUT_MS", 500, 10, 5000) / 1000
                 )
+                waited_from = time.perf_counter()
                 try:
                     async with asyncio.timeout(timeout if query else 30):
                         await self.condition.wait_for(ready)
                 except TimeoutError as exc:
+                    self._record_wait(query, time.perf_counter() - waited_from)
                     raise EmbeddingBusy("Search encoding queue timed out") from exc
+                self._record_wait(query, time.perf_counter() - waited_from)
                 self.running = True
                 self.query_streak = self.query_streak + 1 if query else 0
             finally:

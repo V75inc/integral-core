@@ -261,6 +261,18 @@ accounting. The normalized working history is checkpointed, and older encrypted
 snapshots remain available through scoped conversation search. Existing bloated
 sessions receive this policy on their next valid resume.
 
+A new checkpoint stores each canonical message once inside its execution
+scope and keeps only message references in the snapshot envelope. Both stay
+encrypted with the record id as associated data. A save or restore loads that
+scope's referenced ids in one read and inserts only messages not already
+stored. The same text in another
+session is a separate record; the content hash is not tenancy or authority.
+Snapshots written with the full history inline still read, and a replay of
+their idempotency key does not rewrite them. Missing referenced messages fail
+closed. This is persisted history, not the bounded model context. The pinned
+Harness Postgres step store deduplicates messages too, but its rows are
+plaintext and its message key is global, so Core does not switch to it.
+
 Static Core reads and registered App reads share one result window: older large
 payloads are cleared beyond five completed-history reads or two current-turn
 reads, with explicit incomplete previews above 16 KiB. Up to four complete

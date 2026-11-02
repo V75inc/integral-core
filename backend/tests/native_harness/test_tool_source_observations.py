@@ -16,7 +16,11 @@ from app.agentive.harness.jvspatial_store import JvSpatialStepStore
 from app.agentive.harness.scoped_store import ScopedStepStore
 from app.agentive.services.capability_broker import _fingerprint, _kind_for
 from app.agentive.services.execution_runs import AgentRun, RunStep
-from app.models.harness_records import HarnessRunRecord, HarnessSnapshotRecord
+from app.models.harness_records import (
+    HarnessMessageRecord,
+    HarnessRunRecord,
+    HarnessSnapshotRecord,
+)
 from app.models.nodes import ChatThread, HarnessSession
 from app.schemas.capability_broker import CapabilityInvocation
 from app.services import tool_source_observations as observations
@@ -168,7 +172,10 @@ async def source_fixture(monkeypatch):
     monkeypatch.setattr(
         "app.services.credential_crypto._resolve_key", lambda: (b"k" * 32, None)
     )
-    rows = {model: {} for model in (HarnessRunRecord, HarnessSnapshotRecord)}
+    rows = {
+        model: {}
+        for model in (HarnessRunRecord, HarnessSnapshotRecord, HarnessMessageRecord)
+    }
     for model in rows:
 
         async def create_if_absent(cls, **kwargs):
@@ -180,14 +187,92 @@ async def source_fixture(monkeypatch):
             return record, True
 
         async def find(cls, query=None, **_kwargs):
-            return [
-                r
-                for r in rows[cls].values()
-                if all(getattr(r, k) == v for k, v in (query or {}).items())
-            ]
+            filters = query or {}
+
+            def matches(row):
+                for key, value in filters.items():
+                    current = getattr(row, key)
+                    if isinstance(value, dict) and "$in" in value:
+                        if current not in value["$in"]:
+                            return False
+                    elif current != value:
+                        return False
+                return True
+
+            return [row for row in rows[cls].values() if matches(row)]
 
         monkeypatch.setattr(model, "create_if_absent", classmethod(create_if_absent))
         monkeypatch.setattr(model, "find", classmethod(find))
+    from jvspatial.core.context import get_default_context
+
+    database = get_default_context().database
+    original_find = database.find
+    original_find_many = database.find_many
+
+    async def database_find(collection, query, *, limit=None, sort=None):
+        if (
+            isinstance(query, dict)
+            and query.get("entity") == "HarnessSnapshotRecord"
+            and "context.scope_key" in query
+        ):
+            matched = [
+                row
+                for row in rows[HarnessSnapshotRecord].values()
+                if row.scope_key == query["context.scope_key"]
+                and row.run_key == query.get("context.run_key")
+                and (
+                    "context.state" not in query or row.state == query["context.state"]
+                )
+            ]
+            if sort:
+                for field, direction in reversed(sort):
+                    name = field.rsplit(".", 1)[-1]
+                    matched.sort(
+                        key=lambda item, name=name: getattr(item, name),
+                        reverse=direction < 0,
+                    )
+            if limit is not None:
+                matched = matched[:limit]
+            return [
+                {
+                    "id": row.id,
+                    "entity": "HarnessSnapshotRecord",
+                    "context": {
+                        "scope_key": row.scope_key,
+                        "run_key": row.run_key,
+                        "record_key": row.record_key,
+                        "occurred_at": row.occurred_at,
+                        "step_index": row.step_index,
+                        "state": row.state,
+                        "payload_ciphertext": row.payload_ciphertext,
+                    },
+                }
+                for row in matched
+            ]
+        return await original_find(collection, query, limit=limit, sort=sort)
+
+    async def database_find_many(collection, ids):
+        if collection == "object":
+            found = {}
+            for record_id in ids:
+                row = rows[HarnessMessageRecord].get(record_id)
+                if row is None:
+                    continue
+                found[record_id] = {
+                    "id": row.id,
+                    "entity": "HarnessMessageRecord",
+                    "context": {
+                        "scope_key": row.scope_key,
+                        "content_hash": row.content_hash,
+                        "payload_ciphertext": row.payload_ciphertext,
+                    },
+                }
+            if found:
+                return found
+        return await original_find_many(collection, ids)
+
+    monkeypatch.setattr(database, "find", database_find)
+    monkeypatch.setattr(database, "find_many", database_find_many)
     store = ScopedStepStore(store=JvSpatialStepStore(scope=scope), scope=scope)
     await store.register_run(RunRecord(run_id="run", conversation_id="session"))
 

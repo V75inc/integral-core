@@ -200,7 +200,7 @@ jobs:
         # instead, while contracts remain a separate parallel lane.
         run: |
           pytest -q --tb=short --durations=20 --junitxml=test-results-backend.xml \
-            -n auto --dist loadfile \
+            -n 4 --maxprocesses=4 --dist loadfile \
             --ignore=tests/domain_apps \
             -m "smoke and not domain_app and not slow"
 
@@ -213,7 +213,7 @@ jobs:
         # keeping bundled commercial/domain Apps out of the Core release gate.
         run: |
           pytest -q --tb=short --durations=20 --junitxml=test-results-backend.xml \
-            -n auto --dist loadfile \
+            -n 4 --maxprocesses=4 --dist loadfile \
             --ignore=tests/domain_apps -m "not domain_app"
 
       - name: Upload backend test report

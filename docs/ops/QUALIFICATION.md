@@ -47,6 +47,12 @@ or 1000-passage SQL probe does not establish production-scale recall or latency.
 Keep synthetic corpora and machine-readable measurements with the candidate’s CI
 or review artifacts. Do not add dated screenshots and raw run logs to the reader guides.
 
+## Local saturation
+
+`tests/test_embedding_runtime.py` fills the encoder queue and checks that one more caller is rejected, then that the queue drains. `INDEX_TENANT_JOB_QUOTA` caps one workspace's index jobs per process cycle. Overlapping search, lease restart, provider failure, and revoked imported-record access are covered by the retrieval qualification and reference App journey tests.
+
+These checks do not establish a multi-hour soak, a hosted browser or MCP canary, a published production SLO, or independent QA. Those remain release gates for a named artifact.
+
 ## Artifact gates
 
 Build a clean wheel, inspect its contents, install it into a clean environment, initialize a blank distribution, and run its packaged UI. Check pinned dependency resolution and explicit index provenance. Package publication requires its own release authorization and readback.

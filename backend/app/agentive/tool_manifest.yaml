@@ -283,7 +283,12 @@ domains:
           Browse the active workspace's Apps and their readable Tracks for a user
           question. Names and purposes form a permission-checked hierarchy, ordered
           by keywords by default without requiring embeddings. Accessible Apps include
-          available read-tool schemas. Use these suggestions to choose declared reads;
+          complete read-query input schemas. Shared invocation defaults appear in each
+          App's query_invoke_args; combine these with the query capability_key and
+          input params and any query-specific arguments. Invoke a suitable returned
+          read directly; omitted alternatives do not require another catalogue
+          listing when that contract already meets the request. Use these
+          suggestions to choose declared reads;
           they are not records, evidence of an answer, or grants of access. Search
           the next_offset and returned mode as ranking_mode for further candidates or inspect the live catalogue when
           results are incomplete. Ranking can change when metadata changes.
@@ -1728,12 +1733,15 @@ domains:
           input against the discovered schema before staging; writes wait for
           user approval and read tools return immediately. Do not ask for one
           approval per record. Use the
-          exact tool key and input shape returned by integral_list_workspace_tools.
-          For a record read accepting a track title, first obtain the actual title
-          from integral_list_tracks scoped to its app_id; never guess or shorten
-          it. Before selecting named fields, discover integral_get_track_schema
-          and verify which Track and EntryType own those fields. A missing track
-          or nulls for unverified field names do not prove that data is absent.
+          exact key and complete input schema disclosed by resource lookup,
+          the active App read context, or integral_list_workspace_tools.
+          If that schema already defines the requested report or grouping, invoke
+          it directly; do not repeat Track/schema discovery to reconstruct it.
+          For a generic record read with an unknown track title or field names,
+          obtain the actual title from integral_list_tracks scoped to its app_id
+          and verify missing fields with integral_get_track_schema. Reuse current
+          verified titles and schemas. Never guess or shorten them. A missing
+          track or nulls for unverified fields do not prove data is absent.
         http: "POST /api/tools/{tool_key}"
         policy_action: tool.invoke
         staging_kind: call_workspace_tool

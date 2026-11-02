@@ -194,6 +194,16 @@ async def emit_change_event(
     ):
         return envelope
 
+    if resource_type in {"app", "track"} and resource_id:
+        try:
+            from app.services.resource_metadata_index import refresh_resource_metadata
+
+            await refresh_resource_metadata(resource_id)
+        except Exception:
+            # Source writes retain their existing contract. Durable reconciliation
+            # repairs a failed projection; this is never authorization evidence.
+            logger.exception("Resource metadata projection will reconcile")
+
     if not is_change_event_enabled():
         return envelope
 

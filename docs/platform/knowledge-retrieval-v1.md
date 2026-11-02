@@ -135,7 +135,7 @@ Use existing components first. A deployment may later move the same local encodi
 | I-GRAPH-01/02 | Rooted canonical participants; Object work records and derived indexes never substitute for required edges. |
 | I-CRUD-01; I-SUBSTRATE-01/I-EXT-01 | Canonical service-layer mutations, domain-neutral contracts and App access through the facade. |
 | I-ACCESS-01; I-APP-DEF-01 | Index selection does not invent field permissions or bypass installed-App read operations. |
-| I-APPROVAL-01/04/05; I-RUNTIME-01 | Agent configuration changes retain review; host runtime capability and egress policy constrain execution. |
+| I-APPROVAL-01/04/05; I-RUNTIME-01/02 | Agent configuration changes retain review; bounded repeated work and host runtime limits constrain execution without granting authority. |
 
 ANN may use an approximate physical search, but workspace/profile/policy predicates remain part of the admitted candidate query. Internal scan of an approximate index is not a grant or evidence of a readable neighbor. Current canonical checks apply after ranking and immediately before graph expansion/release. Retry/refill after stale or denied candidates is bounded and reports underfill. Do not expose inaccessible IDs, counts, raw scores, diagnostics or provider details through warnings.
 

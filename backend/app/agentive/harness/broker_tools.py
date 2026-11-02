@@ -709,6 +709,7 @@ def build_brokered_tools(
                 "integral_get_page_context",
                 "integral_open_view",
                 "integral_query",
+                "integral_governed_query",
                 "integral_find_workspace_resources",
                 "integral_list_apps",
                 "integral_list_tracks",
@@ -723,6 +724,7 @@ def build_brokered_tools(
             immediately_available -= {
                 "integral_list_apps",
                 "integral_find_workspace_resources",
+                "integral_governed_query",
                 "integral_list_tracks",
                 "integral_get_track_schema",
                 "integral_list_workspace_tools",

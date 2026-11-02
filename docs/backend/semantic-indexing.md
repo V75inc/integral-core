@@ -112,9 +112,16 @@ Local inference uses one dedicated native executor per process. Interactive quer
 receive priority between microbatches (default four passages); after eight
 queries a waiting background batch receives a slice. Native work retains its
 slot until it actually finishes, even if the caller is cancelled. Queue size
-and wait times are bounded; this is process-level admission, not a fleet or
-tenant quota. Workspace ordering is round-robin only within the selected job
-page; long-document checkpointing and stronger fairness remain planned.
+and wait times are bounded. Admission records peak queue depth and the
+longest interactive and background queue wait. ``INDEX_TENANT_JOB_QUOTA``
+(default 8, maximum 128) caps how many due jobs one workspace may take in a
+delivery cycle, including when it is the only workspace with work. That cap
+is local to this process. A persisted workspace cursor walks due jobs. When
+one workspace fills the scanned page, the next workspace with due work is
+admitted and the delivery batch is round-robin. A short page past the cursor
+is filled from earlier workspaces without repeating a job. Long-document
+checkpoints remain planned. A quota shared by multiple processes stays with
+hosted saturation.
 `EMBEDDING_MODEL_THREADS` defaults to one ONNX thread (1..16).
 
 Each successful publication retains a count/checksum manifest for the vector
@@ -434,7 +441,22 @@ creates/resets its own `integral_test` database, so use an isolated cluster.
 Use the [qualification guide](../ops/QUALIFICATION.md#retrieval-qualification)
 for actual accuracy, latency and provider-token measurement. Retain raw corpora
 and run outputs with review artifacts. A synthetic corpus is not a production
-recall or scale guarantee.
+recall or scale guarantee. `tests/test_retrieval_w5_qualification.py` checks
+exact identifiers, two paraphrases, a similar-but-wrong record, a metadata-only
+code, a document, and an image against labelled sources. The same labelled hit
+is read through passage search, the REST dispatch, and the App tool facade for
+lexical, hybrid, and semantic modes. UI mode selection is covered by the
+frontend retrieve and search-mode tests. The agent retrieve action uses that
+same REST dispatch. The file also checks update, deletion, exclusion,
+cancellation, lease restart, and a provider failure that stays on one job.
+A published record is searched while later workspaces are still indexing.
+That search must return the record inside the fixture latency budget. A
+separate case rejects the search when background encoding stays busy past
+the interactive deadline. The tests record search latency, interactive queue
+wait, and traced memory against fixture guards. Those guards are not a
+hosted capacity claim.
+``INDEX_TENANT_JOB_QUOTA`` is the per-process workspace cap. A quota shared
+by multiple processes, and long-document checkpoints, stay out of this gate.
 
 ## Model migration
 
@@ -451,7 +473,7 @@ requires explicit consent; current-key/owner/host checks still apply per batch.
 Cancel is revision-bound. See [embedding controls](voice-and-embedding-models.md).
 
 These changes do not complete every search phase. Long-document checkpoints,
-stronger tenant fairness, provider pooling/query-vector caching, retention, the
+fleet-wide tenant quotas, provider pooling/query-vector caching, retention, the
 remaining lifecycle-trigger audit and production relevance/load qualification
 remain in [the delivery contract](../platform/knowledge-retrieval-v1.md).
 

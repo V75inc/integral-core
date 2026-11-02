@@ -36,6 +36,7 @@ from app.models.edges import HAS_HARNESS_SESSION, IS_MEMBER_OF
 from app.models.harness_records import (
     HarnessCheckpointManifestRecord,
     HarnessEventRecord,
+    HarnessMessageRecord,
     HarnessRunRecord,
     HarnessSnapshotRecord,
     HarnessTurnInputRecord,
@@ -514,11 +515,34 @@ async def test_postgres_hard_delete_purges_framework_state_and_session_node(
             run_id=scope.run_id,
             conversation_id=scope.session_id,
             step_index=1,
-            messages=[],
+            messages=[
+                ModelRequest(parts=[UserPromptPart(content="private checkpoint one")]),
+                ModelRequest(parts=[UserPromptPart(content="private checkpoint two")]),
+            ],
             state="complete",
             idempotency_key="checkpoint-1",
         )
     )
+    keeper = JvSpatialStepStore(
+        scope=scope.model_copy(update={"principal_id": f"keeper-{scope.principal_id}"})
+    )
+    await keeper.save_snapshot(
+        ContinuableSnapshot(
+            run_id=scope.run_id,
+            conversation_id="keeper-session",
+            step_index=1,
+            messages=[
+                ModelRequest(parts=[UserPromptPart(content="private checkpoint one")])
+            ],
+            state="complete",
+            idempotency_key="keeper-checkpoint",
+        )
+    )
+    assert (
+        len(await HarnessMessageRecord.find({"scope_key": store._store._scope_key}))
+        == 2
+    )
+    assert len(await HarnessMessageRecord.find({"scope_key": keeper._scope_key})) == 1
     manifest = HarnessCheckpointManifest(
         scope=scope,
         execution_fence_id=scope.run_id,
@@ -567,7 +591,7 @@ async def test_postgres_hard_delete_purges_framework_state_and_session_node(
         workspace_id=scope.workspace_id,
     )
 
-    assert deleted == 7  # six session records/node plus the turn input capsule
+    assert deleted == 9  # session records, two messages, node, and turn capsule
     assert await HarnessSession.find({"thread_id": thread.id}) == []
     context = await thread.get_context()
     assert (
@@ -581,6 +605,11 @@ async def test_postgres_hard_delete_purges_framework_state_and_session_node(
     assert (
         await HarnessSnapshotRecord.find({"scope_key": store._store._scope_key}) == []
     )
+    assert await HarnessMessageRecord.find({"scope_key": store._store._scope_key}) == []
+    assert len(await HarnessMessageRecord.find({"scope_key": keeper._scope_key})) == 1
+    assert (await keeper.latest_snapshot(run_id=scope.run_id)).messages[0].parts[
+        0
+    ].content == "private checkpoint one"
     assert (
         await HarnessCheckpointManifestRecord.find(
             {"scope_key": store._store._scope_key}
@@ -639,6 +668,28 @@ async def test_postgres_retention_purges_only_old_terminal_session_payloads(
             conversation_id=active_scope.session_id,
         )
     )
+    shared = ModelRequest(parts=[UserPromptPart(content="retained staffing note")])
+    active_only = ModelRequest(parts=[UserPromptPart(content="active only")])
+    await old_store.save_snapshot(
+        ContinuableSnapshot(
+            run_id=old_scope.run_id,
+            conversation_id=old_scope.session_id,
+            step_index=1,
+            messages=[shared],
+            state="complete",
+            idempotency_key="old-checkpoint",
+        )
+    )
+    await active_store.save_snapshot(
+        ContinuableSnapshot(
+            run_id=active_scope.run_id,
+            conversation_id=active_scope.session_id,
+            step_index=1,
+            messages=[shared, active_only],
+            state="complete",
+            idempotency_key="active-checkpoint",
+        )
+    )
 
     report = await purge_expired_harness_sessions(
         retention_days=90,
@@ -646,7 +697,25 @@ async def test_postgres_retention_purges_only_old_terminal_session_payloads(
         now=datetime(2026, 10, 4, tzinfo=timezone.utc),
     )
 
-    assert report == {"sessions_deleted": 1, "records_deleted": 1}
+    assert report == {"sessions_deleted": 1, "records_deleted": 3}
+    assert (
+        await HarnessMessageRecord.find({"scope_key": old_store._store._scope_key})
+        == []
+    )
+    assert (
+        len(
+            await HarnessMessageRecord.find(
+                {"scope_key": active_store._store._scope_key}
+            )
+        )
+        == 2
+    )
+    assert (
+        await active_store.latest_snapshot(run_id=active_scope.run_id)
+    ).messages == [
+        shared,
+        active_only,
+    ]
     assert await HarnessSession.get(old_session.id) is None
     persisted_active = await HarnessSession.get(active_session.id)
     assert persisted_active is not None
@@ -817,13 +886,14 @@ async def test_postgres_checkpoint_key_rotation_overlap_and_new_writes(
     from app.agentive.harness.key_rotation import rewrap_harness_session_records
 
     report = await rewrap_harness_session_records(scope_key=store._scope_key)
-    assert report["records_seen"] == 4
-    assert report["records_rewrapped"] == 3
+    assert report["records_seen"] == 6
+    assert report["records_rewrapped"] == 4
     assert report["HarnessSnapshotRecord"] == 1
+    assert report["HarnessMessageRecord"] == 1
     assert report["HarnessCheckpointManifestRecord"] == 1
     assert report["HarnessPlanState"] == 1
     assert await rewrap_harness_session_records(scope_key=store._scope_key) == {
-        "records_seen": 4,
+        "records_seen": 6,
         "records_rewrapped": 0,
     }
 
@@ -1097,8 +1167,8 @@ async def test_postgres_checkpoint_key_rotation_resumes_after_partial_failure(
 
     monkeypatch.setattr(HarnessSnapshotRecord, "save", original_save)
     report = await rewrap_harness_session_records(scope_key=store._scope_key)
-    assert report["records_seen"] == 2
-    assert report["records_rewrapped"] == 1
+    assert report["records_seen"] == 4
+    assert report["records_rewrapped"] == 3
 
     keys["previous"] = None
     assert await store.list_snapshots(run_id=scope.run_id) == snapshots

@@ -290,8 +290,15 @@ async def test_small_app_reads_keep_only_a_bounded_recent_evidence_window():
         for p in m.parts
         if type(p) is ToolReturnPart and p.tool_name == wrapper
     ]
-    assert [p.content for p in returns[:2]] == [compactor.placeholder] * 2
-    assert [p.content["output"]["value"] for p in returns[2:]] == ["2", "3", "4", "5"]
+    # The shared 16 KiB fact budget drops the oldest of these nine reads.
+    assert returns[0].content == compactor.placeholder
+    assert [p.content["output"]["value"] for p in returns[1:]] == [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+    ]
 
 
 @pytest.mark.asyncio

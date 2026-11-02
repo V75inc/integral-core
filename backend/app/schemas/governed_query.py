@@ -61,6 +61,8 @@ class QueryResult(BaseModel):
     schema_version: str = "1.0"
     mode: QueryMode
     rows: List[Dict[str, Any]] = Field(default_factory=list)
+    result_metadata: Dict[str, Any] = Field(default_factory=dict)
+    row_collection: Optional[str] = None
     passages: List[Dict[str, Any]] = Field(default_factory=list)
     object_refs: List[ObjectRef] = Field(default_factory=list)
     evidence: Evidence = Field(default_factory=Evidence)
@@ -69,6 +71,25 @@ class QueryResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     degraded: bool = False
     explain: Optional[Dict[str, Any]] = None
+
+
+def _declared_output(value: dict) -> Optional[Dict[str, Any]]:
+    """Reconstruct the validated source envelope without serializing it twice."""
+    if value.get("mode") != "declared_capability":
+        return None
+    rows = value.get("rows") or []
+    collection = value.get("row_collection")
+    if isinstance(collection, str):
+        return {**value.get("result_metadata", {}), collection: rows}
+    return rows[0] if len(rows) == 1 and isinstance(rows[0], dict) else None
+
+
+class SDKQueryResult(dict):
+    """The normal query mapping with a lossless, non-JSON SDK view."""
+
+    @property
+    def source_output(self) -> Optional[Dict[str, Any]]:
+        return _declared_output(self)
 
 
 class QueryRequest(BaseModel):

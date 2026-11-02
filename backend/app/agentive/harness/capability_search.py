@@ -520,20 +520,60 @@ async def _embed_text_for_capability_search(text: str) -> list[float]:
 _DEFINITION_VECTORS: OrderedDict[tuple[str, str], tuple[float, ...]] = OrderedDict()
 
 
-async def _definition_vector(text: str) -> list[float]:
-    from app.services.retrieval.embedding_model import DEFAULT_MODEL_NAME
+async def _definition_vectors(texts: Sequence[str]) -> list[list[float]]:
+    """Reuse immutable derivations without retaining a mutable runtime or grant."""
+    from app.services.retrieval.definition_vectors import (
+        MAX_CACHED_COMPONENTS,
+        MAX_DEFINITIONS,
+        MAX_VECTOR_COMPONENTS,
+        read_vectors,
+        save_vector,
+        valid_vector,
+    )
+    from app.services.retrieval.index_definition import embedding_profile
 
-    key = (DEFAULT_MODEL_NAME, hashlib.sha256(text.encode()).hexdigest())
-    cached = _DEFINITION_VECTORS.get(key)
-    if cached is not None:
+    if len(texts) > MAX_DEFINITIONS:
+        raise ValueError("Too many capability definitions")
+    profile = embedding_profile()
+    space = profile.id
+    dimensions = getattr(profile, "dimensions", None)
+    if dimensions is not None and len(texts) * dimensions > MAX_VECTOR_COMPONENTS:
+        raise ValueError("Metadata vectors exceed the working memory budget")
+    unique = list(dict.fromkeys(texts))
+    resolved = {}
+    for text in unique:
+        key = (space, hashlib.sha256(text.encode()).hexdigest())
+        if key in _DEFINITION_VECTORS and (
+            dimensions is None or len(_DEFINITION_VECTORS[key]) == dimensions
+        ):
+            resolved[text] = list(_DEFINITION_VECTORS[key])
+            _DEFINITION_VECTORS.move_to_end(key)
+    missing = [text for text in unique if text not in resolved]
+    if missing:
+        resolved.update(await read_vectors(space, missing, dimensions=dimensions))
+    for text in unique:
+        if text not in resolved:
+            vector = await _embed_text_for_capability_search(text)
+            if not valid_vector(vector) or (
+                dimensions is not None and len(vector) != dimensions
+            ):
+                raise ValueError("Invalid capability embedding")
+            await save_vector(space, text, vector)
+            resolved[text] = vector
+        key = (space, hashlib.sha256(text.encode()).hexdigest())
+        _DEFINITION_VECTORS[key] = tuple(resolved[text])
         _DEFINITION_VECTORS.move_to_end(key)
-        return list(cached)
-    vector = await _embed_text_for_capability_search(text)
-    _DEFINITION_VECTORS[key] = tuple(vector)
-    _DEFINITION_VECTORS.move_to_end(key)
-    while len(_DEFINITION_VECTORS) > 512:
-        _DEFINITION_VECTORS.popitem(last=False)
-    return vector
+        while (
+            len(_DEFINITION_VECTORS) > 512
+            or sum(len(value) for value in _DEFINITION_VECTORS.values())
+            > MAX_CACHED_COMPONENTS
+        ):
+            _DEFINITION_VECTORS.popitem(last=False)
+    return [list(resolved[text]) for text in texts]
+
+
+async def _definition_vector(text: str) -> list[float]:
+    return (await _definition_vectors([text]))[0]
 
 
 async def pydantic_tool_search_strategy(
@@ -579,7 +619,7 @@ async def pydantic_tool_search_strategy(
         # search overload itself (63 skills / hundreds of tools on Business).
         # Await definitions in order and reuse only content-addressed vectors;
         # candidate membership/authority is still checked on every invocation.
-        document_vectors = [await _definition_vector(text) for _, text in documents]
+        document_vectors = await _definition_vectors([text for _, text in documents])
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
         semantic = []
         for (name, _document), vector in zip(documents, document_vectors):
@@ -682,7 +722,7 @@ def build_search_capabilities_tool(
                 for skill in skills
             ],
         )
-        skill_vectors = [await _definition_vector(text) for text in texts]
+        skill_vectors = await _definition_vectors(texts)
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
         semantic = []
         for skill, vector in zip(skills, skill_vectors):
@@ -720,9 +760,9 @@ def build_search_capabilities_tool(
             for name, document in tool_documents
             if document not in tool_vectors
         ]
-        document_vectors = [
-            await _definition_vector(document) for _name, document in missing
-        ]
+        document_vectors = await _definition_vectors(
+            [document for _name, document in missing]
+        )
         for (_name, document), vector in zip(missing, document_vectors):
             tool_vectors[document] = vector
         query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0

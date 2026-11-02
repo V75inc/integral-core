@@ -88,16 +88,25 @@ async def list_workspace_tools(
     tools = get_workspace_tools(workspace_id)
     bundle_slug = None
     if app_id:
+        from jvspatial.core.context import get_default_context
+
         from app.models.nodes import App
         from app.services.permissions import resolve_role
+        from app.services.resource_location import locate_resource
 
-        app = await App.get(app_id)
+        rows = await get_default_context().database.find(
+            "node", {"id": app_id}, limit=1
+        )
+        location = await locate_resource("app", app_id)
         if (
-            app is None
-            or app.workspace_id != workspace_id
+            not rows
+            or rows[0].get("entity") != App._entity_name()
+            or location is None
+            or location.workspace_id != workspace_id
             or await resolve_role(user_id, "app", app_id) is None
         ):
             raise InsufficientPermissionsError(message="Access denied")
+        app = App.model_validate({**rows[0]["context"], "id": app_id})
         if app.lifecycle_state != "active":
             raise ResourceNotFoundError(message="App is unavailable")
         bundle_slug = app.installed_package_slug

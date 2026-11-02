@@ -8,6 +8,7 @@ from typing import Any
 from app.models.harness_records import (
     HarnessCheckpointManifestRecord,
     HarnessEventRecord,
+    HarnessMessageRecord,
     HarnessModelRequestRecord,
     HarnessPlanState,
     HarnessRunRecord,
@@ -36,6 +37,7 @@ _RECORD_TYPES: tuple[type[Any], ...] = (
     HarnessRunRecord,
     HarnessEventRecord,
     HarnessSnapshotRecord,
+    HarnessMessageRecord,
     HarnessCheckpointManifestRecord,
     HarnessToolEffectRecord,
     HarnessPlanState,

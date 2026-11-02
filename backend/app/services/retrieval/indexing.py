@@ -27,6 +27,7 @@ from .index_definition import (
 logger = logging.getLogger(__name__)
 ENTITY = "EntryIndexJob"
 CURSOR = "o.EntryIndexCursor.v1"
+SCHEDULE = "o.EntryIndexSchedule.v1"
 
 
 async def entry_index_definition(
@@ -411,6 +412,154 @@ async def reconcile_page(*, limit: int = 100) -> int:
     return len(rows)
 
 
+def _job_workspace(row: dict) -> str:
+    return str((row.get("context") or {}).get("workspace_id") or "")
+
+
+def _interleave_jobs(rows: list[dict], limit: int) -> list[dict]:
+    """Round-robin workspaces until the delivery limit is full."""
+    from collections import deque
+
+    queues: dict[str, deque] = {}
+    for row in rows:
+        queues.setdefault(_job_workspace(row), deque()).append(row)
+    fair: list[dict] = []
+    while queues and len(fair) < limit:
+        for workspace in list(queues):
+            if len(fair) >= limit:
+                break
+            fair.append(queues[workspace].popleft())
+            if not queues[workspace]:
+                del queues[workspace]
+    return fair
+
+
+def _due_job_query(now: float, *, after: str) -> dict:
+    query: dict[str, Any] = {
+        "entity": ENTITY,
+        "$or": [
+            {"context.status": "pending", "context.due": {"$lte": now}},
+            {"context.status": "working", "context.lease_until": {"$lte": now}},
+        ],
+    }
+    if after:
+        query["context.workspace_id"] = {"$gt": after}
+    return query
+
+
+async def _find_due_jobs(database, now: float, *, after: str, limit: int) -> list[dict]:
+    return await database.find(
+        "object",
+        _due_job_query(now, after=after),
+        sort=[
+            ("context.workspace_id", 1),
+            ("context.due", 1),
+            ("id", 1),
+        ],
+        limit=limit,
+    )
+
+
+def _cap_workspace_jobs(rows: list[dict]) -> list[dict]:
+    """Stop one workspace at its per-cycle job quota.
+
+    ``INDEX_TENANT_JOB_QUOTA`` bounds encoder work for a workspace inside this
+    process. Jobs past the quota stay pending for a later cycle. A workspace
+    that is alone still stops at the quota, so a large import cannot consume
+    an unlimited cycle. Coordination across processes is not this cap.
+    """
+    quota = _worker_setting("INDEX_TENANT_JOB_QUOTA", 8, 128)
+    counts: dict[str, int] = {}
+    capped: list[dict] = []
+    for row in rows:
+        workspace = _job_workspace(row)
+        if counts.get(workspace, 0) >= quota:
+            continue
+        counts[workspace] = counts.get(workspace, 0) + 1
+        capped.append(row)
+    return capped
+
+
+def _append_unseen(rows: list[dict], extra: list[dict]) -> None:
+    seen = {row["id"] for row in rows}
+    for row in extra:
+        if row["id"] not in seen:
+            rows.append(row)
+            seen.add(row["id"])
+
+
+async def _select_due_index_jobs(database, now: float, limit: int) -> list[dict]:
+    """Fill one delivery slice without letting one workspace hide the next.
+
+    The cursor walks workspace ids. A short page past the cursor is filled
+    from earlier workspaces, without repeating a job. A page filled by one
+    workspace also admits the next workspace with due work. Each workspace
+    then stops at ``INDEX_TENANT_JOB_QUOTA`` for this cycle.
+    """
+    scan = min(256, max(limit, limit * 4))
+    saved = await database.get("object", SCHEDULE)
+    cursor = str((saved or {}).get("context", {}).get("after_workspace") or "")
+    rows = await _find_due_jobs(database, now, after=cursor, limit=scan)
+    if cursor and len(rows) < limit:
+        _append_unseen(rows, await _find_due_jobs(database, now, after="", limit=scan))
+    if not rows:
+        return []
+    workspaces: list[str] = []
+    for row in rows:
+        workspace = _job_workspace(row)
+        if workspace not in workspaces:
+            workspaces.append(workspace)
+    if len(workspaces) == 1 and len(rows) == scan:
+        more = await _find_due_jobs(database, now, after=workspaces[0], limit=scan)
+        if not more and cursor:
+            more = [
+                row
+                for row in await _find_due_jobs(database, now, after="", limit=scan)
+                if _job_workspace(row) != workspaces[0]
+            ]
+        _append_unseen(rows, more)
+    selected = _cap_workspace_jobs(_interleave_jobs(rows, limit))
+    if selected:
+        await database.save(
+            "object",
+            {
+                "id": SCHEDULE,
+                "entity": "EntryIndexSchedule",
+                "context": {"after_workspace": _job_workspace(selected[-1])},
+            },
+        )
+    return selected
+
+
+async def _claim_index_job(database, row: dict) -> str | None:
+    """Win this job's lease, or return None when another worker already did."""
+    ctx = row["context"]
+    lease = uuid.uuid4().hex
+    claimed = await database.find_one_and_update(
+        "object",
+        {
+            "id": row["id"],
+            "context.generation": ctx["generation"],
+            "context.status": ctx["status"],
+            **(
+                {"context.lease": ctx.get("lease")}
+                if ctx["status"] == "working"
+                else {}
+            ),
+        },
+        {
+            "$set": {
+                "context.status": "working",
+                "context.lease": lease,
+                "context.lease_until": time.time() + 300,
+            }
+        },
+    )
+    if claimed is None:
+        return None
+    return lease
+
+
 async def deliver_index_jobs(*, limit: int = 16) -> dict:
     """Deliver retryable jobs with cross-worker lease and source fencing."""
     from app.models.nodes import Entry
@@ -428,53 +577,12 @@ async def deliver_index_jobs(*, limit: int = 16) -> dict:
         return stats
     database = get_default_context().database
     now = time.time()
-    rows = await database.find(
-        "object",
-        {
-            "entity": ENTITY,
-            "$or": [
-                {"context.status": "pending", "context.due": {"$lte": now}},
-                {"context.status": "working", "context.lease_until": {"$lte": now}},
-            ],
-        },
-        limit=limit,
-    )
-    from collections import defaultdict, deque
-
-    grouped: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
-    for row in rows:
-        grouped[row["context"].get("workspace_id", "")].append(row)
-    fair = []
-    while grouped:
-        for workspace in list(grouped):
-            fair.append(grouped[workspace].popleft())
-            if not grouped[workspace]:
-                del grouped[workspace]
+    fair = await _select_due_index_jobs(database, now, limit)
     tokenizer = None
     for row in fair:
         ctx = row["context"]
-        lease = uuid.uuid4().hex
-        claimed = await database.find_one_and_update(
-            "object",
-            {
-                "id": row["id"],
-                "context.generation": ctx["generation"],
-                "context.status": ctx["status"],
-                **(
-                    {"context.lease": ctx.get("lease")}
-                    if ctx["status"] == "working"
-                    else {}
-                ),
-            },
-            {
-                "$set": {
-                    "context.status": "working",
-                    "context.lease": lease,
-                    "context.lease_until": time.time() + 300,
-                }
-            },
-        )
-        if claimed is None:
+        lease = await _claim_index_job(database, row)
+        if lease is None:
             continue
         fence = {
             "id": row["id"],
@@ -680,6 +788,14 @@ async def indexing_loop() -> None:
 
     while True:
         try:
+            from .definition_vectors import prune_definition_vectors
+
+            await prune_definition_vectors()
+            from app.services.resource_metadata_index import (
+                reconcile_requested_metadata,
+            )
+
+            await reconcile_requested_metadata()
             if isinstance(get_embedding_store(), PgVectorEmbeddingStore):
                 from .index_management import process_reindex_requests
                 from .workspace_reindex import process_workspace_rebuilds

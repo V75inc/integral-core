@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import datetime
@@ -18,6 +19,7 @@ from app.agentive.harness.pydantic_ai_compat import (
 )
 from app.models.harness_records import (
     HarnessEventRecord,
+    HarnessMessageRecord,
     HarnessRunRecord,
     HarnessSnapshotRecord,
     HarnessToolEffectRecord,
@@ -31,6 +33,11 @@ from app.services.credential_crypto import (
 
 class HarnessPersistenceError(RuntimeError):
     """Raised when durable Harness state cannot be safely read or written."""
+
+
+# One snapshot can introduce many new messages. Each insert takes a pool
+# connection, so the wave stays bounded instead of opening one per message.
+_MESSAGE_INSERT_CONCURRENCY = 8
 
 
 def _iso(value: datetime) -> str:
@@ -54,6 +61,14 @@ class JvSpatialStepStore:
     and each record payload is AES-GCM encrypted with its deterministic record
     ID as associated data. Encryption is fail-closed when Integral's storage
     key is unavailable.
+
+    New checkpoints follow the pinned Harness snapshot shape
+    ``{"message_refs": [sha256, ...]}`` and store each canonical message once.
+    ``PostgresStepStore`` already does that, but its table is plaintext and its
+    message key is global; the helpers that build the shape are private. A
+    direct switch would drop application ciphertext and scope. Message identity
+    here is the execution scope plus the hash. Older checkpoints that still
+    carry an inline ``messages`` list remain readable and are not rewritten.
     """
 
     supports_transactional_effects = True
@@ -230,16 +245,154 @@ class JvSpatialStepStore:
             )
         return sorted(events, key=lambda item: (item.step_index, item.timestamp))
 
+    def _canonical_message_parts(self, messages: list[Any]) -> list[tuple[str, str]]:
+        dumped = json.loads(ModelMessagesTypeAdapter.dump_json(messages))
+        if not isinstance(dumped, list):
+            raise HarnessPersistenceError("checkpoint messages are not a list")
+        parts: list[tuple[str, str]] = []
+        for message in dumped:
+            text = json.dumps(message, sort_keys=True, separators=(",", ":"))
+            digest = hashlib.sha256(text.encode()).hexdigest()
+            parts.append((digest, text))
+        return parts
+
+    def _message_record_id(self, digest: str) -> str:
+        return _stable_id(HarnessMessageRecord, self._record_key("message", digest))
+
+    def _assert_stored_message(
+        self, record: Any, *, digest: str, payload: dict[str, str]
+    ) -> None:
+        if record.scope_key != self._scope_key or record.content_hash != digest:
+            raise HarnessPersistenceError(
+                "checkpoint message scope does not match its record"
+            )
+        prior_payload = self._decrypt(record.payload_ciphertext, record_id=record.id)
+        if prior_payload != payload:
+            raise HarnessPersistenceError(
+                "checkpoint message hash is already bound to different content"
+            )
+
+    async def _find_messages(self, record_ids: list[str]) -> dict[str, Any]:
+        if not record_ids:
+            return {}
+        unique_ids = list(dict.fromkeys(record_ids))
+        from jvspatial.core.context import get_default_context
+
+        # Object.find rewrites ``id`` into ``context.id``. Message identity is
+        # the top-level record id, so the driver bulk read is the one query.
+        raw = await get_default_context().database.find_many("object", unique_ids)
+        found: dict[str, Any] = {}
+        if isinstance(raw, dict):
+            for record_id, record in raw.items():
+                if not isinstance(record, dict):
+                    continue
+                if record.get("entity") not in (None, HarnessMessageRecord.__name__):
+                    continue
+                context = record.get("context") or {}
+                if context.get("scope_key") != self._scope_key:
+                    continue
+                found[str(record_id)] = HarnessMessageRecord(
+                    id=str(record.get("id") or record_id),
+                    scope_key=str(context.get("scope_key") or ""),
+                    content_hash=str(context.get("content_hash") or ""),
+                    payload_ciphertext=str(context.get("payload_ciphertext") or ""),
+                )
+        if len(found) == len(unique_ids):
+            return found
+        # In-memory doubles keep rows on the model finder, not the driver.
+        if found:
+            return found
+        records = await HarnessMessageRecord.find(
+            {"id": {"$in": unique_ids}, "scope_key": self._scope_key}
+        )
+        return {record.id: record for record in records}
+
+    async def _store_messages(self, parts: list[tuple[str, str]]) -> None:
+        unique: dict[str, str] = {}
+        for digest, text in parts:
+            prior = unique.get(digest)
+            if prior is not None and prior != text:
+                raise HarnessPersistenceError(
+                    "checkpoint message hash is already bound to different content"
+                )
+            unique[digest] = text
+        if not unique:
+            return
+        pending = [
+            (digest, self._message_record_id(digest), {"message": text})
+            for digest, text in sorted(unique.items())
+        ]
+        stored = await self._find_messages([record_id for _, record_id, _ in pending])
+        missing = []
+        for digest, record_id, payload in pending:
+            record = stored.get(record_id)
+            if record is not None:
+                self._assert_stored_message(record, digest=digest, payload=payload)
+            else:
+                missing.append((digest, record_id, payload))
+
+        limiter = asyncio.Semaphore(_MESSAGE_INSERT_CONCURRENCY)
+
+        async def insert(digest: str, record_id: str, payload: dict[str, str]) -> None:
+            async with limiter:
+                created_row, created = await HarnessMessageRecord.create_if_absent(
+                    id=record_id,
+                    scope_key=self._scope_key,
+                    content_hash=digest,
+                    payload_ciphertext=self._encrypt(payload, record_id=record_id),
+                )
+                if not created:
+                    self._assert_stored_message(
+                        created_row, digest=digest, payload=payload
+                    )
+
+        if missing:
+            await asyncio.gather(
+                *(
+                    insert(digest, record_id, payload)
+                    for digest, record_id, payload in missing
+                )
+            )
+
+    def _same_checkpoint(
+        self,
+        prior: dict[str, Any],
+        payload: dict[str, Any],
+        canonical_texts: list[str],
+    ) -> bool:
+        fields = (
+            "run_id",
+            "step_index",
+            "conversation_id",
+            "parent_run_id",
+            "agent_name",
+            "timestamp",
+            "state",
+            "idempotency_key",
+        )
+        if any(prior.get(field) != payload.get(field) for field in fields):
+            return False
+        if "message_refs" in prior and "messages" not in prior:
+            return prior.get("message_refs") == payload["message_refs"]
+        inline = prior.get("messages")
+        if not isinstance(inline, list):
+            return False
+        prior_texts = [
+            json.dumps(message, sort_keys=True, separators=(",", ":"))
+            for message in inline
+        ]
+        return prior_texts == canonical_texts
+
     async def save_snapshot(self, snapshot: ContinuableSnapshot) -> None:
         identity = snapshot.idempotency_key or str(uuid4())
         key = self._record_key("snapshot", f"{snapshot.run_id}:{identity}")
         record_id = _stable_id(HarnessSnapshotRecord, key)
+        parts = self._canonical_message_parts(snapshot.messages)
+        await self._store_messages(parts)
         payload = {
             "run_id": snapshot.run_id,
             "step_index": snapshot.step_index,
-            "messages": json.loads(
-                ModelMessagesTypeAdapter.dump_json(snapshot.messages)
-            ),
+            "message_refs": [digest for digest, _text in parts],
             "conversation_id": snapshot.conversation_id,
             "parent_run_id": snapshot.parent_run_id,
             "agent_name": snapshot.agent_name,
@@ -257,20 +410,74 @@ class JvSpatialStepStore:
             state=snapshot.state,
             payload_ciphertext=self._encrypt(payload, record_id=record_id),
         )
-        if (
-            not created
-            and self._decrypt(stored.payload_ciphertext, record_id=record_id) != payload
+        if not created and not self._same_checkpoint(
+            self._decrypt(stored.payload_ciphertext, record_id=record_id),
+            payload,
+            [text for _digest, text in parts],
         ):
             raise HarnessPersistenceError(
                 "checkpoint idempotency key is already bound to different content"
             )
 
-    def _snapshot_from(self, record: Any) -> ContinuableSnapshot:
-        payload = self._decrypt(record.payload_ciphertext, record_id=record.id)
+    def _payload_refs(self, payload: dict[str, Any]) -> list[str]:
+        if "message_refs" not in payload or "messages" in payload:
+            return []
+        refs = payload["message_refs"]
+        if not isinstance(refs, list) or not all(
+            isinstance(ref, str) and ref for ref in refs
+        ):
+            raise HarnessPersistenceError(
+                "checkpoint message references are not canonical"
+            )
+        return refs
+
+    async def _load_message_texts(self, refs: list[str]) -> dict[str, str]:
+        unique = list(dict.fromkeys(refs))
+        if not unique:
+            return {}
+        stored = await self._find_messages(
+            [self._message_record_id(ref) for ref in unique]
+        )
+        texts: dict[str, str] = {}
+        for ref in unique:
+            record = stored.get(self._message_record_id(ref))
+            if record is None:
+                raise HarnessPersistenceError(
+                    "checkpoint message scope does not match its record"
+                )
+            body = self._decrypt(record.payload_ciphertext, record_id=record.id)
+            text = body.get("message") if isinstance(body, dict) else None
+            if not isinstance(text, str):
+                raise HarnessPersistenceError("checkpoint message payload is not text")
+            if record.content_hash != ref or record.scope_key != self._scope_key:
+                raise HarnessPersistenceError(
+                    "checkpoint message scope does not match its record"
+                )
+            texts[ref] = text
+        return texts
+
+    def _messages_from_payload(
+        self, payload: dict[str, Any], texts: dict[str, str]
+    ) -> list[Any]:
+        if "message_refs" in payload and "messages" not in payload:
+            refs = self._payload_refs(payload)
+            if not refs:
+                return []
+            return json.loads("[" + ",".join(texts[ref] for ref in refs) + "]")
+        inline = payload.get("messages")
+        if isinstance(inline, list):
+            return inline
+        raise HarnessPersistenceError("checkpoint has no message history")
+
+    def _snapshot_from_payload(
+        self, payload: dict[str, Any], texts: dict[str, str]
+    ) -> ContinuableSnapshot:
         return ContinuableSnapshot(
             run_id=payload["run_id"],
             step_index=payload["step_index"],
-            messages=ModelMessagesTypeAdapter.validate_python(payload["messages"]),
+            messages=ModelMessagesTypeAdapter.validate_python(
+                self._messages_from_payload(payload, texts)
+            ),
             conversation_id=payload.get("conversation_id"),
             parent_run_id=payload.get("parent_run_id"),
             agent_name=payload.get("agent_name"),
@@ -279,29 +486,50 @@ class JvSpatialStepStore:
             idempotency_key=payload.get("idempotency_key"),
         )
 
+    async def _decoded_snapshots(self, records: list[Any]) -> list[ContinuableSnapshot]:
+        decoded = [
+            self._decrypt(record.payload_ciphertext, record_id=record.id)
+            for record in records
+        ]
+        refs = [ref for payload in decoded for ref in self._payload_refs(payload)]
+        texts = await self._load_message_texts(refs)
+        return [self._snapshot_from_payload(payload, texts) for payload in decoded]
+
     async def list_snapshots(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> list[ContinuableSnapshot]:
         records = await self._find(HarnessSnapshotRecord, run_key=run_id)
         if not include_interrupted:
             records = [record for record in records if record.state == "complete"]
-        snapshots = [self._snapshot_from(record) for record in records]
+        snapshots = await self._decoded_snapshots(records)
         return sorted(snapshots, key=lambda item: (item.step_index, item.timestamp))
 
     async def latest_snapshot(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> ContinuableSnapshot | None:
-        records = await self._find(HarnessSnapshotRecord, run_key=run_id)
+        from jvspatial.core.context import get_default_context
+
+        context = get_default_context()
+        query: dict[str, Any] = {
+            "entity": HarnessSnapshotRecord.__name__,
+            "context.scope_key": self._scope_key,
+            "context.run_key": run_id,
+        }
         if not include_interrupted:
-            records = [record for record in records if record.state == "complete"]
-        if not records:
-            return None
-        # A latest read needs one authenticated payload, not every historical
-        # copy of the growing transcript. Ordering mirrors list_snapshots.
-        record = max(
-            records, key=lambda item: (item.step_index, _datetime(item.occurred_at))
+            query["context.state"] = "complete"
+        # Ordering matches list_snapshots: highest step, then latest timestamp.
+        rows = await context.database.find(
+            "object",
+            query,
+            sort=[("context.step_index", -1), ("context.occurred_at", -1)],
+            limit=1,
         )
-        return self._snapshot_from(record)
+        if not rows:
+            return None
+        record = await context._deserialize_entity(HarnessSnapshotRecord, rows[0])
+        if record is None:
+            raise HarnessPersistenceError("checkpoint record could not be read")
+        return (await self._decoded_snapshots([record]))[0]
 
     async def record_tool_effect(self, record: ToolEffectRecord) -> None:
         payload = {

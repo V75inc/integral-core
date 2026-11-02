@@ -274,12 +274,35 @@ async def test_full_approved_plan_reaches_commit(monkeypatch):
         _reset_for_tests()
 
 
+async def _restore_built_graph(saved):
+    """Return the built app to its post-build fields before another update path."""
+    from app.models.nodes import App, Entry, Track
+
+    app = await App.get(saved["app_id"])
+    app.name = saved["app_name"]
+    await app.save()
+    for track_id, fields in saved["tracks"].items():
+        track = await Track.get(track_id)
+        track.title = fields["title"]
+        track.relation_type_key = fields["relation_type_key"]
+        track.template_id = fields["template_id"]
+        await track.save()
+    for entry_id, fields in saved["entries"].items():
+        entry = await Entry.get(entry_id)
+        entry.title = fields["title"]
+        entry.custom_fields = deepcopy(fields["custom_fields"])
+        await entry.save()
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("legacy", ["new", "before_rename", "already_renamed"])
 async def test_actual_batch_build_and_graph_readback(
-    test_user, legacy, *, held_transaction=False
+    test_user, legacy="new", *, held_transaction=False
 ):
-    """Real staging/executor/permission/readback with a trusted approval fixture."""
+    """Real staging/executor/permission/readback with a trusted approval fixture.
+
+    The smoke case builds the graph once, then checks each legacy update path
+    against that same graph. A held transaction runs only the requested path.
+    """
     from app.models.edges import CONTAINS, REFERENCES
     from app.models.nodes import Track
     from app.services import chat_threads
@@ -375,147 +398,193 @@ async def test_actual_batch_build_and_graph_readback(
         )
         assert verified["status"] == "verified", verified
 
-        # Prompt 2: stage six exact changes before accepting any of them. Track
-        # display renames must not invalidate the existing Expense relation.
-        from app.agentive.services.staging_apply import bless_and_execute
-        from app.agentive.staging import get_token
-        from app.agentive.tooling.dispatch import dispatch_tool
-        from app.models.nodes import App, Entry
-
-        apps = await App.find({"context.workspace_id": workspace.id})
-        app = next(a for a in apps if a.name == "Personal Life Manager")
-        tracks_by_title = {t.title: t for t in tracks}
-        if legacy != "new":
-            business_track = tracks_by_title["Businesses"]
-            business_track.relation_type_key = ""
-            if legacy == "already_renamed":
-                business_track.title = "Business Directory"
-            await business_track.save()
-        before_track_ids = {t.id for t in tracks}
-        before_entry_ids = {e.id for e in entries}
-        await chat_threads.append_message(
-            thread=thread,
-            role="user",
-            parts=[{"type": "text", "text": REPORTED_PROMPTS["update"]}],
+        variants = (
+            (legacy,)
+            if held_transaction
+            else ("new", "before_rename", "already_renamed")
         )
-        changes = [
-            (
-                "integral_update_app",
-                {"app_id": app.id, "name": "Personal & Business Manager"},
-            ),
-            (
-                "integral_update_track",
-                {
-                    "track_id": tracks_by_title["Businesses"].id,
-                    "updates": {"title": "Business Directory"},
-                },
-            ),
-            (
-                "integral_update_track",
-                {
-                    "track_id": tracks_by_title["Contacts"].id,
-                    "updates": {"title": "People & Organizations"},
-                },
-            ),
-            (
-                "integral_update_entry",
-                {
-                    "entry_id": by_title["Walmart"].id,
-                    "updates": {"title": "Walmart Supercenter"},
-                },
-            ),
-            (
-                "integral_update_entry",
-                {
-                    "entry_id": by_title["groceries at Walmart"].id,
-                    "updates": {"fields": {"amount": 150}},
-                },
-            ),
-            (
-                "integral_update_entry",
-                {
-                    "entry_id": by_title["John Smith"].id,
-                    "updates": {"title": "John Smith — Project Manager"},
-                },
-            ),
-        ]
-        tokens = []
-        for name, args in changes:
+        saved_graph = None
+        for legacy in variants:
+            if saved_graph is not None:
+                await _restore_built_graph(saved_graph)
+                _reset_for_tests()
+            tracks = await Track.find({"context.workspace_id": workspace.id})
+            entries = []
+            for track in tracks:
+                if track.title not in {"Businesses", "Expenses", "Contacts"}:
+                    continue
+                entries.extend(
+                    await track.nodes(
+                        edge=[CONTAINS], node=["Entry"], direction="out", limit=100
+                    )
+                )
+            by_title = {entry.title: entry for entry in entries}
+
+            # Prompt 2: stage six exact changes before accepting any of them. Track
+            # display renames must not invalidate the existing Expense relation.
+            from app.agentive.services.staging_apply import bless_and_execute
+            from app.agentive.staging import get_token
+            from app.agentive.tooling.dispatch import dispatch_tool
+            from app.models.nodes import App, Entry
+
+            apps = await App.find({"context.workspace_id": workspace.id})
+            app = next(a for a in apps if a.name == "Personal Life Manager")
+            tracks_by_title = {t.title: t for t in tracks}
+            if saved_graph is None:
+                saved_graph = {
+                    "app_id": app.id,
+                    "app_name": app.name,
+                    "tracks": {
+                        track.id: {
+                            "title": track.title,
+                            "relation_type_key": track.relation_type_key,
+                            "template_id": track.template_id,
+                        }
+                        for track in tracks
+                    },
+                    "entries": {
+                        entry.id: {
+                            "title": entry.title,
+                            "custom_fields": deepcopy(entry.custom_fields or {}),
+                        }
+                        for entry in entries
+                    },
+                }
+            if legacy != "new":
+                business_track = tracks_by_title["Businesses"]
+                business_track.relation_type_key = ""
+                if legacy == "already_renamed":
+                    business_track.title = "Business Directory"
+                await business_track.save()
+            before_track_ids = {t.id for t in tracks}
+            before_entry_ids = {e.id for e in entries}
+            await chat_threads.append_message(
+                thread=thread,
+                role="user",
+                parts=[{"type": "text", "text": REPORTED_PROMPTS["update"]}],
+            )
+            changes = [
+                (
+                    "integral_update_app",
+                    {"app_id": app.id, "name": "Personal & Business Manager"},
+                ),
+                (
+                    "integral_update_track",
+                    {
+                        "track_id": tracks_by_title["Businesses"].id,
+                        "updates": {"title": "Business Directory"},
+                    },
+                ),
+                (
+                    "integral_update_track",
+                    {
+                        "track_id": tracks_by_title["Contacts"].id,
+                        "updates": {"title": "People & Organizations"},
+                    },
+                ),
+                (
+                    "integral_update_entry",
+                    {
+                        "entry_id": by_title["Walmart"].id,
+                        "updates": {"title": "Walmart Supercenter"},
+                    },
+                ),
+                (
+                    "integral_update_entry",
+                    {
+                        "entry_id": by_title["groceries at Walmart"].id,
+                        "updates": {"fields": {"amount": 150}},
+                    },
+                ),
+                (
+                    "integral_update_entry",
+                    {
+                        "entry_id": by_title["John Smith"].id,
+                        "updates": {"title": "John Smith — Project Manager"},
+                    },
+                ),
+            ]
+            tokens = []
+            for name, args in changes:
+                staged = await dispatch_tool(
+                    name,
+                    args,
+                    principal_id=principal,
+                    scope=workspace.id,
+                    session_id=session,
+                    interaction_id="prompt-2",
+                )
+                assert not staged.is_error, (staged.error_code, staged.message)
+                tokens.append(staged.data["token"])
+            apply_order = tokens
+            if legacy == "already_renamed":
+                # Retry the Expense first, before another metadata write can
+                # persist the recovered identity on the legacy target Track.
+                apply_order = [tokens[i] for i in [0, 4, 1, 2, 3, 5]]
+            for token in apply_order:
+                applied = await bless_and_execute(user_id=principal, token=token)
+                assert applied["consumed"], applied
+                assert (await get_token(token)).state == "consumed"
+                assert (await get_token(token)).last_error is None
+            assert (await App.get(app.id)).name == "Personal & Business Manager"
+            assert (
+                await Track.get(tracks_by_title["Businesses"].id)
+            ).title == "Business Directory"
+            assert (
+                await Track.get(tracks_by_title["Contacts"].id)
+            ).title == "People & Organizations"
+            assert (await Track.get(tracks_by_title["Expenses"].id)).title == "Expenses"
+            assert (
+                await Entry.get(by_title["Walmart"].id)
+            ).title == "Walmart Supercenter"
+            expense = await Entry.get(by_title["groceries at Walmart"].id)
+            assert expense.custom_fields["amount"] == 150
+            assert expense.custom_fields["business"] == by_title["Walmart"].id
+            assert (
+                await Entry.get(by_title["John Smith"].id)
+            ).title == "John Smith — Project Manager"
+            assert {
+                t.id for t in await Track.find({"context.workspace_id": workspace.id})
+            } == before_track_ids
+            after_entries = []
+            for track in await Track.find({"context.workspace_id": workspace.id}):
+                after_entries.extend(
+                    await track.nodes(edge=[CONTAINS], node=["Entry"], limit=100)
+                )
+            assert {e.id for e in after_entries} == before_entry_ids
+            assert len(await App.find({"context.workspace_id": workspace.id})) == len(
+                apps
+            )
+
+            # A genuine type mismatch still refuses the write. Approval is retained
+            # separately from application, and an explicit retry uses that same
+            # proposal after the target is compatible again.
+            target = await Track.get(tracks_by_title["Businesses"].id)
+            target.template_id = "incompatible_type"
+            await target.save()
             staged = await dispatch_tool(
-                name,
-                args,
+                "integral_update_entry",
+                {"entry_id": expense.id, "updates": {"fields": {"amount": 150}}},
                 principal_id=principal,
                 scope=workspace.id,
                 session_id=session,
-                interaction_id="prompt-2",
+                interaction_id="failure-check",
             )
-            assert not staged.is_error, (staged.error_code, staged.message)
-            tokens.append(staged.data["token"])
-        apply_order = tokens
-        if legacy == "already_renamed":
-            # Retry the Expense first, before another metadata write can
-            # persist the recovered identity on the legacy target Track.
-            apply_order = [tokens[i] for i in [0, 4, 1, 2, 3, 5]]
-        for token in apply_order:
-            applied = await bless_and_execute(user_id=principal, token=token)
-            assert applied["consumed"], applied
-            assert (await get_token(token)).state == "consumed"
+            assert not staged.is_error, staged.message
+            token = staged.data["token"]
+            refused = await bless_and_execute(user_id=principal, token=token)
+            assert refused["consumed"] is False
+            failed = await get_token(token)
+            assert failed.state == "blessed" and not failed.executing
+            assert "target track type is not allowed" in failed.last_error["message"]
+            assert (await Entry.get(expense.id)).custom_fields == expense.custom_fields
+            target.template_id = None
+            await target.save()
+            from app.agentive.services.staging_apply import execute_blessed_change
+
+            retried = await execute_blessed_change(user_id=principal, token=token)
+            assert retried["consumed"] is True, retried
             assert (await get_token(token)).last_error is None
-        assert (await App.get(app.id)).name == "Personal & Business Manager"
-        assert (
-            await Track.get(tracks_by_title["Businesses"].id)
-        ).title == "Business Directory"
-        assert (
-            await Track.get(tracks_by_title["Contacts"].id)
-        ).title == "People & Organizations"
-        assert (await Track.get(tracks_by_title["Expenses"].id)).title == "Expenses"
-        assert (await Entry.get(by_title["Walmart"].id)).title == "Walmart Supercenter"
-        expense = await Entry.get(by_title["groceries at Walmart"].id)
-        assert expense.custom_fields["amount"] == 150
-        assert expense.custom_fields["business"] == by_title["Walmart"].id
-        assert (
-            await Entry.get(by_title["John Smith"].id)
-        ).title == "John Smith — Project Manager"
-        assert {
-            t.id for t in await Track.find({"context.workspace_id": workspace.id})
-        } == before_track_ids
-        after_entries = []
-        for track in await Track.find({"context.workspace_id": workspace.id}):
-            after_entries.extend(
-                await track.nodes(edge=[CONTAINS], node=["Entry"], limit=100)
-            )
-        assert {e.id for e in after_entries} == before_entry_ids
-        assert len(await App.find({"context.workspace_id": workspace.id})) == len(apps)
-
-        # A genuine type mismatch still refuses the write. Approval is retained
-        # separately from application, and an explicit retry uses that same
-        # proposal after the target is compatible again.
-        target = await Track.get(tracks_by_title["Businesses"].id)
-        target.template_id = "incompatible_type"
-        await target.save()
-        staged = await dispatch_tool(
-            "integral_update_entry",
-            {"entry_id": expense.id, "updates": {"fields": {"amount": 150}}},
-            principal_id=principal,
-            scope=workspace.id,
-            session_id=session,
-            interaction_id="failure-check",
-        )
-        assert not staged.is_error, staged.message
-        token = staged.data["token"]
-        refused = await bless_and_execute(user_id=principal, token=token)
-        assert refused["consumed"] is False
-        failed = await get_token(token)
-        assert failed.state == "blessed" and not failed.executing
-        assert "target track type is not allowed" in failed.last_error["message"]
-        assert (await Entry.get(expense.id)).custom_fields == expense.custom_fields
-        target.template_id = None
-        await target.save()
-        from app.agentive.services.staging_apply import execute_blessed_change
-
-        retried = await execute_blessed_change(user_id=principal, token=token)
-        assert retried["consumed"] is True, retried
-        assert (await get_token(token)).last_error is None
     finally:
         _reset_for_tests()
 

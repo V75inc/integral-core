@@ -43,6 +43,20 @@ class HarnessSnapshotRecord(Object):
     payload_ciphertext: str = ""
 
 
+class HarnessMessageRecord(Object):
+    """One checkpoint message, encrypted once per execution scope.
+
+    The content hash selects a row only together with that scope. The same
+    plaintext in another session is a different record. ``content_hash`` is not
+    indexed: lookup uses the scope-bound record id, avoiding another expression
+    index on the shared Object table.
+    """
+
+    scope_key: str = attribute(default="", indexed=True)
+    content_hash: str = ""
+    payload_ciphertext: str = ""
+
+
 class HarnessCheckpointManifestRecord(Object):
     """Encrypted Core recovery manifest for one framework snapshot."""
 

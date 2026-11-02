@@ -19,10 +19,20 @@ from app.agentive.harness.skill_sources import materialize_standard_skill_librar
 
 
 @pytest.fixture(autouse=True)
-def isolate_definition_vector_cache():
+def isolate_definition_vector_cache(monkeypatch, request):
     """Each probe controls its encoder; production content hashes are deterministic."""
     from app.agentive.harness.capability_search import _DEFINITION_VECTORS
+    from app.services.retrieval import index_definition
 
+    # These ranking probes deliberately use 2-D synthetic vectors, not the
+    # deployment's 384-D ONNX model. Keep their declared vector space coherent.
+    monkeypatch.setattr(
+        index_definition,
+        "embedding_profile",
+        lambda: SimpleNamespace(
+            id=f"synthetic-ranking:{request.node.nodeid}", dimensions=2
+        ),
+    )
     _DEFINITION_VECTORS.clear()
     yield
     _DEFINITION_VECTORS.clear()

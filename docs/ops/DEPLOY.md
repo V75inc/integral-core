@@ -173,9 +173,9 @@ For a failed upgrade, inspect the schema and effect state before reverting an im
 
 ## jvspatial compatibility release gate
 
-Current metadata pins `jvspatial==0.2.3` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
+Current metadata pins `jvspatial==0.2.4` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
 
-jvspatial 0.2.3 keeps shallow node deletion within the selected node and its incident edges. Qualify App deletion with nested comments and linked content through both the manual dialog and chat approval. Verify atomic graph cleanup and execution receipts, retained shared resources, rollback on failure, and refusal of malformed discussion graphs.
+jvspatial 0.2.4 keeps shallow node deletion within the selected node and its incident edges. Qualify App deletion with nested comments and linked content through both the manual dialog and chat approval. Verify atomic graph cleanup and execution receipts, retained shared resources, rollback on failure, and refusal of malformed discussion graphs.
 
 When repairing duplicate UserModelCredential records, query through `GraphContext.find` before creating a unique index. Test with actual duplicates, then verify the repaired index rejects another duplicate. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. `RATE_LIMIT_DISABLED=1` bypass is restricted to pytest or DEBUG; it does not justify removing the production auth cap.
 

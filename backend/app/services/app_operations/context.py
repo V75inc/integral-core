@@ -59,7 +59,6 @@ class OperationContext(ToolContext):
         # These existing adapters themselves refuse read-only contexts.
         readonly_guarded = typed_effects | {"notify_once", "put_attachment", "invoke"}
         human_readonly = app_reads | {
-            "get_employee_compensation",
             "is_workspace_administrator",
             "get_workspace_email_delivery_redacted",
             "esign_vault_list",
