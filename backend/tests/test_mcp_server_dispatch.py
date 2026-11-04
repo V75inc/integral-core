@@ -246,7 +246,9 @@ async def test_call_tool_no_principal_fails_closed():
 
 
 @pytest.mark.asyncio
-async def test_call_tool_read_dispatches(bind_fresh_graph_context_for_async_tests):
+async def test_call_tool_read_dispatches(
+    bind_fresh_graph_context_for_async_tests, monkeypatch
+):
     """A read tool dispatches under a principal+scope and returns a dict.
 
     The SDK ``call_tool`` decorator turns a returned ``dict`` into
@@ -254,6 +256,9 @@ async def test_call_tool_read_dispatches(bind_fresh_graph_context_for_async_test
     track must appear in the result.
     """
     auth_user_id, workspace_id, _track_id = await _bootstrap_principal_and_track()
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "APP_BASE_URL", "https://workspace.example.test")
 
     res = await _call_tool_impl(
         "integral_list_tracks",
@@ -265,6 +270,8 @@ async def test_call_tool_read_dispatches(bind_fresh_graph_context_for_async_test
     assert isinstance(res, dict), res
     titles = [t.get("title") for t in res.get("tracks", [])]
     assert "Seeded Track" in titles, res
+    track = next(t for t in res["tracks"] if t["id"] == _track_id)
+    assert track["action_url"] == f"https://workspace.example.test/tracks/{_track_id}"
 
 
 @pytest.mark.asyncio
@@ -289,7 +296,15 @@ async def test_call_query_spec_returns_provenance_and_receipt(
     )
 
     assert isinstance(res, dict), res
-    assert res["items"] == [{"id": track_id, "title": "Seeded Track"}]
+    from app.config import settings
+
+    assert res["items"] == [
+        {
+            "id": track_id,
+            "title": "Seeded Track",
+            "action_url": settings.APP_BASE_URL.rstrip("/") + f"/tracks/{track_id}",
+        }
+    ]
     assert res["result_set_id"]
     assert res["receipt"]["capability_key"] == "integral_query_spec"
     assert res["_receipt"] == res["receipt"]

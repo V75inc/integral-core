@@ -300,7 +300,16 @@ class ToolContext:
                 user_id=self.user_id,
                 workspace_id=self.workspace_id,
                 spec=spec,
-                target_gate=self._resource_in_scope,
+                # Core-open reads already enforce canonical workspace/Entry
+                # admission. Carry the trusted App restriction into that same
+                # executor instead of walking every counted Entry again (the
+                # mixed-ACL 50K SDK probe exceeded 60s with the scalar gate).
+                execution_app_id=str(getattr(self, "app_id", "") or "") or None,
+                target_gate=(
+                    self._resource_in_scope
+                    if spec.mode == "declared_capability"
+                    else None
+                ),
             )
         return SDKQueryResult(result.model_dump())
 

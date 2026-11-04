@@ -208,6 +208,16 @@ class IntegralToolDisclosure(ToolSearch):
         loader and broker still admit the current capability and every effect.
         """
         prepared = await super().prepare_tools(ctx, tool_defs)
+        self._observe_discovery(ctx)
+        if final_response_reserved(ctx) or (
+            self.turn_progress and self.turn_progress.should_finalize
+        ):
+            # Withhold function schemas through the supported ToolSearch hook.
+            # Some providers ignore tool_choice=none while tools remain in the
+            # request, repeatedly selecting schema reads instead of synthesizing
+            # the retained evidence. Disclosure is invocation-local; Core's
+            # effect admission and durable availability remain unchanged.
+            return []
         current = set(getattr(ctx, "capabilities", {}))
         available = (self.workflow_skill_ids & current) - ctx.active_capability_ids
         if not available:
@@ -703,7 +713,8 @@ def build_integral_run_instructions(
             "Integral navigation: resource IDs are opaque. When linking saved "
             "Apps, Tracks or Entries, copy the canonical url returned by Core "
             "tools exactly, as Markdown links with readable labels. Do not split an ID, replace its dots with slashes, "
-            "or invent a route. If no verified url is available, use a plain "
+            "or invent a route or deployment hostname. Keep returned relative "
+            "paths relative. If no verified url is available, use a plain "
             "record label instead of a guessed link.",
             "Integral read recovery: when Core refuses a read and returns "
             "next_tool, search for that exact canonical tool name and follow "

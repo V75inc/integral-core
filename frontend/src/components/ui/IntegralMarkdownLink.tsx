@@ -37,7 +37,7 @@ function internalAppHref(href: string | undefined): string | undefined {
     // Historical answers used these placeholder hosts. Only known Core record
     // routes can be repaired; unrelated websites and other installations stay
     // external. Never infer authority from a resource ID in a link.
-    const placeholderOrigin = ['https://integral.app', 'https://integral.local', 'http://integral.local'].includes(url.origin);
+    const placeholderOrigin = ['https://integral.app', 'https://integral.local', 'http://integral.local', 'https://integral.example', 'http://integral.example'].includes(url.origin);
     if (placeholderOrigin && typedRecordPath.test(url.pathname)) return localPath;
     // Preserve compatibility with the public host normalization used by older
     // markdown clients, without accepting credentials or nonstandard ports.

@@ -1215,12 +1215,12 @@ if _db_type in ("postgres", "postgresql"):
         set_database_manager,
     )
 
-    from app.services.db_init import observability_kwargs
+    from app.services.db_init import observability_kwargs, postgres_connection_dsn
 
     _ensure_postgres_dsn()
     _prime_db = create_database(
         "postgres",
-        dsn=os.environ["JVSPATIAL_POSTGRES_DSN"],
+        dsn=postgres_connection_dsn(os.environ["JVSPATIAL_POSTGRES_DSN"]),
         **observability_kwargs(),
     )
     try:

@@ -30,6 +30,7 @@ from app.services.notification_paths import resolve_resource_action_url
 from app.services.permissions import resolve_role
 from app.services.query_boundary import generic_entry_read
 from app.services.query_filters import entry_field_value, filter_matches
+from app.services.resource_location import locate_resource
 from app.services.workspace_permissions import can_access_workspace
 from app.utils.time import utc_now_iso
 
@@ -224,6 +225,7 @@ async def _iter_track_entries(
     *,
     user_id: str,
     workspace_id: str,
+    app_id: Optional[str] = None,
 ) -> AsyncIterator[Any]:
     """Use the same raw-fact admission and payload checks as page/count reads."""
     from app.services.permissions import iter_user_accessible_entry_batches
@@ -238,6 +240,7 @@ async def _iter_track_entries(
         candidate_query=persisted,
         workspace_id=workspace_id,
         batch_size=200,
+        **({"app_id": app_id} if app_id else {}),
     ):
         for entry in batch:
             yield entry
@@ -257,6 +260,7 @@ async def _run_core_open(
     workspace_id: str,
     spec: QuerySpec,
     target_gate: Optional[TargetGate] = None,
+    execution_app_id: Optional[str] = None,
 ) -> QueryResult:
     from app.models.nodes import App, Track
 
@@ -271,6 +275,7 @@ async def _run_core_open(
             {
                 "workspace": workspace_id,
                 "principal": user_id,
+                **({"execution_app": execution_app_id} if execution_app_id else {}),
                 "query": spec.model_dump(mode="json", exclude={"cursor", "limit"}),
             },
             sort_keys=True,
@@ -364,20 +369,30 @@ async def _run_core_open(
                     limit=capacity,
                     candidate_query=persisted,
                     sort=[("id", -1 if descending else 1)],
+                    **({"app_id": execution_app_id} if execution_app_id else {}),
                 )
                 total_matched += page["total"]
                 for entry in page["entries"]:
                     yield entry
             else:
                 async for entry in _iter_track_entries(
-                    track, candidate, user_id=user_id, workspace_id=workspace_id
+                    track,
+                    candidate,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    **({"app_id": execution_app_id} if execution_app_id else {}),
                 ):
                     yield entry
 
         for track in tracks:
-            if target_gate is not None and not await target_gate("track", track.id):
+            location = await locate_resource("track", track.id)
+            if (
+                location is None
+                or location.workspace_id != workspace_id
+                or (execution_app_id and location.app_id != execution_app_id)
+            ):
                 continue
-            if await resolve_role(user_id, "track", track.id) is None:
+            if target_gate is not None and not await target_gate("track", track.id):
                 continue
             if not (await generic_entry_read(track)).allowed:
                 # Locked C / W3.0: no generic App-domain or inactive-App scans
@@ -463,6 +478,13 @@ async def _run_core_open(
         tracks = await Track.find({"context.workspace_id": workspace_id})
         candidates = []
         for track in tracks:
+            location = await locate_resource("track", track.id)
+            if (
+                location is None
+                or location.workspace_id != workspace_id
+                or (execution_app_id and location.app_id != execution_app_id)
+            ):
+                continue
             if target_gate is not None and not await target_gate("track", track.id):
                 continue
             if await resolve_role(user_id, "track", track.id) is None:
@@ -508,6 +530,11 @@ async def _run_core_open(
         apps = await App.find({"workspace_id": workspace_id})
         candidates = []
         for app in apps:
+            if execution_app_id and app.id != execution_app_id:
+                continue
+            location = await locate_resource("app", app.id)
+            if location is None or location.workspace_id != workspace_id:
+                continue
             if target_gate is not None and not await target_gate("app", app.id):
                 continue
             if await resolve_role(user_id, "app", app.id) is None:
@@ -641,11 +668,14 @@ async def _run_declared(
     spec: QuerySpec,
     catalogue_generation: Optional[str],
     target_gate: Optional[TargetGate] = None,
+    execution_app_id: Optional[str] = None,
 ) -> QueryResult:
     from app.services.app_queries.dispatch import invoke_app_query
 
     key = str(spec.capability_key or "").strip()
     app_id = str(spec.app_id or "").strip()
+    if app_id and execution_app_id and app_id != execution_app_id:
+        raise InsufficientPermissionsError(message="Access denied")
     if app_id and target_gate is not None and not await target_gate("app", app_id):
         raise InsufficientPermissionsError(message="Access denied")
     snap = await get_or_compile_catalogue(workspace_id)
@@ -657,6 +687,7 @@ async def _run_declared(
         and cap.availability == "active"
         and key in (cap.key, cap.capability_id)
         and (not app_id or cap.app_id == app_id)
+        and (not execution_app_id or cap.app_id == execution_app_id)
     ]
     matches = []
     allowed_apps = {}
@@ -742,6 +773,7 @@ async def execute_query(
     spec: QuerySpec,
     catalogue_generation: Optional[str] = None,
     target_gate: Optional[TargetGate] = None,
+    execution_app_id: Optional[str] = None,
 ) -> QueryResult:
     """Dispatch a query, applying a trusted execution gate before selection.
 
@@ -773,6 +805,7 @@ async def execute_query(
             spec=spec,
             catalogue_generation=catalogue_generation,
             target_gate=target_gate,
+            execution_app_id=execution_app_id,
         )
     if spec.mode == "core_open":
         # Hard reject filters that name App package entry types via resource misuse
@@ -781,5 +814,6 @@ async def execute_query(
             workspace_id=workspace_id,
             spec=spec,
             target_gate=target_gate,
+            execution_app_id=execution_app_id,
         )
     raise BadRequestError(message=f"unknown query mode {spec.mode!r}")

@@ -29,6 +29,51 @@ from app.services.view_scope import get_scoped_view
 logger = logging.getLogger(__name__)
 
 
+async def _entry_read_tracks(
+    user_id: str, tracks: List[Any], workspace_id: Optional[str]
+) -> tuple[List[Any], Set[str]]:
+    """Add directly admitted leaf sources without granting parent metadata.
+
+    A Track inventory is not the complete Entry audience. Reuse the bounded raw
+    admission executor for direct grants, projecting only authority/navigation
+    facts; never hydrate the Entry corpus to discover a few missing parents.
+    The returned ID set separately identifies readable parent metadata.
+    """
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.nodes import Track
+    from app.services.entry_access_projection import direct_entry_ids, iter_records
+    from app.services.permissions import get_user_node
+    from app.services.resource_location import ACTIVE_APP_STATES
+
+    readable_ids = {track.id for track in tracks}
+    user = await get_user_node(user_id)
+    if user is None:
+        return tracks, readable_ids
+    direct_ids = await direct_entry_ids(user)
+    if not direct_ids:
+        return tracks, readable_ids
+    missing: Set[str] = set()
+    for start in range(0, len(direct_ids), 200):
+        async for rows in iter_records(
+            user_id,
+            {"id": {"$in": direct_ids[start : start + 200]}},
+            workspace_id=workspace_id,
+            projection=["context.track_id"],
+            allowed_app_states=ACTIVE_APP_STATES,
+        ):
+            for row in rows:
+                track_id = row["context"]["track_id"]
+                if track_id not in readable_ids:
+                    missing.add(track_id)
+    result = list(tracks)
+    for track_id in sorted(missing):
+        track = await Track.get(track_id)
+        if track is None:
+            raise AuthorizationUnavailableError()
+        result.append(track)
+    return result, readable_ids
+
+
 # ---------------------------------------------------------------------------
 # Time helpers
 # ---------------------------------------------------------------------------
@@ -445,11 +490,15 @@ async def query_entries(
             if not decision.allowed:
                 named_block = decision
     else:
-        for track in accessible_tracks:
+        entry_tracks, readable_track_ids = await _entry_read_tracks(
+            user_id, accessible_tracks, workspace_id
+        )
+        for track in entry_tracks:
             if (await generic_entry_read(track)).allowed:
                 open_tracks.append(track)
             else:
-                excluded_tracks += 1
+                if track.id in readable_track_ids:
+                    excluded_tracks += 1
     if named_block is not None:
         recovery = None
         if (
@@ -486,7 +535,14 @@ async def query_entries(
     # When an explicit Track id is supplied, reject it if it's outside
     # the active workspace gate. Don't try to resolve cross-workspace.
     if workspace_id and track_id and track_id.startswith("n.Track."):
-        if not any(t.id == track_id for t in accessible_tracks):
+        from app.services.resource_location import locate_resource
+
+        # A direct Entry grant does not grant visibility of its Track. Prove
+        # canonical scope here; the shared Entry executor still admits each
+        # row. Requiring Track inventory membership hid valid direct grants
+        # after a Track grant was revoked (50K/100K mixed-ACL qualification).
+        location = await locate_resource("track", track_id)
+        if location is None or location.workspace_id != workspace_id:
             return {
                 "entries": [],
                 "total": 0,
@@ -546,9 +602,7 @@ async def query_entries(
         from app.models.nodes import Track as TrackNode
 
         selected_tracks = (
-            [track for track in accessible_tracks if track.id == track_id]
-            if track_id
-            else open_tracks
+            ([named] if named is not None else []) if track_id else open_tracks
         )
         if all(isinstance(track, TrackNode) for track in selected_tracks):
             from app.services.permissions import get_user_accessible_entry_page
@@ -658,9 +712,7 @@ async def query_entries(
         )
     )
     selected_tracks = (
-        [track for track in accessible_tracks if track.id == track_id]
-        if track_id
-        else open_tracks
+        ([named] if named is not None else []) if track_id else open_tracks
     )
     from app.models.nodes import Track as TrackNode
 
@@ -1027,6 +1079,7 @@ async def activity_digest(
     # (backend/app/models/nodes.py:409).
     if workspace_id:
         tracks = [t for t in tracks if getattr(t, "workspace_id", "") == workspace_id]
+    tracks, readable_track_ids = await _entry_read_tracks(user_id, tracks, workspace_id)
 
     # Scope filter — ``scope_id`` narrows to one app's tracks or one track.
     # Same name-vs-id tolerance as ``query_entries``: the agent often
@@ -1036,9 +1089,17 @@ async def activity_digest(
             tracks = [t for t in tracks if t.id == scope_id]
         else:
             hint_fold = scope_id.strip().casefold()
-            exact = [t for t in tracks if (t.title or "").casefold() == hint_fold]
+            exact = [
+                t
+                for t in tracks
+                if t.id in readable_track_ids
+                and (t.title or "").casefold() == hint_fold
+            ]
             substr = exact or [
-                t for t in tracks if hint_fold in (t.title or "").casefold()
+                t
+                for t in tracks
+                if t.id in readable_track_ids
+                and hint_fold in (t.title or "").casefold()
             ]
             tracks = substr[:1] if substr else []
     elif scope == "app" and scope_id:
@@ -1057,6 +1118,8 @@ async def activity_digest(
             # Name match across accessible tracks' parent apps.
             seen_app_ids: set = set()
             for t in tracks:
+                if t.id not in readable_track_ids:
+                    continue
                 pa_id = getattr(t, "app_id", "") or ""
                 if pa_id and pa_id not in seen_app_ids:
                     seen_app_ids.add(pa_id)
@@ -1109,6 +1172,8 @@ async def activity_digest(
             )
 
             entry_count = await count_user_accessible_entries(user_id, t.id)
+            if not entry_count and t.id not in readable_track_ids:
+                continue
             recent_queries = [
                 {"context.updated_at": {"$gte": since}},
                 {
@@ -1172,7 +1237,11 @@ async def activity_digest(
         track_summaries.append(
             {
                 "track_id": t.id,
-                "title": getattr(t, "title", ""),
+                "title": (
+                    getattr(t, "title", "")
+                    if t.id in readable_track_ids
+                    else "Shared records"
+                ),
                 "entry_count": entry_count,
                 "recent_count": recent_count,
                 "recent_titles": [
@@ -1183,7 +1252,11 @@ async def activity_digest(
                         reverse=True,
                     )[:3]
                 ],
-                "action_url": resolve_resource_action_url("track", t.id),
+                "action_url": (
+                    resolve_resource_action_url("track", t.id)
+                    if t.id in readable_track_ids
+                    else None
+                ),
             }
         )
 
@@ -1193,7 +1266,7 @@ async def activity_digest(
         "workspace_id": workspace_id,
         "period": period,
         "since": since,
-        "total_tracks": len(tracks),
+        "total_tracks": len(track_summaries),
         "total_entries": total_entries,
         "recent_entry_count": recent_entry_count,
         "excluded_tracks": len(blocked),
@@ -1277,6 +1350,9 @@ async def count_entries_grouped(
                 for track in tracks
                 if getattr(track, "workspace_id", "") == workspace_id
             ]
+        tracks, readable_track_ids = await _entry_read_tracks(
+            user_id, tracks, workspace_id
+        )
         if track_id:
             if not track_id.startswith("n.Track."):
                 folded = track_id.strip().casefold()
@@ -1302,12 +1378,17 @@ async def count_entries_grouped(
             groups = [
                 {
                     "key": track.id,
-                    "label": getattr(track, "title", track.id),
+                    "label": (
+                        getattr(track, "title", track.id)
+                        if track.id in readable_track_ids
+                        else "Shared records"
+                    ),
                     "count": count,
                 }
                 for track, count in sorted(
                     counts, key=lambda item: item[1], reverse=True
                 )
+                if count or track.id in readable_track_ids
             ]
             result = {
                 "group_by": group_by,
@@ -1362,6 +1443,9 @@ async def count_entries_grouped(
         )
         if matched:
             track_id = matched.id
+    accessible_tracks, readable_track_ids = await _entry_read_tracks(
+        user_id, accessible_tracks, workspace_id
+    )
     selected_tracks = (
         [track for track in accessible_tracks if track.id == track_id]
         if track_id
@@ -1451,7 +1535,12 @@ async def count_entries_grouped(
         total_matched = 0
         type_labels: Dict[str, str] = {}
         track_labels = {
-            track.id: getattr(track, "title", track.id) for track in open_tracks
+            track.id: (
+                getattr(track, "title", track.id)
+                if track.id in readable_track_ids
+                else "Shared records"
+            )
+            for track in open_tracks
         }
         for track in open_tracks:
             async for batch in iter_user_accessible_entry_batches(

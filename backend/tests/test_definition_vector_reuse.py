@@ -1,6 +1,7 @@
 """Derivation reuse remains bounded without reusing resource authority."""
 
 import math
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -123,6 +124,59 @@ async def test_real_object_round_trip_has_no_plaintext_or_graph_membership():
         "private description": [1.0, 0.5]
     }
     assert await store.read_vectors("different-encoder", ["private description"]) == {}
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    os.getenv("INTEGRAL_TEST_DB") != "postgres", reason="PostgreSQL persistence proof"
+)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [511, 512, 513, 1024])
+async def test_large_catalogue_reuses_primary_derivations_from_a_new_connection(
+    monkeypatch, size
+):
+    from jvspatial.db import create_database
+
+    encoder = AsyncMock(return_value=[1.0, 0.5])
+    monkeypatch.setattr(search, "_embed_text_for_capability_search", encoder)
+    monkeypatch.setattr(
+        "app.services.retrieval.index_definition.embedding_profile",
+        lambda: SimpleNamespace(id="pg-encoder-a", dimensions=2),
+    )
+    texts = [f"Persisted capability {index}" for index in range(size)]
+    search._DEFINITION_VECTORS.clear()
+    try:
+        first = await search._definition_vectors(texts)
+        assert encoder.await_count == size
+        assert await search._definition_vectors(texts) == first
+        assert encoder.await_count == size
+
+        # A distinct adapter/pool sees actual persisted Objects after the
+        # process-local LRU is discarded; no mocked primary store is involved.
+        other = create_database("postgres", dsn=os.environ["JVSPATIAL_POSTGRES_DSN"])
+        try:
+            with monkeypatch.context() as primary:
+                primary.setattr(
+                    store,
+                    "get_default_context",
+                    lambda: SimpleNamespace(database=other),
+                )
+                search._DEFINITION_VECTORS.clear()
+                assert await search._definition_vectors(texts) == first
+                assert encoder.await_count == size
+        finally:
+            await other.close()
+        texts[0] += " changed"
+        await search._definition_vectors(texts)
+        assert encoder.await_count == size + 1
+        monkeypatch.setattr(
+            "app.services.retrieval.index_definition.embedding_profile",
+            lambda: SimpleNamespace(id="pg-encoder-b", dimensions=2),
+        )
+        await search._definition_vectors(texts)
+        assert encoder.await_count == 2 * size + 1
+    finally:
+        search._DEFINITION_VECTORS.clear()
 
 
 @pytest.mark.asyncio

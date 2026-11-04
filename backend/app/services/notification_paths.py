@@ -6,8 +6,88 @@ Mirrors ``frontend/src/utils/resourcePaths.ts`` so persisted
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
+
+_RESOURCE_ROUTE = re.compile(
+    r"^/(?:apps|tracks|entries|workspaces)/[^/\s?#]+(?:[?#].*)?$"
+)
+
+
+def absolute_resource_links(payload: Dict[str, Any], base_url: str) -> Dict[str, Any]:
+    """Present Core navigation to external clients using trusted deployment config.
+
+    Native/browser routes stay relative. MCP has no SPA origin, so its existing
+    navigation fields need an explicit public base. Never use request headers or
+    model arguments to choose that base, and never rewrite receipts or arbitrary
+    nested record fields. This changes presentation, not resource admission.
+    """
+    base = base_url.strip().rstrip("/")
+    try:
+        parsed = urlsplit(base)
+        if (
+            parsed.scheme not in {"https", "http"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or "\\" in base
+            or any(character.isspace() for character in base)
+        ):
+            return payload
+        _ = parsed.port  # Reject malformed ports before emitting a link.
+    except ValueError:
+        return payload
+
+    def resource(item: Any) -> Any:
+        if not isinstance(item, dict):
+            return item
+        result = dict(item)
+        identifier = item.get("id")
+        # An existing destination can be more specific than the resource's
+        # landing page (for example an App dashboard query/hash).
+        if isinstance(identifier, str) and not item.get("action_url"):
+            for prefix, kind in (
+                ("n.WorkspaceApp.", "app"),
+                ("n.Track.", "track"),
+                ("n.Workspace.", "workspace"),
+                ("n.Entry.", "entry"),
+            ):
+                if identifier.startswith(prefix):
+                    track_id = item.get("track_id")
+                    path = resolve_resource_action_url(
+                        kind,
+                        identifier,
+                        track_id=track_id if isinstance(track_id, str) else None,
+                    )
+                    if path is None and kind == "entry":
+                        path = f"/entries/{quote(identifier, safe='')}"
+                    if path is not None:
+                        result["action_url"] = base + path
+                    break
+        for key in ("action_url", "url"):
+            path = result.get(key)
+            if isinstance(path, str) and _RESOURCE_ROUTE.fullmatch(path):
+                result[key] = base + path
+        return result
+
+    def envelope(value: Dict[str, Any]) -> Dict[str, Any]:
+        result = resource(value)
+        for key, items in value.items():
+            if key.startswith("_") or key in {"receipt", "evidence"}:
+                continue
+            if isinstance(items, list):
+                result[key] = [resource(item) for item in items]
+            elif key in {"app", "track", "entry", "dashboard"}:
+                result[key] = resource(items)
+        return result
+
+    result = envelope(payload)
+    if isinstance(payload.get("output"), dict):
+        result["output"] = envelope(payload["output"])
+    return result
 
 
 def _track_path(track_id: str) -> str:

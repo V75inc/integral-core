@@ -36,6 +36,111 @@ async def reader_in(workspace):
     return reader
 
 
+@pytest.mark.parametrize(
+    "surface",
+    [
+        "explicit",
+        "filtered_explicit",
+        "keyword_explicit",
+        "workspace",
+        "filtered_workspace",
+        "keyword_workspace",
+        "count",
+        "count_explicit",
+        "filtered_count",
+        "filtered_count_explicit",
+        "digest",
+        "digest_explicit",
+    ],
+)
+async def test_agent_entry_reads_preserve_only_direct_entry_grants(surface):
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.agent_insights import (
+        activity_digest,
+        count_entries_grouped,
+        query_entries,
+    )
+    from app.services.hooks.registry import ToolContext
+
+    _, workspace, _, track, entry = await graph()
+    track.title = "Private parent metadata must stay hidden"
+    await track.save()
+    reader = await reader_in(workspace)
+    assert await resolve_role(reader.id, "track", track.id) is None
+    grant = await reader.connect(entry, edge=COLLABORATES_ON, role="viewer")
+
+    async def read(selected_workspace):
+        if "count" in surface:
+            return await count_entries_grouped(
+                user_id=reader.id,
+                workspace_id=selected_workspace,
+                group_by="track",
+                **({"track_id": track.id} if surface.endswith("explicit") else {}),
+                **(
+                    {"filters": [{"field": "title", "value": entry.title}]}
+                    if surface.startswith("filtered")
+                    else {}
+                ),
+            )
+        if surface.startswith("digest"):
+            return await activity_digest(
+                user_id=reader.id,
+                workspace_id=selected_workspace,
+                **(
+                    {"scope": "track", "scope_id": track.id}
+                    if surface.endswith("explicit")
+                    else {}
+                ),
+            )
+        return await query_entries(
+            user_id=reader.id,
+            workspace_id=selected_workspace,
+            **({"track_id": track.id} if surface.endswith("explicit") else {}),
+            **(
+                {"filters": [{"field": "title", "value": entry.title}]}
+                if surface.startswith("filtered")
+                else {}
+            ),
+            **({"query": entry.title} if surface.startswith("keyword") else {}),
+        )
+
+    with isolated_permissions_cache():
+        result = await read(workspace.id)
+        if "count" in surface:
+            assert result["total_matched"] == 1
+            assert result["groups"][0]["key"] == track.id
+        elif surface.startswith("digest"):
+            assert result["total_entries"] == 1
+            assert result["track_summaries"][0]["track_id"] == track.id
+        else:
+            assert result["total"] == 1
+            assert [row["id"] for row in result["entries"]] == [entry.id]
+        assert track.title not in str(result)
+        sdk = await ToolContext(
+            user_id=reader.id, workspace_id=workspace.id, scope="tool"
+        ).query({"mode": "core_open", "resource": "entry", "limit": 20})
+        assert sdk["total_estimate"] == 1
+        assert [row["id"] for row in sdk["rows"]] == [entry.id]
+    _, foreign, _, _, _ = await graph()
+    with isolated_permissions_cache():
+        denied = await read(foreign.id)
+        assert (
+            denied.get(
+                "total", denied.get("total_matched", denied.get("total_entries"))
+            )
+            == 0
+        )
+    await grant.delete()
+    with isolated_permissions_cache():
+        revoked = await read(workspace.id)
+        assert (
+            revoked.get(
+                "total", revoked.get("total_matched", revoked.get("total_entries"))
+            )
+            == 0
+        )
+
+
 async def project(projection, principal, workspace, track):
     if projection == "list":
         rows = await get_user_accessible_entries(

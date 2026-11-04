@@ -30,7 +30,13 @@ counts can require a complete admission scan; an output limit is not a source
 work limit or a latency guarantee. Resource references carry canonical relative
 navigation paths.
 
-New open-Core cursors bind the query, principal and workspace. Send unchanged
+The SDK's trusted workspace/App binding enters that same canonical executor
+before selection and counting. It does not walk each counted Entry again merely
+to rediscover its scope. Arbitrary additional target gates retain their complete
+per-target semantics; an App binding never replaces current resource permission.
+
+New open-Core cursors bind the query, principal, workspace and any trusted App
+binding. Send unchanged
 query parameters with the returned opaque cursor; malformed offsets and a
 mismatched new cursor are rejected. Original offset-only cursors remain readable
 for compatibility. Every page rechecks current authority; cursors grant no

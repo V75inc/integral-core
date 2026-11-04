@@ -56,6 +56,15 @@ Do not replace the frozen source lock with an unrestricted extra package index. 
 
 Provision a qualified PostgreSQL deployment and persistent file storage. Keep `DEBUG=false`, `TESTING` unset, and rate limiting active. Start with one worker until the intended shared-state and browser journeys are qualified.
 
+Session-mode graph connections default to PostgreSQL custom prepared plans via
+the standard DSN startup `options` setting. This avoids the repeated-read latency
+cliff observed on the 100K fixture, at the cost of planning each execution.
+Qualify CPU and latency on the intended workload. Use
+`INTEGRAL_POSTGRES_PLAN_CACHE_MODE=auto` for PostgreSQL's adaptive choice.
+Explicit DSN `options` or `plan_cache_mode` remain authoritative; transaction
+poolers receive no new session option. See the backend's governed-read
+performance qualification instructions for the isolated scale gate.
+
 Provide JWT, OAuth, and model-credential encryption keys through a secret manager. Configure public URL, allowed origins, reverse proxy, TLS, CSP, email delivery, provider policy, retention, and a real attachment scanner as required. Core-only boot does not disable the resident or agentive layer.
 
 Mailbox verification and password recovery use the platform's `EMAIL_PROVIDER`,

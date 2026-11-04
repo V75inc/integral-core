@@ -79,11 +79,21 @@ ENTRIES_BY_TRACK = {
 
 @pytest.fixture
 def patched_permissions(monkeypatch):
+    from app.services.resource_location import ResourceLocation
+
     async def fake_tracks(user_id: str):
         return list(ALL_TRACKS)
 
     async def fake_entries(user_id: str, track_id: str, **_kwargs):
         return list(ENTRIES_BY_TRACK.get(track_id, []))
+
+    async def fake_location(kind: str, resource_id: str, **_kwargs):
+        # This unit universe must supply canonical locations as well as its
+        # admitted Track inventory. Rooted graph authority is tested separately.
+        track = next((row for row in ALL_TRACKS if row.id == resource_id), None)
+        if kind == "track" and track is not None:
+            return ResourceLocation(workspace_id=track.workspace_id, track_id=track.id)
+        return None
 
     monkeypatch.setattr(
         "app.services.permissions.get_user_accessible_tracks", fake_tracks
@@ -91,6 +101,7 @@ def patched_permissions(monkeypatch):
     monkeypatch.setattr(
         "app.services.permissions.get_user_accessible_entries", fake_entries
     )
+    monkeypatch.setattr("app.services.resource_location.locate_resource", fake_location)
     yield
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlsplit, urlunsplit
 
 from jvspatial.core.context import GraphContext, set_default_context
 from jvspatial.db.factory import create_database
@@ -13,6 +13,43 @@ from jvspatial.db.manager import (
     get_database_manager,
     set_database_manager,
 )
+
+
+def postgres_connection_dsn(dsn: str) -> str:
+    """Select stable session plans through supported PostgreSQL startup options.
+
+    Parameterized graph queries have highly uneven tenant/Track populations.
+    The 100K repeated-count probe crossed from ~600ms to >1200ms under automatic
+    planning; custom startup plans kept all 20 samples below 600ms.
+    Keep the driver's prepared-statement cache and transaction/ACL behavior.
+    Transaction poolers already disable that cache. Explicit operator startup
+    options take precedence, and the URI remains usable by libpq tools.
+    """
+    if (
+        os.environ.get("JVSPATIAL_POSTGRES_POOLER_MODE", "session").strip().lower()
+        == "transaction"
+    ):
+        return dsn
+    parsed = urlsplit(dsn)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        return dsn
+    if any(
+        key in {"options", "plan_cache_mode"}
+        for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+    ):
+        return dsn
+    mode = (
+        os.environ.get("INTEGRAL_POSTGRES_PLAN_CACHE_MODE", "force_custom_plan")
+        .strip()
+        .lower()
+    )
+    if mode not in {"auto", "force_custom_plan", "force_generic_plan"}:
+        raise ValueError("Invalid INTEGRAL_POSTGRES_PLAN_CACHE_MODE")
+    # libpq URI parsing retains literal '+'; asyncpg's query parser decodes it
+    # as a space. Percent-encode spaces so both receive the same startup option.
+    option = urlencode({"options": f"-c plan_cache_mode={mode}"}, quote_via=quote)
+    query = parsed.query + ("&" if parsed.query else "") + option
+    return urlunsplit(parsed._replace(query=query))
 
 
 def observability_kwargs() -> dict:
@@ -75,7 +112,7 @@ def init_prime_db() -> None:
             )
         prime_db = create_database(
             "postgres",
-            dsn=os.environ["JVSPATIAL_POSTGRES_DSN"],
+            dsn=postgres_connection_dsn(os.environ["JVSPATIAL_POSTGRES_DSN"]),
             **obs_kwargs,
         )
     elif db_type == "mongodb":

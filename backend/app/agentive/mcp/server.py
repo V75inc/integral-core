@@ -53,6 +53,8 @@ from app.agentive.services.capability_broker import (
 )
 from app.agentive.tooling import build_tool_catalogue
 from app.api.utils import resolve_principal_id
+from app.config import settings
+from app.services.notification_paths import absolute_resource_links
 from app.services.request_scope import resolve_workspace_id_from_request
 
 _INSTRUCTIONS = (
@@ -207,7 +209,10 @@ async def _call_tool_impl(
         )
 
     payload = result.for_model()
-    return payload if isinstance(payload, dict) else {"result": payload}
+    return absolute_resource_links(
+        payload if isinstance(payload, dict) else {"result": payload},
+        settings.APP_BASE_URL,
+    )
 
 
 def build_mcp_server() -> MCPServer:
