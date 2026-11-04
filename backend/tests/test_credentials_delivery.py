@@ -10,9 +10,14 @@ import pytest
 from app.models.nodes import User
 from app.services import credential_delivery as delivery
 from app.services.authentication import get_authentication_service
+from app.services.email_service import _SendOutcome
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.smoke]
 CODE = "123456"
+
+
+def send_outcome(success):
+    return _SendOutcome(success=success)
 
 
 async def prepare(user, monkeypatch):
@@ -23,6 +28,10 @@ async def prepare(user, monkeypatch):
         lambda: (CODE, hashlib.sha256(CODE.encode()).hexdigest()),
     )
     monkeypatch.setattr(delivery, "send_email", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        "app.services.email_service.send_email_with_outcome",
+        AsyncMock(return_value=send_outcome(True)),
+    )
     auth = await get_authentication_service()._get_user_by_id(user.user_id)
     meta = await delivery.begin_alternate_credentials_delivery(
         user_node=user,
@@ -45,8 +54,8 @@ async def consume(user, meta, code=CODE):
 
 async def test_success_is_idempotent_and_never_changes_password(test_user, monkeypatch):
     meta, password_hash = await prepare(test_user, monkeypatch)
-    send = AsyncMock(return_value=True)
-    monkeypatch.setattr(delivery, "send_email", send)
+    send = AsyncMock(return_value=send_outcome(True))
+    monkeypatch.setattr("app.services.email_service.send_email_with_outcome", send)
     assert await consume(test_user, meta) == (True, None, True)
     assert await consume(test_user, meta) == (True, None, True)
     assert send.await_count == 1
@@ -64,8 +73,13 @@ async def test_failed_send_is_retryable_with_identical_link(
     test_user, monkeypatch, failure
 ):
     meta, password_hash = await prepare(test_user, monkeypatch)
-    send = AsyncMock(side_effect=[failure, True])
-    monkeypatch.setattr(delivery, "send_email", send)
+    send = AsyncMock(
+        side_effect=[
+            failure if isinstance(failure, Exception) else send_outcome(failure),
+            send_outcome(True),
+        ]
+    )
+    monkeypatch.setattr("app.services.email_service.send_email_with_outcome", send)
     assert await consume(test_user, meta) == (True, None, False)
     user = await User.get(test_user.id)
     assert delivery.delivery_status(user)["credentials_emailed"] is False
@@ -83,10 +97,10 @@ async def test_concurrent_verification_claims_one_delivery(test_user, monkeypatc
     async def send(message):
         started.set()
         await release.wait()
-        return True
+        return send_outcome(True)
 
     mock = AsyncMock(side_effect=send)
-    monkeypatch.setattr(delivery, "send_email", mock)
+    monkeypatch.setattr("app.services.email_service.send_email_with_outcome", mock)
     first = asyncio.create_task(consume(test_user, meta))
     try:
         await asyncio.wait_for(started.wait(), 5)
@@ -99,14 +113,14 @@ async def test_concurrent_verification_claims_one_delivery(test_user, monkeypatc
 
 async def test_failed_worker_lease_reuses_staged_token(test_user, monkeypatch):
     meta, _ = await prepare(test_user, monkeypatch)
-    send = AsyncMock(return_value=False)
-    monkeypatch.setattr(delivery, "send_email", send)
+    send = AsyncMock(return_value=send_outcome(False))
+    monkeypatch.setattr("app.services.email_service.send_email_with_outcome", send)
     await consume(test_user, meta)
     user = await User.get(test_user.id)
     slot = user.preferences["credentials_delivery"]
     slot.update(state="sending", lease_until="2000-01-01T00:00:00+00:00")
     await user.save()
-    send.return_value = True
+    send.return_value = send_outcome(True)
     assert await consume(test_user, meta) == (True, None, True)
     assert send.call_args_list[0].args[0].text == send.call_args_list[1].args[0].text
 
@@ -124,7 +138,10 @@ async def test_superseding_reset_cannot_be_revived_by_delivery_retry(
     test_user, monkeypatch
 ):
     meta, _ = await prepare(test_user, monkeypatch)
-    monkeypatch.setattr(delivery, "send_email", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "app.services.email_service.send_email_with_outcome",
+        AsyncMock(return_value=send_outcome(False)),
+    )
     await consume(test_user, meta)
     user = await User.get(test_user.id)
     user.preferences["reset_token"]["hash"] = "new-reset-hash"
@@ -168,8 +185,8 @@ async def test_setup_link_uses_existing_single_use_password_reset(
     from app.services.password_reset import consume_reset_token
 
     meta, _ = await prepare(test_user, monkeypatch)
-    send = AsyncMock(return_value=True)
-    monkeypatch.setattr(delivery, "send_email", send)
+    send = AsyncMock(return_value=send_outcome(True))
+    monkeypatch.setattr("app.services.email_service.send_email_with_outcome", send)
     assert await consume(test_user, meta) == (True, None, True)
     token = unquote(
         re.search(r"reset-password\?token=([^\s]+)", send.call_args.args[0].text).group(
@@ -214,15 +231,17 @@ import asyncio, json, os, sys
 from jvspatial.db.factory import create_database
 from jvspatial.db import get_database_manager
 from jvspatial.core.context import GraphContext, scoped_default_context_async
+from app.services import email_service
 from app.services import credential_delivery as service
+from app.services.email_service import _SendOutcome
 async def main():
     db = create_database(db_type="postgres", dsn=os.environ["JVSPATIAL_POSTGRES_DSN"])
     get_database_manager().set_prime_database(db)
     async def send(message):
         with open(sys.argv[3], "a") as f: f.write("send\n")
         await asyncio.sleep(2)
-        return True
-    service.send_email = send
+        return _SendOutcome(success=True, status="accepted")
+    email_service.send_email_with_outcome = send
     try:
         async with scoped_default_context_async(GraphContext(database=db)):
             result = await service.consume_credentials_delivery_code(member_user_id=sys.argv[1], intent_id=sys.argv[2], code="123456")
@@ -304,7 +323,12 @@ async def test_untrusted_legacy_slot_requires_reissue(test_user, monkeypatch):
 
 @pytest.mark.parametrize(
     "source",
-    ["password_reset", "email_verification", "credentials_delivery_verification"],
+    [
+        "password_reset",
+        "email_verification",
+        "credentials_delivery_verification",
+        "account_activation",
+    ],
 )
 async def test_auth_mail_never_leaks_to_workspace_hooks(monkeypatch, source):
     from types import SimpleNamespace

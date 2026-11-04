@@ -23,6 +23,38 @@ from httpx import AsyncClient
 # CI bills only this subset; the full suite runs locally via `make verify` and nightly.
 pytestmark = pytest.mark.smoke
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("purpose", ["password_reset", "account_activation"])
+async def test_password_setup_routes_enforce_purpose_and_single_use(
+    client, test_user, purpose
+):
+    from app.services.authentication import get_authentication_service
+    from app.services.member_provision import set_must_change_password
+    from app.services.password_reset import _store_token_on_user, generate_reset_token
+
+    token, token_hash = generate_reset_token()
+    set_must_change_password(test_user, True)
+    _store_token_on_user(test_user, token_hash, purpose=purpose)
+    await test_user.save()
+    correct = (
+        "activate-account" if purpose == "account_activation" else "reset-password"
+    )
+    wrong = "reset-password" if purpose == "account_activation" else "activate-account"
+    payload = {"token": token, "password": "Strong-setup-password-2026!"}
+    denied = await client.post(f"/api/auth/{wrong}", json=payload)
+    assert denied.status_code == 400, denied.text
+    accepted = await client.post(f"/api/auth/{correct}", json=payload)
+    assert accepted.status_code == 200, accepted.text
+    reused = await client.post(f"/api/auth/{correct}", json=payload)
+    assert reused.status_code == 400, reused.text
+    auth = await get_authentication_service()._get_user_by_id(test_user.user_id)
+    login = await client.post(
+        "/api/auth/login", json={"email": auth.email, "password": payload["password"]}
+    )
+    assert login.status_code == 200, login.text
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,6 +197,13 @@ async def test_forgot_password_invalid_email_format_returns_422(client: AsyncCli
 async def test_reset_password_success_changes_password_and_invalidates_token(
     client: AsyncClient, test_user, captured_emails
 ):
+    from app.services.member_provision import (
+        must_change_password,
+        set_must_change_password,
+    )
+
+    set_must_change_password(test_user, True)
+    await test_user.save()
     email = getattr(test_user, "email", None) or "test@example.com"
 
     # 1. Trigger reset.
@@ -182,6 +221,8 @@ async def test_reset_password_success_changes_password_and_invalidates_token(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body.get("ok") is True
+    refreshed_rows = await type(test_user).find({"id": test_user.id})
+    assert refreshed_rows and must_change_password(refreshed_rows[0])
 
     # 3. Reusing the token must fail (single-use).
     resp = await client.post(

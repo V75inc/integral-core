@@ -38,6 +38,7 @@ from app.config import settings
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import User, Workspace
 from app.schemas.api.auth import (
+    ActivateAccountRequest,
     ExtendedUserCreate,
     ForgotPasswordRequest,
     ResetPasswordRequest,
@@ -871,6 +872,49 @@ async def reset_password(request: Request) -> Dict[str, Any]:
         )
 
     return {"ok": True, "message": "Password updated. You can now sign in."}
+
+
+@endpoint("/auth/activate-account", methods=["POST"], auth=False, tags=["Auth"])
+async def activate_account(request: Request) -> Dict[str, Any]:
+    """Set the initial password using a single-use account activation token."""
+    try:
+        body = ActivateAccountRequest(**(await request.json()))
+    except ValidationError as exc:
+        raise UnprocessableEntityError(
+            message="Invalid request: "
+            + "; ".join(e.get("msg", "validation error") for e in exc.errors()),
+        ) from exc
+
+    from app.services.password_reset import consume_reset_token
+
+    ok, error_code = await consume_reset_token(
+        body.token, body.password, expected_purpose="account_activation"
+    )
+    if not ok:
+        raise PasswordResetError(
+            message=_activation_error_message(error_code),
+            reset_error_code=error_code or "auth.reset.unknown",
+        )
+    return {"ok": True, "message": "Account activated. You can now sign in."}
+
+
+def _activation_error_message(error_code: Optional[str]) -> str:
+    """Use activation-specific copy while sharing token validation semantics."""
+    from app.services.password_reset import (
+        ERR_ATTEMPTS_EXCEEDED,
+        ERR_EXPIRED_TOKEN,
+        ERR_INVALID_TOKEN,
+        ERR_USER_INACTIVE,
+        ERR_WEAK_PASSWORD,
+    )
+
+    return {
+        ERR_INVALID_TOKEN: "This activation link is invalid. Contact your organization administrator.",
+        ERR_EXPIRED_TOKEN: "This activation link has expired. Contact your organization administrator for a new one.",
+        ERR_ATTEMPTS_EXCEEDED: "Too many attempts. Contact your organization administrator for a new activation link.",
+        ERR_WEAK_PASSWORD: "Password does not meet the minimum length requirement.",
+        ERR_USER_INACTIVE: "This account is inactive. Contact your organization administrator.",
+    }.get(error_code, "Could not activate this account.")
 
 
 def _reset_error_message(error_code: Optional[str]) -> str:

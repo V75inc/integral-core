@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from builtins import anext
 from collections import defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from copy import deepcopy

@@ -616,6 +616,17 @@ async def _ensure_model_indexes() -> None:
                 "ensure_indexes failed for QueryResultSet: %s",
                 result_set_ix_err,
             )
+        try:
+            from app.models.mailbox_verification import (
+                MailboxVerificationProof,
+            )
+
+            await ctx_for_indexes.ensure_indexes(MailboxVerificationProof)
+        except Exception as app_mb_ix_err:  # noqa: BLE001
+            log.warning(
+                "ensure_indexes failed for MailboxVerificationProof: %s",
+                app_mb_ix_err,
+            )
         # Durable work kernel Objects (I-GRAPH-02). Production fails closed —
         # workers cannot safely claim without these indexes.
         try:

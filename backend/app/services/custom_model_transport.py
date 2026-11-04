@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from builtins import anext
 from typing import Any
 from urllib.parse import urlsplit
 

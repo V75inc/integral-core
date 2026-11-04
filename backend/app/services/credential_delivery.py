@@ -17,6 +17,7 @@ from urllib.parse import quote
 from app.config import settings
 from app.models.nodes import User
 from app.services.email_service import (
+    render_account_activation_email,
     render_credentials_delivery_confirm_email,
     render_password_reset_email,
     send_email,
@@ -129,18 +130,118 @@ async def _save_user_node(user_node: User) -> None:
     user_node.updated_at = updated_at
 
 
+def _has_verified_mailbox_proof(value: Dict[str, Any]) -> bool:
+    """Read the current flag and the former persisted key during migration."""
+    return bool(
+        value.get("mailbox_verification_proof") or value.get("application_proof")
+    )
+
+
+def _verified_mailbox_slot(slot: Dict[str, Any]) -> bool:
+    return (
+        isinstance(slot, dict)
+        and slot.get("version") == 3
+        and _has_verified_mailbox_proof(slot)
+    )
+
+
+def _activation_failure_category(
+    *, success: bool, status: Optional[str], error: str
+) -> str:
+    if success:
+        return "accepted"
+    normalized = str(status or "").strip().lower()
+    err = str(error or "").strip().lower()
+    if normalized == "suppressed" or "suppress" in err:
+        return "suppressed"
+    if normalized == "failed":
+        return "failed"
+    return "pending_retry"
+
+
+def activation_delivery_public_status(
+    user_node: User, *, workspace_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Safe activation state for workspace admins (verified-mailbox path only)."""
+    prefs = user_node.preferences or {}
+    released = prefs.get(_PREFS_RELEASE) or {}
+    if isinstance(released, dict) and released.get("at"):
+        if _has_verified_mailbox_proof(released):
+            if (
+                workspace_id is not None
+                and released.get("workspace_id") != workspace_id
+            ):
+                return {"state": "not_pending", "send_attempt_count": 0}
+            return {
+                "state": "already_released",
+                "recipient_email": released.get("recipient_email"),
+                "intent_id": None,
+                "send_attempt_count": int(released.get("send_attempt_count") or 0),
+                "last_attempt_at": released.get("at"),
+                "provider_message_id": released.get("provider_message_id"),
+            }
+    slot = dict(prefs.get(_PREFS_PENDING) or {})
+    if not _verified_mailbox_slot(slot):
+        return {"state": "not_pending", "send_attempt_count": 0}
+    if workspace_id is not None and slot.get("workspace_id") != workspace_id:
+        return {"state": "not_pending", "send_attempt_count": 0}
+    if _is_expired(str(slot.get("expires_at") or "")):
+        return {
+            "state": "expired",
+            "recipient_email": slot.get("recipient_email"),
+            "intent_id": slot.get("intent_id"),
+            "send_attempt_count": int(slot.get("send_attempt_count") or 0),
+            "last_attempt_at": slot.get("last_send_attempt_at"),
+        }
+    category = str(slot.get("last_failure_category") or "")
+    if category == "suppressed":
+        state = "suppressed"
+    elif slot.get("state") == "sending" and not _is_expired(
+        str(slot.get("lease_until") or "")
+    ):
+        state = "sending"
+    else:
+        state = "pending_retry"
+    return {
+        "state": state,
+        "recipient_email": slot.get("recipient_email"),
+        "intent_id": slot.get("intent_id"),
+        "send_attempt_count": int(slot.get("send_attempt_count") or 0),
+        "last_attempt_at": slot.get("last_send_attempt_at"),
+        "provider_message_id": slot.get("last_provider_message_id"),
+    }
+
+
 def delivery_status(user_node: User) -> Dict[str, Any]:
     """Snapshot for admin polling after alternate-mailbox provision."""
     prefs = user_node.preferences or {}
     released = prefs.get(_PREFS_RELEASE) or {}
     if isinstance(released, dict) and released.get("at"):
-        return {
+        base = {
             "pending_verification": False,
             "credentials_emailed": True,
             "released_at": released.get("at"),
             "recipient_email": released.get("recipient_email"),
         }
+        if _has_verified_mailbox_proof(released):
+            base["credentials_activation_emailed"] = True
+            base.update(activation_delivery_public_status(user_node))
+        return base
     slot = prefs.get(_PREFS_PENDING) or {}
+    if isinstance(slot, dict) and _verified_mailbox_slot(slot):
+        public = activation_delivery_public_status(user_node)
+        retryable = public.get("state") in ("pending_retry", "suppressed", "sending")
+        return {
+            "pending_verification": False,
+            "credentials_emailed": False,
+            "credentials_activation_emailed": False,
+            "credentials_delivery_retryable": retryable,
+            "expires_at": slot.get("expires_at"),
+            "recipient_email": slot.get("recipient_email"),
+            "intent_id": slot.get("intent_id"),
+            "expired": public.get("state") == "expired",
+            **public,
+        }
     if not isinstance(slot, dict) or not slot.get("hash"):
         return {
             "pending_verification": False,
@@ -246,6 +347,409 @@ async def begin_alternate_credentials_delivery(
     }
 
 
+async def stage_verified_mailbox_activation_delivery(
+    *,
+    user_node: User,
+    recipient_email: str,
+    account_email: str,
+    workspace_id: str,
+    display_name: str,
+    actor_user_id: str,
+    proof_id: str,
+    subject_entry_id: str,
+    purpose: str,
+) -> Dict[str, Any]:
+    """Persist activation state and consume its proof in the caller's transaction."""
+    from app.services.credential_crypto import encrypt_secret_for_storage
+    from app.services.entry_write_scope import entry_write_scope
+    from app.services.password_reset import _store_token_on_user, generate_reset_token
+
+    require_delivery_storage()
+    recipient_norm = recipient_email.strip().lower()
+    account_norm = account_email.strip().lower()
+    if not recipient_norm or recipient_norm == account_norm:
+        raise ValueError("verified mailbox delivery requires distinct recipient")
+
+    intent_id = secrets.token_urlsafe(16)
+    identity = f"credentials-delivery:{user_node.id}"
+    attempt_id = secrets.token_urlsafe(16)
+    aad = f"credentials-delivery:{user_node.id}:{intent_id}"
+    token: str
+    token_hash_to_persist: Optional[str] = None
+    slot: Dict[str, Any]
+    async with entry_write_scope(identity):
+        user = await _fresh_user(user_node.id)
+        if user is None:
+            raise ValueError("Account unavailable")
+        await _lock_identity(user)
+        user = await _fresh_user(user_node.id)
+        if user is None:
+            raise ValueError("Account unavailable")
+        from app.services.authentication import get_authentication_service
+
+        auth = await get_authentication_service()._get_user_by_id(user.user_id)
+        if auth is None:
+            raise ValueError("Account unavailable")
+        prefs = dict(user.preferences or {})
+        prefs.pop(_PREFS_RELEASE, None)
+        existing = dict(prefs.get(_PREFS_PENDING) or {})
+        if (
+            _verified_mailbox_slot(existing)
+            and existing.get("intent_id")
+            and existing.get("state") in ("ready", "sending", None)
+            and existing.get("recipient_email") == recipient_norm
+            and existing.get("setup_token_enc")
+        ):
+            intent_id = str(existing["intent_id"])
+            aad = f"credentials-delivery:{user.id}:{intent_id}"
+            slot = existing
+            from app.services.credential_crypto import decrypt_secret_from_storage
+
+            token = decrypt_secret_from_storage(str(slot["setup_token_enc"]), aad=aad)
+            current_token = (user.preferences or {}).get("reset_token") or {}
+            if not token or current_token.get("purpose") != "account_activation":
+                token, token_hash = generate_reset_token()
+                token_hash_to_persist = token_hash
+                slot["setup_token_enc"] = encrypt_secret_for_storage(token, aad=aad)
+                slot["setup_token_hash"] = token_hash
+        else:
+            token, token_hash = generate_reset_token()
+            token_hash_to_persist = token_hash
+            slot = {
+                "version": 3,
+                "mailbox_verification_proof": True,
+                "intent_id": intent_id,
+                "recipient_email": recipient_norm,
+                "account_email": account_norm,
+                "workspace_id": workspace_id,
+                "display_name": display_name,
+                "actor_user_id": actor_user_id,
+                "credential_version": hashlib.sha256(
+                    str(auth.password_hash).encode()
+                ).hexdigest(),
+                "setup_token_enc": encrypt_secret_for_storage(token, aad=aad),
+                "setup_token_hash": token_hash,
+                "expires_at": _expiry_iso(),
+                "state": "sending",
+                "attempt_id": attempt_id,
+                "lease_until": (_now_utc() + timedelta(seconds=60)).isoformat(),
+            }
+        slot.update(
+            state="sending",
+            attempt_id=attempt_id,
+            lease_until=(_now_utc() + timedelta(seconds=60)).isoformat(),
+        )
+        prefs[_PREFS_PENDING] = slot
+        user.preferences = prefs
+        if token_hash_to_persist:
+            _store_token_on_user(
+                user, token_hash_to_persist, purpose="account_activation"
+            )
+        user.updated_at = _now_utc().isoformat()
+        await user.save()
+
+        from app.services.mailbox_verification import (
+            consume_mailbox_verification_proof,
+        )
+
+        consumed, _error = await consume_mailbox_verification_proof(
+            proof_id=proof_id,
+            subject_entry_id=subject_entry_id,
+            workspace_id=workspace_id,
+            personal_email=recipient_norm,
+            purpose=purpose,
+            consumed_for_user_id=user.id,
+        )
+        if not consumed:
+            from app.api.errors import BadRequestError
+
+            raise BadRequestError(
+                message="Mailbox verification proof could not be consumed"
+            )
+
+    return {
+        "member_user_id": user_node.id,
+        "recipient_email": recipient_norm,
+        "intent_id": intent_id,
+        "attempt_id": attempt_id,
+        "slot": slot,
+        "setup_token": token,
+    }
+
+
+async def deliver_staged_verified_mailbox_activation_link(
+    prepared: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Send a previously staged activation link after its transaction commits."""
+    from app.services.permissions import get_user_node
+
+    member_user_id = str(prepared.get("member_user_id") or "").strip()
+    recipient_norm = str(prepared.get("recipient_email") or "").strip()
+    intent_id = str(prepared.get("intent_id") or "").strip()
+    attempt_id = str(prepared.get("attempt_id") or "").strip()
+    slot = prepared.get("slot")
+    token = str(prepared.get("setup_token") or "")
+    if not (
+        member_user_id
+        and recipient_norm
+        and intent_id
+        and attempt_id
+        and isinstance(slot, dict)
+        and token
+    ):
+        raise ValueError("Verified mailbox activation stage is invalid")
+    user_node = await get_user_node(member_user_id)
+    if user_node is None:
+        raise ValueError("Account unavailable")
+
+    emailed, category, provider_message_id = (
+        await _dispatch_verified_mailbox_activation_send(
+            user_node=user_node, slot=slot, setup_token=token
+        )
+    )
+
+    finalized = await _finalize_verified_mailbox_activation_send(
+        member_user_id=member_user_id,
+        intent_id=intent_id,
+        attempt_id=attempt_id,
+        recipient_norm=recipient_norm,
+        emailed=emailed,
+        failure_category=category,
+        provider_message_id=provider_message_id,
+    )
+    finalized.update(
+        intent_id=intent_id,
+        challenge_emailed=False,
+        expires_at=slot.get("expires_at"),
+    )
+    return finalized
+
+
+async def _dispatch_verified_mailbox_activation_send(
+    *,
+    user_node: User,
+    slot: Dict[str, Any],
+    setup_token: str,
+) -> Tuple[bool, str, Optional[str]]:
+    try:
+        return await _release_credentials_email(
+            user_node=user_node, slot=slot, setup_token=setup_token
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "credentials_delivery: verified mailbox send failed member=%s",
+            user_node.id,
+        )
+        return False, "pending_retry", None
+
+
+async def _finalize_verified_mailbox_activation_send(
+    *,
+    member_user_id: str,
+    intent_id: str,
+    attempt_id: str,
+    recipient_norm: str,
+    emailed: bool,
+    failure_category: str,
+    provider_message_id: Optional[str],
+) -> Dict[str, Any]:
+    from app.services.entry_write_scope import entry_write_scope
+
+    identity = f"credentials-delivery:{member_user_id}"
+    now = _now_utc().isoformat()
+    async with entry_write_scope(identity):
+        fresh = await _fresh_user(member_user_id)
+        if fresh is None:
+            return {
+                "activation_emailed": False,
+                "delivery_retryable": True,
+                "activation_state": "pending_retry",
+            }
+        await _lock_identity(fresh)
+        fresh = await _fresh_user(member_user_id)
+        if fresh is None:
+            return {
+                "activation_emailed": False,
+                "delivery_retryable": True,
+                "activation_state": "pending_retry",
+            }
+        current = dict((fresh.preferences or {}).get(_PREFS_PENDING) or {})
+        if not _verified_mailbox_slot(current):
+            released = (fresh.preferences or {}).get(_PREFS_RELEASE) or {}
+            return {
+                "activation_emailed": bool(released.get("at")),
+                "delivery_retryable": not bool(released.get("at")),
+                "activation_state": (
+                    "already_released" if released.get("at") else "not_pending"
+                ),
+            }
+        if (
+            current.get("intent_id") != intent_id
+            or current.get("attempt_id") != attempt_id
+        ):
+            released = (fresh.preferences or {}).get(_PREFS_RELEASE) or {}
+            return {
+                "activation_emailed": bool(released.get("at")),
+                "delivery_retryable": not bool(released.get("at")),
+                "activation_state": (
+                    "already_released" if released.get("at") else "sending"
+                ),
+            }
+        attempts = int(current.get("send_attempt_count") or 0) + 1
+        current["send_attempt_count"] = attempts
+        current["last_send_attempt_at"] = now
+        if provider_message_id:
+            current["last_provider_message_id"] = provider_message_id
+        if emailed:
+            fresh.preferences = {
+                **(fresh.preferences or {}),
+                _PREFS_RELEASE: {
+                    "at": now,
+                    "recipient_email": recipient_norm,
+                    "mailbox_verification_proof": True,
+                    "send_attempt_count": attempts,
+                    "provider_message_id": provider_message_id,
+                    "workspace_id": current.get("workspace_id"),
+                },
+                _PREFS_PENDING: {},
+            }
+            state = "sent"
+        else:
+            current["state"] = "ready"
+            current["last_failure_category"] = failure_category
+            fresh.preferences = {**(fresh.preferences or {}), _PREFS_PENDING: current}
+            state = (
+                "suppressed" if failure_category == "suppressed" else "pending_retry"
+            )
+        fresh.updated_at = now
+        await fresh.save()
+    return {
+        "activation_emailed": emailed,
+        "delivery_retryable": not emailed,
+        "activation_state": state,
+        "send_attempt_count": attempts,
+    }
+
+
+async def retry_verified_mailbox_activation_delivery(
+    *,
+    workspace_id: str,
+    member_user_id: str,
+    actor_user_id: str,
+    intent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Authorized admin retry for pending verified-mailbox activation mail."""
+    from app.services.authentication import get_authentication_service
+    from app.services.credential_crypto import (
+        decrypt_secret_from_storage,
+        encrypt_secret_for_storage,
+    )
+    from app.services.entry_write_scope import entry_write_scope
+    from app.services.password_reset import _store_token_on_user, generate_reset_token
+    from app.services.workspace_permissions import read_member_facts
+
+    require_delivery_storage()
+    ws = str(workspace_id or "").strip()
+    member_id = str(member_user_id or "").strip()
+    actor = str(actor_user_id or "").strip()
+    if not (ws and member_id and actor):
+        raise ValueError("workspace, member and actor are required")
+    member = await _fresh_user(member_id)
+    if member is None or await read_member_facts(member, ws) is None:
+        raise ValueError("Member is not in this workspace")
+    identity = f"credentials-delivery:{member_id}"
+    attempt_id = secrets.token_urlsafe(16)
+    token: Optional[str] = None
+    slot: Dict[str, Any] = {}
+    resolved_intent = str(intent_id or "").strip()
+    async with entry_write_scope(identity):
+        user = await _fresh_user(member_id)
+        if user is None:
+            return activation_delivery_public_status(member, workspace_id=ws)
+        await _lock_identity(user)
+        user = await _fresh_user(member_id)
+        if user is None:
+            return {"state": "not_pending", "send_attempt_count": 0}
+        prefs = dict(user.preferences or {})
+        released = prefs.get(_PREFS_RELEASE) or {}
+        if isinstance(released, dict) and released.get("at"):
+            return activation_delivery_public_status(user, workspace_id=ws)
+        slot = dict(prefs.get(_PREFS_PENDING) or {})
+        if not _verified_mailbox_slot(slot):
+            return activation_delivery_public_status(user, workspace_id=ws)
+        if str(slot.get("workspace_id") or "") != ws:
+            return {"state": "not_pending", "send_attempt_count": 0}
+        if resolved_intent and slot.get("intent_id") != resolved_intent:
+            return {"state": "not_pending", "send_attempt_count": 0}
+        resolved_intent = str(slot.get("intent_id") or "")
+        if _is_expired(str(slot.get("expires_at") or "")):
+            return {"state": "expired", "intent_id": resolved_intent}
+        if slot.get("state") == "sending" and not _is_expired(
+            str(slot.get("lease_until") or "")
+        ):
+            return activation_delivery_public_status(user, workspace_id=ws)
+        auth = await get_authentication_service()._get_user_by_id(user.user_id)
+        if auth is None or not getattr(auth, "is_active", True):
+            return {"state": "not_pending", "send_attempt_count": 0}
+        if hashlib.sha256(str(auth.password_hash).encode()).hexdigest() != slot.get(
+            "credential_version"
+        ):
+            return {"state": "not_pending", "send_attempt_count": 0}
+        aad = f"credentials-delivery:{member_id}:{resolved_intent}"
+        encrypted = str(slot.get("setup_token_enc") or "")
+        if not encrypted.startswith("v1:"):
+            return {"state": "not_pending", "send_attempt_count": 0}
+        token = decrypt_secret_from_storage(encrypted, aad=aad)
+        current = (user.preferences or {}).get("reset_token") or {}
+        if current.get("hash") != slot.get("setup_token_hash"):
+            return {"state": "not_pending", "send_attempt_count": 0}
+        if current.get("purpose") not in (None, "account_activation"):
+            return {"state": "not_pending", "send_attempt_count": 0}
+        if not token or _is_expired(str(current.get("expires_at") or "")):
+            return {"state": "expired", "intent_id": resolved_intent}
+        if current.get("purpose") is None:
+            token, token_hash = generate_reset_token()
+            _store_token_on_user(user, token_hash, purpose="account_activation")
+            slot.update(
+                setup_token_enc=encrypt_secret_for_storage(token, aad=aad),
+                setup_token_hash=token_hash,
+            )
+            # Preserve the replacement token and purpose written above, rather
+            # than overwriting them with the preferences read before rotation.
+            prefs = dict(user.preferences or {})
+        slot.update(
+            state="sending",
+            attempt_id=attempt_id,
+            lease_until=(_now_utc() + timedelta(seconds=60)).isoformat(),
+        )
+        user.preferences = {**prefs, _PREFS_PENDING: slot}
+        user.updated_at = _now_utc().isoformat()
+        await user.save()
+
+    if not token:
+        return {"state": "not_pending", "send_attempt_count": 0}
+    emailed, category, provider_message_id = (
+        await _dispatch_verified_mailbox_activation_send(
+            user_node=member, slot=slot, setup_token=token
+        )
+    )
+    finalized = await _finalize_verified_mailbox_activation_send(
+        member_user_id=member_id,
+        intent_id=resolved_intent,
+        attempt_id=attempt_id,
+        recipient_norm=str(slot.get("recipient_email") or ""),
+        emailed=emailed,
+        failure_category=category,
+        provider_message_id=provider_message_id,
+    )
+    public = activation_delivery_public_status(
+        await _fresh_user(member_id) or member, workspace_id=ws
+    )
+    public["activation_emailed"] = finalized.get("activation_emailed")
+    public["delivery_retryable"] = finalized.get("delivery_retryable")
+    return public
+
+
 def _clear_pending(user_node: User) -> None:
     prefs = dict(user_node.preferences or {})
     prefs.pop(_PREFS_PENDING, None)
@@ -268,17 +772,39 @@ async def _release_credentials_email(
     user_node: User,
     slot: Dict[str, Any],
     setup_token: str,
-) -> bool:
+) -> Tuple[bool, str, Optional[str]]:
     """Deliver a password-setup link without changing the account password."""
-    message = render_password_reset_email(
-        recipient_email=str(slot["recipient_email"]),
-        recipient_name=str(slot.get("display_name") or ""),
-        reset_url=f"{settings.APP_BASE_URL.rstrip('/')}/reset-password?token={quote(setup_token, safe='')}",
-        expires_minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
-    )
+    from app.services.email_service import send_email_with_outcome
+
+    if _has_verified_mailbox_proof(slot):
+        message = render_account_activation_email(
+            recipient_email=str(slot["recipient_email"]),
+            recipient_name=str(slot.get("display_name") or ""),
+            account_email=str(slot.get("account_email") or ""),
+            activation_url=f"{settings.APP_BASE_URL.rstrip('/')}/activate-account?token={quote(setup_token, safe='')}",
+            expires_minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
+        )
+    else:
+        message = render_password_reset_email(
+            recipient_email=str(slot["recipient_email"]),
+            recipient_name=str(slot.get("display_name") or ""),
+            reset_url=f"{settings.APP_BASE_URL.rstrip('/')}/reset-password?token={quote(setup_token, safe='')}",
+            expires_minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
+        )
     # Authentication mail must use the platform provider, never an App hook.
-    message.source_kind = "password_reset"
-    return await send_email(message)
+    message.source_kind = (
+        "account_activation" if _has_verified_mailbox_proof(slot) else "password_reset"
+    )
+    message.workspace_id = str(slot.get("workspace_id") or "")
+    message.source_id = str(user_node.id or "")
+    message.actor_user_id = str(slot.get("actor_user_id") or "")
+    outcome = await send_email_with_outcome(message)
+    category = _activation_failure_category(
+        success=outcome.success,
+        status=outcome.status,
+        error=str(outcome.error or ""),
+    )
+    return outcome.success, category, outcome.provider_message_id
 
 
 async def _fresh_user(user_id: str) -> Optional[User]:
@@ -367,7 +893,7 @@ async def consume_credentials_delivery_code(
         if not slot.get("setup_token_enc"):
             token, token_hash = generate_reset_token()
             encrypted = encrypt_secret_for_storage(token, aad=aad)
-            _store_token_on_user(user, token_hash)
+            _store_token_on_user(user, token_hash, purpose="password_reset")
             slot.update(setup_token_enc=encrypted, setup_token_hash=token_hash)
             slot.pop("challenge_code_enc", None)
         else:
@@ -391,15 +917,9 @@ async def consume_credentials_delivery_code(
 
     # Outbound I/O is outside the graph transaction. An uncertain send may be
     # repeated after lease expiry; the reset token remains identical and single-use.
-    try:
-        emailed = await _release_credentials_email(
-            user_node=user, slot=slot, setup_token=token
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "credentials_delivery: provider failed member=%s", member_user_id
-        )
-        emailed = False
+    emailed, _, _ = await _dispatch_verified_mailbox_activation_send(
+        user_node=user, slot=slot, setup_token=token
+    )
     async with entry_write_scope(identity):
         fresh = await _fresh_user(member_user_id)
         if fresh is None:

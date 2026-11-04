@@ -68,6 +68,11 @@ from app.services.operational_model_runtime import (
 )
 from app.services.pagination import build_paginated_response, node_key
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.public_submission_capability import (
+    PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD,
+    public_submission_capability_required,
+    validate_public_entry_capability,
+)
 from app.services.share_links import (
     _hash_token,
     _is_expired,
@@ -79,6 +84,27 @@ from app.services.track_public_share import declared_public_share
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
+
+
+async def _require_public_entry_capability(
+    request: Request, *, link: ShareLink, track: Track, entry: Entry
+) -> None:
+    """Enforce Core's scoped bearer contract for opted-in public submissions."""
+    fields = getattr(entry, "custom_fields", None) or {}
+    if fields.get(PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD) is not True:
+        return
+    supplied = str(request.headers.get("x-entry-capability") or "")
+    allowed = await validate_public_entry_capability(
+        supplied,
+        workspace_id=str(track.workspace_id or ""),
+        track_id=str(track.id),
+        form_id=str(entry.type_id or ""),
+        share_link_id=str(link.id),
+        entry_id=str(entry.id),
+    )
+    if not allowed:
+        # Do not reveal that a protected submission or its capability exists.
+        raise ResourceNotFoundError(message="Entry not found on this track")
 
 
 # Helper to normalize slug keys
@@ -531,6 +557,8 @@ async def get_public_track_apply_context(
     if not entry or str(entry.track_id or "") != str(track.id):
         raise ResourceNotFoundError(message="Job opening not found")
 
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+
     entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
     if _entry_type_slug(entry_type) != "opening":
         raise ResourceNotFoundError(message="Job opening not found")
@@ -568,7 +596,13 @@ async def get_public_track_entries(
 
     # Fetch all entries in the track
     entries = await Entry.find({"context.track_id": track.id})
-    entries = [e for e in entries if e.status == "active"]
+    # Collection access never enumerates protected submissions, including their
+    # search matches, counts or cursors. Owners use the capability-gated detail.
+    entries = [
+        e
+        for e in entries
+        if e.status == "active" and not await public_submission_capability_required(e)
+    ]
 
     from app.services.entry_search import filter_entries_by_query
 
@@ -686,6 +720,8 @@ async def get_public_track_relation_options(
     candidates = await Entry.find({"context.track_id": {"$in": candidate_track_ids}})
     targets: List[Dict[str, Any]] = []
     for e in candidates[:200]:
+        if await public_submission_capability_required(e):
+            continue
         if target_entry_types:
             et = await EntryType.get(e.type_id) if e.type_id else None
             if (
@@ -810,6 +846,7 @@ async def get_public_track_entry(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
     await _reject_public_onboarding_form_entry(entry)
 
     entry_type = await EntryType.get(entry.type_id)
@@ -841,7 +878,8 @@ async def upload_public_track_entry_attachment(
     """Upload a file attachment to a public shared form entry."""
     from app.api.attachments import _persist_uploaded_file, _read_multipart_files
 
-    _link, track, entry, _perms = await _public_share_form_entry(token, entry_id)
+    link, track, entry, _perms = await _public_share_form_entry(token, entry_id)
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
 
     files = await _read_multipart_files(request, "file")
     if not files:
@@ -859,8 +897,15 @@ async def upload_public_track_entry_attachment(
         entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
         if entry_type:
             _, runtime_tier, _ = await resolve_track_runtime_profile(track)
+            capability_required = (entry.custom_fields or {}).get(
+                PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
+            )
             merged_cfs = {
-                **(entry.custom_fields or {}),
+                **{
+                    key: value
+                    for key, value in (entry.custom_fields or {}).items()
+                    if key != PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
+                },
                 field_key: attachment_id,
             }
             validated_cfs, relation_refs = (
@@ -875,6 +920,8 @@ async def upload_public_track_entry_attachment(
                     source_entry_title=entry.title,
                 )
             )
+            if capability_required:
+                validated_cfs[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] = True
             entry.custom_fields = validated_cfs
             entry.updated_at = utc_now_iso()
             await entry.save()
@@ -908,6 +955,7 @@ async def update_public_track_entry(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
     await _reject_public_onboarding_form_entry(entry)
 
     raw = await request.json()
@@ -989,7 +1037,15 @@ async def update_public_track_entry(
     if req.custom_fields is not None:
         _, runtime_tier, _ = await resolve_track_runtime_profile(track)
         entry_cfs = dict(entry.custom_fields or {})
-        merged_cfs = {**entry_cfs, **req.custom_fields}
+        capability_required = bool(
+            entry_cfs.pop(PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD, False)
+        )
+        requested_cfs = {
+            key: value
+            for key, value in req.custom_fields.items()
+            if key != PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
+        }
+        merged_cfs = {**entry_cfs, **requested_cfs}
         preserved_cfs: Dict[str, Any] = {}
         et_slug = _slugify_key(
             str(
@@ -1040,6 +1096,8 @@ async def update_public_track_entry(
         )
         if et_slug == "onboarding_form" and preserved_cfs:
             validated_cfs = {**validated_cfs, **preserved_cfs}
+        if capability_required:
+            validated_cfs[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] = True
         entry.custom_fields = validated_cfs
         from app.services.operational_model_runtime import sync_relation_edges
 
@@ -1120,6 +1178,8 @@ async def get_public_track_entry_comments(
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
 
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+
     comments = await entry.nodes(edge=["HAS_COMMENT"], node=["Comment"])
     items = [await export_node(c) for c in comments]
     await attach_author_exports(items)
@@ -1150,6 +1210,8 @@ async def create_public_track_entry_comment(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
+
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
 
     raw = await request.json()
     req = PublicCommentCreateRequest.model_validate(raw)
@@ -1213,6 +1275,8 @@ async def add_public_track_entry_reaction(
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
 
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+
     raw = await request.json()
     req = PublicReactionCreateRequest.model_validate(raw)
     emoji = req.emoji
@@ -1275,6 +1339,8 @@ async def remove_public_track_entry_reaction(
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
+
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
 
     prior_snapshot = await export_node(entry)
 

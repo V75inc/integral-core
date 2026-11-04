@@ -42,7 +42,8 @@ history expires. Invitations and scoped notifications use it on transactional st
 supported stores they retain immediate delivery through the configured
 workspace/platform resolver. Storage capability selects the path before any
 transport call; provider failures never trigger a fallback or second send.
-existing synchronous App methods remain compatibility paths. New Apps should
+
+Existing synchronous App methods remain compatibility paths. New Apps should
 use `enqueue_workspace_transactional_email` with a stable key for each logical
 message; reused keys with changed content are refused. Authorization and normal
 App operation approvals remain the caller's responsibility; enqueue and the
@@ -81,7 +82,7 @@ and operation. Existing declarations grant no email effect by default.
 If a final state transition consumes an authorization condition, enqueue the
 intent before that transition, while the condition is still true. Delivery
 still waits for the whole operation to commit; a later failure rolls it back.
- Legacy configuration upsert saves a draft
+Legacy configuration upsert saves a draft
 and directs administrators to Core for test/activation; it cannot bypass these
 steps. Legacy send-test now tests the draft, rather than accidentally testing
 platform delivery. Business Email Log remains an optional App-owned projection
