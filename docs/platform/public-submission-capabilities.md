@@ -19,6 +19,13 @@ reaction, attachment, and update routes enforce the contract for Entries marked 
 not the secret or the ownership check. The Core routes still apply the share
 link's normal admission and permission checks.
 
+Public lists, search totals and relation-option collections omit protected
+submissions, even when a capability header is supplied. Owners read their own
+submission through the capability-gated detail endpoint. The apply-context
+snapshot also requires the entry's capability when the entry is protected.
+Binding uses a conditional database claim: concurrent workers cannot bind the
+same bearer to different Entries, and revocation cannot restore a stale binding.
+
 Host-side flow:
 
 1. Call `issue_public_submission_capability(...)` with the validated workspace,

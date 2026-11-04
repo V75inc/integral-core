@@ -569,3 +569,115 @@ async def test_activation_delivery_api_admin_only_and_safe_payload(
     assert retry_body["state"] == "suppressed"
     assert retry_body.get("activation_emailed") is False
     assert "Resend rejected" not in str(retry_body)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "phase", ["ready", "sending", "expired", "released", "legacy_released"]
+)
+async def test_activation_delivery_does_not_disclose_another_workspaces_mailbox(
+    client, authenticated_client, monkeypatch, phase
+):
+    from tests.test_member_provision_authority import setup_accounts
+
+    monkeypatch.setattr(
+        "app.services.member_provision.send_email", AsyncMock(return_value=True)
+    )
+    _caller, owner, _recipient, workspace, _email = await setup_accounts(
+        client, authenticated_client, monkeypatch, verified=True, admin=False
+    )
+    member = await get_user_node(owner.id)
+    await _seed_mailbox_verification_proof_member(
+        member, workspace_id="n.Workspace.other-origin", owner_id=owner.id
+    )
+    slot = member.preferences["credentials_delivery"]
+    slot["state"] = phase
+    slot["lease_until"] = "2099-01-01T00:00:00+00:00"
+    if phase == "expired":
+        slot["expires_at"] = "2020-01-01T00:00:00+00:00"
+    if "released" in phase:
+        released = {
+            "at": "2026-11-04T12:00:00+00:00",
+            "recipient_email": "personal@example.com",
+            "mailbox_verification_proof": True,
+            "provider_message_id": "private-provider-id",
+        }
+        if phase == "released":
+            released["workspace_id"] = "n.Workspace.other-origin"
+        member.preferences = {"credentials_delivery_released": released}
+    await member.save()
+    before = member.preferences.copy()
+    headers = {"X-Integral-Scope": f"ws:{workspace.id}"}
+    url = f"/api/workspaces/{workspace.id}/members/{member.id}/activation-delivery"
+    with patch(
+        "app.services.credential_delivery._release_credentials_email",
+        new_callable=AsyncMock,
+    ) as send:
+        status = await authenticated_client.get(url, headers=headers)
+        retry = await authenticated_client.post(
+            url + "/retry", headers=headers, json={}
+        )
+    for response in (status, retry):
+        assert response.status_code == 200, response.text
+        assert response.json()["state"] == "not_pending"
+        assert response.json().get("recipient_email") is None
+        assert response.json().get("provider_message_id") is None
+    send.assert_not_awaited()
+    refreshed = await get_user_node(member.id)
+    assert refreshed.preferences == before
+
+
+@pytest.mark.asyncio
+async def test_legacy_activation_retry_persists_the_token_it_sends(
+    client, authenticated_client, monkeypatch
+):
+    from app.services.authentication import get_authentication_service
+    from app.services.password_reset import consume_reset_token
+    from tests.test_member_provision_authority import setup_accounts
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "ab" * 32)
+    monkeypatch.setattr(
+        "app.services.member_provision.send_email", AsyncMock(return_value=True)
+    )
+    _caller, owner, _recipient, workspace, _email = await setup_accounts(
+        client, authenticated_client, monkeypatch, verified=True, admin=False
+    )
+    member = await get_user_node(owner.id)
+    await _seed_mailbox_verification_proof_member(
+        member, workspace_id=str(workspace.id), owner_id=owner.id
+    )
+    auth = await get_authentication_service()._get_user_by_id(member.user_id)
+    member.preferences["reset_token"].pop("purpose")
+    member.preferences["credentials_delivery"]["credential_version"] = hashlib.sha256(
+        str(auth.password_hash).encode()
+    ).hexdigest()
+    await member.save()
+    with (
+        patch(
+            "app.services.credential_crypto.decrypt_secret_from_storage",
+            return_value="legacy-token",
+        ),
+        patch(
+            "app.services.credential_delivery._release_credentials_email",
+            new=AsyncMock(return_value=(False, "pending_retry", None)),
+        ) as send,
+    ):
+        await retry_verified_mailbox_activation_delivery(
+            workspace_id=str(workspace.id),
+            member_user_id=member.id,
+            actor_user_id=owner.id,
+            intent_id="intent-proof",
+        )
+    token = send.call_args.kwargs["setup_token"]
+    refreshed = await get_user_node(member.id)
+    reset_slot = refreshed.preferences["reset_token"]
+    assert reset_slot.get("purpose") == "account_activation"
+    assert reset_slot["hash"] == hashlib.sha256(token.encode()).hexdigest()
+    assert (
+        reset_slot["hash"]
+        == refreshed.preferences["credentials_delivery"]["setup_token_hash"]
+    )
+    activated, error = await consume_reset_token(
+        token, "Strong-activation-password-2026!", expected_purpose="account_activation"
+    )
+    assert activated and error is None

@@ -36,8 +36,13 @@ when loading those records and migrates it when the proof is next used.
 
 Caller-selected purposes can distinguish independent flows using the same
 subject. A proof issued for one purpose cannot confirm or authorize another.
-OTP resends for the same subject, workspace, and purpose are limited to one
-per 60 seconds.
+The service applies a per-process 60-second resend cooldown for the same
+subject, workspace and purpose. Public hosts running multiple workers must
+also enforce shared endpoint rate limits before invoking the service.
+
+OTP attempt reservations, verification, rebinding and proof consumption use
+conditional database transitions. Concurrent workers cannot reuse a proof or
+overwrite a later invalidation/consumption with a stale record.
 
 ## Account activation delivery
 
@@ -61,6 +66,10 @@ Workspace admins can inspect activation delivery state with:
 Retry reuses the same encrypted, single-use setup token. It does not create
 another account or change the recipient. Provider suppressions remain visible
 for an administrator to resolve before retrying.
+Status and retry responses are scoped to the workspace that provisioned the
+account. Membership in another workspace does not disclose the alternate inbox,
+delivery intent or provider identifier. Historical release records without a
+workspace binding are not disclosed through workspace-scoped status endpoints.
 
 ## Security
 

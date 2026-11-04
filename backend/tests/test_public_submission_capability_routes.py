@@ -200,6 +200,76 @@ async def test_capability_protects_public_reads_comments_and_reactions(
 
 
 @pytest.mark.asyncio
+async def test_public_collections_never_enumerate_protected_submissions(
+    authenticated_client, test_user
+):
+    token, _track, entry_type, entry_a, entry_b, capability_a, _capability_b = (
+        await _public_candidates(authenticated_client, test_user)
+    )
+    entry_a.custom_fields.pop(PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD)
+    await entry_a.save()
+    entry_type.form_schema["fields"].append(
+        {"key": "related", "type": "relation", "relation": {"target": "entry"}}
+    )
+    await entry_type.save()
+    auth = authenticated_client.headers.pop("Authorization", None)
+    try:
+        for headers in ({}, {"X-Entry-Capability": capability_a}):
+            listed = await authenticated_client.get(
+                f"/api/public-share/track/{token}/entries", headers=headers
+            )
+            assert listed.status_code == 200, listed.text
+            assert [row["id"] for row in listed.json()["entries"]] == [entry_a.id]
+            assert listed.json()["total"] == 1
+            assert entry_b.id not in listed.text
+            searched = await authenticated_client.get(
+                f"/api/public-share/track/{token}/entries",
+                params={"q": entry_b.title},
+                headers=headers,
+            )
+            assert searched.status_code == 200, searched.text
+            assert searched.json()["entries"] == []
+            assert searched.json()["total"] == 0
+            options = await authenticated_client.get(
+                f"/api/public-share/track/{token}/relation-options",
+                params={"entry_type_id": entry_type.id, "field_key": "related"},
+                headers=headers,
+            )
+            assert options.status_code == 200, options.text
+            assert [row["id"] for row in options.json()["targets"]] == [entry_a.id]
+            assert entry_b.id not in options.text
+    finally:
+        if auth:
+            authenticated_client.headers["Authorization"] = auth
+
+
+@pytest.mark.asyncio
+async def test_protected_apply_snapshot_requires_its_own_capability(
+    authenticated_client, test_user, monkeypatch
+):
+    token, _track, _entry_type, _entry_a, entry_b, capability_a, capability_b = (
+        await _public_candidates(authenticated_client, test_user)
+    )
+    monkeypatch.setattr(
+        "app.api.tracks_public_share._entry_type_slug", lambda _: "opening"
+    )
+    auth = authenticated_client.headers.pop("Authorization", None)
+    try:
+        url = f"/api/public-share/track/{token}/apply?opening={entry_b.id}"
+        for headers in ({}, {"X-Entry-Capability": capability_a}):
+            denied = await authenticated_client.get(url, headers=headers)
+            assert denied.status_code == 404, denied.text
+        own = await authenticated_client.get(
+            url, headers={"X-Entry-Capability": capability_b}
+        )
+        assert own.status_code == 200, own.text
+        assert own.json()["opening"]["id"] == entry_b.id
+    finally:
+        if auth:
+            authenticated_client.headers["Authorization"] = auth
+
+
+@pytest.mark.asyncio
 async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
     authenticated_client, test_user, monkeypatch
 ):

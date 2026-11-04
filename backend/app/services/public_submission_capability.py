@@ -229,9 +229,29 @@ async def bind_public_submission_capability(
             return False
         if row.entry_id and row.entry_id != entry:
             return False
+        from jvspatial.core.context import get_default_context
+
+        now = utc_now_iso()
+        bound = await get_default_context().database.find_one_and_update(
+            "object",
+            {
+                "id": row.id,
+                "entity": row._entity_name(),
+                "context.entry_id": {"$in": ["", entry]},
+                "context.status": "active",
+                "context.revoked_at": {"$in": [None]},
+                "context.expires_at": row.expires_at,
+            },
+            {"$set": {"context.entry_id": entry, "context.updated_at": now}},
+        )
+        if bound is None:
+            return False
+        fresh = PublicSubmissionCapability.model_validate(
+            {"id": row.id, **bound["context"]}
+        )
+        await fresh.save()
         row.entry_id = entry
-        row.updated_at = utc_now_iso()
-        await row.save()
+        row.updated_at = now
         return True
 
 
@@ -252,10 +272,26 @@ async def revoke_public_submission_capability(
         if row.status != "active":
             return bool(row.revoked_at)
         now = utc_now_iso()
-        row.status = "revoked"
-        row.revoked_at = now
-        row.updated_at = now
-        await row.save()
+        from jvspatial.core.context import get_default_context
+
+        revoked = await get_default_context().database.find_one_and_update(
+            "object",
+            {"id": row.id, "entity": row._entity_name()},
+            {
+                "$set": {
+                    "context.status": "revoked",
+                    "context.revoked_at": now,
+                    "context.updated_at": now,
+                }
+            },
+        )
+        if revoked is None:
+            return False
+        fresh = PublicSubmissionCapability.model_validate(
+            {"id": row.id, **revoked["context"]}
+        )
+        await fresh.save()
+        row.status, row.revoked_at, row.updated_at = "revoked", now, now
         return True
 
 

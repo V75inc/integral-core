@@ -1,5 +1,6 @@
 """Core reusable capabilities isolate anonymous mutations to one submission."""
 
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -19,6 +20,40 @@ _SCOPE = {
     "share_link_id": "n.ShareLink.l1",
     "submission_id": "pending.p1",
 }
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_concurrent_workers_cannot_bind_one_capability_to_two_entries(
+    monkeypatch,
+):
+    from app.models.public_submission_capability import PublicSubmissionCapability
+
+    issued = await _issued()
+    original_get = PublicSubmissionCapability.get
+    barrier = asyncio.Barrier(2)
+
+    async def independent_worker_read(identifier):
+        row = await original_get(identifier)
+        isolated = PublicSubmissionCapability.model_validate(row.model_dump())
+        await barrier.wait()
+        return isolated
+
+    monkeypatch.setattr(PublicSubmissionCapability, "get", independent_worker_read)
+    results = await asyncio.wait_for(
+        asyncio.gather(
+            *(
+                bind_public_submission_capability(
+                    issued["capability"],
+                    **_SCOPE,
+                    entry_id=f"n.Entry.worker-{worker}",
+                )
+                for worker in range(2)
+            )
+        ),
+        timeout=15,
+    )
+    assert sum(results) == 1
 
 
 async def _issued(**overrides):

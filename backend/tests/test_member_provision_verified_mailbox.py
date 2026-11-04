@@ -8,6 +8,55 @@ from app.services import mailbox_verification as svc
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("unavailable", ["storage", "encryption"])
+async def test_verified_mailbox_preflights_delivery_before_creating_an_account(
+    client, authenticated_client, monkeypatch, unavailable
+):
+    from app.api.errors import BadRequestError
+    from app.services.member_provision import (
+        _find_auth_user_by_email,
+        provision_workspace_member,
+    )
+    from tests.test_member_provision_authority import setup_accounts
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "ab" * 32)
+    _caller, owner, _recipient, workspace, _email = await setup_accounts(
+        client, authenticated_client, monkeypatch, verified=True, admin=False
+    )
+    monkeypatch.setattr(
+        svc, "proof_ready_for_account_provisioning", AsyncMock(return_value=True)
+    )
+    if unavailable == "storage":
+
+        def unavailable_storage():
+            raise BadRequestError(
+                message="Alternate delivery requires transactional shared storage"
+            )
+
+        monkeypatch.setattr(
+            "app.services.credential_delivery.require_delivery_storage",
+            unavailable_storage,
+        )
+    else:
+        monkeypatch.setattr(
+            "app.services.credential_crypto.encryption_available", lambda: False
+        )
+    email = f"missing-{unavailable}@example.com"
+    with pytest.raises(BadRequestError):
+        await provision_workspace_member(
+            workspace=workspace,
+            actor_id=owner.id,
+            email=email,
+            display_name="Preflight test",
+            personal_email="personal@example.com",
+            mailbox_verification_proof_id="proof-preflight",
+            mailbox_subject_entry_id="n.Entry.preflight",
+            mailbox_verification_purpose="account_creation",
+        )
+    assert await _find_auth_user_by_email(email) is None
+
+
+@pytest.mark.asyncio
 async def test_provision_accepts_valid_proof_and_calls_activation_delivery(
     client, authenticated_client, monkeypatch
 ):

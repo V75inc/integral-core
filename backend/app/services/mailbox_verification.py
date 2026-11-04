@@ -64,6 +64,55 @@ def _record_subject_id(record: MailboxVerificationProof) -> str:
     return str(record.subject_entry_id or record.candidate_entry_id or "").strip()
 
 
+async def _transition_proof(
+    record: MailboxVerificationProof,
+    changes: Dict[str, Any],
+    *,
+    invalidate: bool = False,
+) -> bool:
+    """Use the public conditional-update seam; a transaction alone is not a fence."""
+    from jvspatial.core.context import get_default_context
+
+    async with entry_write_scope(f"mailbox-verification-proof:{record.id}"):
+        query: Dict[str, Any] = {"id": record.id, "entity": record._entity_name()}
+        if not invalidate:
+            # $in handles both missing legacy values and PostgreSQL JSON null.
+            query["context.updated_at"] = {"$in": [record.updated_at]}
+            # Fence the lifecycle itself as well: clock timestamps are not
+            # guaranteed to advance between claims (or across workers).
+            for field in (
+                "consumed_at",
+                "invalidated_at",
+                "verified_at",
+                "otp_attempts",
+                "subject_entry_id",
+                "candidate_entry_id",
+                "otp_hash",
+                "proof_expires_at",
+            ):
+                expected = getattr(record, field)
+                values = [expected, None] if expected in ("", 0) else [expected]
+                query[f"context.{field}"] = {"$in": values}
+        changes = {**changes, "updated_at": utc_now_iso()}
+        updated = await get_default_context().database.find_one_and_update(
+            "object",
+            query,
+            {"$set": {f"context.{key}": value for key, value in changes.items()}},
+        )
+        if updated is None:
+            return False
+        # The claim holds the database row until this scope commits. Publish
+        # that authoritative snapshot through Object.save so graph transaction
+        # cache invalidation also reaches the parent/request context.
+        fresh = MailboxVerificationProof.model_validate(
+            {"id": record.id, **updated["context"]}
+        )
+        await fresh.save()
+        for key in changes:
+            setattr(record, key, getattr(fresh, key))
+        return True
+
+
 async def _find_subject_proofs(
     subject_entry_id: str,
     *,
@@ -72,6 +121,8 @@ async def _find_subject_proofs(
     limit: Optional[int] = None,
 ) -> list[MailboxVerificationProof]:
     """Read generic proofs and older records using the former subject field."""
+    from jvspatial.core.context import get_default_context
+
     subject_id = str(subject_entry_id or "").strip()
     if not subject_id:
         return []
@@ -85,15 +136,31 @@ async def _find_subject_proofs(
         {"candidate_entry_id": subject_id, **scope},
     ]
     found: Dict[str, MailboxVerificationProof] = {}
+    context = get_default_context()
     for query in queries:
-        rows = (
-            await MailboxVerificationProof.find(query, limit=limit)
-            if limit is not None
-            else await MailboxVerificationProof.find(query)
-        )
+        scoped = {f"context.{key}": value for key, value in query.items()}
+        if limit is None:
+            rows = await context.find(MailboxVerificationProof, scoped)
+        else:
+            # Object.find treats keyword arguments as fields, including limit.
+            # Use the supported bounded page API and select newest proofs first.
+            page, _ = await context.find_page(
+                "object",
+                {"entity": MailboxVerificationProof._entity_name(), **scoped},
+                sort=[("context.created_at", -1), ("id", -1)],
+                limit=limit,
+            )
+            rows = [
+                MailboxVerificationProof.model_validate(
+                    {"id": item["id"], **item["context"]}
+                )
+                for item in page
+            ]
         for row in rows:
             found[str(row.id)] = row
-    records = list(found.values())
+    records = sorted(
+        found.values(), key=lambda row: str(row.created_at or ""), reverse=True
+    )
     return records[:limit] if limit is not None else records
 
 
@@ -118,10 +185,10 @@ async def invalidate_mailbox_verification_proofs(
             continue
         if row.invalidated_at:
             continue
-        row.invalidated_at = now
-        row.updated_at = now
-        await row.save()
-        count += 1
+        # Invalidation only sets its tombstone, never writes a stale snapshot
+        # over a concurrently verified/consumed proof.
+        if await _transition_proof(row, {"invalidated_at": now}, invalidate=True):
+            count += 1
     return count
 
 
@@ -265,8 +332,6 @@ async def confirm_mailbox_verification(
             or record.purpose != purpose_norm
         ):
             return False, ERR_NOT_PENDING, None
-        if not record.subject_entry_id:
-            record.subject_entry_id = entry_id
     else:
         rows = await _find_subject_proofs(
             entry_id,
@@ -295,29 +360,38 @@ async def confirm_mailbox_verification(
     max_attempts = int(settings.EMAIL_VERIFICATION_MAX_ATTEMPTS)
     if attempts >= max_attempts:
         return False, ERR_ATTEMPTS_EXCEEDED, None
+    # Reserve an attempt before comparing a guess. Only successful conditional
+    # claims get to test the OTP, so parallel requests cannot evade the limit.
+    if not await _transition_proof(
+        record,
+        {
+            "otp_attempts": attempts + 1,
+            "subject_entry_id": entry_id,
+            "candidate_entry_id": None,
+        },
+    ):
+        return False, ERR_INVALID_CODE, None
     norm = str(code or "").strip()
     if len(norm) != 6 or not norm.isdigit():
-        record.otp_attempts = attempts + 1
-        record.updated_at = utc_now_iso()
-        await record.save()
         return False, ERR_INVALID_CODE, None
     digest = hashlib.sha256(norm.encode("utf-8")).hexdigest()
     if not secrets.compare_digest(digest, str(record.otp_hash or "")):
-        record.otp_attempts = attempts + 1
-        record.updated_at = utc_now_iso()
-        await record.save()
         if record.otp_attempts >= max_attempts:
             return False, ERR_ATTEMPTS_EXCEEDED, None
         return False, ERR_INVALID_CODE, None
     now = utc_now_iso()
-    record.verified_at = now
-    record.proof_expires_at = (
-        _now_utc() + timedelta(days=VERIFIED_PROOF_LIFETIME_DAYS)
-    ).isoformat()
-    record.otp_hash = ""
-    record.otp_expires_at = ""
-    record.updated_at = now
-    await record.save()
+    if not await _transition_proof(
+        record,
+        {
+            "verified_at": now,
+            "proof_expires_at": (
+                _now_utc() + timedelta(days=VERIFIED_PROOF_LIFETIME_DAYS)
+            ).isoformat(),
+            "otp_hash": "",
+            "otp_expires_at": "",
+        },
+    ):
+        return False, ERR_NOT_PENDING, None
     return True, None, record.id
 
 
@@ -368,11 +442,10 @@ async def rebind_mailbox_verification_proof(
         return False, ERR_PROOF_INVALID
     if not _proof_is_valid(record, email_norm=email_norm, purpose=purpose_norm):
         return False, ERR_PROOF_INVALID
-    record.subject_entry_id = target_id
-    record.candidate_entry_id = None
-    record.updated_at = utc_now_iso()
-    await record.save()
-    return True, None
+    rebound = await _transition_proof(
+        record, {"subject_entry_id": target_id, "candidate_entry_id": None}
+    )
+    return (True, None) if rebound else (False, ERR_PROOF_INVALID)
 
 
 async def consume_mailbox_verification_proof(
@@ -406,13 +479,16 @@ async def consume_mailbox_verification_proof(
         if not _proof_is_valid(record, email_norm=email_norm, purpose=purpose_norm):
             return False, ERR_PROOF_INVALID
         now = utc_now_iso()
-        record.subject_entry_id = entry_id
-        record.candidate_entry_id = None
-        record.consumed_at = now
-        record.consumed_for_user_id = user_id
-        record.updated_at = now
-        await record.save()
-        return True, None
+        consumed = await _transition_proof(
+            record,
+            {
+                "subject_entry_id": entry_id,
+                "candidate_entry_id": None,
+                "consumed_at": now,
+                "consumed_for_user_id": user_id,
+            },
+        )
+        return (True, None) if consumed else (False, ERR_PROOF_INVALID)
 
 
 async def proof_ready_for_account_provisioning(

@@ -159,12 +159,19 @@ def _activation_failure_category(
     return "pending_retry"
 
 
-def activation_delivery_public_status(user_node: User) -> Dict[str, Any]:
+def activation_delivery_public_status(
+    user_node: User, *, workspace_id: Optional[str] = None
+) -> Dict[str, Any]:
     """Safe activation state for workspace admins (verified-mailbox path only)."""
     prefs = user_node.preferences or {}
     released = prefs.get(_PREFS_RELEASE) or {}
     if isinstance(released, dict) and released.get("at"):
         if _has_verified_mailbox_proof(released):
+            if (
+                workspace_id is not None
+                and released.get("workspace_id") != workspace_id
+            ):
+                return {"state": "not_pending", "send_attempt_count": 0}
             return {
                 "state": "already_released",
                 "recipient_email": released.get("recipient_email"),
@@ -175,6 +182,8 @@ def activation_delivery_public_status(user_node: User) -> Dict[str, Any]:
             }
     slot = dict(prefs.get(_PREFS_PENDING) or {})
     if not _verified_mailbox_slot(slot):
+        return {"state": "not_pending", "send_attempt_count": 0}
+    if workspace_id is not None and slot.get("workspace_id") != workspace_id:
         return {"state": "not_pending", "send_attempt_count": 0}
     if _is_expired(str(slot.get("expires_at") or "")):
         return {
@@ -600,6 +609,7 @@ async def _finalize_verified_mailbox_activation_send(
                     "mailbox_verification_proof": True,
                     "send_attempt_count": attempts,
                     "provider_message_id": provider_message_id,
+                    "workspace_id": current.get("workspace_id"),
                 },
                 _PREFS_PENDING: {},
             }
@@ -655,7 +665,7 @@ async def retry_verified_mailbox_activation_delivery(
     async with entry_write_scope(identity):
         user = await _fresh_user(member_id)
         if user is None:
-            return activation_delivery_public_status(member)  # type: ignore[return-value]
+            return activation_delivery_public_status(member, workspace_id=ws)
         await _lock_identity(user)
         user = await _fresh_user(member_id)
         if user is None:
@@ -663,10 +673,12 @@ async def retry_verified_mailbox_activation_delivery(
         prefs = dict(user.preferences or {})
         released = prefs.get(_PREFS_RELEASE) or {}
         if isinstance(released, dict) and released.get("at"):
-            return activation_delivery_public_status(user)
+            return activation_delivery_public_status(user, workspace_id=ws)
         slot = dict(prefs.get(_PREFS_PENDING) or {})
         if not _verified_mailbox_slot(slot):
-            return activation_delivery_public_status(user)
+            return activation_delivery_public_status(user, workspace_id=ws)
+        if str(slot.get("workspace_id") or "") != ws:
+            return {"state": "not_pending", "send_attempt_count": 0}
         if resolved_intent and slot.get("intent_id") != resolved_intent:
             return {"state": "not_pending", "send_attempt_count": 0}
         resolved_intent = str(slot.get("intent_id") or "")
@@ -675,9 +687,7 @@ async def retry_verified_mailbox_activation_delivery(
         if slot.get("state") == "sending" and not _is_expired(
             str(slot.get("lease_until") or "")
         ):
-            return activation_delivery_public_status(user)
-        if str(slot.get("workspace_id") or "") != ws:
-            return {"state": "not_pending", "send_attempt_count": 0}
+            return activation_delivery_public_status(user, workspace_id=ws)
         auth = await get_authentication_service()._get_user_by_id(user.user_id)
         if auth is None or not getattr(auth, "is_active", True):
             return {"state": "not_pending", "send_attempt_count": 0}
@@ -704,6 +714,9 @@ async def retry_verified_mailbox_activation_delivery(
                 setup_token_enc=encrypt_secret_for_storage(token, aad=aad),
                 setup_token_hash=token_hash,
             )
+            # Preserve the replacement token and purpose written above, rather
+            # than overwriting them with the preferences read before rotation.
+            prefs = dict(user.preferences or {})
         slot.update(
             state="sending",
             attempt_id=attempt_id,
@@ -729,7 +742,9 @@ async def retry_verified_mailbox_activation_delivery(
         failure_category=category,
         provider_message_id=provider_message_id,
     )
-    public = activation_delivery_public_status(await _fresh_user(member_id) or member)
+    public = activation_delivery_public_status(
+        await _fresh_user(member_id) or member, workspace_id=ws
+    )
     public["activation_emailed"] = finalized.get("activation_emailed")
     public["delivery_retryable"] = finalized.get("delivery_retryable")
     return public

@@ -1,5 +1,6 @@
 """Core mailbox verification and purpose-bound proof consumption."""
 
+import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +10,117 @@ from app.models.mailbox_verification import MailboxVerificationProof
 from app.services import mailbox_verification as svc
 
 PURPOSE = "public_submission"
+
+
+@pytest.mark.asyncio
+async def test_confirmation_without_proof_id_selects_latest_beyond_old_history():
+    started = await svc.start_mailbox_verification(
+        subject_entry_id="n.Entry.latest-proof",
+        workspace_id="n.Workspace.ws1",
+        email="a@example.com",
+        purpose=PURPOSE,
+    )
+    for index in range(21):
+        await MailboxVerificationProof.create(
+            subject_entry_id="n.Entry.latest-proof",
+            workspace_id="n.Workspace.ws1",
+            email_norm="a@example.com",
+            purpose=PURPOSE,
+            created_at=f"2000-01-{index + 1:02d}T00:00:00+00:00",
+            invalidated_at="2000-02-01T00:00:00+00:00",
+        )
+    ok, error, proof_id = await svc.confirm_mailbox_verification(
+        subject_entry_id="n.Entry.latest-proof",
+        workspace_id="n.Workspace.ws1",
+        purpose=PURPOSE,
+        code=started["code"],
+    )
+    assert ok and error is None and proof_id == started["proof_id"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_subject_is_migrated_and_attempt_limit_is_preserved(monkeypatch):
+    monkeypatch.setattr(svc.settings, "EMAIL_VERIFICATION_MAX_ATTEMPTS", 2)
+    started = await svc.start_mailbox_verification(
+        subject_entry_id="n.Entry.legacy-proof",
+        workspace_id="n.Workspace.ws1",
+        email="a@example.com",
+        purpose=PURPOSE,
+    )
+    record = await MailboxVerificationProof.get(started["proof_id"])
+    record.subject_entry_id = ""
+    record.candidate_entry_id = "n.Entry.legacy-proof"
+    await record.save()
+    args = {
+        "subject_entry_id": "n.Entry.legacy-proof",
+        "workspace_id": "n.Workspace.ws1",
+        "purpose": PURPOSE,
+        "proof_id": record.id,
+    }
+    wrong_code = str((int(started["code"]) + 1) % 1_000_000).zfill(6)
+    assert (await svc.confirm_mailbox_verification(**args, code=wrong_code))[
+        1
+    ] == svc.ERR_INVALID_CODE
+    assert (await svc.confirm_mailbox_verification(**args, code=wrong_code))[
+        1
+    ] == svc.ERR_ATTEMPTS_EXCEEDED
+    assert (await svc.confirm_mailbox_verification(**args, code=started["code"]))[
+        0
+    ] is False
+    from jvspatial.core.context import get_default_context
+
+    rows = await get_default_context().find(MailboxVerificationProof, {"id": record.id})
+    assert rows[0].otp_attempts == 2
+    assert rows[0].subject_entry_id == "n.Entry.legacy-proof"
+    assert rows[0].candidate_entry_id is None
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_concurrent_workers_can_consume_a_proof_only_once(monkeypatch):
+    started = await svc.start_mailbox_verification(
+        subject_entry_id="n.Entry.concurrent-proof",
+        workspace_id="n.Workspace.ws1",
+        email="a@example.com",
+        purpose=PURPOSE,
+    )
+    ok, _, proof_id = await svc.confirm_mailbox_verification(
+        subject_entry_id="n.Entry.concurrent-proof",
+        workspace_id="n.Workspace.ws1",
+        purpose=PURPOSE,
+        code=started["code"],
+        proof_id=started["proof_id"],
+    )
+    assert ok
+    original_get = MailboxVerificationProof.get
+    verified = await original_get(proof_id)
+    monkeypatch.setattr(svc, "utc_now_iso", lambda: verified.updated_at)
+    barrier = asyncio.Barrier(2)
+
+    async def independent_worker_read(identifier):
+        row = await original_get(identifier)
+        isolated = MailboxVerificationProof.model_validate(row.model_dump())
+        await barrier.wait()
+        return isolated
+
+    monkeypatch.setattr(MailboxVerificationProof, "get", independent_worker_read)
+    results = await asyncio.wait_for(
+        asyncio.gather(
+            *(
+                svc.consume_mailbox_verification_proof(
+                    proof_id=proof_id,
+                    subject_entry_id="n.Entry.concurrent-proof",
+                    workspace_id="n.Workspace.ws1",
+                    personal_email="a@example.com",
+                    purpose=PURPOSE,
+                    consumed_for_user_id=f"n.User.worker-{worker}",
+                )
+                for worker in range(2)
+            )
+        ),
+        timeout=15,
+    )
+    assert sum(ok for ok, _error in results) == 1
 
 
 @pytest.mark.asyncio

@@ -70,6 +70,7 @@ from app.services.pagination import build_paginated_response, node_key
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.public_submission_capability import (
     PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD,
+    public_submission_capability_required,
     validate_public_entry_capability,
 )
 from app.services.share_links import (
@@ -556,6 +557,8 @@ async def get_public_track_apply_context(
     if not entry or str(entry.track_id or "") != str(track.id):
         raise ResourceNotFoundError(message="Job opening not found")
 
+    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+
     entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
     if _entry_type_slug(entry_type) != "opening":
         raise ResourceNotFoundError(message="Job opening not found")
@@ -593,7 +596,13 @@ async def get_public_track_entries(
 
     # Fetch all entries in the track
     entries = await Entry.find({"context.track_id": track.id})
-    entries = [e for e in entries if e.status == "active"]
+    # Collection access never enumerates protected submissions, including their
+    # search matches, counts or cursors. Owners use the capability-gated detail.
+    entries = [
+        e
+        for e in entries
+        if e.status == "active" and not await public_submission_capability_required(e)
+    ]
 
     from app.services.entry_search import filter_entries_by_query
 
@@ -711,6 +720,8 @@ async def get_public_track_relation_options(
     candidates = await Entry.find({"context.track_id": {"$in": candidate_track_ids}})
     targets: List[Dict[str, Any]] = []
     for e in candidates[:200]:
+        if await public_submission_capability_required(e):
+            continue
         if target_entry_types:
             et = await EntryType.get(e.type_id) if e.type_id else None
             if (

@@ -220,7 +220,7 @@ async def provision_workspace_member(
         raise BadRequestError(
             message="Use mailbox verification proof or credentials email, not both"
         )
-    if alternate_delivery and body.send_credentials and not verified_mailbox_delivery:
+    if alternate_delivery and body.send_credentials:
         from app.services.credential_crypto import encryption_available
         from app.services.credential_delivery import require_delivery_storage
 
@@ -237,12 +237,6 @@ async def provision_workspace_member(
                     "Alternate credential delivery is only allowed for newly "
                     "created accounts"
                 )
-            )
-    if verified_mailbox_delivery:
-        existing_for_proof = await _find_auth_user_by_email(email_norm)
-        if existing_for_proof is not None:
-            raise BadRequestError(
-                message="Mailbox verification proof applies only to new accounts"
             )
     if (
         is_postgres_entry_transaction(get_default_context().database)

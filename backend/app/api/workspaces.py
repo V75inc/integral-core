@@ -797,7 +797,7 @@ async def get_member_activation_delivery_status(
         raise InsufficientPermissionsError(
             message="Member unavailable in this workspace"
         )
-    payload = activation_delivery_public_status(member)
+    payload = activation_delivery_public_status(member, workspace_id=workspace_id)
     return ActivationDeliveryStatusResponse.model_validate(payload).model_dump()
 
 
