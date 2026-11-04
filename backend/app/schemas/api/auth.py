@@ -29,6 +29,13 @@ class ResetPasswordRequest(BaseModel):
     password: str
 
 
+class ActivateAccountRequest(BaseModel):
+    """Request body for ``POST /auth/activate-account``."""
+
+    token: str
+    password: str
+
+
 class VerifyEmailRequest(BaseModel):
     """Request body for ``POST /auth/verify-email``."""
 

@@ -122,13 +122,16 @@ async def _find_user_node_by_auth_user_id(auth_user_id: str) -> Optional[User]:
     return matches[0]
 
 
-def _store_token_on_user(user_node: User, token_hash: str) -> None:
-    """Mutate user_node.preferences in place with a fresh reset token slot."""
+def _store_token_on_user(
+    user_node: User, token_hash: str, *, purpose: str = "password_reset"
+) -> None:
+    """Store a one-time password token with an explicit, enforced purpose."""
     prefs = dict(user_node.preferences or {})
     prefs["reset_token"] = {
         "hash": token_hash,
         "expires_at": _expiry_iso(settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
         "attempts": 0,
+        "purpose": purpose,
     }
     user_node.preferences = prefs
     user_node.updated_at = _now_utc().isoformat()
@@ -244,7 +247,7 @@ async def create_reset_request(email: str) -> None:
 
 
 async def consume_reset_token(
-    token: str, new_password: str
+    token: str, new_password: str, *, expected_purpose: str = "password_reset"
 ) -> Tuple[bool, Optional[str]]:
     """Validate the token, update the password, clear the token slot.
 
@@ -268,6 +271,10 @@ async def consume_reset_token(
         return False, ERR_INVALID_TOKEN
 
     slot = (user_node.preferences or {}).get("reset_token") or {}
+    # Existing reset links predate purpose tagging and remain reset links.
+    purpose = str(slot.get("purpose") or "password_reset")
+    if purpose != expected_purpose:
+        return False, ERR_INVALID_TOKEN
     stored_hash = slot.get("hash") or ""
     expires_at = slot.get("expires_at") or ""
 
@@ -334,7 +341,12 @@ async def consume_reset_token(
             "context.preferences.reset_token.hash": token_hash,
             "context.preferences.reset_token.expires_at": expires_at,
         }
-        update = {"$unset": {"context.preferences.reset_token": ""}}
+        unset_fields = {"context.preferences.reset_token": ""}
+        if expected_purpose == "account_activation":
+            # Initial activation sets the first password and satisfies the
+            # provisioner's forced-change requirement in one atomic claim.
+            unset_fields["context.preferences.must_change_password"] = ""
+        update = {"$unset": unset_fields}
         if native_atomic:
             async with postgres_graph_transaction(database) as transaction:
                 current_auth = await get_authentication_service()._get_user_by_id(

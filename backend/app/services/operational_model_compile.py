@@ -361,6 +361,7 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         "placeholder": field.get("placeholder"),
         "help": field.get("help"),
         "group": field.get("group"),
+        "section": field.get("section"),
         "order": _optional_int(field.get("order")),
         "validation": _as_dict(
             field.get("validation"), where=f"field '{key}' validation"

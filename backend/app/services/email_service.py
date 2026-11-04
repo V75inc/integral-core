@@ -34,7 +34,12 @@ logger = logging.getLogger(__name__)
 
 # Never routed through workspace Email Log delivery (platform credentials only).
 PLATFORM_ONLY_SOURCE_KINDS = frozenset(
-    {"password_reset", "email_verification", "credentials_delivery_verification"},
+    {
+        "password_reset",
+        "email_verification",
+        "credentials_delivery_verification",
+        "account_activation",
+    },
 )
 
 
@@ -122,24 +127,15 @@ def _effective_reply_to(
     return creds.default_reply_to
 
 
-async def send_email(message: EmailMessage) -> bool:
-    """Dispatch the message via the configured provider. Never raises.
-
-    Returns True on provider acceptance, False if delivery is unconfigured,
-    rejected or raises. Authenticated callers may report a safe delivery
-    failure; public identity-recovery routes keep their non-enumerating reply.
-    Console preview is available only in DEBUG and is never a production
-    fallback for a missing or misspelled mail provider.
-
-    When ``workspace_id`` is set and workspace Email Log delivery is enabled,
-    sends through that org's provider/from address (except platform-only
-    ``source_kind`` values).
-    """
+async def send_email_with_outcome(message: EmailMessage) -> _SendOutcome:
+    """Dispatch mail and return a structured provider outcome. Never raises."""
     try:
         creds = await _resolve_send_credentials(message)
     except Exception:
         logger.warning("email_service: configured workspace delivery is unavailable")
-        return False
+        return _SendOutcome(
+            success=False, error="delivery unavailable", status="failed"
+        )
     provider = creds.provider
     outcome = _SendOutcome(success=False, error="unknown provider outcome")
     reply_to = _effective_reply_to(message, creds)
@@ -190,7 +186,23 @@ async def send_email(message: EmailMessage) -> bool:
     await _dispatch_workspace_email_hooks(
         message, provider, creds, outcome, platform_mail_log_id, reply_to=reply_to
     )
-    return outcome.success
+    return outcome
+
+
+async def send_email(message: EmailMessage) -> bool:
+    """Dispatch the message via the configured provider. Never raises.
+
+    Returns True on provider acceptance, False if delivery is unconfigured,
+    rejected or raises. Authenticated callers may report a safe delivery
+    failure; public identity-recovery routes keep their non-enumerating reply.
+    Console preview is available only in DEBUG and is never a production
+    fallback for a missing or misspelled mail provider.
+
+    When ``workspace_id`` is set and workspace Email Log delivery is enabled,
+    sends through that org's provider/from address (except platform-only
+    ``source_kind`` values).
+    """
+    return (await send_email_with_outcome(message)).success
 
 
 async def _persist_mail_attempt(
@@ -379,10 +391,22 @@ async def _send_via_resend(
             "email_service[resend]: send failed status=%s",
             resp.status_code,
         )
-        return _SendOutcome(
-            success=False,
-            error=f"Resend rejected request (HTTP {resp.status_code})",
-        )
+        safe_error = f"Resend rejected request (HTTP {resp.status_code})"
+        status: Optional[str] = None
+        try:
+            body = resp.json() if resp.content else {}
+            hint = " ".join(
+                str(body.get(key) or "") for key in ("message", "name", "type")
+            ).lower()
+            if any(
+                token in hint
+                for token in ("suppress", "bounce", "unsubscribe", "complaint")
+            ):
+                status = "suppressed"
+                safe_error = "Recipient suppressed by mail provider"
+        except (ValueError, TypeError):
+            pass
+        return _SendOutcome(success=False, error=safe_error, status=status)
 
     provider_message_id = (resp.json() or {}).get("id")
     logger.info(
@@ -467,6 +491,52 @@ def render_password_reset_email(
   </body>
 </html>"""
 
+    return EmailMessage(to=recipient_email, subject=subject, html=html, text=text)
+
+
+def render_account_activation_email(
+    *,
+    recipient_email: str,
+    recipient_name: Optional[str],
+    account_email: str,
+    activation_url: str,
+    expires_minutes: int,
+) -> EmailMessage:
+    """Compose first-time account access mail with a one-time password setup link."""
+    safe_name = html_lib.escape(recipient_name) if recipient_name else None
+    safe_account_email = html_lib.escape(account_email)
+    safe_url_attr = html_lib.escape(activation_url, quote=True)
+    safe_url_text = html_lib.escape(activation_url)
+    greeting_text = f"Hi {recipient_name}," if recipient_name else "Hi,"
+    greeting_html = f"Hi {safe_name}," if safe_name else "Hi,"
+    subject = "Your Integral account is ready — set your password"
+
+    text = (
+        f"{greeting_text}\n\n"
+        f"Your Integral account has been created. This is your first-time sign-in setup.\n\n"
+        f"Sign in with this account email: {account_email}\n\n"
+        f"Choose a password using your secure link. It expires in "
+        f"{expires_minutes} minutes and works only once:\n\n"
+        f"{activation_url}\n\n"
+        f"For your security, your password is not included in this email. If you "
+        f"weren't expecting an Integral account, contact your organization’s administrator.\n\n"
+        f"— Integral\n"
+    )
+    html = f"""<!doctype html>
+<html>
+  <body style="margin:0;padding:24px;font-family:-apple-system,Segoe UI,Inter,sans-serif;background:#fafafa;color:#0b0b0c;line-height:1.55;">
+    <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #ececef;border-radius:14px;padding:32px;">
+      <h1 style="font-size:20px;font-weight:600;letter-spacing:-0.018em;margin:0 0 16px 0;">Your Integral account is ready</h1>
+      <p style="margin:0 0 16px 0;color:#4a4a52;font-size:14px;">{greeting_html} Your account has been created. Use the secure link below to set your password and get first-time access.</p>
+      <p style="margin:0 0 16px 0;color:#4a4a52;font-size:14px;">Your sign-in email is <strong>{safe_account_email}</strong>.</p>
+      <p style="margin:0 0 24px 0;color:#4a4a52;font-size:14px;">The link expires in {expires_minutes} minutes and works only once. Your password is not included in this email.</p>
+      <p style="margin:0 0 24px 0;"><a href="{safe_url_attr}" style="display:inline-block;background:#ff5a1f;color:#ffffff;padding:10px 18px;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px;">Set your password and sign in</a></p>
+      <p style="margin:0 0 8px 0;color:#8a8a93;font-size:12px;">Or copy and paste this URL:</p>
+      <p style="margin:0 0 24px 0;color:#4a4a52;font-size:12px;word-break:break-all;"><a href="{safe_url_attr}" style="color:#4a4a52;">{safe_url_text}</a></p>
+      <p style="margin:0;color:#8a8a93;font-size:12px;">If you weren't expecting an Integral account, contact your organization’s administrator.</p>
+    </div>
+  </body>
+</html>"""
     return EmailMessage(to=recipient_email, subject=subject, html=html, text=text)
 
 

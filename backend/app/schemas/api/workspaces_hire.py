@@ -18,6 +18,10 @@ class ProvisionWorkspaceMemberRequest(BaseModel):
     send_credentials: Annotated[bool, Strict()] = True
     welcome_message: Optional[StrictStr] = None
     credentials_email: Optional[EmailStr] = None
+    personal_email: Optional[EmailStr] = None
+    mailbox_verification_proof_id: Optional[StrictStr] = None
+    mailbox_verification_purpose: Optional[StrictStr] = None
+    mailbox_subject_entry_id: Optional[StrictStr] = None
 
 
 class SetMemberAssignedFormPromptRequest(BaseModel):

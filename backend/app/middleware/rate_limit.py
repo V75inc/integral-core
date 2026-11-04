@@ -166,6 +166,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 settings.RATE_LIMIT_FORGOT, (3, 60)
             ),
             "/api/auth/reset-password": _parse_rate(settings.RATE_LIMIT_RESET, (5, 60)),
+            "/api/auth/activate-account": _parse_rate(
+                settings.RATE_LIMIT_RESET, (5, 60)
+            ),
             "/api/mcp": _parse_rate(settings.RATE_LIMIT_MCP, (120, 60)),
             "/api/agentive": _parse_rate(settings.RATE_LIMIT_AGENTIVE, (120, 60)),
             "/api/chat": _parse_rate(settings.RATE_LIMIT_CHAT, (60, 60)),

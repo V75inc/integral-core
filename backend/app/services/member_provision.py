@@ -1,4 +1,4 @@
-"""Provision a workspace member with a login account (Core hire overlay)."""
+"""Provision a workspace member with a login account."""
 
 from __future__ import annotations
 
@@ -139,6 +139,10 @@ async def provision_workspace_member(
     send_credentials: bool = True,
     welcome_message: Optional[str] = None,
     credentials_email: Optional[str] = None,
+    personal_email: Optional[str] = None,
+    mailbox_verification_proof_id: Optional[str] = None,
+    mailbox_subject_entry_id: Optional[str] = None,
+    mailbox_verification_purpose: Optional[str] = None,
     actor_id: str,
 ) -> Dict[str, Any]:
     """Provision through current canonical membership admission and audit."""
@@ -154,6 +158,10 @@ async def provision_workspace_member(
                 "send_credentials": send_credentials,
                 "welcome_message": welcome_message,
                 "credentials_email": credentials_email,
+                "personal_email": personal_email,
+                "mailbox_verification_proof_id": mailbox_verification_proof_id,
+                "mailbox_subject_entry_id": mailbox_subject_entry_id,
+                "mailbox_verification_purpose": mailbox_verification_purpose,
             }
         )
     except ValidationError as exc:
@@ -162,15 +170,55 @@ async def provision_workspace_member(
     name = body.display_name.strip()
     if not name:
         raise BadRequestError(message="Display name is required")
-    deliver_norm = (
-        str(body.credentials_email).strip().lower()
-        if body.credentials_email
-        else email_norm
+    personal_norm = (
+        str(body.personal_email).strip().lower() if body.personal_email else ""
     )
+    proof_id = str(body.mailbox_verification_proof_id or "").strip()
+    subject_id = str(body.mailbox_subject_entry_id or "").strip()
+    purpose = str(body.mailbox_verification_purpose or "").strip()
+    verified_mailbox_delivery = False
+    if proof_id or personal_norm or subject_id or purpose:
+        if not (proof_id and personal_norm and subject_id and purpose):
+            raise BadRequestError(
+                message=(
+                    "Mailbox verification requires a purpose, subject reference, "
+                    "and alternate email"
+                )
+            )
+        from app.services.mailbox_verification import (
+            proof_ready_for_account_provisioning,
+        )
+
+        if personal_norm == email_norm:
+            raise BadRequestError(
+                message="Personal email must differ from the work login email"
+            )
+        if not await proof_ready_for_account_provisioning(
+            proof_id=proof_id,
+            subject_entry_id=subject_id,
+            workspace_id=str(workspace.id),
+            personal_email=personal_norm,
+            purpose=purpose,
+        ):
+            raise BadRequestError(
+                message="Mailbox verification proof is invalid or expired"
+            )
+        verified_mailbox_delivery = True
+        deliver_norm = personal_norm
+    else:
+        deliver_norm = (
+            str(body.credentials_email).strip().lower()
+            if body.credentials_email
+            else email_norm
+        )
     alternate_delivery = deliver_norm != email_norm
     if alternate_delivery and not body.send_credentials:
         raise BadRequestError(
             message="Alternate credentials recipient requires send_credentials"
+        )
+    if verified_mailbox_delivery and body.credentials_email:
+        raise BadRequestError(
+            message="Use mailbox verification proof or credentials email, not both"
         )
     if alternate_delivery and body.send_credentials:
         from app.services.credential_crypto import encryption_available
@@ -209,6 +257,7 @@ async def provision_workspace_member(
     credentials_pending_verification = False
     delivery_meta: Dict[str, Any] = {}
     outbox_id = None
+    activation_stage: Optional[Dict[str, Any]] = None
     database = get_default_context().database
     transaction = (
         postgres_graph_transaction(database)
@@ -264,6 +313,7 @@ async def provision_workspace_member(
                 user_id=response.id,
                 display_name=name,
                 email_verified=False,
+                personal_email=personal_norm if verified_mailbox_delivery else "",
                 created_at=now,
                 updated_at=now,
             )
@@ -330,9 +380,34 @@ async def provision_workspace_member(
                     None,
                     provision_after,
                 )
+        if verified_mailbox_delivery and created and user_node is not None:
+            from app.services.credential_delivery import (
+                stage_verified_mailbox_activation_delivery,
+            )
+
+            activation_stage = await stage_verified_mailbox_activation_delivery(
+                user_node=user_node,
+                recipient_email=deliver_norm,
+                account_email=email_norm,
+                workspace_id=str(workspace.id),
+                display_name=name,
+                actor_user_id=str(actor_id or ""),
+                proof_id=proof_id,
+                subject_entry_id=subject_id,
+                purpose=purpose,
+            )
     await membership._deliver(outbox_id)
     deliver_to = deliver_norm
-    if alternate_delivery and send_credentials and created and user_node is not None:
+    if activation_stage is not None:
+        from app.services.credential_delivery import (
+            deliver_staged_verified_mailbox_activation_link,
+        )
+
+        delivery_meta = await deliver_staged_verified_mailbox_activation_link(
+            activation_stage
+        )
+        credentials_emailed = bool(delivery_meta.get("activation_emailed"))
+    elif alternate_delivery and send_credentials and created and user_node is not None:
         from app.services.credential_delivery import (
             begin_alternate_credentials_delivery,
         )
@@ -384,6 +459,8 @@ async def provision_workspace_member(
         "credentials_delivery_expires_at": delivery_meta.get("expires_at"),
         "credentials_verify_url": delivery_meta.get("verify_url"),
         "credentials_challenge_emailed": delivery_meta.get("challenge_emailed"),
+        "credentials_activation_emailed": delivery_meta.get("activation_emailed"),
+        "credentials_delivery_retryable": delivery_meta.get("delivery_retryable"),
         "must_change_password": must_change_password(user_node),
         "grant_outcome": outcome,
         "granted_role": actual["role"],
