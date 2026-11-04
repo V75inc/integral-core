@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -64,6 +64,78 @@ async def test_initial_discovery_uses_library_choice_then_allows_final_and_resum
     resumed = await agent.run("Thanks.", message_history=first.all_messages())
     assert resumed.output == first.output
     assert choices == [["search_capabilities"], "auto", ["search_capabilities"], "auto"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stalled", [False, True])
+async def test_final_handoff_omits_tool_schemas_from_the_actual_provider_request(
+    stalled,
+):
+    """A provider ignoring tool_choice=none must not keep seeing callable tools."""
+    from app.agentive.harness.turn_progress import TurnProgress
+
+    progress = TurnProgress()
+    requests = []
+    executed = []
+
+    async def search_capabilities(query: str):
+        executed.append(query)
+        if stalled:
+            progress.reason = "Repeated discovery did not expose a new capability."
+        return {"verified_count": 3}
+
+    def respond(messages, info):
+        requests.append(info)
+        if len(requests) == 1:
+            return ModelResponse(
+                parts=[ToolCallPart("search_capabilities", {"query": "records"})]
+            )
+        assert info.function_tools == []
+        assert any(
+            isinstance(part, ToolReturnPart) and part.content == {"verified_count": 3}
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+        )
+        return ModelResponse(parts=[TextPart("The verified count is 3.")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        tools=[search_capabilities],
+        capabilities=[IntegralToolDisclosure(turn_progress=progress)],
+    )
+    result = await agent.run(
+        "Count the records.",
+        usage_limits=UsageLimits(request_limit=2 if not stalled else 10),
+    )
+    assert result.output == "The verified count is 3."
+    assert len(requests) == 2 and executed == ["records"]
+
+    resumed_requests = []
+
+    def resume(messages, info):
+        resumed_requests.append(info)
+        assert any(tool.name == "search_capabilities" for tool in info.function_tools)
+        if len(resumed_requests) == 1:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("search_capabilities", {"query": "current records"})
+                ]
+            )
+        return ModelResponse(parts=[TextPart("The new read verified 3 records.")])
+
+    # A new invocation restores the history without inheriting the terminal
+    # disclosure restriction or treating an older count as a current grant.
+    resumed = Agent(
+        FunctionModel(resume),
+        tools=[search_capabilities],
+        capabilities=[IntegralToolDisclosure(turn_progress=TurnProgress())],
+    )
+    second = await resumed.run(
+        "Check the current count again.", message_history=result.all_messages()
+    )
+    assert second.output == "The new read verified 3 records."
+    assert executed == ["records", "current records"]
 
 
 @pytest.mark.asyncio

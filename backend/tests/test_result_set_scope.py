@@ -184,6 +184,8 @@ class _Track:
 @pytest.mark.asyncio
 async def test_query_entries_does_not_add_rows_outside_the_set(monkeypatch):
     """query_entries with the prior id keeps a newer entry out of the total."""
+    from app.services.resource_location import ResourceLocation
+
     first, second, newer = _entry("a", "open"), _entry("b", "open"), _entry("c", "open")
     page = await _first_page(monkeypatch, [first, second])
     track = _Track()
@@ -194,8 +196,14 @@ async def test_query_entries_does_not_add_rows_outside_the_set(monkeypatch):
     async def entries(_user_id, track_id, **_kwargs):
         return [first, second, newer] if track_id == track.id else []
 
+    async def location(kind, resource_id, **_kwargs):
+        if kind == "track" and resource_id == track.id:
+            return ResourceLocation(workspace_id=track.workspace_id, track_id=track.id)
+        return None
+
     monkeypatch.setattr("app.services.permissions.get_user_accessible_tracks", tracks)
     monkeypatch.setattr("app.services.permissions.get_user_accessible_entries", entries)
+    monkeypatch.setattr("app.services.resource_location.locate_resource", location)
     result = await query_entries(
         user_id="user-scope",
         workspace_id="ws-scope",

@@ -48,6 +48,44 @@ async def test_native_count_executes_and_rechecks_rooted_owner(
     assert len(called) == 1
 
 
+async def test_native_binding_count_preserves_nested_and_typed_predicates(
+    native_database,
+):
+    from app.services.entry_access_projection import count_bound_records
+
+    owner, workspace, _, track, entry = await graph()
+    entry.custom_fields = {"flag": False}
+    await entry.save()
+    nested = {
+        "$and": [
+            {"context.track_id": track.id},
+            {"$and": [{"context.track_id": track.id}, {"entity": "Entry"}]},
+        ]
+    }
+    assert (
+        await count_bound_records(owner.id, track.id, nested, workspace_id=workspace.id)
+        == 1
+    )
+    # Python considers False == 0. Persistence comparisons retain their types;
+    # query normalization must never collapse these contradictory constraints.
+    # The pinned adapter refuses a numeric comparison against a stored
+    # boolean. Preserve that unavailable outcome instead of dropping the
+    # contradictory numeric predicate and authorizing a matching record.
+    with pytest.raises(AuthorizationUnavailableError):
+        await count_bound_records(
+            owner.id,
+            track.id,
+            {
+                "$and": [
+                    nested,
+                    {"context.custom_fields.flag": False},
+                    {"context.custom_fields.flag": 0},
+                ]
+            },
+            workspace_id=workspace.id,
+        )
+
+
 @pytest.mark.parametrize(
     "damage",
     [

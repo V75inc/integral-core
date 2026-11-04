@@ -52,6 +52,7 @@ import type { PartState } from "@assistant-ui/react";
 import { useScope } from "../../../context/ScopeContext";
 import { getComposerAccessory } from "../../../host/registry";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
+import { IntegralMarkdownLink } from "../../../components/ui/IntegralMarkdownLink";
 import { useChatActivity } from "../AIChatSurface";
 import { THREAD_ALREADY_RESPONDING } from "../threadSessionRegistry";
 import { PromptSheetHost } from "../prompt-sheet/PromptSheet";
@@ -693,10 +694,8 @@ export function SourceView({ part }: { part: { url?: string; title?: string } })
     );
   }
   return (
-    <a
+    <IntegralMarkdownLink
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
       className="
         inline-flex items-center gap-1.5 rounded-[var(--radius-input)]
         border border-[var(--border-subtle)] bg-[var(--panel)]
@@ -706,7 +705,7 @@ export function SourceView({ part }: { part: { url?: string; title?: string } })
     >
       <ExternalLinkIcon size={12} />
       {label}
-    </a>
+    </IntegralMarkdownLink>
   );
 }
 

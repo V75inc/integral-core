@@ -6,6 +6,12 @@ The external agent remains responsible for its own reasoning and model environme
 
 Use the deployed MCP transport and authentication configuration. Inspect current tool discovery rather than hardcoding an old catalog. Supply required scoped inputs and preserve the backend's error and result semantics.
 
+MCP resource results expose `action_url` links using the deployment's trusted
+`APP_BASE_URL`. Configure that value to the public SPA base URL behind a reverse
+proxy. Clients should copy these URLs rather than invent a hostname. Native
+browser links remain relative. This presentation does not change resource
+permissions, receipts or source evidence.
+
 Reads and writes need separate qualification. Test two principals/workspaces, private library visibility, revocation, invalid scope, proposed changes, approval application, and exact record readback. An HTTP success must not be presented as a completed effect if the result reports review or uncertain status.
 
 Inbound MCP is distinct from outbound external MCP connectors. Neither establishes an agent-to-agent peer delegation fabric. For architecture, read [resident harness](RESIDENT_HARNESS.md); for application capabilities, use the [extension contract](../platform/extension-contract-v1.md).

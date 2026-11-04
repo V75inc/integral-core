@@ -1765,6 +1765,7 @@ async def get_user_accessible_entry_page(
     sort: Optional[List[Tuple[str, int]]] = None,
     candidate_query: Optional[Dict[str, Any]] = None,
     workspace_id: Optional[str] = None,
+    app_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Return an admitted offset page and its exact current audience total."""
     from app.services.entry_access_projection import candidate_query as discover
@@ -1773,6 +1774,8 @@ async def get_user_accessible_entry_page(
     if limit < 1 or offset < 0:
         return {"entries": [], "total": 0, "next_cursor": None}
     scope = {"track_id": track_id, "workspace_id": workspace_id}
+    if app_id:
+        scope["app_id"] = app_id
     query = await discover(user_id, **scope)
     if query is None:
         return {"entries": [], "total": 0, "next_cursor": None}
@@ -1799,6 +1802,7 @@ async def iter_user_accessible_entry_batches(
     batch_size: int = 5000,
     candidate_query: Optional[Dict[str, Any]] = None,
     workspace_id: Optional[str] = None,
+    app_id: Optional[str] = None,
 ) -> AsyncIterator[List[Entry]]:
     """Stream admitted Entries while bounding every raw database window."""
     from app.services.entry_access_projection import candidate_query as discover
@@ -1811,6 +1815,8 @@ async def iter_user_accessible_entry_batches(
     if batch_size < 1:
         return
     scope = {"track_id": track_id, "workspace_id": workspace_id}
+    if app_id:
+        scope["app_id"] = app_id
     query = await discover(user_id, **scope)
     if query is None:
         return

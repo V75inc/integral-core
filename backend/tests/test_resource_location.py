@@ -422,6 +422,55 @@ async def test_bound_query_filters_before_count_and_pagination():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("resource", ["entry", "track", "app"])
+async def test_bound_core_query_uses_canonical_scope_before_paging(
+    resource, monkeypatch
+):
+    """SDK containment is an executor constraint, never a per-counted-row walk."""
+    user, workspace, app, track, entry = await graph()
+    other_app, other_track, other_entry = await sibling(user, workspace)
+    context = OperationContext(
+        user_id=user.id, workspace_id=workspace.id, scope="tool", app_id=app.id
+    )
+
+    async def scalar_gate(*args):
+        pytest.fail("Core-open paging must use canonical executor scope")
+
+    monkeypatch.setattr(context, "_resource_in_scope", scalar_gate)
+    result = await context.query(
+        {"mode": "core_open", "resource": resource, "limit": 1}
+    )
+    expected = {"app": app.id, "track": track.id, "entry": entry.id}[resource]
+    assert result["total_estimate"] == 1
+    assert [row["id"] for row in result["rows"]] == [expected]
+    assert result["cursor"] is None
+    assert not {ref["id"] for ref in result["object_refs"]} & {
+        other_app.id,
+        other_track.id,
+        other_entry.id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sdk_cursor_cannot_be_reused_under_another_app():
+    from app.api.errors import BadRequestError
+
+    user, workspace, app, track, _ = await graph()
+    extra = await Entry.create(title="Second page", track_id=track.id)
+    await track.connect(extra, edge=CONTAINS)
+    other_app, _, _ = await sibling(user, workspace)
+    context = OperationContext(
+        user_id=user.id, workspace_id=workspace.id, scope="tool", app_id=app.id
+    )
+    query = {"mode": "core_open", "resource": "entry", "limit": 1}
+    first = await context.query(query)
+    assert first["total_estimate"] == 2 and first["cursor"]
+    context.app_id = other_app.id
+    with pytest.raises(BadRequestError, match="cursor"):
+        await context.query({**query, "cursor": first["cursor"]})
+
+
+@pytest.mark.asyncio
 async def test_bound_declared_query_rejects_foreign_handler_before_invocation(
     monkeypatch,
 ):

@@ -104,7 +104,7 @@ describe('IntegralMarkdownLink', () => {
   });
 
   it('repairs typed local-placeholder citations while leaving external links external', () => {
-    for (const origin of ['https://integral.local', 'http://integral.local', 'https://integral.app']) {
+    for (const origin of ['https://integral.local', 'http://integral.local', 'https://integral.app', 'https://integral.example', 'http://integral.example']) {
       const html = renderLink(`${origin}/tracks/n.Track.saved?entry=n.Entry.saved#section`);
       expect(html).toContain('href="/tracks/n.Track.saved?entry=n.Entry.saved#section"');
       expect(html).not.toContain('target="_blank"');
@@ -119,10 +119,32 @@ describe('IntegralMarkdownLink', () => {
       'https://user:secret@integral.local/tracks/n.Track.saved',
       'https://foreign.example/tracks/n.Track.saved',
       'https://integral.ai//foreign.example/path',
+      'https://integral.example/help',
+      'https://integral.example/tracks/arbitrary',
+      'https://integral.example.evil.test/tracks/n.Track.saved',
+      'https://integral.example:444/tracks/n.Track.saved',
+      'https://user:secret@integral.example/tracks/n.Track.saved',
+      'https://integral.example//foreign.example/tracks/n.Track.saved',
     ]) {
       expect(renderLink(href)).toContain('target="_blank"');
     }
   });
+
+  it.each(['https://workspace.example.test', 'http://localhost:9141'])(
+    'repairs restored placeholder citations on deployment %s without changing their resource',
+    origin => {
+      vi.stubGlobal('location', new URL(origin));
+      for (const path of [
+        '/tracks/n.Track.saved?entry=n.Entry.saved#notes',
+        '/apps/n.WorkspaceApp.saved?section=dashboards&dashboard_id=n.Dashboard.saved',
+        '/entries/n.Entry.saved',
+      ]) {
+        const html = renderLink(`https://integral.example${path}`);
+        expect(html).toContain(`href="${path.replace(/&/g, '&amp;')}"`);
+        expect(html).not.toContain('target="_blank"');
+      }
+    },
+  );
 
   it('ignores renderer-supplied new-tab targets for local links', () => {
     const html = renderToStaticMarkup(<MemoryRouter>

@@ -126,15 +126,22 @@ root `/health` alone does not qualify a desktop runtime.
 ### Governed-read performance qualification
 
 The scale fixture in `tests/test_scale_query_benchmark.py` uses an isolated
-PostgreSQL test database, 50,000 actual Entries and containment edges, and a known
+PostgreSQL test database, independent 50,000/100,000 Entry populations with
+containment edges, and a known
 record oracle. Run it separately from competing test suites with
 `INTEGRAL_TEST_DB=postgres`, `INTEGRAL_TEST_POSTGRES_DSN` pointing to a disposable
-service, and `INTEGRAL_RUN_SLOW_TESTS=1`. It fingerprints the runtime sources,
+service, and `INTEGRAL_RUN_SLOW_TESTS=1`. Select it explicitly with
+`pytest tests/test_scale_query_benchmark.py -m slow -s`; the default marker
+selection excludes slow tests. It fingerprints the runtime sources,
 configuration and fixture so edits during a run invalidate its evidence.
 Selective lookup, record pages, governed pages, counts and digests collect 20
 samples per cell; keyword lookup collects five. These are regression signals,
 not hosted release p95 qualification. A mathematically impossible passing cell
 fails early without presenting partial observations as a passing percentile.
+The 50K budgets remain fixed; 100K uses separate linear-work diagnostic ceilings.
+Mixed-permission checks cover exclusions, direct Entry grants, cross-workspace
+denial and live revocation through services, governed queries, SDK, MCP, HTTP and
+resident result projection. They do not qualify a hosted model conversation.
 The optional disabled-pushdown comparator runs independently and cannot alter
 the native cells. Missing request measurements fail the query-budget test.
 
@@ -143,3 +150,16 @@ candidates can be narrowed before hydration; the canonical matcher and graph
 admission still decide results. The bounded Unicode candidate derivation is
 coalesced and offloaded from asynchronous request handling. It introduces no
 embedding dependency and does not replace ranked hybrid search.
+
+Direct Entry grants participate in workspace-wide reads and rollups even when
+the parent Track is unreadable. Those rollups use a neutral source label and
+omit Track navigation, keeping private parent names out of the result.
+
+Core's session-mode PostgreSQL graph connections use the standard startup
+option `plan_cache_mode=force_custom_plan` to avoid repeated parameterized-read
+latency cliffs across uneven populations. This trades planning CPU for stable
+execution latency; qualify it on the deployment workload. Set
+`INTEGRAL_POSTGRES_PLAN_CACHE_MODE=auto` to restore PostgreSQL's adaptive choice.
+Explicit DSN `options` or `plan_cache_mode` take precedence, including options
+unrelated to planning. Transaction-pooler mode keeps its existing driver behavior
+and receives no additional session startup option.
