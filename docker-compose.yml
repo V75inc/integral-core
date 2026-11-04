@@ -90,8 +90,8 @@ services:
 
   web:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         NGINX_CONF: nginx.docker.conf
         VITE_API_URL:

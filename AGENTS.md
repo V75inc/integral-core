@@ -489,6 +489,12 @@ Full rationale and pattern catalogue: [docs/operational-models/README.md](docs/o
 - View types: `feed`, `kanban`, `table`, `calendar`, `gallery`, plus composable meta-widgets `composable_list`, `composable_grid`, `composable_board`, `composable_timeline`
 - `field_types[]` and `view_types[]` declare manifest-scoped composites; `plugins[]` declares signed code-plugin requirements
 
+**Trusted React UI:** Reviewed package components use the public `sdk/react` and
+[versioned admission contract](docs/platform/react-app-ui.md). Native execution
+requires operator publisher/package admission and signed artifact integrity; a
+manifest trust label or resident approval does not grant it. Keep domain React
+source in its App and preserve isolated extensions for unreviewed code.
+
 **View palette:** Profiles compose from prebuilt `view_type` keys (`feed`, `kanban`, `composable_board`, …) — not runtime hot-load of arbitrary view code. Canonical contracts: `backend/app/views/contracts/*.json`; registry: `app/views/operational_model_view_types.py`; sync to `frontend/src/views/contracts.json` via `backend/scripts/sync_view_contracts.py`. Convention: [docs/operational-models/VIEW_PALETTE.md](docs/operational-models/VIEW_PALETTE.md).
 
 **Runtime:** `operational_model_runtime.py` compiles YAML→JSON, validates, resolves scope-aware profiles. `operational_model_merge.py` handles library merges into attached profiles. `operational_model_field_types` + `app.views.operational_model_view_types` = extensible registries used by both backend and agent's introspection tool surface. `operational_model_atomic_swap`, `operational_model_diff`, `operational_model_migrations` implement draft/publish lifecycle. `operational_model_plugins` discovers signed code plugins from `backend/app/plugins/` or Python entry points. Library drop-in: `backend/app/packages/<slug>/operational-model.yaml` synced via `operational_model_library_sync.py`.

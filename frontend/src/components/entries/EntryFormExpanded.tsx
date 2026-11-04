@@ -186,6 +186,7 @@ export interface UseEntryExpandedFormOptions {
 }
 
 export interface EntryExpandedFormModel {
+  entryTypeKey?: string;
   entryTypes: EntryTypeNode[];
   loading: boolean;
   needsTrackPicker: boolean;
@@ -261,6 +262,7 @@ export interface EntryExpandedFormModel {
   dynamicFields: OperationalModelFieldSpec[];
   entryTypeFormSchema: OperationalModelFormSchema | null;
   appId?: string;
+  setFieldDataOwner?: (owner: 'app' | 'host') => void;
   initialEntry?: Entry | null;
 }
 
@@ -296,6 +298,7 @@ export function useEntryExpandedForm(
   const [body, setBody] = useState('');
   const { problems, setProblems, clear: clearProblem, reset: resetProblems } = useFieldProblems();
   const [type, setType] = useState('post');
+  const [fieldOwner, setFieldOwner] = useState<{scope: string; owner: 'app' | 'host'}>();
   const [typeUserTouched, setTypeUserTouched] = useState(false);
   const [selectedTrackId, setSelectedTrackId] = useState(
     track?.id || initialEntry?.track_id || ''
@@ -400,8 +403,10 @@ export function useEntryExpandedForm(
     queryKey: entryTypesForTrackQueryKey(activeTrackId),
     enabled: Boolean(enabled && activeTrackId),
     queryFn: () => entryTypesApi.list({ track_id: activeTrackId }),
-    staleTime: 0,
-    refetchOnMount: 'always',
+    // Reuse the host's recent metadata. Explicit schema/release invalidations
+    // still refetch; server revision checks remain authoritative on save.
+    staleTime: 30_000,
+    refetchOnMount: true,
   });
   const entryTypes = useMemo<EntryTypeNode[]>(
     () => (entryTypesQuery.data ?? []) as EntryTypeNode[],
@@ -670,6 +675,13 @@ export function useEntryExpandedForm(
   }, [selectedType?.name, type, viewDefaultEntryTypeKey]);
 
   const entryTypeFormSchema = selectedType?.form_schema ?? null;
+  const fieldOwnerScope = JSON.stringify([activeTrackId, type, mode]);
+  const contribution = entryTypeFormSchema?.ui_contributions?.find(item => item.placement === contributionPlacement);
+  const appOwnsFieldData = Boolean(contribution?.component_key && contribution.owns_field_data);
+  const useHostFieldData = !appOwnsFieldData || (fieldOwner?.scope === fieldOwnerScope && fieldOwner.owner === 'host');
+  const setFieldDataOwner = useCallback((owner: 'app' | 'host') => {
+    setFieldOwner(previous => previous?.scope === fieldOwnerScope && previous.owner === owner ? previous : {scope: fieldOwnerScope, owner});
+  }, [fieldOwnerScope]);
   const appId = track?.app?.id;
   const ownsForm = contributionOwnsForm(entryTypeFormSchema, contributionPlacement);
   const titleFromFields = contributionTitleFromFields(
@@ -692,7 +704,7 @@ export function useEntryExpandedForm(
   // (e.g. Finance invoice_number via ``preview_document_number`` when
   // auto-generate is on). When auto-generate is on the field is read-only.
   useEffect(() => {
-    if (!enabled || (mode !== 'create' && mode !== 'edit')) {
+    if (!enabled || !useHostFieldData || (mode !== 'create' && mode !== 'edit')) {
       setAutoLockedFieldKeys(new Set());
       return;
     }
@@ -741,13 +753,13 @@ export function useEntryExpandedForm(
     return () => {
       cancelled = true;
     };
-  }, [enabled, mode, appId, dynamicFields, type]);
+  }, [enabled, mode, appId, dynamicFields, type, useHostFieldData]);
 
   // Prefill fields that declare ``default_from_setting`` from the parent
   // App's settings (e.g. Finance currency ← default_currency). Editable —
   // never locks the control.
   useEffect(() => {
-    if (!enabled || mode !== 'create' || !appId) return;
+    if (!enabled || !useHostFieldData || mode !== 'create' || !appId) return;
     const settingFields = dynamicFields.filter(
       field => typeof field.default_from_setting === 'string' && field.default_from_setting.trim(),
     );
@@ -769,7 +781,7 @@ export function useEntryExpandedForm(
     return () => {
       cancelled = true;
     };
-  }, [enabled, mode, appId, dynamicFields, type]);
+  }, [enabled, mode, appId, dynamicFields, type, useHostFieldData]);
 
   const applyContributionPatch = useCallback(
     (patch: { custom_fields?: Record<string, unknown> }) => {
@@ -929,7 +941,7 @@ export function useEntryExpandedForm(
   ).trim();
 
   useEffect(() => {
-    if (!enabled || !relationsEnabled || !activeTrackId) {
+    if (!enabled || !useHostFieldData || !relationsEnabled || !activeTrackId) {
       setRelationChoices(prev => (Object.keys(prev).length === 0 ? prev : {}));
       setRelationLoading(false);
       return;
@@ -1081,6 +1093,7 @@ export function useEntryExpandedForm(
   }, [
     enabled,
     relationsEnabled,
+    useHostFieldData,
     activeTrackId,
     relationFieldsFetchSig,
     tracksListNorm,
@@ -1715,10 +1728,12 @@ export function useEntryExpandedForm(
     fieldValues,
     setFieldValues,
     applyContributionPatch,
+    setFieldDataOwner,
     composeExtraSection,
     ownsForm,
     dynamicFields,
     entryTypeFormSchema,
+    entryTypeKey: selectedType ? entryTypeSlug(selectedType) : type,
     appId,
     initialEntry,
   };

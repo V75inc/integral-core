@@ -1,0 +1,161 @@
+/** Public React authoring contract. No imports from Core's private modules. */
+import { forwardRef, createContext, useContext, useEffect, useRef, useState, type ComponentType, type ReactNode, type ComponentProps, type ElementType, type HTMLAttributes } from 'react';
+
+export const SDK_VERSION = '1.1.0';
+export class AppUIError extends Error {
+  constructor(message: string, readonly outcome: 'rejected' | 'unconfirmed' | 'withheld' = 'rejected', readonly operationReceipt?: unknown) { super(message); this.name = 'AppUIError'; }
+}
+export type Placement = 'home' | 'track' | 'entry_compose' | 'entry_detail';
+export type Json = Record<string, unknown>;
+export interface ComponentDeclaration {
+  key: string; entry: string; digest: string; export_name: string; sdk_range: '^1.0.0' | '^1.1.0';
+  placements: Placement[]; props_schema: Json;
+}
+export type OperationResult = { output: Json; operation_receipt?: unknown; current_state_verified?: false };
+export type LifecycleResult = { ok: boolean; error?: string; field_errors?: Record<string, string>; value?: unknown; outcomeRecorded?: boolean };
+export type EntryFieldMetadata = {key: string; name: string; type: string; required?: boolean; readonly?: boolean; enum?: string[]; placeholder?: string; help?: string; hide_on_create?: boolean};
+export type AppReadOptions = {staleTime?: number};
+export type AppQueryOptions = AppReadOptions & {enabled?: boolean};
+export type LookupOption = {id: string; label: string; description?: string; disabled?: boolean; [key: string]: unknown};
+export type LookupPage = {items: LookupOption[]; next_cursor?: string | null};
+export type AsyncComboboxProps = {id?: string; required?: boolean; 'aria-describedby'?: string; label: string; value: string; selectedLabel?: string; loadPage: (query: string, cursor: string | null, signal: AbortSignal) => Promise<LookupPage>; onChange: (option: LookupOption) => void; disabled?: boolean; placeholder?: string; invalid?: boolean; onCreate?: () => void; createLabel?: string};
+export type DateInputProps = {required?: boolean; invalid?: boolean; 'aria-describedby'?: string; value: string; onChange: (value: string) => void; mode?: 'date' | 'datetime'; disabled?: boolean; placeholder?: string; 'aria-label'?: string; id?: string};
+export interface ContributionLifecycle {
+  mode: 'create' | 'edit' | 'detail';
+  entryId?: string; trackId?: string; related?: unknown; customFields: Json; fields?: EntryFieldMetadata[]; fieldErrors?: Record<string, string>;
+  onDraftPatch?: (patch: {custom_fields?: Json; related?: unknown}) => void;
+  register: (handle: {requestValidate: () => Promise<LifecycleResult>; requestSubmit: (entryId?: string | null) => Promise<LifecycleResult>}) => () => void;
+}
+export interface AppUI {
+  principalId: string; workspaceId: string; appId: string; componentKey: string;
+  placement: Placement; preview: boolean; context: Json;
+  lifecycle?: ContributionLifecycle;
+  subscribe?: (listener: () => void) => () => void;
+  query: (key: string, input?: Json, signal?: AbortSignal, options?: AppReadOptions) => Promise<Json>;
+  invoke: (key: string, input: Json) => Promise<OperationResult>;
+  navigate: (target: {kind: 'app' | 'track' | 'entry' | 'dashboard'; id: string; source_entry_id?: string; field_key?: string}) => Promise<void>;
+  notify: (message: string, kind?: 'success' | 'error' | 'info') => void;
+  confirm: (options: {title: string; message: string; confirmLabel?: string; variant?: 'default' | 'danger'}) => Promise<boolean>;
+}
+const Context = createContext<AppUI | null>(null);
+export const AppUIProvider = Context.Provider;
+export function useOptionalAppUI() {return useContext(Context);}
+export function useAppUI(): AppUI {
+  const value = useContext(Context);
+  if (!value) throw new Error('App UI must be mounted by Integral.');
+  return value;
+}
+export function useContributionLifecycle() { return useAppUI().lifecycle; }
+export function useEntryDraft() {
+  const lifecycle = useContributionLifecycle();
+  if (!lifecycle) throw new Error('This component requires an Entry draft.');
+  return {values: lifecycle.customFields, related: lifecycle.related, fields: lifecycle.fields || [], errors: lifecycle.fieldErrors || {},
+    mode: lifecycle.mode, entryId: lifecycle.entryId,
+    patch: (values: Json) => {
+      if (lifecycle.mode === 'detail' || !lifecycle.onDraftPatch) throw new Error('This Entry is read only.');
+      lifecycle.onDraftPatch({custom_fields: values});
+    },
+    register: lifecycle.register};
+}
+export type AppQueryResult = {data?: Json; error?: Error; loading: boolean; refetch: () => void};
+export function useAppQuery(key: string, input: Json = {}, options: AppQueryOptions = {}): AppQueryResult {
+  const api = useAppUI();
+  const signature = JSON.stringify([api.principalId, api.workspaceId, api.appId, api.componentKey, api.preview, key, input], (_key, value) => value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
+  const enabled = options.enabled !== false;
+  const staleTime = options.staleTime ?? 30_000;
+  const [revision, refresh] = useState(0);
+  const [state, setState] = useState<{signature: string; source: AppUI['query']; data?: Json; error?: Error; loading: boolean}>({signature, source: api.query, loading: true});
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    setState({signature, source: api.query, loading: true});
+    api.query(key, input, controller.signal, {staleTime}).then(
+      data => { if (!controller.signal.aborted) setState({signature, source: api.query, data, loading: false}); },
+      error => { if (!controller.signal.aborted) setState({signature, source: api.query, error, loading: false}); },
+    );
+    return () => controller.abort();
+    // Input changes are represented by the serialized contract; api also
+    // changes on a new release, preview policy or committed scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api.query, signature, revision, enabled, staleTime]);
+  useEffect(() => enabled ? api.subscribe?.(() => refresh(value => value + 1)) : undefined, [api.subscribe, enabled]);
+  const current = state.signature === signature && state.source === api.query ? state : {loading: enabled, data: undefined, error: undefined};
+  return {data: current.data, error: current.error, loading: enabled && current.loading, refetch: () => refresh(value => value + 1)};
+}
+export function useAppOperation(key: string) {
+  const api = useAppUI();
+  const pending = useRef<{signature: string; task: Promise<OperationResult>} | null>(null);
+  const [busy, setBusy] = useState(false);
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  const run = (input: Json) => {
+    const signature = JSON.stringify([api.principalId, api.workspaceId, api.appId, key, input]);
+    if (pending.current) return pending.current.signature === signature ? pending.current.task : Promise.reject(new Error('Another submission is pending.'));
+    setBusy(true);
+    const task = api.invoke(key, input).finally(() => {
+      if (pending.current?.task === task) pending.current = null;
+      if (active.current) setBusy(false);
+    });
+    pending.current = {signature, task};
+    return task;
+  };
+  return {run, busy};
+}
+
+/** Reuse the host Entry's typed fields or a saved native view on its own track. */
+export type EntryRegionProps = {viewKey?: string; fields?: string[]; columns?: 1 | 2 | 3; className?: string};
+export type ButtonProps = ComponentProps<'button'> & {variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger'; size?: 'xs' | 'sm' | 'md' | 'lg'; loading?: boolean; icon?: ReactNode};
+export type InputProps = Omit<ComponentProps<'input'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
+export type SelectProps = Omit<ComponentProps<'select'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
+export type TextareaProps = ComponentProps<'textarea'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
+export type TextProps = HTMLAttributes<HTMLElement> & {as?: ElementType; variant?: 'display-lg' | 'display-md' | 'display-sm' | 'heading-lg' | 'heading-md' | 'heading-sm' | 'body-lg' | 'body' | 'body-sm' | 'subtitle' | 'meta' | 'mono' | 'label'; tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'info' | 'success' | 'warn' | 'danger' | 'ai' | 'inherit'};
+export type SurfaceProps = HTMLAttributes<HTMLDivElement> & {tone?: 'panel' | 'panel-2' | 'transparent'; border?: 'default' | 'subtle' | 'entry-table' | 'transparent' | 'none'; radius?: 'card' | 'input' | 'pill' | 'none'; padding?: 'none' | 'sm' | 'md' | 'lg'};
+export type LayoutProps = HTMLAttributes<HTMLDivElement> & {gap?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'; align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline'};
+export type ModalProps = {open: boolean; onClose: () => void; title?: ReactNode; children?: ReactNode; width?: string; variant?: 'default' | 'compact'};
+
+/** Components are supplied by the host; these declarations are the public UI surface. */
+export interface UIPrimitives {
+  EntryRegion?: ComponentType<EntryRegionProps>;
+  AsyncCombobox?: ComponentType<AsyncComboboxProps>;
+  DateInput?: ComponentType<DateInputProps>;
+  Button: ComponentType<any>; Input: ComponentType<any>; Select: ComponentType<any>;
+  Textarea: ComponentType<any>; Text: ComponentType<any>; Surface: ComponentType<any>;
+  Stack: ComponentType<any>; Inline: ComponentType<any>; Modal: ComponentType<any> & {Body: ComponentType<any>; Footer: ComponentType<any>};
+}
+const Primitives = createContext<UIPrimitives | null>(null);
+export const UIPrimitivesProvider = Primitives.Provider;
+function primitive<P extends object>(name: keyof UIPrimitives): ComponentType<P> {
+  return function Primitive(props: P) {
+    const controls = useContext(Primitives);
+    if (!controls) throw new Error('Integral UI primitives are unavailable.');
+    const Control = controls[name] as ComponentType<any> | undefined;
+    if (!Control) throw new Error(`Integral control ${name} is unavailable.`);
+    return <Control {...props} />;
+  };
+}
+function refPrimitive<P extends object, E extends HTMLElement>(name: keyof UIPrimitives) {
+  return forwardRef<E, P>(function Primitive(props, ref) {
+    const controls = useContext(Primitives);
+    if (!controls) throw new Error('Integral UI primitives are unavailable.');
+    const Control = controls[name] as ComponentType<any> | undefined;
+    if (!Control) throw new Error(`Integral control ${name} is unavailable.`);
+    return <Control {...props} ref={ref} />;
+  });
+}
+export const Button = refPrimitive<ButtonProps, HTMLButtonElement>('Button');
+export const Input = refPrimitive<InputProps, HTMLInputElement>('Input');
+export const Select = refPrimitive<SelectProps, HTMLSelectElement>('Select');
+export const Textarea = refPrimitive<TextareaProps, HTMLTextAreaElement>('Textarea');
+export const EntryRegion = primitive<EntryRegionProps>('EntryRegion');
+export const AsyncCombobox = primitive<AsyncComboboxProps>('AsyncCombobox');
+export const DateInput = primitive<DateInputProps>('DateInput');
+export const Text = primitive<TextProps>('Text');
+export const Surface = primitive<SurfaceProps>('Surface');
+export const Stack = primitive<LayoutProps>('Stack');
+export const Inline = primitive<LayoutProps>('Inline');
+const ModalRoot = primitive<ModalProps>('Modal');
+export const Modal = Object.assign(ModalRoot, {
+  Body: function Body({children}: {children: ReactNode}) { const ui = useContext(Primitives)!; return <ui.Modal.Body>{children}</ui.Modal.Body>; },
+  Footer: function Footer({children}: {children: ReactNode}) { const ui = useContext(Primitives)!; return <ui.Modal.Footer>{children}</ui.Modal.Footer>; },
+});
+export const themeTokens = Object.freeze({background: 'var(--bg)', foreground: 'var(--text)', muted: 'var(--text-muted)', border: 'var(--border)', danger: 'var(--danger)'});

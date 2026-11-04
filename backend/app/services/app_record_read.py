@@ -91,12 +91,31 @@ async def read_app_records(ctx, raw):
     filters = {_field(key): value for key, value in data.filters.items()}
     group = _field(data.group_by) if data.group_by else ""
     sort = _field(data.sort_by) if data.sort_by else ""
+    search_fields = (
+        [_field(key) for key in data.text_search.fields] if data.text_search else []
+    )
     with ordinary_authority_only(), isolated_permissions_cache():
-        tracks = await ctx._tracks_by_title(data.track)
-        if not tracks:
-            return {"ok": False, "reason": "Selected Track is unavailable"}
         selectors = []
+        track_ids = []
+        if data.track_key:
+            selection, capped = await _candidate_ids(
+                ctx, data.track_key, data.entry_type or None, None, metadata_only=True
+            )
+            if capped:
+                raise BadRequestError(message="Narrow the Track/type selection")
+            for track_id, types in selection.items():
+                track_ids.append(track_id)
+                selector = {"context.track_id": track_id}
+                if types is not None:
+                    selector["context.type_id"] = {"$in": types}
+                selectors.append(selector)
+            tracks = []
+        else:
+            tracks = await ctx._tracks_by_title(data.track)
+            if not tracks:
+                return {"ok": False, "reason": "Selected Track is unavailable"}
         for track in tracks:
+            track_ids.append(track.id)
             selection, capped = await _candidate_ids(
                 ctx, track.id, data.entry_type or None, None, metadata_only=True
             )
@@ -123,6 +142,33 @@ async def read_app_records(ctx, raw):
                         "$regex": re.escape(data.title_contains),
                         "$options": "i",
                     }
+                },
+            )
+        if data.ids is not None:
+            query = merge_queries(query, {"id": {"$in": data.ids}})
+        for key, values in data.exclude_values.items():
+            if len(values) > 10 or any(len(str(value)) > 120 for value in values):
+                raise BadRequestError(
+                    message="Excluded values must be short bounded scalars"
+                )
+            query = merge_queries(
+                query, {"context.custom_fields." + _field(key): {"$nin": values}}
+            )
+        if data.text_search and data.text_search.value.strip():
+            term = re.escape(data.text_search.value.strip())
+            query = merge_queries(
+                query,
+                {
+                    "$or": [
+                        {
+                            (
+                                "context.title"
+                                if key == "title"
+                                else "context.custom_fields." + _field(key)
+                            ): {"$regex": term, "$options": "i"}
+                        }
+                        for key in search_fields
+                    ]
                 },
             )
         # Cursor is an opaque continuation of this exact caller/selection, never
@@ -193,7 +239,7 @@ async def read_app_records(ctx, raw):
                 ),
                 "group_count": len(groups),
                 "groups_truncated": len(groups) > 50,
-                "source_urls": [f"/tracks/{track.id}" for track in tracks],
+                "source_urls": [f"/tracks/{track_id}" for track_id in track_ids],
                 "coverage": coverage,
             }
 
@@ -324,7 +370,7 @@ async def read_app_records(ctx, raw):
             }
             item.update(
                 {
-                    key: _short(cf.get(key))
+                    key: cf.get(key) if data.full_values else _short(cf.get(key))
                     for key in selected
                     if key not in _SKIP | _IDENTITY
                 }
@@ -348,5 +394,5 @@ async def read_app_records(ctx, raw):
             "truncated": has_more,
             "next_cursor": cursor,
             "coverage": coverage,
-            "source_urls": [f"/tracks/{track.id}" for track in tracks],
+            "source_urls": [f"/tracks/{track_id}" for track_id in track_ids],
         }

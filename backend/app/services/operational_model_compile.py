@@ -822,22 +822,31 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
         view_key = str(ed.get("view") or "").strip()
         view_type = str(ed.get("view_type") or "").strip()
         has_ext = bool(ext_key)
+        component_key = str(ed.get("component_key") or "").strip()
         has_native = bool(view_key or view_type)
-        if has_ext and has_native:
+        if sum((has_ext, has_native, bool(component_key))) > 1:
             raise BadRequestError(
                 message=(
                     f"{where}[{idx}] must set either extension_view_key "
                     f"(iframe) or view/view_type (Core region), not both"
                 )
             )
-        if not has_ext and not has_native:
+        if not has_ext and not has_native and not component_key:
             raise BadRequestError(
                 message=(
                     f"{where}[{idx}] requires extension_view_key or " f"view/view_type"
                 )
             )
         contrib: Dict[str, Any] = {"placement": placement}
-        if has_ext:
+        if component_key:
+            contrib["component_key"] = component_key
+            if ed.get("owns_field_data") is True:
+                contrib["owns_field_data"] = True
+            fallback_view = str(ed.get("fallback_view") or "").strip()
+            if fallback_view:
+                contrib["fallback_view"] = fallback_view
+            contrib["props"] = _as_dict(ed.get("props") or {}, where=f"{where}.props")
+        elif has_ext:
             contrib["extension_view_key"] = ext_key
         else:
             if view_key:
@@ -2424,6 +2433,22 @@ def _validate_local_props_schema(value: Any) -> None:
     elif isinstance(value, list):
         for child in value:
             _validate_local_props_schema(child)
+
+
+def _parse_ui_components(raw: Any) -> List[Dict[str, Any]]:
+    from app.schemas.ui_components import UIComponentDeclaration
+
+    items = _as_list(raw, where="app.ui_components")
+    if len(items) > 32:
+        raise BadRequestError(message="At most 32 UI components are supported")
+    try:
+        result = [
+            UIComponentDeclaration.model_validate(item).model_dump() for item in items
+        ]
+    except (ValueError, jsonschema.SchemaError) as exc:
+        raise BadRequestError(message="Invalid UI component declaration") from exc
+    _assert_unique_keys(result, where="app.ui_components")
+    return result
 
 
 def _parse_manifest_extension_views(
@@ -4265,6 +4290,7 @@ def _compile_canonical_manifest(
                     app_node.get("home"),
                     app_queries,
                     operations=app_operations,
+                    components=_parse_ui_components(app_node.get("ui_components")),
                 )
             except ValueError as exc:
                 raise BadRequestError(message=str(exc)) from exc
@@ -4328,6 +4354,11 @@ def _compile_canonical_manifest(
                 "queries": app_queries,
                 "protected_state": app_protected_state,
                 "extension_views": app_extension_views,
+                **(
+                    {"ui_components": _parse_ui_components(app_node["ui_components"])}
+                    if "ui_components" in app_node
+                    else {}
+                ),
                 "track_aliases": app_track_aliases,
                 # ADR-006 (I-PC-01)
                 "unstaged_tracks": app_unstaged_tracks,

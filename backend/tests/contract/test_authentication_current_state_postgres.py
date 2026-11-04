@@ -5,6 +5,7 @@ import json
 import secrets
 import sys
 import textwrap
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from jvspatial.api.auth.models import User as AuthUser
@@ -17,6 +18,33 @@ from app.services.authentication import (
 )
 
 pytestmark = [pytest.mark.postgres, pytest.mark.contract, pytest.mark.asyncio]
+
+
+async def test_repeated_validation_coalesces_only_advisory_activity(postgres_raw_db):
+    service = IntegralAuthenticationService(
+        GraphContext(database=postgres_raw_db), jwt_secret=secrets.token_urlsafe(48)
+    )
+    identity = AuthUser(
+        email="activity-cadence@example.test", password_hash="fixture", is_active=True
+    )
+    await service.context.save(identity)
+    token, _ = service._generate_jwt_token(identity.id, identity.email)
+    assert await service.validate_token(token) is not None
+    first = await postgres_raw_db.find_one("object", {"id": identity.id})
+    assert await service.validate_token(token) is not None
+    second = await postgres_raw_db.find_one("object", {"id": identity.id})
+    assert second["context"]["last_accessed"] == first["context"]["last_accessed"]
+    old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    await postgres_raw_db.find_one_and_update(
+        "object", {"id": identity.id}, {"$set": {"context.last_accessed": old}}
+    )
+    assert await service.validate_token(token) is not None
+    renewed = await postgres_raw_db.find_one("object", {"id": identity.id})
+    assert renewed["context"]["last_accessed"] != old
+    await postgres_raw_db.find_one_and_update(
+        "object", {"id": identity.id}, {"$set": {"context.is_active": False}}
+    )
+    assert await service.validate_token(token) is None
 
 
 @pytest.mark.parametrize("held_disable", [False, True])
@@ -32,8 +60,7 @@ async def test_other_process_cannot_validate_or_reactivate_disabled_identity(
     )
     await service.context.save(identity)
     token, _ = service._generate_jwt_token(identity.id, identity.email)
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import asyncio,json,sys
         from jvspatial.db.factory import create_database
         from jvspatial.core.context import GraphContext
@@ -53,8 +80,7 @@ async def test_other_process_cannot_validate_or_reactivate_disabled_identity(
             finally:
                 await database.close()
         asyncio.run(run())
-        """
-    )
+        """)
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-c",

@@ -620,9 +620,9 @@ Each catalog package directory contains operational-model.yaml. Missing manifest
 
 Every declared skill has the required skills/{key}/SKILL.md file or the validated explicit standard path. Missing files are excluded with diagnostics, never silently granted instructions.
 
-### I-BUNDLE-03 — Production Python signature gate
+### I-BUNDLE-03 — Production executable package signature gate
 
-When the public verification key is configured, Python-shipping bundles require successful signature verification for admission. Record identity and rejection reason without key disclosure.
+When the public verification key is configured, Python-shipping and native UI JavaScript packages require successful signature verification for admission. Native React execution additionally requires operator-admitted publisher/package identity, an exact signed UI declaration and matching artifact digest, even without the legacy bundle key. A manifest trust label or resident approval cannot grant native execution. Unsigned UI is restricted to an explicit operator development allowlist with DEBUG enabled. Record rejection reasons without key disclosure. See [React App UI](platform/react-app-ui.md).
 
 ### I-BUNDLE-04 — Directory/slug agreement
 

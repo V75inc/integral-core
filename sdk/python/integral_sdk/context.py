@@ -24,6 +24,10 @@ class OperationContext(Protocol):
 
     async def get_entry(self, entry_id: str) -> Any: ...
 
+    async def read_entry_records(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Bounded, caller-authorized App pages; track_key and text_search are additive."""
+        ...
+
     async def find_entries_in_track_type(
         self, track_type: str, entry_type: Optional[str] = None
     ) -> list[Any]: ...
@@ -83,6 +87,16 @@ class OperationContext(Protocol):
         expected_record_revision: Optional[int] = None,
     ) -> bool:
         """Apply a validated update; False includes a stale record revision."""
+        ...
+
+    async def delete_entry(
+        self, entry_id: str, *, expected_record_revision: int
+    ) -> bool:
+        """Human write contexts only: ordinary owning-App delete authority and fresh revision.
+
+        Uses the operation transaction and canonical deletion/cleanup. False
+        includes scope/permission rejection or a stale observed revision.
+        """
         ...
 
     async def conditional_update_entry_fields(

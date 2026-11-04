@@ -177,3 +177,51 @@ async def test_scalar_sort_is_numeric_before_paging_and_keeps_missing_last():
         }
     )
     assert second["rows"][0]["id"] == ids[0]
+
+
+async def test_stable_key_literal_search_and_selected_ids_are_bounded(monkeypatch):
+    _, _, _, track, _, ctx = await setup()
+    track.relation_type_key = "records"
+    track.title = "Renamed collection"
+    await track.save()
+    rows = []
+    for n in range(225):
+        row = await Entry.create(
+            title=f"Record {n}",
+            track_id=track.id,
+            custom_fields={"email": f"person{n}@example.test"},
+        )
+        await track.connect(row, edge=CONTAINS)
+        rows.append(row)
+    rows[-1].custom_fields["email"] = "literal.*[value]@example.test"
+    await rows[-1].save()
+    hydrate = record_read.hydrate_records
+    sizes = []
+
+    async def measured(records):
+        sizes.append(len(records))
+        return await hydrate(records)
+
+    monkeypatch.setattr(record_read, "hydrate_records", measured)
+    selection = {"track_key": "records", "limit": 20, "fields": ["email"]}
+    page = await ctx.read_entry_records(
+        {
+            **selection,
+            "text_search": {"value": "LITERAL.*[VALUE]", "fields": ["title", "email"]},
+        }
+    )
+    assert [r["id"] for r in page["rows"]] == [rows[-1].id]
+    assert sizes == [1]
+    page = await ctx.read_entry_records({**selection, "ids": [rows[210].id]})
+    assert [r["id"] for r in page["rows"]] == [rows[210].id]
+    assert (await ctx.read_entry_records({**selection, "ids": []}))["rows"] == []
+    first = await ctx.read_entry_records(selection)
+    with pytest.raises(BadRequestError):
+        await ctx.read_entry_records(
+            {
+                **selection,
+                "cursor": first["next_cursor"],
+                "text_search": {"value": "other", "fields": ["email"]},
+            }
+        )
+    assert max(sizes) <= 20
