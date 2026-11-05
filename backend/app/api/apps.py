@@ -591,43 +591,57 @@ async def list_app_tracks(
         node=["Track"],
         limit=500,
     )
-    decisions = await asyncio.gather(
-        *(
-            policy_evaluate(
-                subject=Subject(kind="human", id=user_id),
-                action="track.read",
-                resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
-            )
-            for t in tracks
-        )
-    )
-    tracks = [t for t, decision in zip(tracks, decisions) if decision.allowed]
+    # Nav visibility is a plain attribute test, so apply it before the work that
+    # costs something (it does not change which Tracks the caller may read).
     if not include_nav_hidden:
         tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
-    track_ids = [t.id for t in tracks if getattr(t, "id", None)]
-    entry_counts: Dict[str, int] = {}
-    track_positions: Dict[str, int] = {}
-    if track_ids:
-        from app.models.edges import CONTAINS
 
-        ctx = await sp.get_context()
+    from app.middleware.permissions_cache import computation_fact_scope
+    from app.models.edges import CONTAINS
 
-        async def _all_counts() -> Dict[str, int]:
-            # One shared admission scan for every Track instead of one scan per Track.
-            return await count_user_accessible_entries_for_tracks(user_id, tracks)
+    ctx = await sp.get_context()
+    wanted_ids = {t.id for t in tracks if getattr(t, "id", None)}
 
-        async def _all_positions() -> Dict[str, int]:
-            # One query for the App's CONTAINS edges instead of one per Track.
-            wanted = set(track_ids)
-            found: Dict[str, int] = {}
-            for e in await ctx.find_edges_between(sp.id, None, edge_class=CONTAINS):
-                tid = getattr(e, "target", None)
-                pos = getattr(e, "position", None)
-                if tid in wanted and tid not in found and isinstance(pos, int):
-                    found[tid] = pos
+    async def _decisions() -> list:
+        return list(
+            await asyncio.gather(
+                *(
+                    policy_evaluate(
+                        subject=Subject(kind="human", id=user_id),
+                        action="track.read",
+                        resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
+                    )
+                    for t in tracks
+                )
+            )
+        )
+
+    async def _all_counts() -> Dict[str, int]:
+        # One shared admission scan for every Track instead of one scan per Track.
+        if not tracks:
+            return {}
+        return await count_user_accessible_entries_for_tracks(user_id, tracks)
+
+    async def _all_positions() -> Dict[str, int]:
+        # One query for the App's CONTAINS edges instead of one per Track.
+        found: Dict[str, int] = {}
+        if not wanted_ids:
             return found
+        for e in await ctx.find_edges_between(sp.id, None, edge_class=CONTAINS):
+            tid = getattr(e, "target", None)
+            pos = getattr(e, "position", None)
+            if tid in wanted_ids and tid not in found and isinstance(pos, int):
+                found[tid] = pos
+        return found
 
-        entry_counts, track_positions = await asyncio.gather(_all_counts(), _all_positions())
+    # The three reads are independent: run them together, and let them share one
+    # computation-scoped fact memo (user node, role) instead of re-resolving per Track.
+    with computation_fact_scope():
+        decisions, entry_counts, track_positions = await asyncio.gather(
+            _decisions(), _all_counts(), _all_positions()
+        )
+    # Every Track still has to pass policy_evaluate track.read to be returned.
+    tracks = [t for t, decision in zip(tracks, decisions) if decision.allowed]
 
     # Phase 34 — order by CONTAINS edge position (asc). Tracks without a
     # position default to a large sentinel so they sort to the end;
@@ -643,14 +657,17 @@ async def list_app_tracks(
         ),
     )
 
-    items = []
-    for t in sorted_tracks:
+    async def _row(t: Track) -> Dict[str, Any]:
         row = await export_node(t)
         row["entry_count"] = entry_counts.get(t.id, 0)
         row["position"] = track_positions.get(t.id)
-        await attach_operational_model_defaults_to_track_data(row, t)
-        await attach_anchor_source_to_track_data(row, t)
-        items.append(row)
+        await asyncio.gather(
+            attach_operational_model_defaults_to_track_data(row, t),
+            attach_anchor_source_to_track_data(row, t),
+        )
+        return row
+
+    items = list(await asyncio.gather(*(_row(t) for t in sorted_tracks)))
     return {"tracks": items, "total": len(items), "app_id": app_id}
 
 
