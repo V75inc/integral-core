@@ -1699,6 +1699,142 @@ async def test_saved_build_continuation_is_visible_before_new_catalog_search(
 
 
 @pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_saved_build_exposes_its_verifier_without_reloading_scaffold(
+    monkeypatch, tmp_path
+):
+    """The approved continuation must include readback, not only the write."""
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        if kwargs["capability_key"] == "integral_verify_build":
+            return CapabilityResult(
+                ok=True,
+                data={"status": "verified", "items": [], "resources": []},
+            )
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    state = {"approved_design_ready": True}
+    names = {"integral_build_approved_design", "integral_verify_build"}
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        run_state=state,
+        catalogue=[t for t in build_tool_catalogue() if t["name"] in names],
+    )
+    by_name = {t.name: t for t in tools}
+    unloaded = SimpleNamespace(active_capability_ids=set())
+    assert await by_name["integral_verify_build"].prepare_tool_def(unloaded) is None
+    requests = []
+
+    def respond(_messages, info):
+        visible = {t.name for t in info.function_tools}
+        requests.append(visible)
+        if len(requests) == 1:
+            assert "integral_build_approved_design" in visible
+            assert "integral_verify_build" not in visible
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("integral_build_approved_design", {"operations": []})
+                ]
+            )
+        if len(requests) == 2:
+            assert "integral_verify_build" in visible
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "integral_verify_build",
+                        {
+                            "design_id": "design-current",
+                            "design_revision": 2,
+                            "execution_receipt_id": "xr.current",
+                        },
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart("Verified.")])
+
+    scope = _scope()
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Apply the approved design, then verify its receipt.",
+        tools=tools,
+        step_store_backend=InMemoryStepStore(),
+        scope=scope,
+        agent_name="build-readback-continuation-test",
+    )
+    result = await agent.run(
+        "Build it.",
+        conversation_id=scope.framework_conversation_id,
+        run_id=scope.framework_run_id,
+    )
+    assert result.output == "Verified."
+    assert [c["capability_key"] for c in calls] == [
+        "integral_build_approved_design",
+        "integral_verify_build",
+    ]
+    assert state["verification_succeeded"] is True
+    assert all(c["principal_id"] == scope.principal_id for c in calls)
+    assert all(c["workspace_id"] == scope.workspace_id for c in calls)
+    assert calls[1]["arguments"]["execution_receipt_id"] == "xr.current"
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+@pytest.mark.parametrize("applied", [False, True])
+async def test_build_readback_continuation_preserves_skill_and_broker_denials(
+    monkeypatch, tmp_path, applied
+):
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(
+            ok=False, error_code="receipt_mismatch", message="Receipt does not match."
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    state = {"build_succeeded": applied}
+    names = {"integral_verify_build", "integral_propose_design"}
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        run_state=state,
+        catalogue=[t for t in build_tool_catalogue() if t["name"] in names],
+    )
+    by_name = {t.name: t for t in tools}
+    ctx = SimpleNamespace(tool_call_id="verify", active_capability_ids=set())
+    result = await by_name["integral_verify_build"].function_schema.call(
+        {
+            "design_id": "other-design",
+            "design_revision": 1,
+            "execution_receipt_id": "xr.wrong",
+        },
+        ctx,
+    )
+    assert result["error_code"] == (
+        "receipt_mismatch" if applied else "required_skill_not_loaded"
+    )
+    assert len(calls) == int(applied)
+    assert state["verification_succeeded"] is False
+    # Successful apply enables only its readback; it never activates the
+    # scaffold procedure or unlocks another proposal/write capability.
+    proposal = by_name["integral_propose_design"]
+    assert await proposal.prepare_tool_def(ctx) is None
+    denied = await proposal.function_schema.call({}, ctx)
+    assert denied["error_code"] == "required_skill_not_loaded"
+    assert len(calls) == int(applied)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "code", ["batch_partial_failure", "forbidden", "execution_failed"]
 )

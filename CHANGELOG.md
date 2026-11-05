@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc44 — 2026-11-05
+
+- Keep the approved build’s verifier available after a successful apply, so completion can perform its required permission-checked readback without rediscovering the scaffold procedure.
+- Repair saved resource links that place a canonical Entry, Track or App ID under the wrong local Core collection; destination access remains checked by the resource API.
+
 ## 0.1.1rc43 — 2026-11-05
 
 - Keep oversized Agent and Home chat drafts available for editing, explain the 8,000-character message limit before submission, and apply the same limit after dictation and deferred submission.
