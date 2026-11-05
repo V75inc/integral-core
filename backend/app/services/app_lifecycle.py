@@ -87,6 +87,7 @@ from app.services.operational_model_runtime import (
     slug_manifest_key,
 )
 from app.utils.time import utc_now_iso
+from app.middleware.permissions_cache import invalidates_job_facts
 
 logger = logging.getLogger(__name__)
 
@@ -415,6 +416,7 @@ _delete_tracks = app_install.delete_tracks
 # ---------------------------------------------------------------------------
 
 
+@invalidates_job_facts
 async def install_app(
     *,
     workspace_id: str,
@@ -1215,6 +1217,7 @@ async def _safe_unregister_agents(app_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+@invalidates_job_facts
 async def finalize_install(
     *,
     app_id: str,
@@ -1486,6 +1489,7 @@ async def _check_app_dependencies_active(app_node: App) -> None:
     await _check_requires_apps(canonical, app_node.workspace_id)
 
 
+@invalidates_job_facts
 async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     """Set App.lifecycle_state to ``paused``.
 
@@ -1530,6 +1534,7 @@ async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     return {"app_id": app_id, "status": "paused"}
 
 
+@invalidates_job_facts
 async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     """Set App.lifecycle_state back to ``active`` and re-register hooks/tools."""
     app_node = await App.get(app_id)

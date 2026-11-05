@@ -289,17 +289,144 @@ async def deliver_operation_event(
     return True
 
 
-async def deliver_pending_operation_events(*, database: Any | None = None) -> int:
-    """Best-effort recovery sweep for committed operation event facts."""
+_BATCH_SIZE = 100
+
+
+async def _bulk_update(transaction: Any, sql_template: str, *args: Any) -> list:
+    """Run one SQL statement on the transaction's own connection (``{table}`` is the object table)."""
+    concrete = transaction
+    seen: set[int] = set()
+    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
+        seen.add(id(concrete))
+        concrete = concrete.inner
+    from jvspatial.db.postgres import _safe_collection
+
+    table = f"{_safe_collection(concrete._db.schema_name)}.{_safe_collection(_COLLECTION)}"
+    async with concrete._operation_lock:
+        concrete._ensure_active()
+        return await concrete._connection.fetch(sql_template.format(table=table), *args)
+
+
+async def deliver_operation_events(
+    outbox_ids: Iterable[str], *, database: Any | None = None
+) -> int:
+    """Deliver fresh pending facts in batches: one claim and one mark statement per batch.
+
+    Same contract as ``deliver_operation_event`` (claim, emit through the normal ChangeEvent
+    path, then mark delivered; a crash between emit and mark can duplicate a log row, never lose
+    the event). Only never-attempted pending facts take this path. Anything else was already
+    handled, or is being handled, by the writer or the recovery sweep, and is left to it.
+    """
+    from app.services.change_event import emit_change_event
+
+    ids = list(dict.fromkeys(str(i) for i in outbox_ids if i))
+    delivered = 0
+    for offset in range(0, len(ids), _BATCH_SIZE):
+        chunk = ids[offset : offset + _BATCH_SIZE]
+        object_ids = [event_outbox_object_id(i) for i in chunk]
+        lease_until = (
+            datetime.now(timezone.utc) + timedelta(seconds=_LEASE_SECONDS)
+        ).isoformat()
+        async with postgres_graph_transaction(database) as transaction:
+            rows = await _bulk_update(
+                transaction,
+                """UPDATE {table} SET updated_at = NOW(),
+                       data = jsonb_set(data, '{{context}}', (data->'context') || $2::jsonb)
+                   WHERE id = ANY($1::text[]) AND entity = $3
+                     AND data #>> '{{context,status}}' = 'pending'
+                     AND data #>> '{{context,attempt}}' = '0'
+                   RETURNING id, data #>> '{{context,outbox_id}}' AS outbox_id,
+                             (data #> '{{context,event}}')::text AS event""",
+                object_ids,
+                json.dumps(
+                    {
+                        "status": "delivering",
+                        "lease_until": lease_until,
+                        "attempt": 1,
+                        "updated_at": utc_now_iso(),
+                    }
+                ),
+                _ENTITY,
+            )
+        emitted: list[str] = []
+        for row in rows:
+            outbox_id = str(row["outbox_id"])
+            event = dict(json.loads(row["event"]) if row["event"] else {})
+            details = dict(event.get("details") or {})
+            details["event_fact_id"] = outbox_id
+            event["details"] = details
+            try:
+                await emit_change_event(**event)
+                emitted.append(row["id"])
+            except Exception as exc:  # noqa: BLE001 - leave a durable pending fact
+                logger.warning("Batched event delivery failed for %s: %s", outbox_id, exc)
+                async with postgres_graph_transaction(database) as transaction:
+                    await _bulk_update(
+                        transaction,
+                        """UPDATE {table} SET updated_at = NOW(),
+                               data = jsonb_set(data, '{{context}}', (data->'context') || $2::jsonb)
+                           WHERE id = $1 RETURNING id""",
+                        row["id"],
+                        json.dumps(
+                            {
+                                "status": "pending",
+                                "last_error": str(exc)[:500],
+                                "updated_at": utc_now_iso(),
+                            }
+                        ),
+                    )
+        if emitted:
+            async with postgres_graph_transaction(database) as transaction:
+                await _bulk_update(
+                    transaction,
+                    """UPDATE {table} SET updated_at = NOW(),
+                           data = jsonb_set(data, '{{context}}',
+                                            ((data->'context') - 'lease_until') || $2::jsonb)
+                       WHERE id = ANY($1::text[]) RETURNING id""",
+                    emitted,
+                    json.dumps({"status": "delivered", "updated_at": utc_now_iso()}),
+                )
+            delivered += len(emitted)
+    return delivered
+
+
+async def flush_deferred_job_events() -> int:
+    """Deliver, in batches, the event facts an App job deferred. Never raises."""
+    from app.middleware.permissions_cache import take_deferred_job_events
+
+    pending = take_deferred_job_events()
+    if not pending:
+        return 0
+    try:
+        return await deliver_operation_events(pending)
+    except Exception:
+        logger.exception("Deferred job events await recovery")
+        return 0
+
+
+async def deliver_pending_operation_events(
+    *, database: Any | None = None, min_age_seconds: float = 0.0
+) -> int:
+    """Best-effort recovery sweep for committed operation event facts.
+
+    ``min_age_seconds`` leaves alone facts created more recently than that. The writer delivers its
+    own event right after its commit, and a periodic sweep that claims the same fresh rows waits on
+    the writer's row lock (and makes the writer wait on the sweep's); the sweep exists to recover
+    facts a crash left behind, which are old by the time it looks.
+    """
     from jvspatial.db import get_prime_database
 
     from app.services.app_operations.transaction_scope import _transaction_database
 
     db = _transaction_database(database or get_prime_database())
-    records = await db.find(
-        _COLLECTION,
-        {"entity": _ENTITY, "context.status": {"$in": ["pending", "delivering"]}},
-    )
+    query: Dict[str, Any] = {
+        "entity": _ENTITY,
+        "context.status": {"$in": ["pending", "delivering"]},
+    }
+    if min_age_seconds > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=min_age_seconds)).isoformat()
+        query["context.created_at"] = {"$lte": cutoff}
+    records = await db.find(_COLLECTION, query)
     delivered = 0
     for record in records:
         ctx = dict(record.get("context") or {})

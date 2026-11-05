@@ -51,11 +51,35 @@ async def authorization_scope(
         async with postgres_graph_transaction() as transaction:
             # The no-op update acquires SELECT FOR UPDATE on the held connection,
             # and serializes first-time state creation without modifying settings.
-            workspace_row = await transaction.find_one_and_update(
-                "node",
-                {"id": workspace_id, "entity": Workspace._entity_name()},
-                {"$inc": {"context.storage_bytes_used": 0}},
+            # PERF EXPERIMENT (local only): a write that does not change authority only
+            # needs to be ordered against authority mutations, not against other
+            # writes. Hold the workspace and its authorization state SHARED so
+            # parallel writes proceed together; mutators still take them exclusively
+            # and wait for every in-flight write. First-time state creation keeps the
+            # exclusive path so two writers cannot both create it.
+            shared = (
+                not authority_mutation
+                and await WorkspaceAuthorizationState.find_one(
+                    {"id": authorization_state_id(workspace_id)}
+                )
+                is not None
             )
+            if shared:
+                from app.services.identity_admission import _hold_row_shared
+
+                workspace_row = (
+                    {}
+                    if await _hold_row_shared(
+                        transaction, "node", workspace_id, Workspace._entity_name()
+                    )
+                    else None
+                )
+            else:
+                workspace_row = await transaction.find_one_and_update(
+                    "node",
+                    {"id": workspace_id, "entity": Workspace._entity_name()},
+                    {"$inc": {"context.storage_bytes_used": 0}},
+                )
             if workspace_row is None:
                 raise AuthorizationUnavailableError()
             workspace = await Workspace.find_one({"id": workspace_id})
@@ -77,11 +101,25 @@ async def authorization_scope(
             )
             if state.workspace_id != workspace_id or len(edges) != 1:
                 raise AuthorizationUnavailableError()
-            row = await transaction.find_one_and_update(
-                "node",
-                {"id": state_id, "entity": WorkspaceAuthorizationState._entity_name()},
-                {"$inc": {"context.revision": 1 if authority_mutation else 0}},
-            )
+            if shared:
+                from app.services.identity_admission import _hold_row_shared
+
+                row = await _hold_row_shared(
+                    transaction,
+                    "node",
+                    state_id,
+                    WorkspaceAuthorizationState._entity_name(),
+                    return_row=True,
+                )
+            else:
+                row = await transaction.find_one_and_update(
+                    "node",
+                    {
+                        "id": state_id,
+                        "entity": WorkspaceAuthorizationState._entity_name(),
+                    },
+                    {"$inc": {"context.revision": 1 if authority_mutation else 0}},
+                )
             if row is None:
                 raise AuthorizationUnavailableError()
             revision = (row.get("context") or {}).get("revision")

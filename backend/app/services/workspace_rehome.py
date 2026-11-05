@@ -39,6 +39,7 @@ from app.services.resource_location import DATA_APP_STATES, locate_resource
 from app.services.workspace_permissions import can_access_workspace
 from app.services.workspace_suspension import workspace_suspended
 from app.utils.time import utc_now_iso
+from app.middleware.permissions_cache import invalidates_job_facts
 
 
 class RehomeInventory(Walker):
@@ -61,6 +62,7 @@ class RehomeInventory(Walker):
         await self.visit(children)
 
 
+@invalidates_job_facts
 async def rehome_workspace_resources(
     *, actor_id: str, source_id: str, destination_id: str
 ) -> dict:

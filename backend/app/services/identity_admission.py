@@ -82,6 +82,45 @@ async def resolve_current_profile(
     return profile
 
 
+async def _hold_row_shared(
+    database, collection: str, row_id: str, entity: str, *, return_row: bool = False
+):
+    """Hold a shared lock on one row until this transaction ends; False if the row is gone.
+
+    Admission must keep an account from being disabled or re-homed while a write by or about it
+    is in flight. That needs writers to exclude the account's *mutators*, not each other. An
+    exclusive lock here made every parallel write by the same user queue on one row (a pay run
+    spent most of its wall time waiting); a shared lock lets them proceed together while any
+    mutator, which takes the exclusive lock, still waits for all of them.
+    """
+    concrete = database
+    seen: set[int] = set()
+    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
+        seen.add(id(concrete))
+        concrete = concrete.inner
+    from jvspatial.db.postgres import _safe_collection
+
+    schema = _safe_collection(concrete._db.schema_name)
+    table = _safe_collection(collection)
+    async with concrete._operation_lock:
+        concrete._ensure_active()
+        row = await concrete._connection.fetchrow(
+            f"SELECT id, data FROM {schema}.{table} WHERE id = $1 AND entity = $2 FOR SHARE",
+            row_id,
+            entity,
+        )
+    if not return_row:
+        return row is not None
+    if row is None:
+        return None
+    data = row["data"]
+    if isinstance(data, (str, bytes)):
+        import json
+
+        data = json.loads(data)
+    return data
+
+
 @asynccontextmanager
 async def identity_admission(
     principal_ids: Iterable[str], *, active_principal_ids: Iterable[str] | None = None
@@ -128,22 +167,20 @@ async def identity_admission(
         for identity_id in sorted(
             {profile.user_id for profile in profiles.values() if profile.user_id}
         ):
-            locked = await database.find_one_and_update(
-                "object",
-                {"id": identity_id, "entity": AuthUser._entity_name()},
-                {"$set": {}},
+            locked = await _hold_row_shared(
+                database, "object", identity_id, AuthUser._entity_name()
             )
             if (
-                locked is None
+                not locked
                 or await primary_auth_record(database, identity_id) is None
             ):
                 raise AuthorizationUnavailableError()
         for profile_id in sorted(profiles):
-            locked = await database.find_one_and_update(
-                "node", {"id": profile_id, "entity": User._entity_name()}, {"$set": {}}
+            locked = await _hold_row_shared(
+                database, "node", profile_id, User._entity_name()
             )
             current = await _participant_profile(profile_id)
-            if locked is None or current.user_id != profiles[profile_id].user_id:
+            if not locked or current.user_id != profiles[profile_id].user_id:
                 raise AuthorizationUnavailableError()
     for principal_id in required_active:
         if await get_user_node(principal_id) is None:

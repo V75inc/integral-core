@@ -1143,7 +1143,15 @@ async def _handle_app_tool(
             )
         except InsufficientPermissionsError as exc:
             raise WorkError("work.policy_denied", exc.message) from exc
-        return await run_tool(spec, dict(payload.get("input") or {}), ctx)
+        from app.middleware.permissions_cache import app_job_fact_scope
+
+        from app.services.app_operations.event_outbox import flush_deferred_job_events
+
+        with app_job_fact_scope():
+            try:
+                return await run_tool(spec, dict(payload.get("input") or {}), ctx)
+            finally:
+                await flush_deferred_job_events()
 
     try:
         result = await _with_supervised_heartbeat(

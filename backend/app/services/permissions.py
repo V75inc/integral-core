@@ -1044,8 +1044,27 @@ async def resolve_role(
     # All callers, including workers outside the HTTP middleware, need current
     # facts. Epoch-keyed memoization requires adoption by every ACL writer;
     # a TTL or process-local generation cannot establish that guarantee.
+    # PERF EXPERIMENT (local only): inside an App job (a pay run) the same user's role on the
+    # same record is resolved many times within moments. Reuse it for at most
+    # _APP_JOB_FACT_TTL seconds, and only until the next ACL invalidation
+    # (permissions_process_cache.invalidate_user bumps the job-fact generation). Outside a job
+    # scope this is a no-op, so ordinary requests still read current facts.
+    from app.middleware.permissions_cache import (
+        app_job_fact_active,
+        app_job_fact_get,
+        app_job_fact_put,
+    )
+
+    job_key = ("role", user_id, resource_type, resource_id)
+    if app_job_fact_active():
+        hit = app_job_fact_get(job_key)
+        if hit is not None:
+            return hit[0]
     with isolated_permissions_cache():
-        return await _resolve_current_role(user_id, resource_type, resource_id)
+        role = await _resolve_current_role(user_id, resource_type, resource_id)
+    if app_job_fact_active():
+        app_job_fact_put(job_key, (role,))
+    return role
 
 
 async def _resolve_current_role(

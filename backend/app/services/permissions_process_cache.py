@@ -96,6 +96,9 @@ def invalidate_user(user_id: str) -> None:
     affecting them). Safe to call when disabled or when the user has no entry.
     """
     if user_id:
+        from app.middleware.permissions_cache import note_definition_changed
+
+        note_definition_changed()
         if _ENABLED:
             _generations[user_id] = generation(user_id) + 1
         _store.pop(user_id, None)
@@ -147,5 +150,8 @@ def set_resolve_role_cached(
 
 def clear_all() -> None:
     """Drop the entire cache (test helper / coarse reset)."""
+    from app.middleware.permissions_cache import note_definition_changed
+
+    note_definition_changed()
     _store.clear()
     _generations.clear()

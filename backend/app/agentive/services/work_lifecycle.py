@@ -6,9 +6,17 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
 log = logging.getLogger(__name__)
+
+# The periodic recovery pass rechecks outbox facts only for work changed in this window; a full
+# recheck of all history runs once per hour (the boot-time pass also does one).
+_RECENT_RECONCILE_WINDOW_SECONDS = 15 * 60
+_FULL_RECONCILE_SECONDS = 60 * 60
+# The periodic sweep leaves operation events younger than this to the writer that created them.
+_RECOVERY_MIN_EVENT_AGE_SECONDS = 0.0  # no measurable gain from delaying the sweep
 
 
 class WorkKernelBootError(RuntimeError):
@@ -91,10 +99,26 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
     )
 
     next_harness_retention = 0.0
+    next_full_reconcile = 0.0
     while True:
         try:
-            await run_recovery_pass(reclaim_worker_id="periodic-recovery")
-            await deliver_pending_operation_events()
+            # Checking every work item ever created on each pass costs more with every
+            # run, so the periodic pass only looks at recent changes and does a full
+            # check once an hour. The boot-time reconcile already did one.
+            since = None
+            if time.monotonic() >= next_full_reconcile:
+                next_full_reconcile = time.monotonic() + _FULL_RECONCILE_SECONDS
+            else:
+                since = (
+                    datetime.now(timezone.utc)
+                    - timedelta(seconds=_RECENT_RECONCILE_WINDOW_SECONDS)
+                ).isoformat()
+            await run_recovery_pass(
+                reclaim_worker_id="periodic-recovery", reconcile_updated_since=since
+            )
+            await deliver_pending_operation_events(
+                min_age_seconds=_RECOVERY_MIN_EVENT_AGE_SECONDS
+            )
             from app.services.email_delivery import purge_email_history
 
             await purge_email_history()

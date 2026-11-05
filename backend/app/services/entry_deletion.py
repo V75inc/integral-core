@@ -55,6 +55,7 @@ from typing import List
 
 from app.models.edges import ANCHORS
 from app.models.nodes import Comment, Entry
+from app.middleware.permissions_cache import invalidates_job_facts
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,7 @@ async def _delete_upload_sessions(entry: Entry) -> list[str]:
     return identifiers
 
 
+@invalidates_job_facts
 async def delete_entry_fast(
     entry: Entry,
     *,
@@ -392,6 +394,7 @@ async def delete_entry_fast(
                     )
 
 
+@invalidates_job_facts
 async def _delete_admitted_entry(
     entry: Entry,
     *,

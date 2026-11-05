@@ -201,3 +201,35 @@ async def test_enqueue_idempotent_reuse_does_not_duplicate_outbox() -> None:
         await WorkOutboxEntry.find({"context.work_item_id": first.work_item_id})
     )
     assert len(outboxes) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_window_checks_only_recent_work() -> None:
+    from app.agentive.services import work_outbox
+
+    async def make(key: str, stamp: str) -> WorkItem:
+        object_id = work_items.work_item_object_id(
+            kind="capability", origin="http", principal_id="u-win", workspace_id="ws-win",
+            idempotency_key=key,
+        )
+        item, _ = await WorkItem.create_if_absent(
+            id=object_id,
+            work_item_id=object_id.removeprefix("o.WorkItem."),
+            kind="capability", origin="http", principal_id="u-win", workspace_id="ws-win",
+            idempotency_key=key, input_payload={"capability_key": "a"},
+            input_fingerprint=work_items.input_fingerprint({"capability_key": "a"}),
+            status="queued", attempt=0, transition_seq=0,
+            next_attempt_at=stamp, created_at=stamp, updated_at=stamp,
+        )
+        return item
+
+    old = await make("win-old", "2026-01-01T00:00:00+00:00")
+    recent = await make("win-recent", "2026-06-01T00:00:00+00:00")
+    # A window starting after the old item skips it and still backfills the recent one.
+    created = await work_outbox.reconcile_missing_outbox_facts(updated_since="2026-05-01T00:00:00+00:00")
+    assert not list(await WorkOutboxEntry.find({"context.work_item_id": old.work_item_id}))
+    assert list(await WorkOutboxEntry.find({"context.work_item_id": recent.work_item_id}))
+    assert created >= 1
+    # The full pass still finds what the window skipped.
+    await work_outbox.reconcile_missing_outbox_facts()
+    assert list(await WorkOutboxEntry.find({"context.work_item_id": old.work_item_id}))
