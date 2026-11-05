@@ -141,7 +141,12 @@ export function useChangeEventInvalidation(): void {
           ws.close();
           return;
         }
-        reconnectAttempt = 0;
+        // Backoff resets only once the socket really opens. Resetting when the socket
+        // object is merely constructed made a socket that never connects retry every
+        // second (a fresh ticket each time) instead of backing off.
+        ws.onopen = () => {
+          reconnectAttempt = 0;
+        };
         ws.onmessage = (event: MessageEvent) => {
           try {
             const raw = JSON.parse(String(event.data)) as unknown;
