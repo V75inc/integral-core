@@ -61,6 +61,22 @@ async def assert_entry_type_deletable(entry_type: EntryType, profile: Any) -> No
         raise BadRequestError(message="The final entry type cannot be deleted")
 
 
+def match_existing_entry_types(
+    track_types: List[EntryType], name: str, name_fold: str
+) -> List[EntryType]:
+    """The EntryTypes of one Track that an entry-type spec already maps to.
+
+    By ``name_fold`` first; when none match (legacy rows may lack ``name_fold``), by exact
+    ``name``. Same two lookups ``materialize_entry_types_from_tier`` used to run as queries.
+    """
+    existing = [
+        et for et in track_types if (getattr(et, "name_fold", None) or None) == name_fold
+    ]
+    if not existing:
+        existing = [et for et in track_types if getattr(et, "name", None) == name]
+    return existing
+
+
 async def materialize_entry_types_from_tier(track: Track) -> List[EntryType]:
     """Create per-track EntryType nodes from the manifest tier (idempotent).
 
@@ -82,19 +98,18 @@ async def materialize_entry_types_from_tier(track: Track) -> List[EntryType]:
         return []
     now = utc_now_iso()
     out: List[EntryType] = []
+    # One read of the Track's EntryTypes instead of one or two lookups per spec. The matching
+    # below is the two original queries done in memory: by name_fold first, then (legacy rows
+    # without a name_fold) by exact name, in the store's order.
+    track_types: List[EntryType] = list(
+        await EntryType.find({"context.track_id": track.id})
+    )
     for spec in specs:
         name = str(spec.get("name") or spec.get("key") or "").strip()
         if not name:
             continue
         name_fold = compute_fold(name)
-        existing = await EntryType.find(
-            {"context.track_id": track.id, "context.name_fold": name_fold}
-        )
-        if not existing:
-            # Legacy rows may lack name_fold — fall back to exact name match.
-            existing = await EntryType.find(
-                {"context.name": name, "context.track_id": track.id}
-            )
+        existing = match_existing_entry_types(track_types, name, name_fold)
         if existing:
             et0 = existing[0]
             if not (getattr(et0, "name_fold", "") or ""):
@@ -133,6 +148,7 @@ async def materialize_entry_types_from_tier(track: Track) -> List[EntryType]:
             except Exception:
                 pass
             raise
+        track_types.append(et)
         out.append(et)
     return out
 
