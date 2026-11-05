@@ -234,6 +234,25 @@ apiClient.interceptors.response.use(
   },
 );
 
-dedupeConcurrentGets(apiClient);
+// Navigation reads are fetched again by several components a few seconds apart as a page
+// builds up. Reuse them briefly; any write clears them (above) and so does every live
+// graph-change event, so a change made elsewhere still shows up immediately.
+const REUSABLE_NAVIGATION_GETS: RegExp[] = [
+  /^\/apps(\?|$)/,
+  /^\/apps\/[^/?]+(\?|$)/,
+  /^\/apps\/[^/?]+\/(dashboards|collaborators|operational-model|operational-model\/track-templates|action-bindings|tracks|home)(\?|$)/,
+  /^\/tracks(\?|$)/,
+  /^\/workspaces(\/[^/?]+)?(\?|$)/,
+  /^\/workspaces\/[^/?]+\/agent-preference(\?|$)/,
+  /^\/chat\/providers\/[^/?]+\/agents(\?|$)/,
+];
+dedupeConcurrentGets(apiClient, {
+  reuseMs: 10_000,
+  reusable: path => REUSABLE_NAVIGATION_GETS.some(re => re.test(path)),
+});
+if (typeof window !== 'undefined') {
+  window.addEventListener('integral:graph-changed', clearAllSingleFlights);
+  window.addEventListener('integral:agent-events-reconnected', clearAllSingleFlights);
+}
 
 export default apiClient;
