@@ -44,6 +44,31 @@ describe('IntegralMarkdownLink', () => {
     expect(html).toContain(`href="${expected}"`);
     expect(html).not.toContain('target="_blank"');
   });
+
+  it.each([
+    ['/tracks/n.Entry.saved', '/entries/n.Entry.saved'],
+    ['/apps/n.Entry.saved?tab=notes#detail', '/entries/n.Entry.saved?tab=notes#detail'],
+    ['/entries/n.Track.saved', '/tracks/n.Track.saved'],
+    ['/apps/n.Track.saved', '/tracks/n.Track.saved'],
+    ['/tracks/n.WorkspaceApp.saved', '/apps/n.WorkspaceApp.saved'],
+    ['/entries/n.WorkspaceApp.saved', '/apps/n.WorkspaceApp.saved'],
+  ])('uses the typed resource destination when the model confuses the collection in %s', (href, expected) => {
+    expect(renderLink(href, 'Saved resource')).toContain(`href="${expected}"`);
+  });
+
+  it('repairs wrong-collection citations on recognized origins without localizing other installations', () => {
+    vi.stubGlobal('location', new URL('https://workspace.example.test'));
+    for (const origin of ['https://workspace.example.test', 'https://integral.example', 'https://integral.ai']) {
+      const html = renderLink(`${origin}/tracks/n.Entry.saved#detail`);
+      expect(html).toContain('href="/entries/n.Entry.saved#detail"');
+      expect(html).not.toContain('target="_blank"');
+    }
+    const external = renderLink('https://another-workspace.example/tracks/n.Entry.saved');
+    expect(external).toContain('href="https://another-workspace.example/tracks/n.Entry.saved"');
+    expect(external).toContain('target="_blank"');
+    expect(renderLink('/tracks/arbitrary')).toContain('href="/tracks/arbitrary"');
+    expect(renderLink('/help/n.Entry.saved')).toContain('href="/help/n.Entry.saved"');
+  });
   it('does not activate the surrounding entry card when a link is clicked', () => {
     const openEntry = vi.fn();
     const clickLink = vi.fn();
@@ -82,6 +107,9 @@ describe('IntegralMarkdownLink', () => {
     expect(isInternalAppHref('//apps/n.WorkspaceApp.smoke')).toBe(true);
     expect(isInternalAppHref('//entries.example.com/n.Entry.smoke')).toBe(false);
     expect(isInternalAppHref('//entries/arbitrary-path')).toBe(false);
+    // A mismatched protocol-relative path can name another host. Preserve
+    // that ambiguity instead of expanding the existing double-slash repair.
+    expect(renderLink('//tracks/n.Entry.saved')).toContain('target="_blank"');
     expect(renderLink('//example.com/docs')).toContain('target="_blank"');
   });
 

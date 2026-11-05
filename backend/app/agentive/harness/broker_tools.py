@@ -323,10 +323,21 @@ def _make_handler(
                 or call_state.get("pending_design")
             )
         )
+        # A saved-design continuation can apply without reloading the scaffold
+        # procedure. Its permission-checked readback must remain callable too;
+        # otherwise the next public Pydantic tool preparation hides the very
+        # verifier required by the completion validator. This is per-run host
+        # state, never a model argument, and the broker still checks the exact
+        # owned design/revision/receipt and current resource permissions.
+        saved_design_readback = (
+            capability_name == "integral_verify_build"
+            and call_state.get("build_succeeded") is True
+        )
         if (
             required_skill
             and required_skill not in ctx.active_capability_ids
             and not saved_design_build
+            and not saved_design_readback
         ):
             return {
                 "error": True,
@@ -958,16 +969,23 @@ def _prepare_capability_tool(
             (call_state or {}).get("approved_design_ready")
             or (call_state or {}).get("pending_design")
         )
+        saved_design_readback = (
+            name == "integral_verify_build"
+            and (call_state or {}).get("build_succeeded") is True
+        )
         if (
             required_skill
             and required_skill not in ctx.active_capability_ids
             and not saved_design_build
+            and not saved_design_readback
         ):
             return None
-        if saved_design_build:
+        if saved_design_build or saved_design_readback:
             # The build tool is the model's semantic selection at this saved
             # design decision point. Its handler persists approval against the
-            # exact current turn before any build effect.
+            # exact current turn before any build effect. After that apply,
+            # disclose only its readback continuation through the same public
+            # preparation hook; no other unloaded procedure is activated.
             return replace(tool_def, defer_loading=False)
         # Skills supplies instructions; Core binds its standard allowed-tools
         # declarations to the already authorized catalogue. Reveal schemas
