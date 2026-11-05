@@ -115,6 +115,57 @@ async def test_create_dashboard_wires_graph(authenticated_client, test_user):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_reads_supply_a_direct_destination(authenticated_client):
+    """Read results must open the named board regardless of remembered App tab."""
+    from app.agentive.harness.broker_tools import _resource_links_for_model
+    from app.services.notification_paths import absolute_resource_links
+
+    app_response = await authenticated_client.post(
+        "/api/apps", json={"name": "Dashboard links", "visibility": "private"}
+    )
+    assert app_response.status_code == 200, app_response.text
+    app_id = app_response.json()["app"]["id"]
+    created = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards", json={"name": "Overview"}
+    )
+    assert created.status_code == 200, created.text
+    dashboard_id = created.json()["id"]
+    expected = f"/apps/{app_id}?section=dashboards&dashboard_id={dashboard_id}"
+    assert created.json()["url"] == expected
+
+    listed = await authenticated_client.get(f"/api/apps/{app_id}/dashboards")
+    assert listed.status_code == 200
+    assert listed.json()["dashboards"][0]["url"] == expected
+    native = _resource_links_for_model(listed.json())
+    assert native["dashboards"][0]["url"] == expected
+    external = absolute_resource_links(listed.json(), "https://proxy.example/integral")
+    assert (
+        external["dashboards"][0]["url"] == "https://proxy.example/integral" + expected
+    )
+
+    read = await authenticated_client.get(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}"
+    )
+    assert read.status_code == 200
+    assert read.json()["url"] == expected
+    updated = await authenticated_client.patch(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}", json={"name": "Renamed"}
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["url"] == expected
+
+    other_app = await authenticated_client.post(
+        "/api/apps", json={"name": "Other dashboard owner", "visibility": "private"}
+    )
+    other_id = other_app.json()["app"]["id"]
+    mismatched = await authenticated_client.get(
+        f"/api/apps/{other_id}/dashboards/{dashboard_id}"
+    )
+    assert mismatched.status_code == 404
+    assert "url" not in mismatched.json()
+
+
+@pytest.mark.asyncio
 async def test_suggest_dashboard(authenticated_client):
     app_resp = await authenticated_client.post(
         "/api/apps",

@@ -16,7 +16,7 @@ from app.api.errors import (
     ResourceNotFoundError,
 )
 from app.api.utils import export_node, resolve_principal_id
-from app.models.nodes import App
+from app.models.nodes import App, Dashboard
 from app.schemas.app_home import HomePreviewRequest
 from app.schemas.dashboards import (
     DashboardCreateRequest,
@@ -25,6 +25,7 @@ from app.schemas.dashboards import (
 )
 from app.schemas.query_spec import QuerySpecResult
 from app.services.change_event import emit_change_event
+from app.services.completion_links import app_section_path
 from app.services.dashboard_service import (
     build_dashboard_drilldown_spec,
     create_dashboard,
@@ -72,6 +73,16 @@ async def _require_app(app_id: str) -> App:
     return app
 
 
+def _dashboard_response(
+    dashboard: Dashboard, exported: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Expose an authorized board's destination independently of App tab memory."""
+    return {
+        **exported,
+        "url": app_section_path(dashboard.app_id, "dashboards", dashboard.id),
+    }
+
+
 @endpoint("/apps/{app_id}/dashboards", methods=["GET"], auth=True, tags=["Dashboards"])
 async def list_app_dashboards(request: Request, app_id: str) -> Dict[str, Any]:
     """List dashboards cataloged under an App."""
@@ -80,7 +91,7 @@ async def list_app_dashboards(request: Request, app_id: str) -> Dict[str, Any]:
         raise MissingAuthenticationError(message="Authentication required")
     await _require_app(app_id)
     boards = await list_dashboards(user_id=user_id, app_id=app_id)
-    exported = [await export_node(d) for d in boards]
+    exported = [_dashboard_response(d, await export_node(d)) for d in boards]
     return {"dashboards": exported, "total": len(exported)}
 
 
@@ -126,7 +137,7 @@ async def create_app_dashboard(request: Request, app_id: str) -> Dict[str, Any]:
         after=exported,
         scope=f"app:{app_id}",
     )
-    return exported
+    return _dashboard_response(dash, exported)
 
 
 @endpoint(
@@ -164,7 +175,7 @@ async def get_app_dashboard(
     )
     if not dash:
         raise ResourceNotFoundError(message="Dashboard not found")
-    return await export_node(dash)
+    return _dashboard_response(dash, await export_node(dash))
 
 
 @endpoint(
@@ -224,7 +235,7 @@ async def patch_app_dashboard(
         after=exported,
         scope=f"app:{app_id}",
     )
-    return exported
+    return _dashboard_response(dash, exported)
 
 
 @endpoint(
