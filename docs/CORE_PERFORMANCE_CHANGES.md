@@ -230,3 +230,18 @@ to the app's own tracks and role checks unchanged.
   112,550,360 net, 500 people). SQL from `pg_stat_statements`, Python from py-spy at 50 to 100 Hz.
 - UI: a headless browser recorded every `/api` call and its timing while opening a track page and each embedded view.
 - Variation between repeated runs is about 10%; most results are single runs.
+
+## Frontend: shared list requests and lazy entry counts (commits d2c244df..a00abc4e)
+
+One page load of a track page made the same list calls several times, and every
+`GET /tracks` counted entries for every track even for name-only callers.
+
+| Change | Where | Effect on a track page load (9106, headless Chromium) |
+|---|---|---|
+| Share identical in-flight list requests for 2 s; any successful write clears them | `frontend/src/api/singleFlight.ts`, `client.ts`, `tracks.ts`, `apps.ts`, `aiChat.ts`, `approvals.ts` | `/tracks`, `/apps`, `/approvals` 1 call each (was 1-3 each), `/chat/threads` 4 to 2 (the rest differ by params) |
+| `include_entry_counts=false` for lookup-only callers | `backend/app/api/tracks.py` + 11 callers | skips the per-track count query on those lists; default unchanged |
+| `POST /auth/ws-ticket` is NOT deduplicated | n/a | tickets are single-use per socket by design; it also must not clear the shared requests |
+
+Measured: API calls per load 48-49 to 39-40. Time to title is noisy (2.9-5.5 s across
+runs, before and after) and did not clearly improve: it is dominated by
+`GET /tracks/:id/detail` (about 1.5 s), which is a separate item.
