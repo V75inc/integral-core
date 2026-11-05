@@ -254,3 +254,18 @@ runs, before and after) and did not clearly improve: it is dominated by
 | The live `/api/events` socket never connected in the Docker dev stacks and retried every 1 s with a fresh ticket | `VITE_BACKEND_URL=http://api:4000` was used as the browser's WebSocket host (not resolvable from a browser); backoff reset on construction instead of on open | same-origin URL under `vite dev`; reset backoff in `onopen` | socket opens; the extra `POST /auth/ws-ticket` per second is gone |
 | `load_library_operational_models_with_issues_cached` costs 0.25 s per call | stats every library file to validate its cache, under a global lock | seed view index reuse for 60 s (commit 1ad543ca); other callers left as they are because that check is a documented trust boundary | tracked as a follow-up |
 | Multi-worker breaks websockets | `ws_ticket._TICKETS` is a per-process dict; with 3 workers 4 of 6 test connects were rejected with 4001 | local env restored to 1 worker | needs a shared ticket store (with the chat registry) before more than one worker is usable |
+
+## Page-load round (commits 0ef08e7e .. 0521c017)
+
+Measured on the 9106 stack (single worker, headless Chromium, cold browser each run).
+
+| Change | Why (evidence) | Effect |
+|---|---|---|
+| Cache jvspatial `Walker` handler discovery per class (`jvspatial_walker_fast`) | py-spy: `inspect.getmembers` over the walker class ran once per Walker instance (`__init__`) and once per traversal (`_execute_exit_hooks`); Core builds a Walker per access check | CPU only; no change in single-request latency, which is dominated by about 560 small DB round trips per list request (about 1 ms each, 170 ms of actual DB time) |
+| Startup gate (`startupGate.ts`) | chat history, approvals, notifications, voice and AI settings, staging requests queued in front of page data on one worker | those panels wait 2 s after page load; endpoints unchanged |
+| 10 s reuse of navigation GETs, cleared on every write and every live graph-change event | app page refetches `/apps`, `/tracks`, `/apps/{id}/*`, agent-preference in waves 2-3 s apart | repeated calls disappear (37 calls on the app page, was 58-65 at the start of the work) |
+| `include_details=false` for lookup lists (`GET /tracks`, `GET /apps/{id}/tracks`) | profile resolution per Track (manifest repair + compile cache hit + deep copy, about 5 ms each) was 0.4-0.56 s of 0.55-0.63 s | `/tracks` lookup 0.75 s to 0.12 s; `/apps/{id}/tracks` (67 Tracks) 0.68 s to 0.17 s |
+
+Page load, before this round to after: app page network idle 5.2-6.9 s to 4.4-5.7 s, core data done about 5-7 s to 3.9-5.2 s; track page idle 3.0-5.6 s to 3.3-3.8 s. A production build (vite build behind nginx) was measured and is not materially faster than dev: the wait is server-bound.
+
+What remains: about 560 DB round trips per list request, from per-resource graph walks in the authorization path (`locate_resources` still spawns a Walker per resource). That needs a set-based containment/role resolution and is the next structural step.
