@@ -640,13 +640,41 @@ async def list_app_tracks(
         return list(await asyncio.gather(*(_decide(t) for t in tracks)))
 
     async def _all_counts() -> Dict[str, int]:
-        # One shared admission scan for every Track instead of one scan per Track.
+        # One shared admission scan for every Track instead of one scan per Track,
+        # and the same per-track snapshot the Tracks list uses (off unless
+        # INTEGRAL_NAV_SNAPSHOT_TTL is set; dropped on any access change).
+        from app.services import permissions_process_cache as _ppc
+
         if not tracks:
             return {}
         await decisions_ready.wait()
-        return await count_user_accessible_entries_for_tracks(
-            user_id, tracks, admitted=admitted_tracks if admitted_tracks else None
-        )
+        counts: Dict[str, int] = {}
+        missing = list(tracks)
+        if _ppc.nav_snapshot_enabled():
+            missing = []
+            for t in tracks:
+                cached = _ppc.get_nav_snapshot(user_id, f"nav_count:{t.id}")
+                if cached is None:
+                    missing.append(t)
+                else:
+                    counts[t.id] = cached
+        if missing:
+            generation = _ppc.generation(user_id)
+            missing_ids = {t.id for t in missing}
+            admitted = [t for t in admitted_tracks if t.id in missing_ids] if admitted_tracks else None
+            fresh = await count_user_accessible_entries_for_tracks(
+                user_id, missing, admitted=admitted
+            )
+            counts.update(fresh)
+            if _ppc.nav_snapshot_enabled():
+                for track_id, value in fresh.items():
+                    _ppc.set_nav_snapshot(
+                        user_id,
+                        f"nav_count:{track_id}",
+                        value,
+                        expected_generation=generation,
+                    )
+        return counts
 
     async def _all_positions() -> Dict[str, int]:
         # One query for the App's CONTAINS edges instead of one per Track.
