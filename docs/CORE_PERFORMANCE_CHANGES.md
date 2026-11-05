@@ -269,3 +269,17 @@ Measured on the 9106 stack (single worker, headless Chromium, cold browser each 
 Page load, before this round to after: app page network idle 5.2-6.9 s to 4.4-5.7 s, core data done about 5-7 s to 3.9-5.2 s; track page idle 3.0-5.6 s to 3.3-3.8 s. A production build (vite build behind nginx) was measured and is not materially faster than dev: the wait is server-bound.
 
 What remains: about 560 DB round trips per list request, from per-resource graph walks in the authorization path (`locate_resources` still spawns a Walker per resource). That needs a set-based containment/role resolution and is the next structural step.
+
+## Local round: per-request fixed cost and Track detail (not yet pushed)
+
+| Change | Evidence | Effect (9106, single worker) |
+|---|---|---|
+| Compile route patterns once in jvspatial's `EndpointAuthResolver` (`jvspatial_auth_fast`) | py-spy of a trivial authenticated call (`/api/users/me/scope`): the resolver (`get_endpoint_config`, `endpoint_requires_auth`, `_path_matches` with `re.escape` per segment per endpoint per request) was about a third of the CPU. 9 ms unauthenticated vs 38 ms authenticated. | CPU per authenticated request about 2.5x lower (samples for 80 requests: 1243 vs 2302 for 60); `/api/auth/me` 70 to 25 ms; test compares to the library over 13 pattern shapes x 19 paths |
+| Saved Views read concurrently (`view_scope.list_scoped_track_views`) | the loop proved each View's location one at a time; `/tracks/{id}/views` makes no DB-bound wait that overlap could not hide | `/views` 0.42 to 0.25 s, identical output |
+| Track detail bundle runs its four reads together | each read does its own `track.read` check first | errors re-raised in sequential order; detail 0.50 to 0.42-0.45 s (CPU-bound, so only DB waits overlap) |
+
+Page load (single worker): app page idle 3.9-4.9 s (was 4.4-5.9 s), 37-38 calls; track page idle 2.3 s steady (was 3.3-3.8 s).
+
+Corrections to earlier notes: the 560 DB round trips measured on `GET /apps/{id}/tracks` came mostly from the per-Track enrichment (profile resolution, anchor and attach lookups), not from authorization; the batched `track.read` admission of 67 Tracks makes 10 database calls and takes 0.16 s. After the lean lists, the largest round-trip counts are Track detail (about 570, of which collaborators 129, entry types 104) and the per-request authentication path.
+
+Found, NOT changed (security-sensitive, needs review): every authenticated request does a transactional compare-and-swap write of `last_accessed` on the user's authentication row (`AuthenticationContext.save`, Postgres transaction with a row lock), plus the blacklist check, two user reads and a workspace membership read. About 12% of a trivial request's CPU, and the row lock serializes concurrent requests of the same user. A throttled touch would remove it but it also acts as the freshness check against a deactivated account, so it should be redesigned with the identity owners.
