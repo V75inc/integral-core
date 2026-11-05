@@ -49,6 +49,7 @@ from pydantic_ai.messages import (
     LoadCapabilityReturnPart,
     ModelMessagesTypeAdapter,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
     SystemPromptPart,
     ToolAvailabilityDeltaPart,
@@ -813,12 +814,27 @@ def build_integral_run_instructions(
 _HOST_TURN_METADATA_KEY = "integral_host_turn_v1"
 
 
-def build_integral_host_turn(content: str, *, run_id: str) -> ModelRequest:
+def build_integral_host_turn(
+    content: str, *, run_id: str, scheduled_execution: bool = False
+) -> ModelRequest:
     """Mark a Core-generated event boundary without fabricating a user turn."""
     if not run_id or run_id != run_id.strip():
         raise ValueError("host turn requires a canonical Core run ID")
+    parts: list[ModelRequestPart] = [SystemPromptPart(content=content)]
+    if scheduled_execution:
+        # Ollama returns done_reason=load for system-only requests, even when
+        # their text asks for execution. Use the SDK's public input part while
+        # retaining the trusted event instructions and typed host boundary.
+        # The wire-level user role is not a new human message or permission.
+        parts.append(
+            UserPromptPart(
+                content="Integral scheduled execution trigger (system-generated, "
+                "not a new human request). Perform only the current scheduled "
+                "event described in the system context, under its existing authority."
+            )
+        )
     return ModelRequest(
-        parts=[SystemPromptPart(content=content)],
+        parts=parts,
         metadata={_HOST_TURN_METADATA_KEY: run_id},
     )
 

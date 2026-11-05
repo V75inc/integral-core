@@ -414,6 +414,7 @@ async def _resume_history(
     thread=None,
     current_message_id=None,
     allow_fresh_turn=False,
+    scheduled_work_context=None,
     recovery_state=None,
 ):
     """Restore a committed checkpoint or rebuild one interrupted text turn.
@@ -425,6 +426,8 @@ async def _resume_history(
     a new user-authored turn can continue from public dialogue only; the old
     tool history is dropped and the new turn still passes through current Core
     authorization and approval checks. A live, unfenced run remains blocked.
+    A separately leased fire of the same routine may start fresh only when
+    the terminal previous fire has no tools, broker receipts or pending approval.
     """
     if not session.last_run_id:
         return []
@@ -558,6 +561,24 @@ async def _resume_history(
             details={"reason": "harness_checkpoint_manifest_unavailable"},
         )
 
+    if (
+        terminal_run
+        and scheduled_work_context is not None
+        and not unresolved
+        and not effect_records
+        and not pending_approvals
+        and await _is_independent_scheduled_fire(
+            scope, previous_run, scheduled_work_context
+        )
+    ):
+        # This is a different due fire, not recovery/retry of the old model
+        # request. No old tools or dialogue are replayed. Physical request
+        # observations (including unknown billing) remain untouched. A prior
+        # tool effect or approval still requires the normal reconciliation.
+        if recovery_state is not None:
+            recovery_state["fresh_scheduled_fire"] = True
+        return []
+
     # A safe completed snapshot may have been persisted immediately before a
     # process died, while the following session-pointer CAS did not run.
     latest = await store.latest_snapshot(run_id=session.last_run_id)
@@ -668,6 +689,42 @@ async def _resume_history(
         history = await _continue_from_checkpoint(store, checkpoint_run_id)
     history.append(recovery_message)
     return history
+
+
+async def _is_independent_scheduled_fire(scope, previous_run, work_context):
+    """Prove a new leased fire of the same schedule before dropping history."""
+    from app.agentive.services.execution_runs import RunStep
+    from app.agentive.services.work_execution import assert_effect_boundary_allowed
+    from app.agentive.services.work_items import _current_work_item
+
+    if (
+        work_context.run_id != scope.run_id
+        or work_context.principal_id != scope.principal_id
+        or work_context.workspace_id != scope.workspace_id
+        or work_context.thread_id != scope.thread_id
+        or not getattr(previous_run, "work_item_id", None)
+        or previous_run.work_item_id == work_context.work_item_id
+    ):
+        return False
+    current = await assert_effect_boundary_allowed(work_context)
+    previous = await _current_work_item(previous_run.work_item_id)
+    if previous is None:
+        return False
+    if any(
+        step.capability_key
+        for step in await RunStep.find({"run_id": previous_run.run_id})
+    ):
+        return False
+    routine_id = (current.input_payload or {}).get("routine_id")
+    return bool(
+        current.kind == previous.kind == "routine_turn"
+        and previous.status in {"failed", "cancelled", "expired", "dead_letter"}
+        and previous.principal_id == scope.principal_id
+        and previous.workspace_id == scope.workspace_id
+        and previous.thread_id == scope.thread_id
+        and routine_id
+        and (previous.input_payload or {}).get("routine_id") == routine_id
+    )
 
 
 async def _reconcile_fenced_harness_run(scope, run):
@@ -2435,6 +2492,12 @@ class PydanticAIProvider:
                 and (ctx.extra_data or {}).get("origin")
                 in (None, "", "interactive_chat"),
                 recovery_state=run_state,
+                scheduled_work_context=(
+                    work_execution_context
+                    if not ctx.text
+                    and (ctx.extra_data or {}).get("origin") == "routine_task"
+                    else None
+                ),
             )
             history = await _refresh_staged_history(
                 history, scope, conversation_id=ctx.thread_id
@@ -2819,7 +2882,7 @@ class PydanticAIProvider:
                         # Existing untrusted-data wrappers stay intact and no
                         # host text is inserted into the human utterance.
                         host_outcome += "\n\n" + ctx.system_context
-                # An explicit system-only request marks the new host event.
+                # An explicit typed request marks the new host event.
                 # Ending on the old assistant response can be interpreted as
                 # continuing that response even when run instructions changed.
                 # Each scheduled instruction is self-contained. Earlier chat
@@ -2837,7 +2900,11 @@ class PydanticAIProvider:
                 run_history = (
                     [
                         *event_history,
-                        build_integral_host_turn(host_outcome, run_id=scope.run_id),
+                        build_integral_host_turn(
+                            host_outcome,
+                            run_id=scope.run_id,
+                            scheduled_execution=scheduled_event,
+                        ),
                     ]
                     if host_outcome
                     else event_history

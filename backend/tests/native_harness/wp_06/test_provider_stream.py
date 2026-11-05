@@ -350,6 +350,11 @@ async def test_provider_persists_session_and_resumes_previous_run(
         # checkpoint and passes the same completion/admission path.
         assert len(observed_histories[-1]) == 1
         assert "answer-run-a" not in repr(observed_histories[-1])
+        from pydantic_ai.messages import UserPromptPart
+
+        trigger = observed_histories[-1][-1].parts[1]
+        assert isinstance(trigger, UserPromptPart)
+        assert "system-generated, not a new human request" in trigger.content
     elif staging_continuation and not second_text:
         from pydantic_ai.messages import SystemPromptPart
 
