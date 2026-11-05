@@ -97,3 +97,46 @@ describe('dedupeConcurrentGets', () => {
     expect(calls()).toBe(2);
   });
 });
+
+import { clearSharedGets } from '../singleFlight';
+
+describe('reusable navigation GETs', () => {
+  function makeReusable() {
+    let calls = 0;
+    const adapter: AxiosAdapter = config => {
+      calls += 1;
+      const n = calls;
+      return Promise.resolve({ data: { n }, status: 200, statusText: 'OK', headers: {}, config });
+    };
+    const client = axios.create({ adapter });
+    dedupeConcurrentGets(client, { reuseMs: 10_000, reusable: p => p.startsWith('/apps') });
+    return { client, calls: () => calls };
+  }
+
+  it('reuses a settled reusable GET until cleared, per caller copy', async () => {
+    const { client, calls } = makeReusable();
+    const a = await client.get('/apps');
+    const b = await client.get('/apps');
+    expect(calls()).toBe(1);
+    expect(a.data).toEqual(b.data);
+    expect(a.data).not.toBe(b.data);
+    clearSharedGets();
+    await client.get('/apps');
+    expect(calls()).toBe(2);
+  });
+
+  it('never reuses non-listed URLs once settled', async () => {
+    const { client, calls } = makeReusable();
+    await client.get('/entries');
+    await client.get('/entries');
+    expect(calls()).toBe(2);
+  });
+
+  it('separates users and scopes', async () => {
+    const { client, calls } = makeReusable();
+    await client.get('/apps', { headers: { Authorization: 'Bearer a' } });
+    await client.get('/apps', { headers: { Authorization: 'Bearer b' } });
+    await client.get('/apps', { headers: { 'X-Integral-Scope': 'ws:1' } });
+    expect(calls()).toBe(3);
+  });
+});

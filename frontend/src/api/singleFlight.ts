@@ -37,6 +37,7 @@ export function createSingleFlight<T>(ttlMs: number) {
 
 export function clearAllSingleFlights(): void {
   registry.forEach(s => s.clear());
+  clearSharedGets();
 }
 
 /**
@@ -50,9 +51,26 @@ export function clearAllSingleFlights(): void {
  * Requests with an abort signal, progress callbacks or a non-JSON response type are
  * left alone, and each caller gets its own copy of the response data.
  */
-export function dedupeConcurrentGets(client: AxiosInstance): void {
+export type SharedGetOptions = {
+  /** URLs (path + query, ``/api`` prefix removed) whose settled responses may be reused. */
+  reusable?: (path: string) => boolean;
+  /** How long a settled response of a reusable URL is reused. */
+  reuseMs?: number;
+};
+
+type SharedEntry = { promise: Promise<AxiosResponse>; expires: number };
+const sharedStores = new Set<Map<string, SharedEntry>>();
+
+/** Drop every shared GET (called on writes and on live graph-change events). */
+export function clearSharedGets(): void {
+  sharedStores.forEach(store => store.clear());
+}
+
+export function dedupeConcurrentGets(client: AxiosInstance, options: SharedGetOptions = {}): void {
   const base = axios.getAdapter(client.defaults.adapter);
-  const inflight = new Map<string, Promise<AxiosResponse>>();
+  const store = new Map<string, SharedEntry>();
+  sharedStores.add(store);
+  const reuseMs = options.reuseMs ?? 0;
   client.defaults.adapter = (config: InternalAxiosRequestConfig) => {
     const method = String(config.method || 'get').toLowerCase();
     if (
@@ -64,25 +82,37 @@ export function dedupeConcurrentGets(client: AxiosInstance): void {
       return base(config);
     }
     const headers = config.headers as unknown as { get?: (n: string) => unknown } | undefined;
+    const uri = axios.getUri(config);
     const key = JSON.stringify([
-      axios.getUri(config),
+      uri,
       headers?.get?.('Authorization') ?? '',
       headers?.get?.('X-Integral-Scope') ?? '',
     ]);
-    const shared = inflight.get(key);
-    if (shared) {
-      return shared.then(response => ({
+    const now = Date.now();
+    const shared = store.get(key);
+    if (shared && shared.expires > now) {
+      return shared.promise.then(response => ({
         ...response,
         config,
         data: cloneData(response.data),
       }));
     }
+    const path = uri.replace(/^https?:\/\/[^/]+/, '').replace(/^\/api(?=\/)/, '');
+    const keep = reuseMs > 0 && Boolean(options.reusable?.(path));
     const promise = base(config);
-    inflight.set(key, promise);
-    const clear = () => {
-      if (inflight.get(key) === promise) inflight.delete(key);
-    };
-    promise.then(clear, clear);
+    // In flight: always shareable. After it settles it is kept only for reusable URLs.
+    const entry: SharedEntry = { promise, expires: keep ? now + reuseMs : Number.POSITIVE_INFINITY };
+    store.set(key, entry);
+    promise.then(
+      () => {
+        if (store.get(key) !== entry) return;
+        if (keep) entry.expires = Date.now() + reuseMs;
+        else store.delete(key);
+      },
+      () => {
+        if (store.get(key) === entry) store.delete(key);
+      },
+    );
     return promise;
   };
 }
