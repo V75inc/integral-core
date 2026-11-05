@@ -6,6 +6,10 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc45 — 2026-11-05
+
+- Supply direct dashboard destinations in authorized read and change responses, so native and external clients can open the named board independently of remembered App tabs.
+
 ## 0.1.1rc44 — 2026-11-05
 
 - Keep the approved build’s verifier available after a successful apply, so completion can perform its required permission-checked readback without rediscovering the scaffold procedure.
