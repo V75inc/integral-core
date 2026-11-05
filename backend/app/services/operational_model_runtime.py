@@ -6,6 +6,8 @@ Orchestration facade over split modules — see ``.planning/refactors/operationa
 from __future__ import annotations
 
 import asyncio
+import time
+import os
 import contextlib
 import logging
 from datetime import datetime, timezone
@@ -64,14 +66,28 @@ from app.services.operational_model_graph import (
 )
 
 
+# The seed index only supplies default entry-type keys for legacy Views. Building
+# it validates the whole library tree (a stat walk, about 0.25 s, holding a global
+# lock and the GIL) so reuse a validated result for a short window instead of
+# repeating that walk on every track open. Startup still validates in full
+# (app/main.py) and a library change is picked up within the TTL.
+_SEED_INDEX_TTL_SECONDS = float(os.getenv("INTEGRAL_SEED_VIEW_INDEX_TTL", "60") or 0)
+_seed_index_cache: Optional[tuple] = None  # (expires_monotonic, index)
+
+
 async def _warm_seeded_view_index_off_loop() -> Dict[str, Dict[str, Any]]:
-    """Parse seeded view specs on a worker thread, once per process.
+    """Parse seeded view specs on a worker thread, reusing a recent result.
 
     A failure leaves the attached manifest as the only source. The old
     per-view scan swallowed the same errors and continued.
     """
+    global _seed_index_cache
+    now = time.monotonic()
+    cached = _seed_index_cache
+    if cached is not None and cached[0] > now:
+        return cached[1]
     try:
-        return await asyncio.to_thread(warm_seeded_library_view_index)
+        index = await asyncio.to_thread(warm_seeded_library_view_index)
     except Exception:
         logger.warning(
             "seeded library view index unavailable; view entry-type "
@@ -79,6 +95,9 @@ async def _warm_seeded_view_index_off_loop() -> Dict[str, Dict[str, Any]]:
             exc_info=True,
         )
         return {}
+    if _SEED_INDEX_TTL_SECONDS > 0:
+        _seed_index_cache = (now + _SEED_INDEX_TTL_SECONDS, index)
+    return index
 
 
 def view_may_need_backfill(v: View) -> bool:
