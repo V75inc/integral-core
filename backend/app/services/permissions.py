@@ -43,6 +43,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import (
+    computation_fact_scope,
     isolated_permissions_cache,
     live_permissions_required,
     permissions_cache_get,
@@ -69,7 +70,32 @@ def _permission_memo_enabled() -> bool:
 
 
 async def get_user_node(user_id: str) -> Optional[User]:
-    """Resolve current identity/profile facts without cached or ambiguous grants."""
+    """Resolve current identity/profile facts without cached or ambiguous grants.
+
+    Inside one computation (``computation_fact_scope``) or an App job the answer is reused
+    for at most a few seconds and only until the next ACL invalidation; elsewhere it is
+    always read fresh. Only a found user is remembered.
+    """
+    from app.middleware.permissions_cache import (
+        app_job_fact_active,
+        app_job_fact_get,
+        app_job_fact_put,
+    )
+
+    if not app_job_fact_active():
+        return await _get_user_node_live(user_id)
+    key = ("user_node", user_id)
+    hit = app_job_fact_get(key)
+    if hit is not None:
+        return hit[0]
+    user = await _get_user_node_live(user_id)
+    if user is not None:
+        app_job_fact_put(key, (user,))
+    return user
+
+
+async def _get_user_node_live(user_id: str) -> Optional[User]:
+    """Read the identity facts from the database every time."""
     try:
         user = (
             None if user_id.startswith("o.") else await User.find_one({"id": user_id})
@@ -371,7 +397,7 @@ def invalidate_user_accessible_caches(user_id: str) -> None:
 
 async def get_user_accessible_apps(user_id: str) -> List[App]:
     """List current data access, including protected workspace stewardship."""
-    with isolated_permissions_cache():
+    with isolated_permissions_cache(), computation_fact_scope():
         return await _get_current_accessible_apps(user_id)
 
 
@@ -1324,7 +1350,7 @@ async def _resolve_role_for_user(
 @perf_traced("permissions.get_user_accessible_tracks")
 async def get_user_accessible_tracks(user_id: str) -> List[Track]:
     """List current data access, including protected workspace stewardship."""
-    with isolated_permissions_cache():
+    with isolated_permissions_cache(), computation_fact_scope():
         return await _get_current_accessible_tracks(user_id)
 
 

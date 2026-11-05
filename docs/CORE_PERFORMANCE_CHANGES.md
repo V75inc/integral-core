@@ -133,17 +133,53 @@ computation is cheap or the snapshot is keyed on the authorization revision (see
 | `GET /api/tracks`, repeat within TTL | 8 to 9 s | 0.22 s |
 | 4 concurrent calls after expiry | 4 computations | 1 computation, all four return in 11.3 s |
 
+### Cold computation: per-computation fact scope (implemented, on by default)
+
+The profile of a cold `GET /api/tracks` shows the main event loop 100% busy, with about half of its busy time in
+`locate_resource` and its `ResourceLocationWalker` helpers (`check_workspace_catalog`, `on_track`, `read_node`,
+`parent_rows`, `on_app`), 13% in `resolve_role`, 8% in `get_user_node` and 12% in asyncpg. The inventory asks the same
+questions for every track, several times each (role, listable check, admission), and each `locate_resource` call builds a new
+walker with empty caches.
+
+`app_job_fact_*` already memoizes location and role facts inside an App job. `computation_fact_scope()`
+(`middleware/permissions_cache.py`) opens the same kind of memo for ONE computation and discards it when the computation ends:
+`get_user_accessible_tracks` and `get_user_accessible_apps` run inside it. Facts live at most `_APP_JOB_FACT_TTL` seconds and
+only until the next ACL invalidation (`note_definition_changed`, called by `invalidate_user`). Nothing is shared across requests
+or work items, so the result is as fresh as without the scope. An enclosing job scope is kept. `get_user_node` is also
+memoized inside a scope (found users only).
+
+| Benchmark stack, snapshot off | Before | After |
+| --- | --- | --- |
+| `GET /api/tracks` cold, 289 tracks | 8.4 to 9.1 s | 4.7 to 5.5 s |
+| SQL statements for that request | 82,800 to 85,800 | 42,600 to 46,600 |
+| One user with 112 tracks (in process) | 3.9 s | 1.5 s |
+
+Equivalence check (`equiv.py`, in-process): for all 40 users in the benchmark database the track and app id sets were
+identical with and without the scope. One user showed a transient `AuthorizationUnavailableError` on the first run WITHOUT
+the scope ("Access could not be established; please retry"); repeated runs gave 5 identical results of 112 tracks.
+Not covered: a user with an exclusion and a plain member were not constructed. Tests: `test_computation_fact_scope.py`.
+
+Tried and not kept: the same scope around `GET /api/events` made no difference (about 1.2 s and 7,000 statements before and after).
+
 ### Still open for this item
 
-- The cold computation is still about 7 to 9 s. It needs the inventory itself made cheaper (per-track role resolution and
+- The cold computation is still about 5 s (see above). It needs the inventory itself made cheaper (per-track role resolution and
   canonical admission issue about 80,000 statements). Options: batch the role resolution per parent app, serve a stale
   snapshot while refreshing in the background, or key a longer-lived cache on the authorization revision.
 - `GET /api/events` (6 to 7 s on the benchmark stack) and `GET /api/tracks/:id/detail` are not changed yet.
 - The 15 `ws-ticket` calls per page load are not changed.
 
+### Remaining cost of a cold `GET /api/tracks` (measured, not changed)
+
+- 7,282 connection acquire and release cycles per request. Each release runs asyncpg's reset (`pg_advisory_unlock_all`,
+  `UNLISTEN *`, `RESET ALL`, `CLOSE ALL`), so 29,128 of the roughly 45,000 statements are connection resets. Holding one
+  connection per computation (jvspatial) would remove most of them. Not tried.
+- About 5,000 real queries remain: edge lookups by target (1,857), node by id (1,590), edge lookups by source (1,327).
+- `GET /api/events`: about 1.2 s and 7,000 statements for one page, because it proves access to up to 1,000 candidate events.
+
 ### Tests
 
-`backend/tests/test_nav_snapshot.py` (8 tests): off by default, second call served from the snapshot, tracks and apps keyed
+`backend/tests/test_nav_snapshot.py` (11 tests): off by default, second call served from the snapshot, tracks and apps keyed
 separately, `invalidate_user` drops it, other users unaffected, a computation that raced an invalidation is not stored,
 concurrent callers share one computation, TTL expiry.
 
