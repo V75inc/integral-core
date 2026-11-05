@@ -107,7 +107,11 @@ async function listTracksUncached(params?: Record<string, unknown>): Promise<Tra
   const rest: Record<string, unknown> = { ...(params || {}) };
   delete rest.skipEntryCounts;
   // Lookup-only callers do not display counts: tell the server not to compute them.
-  if (skipEntryCounts) rest.include_entry_counts = false;
+  // They also do not read the per-track operational-model defaults / anchor source.
+  if (skipEntryCounts) {
+    rest.include_entry_counts = false;
+    rest.include_details = false;
+  }
   if (hasExplicitPaging(rest)) {
     const pageTracks = await apiClient
       .get('/tracks', { params: rest })
