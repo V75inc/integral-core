@@ -631,7 +631,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           // entries_api mode: create children with parent FK on relation field.
           let childTrackId: string | undefined;
           if (childTrackType) {
-            const tracks = await tracksApi.list();
+            const tracks = await tracksApi.list({ skipEntryCounts: true });
             const match = tracks.find(
               t => slug(String(t.template_id || t.relation_type_key || t.title)) === slug(childTrackType)
             );
