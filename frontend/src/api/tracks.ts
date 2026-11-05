@@ -9,6 +9,7 @@ import {
   unwrapApiDataEnvelope,
 } from './helpers';
 import { FEED_PAGE_LIMIT } from './feed';
+import { createSingleFlight } from './singleFlight';
 import { requiresAppQuery } from './readBoundary';
 import { getTypeNameMapForTrack } from './entryTypes';
 import type { OperationalModelNode, Entry, Track, User } from '../types';
@@ -101,20 +102,27 @@ async function withTrackEntryCounts(tracks: Track[]): Promise<Track[]> {
   );
 }
 
+async function listTracksUncached(params?: Record<string, unknown>): Promise<Track[]> {
+  const skipEntryCounts = Boolean(params?.skipEntryCounts);
+  const rest: Record<string, unknown> = { ...(params || {}) };
+  delete rest.skipEntryCounts;
+  // Lookup-only callers do not display counts: tell the server not to compute them.
+  if (skipEntryCounts) rest.include_entry_counts = false;
+  if (hasExplicitPaging(rest)) {
+    const pageTracks = await apiClient
+      .get('/tracks', { params: rest })
+      .then(r => toArr(r.data) as Track[]);
+    return skipEntryCounts ? pageTracks : withTrackEntryCounts(pageTracks);
+  }
+  const tracks = (await fetchAllByCursor('/tracks', rest)) as Track[];
+  return skipEntryCounts ? tracks : withTrackEntryCounts(tracks);
+}
+
+const trackListFlight = createSingleFlight<Track[]>(2000);
+
 export const tracksApi = {
-  list: async (params?: Record<string, unknown>) => {
-    const skipEntryCounts = Boolean(params?.skipEntryCounts);
-    const rest = { ...(params || {}) };
-    delete rest.skipEntryCounts;
-    if (hasExplicitPaging(rest)) {
-      const pageTracks = await apiClient
-        .get('/tracks', { params: rest })
-        .then(r => toArr(r.data) as Track[]);
-      return skipEntryCounts ? pageTracks : withTrackEntryCounts(pageTracks);
-    }
-    const tracks = (await fetchAllByCursor('/tracks', rest)) as Track[];
-    return skipEntryCounts ? tracks : withTrackEntryCounts(tracks);
-  },
+  list: (params?: Record<string, unknown>): Promise<Track[]> =>
+    trackListFlight.run(JSON.stringify(params || {}), () => listTracksUncached(params)),
   get: async (id: string) => {
     const track = await apiClient
       .get(`/tracks/${id}`)

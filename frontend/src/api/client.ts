@@ -3,6 +3,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios';
+import { clearAllSingleFlights } from './singleFlight';
 import { getApiBaseURL } from '../config';
 import { normalizeDeepStrings } from '../utils/textEncoding';
 import {
@@ -135,6 +136,9 @@ apiClient.interceptors.response.use(
     if (shouldNormalizeResponseData(r.data)) {
       r.data = normalizeDeepStrings(r.data);
     }
+    // A successful write may change what listings return; drop shared requests.
+    const method = (r.config?.method || 'get').toLowerCase();
+    if (method !== 'get' && method !== 'head') clearAllSingleFlights();
     // Successful response — clear any active "can't reach Integral" banner.
     clearApiFailure();
     return r;
