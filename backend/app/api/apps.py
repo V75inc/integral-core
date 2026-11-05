@@ -53,7 +53,7 @@ from app.services.operational_model_runtime import (
 )
 from app.services.permissions import (
     can_create_app_under_workspace,
-    count_user_accessible_entries,
+    count_user_accessible_entries_for_tracks,
     get_user_accessible_apps,
     get_user_accessible_apps_for_navigation,
     get_user_node,
@@ -612,25 +612,22 @@ async def list_app_tracks(
 
         ctx = await sp.get_context()
 
-        async def _count_for_track(tid: str) -> tuple:
-            return (tid, await count_user_accessible_entries(user_id, tid))
+        async def _all_counts() -> Dict[str, int]:
+            # One shared admission scan for every Track instead of one scan per Track.
+            return await count_user_accessible_entries_for_tracks(user_id, tracks)
 
-        async def _position_for_track(tid: str) -> tuple:
-            edges = await ctx.find_edges_between(sp.id, tid, edge_class=CONTAINS)
-            pos: Optional[int] = None
-            for e in edges:
-                p = getattr(e, "position", None)
-                if isinstance(p, int):
-                    pos = p
-                    break
-            return (tid, pos)
+        async def _all_positions() -> Dict[str, int]:
+            # One query for the App's CONTAINS edges instead of one per Track.
+            wanted = set(track_ids)
+            found: Dict[str, int] = {}
+            for e in await ctx.find_edges_between(sp.id, None, edge_class=CONTAINS):
+                tid = getattr(e, "target", None)
+                pos = getattr(e, "position", None)
+                if tid in wanted and tid not in found and isinstance(pos, int):
+                    found[tid] = pos
+            return found
 
-        count_results, pos_results = await asyncio.gather(
-            asyncio.gather(*[_count_for_track(tid) for tid in track_ids]),
-            asyncio.gather(*[_position_for_track(tid) for tid in track_ids]),
-        )
-        entry_counts = dict(count_results)
-        track_positions = {tid: p for tid, p in pos_results if p is not None}
+        entry_counts, track_positions = await asyncio.gather(_all_counts(), _all_positions())
 
     # Phase 34 — order by CONTAINS edge position (asc). Tracks without a
     # position default to a large sentinel so they sort to the end;
