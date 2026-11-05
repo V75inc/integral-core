@@ -460,6 +460,66 @@ async def test_pydantic_agent_runs_through_litellm_sdk_bridge(
 
 
 @pytest.mark.asyncio
+async def test_scheduled_host_event_executes_instead_of_loading_model() -> None:
+    """The real SDK serialization supplies an input without inventing human text."""
+    from app.agentive.harness.pydantic_ai_compat import build_integral_host_turn
+
+    calls = []
+
+    async def completion(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        # Ollama returns done_reason=load and no answer for system-only input.
+        # Exercise the actual Pydantic serialization, not a hand-built payload.
+        has_input = any(m["role"] == "user" for m in kwargs["messages"])
+        return {
+            "id": "scheduled-provider-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "deepseek-v4.1-flash",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "ready" if has_input else "",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 2, "total_tokens": 22},
+        }
+
+    model = build_litellm_sdk_model(
+        route=ResolvedModelRoute(
+            provider="ollama_chat",
+            model="ollama_chat/deepseek-v4.1-flash",
+            api_base="https://ollama.com",
+            api_key="test-key",
+            credential_source="workspace_byok",
+            credential_ref="test-credential",
+        ),
+        scope=_scope(),
+        observer=_ignore_observation,
+        completion=completion,
+    )
+    event = build_integral_host_turn(
+        "This scheduled event is due. Report current state.",
+        run_id="run-1",
+        scheduled_execution=True,
+    )
+    result = await Agent(model).run(None, message_history=[event])
+    assert result.output == "ready"
+    assert len(calls) == 1
+    messages = calls[0]["messages"]
+    assert messages[0] == {
+        "role": "system",
+        "content": "This scheduled event is due. Report current state.",
+    }
+    assert "system-generated, not a new human request" in messages[-1]["content"]
+    assert event.metadata == {"integral_host_turn_v1": "run-1"}
+
+
+@pytest.mark.asyncio
 async def test_bridge_preserves_tool_calls_in_litellm_response() -> None:
     """Tool-call JSON stays structured through SDK response serialization."""
 
