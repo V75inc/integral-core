@@ -868,7 +868,7 @@ export function Sidebar({
   const workspaceId = scope?.workspaceId ?? '__none__';
   const tracksQuery = useQuery({
     queryKey: [...tracksListQueryKey(''), workspaceId] as const,
-    queryFn: () => tracksApi.list({ limit: 100 }),
+    queryFn: () => tracksApi.list({ limit: 100, skipEntryCounts: true }),
     enabled: pinned.tracks.length > 0,
   });
   const appsQuery = useQuery({

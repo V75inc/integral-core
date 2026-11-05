@@ -949,7 +949,7 @@ export function useEntryExpandedForm(
     (async () => {
       try {
         const allTracks =
-          tracksListNorm.length > 0 ? tracksListNorm : await tracksApi.list();
+          tracksListNorm.length > 0 ? tracksListNorm : await tracksApi.list({ skipEntryCounts: true });
         const trackById = new Map(allTracks.map(t => [t.id, t]));
         const choicesByField: Record<string, RelationChoice[]> = {};
         relationEntriesByIdRef.current = new Map();

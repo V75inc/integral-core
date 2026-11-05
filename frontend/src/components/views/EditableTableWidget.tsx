@@ -210,7 +210,7 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
     setRelationLoading(true);
     (async () => {
       try {
-        const allTracks = await tracksApi.list();
+        const allTracks = await tracksApi.list({ skipEntryCounts: true });
         const choicesByField: Record<string, RelationChoice[]> = {};
         await Promise.all(
           relationFields.map(async relField => {

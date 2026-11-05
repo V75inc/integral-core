@@ -314,7 +314,7 @@ export function EntryDetail({
     try {
       let toTrack: string | undefined;
       try {
-        const tracks = await tracksApi.list();
+        const tracks = await tracksApi.list({ skipEntryCounts: true });
         // Prefer Customer Projects (CRM handoff). Title used to be "Projects";
         // template_id stays ``projects``. Never pick Internal Projects.
         const ranked = (tracks || [])

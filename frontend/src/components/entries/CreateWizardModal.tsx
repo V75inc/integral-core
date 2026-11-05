@@ -288,7 +288,7 @@ export function CreateWizardModal({
     let cancelled = false;
     setLoadingStep(true);
     (async () => {
-      const allTracks = await tracksApi.list();
+      const allTracks = await tracksApi.list({ skipEntryCounts: true });
       const sourceTrack = allTracks.find(
         (t: Track) => t.title === step.source_track_type
       );

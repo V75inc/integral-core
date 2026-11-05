@@ -170,7 +170,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     setRelationLoading(true);
     (async () => {
       try {
-        const allTracks = await tracksApi.list();
+        const allTracks = await tracksApi.list({ skipEntryCounts: true });
         const sourceAppId = lifecycle?.appId || allTracks.find(t => t.id === view.track_id)?.app?.id;
         const choicesByField: Record<string, RelationChoice[]> = {};
         await Promise.all(
