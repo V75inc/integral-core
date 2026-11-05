@@ -161,6 +161,21 @@ Not covered: a user with an exclusion and a plain member were not constructed. T
 
 Tried and not kept: the same scope around `GET /api/events` made no difference (about 1.2 s and 7,000 statements before and after).
 
+Also tried and not kept (each measured on the same benchmark stack, snapshot off):
+
+| Idea | Result | Why it did not help |
+| --- | --- | --- |
+| Lean asyncpg pool reset (skip `pg_advisory_unlock_all`, `CLOSE ALL`, `UNLISTEN *`, `RESET ALL` on release, full reset only after a session-level lock) | SQL statements for a cold `GET /api/tracks` 45,000 to 9,500 (-79%); wall time 4.6 to 4.8 s, unchanged | The reset is cheap on the wire; the cost is Python work per query, not statement count. Core and jvspatial use no session state that needs the reset, so it is safe, but it buys nothing for latency. |
+| Seed the fact memo with one batched `locate_resources("track", ids)` per candidate group | No change (5.3 to 6.3 s, about 45,000 statements) | The role and admission paths look locations up under other keys (other app-state sets), so the seeded entries were not hit. |
+| Fact scope around `GET /api/events` | No change (about 1.2 s, 7,000 statements) | The cost there is per candidate event, not repeated facts. |
+| Database instrumentation wrapper (`ObservableDatabase._instrument`) | Measured, not the cost: 7 microseconds per call, 0.3 s per 45,000 calls | It shows as 28% of busy time only because the query itself runs inside it. |
+
+What the profile still shows for a cold `GET /api/tracks` (about 5 s, main loop 100% busy): about a quarter of the busy time in
+`locate_resource`; about 20% in `Walker.spawn` / `Walker.run` / `_execute_visit_hooks` (the graph walker machinery itself);
+11% in `resolve_role`; 35% as unattributed interpreter time in the event loop. The remaining cost is the number of walker runs
+and per-query Python overhead, so the next real step is to avoid the walk, for example by an inventory keyed on the
+authorization revision (so most requests do no walk at all), not to shave constant factors.
+
 ### Still open for this item
 
 - The cold computation is still about 5 s (see above). It needs the inventory itself made cheaper (per-track role resolution and
