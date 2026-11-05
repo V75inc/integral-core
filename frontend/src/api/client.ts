@@ -4,6 +4,7 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 import { clearAllSingleFlights, dedupeConcurrentGets } from './singleFlight';
+import { isDeferrableStartupGet, waitForStartupWindow } from './startupGate';
 import { getApiBaseURL } from '../config';
 import { normalizeDeepStrings } from '../utils/textEncoding';
 import {
@@ -66,6 +67,10 @@ export function getActiveScopeHeader(): string | null {
 }
 
 apiClient.interceptors.request.use(async config => {
+  // Background panels wait out the first moments of a page load (see startupGate.ts).
+  if (import.meta.env?.MODE !== 'test' && isDeferrableStartupGet(config.method, config.url)) {
+    await waitForStartupWindow();
+  }
   await checkSessionDeadline();
   if (isHostManagedSession() && !getAccessToken()) throw new axios.CanceledError('Local workspace is reconnecting');
   if (isSessionPaused()) throw new axios.CanceledError('Session renewal required');
