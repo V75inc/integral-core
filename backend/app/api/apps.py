@@ -566,9 +566,10 @@ async def list_app_tracks(
 ) -> Dict[str, Any]:
     """List Tracks in an App.
 
-    ``include_details=false`` skips ``operational_model_defaults`` and ``anchor_source``
-    (about 5 ms per Track to resolve each Track's operational-model profile); only the Track
-    detail and Tracks overview screens read them.
+    ``include_details=false`` skips ``operational_model_defaults`` (about 5 ms per Track to
+    resolve each Track's operational-model profile); only the Track detail screens read it.
+    ``anchor_source`` is always attached: AppDetailPage splits entry-spawned Tracks from
+    curated ones with it.
 
     By default omits tracks with ``nav_visible=False`` (internal / line-item
     tracks). Pass ``include_nav_hidden=true`` for admin/config/agent surfaces
@@ -726,11 +727,15 @@ async def list_app_tracks(
         row = await export_node(t)
         row["entry_count"] = entry_counts.get(t.id, 0)
         row["position"] = track_positions.get(t.id)
+        # anchor_source is always attached: AppDetailPage splits entry-spawned Tracks (pay
+        # runs, line items) from curated ones with it.
         if include_details:
             await asyncio.gather(
                 attach_operational_model_defaults_to_track_data(row, t),
                 attach_anchor_source_to_track_data(row, t),
             )
+        else:
+            await attach_anchor_source_to_track_data(row, t)
         return row
 
     items = list(await asyncio.gather(*(_row(t) for t in sorted_tracks)))
