@@ -283,3 +283,12 @@ Page load (single worker): app page idle 3.9-4.9 s (was 4.4-5.9 s), 37-38 calls;
 Corrections to earlier notes: the 560 DB round trips measured on `GET /apps/{id}/tracks` came mostly from the per-Track enrichment (profile resolution, anchor and attach lookups), not from authorization; the batched `track.read` admission of 67 Tracks makes 10 database calls and takes 0.16 s. After the lean lists, the largest round-trip counts are Track detail (about 570, of which collaborators 129, entry types 104) and the per-request authentication path.
 
 Found, NOT changed (security-sensitive, needs review): every authenticated request does a transactional compare-and-swap write of `last_accessed` on the user's authentication row (`AuthenticationContext.save`, Postgres transaction with a row lock), plus the blacklist check, two user reads and a workspace membership read. About 12% of a trivial request's CPU, and the row lock serializes concurrent requests of the same user. A throttled touch would remove it but it also acts as the freshness check against a deactivated account, so it should be redesigned with the identity owners.
+
+### Local round, part 2 (not yet pushed)
+
+| Change | Evidence | Effect |
+|---|---|---|
+| `_fast_copy` for manifests (`repair_stored_manifest_for_compile`, compile cache read/store) | py-spy of the Track detail bundle: 29% of its CPU in `repair_stored_manifest_for_compile`, almost all `copy.deepcopy` of the stored manifest, repeated per `resolve_track_runtime_profile` | detail 0.42-0.45 to 0.37-0.40 s; full `GET /apps/{id}/tracks` 0.68 to 0.39 s; equal to `deepcopy` on all 309 manifests in the database (copier alone 1.7x faster) |
+| `materialize_entry_types_from_tier` reads the Track's EntryTypes once and matches in memory | it issued one or two `EntryType.find` per spec (12 specs), sequentially, on every read of a Track's entry types | `GET /entry-types?track_id=` 0.11 to 0.075 s; returns identical entry types for all 412 Tracks; full sweep 4.42 to 2.73 s |
+
+Pages on 9106 (single worker, stable runs): app page title 0.8-0.9 s, idle 4.0-4.9 s; track page idle 2.3 s warm and 3.2 s with cold server caches.
