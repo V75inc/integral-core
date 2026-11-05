@@ -6,6 +6,12 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc42 — 2026-11-04
+
+- Add purpose-bound mailbox proofs and recoverable activation delivery. Apps can protect public submissions with expiring capabilities bound to their workspace, form and record.
+- Preserve trusted App query boundaries through canonical counts and pagination, and retain direct record grants when a parent Track is unreadable.
+- Repair restored resource citations against the deployment URL, reduce resident model preparation overhead and qualify PostgreSQL reads with custom plans by default.
+
 ## 0.1.1rc41 — 2026-11-02
 
 - Bound governed reads, catalogue coherence, and request database telemetry so equivalent queries share one execution path.
