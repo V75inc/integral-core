@@ -6,6 +6,10 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc43 — 2026-11-05
+
+- Keep oversized Agent and Home chat drafts available for editing, explain the 8,000-character message limit before submission, and apply the same limit after dictation and deferred submission.
+
 ## 0.1.1rc42 — 2026-11-04
 
 - Add purpose-bound mailbox proofs and recoverable activation delivery. Apps can protect public submissions with expiring capabilities bound to their workspace, form and record.
