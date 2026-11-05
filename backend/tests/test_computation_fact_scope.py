@@ -79,3 +79,27 @@ async def test_a_missing_user_is_never_remembered(monkeypatch):
         assert await permissions.get_user_node("ghost") is None
         assert await permissions.get_user_node("ghost") is None
     assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_app_query_runs_inside_a_fact_scope_that_ends_with_the_call(monkeypatch):
+    """A declared App query shares facts for one call only."""
+    from app.middleware import permissions_cache as pc
+    from app.services.app_queries import dispatch
+
+    seen = {}
+
+    async def fake_inner(**kwargs):
+        seen["during"] = pc._app_job_facts_var.get()
+        return {"ok": True}
+
+    monkeypatch.setattr(dispatch, "_invoke_app_query", fake_inner)
+    assert pc._app_job_facts_var.get() is None
+    result = await dispatch.invoke_app_query.__wrapped__(
+        user_id="u", workspace_id="w", app_id="a", query_key="q"
+    ) if hasattr(dispatch.invoke_app_query, "__wrapped__") else await dispatch.invoke_app_query(
+        user_id="u", workspace_id="w", app_id="a", query_key="q"
+    )
+    assert result == {"ok": True}
+    assert seen["during"] is not None
+    assert pc._app_job_facts_var.get() is None
