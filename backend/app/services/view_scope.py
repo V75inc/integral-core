@@ -1,5 +1,7 @@
 """Current saved-View scope and raw projection, independent of shared models."""
 
+import asyncio
+
 from jvspatial.core.context import get_default_context
 
 from app.exceptions import AuthorizationUnavailableError
@@ -53,13 +55,21 @@ async def list_scoped_track_views(
                 "edge", query, limit=128, sort=[("id", 1)]
             )
             seen = {view.id for view in result}
+            targets = []
             for edge in edges:
                 target = edge.get("target")
                 if not isinstance(target, str) or not target:
                     raise AuthorizationUnavailableError()
-                located = await read_scoped_view(
-                    target, allowed_app_states=allowed_app_states
+                targets.append(target)
+            # Each View's scope proof is an independent read: run them together (the same
+            # check per View, results consumed in edge order) so their database waits overlap.
+            located_all = await asyncio.gather(
+                *(
+                    read_scoped_view(target, allowed_app_states=allowed_app_states)
+                    for target in targets
                 )
+            )
+            for target, located in zip(targets, located_all):
                 if located is not None and located[1].track_id == track_id:
                     if target not in seen:
                         result.append(located[0])
