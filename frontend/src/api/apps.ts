@@ -124,7 +124,8 @@ export const appsApi = {
       .then(r => r.data),
   delete: (id: string) => apiClient.delete(`/apps/${id}`),
   listTracks: async (appId: string): Promise<Track[]> => {
-    const { data } = await apiClient.get(`/apps/${appId}/tracks`);
+    // No caller reads the per-track operational-model defaults / anchor source from this list.
+    const { data } = await apiClient.get(`/apps/${appId}/tracks`, { params: { include_details: false } });
     const tracks = (data as { tracks?: Track[] })?.tracks;
     return Array.isArray(tracks) ? tracks : [];
   },
