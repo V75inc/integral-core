@@ -1235,6 +1235,11 @@ else:
     _server_db_type = _db_type
 
 
+# Walker construction runs once per access check; cache its per-class handler discovery.
+from app.services.jvspatial_walker_fast import install as _install_walker_fast  # noqa: E402
+
+_install_walker_fast()
+
 server = Server(
     title="Integral API",
     description="Backend API for Integral — unified tracks, apps, and collaboration — powered by jvspatial",
