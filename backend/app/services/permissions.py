@@ -1787,7 +1787,10 @@ async def get_user_accessible_entries(
 
 
 async def count_user_accessible_entries_for_tracks(
-    user_id: str, tracks: list[Track]
+    user_id: str,
+    tracks: list[Track],
+    *,
+    admitted: list[Track] | None = None,
 ) -> dict[str, int]:
     """Count a page's Entries in shared bounded admission windows.
 
@@ -1797,7 +1800,9 @@ async def count_user_accessible_entries_for_tracks(
     from app.services.entry_access_projection import iter_records
 
     result = {track.id: 0 for track in tracks}
-    admitted = await _filter_canonical_resource_inventory(user_id, "track", tracks)
+    # Callers that already ran the canonical admission pass it in to avoid a second one.
+    if admitted is None:
+        admitted = await _filter_canonical_resource_inventory(user_id, "track", tracks)
     if not admitted:
         return result
     ids = [track.id for track in admitted]
