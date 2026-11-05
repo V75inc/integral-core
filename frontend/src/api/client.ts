@@ -138,7 +138,11 @@ apiClient.interceptors.response.use(
     }
     // A successful write may change what listings return; drop shared requests.
     const method = (r.config?.method || 'get').toLowerCase();
-    if (method !== 'get' && method !== 'head') clearAllSingleFlights();
+    // POST /auth/ws-ticket only mints a socket ticket; it changes no listing.
+    const url = String(r.config?.url || '');
+    if (method !== 'get' && method !== 'head' && !url.endsWith('/auth/ws-ticket')) {
+      clearAllSingleFlights();
+    }
     // Successful response — clear any active "can't reach Integral" banner.
     clearApiFailure();
     return r;
