@@ -245,3 +245,12 @@ One page load of a track page made the same list calls several times, and every
 Measured: API calls per load 48-49 to 39-40. Time to title is noisy (2.9-5.5 s across
 runs, before and after) and did not clearly improve: it is dominated by
 `GET /tracks/:id/detail` (about 1.5 s), which is a separate item.
+
+## Iframe views and the live event socket (commits 6173e89c, 1ef2c8e9)
+
+| Finding | Evidence | Change | Result (9106, alone) |
+|---|---|---|---|
+| Every iframe view's data query took 1.1-2.9 s | py-spy from a ptrace sidecar: about 92% of `pay_formula_state` in Payroll's `org_link.settings_entries`, i.e. `ToolContext.find_entries_in_track_type` -> `select_app_record_sources` / `_tracks_by_title`, the live authority chain re-resolved per lookup. The query's own policy preamble is 0.1 s. | `invoke_app_query` now runs inside `computation_fact_scope()` (read-only call, scope ends with the call, any access change drops it) | `pay_formula_state` 2.2-2.9 s to 0.6-1.1 s; `payroll_setup_status` 2.3 s to 0.8 s; `pay_setup_catalog` 1.1 s to 0.55 s; outputs identical. Iframe content ready 2.3-3.1 s to 0.65-1.0 s |
+| The live `/api/events` socket never connected in the Docker dev stacks and retried every 1 s with a fresh ticket | `VITE_BACKEND_URL=http://api:4000` was used as the browser's WebSocket host (not resolvable from a browser); backoff reset on construction instead of on open | same-origin URL under `vite dev`; reset backoff in `onopen` | socket opens; the extra `POST /auth/ws-ticket` per second is gone |
+| `load_library_operational_models_with_issues_cached` costs 0.25 s per call | stats every library file to validate its cache, under a global lock | seed view index reuse for 60 s (commit 1ad543ca); other callers left as they are because that check is a documented trust boundary | tracked as a follow-up |
+| Multi-worker breaks websockets | `ws_ticket._TICKETS` is a per-process dict; with 3 workers 4 of 6 test connects were rejected with 4001 | local env restored to 1 worker | needs a shared ticket store (with the chat registry) before more than one worker is usable |
