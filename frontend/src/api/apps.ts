@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { createSingleFlight } from './singleFlight';
 import { unwrapResource } from './helpers';
 import type { OperationalModelNode, App, Track } from '../types';
 import type { WorkItemStatus } from './workItems';
@@ -75,12 +76,15 @@ export interface AppSettingsResponse {
   lifecycle_state?: string;
 }
 
+const appListFlight = createSingleFlight<App[]>(2000);
+
 export const appsApi = {
-  list: async (): Promise<App[]> => {
-    const { data } = await apiClient.get('/apps');
-    const apps = (data as { apps?: App[] })?.apps;
-    return Array.isArray(apps) ? apps : [];
-  },
+  list: (): Promise<App[]> =>
+    appListFlight.run('all', async () => {
+      const { data } = await apiClient.get('/apps');
+      const apps = (data as { apps?: App[] })?.apps;
+      return Array.isArray(apps) ? apps : [];
+    }),
   create: (body: {
     name: string;
     description?: string;

@@ -74,8 +74,13 @@ async def list_tracks(
     app_id: Optional[str] = None,
     include_total: bool = True,
     include_nav_hidden: bool = False,
+    include_entry_counts: bool = True,
 ) -> Dict[str, Any]:
     """List all tracks accessible to the current user (cursor pagination).
+
+    ``include_entry_counts=false`` skips the per-track ``entry_count``: computing it streams
+    every admitted entry of every track on the page (one track can hold ~18,000), so callers
+    that only need ids and titles (pickers, lookups, navigation) should not pay for it.
 
     By default omits tracks with ``nav_visible=False``. Pass
     ``include_nav_hidden=true`` when the caller needs internal / line-item
@@ -168,8 +173,8 @@ async def list_tracks(
     from app.services import permissions_process_cache as _ppc
 
     counts: Dict[str, int] = {}
-    to_count = list(page_tracks)
-    if _ppc.nav_snapshot_enabled():
+    to_count = list(page_tracks) if include_entry_counts else []
+    if include_entry_counts and _ppc.nav_snapshot_enabled():
         to_count = []
         for t in page_tracks:
             cached = _ppc.get_nav_snapshot(user_id, f"nav_count:{t.id}")
@@ -197,7 +202,8 @@ async def list_tracks(
             attach_operational_model_defaults_to_track_data(data, t),
             attach_anchor_source_to_track_data(data, t),
         )
-        data["entry_count"] = counts[t.id]
+        if include_entry_counts:
+            data["entry_count"] = counts[t.id]
         data["action_url"] = resolve_resource_action_url("track", t.id)
         return data
 
