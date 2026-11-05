@@ -3,7 +3,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios';
-import { clearAllSingleFlights } from './singleFlight';
+import { clearAllSingleFlights, dedupeConcurrentGets } from './singleFlight';
 import { getApiBaseURL } from '../config';
 import { normalizeDeepStrings } from '../utils/textEncoding';
 import {
@@ -228,5 +228,7 @@ apiClient.interceptors.response.use(
     return apiClient.request(config);
   },
 );
+
+dedupeConcurrentGets(apiClient);
 
 export default apiClient;
