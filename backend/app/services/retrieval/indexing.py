@@ -793,12 +793,39 @@ def _worker_setting(name: str, default: int, maximum: int) -> int:
         return default
 
 
+# Search lags writes by design. While an App job (a pay run, say) is running, the indexer waits for
+# up to this many ticks so embedding work does not compete with it for the one Python process.
+_MAX_TICKS_YIELDED_TO_APP_JOBS = 6
+
+
+async def _app_job_running() -> bool:
+    from app.agentive.work_models import WorkItem
+
+    return bool(await WorkItem.find({"context.status": "running", "context.kind": "app_tool"}))
+
+
+async def _yield_to_app_job(ticks_yielded: int) -> bool:
+    """Whether this indexing tick should be skipped for a running App job (never more than a minute)."""
+    if ticks_yielded >= _MAX_TICKS_YIELDED_TO_APP_JOBS:
+        return False
+    try:
+        return await _app_job_running()
+    except Exception:  # noqa: BLE001 - a failed check must never stop indexing
+        return False
+
+
 async def indexing_loop() -> None:
     """Reconcile sources and deliver bounded work until shutdown."""
     from . import get_embedding_store
     from .pgvector_driver import PgVectorEmbeddingStore
 
+    ticks_yielded = 0
     while True:
+        if await _yield_to_app_job(ticks_yielded):
+            ticks_yielded += 1
+            await asyncio.sleep(_worker_setting("INDEX_WORKER_INTERVAL_SECONDS", 10, 3600))
+            continue
+        ticks_yielded = 0
         try:
             from .definition_vectors import prune_definition_vectors
 

@@ -34,6 +34,7 @@ from app.services.operational_model_entry_fields import (
 from app.services.operational_model_runtime import resolve_track_runtime_profile
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.utils.time import utc_now_iso
+from app.middleware.permissions_cache import invalidates_job_facts
 
 _MAX_ENTRIES = 500
 logger = logging.getLogger(__name__)
@@ -498,6 +499,7 @@ async def prepare_bulk_move(
     }
 
 
+@invalidates_job_facts
 async def move_entries(
     *,
     user_id: str,

@@ -645,8 +645,19 @@ async def create_entry_in_track(
     # nested command must instead retain the caller's still-active context.
     await entry.set_context(caller_context)
     if outbox_id and graph is not caller_context:
-        from app.services.app_operations.event_outbox import deliver_operation_event
+        from app.middleware.permissions_cache import defer_job_event
+        from app.services.app_operations.event_outbox import (
+            deliver_operation_event,
+            flush_deferred_job_events,
+        )
 
+        # Inside an App job, hold the committed fact and deliver in batches (the fact is
+        # durable and pending, so a crash leaves it for the recovery sweep).
+        waiting = defer_job_event(outbox_id)
+        if waiting is not None:
+            if waiting >= 100:
+                await flush_deferred_job_events()
+            return entry
         try:
             await deliver_operation_event(outbox_id=outbox_id)
         except Exception:
@@ -654,3 +665,192 @@ async def create_entry_in_track(
     elif events and not outbox_id:
         await emit_change_event(**events[0])
     return entry
+
+
+async def create_entries_in_track(
+    *,
+    track: Track,
+    user_id: str,
+    items: List[Dict[str, Any]],
+    type_id: str = "",
+    entry_type: Optional[EntryType] = None,
+    workspace_id: str = "",
+    actor_kind: str = "human",
+    actor_id: Optional[str] = None,
+    authorization_subject: Optional[Subject] = None,
+    skip_profanity: bool = False,
+) -> List[Entry]:
+    """Create many Entries of one type in one Track as ONE command (LOCAL PERF PROTOTYPE).
+
+    Identity admission, the workspace authorization fence, the policy decision, the Track and
+    EntryType reads and the transaction are done once for the whole batch instead of once per
+    record. Each item still gets its own protected-field checks, field validation, before-write
+    and save hooks, graph edges, event fact and index intent. The batch commits or rolls back as
+    a whole; callers must size it (a few hundred at most) and be able to retry it.
+
+    ``items`` entries take ``title``, ``body``, ``custom_fields``, ``tags``, ``attachment_ids``.
+    The admission payload is the union of every item's fields, so the decision is at least as
+    strict as for any single item.
+    """
+    if not items:
+        return []
+    from jvspatial.core.context import get_default_context
+
+    from app.services.entry_write_scope import (
+        entry_write_scope,
+        is_postgres_entry_transaction,
+    )
+
+    caller_context = get_default_context()
+    from app.agentive.services.staging_execution import staged_entry_effect
+    from app.services.approved_effect import approved_capture_active
+
+    if await approved_capture_active():
+        # Approval capture records one effect per call; keep that contract per record.
+        return [
+            await create_entry_in_track(
+                track=track,
+                user_id=user_id,
+                title=str(item.get("title") or ""),
+                body=str(item.get("body") or ""),
+                custom_fields=item.get("custom_fields"),
+                tags=item.get("tags"),
+                entry_type=entry_type,
+                type_id=type_id,
+                attachment_ids=item.get("attachment_ids"),
+                workspace_id=workspace_id,
+                actor_kind=actor_kind,
+                actor_id=actor_id,
+                authorization_subject=authorization_subject,
+                skip_profanity=skip_profanity,
+            )
+            for item in items
+        ]
+
+    created: List[Entry] = []
+    outbox_ids: List[str] = []
+    events_all: List[Dict[str, Any]] = []
+    async with (
+        entry_write_scope(f"track:{track.id}") as graph,
+        staged_entry_effect(
+            user_id=user_id,
+            workspace_id=workspace_id or track.workspace_id,
+            track_id=track.id,
+        ) as complete_staged_effect,
+    ):
+        fresh_track = await Track.get(track.id)
+        if fresh_track is None:
+            raise ResourceNotFoundError(message="Track not found")
+        if workspace_id and fresh_track.workspace_id != workspace_id:
+            from app.api.errors import InsufficientPermissionsError
+
+            raise InsufficientPermissionsError(
+                message="Track is outside the bound workspace"
+            )
+        fresh_type = await EntryType.get(entry_type.id) if entry_type else None
+        from app.services.entry_effect_scope import entry_effect_scope
+        from app.services.operational_model_compile import slug_manifest_key
+
+        union_fields: Dict[str, Any] = {}
+        any_title = any_body = False
+        for item in items:
+            for key, value in dict(item.get("custom_fields") or {}).items():
+                union_fields.setdefault(key, value)
+            any_title = any_title or bool(item.get("title"))
+            any_body = any_body or bool(item.get("body"))
+        first = items[0]
+        actual_payload = {
+            "track_id": fresh_track.id,
+            "title": first.get("title") or ("batch" if any_title else ""),
+            "body": first.get("body") or ("batch" if any_body else ""),
+            "type_id": type_id or (entry_type.id if entry_type else ""),
+            "custom_fields": union_fields,
+            "tags": [t for item in items for t in (item.get("tags") or [])],
+            "attachment_ids": [a for item in items for a in (item.get("attachment_ids") or [])],
+        }
+        candidate_type = fresh_type or (
+            await EntryType.find_one({"id": type_id}) if type_id else None
+        )
+        key = (
+            slug_manifest_key(
+                str(
+                    (candidate_type.form_schema or {}).get("_manifest_entry_type_key")
+                    or candidate_type.name
+                )
+            )
+            if candidate_type
+            else ""
+        )
+        async with entry_effect_scope(
+            user_id=user_id,
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            action="entry.create",
+            target_kind="track",
+            target_id=fresh_track.id,
+            workspace_id=fresh_track.workspace_id,
+            payload=actual_payload,
+            entry_type_key=key,
+            authorization_subject=authorization_subject,
+        ) as admitted_principal_id:
+            for item in items:
+                events: List[Dict[str, Any]] = []
+                entry = await _create_entry_in_track(
+                    track=fresh_track,
+                    user_id=admitted_principal_id,
+                    title=str(item.get("title") or ""),
+                    body=str(item.get("body") or ""),
+                    custom_fields=item.get("custom_fields"),
+                    tags=item.get("tags"),
+                    entry_type=fresh_type,
+                    type_id=type_id or (entry_type.id if entry_type else ""),
+                    attachment_ids=item.get("attachment_ids"),
+                    workspace_id=workspace_id,
+                    actor_kind=actor_kind,
+                    actor_id=actor_id,
+                    authorization_subject=authorization_subject,
+                    skip_profanity=skip_profanity,
+                    change_event_sink=events.append,
+                )
+                created.append(entry)
+                events_all.extend(events[:1])
+                if events and is_postgres_entry_transaction(graph.database):
+                    from app.services.app_operations.event_outbox import insert_entry_event
+
+                    outbox_ids.append(
+                        await insert_entry_event(
+                            transaction=graph.database,
+                            workspace_id=fresh_track.workspace_id,
+                            event=events[0],
+                        )
+                    )
+        if complete_staged_effect is not None:
+            for entry in created:
+                await complete_staged_effect(
+                    {"entry_id": entry.id, "track_id": fresh_track.id}
+                )
+    for entry in created:
+        await entry.set_context(caller_context)
+    if outbox_ids and graph is not caller_context:
+        from app.middleware.permissions_cache import defer_job_event
+        from app.services.app_operations.event_outbox import (
+            deliver_operation_events,
+            flush_deferred_job_events,
+        )
+
+        waiting = None
+        for outbox_id in outbox_ids:
+            waiting = defer_job_event(outbox_id)
+            if waiting is None:
+                break
+        if waiting is None:
+            try:
+                await deliver_operation_events(outbox_ids)
+            except Exception:
+                logger.exception("Entry change events await recovery")
+        elif waiting >= 100:
+            await flush_deferred_job_events()
+    elif events_all and not outbox_ids:
+        for event in events_all:
+            await emit_change_event(**event)
+    return created

@@ -22,6 +22,7 @@ from app.models.nodes import App, Attachment, Entry, EntryType, OperationalModel
 from app.services.entry_type_resolver import resolve_seed_entry_type_id
 from app.services.operational_model_runtime import slug_manifest_key
 from app.utils.time import utc_now_iso
+from app.middleware.permissions_cache import invalidates_job_facts
 
 logger = logging.getLogger(__name__)
 
@@ -1127,6 +1128,7 @@ async def materialize_tracks_for_app(
     return [t for t in post if t.id not in pre_existing]
 
 
+@invalidates_job_facts
 async def delete_tracks(tracks: List[Track], *, actor_user_id: str = "") -> int:
     """Compensation: delete a list of Tracks. Best-effort."""
     from app.services.app_deletion import delete_track_and_nested_content

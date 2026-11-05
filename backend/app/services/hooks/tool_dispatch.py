@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib
 from typing import Any, Callable, Dict
 
+from collections import OrderedDict
+
 import jsonschema
 
 from app.services.hooks.errors import (
@@ -41,12 +43,40 @@ def resolve_handler(handler_ref: str) -> Callable[..., Any]:
     return fn
 
 
+# A tool's schema is the same dict on every call, but ``jsonschema.validate`` checks it against the
+# metaschema each time, which dominated a record write (a pay run makes hundreds). Check it once and
+# keep the validator. The cache holds the schema itself so its id cannot be reused by another object.
+_VALIDATORS: "OrderedDict[int, tuple[Dict[str, Any], Any]]" = OrderedDict()
+_MAX_VALIDATORS = 1024
+
+
+def _validate_against(instance: Any, schema: Dict[str, Any]) -> None:
+    """``jsonschema.validate`` with the schema check done once per schema object."""
+    from jsonschema.exceptions import best_match
+    from jsonschema.validators import validator_for
+
+    cached = _VALIDATORS.get(id(schema))
+    if cached is not None and cached[0] is schema:
+        _VALIDATORS.move_to_end(id(schema))
+        validator = cached[1]
+    else:
+        cls = validator_for(schema, default=jsonschema.Draft202012Validator)
+        cls.check_schema(schema)
+        validator = cls(schema)
+        _VALIDATORS[id(schema)] = (schema, validator)
+        while len(_VALIDATORS) > _MAX_VALIDATORS:
+            _VALIDATORS.popitem(last=False)
+    error = best_match(validator.iter_errors(instance))
+    if error is not None:
+        raise error
+
+
 def validate_input(payload: Dict[str, Any], schema: Dict[str, Any]) -> None:
     """Validate tool input ``payload`` against its declared JSON schema (no-op if empty)."""
     if not schema:
         return
     try:
-        jsonschema.validate(instance=payload, schema=schema)
+        _validate_against(payload, schema)
     except jsonschema.ValidationError as exc:
         raise ToolValidationFailedError(
             message=f"tool input schema mismatch: {exc.message}",
@@ -59,7 +89,7 @@ def validate_output(payload: Any, schema: Dict[str, Any]) -> None:
     if not schema:
         return
     try:
-        jsonschema.validate(instance=payload, schema=schema)
+        _validate_against(payload, schema)
     except jsonschema.ValidationError as exc:
         raise ToolValidationFailedError(
             message=f"tool output schema mismatch: {exc.message}",

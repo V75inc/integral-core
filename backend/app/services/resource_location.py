@@ -81,6 +81,7 @@ class ResourceLocationWalker(Walker):
     allowed_app_states: frozenset[str] = ACTIVE_APP_STATES
     expected_view_model_id: str = ""
     view_model_matched: bool = False
+    reuse_track_location: bool = False
     _records: dict[str, dict] = PrivateAttr(default_factory=lambda: {})
     _root_checked: set[str] = PrivateAttr(default_factory=lambda: set())
     _parents: dict[tuple[str, str], list[dict]] = PrivateAttr(
@@ -412,6 +413,22 @@ class ResourceLocationWalker(Walker):
                 self.app_id = location.app_id
                 self.track_id = location.track_id
             return
+        # PERF EXPERIMENT (local only): inside an App job a pay run creates hundreds of Entries
+        # in one Track; reuse that Track's already-proven Track/App/Workspace prefix for a
+        # few seconds (see ``app_job_fact_scope``). The Entry's own parent edge above is
+        # still validated each time.
+        if getattr(self, "reuse_track_location", False):
+            from app.middleware.permissions_cache import app_job_fact_get
+
+            remembered = app_job_fact_get(
+                ("track_location", parent_id, tuple(sorted(self.allowed_app_states)))
+            )
+            if remembered is not None:
+                location = remembered[0]
+                self.workspace_id = location.workspace_id
+                self.app_id = location.app_id
+                self.track_id = location.track_id
+                return
         parent = await self.source_node(parents[0], (Track,), context)
         if parent is None:
             self.valid = False
@@ -513,6 +530,16 @@ async def locate_resource(
     }.get(kind)
     if model is None or not resource_id:
         return None
+    # Inside an App job (see ``app_job_fact_scope``) the same record is located by its event,
+    # hook, indexing and effect checks within moments. Reuse that answer briefly; callers that
+    # need the walked records, and everything outside a job, always walk fresh.
+    from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
+
+    fact_key = ("location", kind, resource_id, tuple(sorted(allowed_app_states)))
+    if records_out is None:
+        remembered = app_job_fact_get(fact_key)
+        if remembered is not None:
+            return remembered[0]
     try:
         context = get_default_context()
         walker = ResourceLocationWalker(allowed_app_states=allowed_app_states)
@@ -524,6 +551,7 @@ async def locate_resource(
             ):
                 raise AuthorizationUnavailableError()
             walker._records[resource_id] = selected_record
+        walker.reuse_track_location = records_out is None and kind == "entry"
         node = await walker.read_node(model, resource_id, context)
         if node is None:
             return None
@@ -537,7 +565,19 @@ async def locate_resource(
             return None
         if records_out is not None:
             records_out.update(walker._records)
-        return ResourceLocation(walker.workspace_id, walker.app_id, walker.track_id)
+        location = ResourceLocation(walker.workspace_id, walker.app_id, walker.track_id)
+        if records_out is None:
+            app_job_fact_put(fact_key, (location,))
+            if kind == "entry" and location.track_id:
+                app_job_fact_put(
+                    (
+                        "track_location",
+                        location.track_id,
+                        tuple(sorted(allowed_app_states)),
+                    ),
+                    (location,),
+                )
+        return location
     except Exception as exc:
         raise AuthorizationUnavailableError() from exc
 

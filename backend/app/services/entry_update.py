@@ -480,8 +480,17 @@ async def update_entry_in_track(
     await entry.set_context(caller_context)
     if change_event_sink is None:
         if outbox_id and graph is not caller_context:
-            from app.services.app_operations.event_outbox import deliver_operation_event
+            from app.middleware.permissions_cache import defer_job_event
+            from app.services.app_operations.event_outbox import (
+                deliver_operation_event,
+                flush_deferred_job_events,
+            )
 
+            waiting = defer_job_event(outbox_id)
+            if waiting is not None:
+                if waiting >= 100:
+                    await flush_deferred_job_events()
+                return entry
             # Delivery failure leaves a durable pending fact for the sweep.
             try:
                 await deliver_operation_event(outbox_id=outbox_id)

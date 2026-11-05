@@ -671,6 +671,9 @@ async def _validate_relation_values(
     target_track_types = {str(x) for x in relation.get("target_track_types") or []}
     allow_cross_track = relation_allows_cross_track(relation)
     validated = []
+    # Within this one validation the source Track and each distinct target Track resolve to the
+    # same App every time; ask once per Track, not once per relation value.
+    track_apps: dict[str, Any] = {}
     for rid in raw_ids:
         target = await Entry.get(rid)
         if not target:
@@ -700,8 +703,12 @@ async def _validate_relation_values(
             )
 
             await assert_relation_entry_containment(target, target_track)
-            source_app = await canonical_relation_app(source_track)
-            target_app = await canonical_relation_app(target_track)
+            if source_track.id not in track_apps:
+                track_apps[source_track.id] = await canonical_relation_app(source_track)
+            if target_track.id not in track_apps:
+                track_apps[target_track.id] = await canonical_relation_app(target_track)
+            source_app = track_apps[source_track.id]
+            target_app = track_apps[target_track.id]
             if relation.get("target_app"):
                 if source_app is None:
                     raise BadRequestError(
