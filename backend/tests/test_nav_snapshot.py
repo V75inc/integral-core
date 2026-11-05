@@ -121,3 +121,55 @@ async def test_snapshot_expires(snapshots_on, monkeypatch):
     await asyncio.sleep(0.08)
     await permissions.get_user_accessible_tracks_for_navigation("u")
     assert calls["n"] == 2
+
+
+@pytest.fixture
+def stale_window(monkeypatch):
+    monkeypatch.setattr(ppc, "_NAV_STALE_SECONDS", 60.0)
+    yield
+
+
+@pytest.mark.asyncio
+async def test_expired_snapshot_is_served_while_it_refreshes(snapshots_on, stale_window, monkeypatch):
+    monkeypatch.setattr(ppc, "_NAV_TTL_SECONDS", 0.05)
+    values = [["old"], ["new"]]
+    calls = {"n": 0}
+
+    async def fake(user_id):
+        calls["n"] += 1
+        value = values[min(calls["n"] - 1, 1)]
+        if calls["n"] > 1:
+            await asyncio.sleep(0.05)
+        return value
+
+    monkeypatch.setattr(permissions, "get_user_accessible_tracks", fake)
+    assert await permissions.get_user_accessible_tracks_for_navigation("u") == ["old"]
+    await asyncio.sleep(0.08)  # expired, still inside the stale window
+    started = asyncio.get_event_loop().time()
+    assert await permissions.get_user_accessible_tracks_for_navigation("u") == ["old"]
+    assert asyncio.get_event_loop().time() - started < 0.03  # did not wait for the refresh
+    await asyncio.sleep(0.15)  # the background refresh finishes
+    assert await permissions.get_user_accessible_tracks_for_navigation("u") == ["new"]
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_invalidation_removes_the_stale_copy_too(snapshots_on, stale_window, monkeypatch):
+    monkeypatch.setattr(ppc, "_NAV_TTL_SECONDS", 0.05)
+    calls = _counting(monkeypatch, "get_user_accessible_tracks", ["t1"])
+    await permissions.get_user_accessible_tracks_for_navigation("u")
+    await asyncio.sleep(0.08)
+    ppc.invalidate_user("u")  # a revoke: the expired copy must not be served
+    await permissions.get_user_accessible_tracks_for_navigation("u")
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_without_a_stale_window_an_expired_snapshot_recomputes(snapshots_on, monkeypatch):
+    monkeypatch.setattr(ppc, "_NAV_TTL_SECONDS", 0.05)
+    monkeypatch.setattr(ppc, "_NAV_STALE_SECONDS", 0.0)
+    calls = _counting(monkeypatch, "get_user_accessible_tracks", ["t1"])
+    await permissions.get_user_accessible_tracks_for_navigation("u")
+    await asyncio.sleep(0.08)
+    await permissions.get_user_accessible_tracks_for_navigation("u")
+    assert calls["n"] == 2

@@ -114,6 +114,17 @@ behaviour is unchanged.
 It never grants access. Opening a record, writing, `resolve_role` and every other authorization check stay live. The
 cost is bounded staleness of a listing (at most the TTL) for changes that do not go through `invalidate_user`.
 
+#### Stale-while-revalidate (`INTEGRAL_NAV_SNAPSHOT_STALE`, off by default)
+
+With a positive value (seconds past the TTL), an expired snapshot is returned at once and refreshed in the background
+(`refresh_in_background`), so a listing is only slow the first time. `invalidate_user` still removes the expired copy, so
+revokes that go through it are not affected.
+
+**What it trades.** A change that does NOT go through `invalidate_user` (for example a revoke on a path nobody hooked) can stay
+visible in the track and app lists for TTL plus the stale window. The lists show titles and counts only; opening a record,
+writing and `resolve_role` are live. This works against the intent of `e0405cb2`, so treat it as a stopgap until the cold
+computation is cheap or the snapshot is keyed on the authorization revision (see "Still open").
+
 ### Measured effect (benchmark stack, TTL 10 s)
 
 | | Before | After |

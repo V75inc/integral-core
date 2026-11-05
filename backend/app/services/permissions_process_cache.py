@@ -180,7 +180,12 @@ import asyncio
 
 _NAV_TTL_SECONDS = float(os.getenv("INTEGRAL_NAV_SNAPSHOT_TTL", "0") or 0)
 _NAV_ENABLED = os.getenv("TESTING", "") != "1" and _NAV_TTL_SECONDS > 0
-_nav_store: Dict[str, Dict[str, Tuple[float, Any]]] = {}
+# Optional stale-while-revalidate window (seconds past the TTL). Within it an expired
+# snapshot is returned immediately and refreshed in the background, so a listing is
+# only slow the first time. Off unless INTEGRAL_NAV_SNAPSHOT_STALE is positive.
+_NAV_STALE_SECONDS = float(os.getenv("INTEGRAL_NAV_SNAPSHOT_STALE", "0") or 0)
+# {user_id: {key: (fresh_until, stale_until, value)}}
+_nav_store: Dict[str, Dict[str, Tuple[float, float, Any]]] = {}
 _nav_inflight: Dict[Tuple[str, str], "asyncio.Task[Any]"] = {}
 
 
@@ -196,11 +201,27 @@ def get_nav_snapshot(user_id: str, key: str) -> Optional[Any]:
     hit = (_nav_store.get(user_id) or {}).get(key)
     if hit is None:
         return None
-    expiry, value = hit
-    if time.monotonic() >= expiry:
+    fresh_until, stale_until, value = hit
+    now = time.monotonic()
+    if now < fresh_until:
+        return value
+    if now >= stale_until:
         _nav_store.get(user_id, {}).pop(key, None)
+    return None
+
+
+def get_nav_snapshot_stale(user_id: str, key: str) -> Optional[Any]:
+    """Return an expired snapshot that is still inside the stale window, or None."""
+    if not _NAV_ENABLED or _NAV_STALE_SECONDS <= 0 or not user_id:
         return None
-    return value
+    hit = (_nav_store.get(user_id) or {}).get(key)
+    if hit is None:
+        return None
+    _fresh_until, stale_until, value = hit
+    if time.monotonic() < stale_until:
+        return value
+    _nav_store.get(user_id, {}).pop(key, None)
+    return None
 
 
 def set_nav_snapshot(
@@ -211,8 +232,10 @@ def set_nav_snapshot(
         return
     if expected_generation is not None and generation(user_id) != expected_generation:
         return
+    now = time.monotonic()
     _nav_store.setdefault(user_id, {})[key] = (
-        time.monotonic() + _NAV_TTL_SECONDS,
+        now + _NAV_TTL_SECONDS,
+        now + _NAV_TTL_SECONDS + max(_NAV_STALE_SECONDS, 0.0),
         value,
     )
 
@@ -220,6 +243,27 @@ def set_nav_snapshot(
 def clear_nav_snapshots(user_id: str) -> None:
     """Drop one user's navigation snapshots (called from ``invalidate_user``)."""
     _nav_store.pop(user_id, None)
+
+
+def refresh_in_background(user_id: str, key: str, factory: Any) -> None:
+    """Start ``factory()`` for (user, key) unless one is already running; do not wait."""
+    flight = (user_id, key)
+    if flight in _nav_inflight:
+        return
+    task = asyncio.ensure_future(factory())
+    _nav_inflight[flight] = task
+
+    def _done(_t: "asyncio.Task[Any]") -> None:
+        if _nav_inflight.get(flight) is _t:
+            _nav_inflight.pop(flight, None)
+        if not _t.cancelled() and _t.exception() is not None:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "navigation snapshot refresh failed for %s: %s", key, _t.exception()
+            )
+
+    task.add_done_callback(_done)
 
 
 async def single_flight(user_id: str, key: str, factory: Any) -> Any:
