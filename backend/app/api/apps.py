@@ -28,7 +28,7 @@ from app.models.nodes import (
     Track,
     View,
 )
-from app.schemas.policy import Resource, Subject
+from app.schemas.policy import Decision, Resource, Subject
 from app.services.app_graph import (
     get_app_attached_operational_model,
     get_or_create_views_registry_for_operational_model,
@@ -600,25 +600,51 @@ async def list_app_tracks(
     ctx = await sp.get_context()
     wanted_ids = {t.id for t in tracks if getattr(t, "id", None)}
 
+    admitted_tracks: list = []
+
     async def _decisions() -> list:
-        return list(
-            await asyncio.gather(
-                *(
-                    policy_evaluate(
-                        subject=Subject(kind="human", id=user_id),
-                        action="track.read",
-                        resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
-                    )
-                    for t in tracks
+        """``track.read`` decision per Track, same order as ``tracks``.
+
+        Fast path: for a human the engine's ``track.read`` is ``can_view_track``, and
+        the canonical inventory pass answers it for every Track in one batch. That
+        pass was checked equal to ``policy_evaluate`` (dry run) for every user and
+        every Track in the local data set. Only Tracks it admits skip the per-Track
+        evaluation; anything it does not admit still goes through ``policy_evaluate``
+        so denials keep their audit record and any allow path the batch misses is kept.
+        """
+        from app.runtime.composition import admits_human, runtime
+        from app.services.permissions import _filter_canonical_resource_inventory
+
+        admitted_ids: set = set()
+        if tracks and admits_human(user_id) and runtime().supports_action("track.read"):
+            try:
+                admitted_tracks.extend(
+                    await _filter_canonical_resource_inventory(user_id, "track", tracks)
                 )
+                admitted_ids = {t.id for t in admitted_tracks}
+            except Exception:
+                admitted_tracks.clear()
+                admitted_ids = set()
+
+        async def _decide(t: Track):
+            if t.id in admitted_ids:
+                return Decision(allowed=True, reason="default_human_policy")
+            return await policy_evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action="track.read",
+                resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
             )
-        )
+
+        return list(await asyncio.gather(*(_decide(t) for t in tracks)))
 
     async def _all_counts() -> Dict[str, int]:
         # One shared admission scan for every Track instead of one scan per Track.
         if not tracks:
             return {}
-        return await count_user_accessible_entries_for_tracks(user_id, tracks)
+        await decisions_ready.wait()
+        return await count_user_accessible_entries_for_tracks(
+            user_id, tracks, admitted=admitted_tracks if admitted_tracks else None
+        )
 
     async def _all_positions() -> Dict[str, int]:
         # One query for the App's CONTAINS edges instead of one per Track.
@@ -634,9 +660,17 @@ async def list_app_tracks(
 
     # The three reads are independent: run them together, and let them share one
     # computation-scoped fact memo (user node, role) instead of re-resolving per Track.
+    decisions_ready = asyncio.Event()
+
+    async def _decisions_then_signal() -> list:
+        try:
+            return await _decisions()
+        finally:
+            decisions_ready.set()
+
     with computation_fact_scope():
         decisions, entry_counts, track_positions = await asyncio.gather(
-            _decisions(), _all_counts(), _all_positions()
+            _decisions_then_signal(), _all_counts(), _all_positions()
         )
     # Every Track still has to pass policy_evaluate track.read to be returned.
     tracks = [t for t, decision in zip(tracks, decisions) if decision.allowed]
