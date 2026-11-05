@@ -1670,6 +1670,31 @@ def _dedupe_specs_by_key(
     return list(by_key.values())
 
 
+_ATOMIC_TYPES = (str, int, float, bool, type(None))
+
+
+def _fast_copy(value: Any) -> Any:
+    """``copy.deepcopy`` for the plain JSON-like data manifests are made of.
+
+    Manifests read from the database or compiled from them are nested dict / list /
+    str / number / bool / None. ``copy.deepcopy`` spends most of its time on its memo table
+    and per-type dispatch for that shape (about 1 ms per 12 KB manifest, several copies per
+    request). Exact ``dict`` and ``list`` are copied directly and immutable scalars shared;
+    any other type (tuples, sets, subclasses, objects) falls back to ``copy.deepcopy`` so the
+    result is always a fully independent copy. The one difference: ``deepcopy`` keeps two
+    references to the same sub-object as one object in the copy; this makes two. Data parsed
+    from JSON has no such sharing.
+    """
+    t = type(value)
+    if t is dict:
+        return {k: _fast_copy(v) for k, v in value.items()}
+    if t is list:
+        return [_fast_copy(v) for v in value]
+    if t in _ATOMIC_TYPES:
+        return value
+    return copy.deepcopy(value)
+
+
 def repair_stored_manifest_for_compile(manifest: Dict[str, Any]) -> Dict[str, Any]:
     """Dedupe keyed lists on persisted manifests before runtime compile.
 
@@ -1679,7 +1704,7 @@ def repair_stored_manifest_for_compile(manifest: Dict[str, Any]) -> Dict[str, An
     """
     import copy
 
-    m = copy.deepcopy(manifest)
+    m = _fast_copy(manifest)
     scope = str(m.get("scope") or "").strip().lower()
 
     def _repair_track_tier(tier: Dict[str, Any]) -> None:
@@ -3883,7 +3908,7 @@ def _compile_canonical_manifest(
     ck_base = _manifest_cache_key(manifest, manifest_yaml, scope_hint)
     ck = (ck_base + f":pc={int(bool(is_public_catalog))}") if ck_base else None
     if ck is not None and ck in _manifest_compile_cache:
-        return copy.deepcopy(_manifest_compile_cache[ck])
+        return _fast_copy(_manifest_compile_cache[ck])
 
     raw: Dict[str, Any]
     if manifest_yaml is not None:
@@ -4395,7 +4420,7 @@ def _compile_canonical_manifest(
         if ck is not None:
             if len(_manifest_compile_cache) >= _MANIFEST_CACHE_MAX:
                 _manifest_compile_cache.pop(next(iter(_manifest_compile_cache)), None)
-            _manifest_compile_cache[ck] = copy.deepcopy(out)
+            _manifest_compile_cache[ck] = _fast_copy(out)
         return out
     finally:
         _active_field_composites.reset(field_token)
