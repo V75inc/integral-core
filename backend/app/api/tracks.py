@@ -370,19 +370,24 @@ async def get_track_detail_bundle(request: Request, track_id: str) -> Dict[str, 
     """
     validate_id(track_id, "track_id")
     # Reuse existing endpoint-level contracts to keep payload semantics aligned.
-    track_resp = await get_track(request, track_id)
     from app.api.entry_types import list_entry_types as _list_entry_types
     from app.api.views import list_track_views as _list_track_views
 
-    # These three reads are independent after the track-level permission
-    # check above. Running them together removes two serial graph/policy
-    # round-trips from every track navigation without changing their response
-    # contracts.
-    collab_resp, entry_types_resp, views_resp = await asyncio.gather(
+    # The four reads are independent: each runs its own ``track.read`` check before doing
+    # any work, so none depends on another having succeeded. Running them together makes the
+    # bundle cost the slowest part instead of the sum. Errors are re-raised in the order the
+    # sequential version would have hit them (track first).
+    results = await asyncio.gather(
+        get_track(request, track_id),
         list_collaborators(request, track_id),
         _list_entry_types(request, track_id=track_id),
         _list_track_views(request, track_id),
+        return_exceptions=True,
     )
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    track_resp, collab_resp, entry_types_resp, views_resp = results
 
     return {
         "track": track_resp.get("track"),
