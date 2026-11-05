@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import List, Optional
+from typing import Any, List, Optional
 
 _installed = False
 
@@ -49,6 +49,25 @@ def path_matches_cached(pattern: str, path: str) -> bool:
     return rx.match(path) is not None
 
 
+def endpoint_info_matches_method_fast(endpoint_info: Any, request_method: Optional[str]) -> bool:
+    """Same answer as the library's, without building a set of methods per endpoint.
+
+    The library builds ``{m.upper() for m in methods}`` for every registered endpoint on every
+    request. Endpoints have one to a few methods, so comparing directly is equivalent and
+    much cheaper.
+    """
+    if not request_method:
+        return True
+    methods = getattr(endpoint_info, "methods", None) or []
+    if not methods:
+        return True
+    upper = request_method.upper()
+    for m in methods:
+        if m == upper or m.upper() == upper:
+            return True
+    return False
+
+
 def install() -> bool:
     """Replace ``_path_matches`` in the resolver module (idempotent)."""
     global _installed
@@ -59,5 +78,6 @@ def install() -> bool:
     except Exception:  # pragma: no cover - library layout changed; keep the original
         return False
     mod._path_matches = path_matches_cached  # type: ignore[attr-defined]
+    mod._endpoint_info_matches_method = endpoint_info_matches_method_fast  # type: ignore[attr-defined]
     _installed = True
     return True
