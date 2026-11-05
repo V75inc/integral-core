@@ -97,6 +97,10 @@ def init_prime_db() -> None:
     if not db_type:
         return
 
+    from app.services.jvspatial_walker_fast import install as _install_walker_fast
+
+    _install_walker_fast()
+
     obs_kwargs = observability_kwargs()
 
     if db_type in ("postgres", "postgresql"):
