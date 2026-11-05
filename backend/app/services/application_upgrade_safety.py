@@ -89,9 +89,17 @@ async def start_package_upgrade_migrations(
 
     from app.services.migrations.runner import run_migration_async
 
+    # The queued work item records the fingerprint of the manifest it will run
+    # against, and execution re-reads ``attached_profile.manifest`` to check it.
+    # The attached profile holds the merged, tenant-effective result of the
+    # upgrade, which differs from the raw library candidate whenever the App has
+    # local customizations or package fields that are not stored on the profile.
+    # Queuing the candidate would make every such migration fail as
+    # ``work.definition_stale``, so queue what execution will actually compare.
+    queued_manifest = dict(getattr(attached_profile, "manifest", None) or {})
     tracker = await run_migration_async(
         published_cp=attached_profile,
-        compiled_manifest=dict(safety["candidate_manifest"]),
+        compiled_manifest=queued_manifest or dict(safety["candidate_manifest"]),
         actor_id=actor_id,
     )
     return {"executed": True, **tracker}

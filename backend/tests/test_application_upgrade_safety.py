@@ -126,3 +126,29 @@ async def test_upgrade_migrations_start_existing_async_runner_for_affected_recor
         compiled_manifest={"scope": "app", "migrations": [{"ops": []}]},
         actor_id="owner-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_upgrade_migrations_queue_the_manifest_execution_will_check():
+    """The queued fingerprint must match ``attached_profile.manifest``, not the raw library candidate."""
+    effective = {"scope": "app", "seeds": [{"track": "settings"}], "migrations": [{"ops": []}]}
+    attached = SimpleNamespace(manifest=effective)
+    tracker = {"status": "queued", "affected_entry_count": None}
+    with patch(
+        "app.services.migrations.runner.run_migration_async",
+        new=AsyncMock(return_value=tracker),
+    ) as runner:
+        await start_package_upgrade_migrations(
+            attached_profile=attached,  # type: ignore[arg-type]
+            safety={
+                "candidate_manifest": {"scope": "app", "home": {"x": 1}, "migrations": [{"ops": []}]},
+                "entry_impact": [{"would_need_migration": 3}],
+            },
+            actor_id="owner-1",
+        )
+
+    runner.assert_awaited_once_with(
+        published_cp=attached,
+        compiled_manifest=effective,
+        actor_id="owner-1",
+    )
