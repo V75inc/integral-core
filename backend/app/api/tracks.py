@@ -75,12 +75,18 @@ async def list_tracks(
     include_total: bool = True,
     include_nav_hidden: bool = False,
     include_entry_counts: bool = True,
+    include_details: bool = True,
 ) -> Dict[str, Any]:
     """List all tracks accessible to the current user (cursor pagination).
 
     ``include_entry_counts=false`` skips the per-track ``entry_count``: computing it streams
     every admitted entry of every track on the page (one track can hold ~18,000), so callers
     that only need ids and titles (pickers, lookups, navigation) should not pay for it.
+
+    ``include_details=false`` also skips ``operational_model_defaults`` and ``anchor_source``:
+    resolving each Track's operational-model profile costs about 5 ms per Track and only the
+    Track detail and Tracks overview screens read those fields. Lookup lists (sidebar,
+    pickers, widgets) should not pay for it.
 
     By default omits tracks with ``nav_visible=False``. Pass
     ``include_nav_hidden=true`` when the caller needs internal / line-item
@@ -197,11 +203,14 @@ async def list_tracks(
 
     async def _enrich_one(t: Track) -> Dict[str, Any]:
         data = await export_node(t)
-        await asyncio.gather(
-            attach_parent_app_to_track_data(data, t),
-            attach_operational_model_defaults_to_track_data(data, t),
-            attach_anchor_source_to_track_data(data, t),
-        )
+        if include_details:
+            await asyncio.gather(
+                attach_parent_app_to_track_data(data, t),
+                attach_operational_model_defaults_to_track_data(data, t),
+                attach_anchor_source_to_track_data(data, t),
+            )
+        else:
+            await attach_parent_app_to_track_data(data, t)
         if include_entry_counts:
             data["entry_count"] = counts[t.id]
         data["action_url"] = resolve_resource_action_url("track", t.id)
