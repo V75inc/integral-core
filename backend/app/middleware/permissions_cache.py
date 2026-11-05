@@ -78,6 +78,28 @@ def app_job_fact_scope() -> Iterator[None]:
         _app_job_facts_var.reset(token)
 
 
+@contextmanager
+def computation_fact_scope() -> Iterator[None]:
+    """Let ONE computation reuse facts it has just read, and nothing outlives it.
+
+    The access inventory behind the tracks and apps lists asks the same questions many
+    times in a row (where does this track live, what is this user's role on it, who is
+    this user). Inside this scope those answers are remembered for at most
+    _APP_JOB_FACT_TTL seconds and only until the next ACL invalidation, exactly as in an
+    App job, and the memo is discarded when the computation ends. Nothing is shared
+    across requests or work items, so the result is as fresh as without the scope.
+    A caller already inside a job scope keeps that scope.
+    """
+    if _app_job_facts_var.get() is not None:
+        yield
+        return
+    token = _app_job_facts_var.set({})
+    try:
+        yield
+    finally:
+        _app_job_facts_var.reset(token)
+
+
 def defer_job_event(outbox_id: str) -> Optional[int]:
     """Hold a committed event fact for batched delivery; None outside a job scope.
 
