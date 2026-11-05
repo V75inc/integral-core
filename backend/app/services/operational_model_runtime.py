@@ -81,6 +81,24 @@ async def _warm_seeded_view_index_off_loop() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
+def view_may_need_backfill(v: View) -> bool:
+    """True when ``backfill_view_entry_type_constraints_from_manifest`` could write ``v``.
+
+    Mirrors the three conditions that loop writes under: empty ``entry_type_keys``,
+    empty ``default_entry_type_key``, or an ``extension_view`` whose config lacks
+    ``extension_view_key``. A View with none of those is never modified.
+    """
+    if not (getattr(v, "entry_type_keys", None) or []):
+        return True
+    if not (getattr(v, "default_entry_type_key", "") or ""):
+        return True
+    cfg = v.config if isinstance(v.config, dict) else {}
+    return (
+        str(getattr(v, "type", "") or "") == "extension_view"
+        and not str(cfg.get("extension_view_key") or "").strip()
+    )
+
+
 async def backfill_view_entry_type_constraints_from_manifest(
     track: Track,
     views: List[View],
@@ -101,6 +119,11 @@ async def backfill_view_entry_type_constraints_from_manifest(
     seeded library spec.
     """
     if not views:
+        return
+    # Every write below fills a field that is empty. When none is empty there is
+    # nothing to hydrate, so skip resolving the manifest profile (about 0.3 s per
+    # track open) instead of resolving it only to change nothing.
+    if not any(view_may_need_backfill(v) for v in views):
         return
     cp, tier, _ = await resolve_track_runtime_profile(track)
     by_key: Dict[str, Dict[str, Any]] = {}
