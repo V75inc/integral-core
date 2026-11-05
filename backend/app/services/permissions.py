@@ -375,6 +375,30 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
         return await _get_current_accessible_apps(user_id)
 
 
+async def get_user_accessible_apps_for_navigation(user_id: str) -> List[App]:
+    """Apps for a LISTING endpoint, served from a short snapshot when enabled.
+
+    Same contract as ``get_user_accessible_tracks_for_navigation``.
+    """
+    from app.services import permissions_process_cache as _ppc
+
+    if not _ppc.nav_snapshot_enabled():
+        return await get_user_accessible_apps(user_id)
+    hit = _ppc.get_nav_snapshot(user_id, "nav_apps")
+    if hit is not None:
+        return hit
+
+    async def _compute() -> List[App]:
+        generation = _ppc.generation(user_id)
+        result = await get_user_accessible_apps(user_id)
+        _ppc.set_nav_snapshot(
+            user_id, "nav_apps", result, expected_generation=generation
+        )
+        return result
+
+    return await _ppc.single_flight(user_id, "nav_apps", _compute)
+
+
 async def _get_current_accessible_apps(user_id: str) -> List[App]:
     """Apps via ownership, collaboration, staff inventory, and visibility grants.
 
@@ -1284,6 +1308,31 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
     """List current data access, including protected workspace stewardship."""
     with isolated_permissions_cache():
         return await _get_current_accessible_tracks(user_id)
+
+
+async def get_user_accessible_tracks_for_navigation(user_id: str) -> List[Track]:
+    """Tracks for a LISTING endpoint, served from a short snapshot when enabled.
+
+    Off unless ``INTEGRAL_NAV_SNAPSHOT_TTL`` > 0, in which case this is exactly
+    ``get_user_accessible_tracks``. Never use it to decide access to a record.
+    """
+    from app.services import permissions_process_cache as _ppc
+
+    if not _ppc.nav_snapshot_enabled():
+        return await get_user_accessible_tracks(user_id)
+    hit = _ppc.get_nav_snapshot(user_id, "nav_tracks")
+    if hit is not None:
+        return hit
+
+    async def _compute() -> List[Track]:
+        generation = _ppc.generation(user_id)
+        result = await get_user_accessible_tracks(user_id)
+        _ppc.set_nav_snapshot(
+            user_id, "nav_tracks", result, expected_generation=generation
+        )
+        return result
+
+    return await _ppc.single_flight(user_id, "nav_tracks", _compute)
 
 
 async def _get_current_accessible_tracks(user_id: str) -> List[Track]:

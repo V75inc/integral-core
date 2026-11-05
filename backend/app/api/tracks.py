@@ -48,6 +48,7 @@ from app.services.permissions import (
     count_user_accessible_entries,
     count_user_accessible_entries_for_tracks,
     get_user_accessible_tracks,
+    get_user_accessible_tracks_for_navigation,
     get_user_node,
     resolve_role,
 )
@@ -87,7 +88,7 @@ async def list_tracks(
         # principal still failed to resolve — surface it (see
         # test_list_endpoints_auth_envelope).
         raise MissingAuthenticationError(message="Authentication required")
-    tracks = await get_user_accessible_tracks(user_id)
+    tracks = await get_user_accessible_tracks_for_navigation(user_id)
     if not include_nav_hidden:
         tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
     # W5: server-enforce the active workspace scope from
@@ -160,7 +161,34 @@ async def list_tracks(
     # count + parent_app + operational_model + anchor). Lift to per-track
     # parallel: each track's 4 attaches run together (asyncio.gather),
     # and all N tracks run in parallel against the now-indexed substrate.
-    counts = await count_user_accessible_entries_for_tracks(user_id, page_tracks)
+    # Entry counts walk every admitted entry of every track on the page (the
+    # largest track in a payroll workspace has ~18,000). With navigation
+    # snapshots on, counts are reused for the snapshot TTL; otherwise this is
+    # the original single call.
+    from app.services import permissions_process_cache as _ppc
+
+    counts: Dict[str, int] = {}
+    to_count = list(page_tracks)
+    if _ppc.nav_snapshot_enabled():
+        to_count = []
+        for t in page_tracks:
+            cached = _ppc.get_nav_snapshot(user_id, f"nav_count:{t.id}")
+            if cached is None:
+                to_count.append(t)
+            else:
+                counts[t.id] = cached
+    if to_count:
+        count_generation = _ppc.generation(user_id)
+        fresh = await count_user_accessible_entries_for_tracks(user_id, to_count)
+        counts.update(fresh)
+        if _ppc.nav_snapshot_enabled():
+            for track_id, value in fresh.items():
+                _ppc.set_nav_snapshot(
+                    user_id,
+                    f"nav_count:{track_id}",
+                    value,
+                    expected_generation=count_generation,
+                )
 
     async def _enrich_one(t: Track) -> Dict[str, Any]:
         data = await export_node(t)

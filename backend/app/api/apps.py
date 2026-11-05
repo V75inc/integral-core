@@ -55,6 +55,7 @@ from app.services.permissions import (
     can_create_app_under_workspace,
     count_user_accessible_entries,
     get_user_accessible_apps,
+    get_user_accessible_apps_for_navigation,
     get_user_node,
     resolve_role,
 )
@@ -101,7 +102,7 @@ async def list_apps(
         # answer 200 with {apps: []} for a consistency failure.
         raise MissingAuthenticationError(message="Authentication required")
 
-    result = await get_user_accessible_apps(user_id)
+    result = await get_user_accessible_apps_for_navigation(user_id)
     result = [
         s
         for s in result
