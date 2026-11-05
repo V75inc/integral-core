@@ -1240,6 +1240,10 @@ from app.services.jvspatial_walker_fast import install as _install_walker_fast  
 
 _install_walker_fast()
 
+from app.services.jvspatial_auth_fast import install as _install_auth_fast  # noqa: E402
+
+_install_auth_fast()
+
 server = Server(
     title="Integral API",
     description="Backend API for Integral — unified tracks, apps, and collaboration — powered by jvspatial",
