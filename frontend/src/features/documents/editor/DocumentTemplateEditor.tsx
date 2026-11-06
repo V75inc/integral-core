@@ -60,7 +60,7 @@ export interface DocumentTemplateEditorProps {
   margins?: MarginsInches;
   /** Show real pages (page boxes, gaps, page numbers) instead of one tall sheet. */
   paged?: boolean;
-  /** Header and footer HTML per side; ``{page}`` and ``{total}`` are replaced per page. */
+  /** Header and footer HTML per side; ``{page}`` is replaced per page. */
   pageChrome?: Partial<PageChrome>;
 }
 
@@ -75,7 +75,7 @@ export const DEFAULT_PAGE_CHROME: PageChrome = {
   headerLeft: '',
   headerRight: '',
   footerLeft: '',
-  footerRight: 'Page {page} of {total}',
+  footerRight: 'Page {page}',
 };
 
 /** Page geometry in CSS pixels for the pagination extension (96 px per inch). */
