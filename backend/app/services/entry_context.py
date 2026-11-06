@@ -343,6 +343,13 @@ async def attach_operational_model_defaults_to_track_data(
             out["tabs"] = {
                 k: v for k, v in tabs.items() if k in ("order", "show_single_tab")
             }
+        toolbar = defaults.get("toolbar")
+        if isinstance(toolbar, dict) and isinstance(
+            toolbar.get("show_search_and_filters"), bool
+        ):
+            out["toolbar"] = {
+                "show_search_and_filters": toolbar["show_search_and_filters"]
+            }
         if out:
             track_data["operational_model_defaults"] = out
     except Exception:

@@ -483,10 +483,16 @@ export interface TrackTabsConfig {
   show_single_tab?: boolean;
 }
 
+/** How an App wants a track's toolbar: ``show_search_and_filters: false`` hides the search box and Filters. */
+export interface TrackToolbarConfig {
+  show_search_and_filters?: boolean;
+}
+
 export interface TrackOperationalModelDefaults {
   default_entry_type?: string;
   default_view?: string;
   tabs?: TrackTabsConfig;
+  toolbar?: TrackToolbarConfig;
 }
 
 /** Provenance for tracks auto-spawned by an Entry's relation field

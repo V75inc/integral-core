@@ -283,16 +283,43 @@ def normalize_track_tabs(value: Any, *, where: str) -> Dict[str, Any]:
     return out
 
 
+def normalize_track_toolbar(value: Any, *, where: str) -> Dict[str, Any]:
+    """Validate a track's ``defaults.toolbar`` (see docs/platform/track-tabs.md).
+
+    ``show_search_and_filters``: ``false`` hides the track's search box and Filters button, for a
+    settings-style track where they mean nothing. Default ``true`` (shown, as before this option). Unknown
+    keys are refused so a typo is not silently ignored.
+    """
+    if value is None:
+        return {}
+    toolbar = _as_dict(value, where=where)
+    unknown = sorted(set(toolbar) - {"show_search_and_filters"})
+    if unknown:
+        raise BadRequestError(
+            message=f"{where} has unknown option(s): {', '.join(unknown)}. Supported: show_search_and_filters"
+        )
+    out: Dict[str, Any] = {}
+    if "show_search_and_filters" in toolbar:
+        if not isinstance(toolbar["show_search_and_filters"], bool):
+            raise BadRequestError(
+                message=f"{where}.show_search_and_filters must be true or false"
+            )
+        out["show_search_and_filters"] = toolbar["show_search_and_filters"]
+    return out
+
+
 def _normalize_track_defaults(
     defaults: Dict[str, Any], *, where: str
 ) -> Dict[str, Any]:
     """Validate the options inside a track's ``defaults`` that have a contract; pass the rest through."""
-    if "tabs" not in defaults:
-        return defaults
-    return {
-        **defaults,
-        "tabs": normalize_track_tabs(defaults.get("tabs"), where=f"{where}.tabs"),
-    }
+    out = dict(defaults)
+    if "tabs" in defaults:
+        out["tabs"] = normalize_track_tabs(defaults.get("tabs"), where=f"{where}.tabs")
+    if "toolbar" in defaults:
+        out["toolbar"] = normalize_track_toolbar(
+            defaults.get("toolbar"), where=f"{where}.toolbar"
+        )
+    return out
 
 
 def _as_list(value: Any, *, where: str) -> List[Any]:
