@@ -60,6 +60,17 @@ revive cancelled work or duplicate schedules when persistence is unavailable.
 See [resident chat and scheduling](ai-chat.md#scheduled-reports-and-literal-reminders)
 for native skill references, approval boundaries, run limits and delivery.
 
+## Entry UI compatibility
+
+For stored entry-type `ui_contributions` authored by a component-capable runtime,
+this runtime uses an explicitly declared `fallback_view` as the saved `view`
+when `component_key` is present and neither `view` nor `view_type` is supplied.
+It does not execute or admit the component. Contributions without a usable
+fallback still fail validation, and iframe/native view exclusivity still applies.
+This lets manifest readers, including public-share default resolution, compile
+those manifests while preserving permission validation. Compilation alone does
+not migrate the stored manifest or qualify the component UI for this runtime.
+
 ## Boundary
 
 Bundles never import private Core services or models into tools. They use ToolContext and published contracts. Tool/hook registrations are workspace/package owned, collision-checked, and removed through lifecycle. Skill overlays include active accessible Apps only. Long work leaves the request through `ctx.enqueue_job`: a durable, resumable background job that runs as the same person in the same workspace; see [Background jobs for Apps](../platform/background-app-jobs.md).

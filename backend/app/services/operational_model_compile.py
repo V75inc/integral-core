@@ -855,6 +855,9 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
 
     Exactly one of the two shapes is required. ``layout`` (e.g. ``wide``)
     remains optional on both.
+
+    Component contributions from newer runtimes can declare ``fallback_view``.
+    This runtime compiles that saved view instead of executing the component.
     """
     items = _as_list(raw, where=where)
     if not items:
@@ -873,6 +876,11 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
         ext_key = str(ed.get("extension_view_key") or "").strip()
         view_key = str(ed.get("view") or "").strip()
         view_type = str(ed.get("view_type") or "").strip()
+        # Stored manifests may have been activated by a component-capable
+        # runtime. Honor their explicit fallback without admitting executable
+        # UI here. Keep normal iframe/native exclusivity validation below.
+        if ed.get("component_key") and not view_key and not view_type:
+            view_key = str(ed.get("fallback_view") or "").strip()
         has_ext = bool(ext_key)
         has_native = bool(view_key or view_type)
         if has_ext and has_native:
