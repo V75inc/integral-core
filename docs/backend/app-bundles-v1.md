@@ -36,6 +36,14 @@ on restart. See `backend/tests/test_application_definitions.py` for both cases.
 
 States include installing, awaiting_settings, active, paused, uninstalled, and failed. Installation uses recorded compensation for partial steps; failed compensations must not prevent earlier cleanup. Signed setting-completion tokens and abandonment cleanup protect paused installations.
 
+Install settings submissions validate the token and schema before reserving a
+durable work key. A legacy failed settings-validation task permits a corrected
+submission through a deterministic retry key; repeated identical submissions
+reuse that task. In-flight work, successful work and failures with uncertain
+effects retain their identity. Conflicting submissions return HTTP 409 rather
+than an unhandled work error. Workers still recheck token, state and validation
+before effects; a queued receipt does not confirm installation completion.
+
 Pause withdraws active behavior as required. Uninstall checks dependencies and references; a forced path is explicitly destructive and emits its own audit action. Upgrades consider schema, definitions, requirements, and instance customizations rather than blindly replacing all state.
 
 ## Scheduled workflows

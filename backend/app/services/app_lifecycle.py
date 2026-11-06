@@ -48,7 +48,7 @@ import logging
 import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-from app.api.errors import InsufficientPermissionsError
+from app.api.errors import InsufficientPermissionsError, ResourceConflictError
 from app.api.utils import export_node
 from app.exceptions import (
     AppInstallError,
@@ -270,26 +270,77 @@ async def enqueue_finalize_install_work(
     *, app_node: App, actor_id: str, install_token: str, settings: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Queue the settings-gated final installation transition."""
-    from app.agentive.services.work_items import enqueue_work_item
+    from app.agentive.services.work_items import enqueue_work_item, work_item_object_id
+    from app.agentive.work_models import WorkItem
+    from app.schemas.agentive.work import WorkError
 
-    work = await enqueue_work_item(
-        kind="app_lifecycle",
-        origin="app_lifecycle",
-        principal_id=actor_id,
-        workspace_id=app_node.workspace_id,
-        app_id=app_node.id,
-        definition_id=app_node.active_definition_id or None,
-        idempotency_key=f"finalize_install:{app_node.id}:{app_node.active_definition_revision}",
-        input_payload={
-            "action": "finalize_install",
-            "install_token": install_token,
-            "settings": dict(settings),
-        },
-        plan={"action": "finalize_install", "app_id": app_node.id},
-        remaining_obligations=[
-            {"kind": "lifecycle_completion", "action": "finalize_install"}
-        ],
+    # Reject invalid submissions before reserving the revision's durable key.
+    # The worker repeats these checks against current state before any effects.
+    verify_install_token(install_token, expected_app_id=app_node.id)
+    effective_settings = _apply_schema_defaults(
+        settings, app_node.settings_schema or {}
     )
+    _validate_settings_against_schema(
+        effective_settings, app_node.settings_schema or {}
+    )
+
+    key = f"finalize_install:{app_node.id}:{app_node.active_definition_revision}"
+    for _ in range(32):
+        previous = await WorkItem.get(
+            work_item_object_id(
+                kind="app_lifecycle",
+                origin="app_lifecycle",
+                principal_id=actor_id,
+                workspace_id=app_node.workspace_id,
+                idempotency_key=key,
+            )
+        )
+        failure = (previous.failure or {}) if previous is not None else {}
+        # Older workers reserved the key before validating settings. Only a
+        # confirmed pre-effect settings rejection permits a corrected submission.
+        # In-flight work and failures with uncertain effects retain their key.
+        if not (
+            previous is not None
+            and app_node.lifecycle_state == "awaiting_settings"
+            and previous.status == "failed"
+            and previous.app_id == app_node.id
+            and previous.definition_id == (app_node.active_definition_id or "")
+            and failure.get("code") == "operational_model_validation_error"
+            and str(failure.get("message") or "").startswith(
+                "Settings failed schema validation:"
+            )
+        ):
+            break
+        key = f"{key}:retry:{previous.work_item_id}"
+
+    try:
+        work = await enqueue_work_item(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id=actor_id,
+            workspace_id=app_node.workspace_id,
+            app_id=app_node.id,
+            definition_id=app_node.active_definition_id or None,
+            idempotency_key=key,
+            input_payload={
+                "action": "finalize_install",
+                "install_token": install_token,
+                "settings": dict(settings),
+            },
+            plan={"action": "finalize_install", "app_id": app_node.id},
+            remaining_obligations=[
+                {"kind": "lifecycle_completion", "action": "finalize_install"}
+            ],
+        )
+    except WorkError as exc:
+        if exc.code != "work.idempotency_conflict":
+            raise
+        raise ResourceConflictError(
+            message=(
+                "An install settings submission already exists for this App revision. "
+                "Check its Background Task before submitting different settings."
+            ),
+        ) from exc
     return {"status": work.status, "work_item_id": work.work_item_id}
 
 
