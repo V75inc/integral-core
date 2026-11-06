@@ -301,3 +301,21 @@ Pages on 9106 (single worker, stable runs): app page title 0.8-0.9 s, idle 4.0-4
 | `AppDetailPage` shows on its own data; secondary loads and the owner `action-bindings` check follow | the page waited for six requests (three secondary) before rendering; the owner check (913 KB definition loaded and fingerprinted per call) was 19% of server CPU and ran right behind the tracks | `GET /apps/{id}/tracks` response lands at about 1.2 s (was about 2.2 s); network idle 3.4-4.0 s (was 4.0-4.9 s) |
 
 Behaviour change to be aware of: on the app page the "link a track" picker list, track templates and the attached operational model now fill in a moment after the tracks appear, and the owner-only function-settings entry appears after them.
+
+## Cross-app verification (local code 23376052 against baseline 9edbd3ce)
+
+Method: the 9106 API was switched between the original code and the current local code and the same sweep run against the same database, as three users (the owner and two restricted bench users). Covered: every workspace the owner can see (12 apps, 154 tracks; the restricted users see 2 apps / 66 tracks and nothing), `/apps`, `/workspaces`, all `/tracks` list variants (counts, nav-hidden, lean), per app `/apps/{id}`, `/tracks`, `/collaborators`, `/operational-model`, `/track-templates`, `/dashboards`, `/home`, `/action-bindings`, `/extensions/{id}/views`, per track `/tracks/{id}`, `/detail`, `/views`, `/collaborators`, `/operational-model`, `/entry-types`, `/entries`, and every declared App query of every app (105 queries; 70 returned data from Payroll, Human Resources, Document Templates and others, 35 returned the same 400 on both because they need parameters).
+
+Result: 1,706 + 119 compared responses, all 200/200 or identical errors; the only differences are volatile (signed attachment URLs, handshake tokens, query `freshness` stamps) and the intended removal of `entry_count` from lists that ask for `include_entry_counts=false`. Not covered: the 19 apps installed in workspaces this user cannot see, write paths (entry create, pay-run finalize), and browser behaviour of the Documents screens.
+
+### App wiring findings (static analysis of all 27 bundles, plus the live workspace)
+
+| Finding | Evidence | Impact |
+|---|---|---|
+| Finance depends on an app named `payroll` that does not exist | `finance` `requires_apps: payroll` (optional); bundles are `payroll-guyana`, `payroll-trinidad`, ... | "journal summaries can link a paid pay_run" can never resolve for any country |
+| Payroll Guyana calls Time & Attendance's exported tools without declaring the dependency | `tools/import_timesheets.py` uses `ta_approved_hours`, `ta_mark_in_payroll`; `requires_apps` has no `time-attendance`; Time & Attendance hard-requires Human Resources | install/upgrade checks do not know about the link |
+| Payroll to Documents filing swallows every error | `_shared/house_document.py` logs a warning and returns | a rejected or misrouted payslip is invisible to the user |
+| Deleting a payslip or pay run leaves its filed document | workspace `...85b8ff`: 273 payslips all have a document, but 30 documents (10 folders) point to payslips that no longer exist and none was replaced; 4 folder+file pairs exist more than once | stale and duplicate documents accumulate |
+| Leftover "uninstalled" Time & Attendance records | two uninstalled `WorkspaceApp` records beside the active one | clutter; may confuse lookups by slug |
+
+Checked and fine: every cross-app tool call to Documents and Document Templates is declared and exported; all 18 template keys the apps reference are planted by seeds; no declared minimum version is above an actual bundle version.
