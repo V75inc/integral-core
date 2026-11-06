@@ -1303,7 +1303,7 @@ export function EntryDetail({
       {entry.created_at ? (
         <span className="tabular-nums">{formatRelativeTime(entry.created_at)}</span>
       ) : null}
-      {entry.app?.id ? (
+      {entry.app?.id && (entry.app.name || 'App') !== entry.track?.title ? (
         <Link
           to={appPath(entry.app.id)}
           className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-fast"
@@ -1313,6 +1313,10 @@ export function EntryDetail({
         </Link>
       ) : null}
       {entry.track?.id ? (
+        <>
+          {entry.app?.id && (entry.app.name || 'App') !== entry.track.title ? (
+            <span aria-hidden className="text-[var(--text-subtle)]">›</span>
+          ) : null}
         <Link
           to={`/tracks/${entry.track.id}`}
           className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-fast"
@@ -1323,6 +1327,7 @@ export function EntryDetail({
         >
           {entry.track.title}
         </Link>
+        </>
       ) : null}
       <WatchersControl
         entryId={entry.id}

@@ -728,12 +728,19 @@ export function TrackDetailPage() {
 
   useOpenEntryModalRefetch(openModalEntryId, handleOpenEntryRefetched);
 
+  // Latest entry types for the deep-link effect (read when it runs, not a trigger).
+  const entryTypesRef = useRef<unknown[] | undefined>(undefined);
+  entryTypesRef.current = entryTypesQuery.data as unknown[] | undefined;
+  const entryTypesReady = entryTypesQuery.data !== undefined;
+
   useEffect(() => {
     if (!id) return;
     if (!entryIdFromQuery) {
       setEntryModal(null);
       return;
     }
+    // Wait for the entry types so a page-type entry is not opened as a dialog first.
+    if (!entryTypesReady) return;
     // openEntryModal (card click) already set the modal — avoid a refetch
     // that may navigate away when list cache track_id differs from URL id.
     if (openModalEntryIdRef.current === entryIdFromQuery) {
@@ -752,6 +759,17 @@ export function TrackDetailPage() {
             `/tracks/${entry.track_id}?entry=${encodeURIComponent(entryIdFromQuery)}`,
             { replace: true }
           );
+          return;
+        }
+        // A link to an entry whose type opens as a page (a document, a file)
+        // goes to that page, the same as clicking it, instead of the generic
+        // record dialog without its file.
+        const types = (entryTypesRef.current ?? []) as EntryTypeNode[];
+        const type = types.find(
+          et => et.id === (entry as Entry & { type_id?: string }).type_id || entryTypeMatchesSlug(et.name || '', entry.type || '')
+        );
+        if (type?.form_schema?.open_as_page) {
+          navigate(entryPagePath(entry.id), { replace: true });
           return;
         }
         setEntryModal({ entry });
@@ -775,6 +793,7 @@ export function TrackDetailPage() {
   }, [
     id,
     entryIdFromQuery,
+    entryTypesReady,
     navigate,
     setSearchParams,
     showToast,

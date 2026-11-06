@@ -13,8 +13,19 @@ const getEntry = vi.fn();
 
 vi.mock('../../api', async importOriginal => {
   const actual = await importOriginal<typeof import('../../api')>();
-  return { ...actual, entriesApi: { ...actual.entriesApi, get: (id: string) => getEntry(id) } };
+  return {
+    ...actual,
+    entriesApi: { ...actual.entriesApi, get: (id: string) => getEntry(id) },
+    tracksApi: {
+      ...actual.tracksApi,
+      get: async (id: string) => ({ id, title: 'Documents', workspace_id: 'n.Workspace.one' }),
+    },
+  };
 });
+
+// The page reads the entry's track for its workspace and breadcrumb trail.
+vi.mock('../../context/CrumbsContext', () => ({ useSetCrumbs: () => {} }));
+vi.mock('../../hooks/useWorkspaceCrumbPrefix', () => ({ useWorkspaceCrumbPrefix: () => [] }));
 
 vi.mock('../../components/entries/EntryDetail', () => ({
   EntryDetail: () => <div data-testid="entry-detail" />,

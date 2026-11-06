@@ -28,12 +28,13 @@ describe('prefersFilePreview', () => {
 });
 
 describe('EntryCanvasPane tabs', () => {
-  it('opens a generated file on the preview with plain tab names, preview first', () => {
+  it('opens a generated file on the preview with no text tab to write in', () => {
     render(<EntryCanvasPane entry={entry({ custom_fields: { edit_source: 'file' } })} attachments={[file]} editable canEdit />);
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map(t => t.textContent)).toEqual(['Preview', 'Edit text']);
+    expect(tabs.map(t => t.textContent)).toEqual(['Preview']);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('file-pane')).toBeTruthy();
+    expect(screen.queryByTestId('text-editor')).toBeNull();
   });
   it('opens a text document on the text editor first', () => {
     render(<EntryCanvasPane entry={entry({ body: 'Dear X', custom_fields: { edit_source: 'text' } })} attachments={[file]} editable canEdit />);
@@ -41,16 +42,22 @@ describe('EntryCanvasPane tabs', () => {
     expect(tabs.map(t => t.textContent)).toEqual(['Edit text', 'Preview']);
     expect(screen.getByTestId('text-editor')).toBeTruthy();
   });
-  it('explains why there is nothing to edit for a file with no text', () => {
-    render(<EntryCanvasPane entry={entry({ custom_fields: { edit_source: 'file' } })} attachments={[file]} editable canEdit />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Edit text' }));
-    expect(screen.getByTestId('entry-canvas-no-text')).toBeTruthy();
-    expect(screen.queryByTestId('text-editor')).toBeNull();
+  it('never says a generated file is out of date when only its details changed', () => {
+    render(
+      <EntryCanvasPane
+        entry={entry({ updated_at: '2027-06-01T10:00:00Z', custom_fields: { edit_source: 'file' } })}
+        attachments={[file]}
+        editable
+        canEdit
+      />
+    );
+    expect(screen.queryByTestId('entry-canvas-stale')).toBeNull();
   });
-  it('opens a spreadsheet file in the grid editor on Edit text', () => {
+  it('opens a spreadsheet file in the grid editor on Edit', () => {
     const sheet = { id: 'a2', filename: 'filing.csv', source_type: 'upload', created_at: '2027-05-01T10:00:00Z', size: 10 } as never;
     render(<EntryCanvasPane entry={entry({ custom_fields: { edit_source: 'file' } })} attachments={[sheet]} editable canEdit />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Edit text' }));
+    expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['Preview', 'Edit']);
+    fireEvent.click(screen.getByRole('tab', { name: 'Edit' }));
     expect(screen.getByTestId('grid-editor')).toBeTruthy();
   });
 });

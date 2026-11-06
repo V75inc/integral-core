@@ -25,6 +25,19 @@ export function prefersFilePreview(entry: Entry, hasFile: boolean): boolean {
   return !String(entry.body || '').trim();
 }
 
+/** "6 Nov 2026, 16:15": one readable date and time, the same in every locale. */
+export function formatVersionDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+}
+
 /** The attachment id(s) a file field holds, whatever shape the value has. */
 function fileFieldIds(value: unknown): string[] {
   if (typeof value === 'string') return value ? [value] : [];
@@ -162,7 +175,7 @@ export function EntryCanvasPane({
                 <option key={a.id} value={a.id}>
                   {i === 0 ? 'Latest: ' : ''}
                   {a.filename || 'file'}
-                  {a.created_at ? ` (${new Date(a.created_at).toLocaleString()})` : ''}
+                  {a.created_at ? ` (${formatVersionDate(a.created_at)})` : ''}
                 </option>
               ))}
             </select>
@@ -203,9 +216,29 @@ export function EntryCanvasPane({
 
   if (!editable) return fileView;
 
-  // The file is out of date when the entry changed after it was made (a render
-  // updates the entry a moment after attaching, so allow for that).
+  // A file document (the file is the master, or there is no text) has nothing to
+  // write: no text tab, except a spreadsheet, whose tab is its grid editor.
+  const hasText = !!String(entry.body || '').trim();
+  const spreadsheet =
+    !!current && isSpreadsheetName(current.filename || '', current.mime_type || '');
+  const fileDocument = preferFile && !hasText;
+  const tabs: ReadonlyArray<'file' | 'document'> = fileDocument
+    ? spreadsheet
+      ? ['file', 'document']
+      : ['file']
+    : preferFile
+      ? ['file', 'document']
+      : ['document', 'file'];
+  const activeTab = tabs.includes(tab) ? tab : tabs[0];
+  const tabLabel = (key: 'file' | 'document') =>
+    key === 'file' ? 'Preview' : fileDocument ? 'Edit' : 'Edit text';
+  // Only a document built from its text can fall behind its file. The file is out
+  // of date when the text changed after the file was made (a render updates the
+  // entry a moment after attaching, so allow for that). Metadata updates on a file
+  // document (filing details, status) never make its file stale.
   const stale =
+    !preferFile &&
+    hasText &&
     !!current?.created_at &&
     !!entry.updated_at &&
     Date.parse(entry.updated_at) - Date.parse(current.created_at) > 10000;
@@ -213,22 +246,22 @@ export function EntryCanvasPane({
   return (
     <Surface className="flex h-full min-h-[420px] flex-col overflow-hidden">
       <div role="tablist" className="flex items-center border-b border-[var(--panel-border)] px-1">
-        {(preferFile ? (['file', 'document'] as const) : (['document', 'file'] as const)).map(key => (
+        {tabs.map(key => (
           <button
             key={key}
             type="button"
             role="tab"
-            aria-selected={tab === key}
-            className={`border-b-2 px-3 py-1.5 ${tab === key ? 'border-[var(--brand-accent)]' : 'border-transparent'}`}
+            aria-selected={activeTab === key}
+            className={`border-b-2 px-3 py-1.5 ${activeTab === key ? 'border-[var(--brand-accent)]' : 'border-transparent'}`}
             onClick={() => choose(key)}
           >
-            <Text as="span" variant="body-sm" tone={tab === key ? 'default' : 'muted'} weight="medium">
-              {key === 'file' ? 'Preview' : 'Edit text'}
+            <Text as="span" variant="body-sm" tone={activeTab === key ? 'default' : 'muted'} weight="medium">
+              {tabLabel(key)}
               {key === 'file' && files.length > 1 ? ` (${files.length})` : ''}
             </Text>
           </button>
         ))}
-        {tab === 'file' && stale ? (
+        {activeTab === 'file' && stale ? (
           <span
             data-testid="entry-canvas-stale"
             className="ml-auto pr-3"
@@ -238,9 +271,9 @@ export function EntryCanvasPane({
         ) : null}
       </div>
       <div className="min-h-0 flex-1">
-        {tab === 'document' && preferFile && !String(entry.body || '').trim() && current && isSpreadsheetName(current.filename || '', current.mime_type || '') ? (
+        {activeTab === 'document' && preferFile && !String(entry.body || '').trim() && current && isSpreadsheetName(current.filename || '', current.mime_type || '') ? (
           <SpreadsheetEditor key={current.id} entry={entry} attachment={current} canEdit={canEdit} onSaved={(e, f) => onFileSaved?.(e, f)} />
-        ) : tab === 'document' && preferFile && !String(entry.body || '').trim() ? (
+        ) : activeTab === 'document' && preferFile && !String(entry.body || '').trim() ? (
           <div data-testid="entry-canvas-no-text" className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <Text as="div" variant="body" weight="medium">There is no text to edit</Text>
             <Text as="div" variant="body-sm" tone="muted" className="max-w-md">
@@ -253,7 +286,7 @@ export function EntryCanvasPane({
               </Button>
             ) : null}
           </div>
-        ) : tab === 'document' ? (
+        ) : activeTab === 'document' ? (
           <EntryDocumentEditor
             entry={entry}
             canEdit={canEdit}
