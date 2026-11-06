@@ -775,6 +775,18 @@
   box-sizing: border-box;
 }
 
+.doc-page--paged {
+  /* The pagination extension draws the page boxes, margins and gaps itself. */
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  min-height: 0;
+}
+
+.doc-page--paged .doc-template-prose {
+  min-height: 0;
+}
+
 .doc-template-prose {
   outline: none;
   font-family: Arial, Helvetica, sans-serif;
