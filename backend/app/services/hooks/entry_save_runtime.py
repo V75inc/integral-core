@@ -101,7 +101,11 @@ async def run_entry_before_write_hooks(
     Bindings match on ``phase: before_write`` in their ``match`` block.
     Returns merged ``custom_fields`` (tools may return an updated dict).
     """
-    from app.services.hooks.registry import ToolContext, get_workspace_tools
+    from app.services.hooks.registry import (
+        ToolContext,
+        get_workspace_tools,
+        save_hook_suppressed,
+    )
     from app.services.hooks.resolver import find_matching_bindings
     from app.services.hooks.tool_dispatch import run_tool
 
@@ -142,6 +146,8 @@ async def run_entry_before_write_hooks(
                 workspace_id,
             )
             continue
+        if save_hook_suppressed(workspace_id, spec):
+            continue
         result = await run_tool(spec, payload, ctx)
         if isinstance(result, dict):
             patch = result.get("custom_fields")
@@ -172,6 +178,7 @@ async def run_entry_save_hooks(
         ToolContext,
         get_workspace_hooks,
         get_workspace_tools,
+        save_hook_suppressed,
     )
     from app.services.hooks.resolver import find_matching_bindings
     from app.services.hooks.tool_dispatch import run_tool
@@ -229,6 +236,8 @@ async def run_entry_save_hooks(
                 tool_key,
                 workspace_id,
             )
+            continue
+        if save_hook_suppressed(workspace_id, spec):
             continue
         identity = (asyncio.current_task(), workspace_id, str(entry.id), tool_key)
         active = _active_save_hooks.get()

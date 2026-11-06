@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from app.utils.time import utc_now_iso
 
@@ -43,6 +44,31 @@ HOOK_POINTS: frozenset = frozenset(
 #     ordered by registration order (bundle install order).
 _TOOLS: Dict[str, Dict[str, Dict[str, Any]]] = {}
 _HOOKS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+
+# Entry-save hook tools an App has asked to skip for the rest of the current
+# task, as (workspace_id, bundle_slug, tool_key). Set only through
+# ``ToolContext.suppress_own_save_hooks``, which admits the calling App's own
+# tools and nothing else. Context-local, so it follows the batch into the tasks
+# it spawns and never reaches another request.
+_SUPPRESSED_SAVE_HOOKS: ContextVar[FrozenSet[Tuple[str, str, str]]] = ContextVar(
+    "integral_suppressed_save_hooks", default=frozenset()
+)
+
+
+def save_hook_suppressed(workspace_id: str, spec: Dict[str, Any]) -> bool:
+    """True when the App owning ``spec`` asked to skip this save hook here.
+
+    The bundle is read from the registered spec, so an App can only ever
+    silence its own tools; another App's hooks on the same records still run.
+    """
+    held = _SUPPRESSED_SAVE_HOOKS.get()
+    if not held:
+        return False
+    return (
+        str(workspace_id or ""),
+        str(spec.get("_bundle_slug") or ""),
+        str(spec.get("key") or ""),
+    ) in held
 
 
 def register_workspace_tools(
@@ -1273,6 +1299,40 @@ class ToolContext:
             },
         )
         return await run_tool(spec, dict(payload or {}), callee_ctx)
+
+    def suppress_own_save_hooks(self, tool_keys: Iterable[str]) -> Token:
+        """Skip some of this App's own entry-save hooks until released.
+
+        For a batch that already does what those hooks would do (for example
+        a filing built in one pass, whose per-line hooks would only step
+        aside). Skipped hooks are not dispatched at all, so nothing runs and
+        nothing is audited for them. Only the calling App's own tools may be
+        named; other Apps' hooks keep firing. Pass the returned token to
+        ``release_save_hooks`` in a ``finally`` block.
+        """
+        caller = (self.bundle_slug or "").strip()
+        if not caller:
+            raise PermissionError(
+                "suppress_own_save_hooks: only a running app tool may do this"
+            )
+        if getattr(self, "read_only", False):
+            raise PermissionError("suppress_own_save_hooks: read-only context")
+        tools = get_workspace_tools(self.workspace_id)
+        keys = {str(k or "").strip() for k in tool_keys or ()}
+        keys.discard("")
+        for key in keys:
+            spec = tools.get(key)
+            if spec is None or str(spec.get("_bundle_slug") or "") != caller:
+                raise PermissionError(
+                    f"suppress_own_save_hooks: {key!r} is not a tool of this App "
+                    "in this workspace"
+                )
+        added = {(self.workspace_id, caller, key) for key in keys}
+        return _SUPPRESSED_SAVE_HOOKS.set(_SUPPRESSED_SAVE_HOOKS.get() | added)
+
+    def release_save_hooks(self, token: Token) -> None:
+        """Undo ``suppress_own_save_hooks`` (restores what was skipped before)."""
+        _SUPPRESSED_SAVE_HOOKS.reset(token)
 
     async def enqueue_job(
         self,
