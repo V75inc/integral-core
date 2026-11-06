@@ -1228,10 +1228,24 @@ async def merge_library_manifest_into_operational_model(
                     track_id=str(track.id),
                 )
             )
+        # What the manifest says about this view's visibility is remembered
+        # on the view (``_manifest_hidden``). A library update changes the
+        # view's ``hidden`` only when that manifest value changes, so an App
+        # can retire a tab (or bring one back) while a person's own show or
+        # hide choice survives later updates. A view without the marker is
+        # treated as previously shown by the manifest.
+        normalized_config["_manifest_hidden"] = raw_hidden
         if existing_view is not None:
             ev = existing_view
             normalized_config = keep_person_tab_order(ev.config, normalized_config)
             dirty = False
+            was_manifest_hidden = bool((ev.config or {}).get("_manifest_hidden", False))
+            if (
+                raw_hidden != was_manifest_hidden
+                and bool(getattr(ev, "hidden", False)) != raw_hidden
+            ):
+                ev.hidden = raw_hidden
+                dirty = True
             if str(ev.name or "") != str(vname):
                 ev.name = str(vname)
                 dirty = True

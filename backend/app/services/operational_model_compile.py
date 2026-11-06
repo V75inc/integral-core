@@ -4842,6 +4842,9 @@ def normalize_view_config(
     mk = cfg.get("_manifest_view_key")
     if mk is not None and str(mk).strip():
         normalized["_manifest_view_key"] = str(mk).strip()
+    # What the App's manifest last said about hiding this view (see the merge).
+    if isinstance(cfg.get("_manifest_hidden"), bool):
+        normalized["_manifest_hidden"] = cfg["_manifest_hidden"]
     ct = cfg.get("card_template")
     if ct is not None:
         normalized["card_template"] = _as_dict(ct, where="view.config.card_template")
