@@ -108,3 +108,55 @@ def test_title_from_fields():
         where="test",
     )
     assert out[0]["title_from_fields"] == ["doc_number", "party_name"]
+
+
+def test_component_contribution_uses_declared_saved_view_fallback():
+    contribution = {
+        "placement": "entry_compose",
+        "component_key": "document_composer",
+        "fallback_view": "document_view",
+        "layout": "wide",
+        "owns_form": True,
+        "title_from_fields": ["document_number"],
+    }
+    out = _normalize_ui_contributions([contribution], where="test")
+    assert out == [
+        {
+            "placement": "entry_compose",
+            "view": "document_view",
+            "layout": "wide",
+            "owns_form": True,
+            "title_from_fields": ["document_number"],
+        }
+    ]
+    assert "view" not in contribution
+
+
+@pytest.mark.parametrize("fallback", [None, "", "   "])
+def test_component_without_usable_fallback_is_rejected(fallback):
+    with pytest.raises(BadRequestError, match="requires extension_view_key or"):
+        _normalize_ui_contributions(
+            [
+                {
+                    "placement": "entry_compose",
+                    "component_key": "composer",
+                    "fallback_view": fallback,
+                }
+            ],
+            where="test",
+        )
+
+
+def test_component_fallback_preserves_iframe_exclusivity():
+    with pytest.raises(BadRequestError, match="not both"):
+        _normalize_ui_contributions(
+            [
+                {
+                    "placement": "entry_compose",
+                    "component_key": "composer",
+                    "fallback_view": "document_view",
+                    "extension_view_key": "iframe",
+                }
+            ],
+            where="test",
+        )
