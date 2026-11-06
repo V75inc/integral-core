@@ -16,6 +16,8 @@ import type {
 export interface TrackDetailMainColumnProps {
   isPagesView: boolean;
   rightRailOpen: boolean;
+  /** The App's ``defaults.toolbar.show_search_and_filters``. False hides the search box and Filters. Default true. */
+  showSearchAndFilters?: boolean;
   filterType: string;
   setFilterType: (v: string) => void;
   entryTypeSlugs: string[];
@@ -74,6 +76,7 @@ export interface TrackDetailMainColumnProps {
 export function TrackDetailMainColumn({
   isPagesView,
   rightRailOpen,
+  showSearchAndFilters = true,
   filterType,
   setFilterType,
   entryTypeSlugs,
@@ -137,6 +140,7 @@ export function TrackDetailMainColumn({
       {!isPagesView ? (
         <>
           <FilterActionRow>
+            {showSearchAndFilters ? (
             <div className="w-full max-w-xl min-w-[min(100%,18rem)]">
               <TrackFilterStrip
                 filterType={filterType}
@@ -155,6 +159,9 @@ export function TrackDetailMainColumn({
                 retrievalDegraded={retrievalDegraded}
               />
             </div>
+            ) : (
+              <div className="min-w-0 flex-1" />
+            )}
             <div className="flex items-center gap-2 shrink-0">
               {canCreateEntry ? (
                 <EntryComposer

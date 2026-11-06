@@ -625,6 +625,16 @@ export function TrackDetailPage() {
   // including extensions sharing one renderer and entry-type slice.
   // How the App wants this track's tabs (defaults.tabs in its manifest): their order, and whether a lone tab shows a strip.
   const appTabsConfig = trackMetaQuery.data?.track?.operational_model_defaults?.tabs;
+  // The App can hide the search box and Filters (defaults.toolbar). A hidden control must not keep
+  // filtering: clear anything typed on a previous track that stays mounted while the route changes.
+  const showSearchAndFilters =
+    trackMetaQuery.data?.track?.operational_model_defaults?.toolbar?.show_search_and_filters !== false;
+  useEffect(() => {
+    if (showSearchAndFilters) return;
+    setTrackSearch('');
+    setFilterType('');
+    setFilterTags([]);
+  }, [showSearchAndFilters, id]);
   const dedupedTabViews = useMemo(
     () => savedViewTabs(savedViews, appTabsConfig?.order), [savedViews, appTabsConfig?.order],
   );
@@ -1881,6 +1891,7 @@ export function TrackDetailPage() {
         <TrackDetailMainColumn
           isPagesView={isPagesView}
           rightRailOpen={rightRailOpen}
+          showSearchAndFilters={showSearchAndFilters}
           filterType={filterType}
           setFilterType={setFilterType}
           entryTypeSlugs={entryTypeSlugs}

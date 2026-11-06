@@ -29,6 +29,24 @@ tracks:
 - `show_single_tab`: `false` hides the tab strip when only one view is visible. Default `true` (a lone tab keeps its
   strip, as every track did before).
 
+## Hiding the search box and Filters
+
+A settings-style track (for example one whose only view is a Settings hub) has nothing to search or filter. An App can
+hide the track's search box and Filters button:
+
+```yaml
+tracks:
+- key: settings
+  defaults:
+    toolbar:
+      show_search_and_filters: false   # optional, default true
+```
+
+- `show_search_and_filters`: `false` hides the search box and Filters for every view on that track. The Add button
+  stays. Default `true` (shown, as before this option). Unknown option names are refused when the manifest compiles.
+- It is a track option, next to `tabs`, not a view option: the toolbar belongs to the track page, and a track that
+  mixes a settings view with a list keeps the toolbar unless the App turns it off.
+
 People who can administer a track can drag tabs to reorder them. That writes `tab_order` for every tab the first time,
 then only for the tabs that move.
 
