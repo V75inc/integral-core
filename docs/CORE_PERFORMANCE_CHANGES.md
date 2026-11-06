@@ -292,3 +292,12 @@ Found, NOT changed (security-sensitive, needs review): every authenticated reque
 | `materialize_entry_types_from_tier` reads the Track's EntryTypes once and matches in memory | it issued one or two `EntryType.find` per spec (12 specs), sequentially, on every read of a Track's entry types | `GET /entry-types?track_id=` 0.11 to 0.075 s; returns identical entry types for all 412 Tracks; full sweep 4.42 to 2.73 s |
 
 Pages on 9106 (single worker, stable runs): app page title 0.8-0.9 s, idle 4.0-4.9 s; track page idle 2.3 s warm and 3.2 s with cold server caches.
+
+### Local round, part 3 (not yet pushed)
+
+| Change | Evidence | Effect |
+|---|---|---|
+| Cheaper method matching in the jvspatial auth resolver; `/api/meta/build` caches the package version | py-spy under the replayed app-page requests (login excluded): `_endpoint_info_matches_method` about 4% self time (a set per endpoint per request); `importlib.metadata.version` on every `/meta/build` | small, CPU only; tests against the library over 7 method shapes x 8 request methods |
+| `AppDetailPage` shows on its own data; secondary loads and the owner `action-bindings` check follow | the page waited for six requests (three secondary) before rendering; the owner check (913 KB definition loaded and fingerprinted per call) was 19% of server CPU and ran right behind the tracks | `GET /apps/{id}/tracks` response lands at about 1.2 s (was about 2.2 s); network idle 3.4-4.0 s (was 4.0-4.9 s) |
+
+Behaviour change to be aware of: on the app page the "link a track" picker list, track templates and the attached operational model now fill in a moment after the tracks appear, and the owner-only function-settings entry appears after them.
