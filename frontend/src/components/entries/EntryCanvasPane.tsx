@@ -10,6 +10,8 @@ import { Button } from '../ui/Button';
 import { Surface, Text } from '../../ui';
 import { AttachmentPane } from './attachments/AttachmentPane';
 import { EntryDocumentEditor } from './EntryDocumentEditor';
+import { SpreadsheetEditor } from './SpreadsheetEditor';
+import { isSpreadsheetName } from '../../utils/spreadsheetFile';
 
 /**
  * Should an entry with a file open on the file preview instead of the text editor?
@@ -49,6 +51,7 @@ export function EntryCanvasPane({
   editable = false,
   canEdit = false,
   onBodySaved,
+  onFileSaved,
 }: {
   entry: Entry;
   attachments: Attachment[];
@@ -57,6 +60,8 @@ export function EntryCanvasPane({
   editable?: boolean;
   canEdit?: boolean;
   onBodySaved?(entry: Entry): void;
+  /** A file was edited in the app and saved as a new version. */
+  onFileSaved?(entry: Entry, file: Attachment): void;
 }) {
   const { showToast } = useToast();
   const [pickedId, setPickedId] = useState<string | null>(null);
@@ -233,7 +238,9 @@ export function EntryCanvasPane({
         ) : null}
       </div>
       <div className="min-h-0 flex-1">
-        {tab === 'document' && preferFile && !String(entry.body || '').trim() ? (
+        {tab === 'document' && preferFile && !String(entry.body || '').trim() && current && isSpreadsheetName(current.filename || '', current.mime_type || '') ? (
+          <SpreadsheetEditor key={current.id} entry={entry} attachment={current} canEdit={canEdit} onSaved={(e, f) => onFileSaved?.(e, f)} />
+        ) : tab === 'document' && preferFile && !String(entry.body || '').trim() ? (
           <div data-testid="entry-canvas-no-text" className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <Text as="div" variant="body" weight="medium">There is no text to edit</Text>
             <Text as="div" variant="body-sm" tone="muted" className="max-w-md">

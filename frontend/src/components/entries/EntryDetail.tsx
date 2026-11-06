@@ -1799,6 +1799,11 @@ export function EntryDetail({
                   setEntry(updated);
                   onUpdate?.(updated);
                 }}
+                onFileSaved={(updated, file) => {
+                  setEntry(updated);
+                  setAttachments(prev => [file, ...prev.filter(a => a.id !== file.id)]);
+                  onUpdate?.(updated);
+                }}
               />
             ),
           }
