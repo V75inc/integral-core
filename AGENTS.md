@@ -676,10 +676,8 @@ docker-compose up  # builds backend from Dockerfile, runs API on :4000
 - **jvspatial**: https://github.com/TrueSelph/jvspatial
 
 
-## Workspace foundation coordination
+## Optional local workspace reference
 
-Before substantial persistence, query, transaction, auth, projection or framework changes, read the shared [foundation map](../docs/JVSPATIAL_FOUNDATION.md), [architecture](../docs/ARCHITECTURE.md), [contracts](../docs/API_CONTRACTS.md) and [development guidelines](../docs/DEVELOPMENT_GUIDELINES.md). The sibling library source is inspectable, but this repository currently pins published `jvspatial==0.2.4`; adding its checkout does not alter import resolution.
+When this repository is part of a local multi-repository workspace and the files exist, [architecture](../docs/ARCHITECTURE.md), [foundation map](../docs/JVSPATIAL_FOUNDATION.md) and [contracts](../docs/API_CONTRACTS.md) provide additional source-navigation context. These documents describe one developer's setup; they do not require sibling repositories, directory names, branches, dependency overrides, tools or deployment choices in other checkouts.
 
-- Keep generic library behavior in jvspatial, application scope/policy in Core and domain behavior in Business. Trace direct Business framework imports as well as App context consumers.
-- Verify candidate library source/artifact selection before claiming integration coverage; preserve lock/pin changes as an explicit coordinated upgrade. Exercise applicable library regressions, Core-only/contract/PostgreSQL lanes and affected Business behavior. Preserve transaction cache isolation, current workspace authority and incomplete-projection semantics.
-- Update affected shared and owning docs whenever foundation contracts change; implementation takes precedence. Report discrepancies and private-adapter coupling. Follow the user-authorized root checkout policy, preserve other changes and leave work uncommitted unless requested.
+Use this repository's own configuration and instructions as the baseline. Verify actual dependency artifacts and assess affected consumers when changing shared contracts. If another consumer checkout is unavailable, report the validation limit; its absence alone does not block unrelated work. Local workflow exceptions apply only when explicitly authorized for the current workspace.
