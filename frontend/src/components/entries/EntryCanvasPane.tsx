@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileText } from 'lucide-react';
 
 import { attachmentsApi } from '../../api/attachments';
@@ -10,6 +10,18 @@ import { Button } from '../ui/Button';
 import { Surface, Text } from '../../ui';
 import { AttachmentPane } from './attachments/AttachmentPane';
 import { EntryDocumentEditor } from './EntryDocumentEditor';
+
+/**
+ * Should an entry with a file open on the file preview instead of the text editor?
+ * Yes when a file exists and either the file is the master copy (``edit_source`` is ``file``)
+ * or the entry has no text body to edit (a generated payslip, an uploaded PDF).
+ */
+export function prefersFilePreview(entry: Entry, hasFile: boolean): boolean {
+  if (!hasFile) return false;
+  const fields = (entry.custom_fields || {}) as Record<string, unknown>;
+  if (String(fields.edit_source || '').toLowerCase() === 'file') return true;
+  return !String(entry.body || '').trim();
+}
 
 /** The attachment id(s) a file field holds, whatever shape the value has. */
 function fileFieldIds(value: unknown): string[] {
@@ -49,6 +61,13 @@ export function EntryCanvasPane({
   const { showToast } = useToast();
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [tab, setTab] = useState<'document' | 'file'>(editable ? 'document' : 'file');
+  // Until the person picks a tab themselves, open on what they came for: the file when the
+  // file is the master copy or there is no text to edit, the text editor otherwise.
+  const pickedTab = useRef(false);
+  const choose = (next: 'document' | 'file') => {
+    pickedTab.current = true;
+    setTab(next);
+  };
 
   const files = useMemo(
     () =>
@@ -58,6 +77,11 @@ export function EntryCanvasPane({
         .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
     [attachments]
   );
+
+  const preferFile = prefersFilePreview(entry, files.length > 0);
+  useEffect(() => {
+    if (editable && !pickedTab.current) setTab(preferFile ? 'file' : 'document');
+  }, [editable, preferFile]);
 
   const current = useMemo(() => {
     const picked = pickedId ? files.find(a => a.id === pickedId) : undefined;
@@ -184,24 +208,21 @@ export function EntryCanvasPane({
   return (
     <Surface className="flex h-full min-h-[420px] flex-col overflow-hidden">
       <div role="tablist" className="flex items-center border-b border-[var(--panel-border)] px-1">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'document'}
-          className={`border-b-2 px-3 py-1.5 ${tab === 'document' ? 'border-[var(--brand-accent)]' : 'border-transparent'}`}
-          onClick={() => setTab('document')}
-        >
-          <Text as="span" variant="body-sm" tone={tab === 'document' ? 'default' : 'muted'} weight="medium">Document</Text>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'file'}
-          className={`border-b-2 px-3 py-1.5 ${tab === 'file' ? 'border-[var(--brand-accent)]' : 'border-transparent'}`}
-          onClick={() => setTab('file')}
-        >
-          <Text as="span" variant="body-sm" tone={tab === 'file' ? 'default' : 'muted'} weight="medium">File{files.length ? ` (${files.length})` : ''}</Text>
-        </button>
+        {(preferFile ? (['file', 'document'] as const) : (['document', 'file'] as const)).map(key => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={`border-b-2 px-3 py-1.5 ${tab === key ? 'border-[var(--brand-accent)]' : 'border-transparent'}`}
+            onClick={() => choose(key)}
+          >
+            <Text as="span" variant="body-sm" tone={tab === key ? 'default' : 'muted'} weight="medium">
+              {key === 'file' ? 'Preview' : 'Edit text'}
+              {key === 'file' && files.length > 1 ? ` (${files.length})` : ''}
+            </Text>
+          </button>
+        ))}
         {tab === 'file' && stale ? (
           <span
             data-testid="entry-canvas-stale"
