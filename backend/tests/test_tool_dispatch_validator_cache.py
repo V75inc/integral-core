@@ -36,7 +36,9 @@ def test_the_schema_itself_is_checked_once_not_on_every_call(monkeypatch):
         checks.append(1)
         return original(cls, s, *a, **k)
 
-    monkeypatch.setattr(jsonschema.Draft202012Validator, "check_schema", classmethod(counting))
+    monkeypatch.setattr(
+        jsonschema.Draft202012Validator, "check_schema", classmethod(counting)
+    )
     for n in range(5):
         td.validate_input({"n": n}, schema)
     assert len(checks) == 1

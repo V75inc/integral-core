@@ -44,9 +44,13 @@ def _handlers(cls, registrar):
 def test_cached_registration_matches_original_for_plain_and_decorated_walkers():
     fast.reset_walker_handler_cache()
     for cls in (Walker, _W, _WithHandlers):
-        assert _handlers(cls, fast._register_event_handlers_cached) == _handlers(cls, _original)
+        assert _handlers(cls, fast._register_event_handlers_cached) == _handlers(
+            cls, _original
+        )
         # second construction uses the cache and still matches
-        assert _handlers(cls, fast._register_event_handlers_cached) == _handlers(cls, _original)
+        assert _handlers(cls, fast._register_event_handlers_cached) == _handlers(
+            cls, _original
+        )
 
 
 def test_instances_do_not_share_handler_lists():

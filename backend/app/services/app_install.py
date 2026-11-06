@@ -17,12 +17,12 @@ from app.exceptions import (
     BadRequestError,
     OperationalModelValidationError,
 )
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.edges import CONTAINS, HAS_ATTACHMENT, IS_OF_TYPE
 from app.models.nodes import App, Attachment, Entry, EntryType, OperationalModel, Track
 from app.services.entry_type_resolver import resolve_seed_entry_type_id
 from app.services.operational_model_runtime import slug_manifest_key
 from app.utils.time import utc_now_iso
-from app.middleware.permissions_cache import invalidates_job_facts
 
 logger = logging.getLogger(__name__)
 

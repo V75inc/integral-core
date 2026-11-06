@@ -6,10 +6,10 @@ Orchestration facade over split modules — see ``.planning/refactors/operationa
 from __future__ import annotations
 
 import asyncio
-import time
-import os
 import contextlib
 import logging
+import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -64,7 +64,6 @@ from app.services.operational_model_compile import (
 from app.services.operational_model_graph import (
     _resolve_or_create_template_operational_model,
 )
-
 
 # The seed index only supplies default entry-type keys for legacy Views. Building
 # it validates the whole library tree (a stat walk, about 0.25 s, holding a global

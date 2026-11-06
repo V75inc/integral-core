@@ -12,8 +12,14 @@ async def test_yields_while_an_app_job_runs_then_stops_yielding(monkeypatch):
 
     monkeypatch.setattr(indexing, "_app_job_running", running)
     assert await indexing._yield_to_app_job(0) is True
-    assert await indexing._yield_to_app_job(indexing._MAX_TICKS_YIELDED_TO_APP_JOBS - 1) is True
-    assert await indexing._yield_to_app_job(indexing._MAX_TICKS_YIELDED_TO_APP_JOBS) is False
+    assert (
+        await indexing._yield_to_app_job(indexing._MAX_TICKS_YIELDED_TO_APP_JOBS - 1)
+        is True
+    )
+    assert (
+        await indexing._yield_to_app_job(indexing._MAX_TICKS_YIELDED_TO_APP_JOBS)
+        is False
+    )
 
 
 @pytest.mark.asyncio

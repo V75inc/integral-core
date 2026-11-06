@@ -49,7 +49,9 @@ def path_matches_cached(pattern: str, path: str) -> bool:
     return rx.match(path) is not None
 
 
-def endpoint_info_matches_method_fast(endpoint_info: Any, request_method: Optional[str]) -> bool:
+def endpoint_info_matches_method_fast(
+    endpoint_info: Any, request_method: Optional[str]
+) -> bool:
     """Same answer as the library's, without building a set of methods per endpoint.
 
     The library builds ``{m.upper() for m in methods}`` for every registered endpoint on every

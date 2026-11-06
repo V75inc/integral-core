@@ -70,7 +70,9 @@ def match_existing_entry_types(
     ``name``. Same two lookups ``materialize_entry_types_from_tier`` used to run as queries.
     """
     existing = [
-        et for et in track_types if (getattr(et, "name_fold", None) or None) == name_fold
+        et
+        for et in track_types
+        if (getattr(et, "name_fold", None) or None) == name_fold
     ]
     if not existing:
         existing = [et for et in track_types if getattr(et, "name", None) == name]

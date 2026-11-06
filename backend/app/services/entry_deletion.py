@@ -53,9 +53,9 @@ from __future__ import annotations
 import logging
 from typing import List
 
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.edges import ANCHORS
 from app.models.nodes import Comment, Entry
-from app.middleware.permissions_cache import invalidates_job_facts
 
 logger = logging.getLogger(__name__)
 

@@ -1145,7 +1145,6 @@ async def _handle_app_tool(
         except InsufficientPermissionsError as exc:
             raise WorkError("work.policy_denied", exc.message) from exc
         from app.middleware.permissions_cache import app_job_fact_scope
-
         from app.services.app_operations.event_outbox import flush_deferred_job_events
 
         with app_job_fact_scope():

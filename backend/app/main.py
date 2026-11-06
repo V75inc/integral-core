@@ -1253,13 +1253,13 @@ else:
 
 
 # Walker construction runs once per access check; cache its per-class handler discovery.
-from app.services.jvspatial_walker_fast import install as _install_walker_fast  # noqa: E402
+from app.services.jvspatial_walker_fast import install as _walker_fast  # noqa: E402
 
-_install_walker_fast()
+_walker_fast()
 
-from app.services.jvspatial_auth_fast import install as _install_auth_fast  # noqa: E402
+from app.services.jvspatial_auth_fast import install as _auth_fast  # noqa: E402
 
-_install_auth_fast()
+_auth_fast()
 
 server = Server(
     title="Integral API",

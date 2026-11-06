@@ -43,7 +43,9 @@ def test_an_old_fact_expires(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_protected_state_is_read_once_per_track_inside_a_job_and_always_for_updates(monkeypatch):
+async def test_protected_state_is_read_once_per_track_inside_a_job_and_always_for_updates(
+    monkeypatch,
+):
     reads = []
 
     async def fresh(workspace_id, track_id, entry_id):
@@ -60,10 +62,10 @@ async def test_protected_state_is_read_once_per_track_inside_a_job_and_always_fo
         for _ in range(5):
             await guards._canonical_protected_state("ws", "track", "")
         await guards._canonical_protected_state("ws", "other-track", "")
-        assert len(reads) == 2                      # one per track
+        assert len(reads) == 2  # one per track
         await guards._canonical_protected_state("ws", "track", "entry-1")
         await guards._canonical_protected_state("ws", "track", "entry-1")
-        assert len(reads) == 4                      # updates name an entry and are never reused
+        assert len(reads) == 4  # updates name an entry and are never reused
 
 
 @pytest.mark.asyncio
@@ -124,12 +126,18 @@ def test_every_known_move_delete_and_lifecycle_path_is_marked():
     for module, name in marked:
         function = getattr(module, name)
         # functools.wraps leaves the original reachable; the wrapper is ours.
-        assert "invalidates_job_facts" in inspect.getsource(function) or hasattr(function, "__wrapped__"), name
-        assert getattr(function, "__wrapped__", None) is not None, f"{module.__name__}.{name} is not marked"
+        assert "invalidates_job_facts" in inspect.getsource(function) or hasattr(
+            function, "__wrapped__"
+        ), name
+        assert (
+            getattr(function, "__wrapped__", None) is not None
+        ), f"{module.__name__}.{name} is not marked"
 
 
 @pytest.mark.asyncio
-async def test_a_record_is_located_once_inside_a_job_and_fresh_everywhere_else(monkeypatch):
+async def test_a_record_is_located_once_inside_a_job_and_fresh_everywhere_else(
+    monkeypatch,
+):
     from app.services import resource_location as rl
 
     walks = []
@@ -158,16 +166,15 @@ async def test_a_record_is_located_once_inside_a_job_and_fresh_everywhere_else(m
 
     await rl.locate_resource("entry", "e1")
     await rl.locate_resource("entry", "e1")
-    assert len(walks) == 2                                   # outside a job: always fresh
+    assert len(walks) == 2  # outside a job: always fresh
     walks.clear()
     with pc.app_job_fact_scope():
         for _ in range(4):
             await rl.locate_resource("entry", "e1")
         await rl.locate_resource("entry", "e2")
-        assert len(walks) == 2                               # once per record
+        assert len(walks) == 2  # once per record
         await rl.locate_resource("entry", "e1", records_out={})
-        assert len(walks) == 3                               # callers wanting the walked records walk fresh
+        assert len(walks) == 3  # callers wanting the walked records walk fresh
         pc.note_definition_changed()
         await rl.locate_resource("entry", "e1")
-        assert len(walks) == 4                               # a structural change forgets everything
-
+        assert len(walks) == 4  # a structural change forgets everything

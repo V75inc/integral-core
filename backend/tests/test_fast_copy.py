@@ -19,7 +19,11 @@ def test_types_are_preserved_and_non_json_types_fall_back():
     src = {"t": (1, [2]), "s": {1, 2}, "o": OrderedDict(a=[1]), "l": [(3,)]}
     out = _fast_copy(src)
     assert out == src
-    assert type(out["t"]) is tuple and type(out["s"]) is set and type(out["o"]) is OrderedDict
+    assert (
+        type(out["t"]) is tuple
+        and type(out["s"]) is set
+        and type(out["o"]) is OrderedDict
+    )
     out["t"][1].append(9)
     out["o"]["a"].append(9)
     assert src["t"][1] == [2] and src["o"]["a"] == [1]

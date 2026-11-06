@@ -11,7 +11,8 @@ import asyncio
 
 import pytest
 
-from app.services import permissions, permissions_process_cache as ppc
+from app.services import permissions
+from app.services import permissions_process_cache as ppc
 
 
 @pytest.fixture
@@ -76,7 +77,9 @@ async def test_invalidate_user_drops_the_snapshot(snapshots_on, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_other_users_are_not_affected_by_an_invalidation(snapshots_on, monkeypatch):
+async def test_other_users_are_not_affected_by_an_invalidation(
+    snapshots_on, monkeypatch
+):
     calls = _counting(monkeypatch, "get_user_accessible_tracks", ["t1"])
     await permissions.get_user_accessible_tracks_for_navigation("a")
     await permissions.get_user_accessible_tracks_for_navigation("b")
@@ -86,7 +89,9 @@ async def test_other_users_are_not_affected_by_an_invalidation(snapshots_on, mon
 
 
 @pytest.mark.asyncio
-async def test_a_computation_that_raced_an_invalidation_is_not_stored(snapshots_on, monkeypatch):
+async def test_a_computation_that_raced_an_invalidation_is_not_stored(
+    snapshots_on, monkeypatch
+):
     calls = {"n": 0}
 
     async def slow(user_id):
@@ -95,7 +100,9 @@ async def test_a_computation_that_raced_an_invalidation_is_not_stored(snapshots_
         return ["stale"]
 
     monkeypatch.setattr(permissions, "get_user_accessible_tracks", slow)
-    task = asyncio.ensure_future(permissions.get_user_accessible_tracks_for_navigation("u"))
+    task = asyncio.ensure_future(
+        permissions.get_user_accessible_tracks_for_navigation("u")
+    )
     await asyncio.sleep(0.01)
     ppc.invalidate_user("u")  # a grant or revoke lands while the inventory is computed
     await task
@@ -130,7 +137,9 @@ def stale_window(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_expired_snapshot_is_served_while_it_refreshes(snapshots_on, stale_window, monkeypatch):
+async def test_expired_snapshot_is_served_while_it_refreshes(
+    snapshots_on, stale_window, monkeypatch
+):
     monkeypatch.setattr(ppc, "_NAV_TTL_SECONDS", 0.05)
     values = [["old"], ["new"]]
     calls = {"n": 0}
@@ -147,14 +156,18 @@ async def test_expired_snapshot_is_served_while_it_refreshes(snapshots_on, stale
     await asyncio.sleep(0.08)  # expired, still inside the stale window
     started = asyncio.get_event_loop().time()
     assert await permissions.get_user_accessible_tracks_for_navigation("u") == ["old"]
-    assert asyncio.get_event_loop().time() - started < 0.03  # did not wait for the refresh
+    assert (
+        asyncio.get_event_loop().time() - started < 0.03
+    )  # did not wait for the refresh
     await asyncio.sleep(0.15)  # the background refresh finishes
     assert await permissions.get_user_accessible_tracks_for_navigation("u") == ["new"]
     assert calls["n"] == 2
 
 
 @pytest.mark.asyncio
-async def test_invalidation_removes_the_stale_copy_too(snapshots_on, stale_window, monkeypatch):
+async def test_invalidation_removes_the_stale_copy_too(
+    snapshots_on, stale_window, monkeypatch
+):
     monkeypatch.setattr(ppc, "_NAV_TTL_SECONDS", 0.05)
     calls = _counting(monkeypatch, "get_user_accessible_tracks", ["t1"])
     await permissions.get_user_accessible_tracks_for_navigation("u")
@@ -165,7 +178,9 @@ async def test_invalidation_removes_the_stale_copy_too(snapshots_on, stale_windo
 
 
 @pytest.mark.asyncio
-async def test_without_a_stale_window_an_expired_snapshot_recomputes(snapshots_on, monkeypatch):
+async def test_without_a_stale_window_an_expired_snapshot_recomputes(
+    snapshots_on, monkeypatch
+):
     monkeypatch.setattr(ppc, "_NAV_TTL_SECONDS", 0.05)
     monkeypatch.setattr(ppc, "_NAV_STALE_SECONDS", 0.0)
     calls = _counting(monkeypatch, "get_user_accessible_tracks", ["t1"])

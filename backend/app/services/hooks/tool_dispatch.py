@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, Callable, Dict
-
 from collections import OrderedDict
+from typing import Any, Callable, Dict
 
 import jsonschema
 
