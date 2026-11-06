@@ -103,6 +103,9 @@ async def test_many_views_read_fallback_once_off_loop_and_write_in_owner_task(
 
     monkeypatch.setattr(runtime, "resolve_track_runtime_profile", profile)
     monkeypatch.setattr(runtime, "warm_seeded_library_view_index", seed_index)
+    # Track opens reuse a seed index for a short window; start without one so
+    # each case proves its own single off-loop read.
+    monkeypatch.setattr(runtime, "_seed_index_cache", None)
     await getattr(runtime, method)(SimpleNamespace(), views)
     assert reads == [True]
     assert len(writes) == 40
