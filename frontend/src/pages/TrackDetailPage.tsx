@@ -550,7 +550,11 @@ export function TrackDetailPage() {
     enabled: Boolean(
       id &&
       trackDetailQuery.data &&
-      (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)
+      (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId) &&
+      // Wait until the initial view is chosen (or dashboard filters drive the
+      // list). The view id is part of the key, so starting earlier fetched the
+      // first page twice on every track open: once unscoped, then for the view.
+      (dashboardFilters !== undefined || activeView !== null)
     ),
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
