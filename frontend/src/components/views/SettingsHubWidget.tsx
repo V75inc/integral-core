@@ -381,7 +381,15 @@ export function SettingsHubWidget(props: ViewWidgetProps) {
                     return (
                       <div key={field.key} className="flex items-center justify-between gap-4 py-1">
                         <Text variant="body-sm" tone="muted">{field.label || labelFor(field.key)}</Text>
-                        {split && unset ? <Text variant="body-sm" tone="muted">Not set</Text> : <Badge variant="default">{displayValue}</Badge>}
+                        {unset ? (
+                          <Text variant="body-sm" tone="muted">Not set</Text>
+                        ) : selectType ? (
+                          // Choices read as a tag, the way record lists show them.
+                          <Badge variant="default">{displayValue}</Badge>
+                        ) : (
+                          // Names, numbers, IDs and dates are plain values, not tags.
+                          <Text variant="body-sm" className="text-right">{displayValue}</Text>
+                        )}
                       </div>
                     );
                   })}

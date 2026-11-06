@@ -142,6 +142,59 @@ describe('SettingsHubWidget value-field badges', () => {
     expect(screen.queryByText('monthly')).not.toBeInTheDocument();
   });
 
+  it('shows names and numbers as plain values and only choices as tags', async () => {
+    mockEntriesList.mockResolvedValue([]);
+    const entry = {
+      id: 'e1',
+      title: 'Employer',
+      type: 'company_profile',
+      custom_fields: { employer_name: 'Acme INC', nis_number: 123456, cadence: 'monthly' },
+    } as unknown as Entry;
+    const entryTypes = [
+      {
+        id: 'et1',
+        name: 'Employer',
+        form_schema: {
+          fields: [
+            { key: 'employer_name', name: 'Employer', type: 'text' },
+            { key: 'nis_number', name: 'NIS registration', type: 'number' },
+            { key: 'cadence', name: 'Cadence', type: 'select', enum: ['monthly', 'weekly'] },
+          ],
+        },
+      },
+    ] as unknown as EntryTypeNode[];
+
+    renderHub(
+      <SettingsHubWidget
+        view={view([
+          {
+            key: 'employer',
+            title: 'Employer',
+            entry_type_keys: ['company_profile'],
+            fields: [
+              { key: 'employer_name', label: 'Employer', type: 'value' },
+              { key: 'nis_number', label: 'NIS registration', type: 'value' },
+              { key: 'cadence', label: 'Cadence', type: 'value' },
+            ],
+          },
+        ])}
+        entries={[entry]}
+        isLoading={false}
+        onEntryOpen={noop}
+        onEntryCreate={async () => undefined}
+        entryTypes={entryTypes}
+      />,
+    );
+
+    const name = await screen.findByText('Acme INC');
+    const number = screen.getByText('123456');
+    const choice = screen.getByText('Monthly');
+    // Badges are rounded tag chips; plain values are not.
+    expect(name.className).not.toContain('rounded-md');
+    expect(number.className).not.toContain('rounded-md');
+    expect(choice.className).toContain('rounded-md');
+  });
+
   it('renders the entry title and its type-name annotation as separate lines, not glued together', async () => {
     // Regression: Text's default element for 'body-sm'/'meta' is an
     // inline <span> ("stay inline so callers can compose them freely" —
