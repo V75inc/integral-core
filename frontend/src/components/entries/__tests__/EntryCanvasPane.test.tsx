@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../../api/attachments', () => ({ attachmentsApi: { fetchDownloadBlob: vi.fn() } }));
 vi.mock('../../../context/ToastContext', () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 vi.mock('../attachments/AttachmentPane', () => ({ AttachmentPane: () => <div data-testid="file-pane" /> }));
+vi.mock('../SpreadsheetEditor', () => ({ SpreadsheetEditor: () => <div data-testid="grid-editor" /> }));
 vi.mock('../EntryDocumentEditor', () => ({ EntryDocumentEditor: () => <div data-testid="text-editor" /> }));
 
 import { EntryCanvasPane, prefersFilePreview } from '../EntryCanvasPane';
@@ -45,5 +46,11 @@ describe('EntryCanvasPane tabs', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Edit text' }));
     expect(screen.getByTestId('entry-canvas-no-text')).toBeTruthy();
     expect(screen.queryByTestId('text-editor')).toBeNull();
+  });
+  it('opens a spreadsheet file in the grid editor on Edit text', () => {
+    const sheet = { id: 'a2', filename: 'filing.csv', source_type: 'upload', created_at: '2027-05-01T10:00:00Z', size: 10 } as never;
+    render(<EntryCanvasPane entry={entry({ custom_fields: { edit_source: 'file' } })} attachments={[sheet]} editable canEdit />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Edit text' }));
+    expect(screen.getByTestId('grid-editor')).toBeTruthy();
   });
 });
