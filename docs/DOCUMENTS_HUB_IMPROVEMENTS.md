@@ -57,3 +57,21 @@ Status: proposal. Based on reading the Documents (1.13.17) and Document Template
 ## How this was checked
 
 Manifests of all 27 bundles, the Documents and Document Templates tools and views, the editor extensions and toolbar, and a join of Payroll payslips to filed Documents in the 9106 workspace. Not done: running the editor, generating each document type, or a user study of what people try to author.
+
+## Commercial opportunities
+
+What already exists to build on: E-Sign is packaged as a `commercial_app` but only provides a member signature vault and a contract-decision tool (no request, send, sign and certificate workflow); documents carry a `client_safe` flag; Documents has Drive sync, a content-hash stamp (`stamp_content_hash`) and AI skills (produce, revise, answer-from-documents, ingest); the billing module has plans and metered AI credits; Documents and Document Templates are `community_app`, so a paid tier is a packaging decision rather than a rewrite.
+
+| Offer | What a customer pays for | Builds on | Priority |
+|---|---|---|---|
+| Real e-signature workflow | send a document to one or more signers in order, reminders, signing page, tamper-evident signed copy with an audit certificate (who, when, from where, content hash), status in the hub | E-Sign vault, `stamp_content_hash`, Documents filing | 1 |
+| Tracked client share links | share a document with a client by link with expiry and optional password; see opened, viewed, downloaded; accept or decline a proposal or quote, and an accepted quote creates the invoice (Sales to Finance) | `client_safe`, Sales proposals, Finance quotes and invoices | 2 |
+| AI drafting and review, metered by credits | draft from a short brief, suggest clauses, flag risky or missing clauses in an uploaded contract, summarise, ask questions across the library | produce-document, revise-document, answer-from-documents, ingest skills, billing AI credits | 3 |
+| Sellable template and compliance packs | per-country and per-industry packs (Caribbean HR and payroll statutory forms, legal pack, finance pack) kept up to date when rules change | Document Templates, payroll rate tables, `commercial_app` packaging | 4 |
+| Contract and obligation tracker | renewal and expiry alerts, key dates and obligations extracted from filed contracts, owner reminders | knowledge base and ingest, email-log | 5 |
+| Compliance and retention | audit log, legal hold, retention schedules, access reports, watermarking for confidential copies | hub lifecycle (see above), filing integrity | 6 |
+| Branding and white label | workspace-branded share links and signing pages, custom domain, branded emails | layouts, Organization legal entity | 7 |
+| Integrations | Microsoft 365 / SharePoint alongside Google Drive, DocuSign routing, send-from-document email, webhooks and API for generation | Drive sync, email-log, HR DocuSign routing | 8 |
+| Packaging and metering | plan tiers by documents generated, signature envelopes, storage and AI credits, with a usage view | billing catalog and AI credit limits | with each feature |
+
+Caveats: legal validity of electronic signatures varies by jurisdiction (US ESIGN, EU eIDAS, local Caribbean law) and needs counsel before a signing certificate is marketed as legally binding; demand and pricing have not been tested with customers, so the order above is a technical and revenue-logic guess to validate.
