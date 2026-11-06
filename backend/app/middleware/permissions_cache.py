@@ -29,6 +29,7 @@ _APP_JOB_FACT_TTL = 5.0
 _app_job_facts_var: ContextVar[Optional[Dict[Tuple[str, ...], Tuple[float, int, Any]]]] = ContextVar(
     "integral_app_job_facts", default=None
 )
+_computation_scope_var: ContextVar[bool] = ContextVar("computation_scope_owns_facts", default=False)
 _definition_generation = 0
 
 
@@ -94,10 +95,23 @@ def computation_fact_scope() -> Iterator[None]:
         yield
         return
     token = _app_job_facts_var.set({})
+    own = _computation_scope_var.set(True)
     try:
         yield
     finally:
+        _computation_scope_var.reset(own)
         _app_job_facts_var.reset(token)
+
+
+def computation_scope_owns_facts() -> bool:
+    """True only inside a ``computation_fact_scope`` that is not part of an App job.
+
+    A loaded graph node keeps the database context (and so the transaction) it was read in.
+    An App job runs many transactions one after another, so a node remembered across the job
+    would be read through a transaction that has already ended. Only a single short
+    computation, which never outlives its transaction, may remember nodes.
+    """
+    return bool(_computation_scope_var.get())
 
 
 def defer_job_event(outbox_id: str) -> Optional[int]:

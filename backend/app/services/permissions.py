@@ -82,7 +82,11 @@ async def get_user_node(user_id: str) -> Optional[User]:
         app_job_fact_put,
     )
 
-    if not app_job_fact_active():
+    from app.middleware.permissions_cache import computation_scope_owns_facts
+
+    # A user node is bound to the transaction it was read in. Only a single short computation
+    # may remember it; an App job (many transactions) must read it fresh each time.
+    if not app_job_fact_active() or not computation_scope_owns_facts():
         return await _get_user_node_live(user_id)
     key = ("user_node", user_id)
     hit = app_job_fact_get(key)
