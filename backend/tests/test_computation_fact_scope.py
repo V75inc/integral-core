@@ -67,6 +67,29 @@ async def test_get_user_node_is_remembered_only_inside_a_scope(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_user_node_is_read_fresh_inside_an_app_job(monkeypatch):
+    """A loaded node is bound to the transaction it was read in. A job runs many transactions, so a
+    node remembered across the job would later be read through one that has ended
+    (``PostgreSQL transaction is no longer active`` in a pay run finalize)."""
+    calls = {"n": 0}
+
+    async def live(user_id):
+        calls["n"] += 1
+        return object()
+
+    monkeypatch.setattr(permissions, "_get_user_node_live", live)
+    with pc.app_job_fact_scope():
+        first = await permissions.get_user_node("u")
+        second = await permissions.get_user_node("u")
+        assert first is not second and calls["n"] == 2
+        # A computation that joins the job keeps the job's rule: still read fresh.
+        with pc.computation_fact_scope():
+            await permissions.get_user_node("u")
+            await permissions.get_user_node("u")
+    assert calls["n"] == 4
+
+
+@pytest.mark.asyncio
 async def test_a_missing_user_is_never_remembered(monkeypatch):
     calls = {"n": 0}
 
