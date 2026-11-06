@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, Loader2, Plus, Settings2 } from 'lucide-react';
+import { Check, ChevronRight, CircleDashed, Loader2, Plus } from 'lucide-react';
 import { entriesApi } from '../../api';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -8,6 +8,7 @@ import { Surface, Text } from '../../ui';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 import type { Entry } from '../../types';
 import type { ViewWidgetProps } from './types';
+import { ExtensionViewWidget } from './ExtensionViewWidget';
 
 type SettingField = {
   key: string;
@@ -20,8 +21,13 @@ type SettingSection = {
   key: string;
   title: string;
   description?: string;
-  entry_type_keys: string[];
+  /** Record types this section lists. A section that shows an App screen instead leaves this empty. */
+  entry_type_keys?: string[];
   fields?: SettingField[];
+  /** Show this App screen (an extension view) in the detail pane instead of a record list. */
+  extension_view_key?: string;
+  /** Heading the section is listed under in the left list. Consecutive sections with one group share it. */
+  group?: string;
 };
 
 function slug(value: unknown): string {
@@ -41,12 +47,13 @@ function labelFor(key: string): string {
 function SectionNavButton({
   active,
   label,
-  count,
+  done,
   onClick,
 }: {
   active: boolean;
   label: string;
-  count: number;
+  /** True once something is set up in the section; left out for a section that shows an App screen. */
+  done?: boolean;
   onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -63,12 +70,17 @@ function SectionNavButton({
         onClick={onClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        aria-current={active ? 'true' : undefined}
         className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors"
       >
         <Text as="span" variant="body-sm" weight={active ? 'medium' : 'normal'} tone={active ? 'default' : 'muted'}>
           {label}
         </Text>
-        <Badge variant="default">{count}</Badge>
+        {done === undefined ? null : done ? (
+          <Check size={14} className="shrink-0 text-[var(--success-fg)]" aria-label="Set up" />
+        ) : (
+          <CircleDashed size={14} className="shrink-0 text-[var(--warn-fg)]" aria-label="Not set up yet" />
+        )}
       </button>
     </Surface>
   );
@@ -92,7 +104,8 @@ function Switch({ checked, disabled, onChange }: { checked: boolean; disabled: b
   );
 }
 
-export function SettingsHubWidget({ view, entries, isLoading, onEntryOpen, onEntryCreate, entryTypes }: ViewWidgetProps) {
+export function SettingsHubWidget(props: ViewWidgetProps) {
+  const { view, entries, isLoading, onEntryOpen, onEntryCreate, entryTypes } = props;
   const config = (view.config || {}) as {
     title?: string;
     description?: string;
@@ -161,7 +174,7 @@ export function SettingsHubWidget({ view, entries, isLoading, onEntryOpen, onEnt
     return sections.map(section => ({
       section,
       entries: sourceEntries.filter(entry =>
-        section.entry_type_keys.some(key => slug(key) === entryTypeSlugFor(entry)),
+        (section.entry_type_keys || []).some(key => slug(key) === entryTypeSlugFor(entry)),
       ),
     }));
   }, [sections, sourceEntries]);
@@ -194,33 +207,50 @@ export function SettingsHubWidget({ view, entries, isLoading, onEntryOpen, onEnt
     || sectionEntries[0];
 
   return (
-    <div className="space-y-6" data-testid="settings-hub-widget">
-      <header className="border-b border-[var(--panel-border)] pb-5">
-        <div className="flex items-start gap-3">
-          <Surface tone="panel-2" border="none" radius="input" padding="sm"><Settings2 size={20} aria-hidden="true" /></Surface>
-          <div>
-            <Text as="h2" variant="heading-md">{config.title || 'App settings'}</Text>
-            <Text variant="body-sm" tone="muted">
-              {config.description || 'Configure how this App runs.'}
-            </Text>
-          </div>
-        </div>
-      </header>
+    <div className="space-y-5" data-testid="settings-hub-widget">
+      {config.title && config.title !== 'App settings' ? (
+        <header className="border-b border-[var(--panel-border)] pb-4">
+          <Text as="h2" variant="heading-md">{config.title}</Text>
+          {config.description ? <Text variant="body-sm" tone="muted">{config.description}</Text> : null}
+        </header>
+      ) : null}
 
       <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)]">
         <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto lg:block lg:space-y-1">
-          {sectionEntries.map(({ section, entries: sectionRows }) => (
-            <SectionNavButton
-              key={section.key}
-              active={activeSection?.section.key === section.key}
-              label={section.title}
-              count={sectionRows.length}
-              onClick={() => setActiveSectionKey(section.key)}
-            />
-          ))}
+          {sectionEntries.map(({ section, entries: sectionRows }, index) => {
+            const previous = sectionEntries[index - 1]?.section.group;
+            const showGroup = Boolean(section.group) && section.group !== previous;
+            return (
+              <div key={section.key} className="contents lg:block">
+                {showGroup ? (
+                  <Text as="div" variant="meta" tone="muted" className="hidden px-3 pb-1 pt-3 font-medium lg:block">
+                    {section.group}
+                  </Text>
+                ) : null}
+                <SectionNavButton
+                  active={activeSection?.section.key === section.key}
+                  label={section.title}
+                  done={section.extension_view_key ? undefined : sectionRows.length > 0}
+                  onClick={() => setActiveSectionKey(section.key)}
+                />
+              </div>
+            );
+          })}
         </nav>
 
-        {activeSection && (
+        {activeSection && activeSection.section.extension_view_key ? (
+          <section aria-label={activeSection.section.title} className="min-w-0">
+            <ExtensionViewWidget
+              {...props}
+              key={activeSection.section.key}
+              view={{
+                ...view,
+                type: 'extension_view',
+                config: { ...(view.config || {}), extension_view_key: activeSection.section.extension_view_key },
+              } as typeof view}
+            />
+          </section>
+        ) : activeSection && (
           <Surface tone="panel" border="default" radius="card" padding="none" className="overflow-hidden">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--panel-border)] px-5 py-4">
               <div className="min-w-0">
@@ -229,7 +259,7 @@ export function SettingsHubWidget({ view, entries, isLoading, onEntryOpen, onEnt
               </div>
               {onEntryCreate && (
                 <div className="flex flex-wrap justify-end gap-2">
-                  {activeSection.section.entry_type_keys.map(key => (
+                  {(activeSection.section.entry_type_keys || []).map(key => (
                     <Button
                       key={key}
                       variant="secondary"
@@ -239,7 +269,7 @@ export function SettingsHubWidget({ view, entries, isLoading, onEntryOpen, onEnt
                       disabled={creatingType !== null && creatingType !== key}
                       onClick={() => void createRecord(key)}
                     >
-                      Add {nameForEntryType(key)}
+                      {activeSection.entries.length ? 'Add another' : 'Add'} {nameForEntryType(key)}
                     </Button>
                   ))}
                 </div>
@@ -287,13 +317,39 @@ export function SettingsHubWidget({ view, entries, isLoading, onEntryOpen, onEnt
                           : selectType === 'select'
                             ? humanizeEnumValue(String(value))
                             : String(value);
-                    return <div key={field.key} className="flex items-center justify-between py-1"><Text variant="body-sm" tone="muted">{field.label || labelFor(field.key)}</Text><Badge variant="default">{displayValue}</Badge></div>;
+                    const unset = value === null || value === undefined || String(value) === '';
+                    return (
+                      <div key={field.key} className="flex items-center justify-between gap-4 py-1">
+                        <Text variant="body-sm" tone="muted">{field.label || labelFor(field.key)}</Text>
+                        {unset ? <Text variant="body-sm" tone="muted">Not set</Text> : <Badge variant="default">{displayValue}</Badge>}
+                      </div>
+                    );
                   })}
                 </div>
                 </div>
                 );
               })}
-              {!activeSection.entries.length && <div className="px-5 py-8"><Text variant="body-sm" tone="muted">No records have been configured in this section yet.</Text></div>}
+              {!activeSection.entries.length && (
+                <div className="flex flex-col items-start gap-3 px-5 py-8">
+                  <div>
+                    <Text as="div" variant="body-sm" weight="medium">Nothing is set up here yet.</Text>
+                    <Text as="div" variant="body-sm" tone="muted">
+                      {activeSection.section.description || 'Add the first record to get started.'}
+                    </Text>
+                  </div>
+                  {onEntryCreate && (activeSection.section.entry_type_keys || [])[0] ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<Plus size={14} aria-hidden="true" />}
+                      loading={creatingType === (activeSection.section.entry_type_keys || [])[0]}
+                      onClick={() => void createRecord((activeSection.section.entry_type_keys || [])[0])}
+                    >
+                      Set up {activeSection.section.title.toLowerCase()}
+                    </Button>
+                  ) : null}
+                </div>
+              )}
             </div>
           </Surface>
         )}
