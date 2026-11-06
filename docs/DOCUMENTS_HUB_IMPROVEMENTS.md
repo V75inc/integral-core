@@ -9,7 +9,7 @@ Status: proposal. Based on reading the Documents (1.13.17) and Document Template
 | Documents app | Library of filed originals, a knowledge base built from them or from Google Drive, and the door other apps call (`generate_document`, `file_generated_document`, `check_generated_filing`). Renders docx, pptx, pdf and markdown; previews pdf, xlsx, docx, pptx; Drive sync (pull, publish, edit in Google). |
 | Document Templates app | Document types, layouts, templates, template versions with draft and publish; merge-field catalog; saved signature vault. |
 | Editor | TipTap. Bold, italic, underline, strike, colour, highlight, links, alignment, indent, bullet and numbered lists, font family and size, tables (insert), page break, current-date token, merge-field tokens, signature placeholder, "my signature", repeat section, conditional section, block layout. |
-| Types requested by apps | payslip (all country payrolls), invoice, quote, credit note, proposal, offer letter, job letter, employment contract, company letter. |
+| Types requested by apps | payslip (all country payrolls), invoice, quote, credit note, receipt, statement, proposal, offer letter, job letter, employment contract, company letter. |
 
 ## Editor gaps
 
@@ -28,7 +28,7 @@ Status: proposal. Based on reading the Documents (1.13.17) and Document Template
 | Source app | Types with no template today | Priority |
 |---|---|---|
 | Payroll, Human Resources | warning letter, termination letter, leave approval letter, salary / bank / embassy letter | medium |
-| Finance | customer statement, receipt, purchase order, remittance advice | medium |
+| Finance | purchase order, remittance advice (invoice, quote, credit note, receipt and statement already exist: `finance/seeds/designs.py`) | medium |
 | Sales, legal | NDA, statement of work, master services agreement | medium |
 | QMS, Projects | SOP, audit report, corrective-action form, project status report | low |
 | Payroll (all countries) | NIS, PAYE, 7B and annual forms are built in code (for example `_nis_form_pdf.py`), outside the template system | medium |
@@ -76,3 +76,6 @@ What already exists to build on: E-Sign is packaged as a `commercial_app` but on
 Out of scope for now (per the product owner): sellable or billable template and compliance packs.
 
 Caveats: legal validity of electronic signatures varies by jurisdiction (US ESIGN, EU eIDAS, local Caribbean law) and needs counsel before a signing certificate is marketed as legally binding; demand and pricing have not been tested with customers, so the order above is a technical and revenue-logic guess to validate.
+
+
+Correction (2026-11-05): an earlier version listed Finance statements and receipts as missing. They exist (`finance/seeds/designs.py`, referenced by `document-templates/tools/letter_bodies.py` and the produce-document skill); only purchase order and remittance advice are missing.
