@@ -233,7 +233,20 @@ export function EntryCanvasPane({
         ) : null}
       </div>
       <div className="min-h-0 flex-1">
-        {tab === 'document' ? (
+        {tab === 'document' && preferFile && !String(entry.body || '').trim() ? (
+          <div data-testid="entry-canvas-no-text" className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+            <Text as="div" variant="body" weight="medium">There is no text to edit</Text>
+            <Text as="div" variant="body-sm" tone="muted" className="max-w-md">
+              This document is a file ({current?.filename || 'attached file'}), not written text.
+              Download it to change it, or switch "Edited in" to Text to write it here instead.
+            </Text>
+            {current ? (
+              <Button type="button" variant="ghost" size="xs" onClick={() => void download(current)}>
+                <Download size={12} strokeWidth={LINE_ICON_STROKE} /> Download file
+              </Button>
+            ) : null}
+          </div>
+        ) : tab === 'document' ? (
           <EntryDocumentEditor
             entry={entry}
             canEdit={canEdit}

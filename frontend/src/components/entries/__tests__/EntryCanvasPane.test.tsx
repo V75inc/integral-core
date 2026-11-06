@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../api/attachments', () => ({ attachmentsApi: { fetchDownloadBlob: vi.fn() } }));
@@ -39,5 +39,11 @@ describe('EntryCanvasPane tabs', () => {
     const tabs = screen.getAllByRole('tab');
     expect(tabs.map(t => t.textContent)).toEqual(['Edit text', 'Preview']);
     expect(screen.getByTestId('text-editor')).toBeTruthy();
+  });
+  it('explains why there is nothing to edit for a file with no text', () => {
+    render(<EntryCanvasPane entry={entry({ custom_fields: { edit_source: 'file' } })} attachments={[file]} editable canEdit />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Edit text' }));
+    expect(screen.getByTestId('entry-canvas-no-text')).toBeTruthy();
+    expect(screen.queryByTestId('text-editor')).toBeNull();
   });
 });
