@@ -50,6 +50,7 @@ import {
   tagsForTrackQueryKey
 } from '../../queryKeys';
 import { errorMessageFromAxios } from '../../api/helpers';
+import { imageExceedsUploadLimit, ImageUploadSizeError } from '../../utils/imageUploadLimits';
 import { sortFieldsByOrder } from '../../utils/entryMetaFields';
 import { TagLookupControl } from './TagLookupControl';
 import {
@@ -1351,6 +1352,11 @@ export function useEntryExpandedForm(
         }
       }
 
+      // Refuse invalid queued files before creating a record or related data.
+      if ([...pendingFiles, ...Object.values(pendingUploads).flat()].some(imageExceedsUploadLimit)) {
+        throw new ImageUploadSizeError();
+      }
+
       const derivedTitle =
         title.trim() ||
         (ownsForm ? deriveTitleFromFields(cleanedFieldValues, titleFromFields) : '');
@@ -1534,6 +1540,7 @@ export function useEntryExpandedForm(
 
     setLoading(true);
     try {
+      if (pendingFiles.some(imageExceedsUploadLimit)) throw new ImageUploadSizeError();
       const firstUrl = bodyEnabled ? extractFirstUrl(body) : '';
       const linkPreviewPatch =
         linkPreview &&
