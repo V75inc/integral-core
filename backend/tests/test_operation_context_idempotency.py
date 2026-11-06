@@ -140,6 +140,7 @@ async def test_sdk_update_routes_revision_and_deferred_events_to_shared_command(
     )
     entry = SimpleNamespace(id="entry-one", track_id="track-one", record_revision=2)
     track = SimpleNamespace(id="track-one", workspace_id="ws-operation")
+    # The App contains the Track: one App -> Track CONTAINS link.
     graph = SimpleNamespace(find_edges_between=AsyncMock(return_value=[object()]))
     app = SimpleNamespace(
         id="app-one",
@@ -187,3 +188,34 @@ async def test_sdk_update_routes_revision_and_deferred_events_to_shared_command(
         app.id, track.id, edge_class=CONTAINS
     )
     assert not operation_write_active()
+
+
+@pytest.mark.asyncio
+async def test_sdk_update_refuses_a_track_the_app_does_not_contain():
+    """The containment check still refuses a Track outside the App."""
+    from types import SimpleNamespace
+
+    context = OperationContext(
+        user_id="user-operation",
+        workspace_id="ws-operation",
+        scope="operation:app:edit",
+        app_id="app-one",
+        deferred_change_events=[],
+    )
+    entry = SimpleNamespace(id="entry-one", track_id="track-other", record_revision=2)
+    track = SimpleNamespace(id="track-other", workspace_id="ws-operation")
+    graph = SimpleNamespace(find_edges_between=AsyncMock(return_value=[]))
+    app = SimpleNamespace(
+        id="app-one",
+        workspace_id="ws-operation",
+        lifecycle_state="active",
+        get_context=AsyncMock(return_value=graph),
+    )
+    with (
+        patch("app.models.nodes.Entry.get", new=AsyncMock(return_value=entry)),
+        patch("app.models.nodes.Track.get", new=AsyncMock(return_value=track)),
+        patch("app.models.nodes.App.get", new=AsyncMock(return_value=app)),
+    ):
+        assert await context.update_entry_fields("entry-one", {"x": 1}) is False
+    graph.find_edges_between.assert_awaited_once()
+    assert graph.find_edges_between.await_args.args[:2] == ("app-one", "track-other")
