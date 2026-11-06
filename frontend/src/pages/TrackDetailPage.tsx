@@ -77,6 +77,7 @@ import { useRecents } from '../hooks/useRecents';
 import { getWidget } from '../views';
 import {
   entryTypeMatchesSlug,
+  findRequestedEntryType,
   resolveKanbanCreateCustomFieldFallback,
   resolveKanbanGroupBy,
   resolveKanbanWorkflowEnumLabelsForTrack,
@@ -1335,19 +1336,30 @@ export function TrackDetailPage() {
       ]
         .map(s => slugifyKanbanColumnKey(String(s || '')))
         .filter(Boolean);
+      const entryTypes = (entryTypesQuery.data ?? []) as EntryTypeNode[];
+      // A caller that names its type (a settings hub section, a widget's own
+      // Add) gets exactly that type, matched by id or manifest key as well as
+      // display name. Matching only by a slug of the display name sent a
+      // section whose name differs from its key ("Who can do what" vs
+      // payroll_permissions) to the track's default type.
+      const explicitType = findRequestedEntryType(entryTypes, input.type);
+
       let slug = 'post';
-      for (const c of candidates) {
-        if (c === 'item' && !slugMatchesAllowedEntryTypes('item', allowed)) continue;
-        if (slugMatchesAllowedEntryTypes(c, allowed)) {
-          slug = c;
-          break;
+      if (explicitType) {
+        slug = slugifyKanbanColumnKey(explicitType.name || '');
+      } else {
+        for (const c of candidates) {
+          if (c === 'item' && !slugMatchesAllowedEntryTypes('item', allowed)) continue;
+          if (slugMatchesAllowedEntryTypes(c, allowed)) {
+            slug = c;
+            break;
+          }
         }
       }
 
-      const entryTypes = (entryTypesQuery.data ?? []) as EntryTypeNode[];
-      let matchingType = entryTypes.find(et =>
-        entryTypeMatchesSlug(et.name || '', slug)
-      );
+      let matchingType =
+        explicitType ??
+        entryTypes.find(et => entryTypeMatchesSlug(et.name || '', slug));
       if (!matchingType && input.custom_fields) {
         const seededKeys = Object.keys(input.custom_fields).filter(
           k => !k.startsWith('_')
