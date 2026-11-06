@@ -1785,6 +1785,10 @@ async def get_user_accessible_entries(
     return result
 
 
+# Exact per-Track counts run a few at a time (see the function below).
+_EXACT_COUNT_CONCURRENCY = 8
+
+
 async def count_user_accessible_entries_for_tracks(
     user_id: str,
     tracks: list[Track],
@@ -1796,7 +1800,7 @@ async def count_user_accessible_entries_for_tracks(
     Each row still passes the canonical audience projection. Scanning once
     avoids repeating candidate discovery and parent-graph admission per Track.
     """
-    from app.services.entry_access_projection import iter_records
+    from app.services.entry_access_projection import count_bound_records, iter_records
 
     result = {track.id: 0 for track in tracks}
     # Callers that already ran the canonical admission pass it in to avoid a second one.
@@ -1804,7 +1808,33 @@ async def count_user_accessible_entries_for_tracks(
         admitted = await _filter_canonical_resource_inventory(user_id, "track", tracks)
     if not admitted:
         return result
-    ids = [track.id for track in admitted]
+
+    # deviation: per-Track exact counts before the shared stream. Admitting
+    # every Entry row in Python dominated the App and workspace Track lists
+    # (87% of a 29 s Payroll App Track list, 294 Tracks). count_bound_records
+    # is the same exact path count_user_accessible_entries uses for one Track:
+    # it applies only after current protected-owner admission and returns
+    # None otherwise, so those Tracks keep the canonical streaming count.
+    # Measured on the benchmark workspace: Payroll App Track list 28.8 s ->
+    # 7.1 s (294 Tracks), workspace Track list 20.6 s -> 9.9 s (313 Tracks),
+    # every per-Track count identical. Bounded, so a large list does not take
+    # every pooled connection.
+    gate = asyncio.Semaphore(_EXACT_COUNT_CONCURRENCY)
+
+    async def _exact(track: Track) -> tuple[str, int | None]:
+        async with gate:
+            return track.id, await count_bound_records(
+                user_id, track.id, {"context.track_id": track.id}
+            )
+
+    ids: list[str] = []
+    for track_id, exact in await asyncio.gather(*(_exact(t) for t in admitted)):
+        if exact is None:
+            ids.append(track_id)
+        else:
+            result[track_id] = exact
+    if not ids:
+        return result
     async for records in iter_records(
         user_id, {"context.track_id": {"$in": ids}}, projection=[], batch_size=2500
     ):
