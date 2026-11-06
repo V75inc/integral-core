@@ -9,13 +9,13 @@ vi.mock('../../TrackFilterStrip', () => ({ TrackFilterStrip: () => <div>search a
 vi.mock('../../../entries/EntryComposer', () => ({ EntryComposer: () => <button type="button">Add</button> }));
 vi.mock('../../../../views', () => ({ ViewRenderer: () => <div>view</div> }));
 
-function mount(showSearchAndFilters?: boolean) {
+function mount(showSearchAndFilters?: boolean, canCreateEntry = true) {
   const noop = () => {};
   const props: TrackDetailMainColumnProps = {
     isPagesView: false, rightRailOpen: false, filterType: '', setFilterType: noop,
     entryTypeSlugs: [], trackSearch: '', setTrackSearch: noop, retrievalMode: 'graph',
     runRetrieval: noop, retrievalLoading: false, retrievalError: null, retrievalDegraded: null,
-    canCreateEntry: true, track: { id: 'track', title: 'Settings' } as Track,
+    canCreateEntry, track: { id: 'track', title: 'Settings' } as Track,
     activeView: { id: 'view', name: 'Settings', type: 'table' } as SavedView,
     kanbanCreateCustomFieldFallback: undefined, kanbanWorkflowEnumLabels: undefined,
     onEntryCreatedFromComposer: noop, semanticMode: false, retrievalMissingCount: 0,
@@ -43,5 +43,14 @@ describe('App-declared track toolbar', () => {
     mount(false);
     expect(screen.queryByText('search and filters')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+  });
+
+  it('renders no toolbar row at all when search is hidden and nothing can be added', () => {
+    const { container } = mount(false, false);
+    expect(screen.queryByText('search and filters')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+    // The row (search slot + actions) is gone, so it leaves no gap above the view.
+    expect(container.querySelector('.mb-12')).toBeNull();
+    expect(screen.getByText('view')).toBeInTheDocument();
   });
 });

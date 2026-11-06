@@ -139,6 +139,9 @@ export function TrackDetailMainColumn({
     >
       {!isPagesView ? (
         <>
+          {/* A track that hides search and Filters, with nothing to add here,
+              gets no toolbar row at all: an empty row only left a gap. */}
+          {showSearchAndFilters || canCreateEntry ? (
           <FilterActionRow>
             {showSearchAndFilters ? (
             <div className="w-full max-w-xl min-w-[min(100%,18rem)]">
@@ -178,6 +181,7 @@ export function TrackDetailMainColumn({
               ) : null}
             </div>
           </FilterActionRow>
+          ) : null}
 
           {semanticMode && retrievalMissingCount > 0 ? (
             <div className="mb-3 text-xs text-[color:var(--text-subtle)]">
