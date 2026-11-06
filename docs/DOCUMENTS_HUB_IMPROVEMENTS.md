@@ -58,28 +58,6 @@ Status: proposal. Based on reading the Documents (1.13.17) and Document Template
 
 Manifests of all 27 bundles, the Documents and Document Templates tools and views, the editor extensions and toolbar, and a join of Payroll payslips to filed Documents in the 9106 workspace. Not done: running the editor, generating each document type, or a user study of what people try to author.
 
-## Commercial opportunities
-
-What already exists to build on: E-Sign is packaged as a `commercial_app` but only provides a member signature vault and a contract-decision tool (no request, send, sign and certificate workflow); documents carry a `client_safe` flag; Documents has Drive sync, a content-hash stamp (`stamp_content_hash`) and AI skills (produce, revise, answer-from-documents, ingest); the billing module has plans and metered AI credits; Documents and Document Templates are `community_app`, so a paid tier is a packaging decision rather than a rewrite.
-
-| Offer | What a customer pays for | Builds on | Priority |
-|---|---|---|---|
-| Real e-signature workflow | send a document to one or more signers in order, reminders, signing page, tamper-evident signed copy with an audit certificate (who, when, from where, content hash), status in the hub | E-Sign vault, `stamp_content_hash`, Documents filing | 1 |
-| Tracked client share links | share a document with a client by link with expiry and optional password; see opened, viewed, downloaded; accept or decline a proposal or quote, and an accepted quote creates the invoice (Sales to Finance) | `client_safe`, Sales proposals, Finance quotes and invoices | 2 |
-| AI drafting and review, metered by credits | draft from a short brief, suggest clauses, flag risky or missing clauses in an uploaded contract, summarise, ask questions across the library | produce-document, revise-document, answer-from-documents, ingest skills, billing AI credits | 3 |
-| Contract and obligation tracker | renewal and expiry alerts, key dates and obligations extracted from filed contracts, owner reminders | knowledge base and ingest, email-log | 4 |
-| Compliance and retention | audit log, legal hold, retention schedules, access reports, watermarking for confidential copies | hub lifecycle (see above), filing integrity | 5 |
-| Branding and white label | workspace-branded share links and signing pages, custom domain, branded emails | layouts, Organization legal entity | 6 |
-| Integrations | Microsoft 365 / SharePoint alongside Google Drive, DocuSign routing, send-from-document email, webhooks and API for generation | Drive sync, email-log, HR DocuSign routing | 7 |
-| Packaging and metering | plan tiers by documents generated, signature envelopes, storage and AI credits, with a usage view | billing catalog and AI credit limits | with each feature |
-
-Out of scope for now (per the product owner): sellable or billable template and compliance packs.
-
-Caveats: legal validity of electronic signatures varies by jurisdiction (US ESIGN, EU eIDAS, local Caribbean law) and needs counsel before a signing certificate is marketed as legally binding; demand and pricing have not been tested with customers, so the order above is a technical and revenue-logic guess to validate.
-
-
-Correction (2026-11-05): an earlier version listed Finance statements and receipts as missing. They exist (`finance/seeds/designs.py`, referenced by `document-templates/tools/letter_bodies.py` and the produce-document skill); only purchase order and remittance advice are missing.
-
 ## UI design (Documents app screens)
 
 Reviewed in the running 9106 workspace (Documents app: app page, Documents track with its Folders and Documents views, and a filed document's page).
@@ -162,11 +140,9 @@ Current skills: Documents (11) answer-from-documents, check-drive-updates, edit-
 | produce-document: stop hard-coding the template key list; call `document_templates_list_active_templates` (or find-templates) and pick from the result, then fall back to the documented keys | the list in the skill drifts as templates are added (it already needs receipt and statement kept in sync); an agent that picks from the live list cannot ask for a template that does not exist |
 | produce-document and revise-document: understand headings, numbering, headers, footers and page numbers once the editor supports them; state the format limits (what the PDF renderer drops) | agents should draft structured documents, not flat text |
 | manage-templates: add preview with sample data and the unfilled-field check before publish | agents publish templates today without seeing them filled in |
-| New skill: send-for-signature (needs the e-signature workflow) | route a finished document to signers and report status |
-| New skill: share-document (tracked share link, accept or decline) | give clients a link and report whether it was opened |
-| New skill: review-contract (AI clause review, metered by credits) | summarise and flag risky or missing clauses in an uploaded contract |
-| New skill: build-document-pack | generate, file and route a set of documents in order |
 | New skill: reconcile-filing | find orphaned and duplicate filed documents (30 and 4 in the test workspace today) and propose cleanup, never deleting without confirmation |
 | All skills: describe where a document lives (App / Year / Month / Person folder convention) and how to link its source | answers and filings stay traceable |
 
 Rule for this work: a skill is updated in the same change that delivers the feature it describes; a skill must not describe a capability that is not shipped yet.
+
+Scope note: this plan covers the apps we built (Documents, Document Templates and the apps that use them). Commercial and monetisation work (pricing, billing, plan tiers, branding for resale, third-party integrations) is out of scope.
