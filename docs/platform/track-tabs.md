@@ -50,6 +50,10 @@ Two section options work with or without `variant`:
 - `extension_view_key`: show that App screen (an extension view) in the detail pane instead of a record list. A
   section shows records or a screen, never both.
 - `group`: only used when `variant: split`.
+- `single: true` (split layout): the section holds one record, so there is no Add once it exists, only Edit.
+
+In the split layout, records always open in the dialog, even for a record type that opts into a full page
+(`open_as_page`), so Settings never sends you to another screen. An empty section shows one "Set up ..." button.
 
 App-wide switches belong in the standard App settings dialog (`app.settings_schema`), not in the hub. See
 [app-settings-ui.md](app-settings-ui.md).

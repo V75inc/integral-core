@@ -315,6 +315,14 @@ describe('SettingsHubWidget opens records in the dialog and avoids double button
     expect(screen.queryByRole('button', { name: /Add/i })).toBeNull();
   });
 
+  it('offers no Add on a section the app marks as holding one record', async () => {
+    mockEntriesList.mockResolvedValue([profile]);
+    const one = [{ key: 'employer', title: 'Employer', single: true, entry_type_keys: ['company_profile'] }];
+    renderHub(<SettingsHubWidget {...baseProps} entries={[profile]} entryTypes={[]} view={splitView(one)} onEntryCreate={async () => undefined} />);
+    await screen.findByRole('button', { name: /Edit/ });
+    expect(screen.queryByRole('button', { name: /Add/i })).toBeNull();
+  });
+
   it('shows one button, not two, on an empty section', async () => {
     mockEntriesList.mockResolvedValue([]);
     renderHub(<SettingsHubWidget {...baseProps} view={splitView(sections)} onEntryCreate={async () => undefined} />);

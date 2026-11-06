@@ -24,6 +24,8 @@ type SettingSection = {
   /** Record types this section lists. A section that shows an App screen instead leaves this empty. */
   entry_type_keys?: string[];
   fields?: SettingField[];
+  /** This section holds one record (an employer, a set of permissions). Once it exists there is no Add, only Edit. Split layout only. */
+  single?: boolean;
   /** Show this App screen (an extension view) in the detail pane instead of a record list. */
   extension_view_key?: string;
   /** Heading the section is listed under in the left list. Consecutive sections with one group share it. */
@@ -317,7 +319,7 @@ export function SettingsHubWidget(props: ViewWidgetProps) {
               </div>
               {onEntryCreate && !(split && !activeSection.entries.length) && (
                 <div className="flex flex-wrap justify-end gap-2">
-                  {(activeSection.section.entry_type_keys || []).filter(key => !(split && isSingleton(key) && activeSection.entries.length > 0)).map(key => (
+                  {(activeSection.section.entry_type_keys || []).filter(key => !(split && (activeSection.section.single || isSingleton(key)) && activeSection.entries.length > 0)).map(key => (
                     <Button
                       key={key}
                       variant="secondary"
