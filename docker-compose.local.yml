@@ -81,7 +81,7 @@ services:
       # exported register, and NIS/PAYE filing now survives an API rebuild
       # instead of leaving a dangling Attachment row whose file 404s.
       JVSPATIAL_FILES_ROOT_PATH: /tmp/integral_files
-      EMAIL_PROVIDER: console
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
       APP_BASE_URL: http://localhost:9006
       JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4002,http://127.0.0.1:4002
       # Local Ollama runs on the host by default. Override with
