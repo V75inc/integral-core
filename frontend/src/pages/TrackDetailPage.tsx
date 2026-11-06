@@ -59,7 +59,7 @@ import {
   filterBar,
 } from '../components/ui';
 import type { ViewTabOption } from '../components/ui';
-import { savedViewTabs } from '../utils/savedViewTabs';
+import { savedViewTabs, tabOrderChanges } from '../utils/savedViewTabs';
 import {
   mergeDedupedTrackEntryPages,
   useTrackDetailRightRail,
@@ -420,14 +420,15 @@ export function TrackDetailPage() {
   // Stable wrappers so memoized entry cards/rows don't re-render on every parent
   // state change (search typing, modal open, infinite-scroll appends).
   const handleEntryOpen = useCallback(
-    (entry: Entry, opts?: { focusComments?: boolean }) => {
+    (entry: Entry, opts?: { focusComments?: boolean; forceModal?: boolean }) => {
       // Opt-in per entry type (form_schema.open_as_page) to navigate to the
-      // dedicated full page instead of the default modal overlay.
+      // dedicated full page instead of the default modal overlay. A caller that
+      // lives on this page (the Settings hub) can ask for the dialog anyway.
       const entryTypes = (entryTypesQuery.data ?? []) as EntryTypeNode[];
       const matchingType = entryTypes.find(et =>
         entryTypeMatchesSlug(et.name || '', entry.type || '')
       );
-      if (matchingType?.form_schema?.open_as_page) {
+      if (matchingType?.form_schema?.open_as_page && !opts?.forceModal) {
         navigate(entryPagePath(entry.id));
         return;
       }
@@ -618,8 +619,10 @@ export function TrackDetailPage() {
 
   // Different names/configurations represent different user-defined views,
   // including extensions sharing one renderer and entry-type slice.
+  // How the App wants this track's tabs (defaults.tabs in its manifest): their order, and whether a lone tab shows a strip.
+  const appTabsConfig = trackMetaQuery.data?.track?.operational_model_defaults?.tabs;
   const dedupedTabViews = useMemo(
-    () => savedViewTabs(savedViews), [savedViews],
+    () => savedViewTabs(savedViews, appTabsConfig?.order), [savedViews, appTabsConfig?.order],
   );
 
   const viewTabOptions = useMemo<ViewTabOption[]>(
@@ -1434,6 +1437,29 @@ export function TrackDetailPage() {
   const canManageCollabRows = canManageCollaborators;
 
   // A singleton entry type (e.g. Company Profile — "one record per
+
+  // Dragging a tab saves the new order as each tab's own position. The App's declared order
+  // (default_tab_order) is left alone, so an App update never undoes what people chose.
+  const reorderViews = useCallback(async (orderedIds: string[]) => {
+    if (!id) return;
+    const changes = tabOrderChanges(dedupedTabViews, orderedIds);
+    if (changes.length === 0) return;
+    const key = viewsForTrackQueryKey(id);
+    const previous = queryClient.getQueryData<SavedView[]>(key);
+    const positions = new Map(changes.map(c => [c.view.id, c.tabOrder]));
+    queryClient.setQueryData<SavedView[]>(key, old => (old ?? []).map(v =>
+      positions.has(v.id) ? { ...v, config: { ...v.config, tab_order: positions.get(v.id) } } : v));
+    try {
+      for (const { view, tabOrder } of changes) {
+        await trackViewsApi.update(view.id, { config: { ...view.config, tab_order: tabOrder } });
+      }
+    } catch {
+      if (previous) queryClient.setQueryData(key, previous);
+      showToast('Could not save the tab order. It has been put back.', 'error');
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: key });
+    }
+  }, [id, dedupedTabViews, queryClient, showToast]);
   // workspace, always") is enforced server-side at create time, but the
   // "+ New" affordance has no way to know that on its own — without this,
   // it stays live and clickable even once the one allowed record already
@@ -1823,6 +1849,8 @@ export function TrackDetailPage() {
             return params;
           }, { replace: true });
         }}
+        onReorderViews={canAdminTrack && dedupedTabViews.length > 1 ? reorderViews : undefined}
+        showSingleTab={appTabsConfig?.show_single_tab !== false}
         onEditLayout={canEditViewLayout && id && activeView
           ? () => setLayoutTarget({ trackId: id, viewId: activeView.id })
           : undefined}
@@ -1907,6 +1935,7 @@ export function TrackDetailPage() {
         {id && rightRailOpen ? (
           <TrackDetailRightRail
             trackId={id}
+            appTabOrder={appTabsConfig?.order}
             trackActivityOpen={trackActivityOpen}
             trackConfigOpen={trackConfigOpen}
             canAdminTrack={canAdminTrack}

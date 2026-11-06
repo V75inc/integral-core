@@ -338,6 +338,11 @@ async def attach_operational_model_defaults_to_track_data(
         dv = defaults.get("default_view")
         if dv is not None and str(dv).strip():
             out["default_view"] = str(dv).strip()
+        tabs = defaults.get("tabs")
+        if isinstance(tabs, dict) and tabs:
+            out["tabs"] = {
+                k: v for k, v in tabs.items() if k in ("order", "show_single_tab")
+            }
         if out:
             track_data["operational_model_defaults"] = out
     except Exception:

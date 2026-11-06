@@ -14,7 +14,8 @@ export interface ViewWidgetProps {
   entries: Entry[];
   view: SavedView;
   isLoading: boolean;
-  onEntryOpen: (entry: Entry, opts?: { focusComments?: boolean }) => void;
+  /** ``forceModal`` opens the record in the dialog even when its type opts into a full page (``open_as_page``). */
+  onEntryOpen: (entry: Entry, opts?: { focusComments?: boolean; forceModal?: boolean }) => void;
   onEntryDelete?: (entryId: string) => void;
   /** Refetch / rollback when a widget-initiated delete fails after optimistic UI. */
   onEntryDeleteFailed?: () => void;

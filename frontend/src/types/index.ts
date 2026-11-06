@@ -477,9 +477,16 @@ export interface DeclarativeViewConfig {
 }
 
 /** Resolved from the track’s effective operational model tier (manifest ``track.defaults``). */
+/** How an App wants a track's tabs: ``order`` lists view keys; ``show_single_tab: false`` hides a lone tab's strip. */
+export interface TrackTabsConfig {
+  order?: string[];
+  show_single_tab?: boolean;
+}
+
 export interface TrackOperationalModelDefaults {
   default_entry_type?: string;
   default_view?: string;
+  tabs?: TrackTabsConfig;
 }
 
 /** Provenance for tracks auto-spawned by an Entry's relation field
