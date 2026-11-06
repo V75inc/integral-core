@@ -137,6 +137,7 @@ async def test_logger_pushes_keyset_sort_and_limit_into_store(monkeypatch):
         ]
     }
     assert db.find.await_count == 2
+    # Newest first keeps the one-item ``$in`` (its continuation plan is gated).
     assert db.find.await_args_list[0].args[1]["$and"][1] == {
         "context.log_data.workspace_id": {"$in": ["bound"]}
     }
@@ -302,3 +303,61 @@ async def test_slow_history_scan_returns_private_progress_before_completing_wind
     assert result["events"] == [] and result["has_more"] and not result["scan_complete"]
     assert result["resume_cursor"] and "event-00001" not in result["resume_cursor"]
     logger.find_page.assert_awaited_once()
+
+
+async def test_event_feed_has_oldest_first_indexes_for_both_streams(monkeypatch):
+    """/api/events reads ascending; jvspatial sorts ASC NULLS LAST, which a
+    backward scan of a newest-first index cannot serve, so both streams need
+    an ascending twin, limited to DBLog rows."""
+    created = []
+
+    async def create_index(collection, fields, **kwargs):
+        created.append((collection, tuple(fields), kwargs))
+
+    db = SimpleNamespace(create_index=create_index)
+    context = SimpleNamespace(database=db, ensure_indexes=AsyncMock())
+    logger = ChangeEventLogger()
+    monkeypatch.setattr(logger, "_get_log_context", lambda: context)
+    await logger.ensure_indexes()
+    ascending = [
+        (fields, kwargs)
+        for _collection, fields, kwargs in created
+        if ("context.logged_at", 1) in fields
+    ]
+    workspace = [kw for f, kw in ascending if ("context.log_data.workspace_id", 1) in f]
+    legacy = [
+        kw for f, kw in ascending if ("context.log_data.workspace_id", 1) not in f
+    ]
+    assert workspace == [{"entity": "DBLog", "partial_by_entity": True}]
+    assert len(legacy) == 1
+    assert legacy[0]["partial_by_entity"] is True
+    assert legacy[0]["index_partial_filter_expression"] == {
+        "context.log_data.workspace_id": {"$exists": False}
+    }
+    # The newest-first indexes are unchanged.
+    assert any(
+        ("context.logged_at", -1) in fields
+        and ("context.log_data.workspace_id", 1) in fields
+        for _c, fields, _k in created
+    )
+
+
+async def test_oldest_first_workspace_stream_uses_plain_equality(monkeypatch):
+    """Equality makes the translator emit the JSONB form that leads the
+    ascending workspace index; a one-item ``$in`` forced a full sort."""
+    db = SimpleNamespace(find=AsyncMock(return_value=[]))
+    logger = ChangeEventLogger()
+    monkeypatch.setattr(
+        logger, "_get_log_context", lambda: SimpleNamespace(database=db)
+    )
+    await logger.find_page(
+        cursor=None, limit=50, descending=False, workspace_id="bound"
+    )
+    assert db.find.await_count == 2
+    first = db.find.await_args_list[0]
+    assert first.kwargs["sort"] == [("context.logged_at", 1), ("id", 1)]
+    assert first.args[1]["$and"][0]["context.log_level"] == "CHANGE_EVENT"
+    assert first.args[1]["$and"][1] == {"context.log_data.workspace_id": "bound"}
+    assert db.find.await_args_list[1].args[1]["$and"][1] == {
+        "context.log_data.workspace_id": {"$exists": False}
+    }
