@@ -12,6 +12,7 @@ from app.services.pagination import (
     _context_field_query_path,
     _merge_query_clauses,
 )
+from app.services.perf_trace import perf_traced
 from app.services.query_filters import FILTER_OPS, canonical_filter_op
 from app.services.relative_date_filters import resolve_relative_date
 
@@ -164,6 +165,7 @@ async def _resolve_view_type_ids(view_node: Any) -> Optional[Set[str]]:
     }
 
 
+@perf_traced("entries.selection")
 async def fetch_accessible_entries_page(
     user_id: str,
     *,

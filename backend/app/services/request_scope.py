@@ -52,6 +52,7 @@ import logging
 from typing import Any, Optional
 
 from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
+from app.services.perf_trace import perf_traced
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,7 @@ async def _pick_default_workspace(user_id: str) -> Optional[str]:
         return None
 
 
+@perf_traced("scope.resolve")
 async def resolve_workspace_id_from_request(
     request, user_id: str, *, skip_header: bool = False
 ) -> Optional[str]:

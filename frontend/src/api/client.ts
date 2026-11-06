@@ -3,6 +3,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios';
+import { beginInteraction, finishInteraction, type Interaction } from '../lib/performance';
 import { clearAllSingleFlights, dedupeConcurrentGets } from './singleFlight';
 import { isDeferrableStartupGet, waitForStartupWindow } from './startupGate';
 import { getApiBaseURL } from '../config';
@@ -66,10 +67,23 @@ export function getActiveScopeHeader(): string | null {
   return _activeScopeHeader;
 }
 
+const requestTimings = new WeakMap<object, Interaction>();
+
 apiClient.interceptors.request.use(async config => {
   // Background panels wait out the first moments of a page load (see startupGate.ts).
   if (import.meta.env?.MODE !== 'test' && isDeferrableStartupGet(config.method, config.url)) {
     await waitForStartupWindow();
+  }
+  const timing = beginInteraction();
+  if (timing) {
+    const parent = config.headers.traceparent;
+    if (typeof parent === 'string' && /^00-[a-f0-9]{32}-[a-f0-9]{16}-0[01]$/.test(parent)) {
+      timing.traceparent = parent;
+      timing.traceId = parent.split('-')[1];
+    } else {
+      config.headers.traceparent = timing.traceparent;
+    }
+    requestTimings.set(config, timing);
   }
   await checkSessionDeadline();
   if (isHostManagedSession() && !getAccessToken()) throw new axios.CanceledError('Local workspace is reconnecting');
@@ -138,21 +152,32 @@ function shouldSuppressNotify(config: NotifyAwareConfig | undefined): boolean {
 
 apiClient.interceptors.response.use(
   (r: AxiosResponse) => {
+    const requestTiming = requestTimings.get(r.config);
+    finishInteraction(requestTiming, 'http.response');
+    const normalization = requestTiming ? { ...requestTiming, started: performance.now() } : undefined;
     if (shouldNormalizeResponseData(r.data)) {
       r.data = normalizeDeepStrings(r.data);
     }
+    finishInteraction(normalization, 'http.normalization');
     // A successful write may change what listings return; drop shared requests.
     const method = (r.config?.method || 'get').toLowerCase();
     // POST /auth/ws-ticket only mints a socket ticket; it changes no listing.
     const url = String(r.config?.url || '');
-    if (method !== 'get' && method !== 'head' && !url.endsWith('/auth/ws-ticket')) {
+    if (method !== 'get' && method !== 'head' && !url.endsWith('/auth/ws-ticket') && !url.endsWith('/entry-lookup')) {
       clearAllSingleFlights();
+      const payload = r.data?.data ?? r.data;
+      // Only the authenticated operation response can classify a POST read.
+      // Older servers and all other mutation routes invalidate conservatively.
+      const confirmedRead = /(?:^|\/)extensions\/[^/?]+\/operations\/[^/?]+$/.test(url)
+        && payload?.operation_class === 'read';
+      if (!confirmedRead) window.dispatchEvent(new Event('integral:records-changed'));
     }
     // Successful response — clear any active "can't reach Integral" banner.
     clearApiFailure();
     return r;
   },
   async (err: AxiosError) => {
+    if (err.config) finishInteraction(requestTimings.get(err.config), axios.isCancel(err) ? 'http.cancelled' : 'http.error');
     if (axios.isCancel(err) || isSessionPaused()) return Promise.reject(err);
     // A deadline only stops waiting in the browser; it cannot roll back work
     // already accepted by the server. Never replay a timed-out mutation.

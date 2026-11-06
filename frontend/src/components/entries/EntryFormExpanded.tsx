@@ -946,13 +946,13 @@ export function useEntryExpandedForm(
 
   useEffect(() => {
     if (!enabled || !relationsEnabled || !activeTrackId) {
-      setRelationChoices(prev => (Object.keys(prev).length === 0 ? prev : {}));
+      // Remote pickers keep their own scoped choices.
       setRelationLoading(false);
       return;
     }
-    const relationFields = dynamicFields.filter(f => f.type === 'relation');
+    const relationFields = dynamicFields.filter(f => f.type === 'relation' && ['tasks', 'sprint', 'manager'].includes(f.key));
     if (!relationFields.length) {
-      setRelationChoices(prev => (Object.keys(prev).length === 0 ? prev : {}));
+      // Remote pickers keep their own scoped choices.
       setRelationLoading(false);
       return;
     }
@@ -1178,6 +1178,12 @@ export function useEntryExpandedForm(
           clearProblem(field.key);
           setDynamicField(field.key, v);
         }}
+        relationSource={!['tasks', 'sprint', 'manager'].includes(field.key) ? {
+          trackId: activeTrackId, entryTypeId: selectedTypeId, schema: selectedType?.form_schema,
+          entryId: initialEntry?.track_id === activeTrackId ? initialEntry.id : undefined,
+          enabled: enabled && relationsEnabled,
+          onChoices: choices => setRelationChoices(prev => ({ ...prev, [field.key]: choices })),
+        } : undefined}
         relationChoices={relationChoices[field.key]}
         relationLoading={relationLoading}
         enumLabels={workflowEnumLabels?.[field.key]}

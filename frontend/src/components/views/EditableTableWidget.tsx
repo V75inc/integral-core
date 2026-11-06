@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { SeamlessField } from '../entries/SeamlessField';
-import type { RelationChoice } from '../entries/EntryFormExpanded';
-import { slug } from '../entries/entryFormCustomFields';
-import { entriesApi, entryTypesApi, tracksApi } from '../../api';
+import { entriesApi, entryTypesApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
@@ -182,96 +180,6 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
     [columnWidths, defaultColumnWidth]
   );
 
-  // SeamlessField's relation-type cells render whatever ``relationChoices``
-  // they're handed — it does no fetching of its own (see
-  // EntryFormExpanded.tsx, the only other caller, which does this same
-  // fetch). Without it every relation column (e.g. this app's "Employee"
-  // column, a cross-track relation into hr_app's Employees track) opens an
-  // empty, permanently-loading picker with zero options. Trimmed port of
-  // EntryFormExpanded's relation-choices effect: resolve candidate tracks
-  // by ``target_track_types``, fetch their entries, filter by
-  // ``target_entry_types``.
-  const [relationChoices, setRelationChoices] = useState<
-    Record<string, RelationChoice[]>
-  >({});
-  const [relationLoading, setRelationLoading] = useState(false);
-  const relationFieldsFetchSig = fields
-    .filter(f => f.type === 'relation')
-    .map(f => `${f.key}:${JSON.stringify(f.relation ?? {})}`)
-    .join('\x1e');
-
-  useEffect(() => {
-    const relationFields = fields.filter(f => f.type === 'relation');
-    if (!relationFields.length) {
-      setRelationChoices(prev => (Object.keys(prev).length === 0 ? prev : {}));
-      return;
-    }
-    let cancelled = false;
-    setRelationLoading(true);
-    (async () => {
-      try {
-        const allTracks = await tracksApi.list({ skipEntryCounts: true });
-        const choicesByField: Record<string, RelationChoice[]> = {};
-        await Promise.all(
-          relationFields.map(async relField => {
-            const relation = relField.relation || {};
-            const allowCrossTrack = Boolean(relation.allow_cross_track);
-            const targetEntryTypes = new Set(
-              (relation.target_entry_types || []).map(x => slug(String(x)))
-            );
-            const targetTrackTypes = new Set(
-              (relation.target_track_types || []).map(x => slug(String(x)))
-            );
-            const candidateTracks = allowCrossTrack
-              ? allTracks.filter(t => {
-                  if (!targetTrackTypes.size) return true;
-                  const typeKey = slug(String(t.template_id || t.relation_type_key || t.title));
-                  return targetTrackTypes.has(typeKey);
-                })
-              : allTracks.filter(t => t.id === view.track_id);
-            const entryLists = await Promise.all(
-              candidateTracks.map(async t => {
-                try {
-                  const es = await entriesApi.list({ track_id: t.id, limit: 200 });
-                  return { track: t, entries: es };
-                } catch {
-                  return { track: t, entries: [] };
-                }
-              })
-            );
-            const deduped = new Map<string, RelationChoice>();
-            for (const group of entryLists) {
-              for (const item of group.entries) {
-                if (
-                  targetEntryTypes.size &&
-                  !targetEntryTypes.has(slug(String(item.type)))
-                ) {
-                  continue;
-                }
-                const primary =
-                  String(item.title || '').trim() ||
-                  String(item.body || '').trim().slice(0, 80) ||
-                  `Entry ${item.id.slice(-6)}`;
-                deduped.set(item.id, {
-                  value: item.id,
-                  label: `${primary} (${group.track.title})`,
-                });
-              }
-            }
-            choicesByField[relField.key] = Array.from(deduped.values());
-          })
-        );
-        if (!cancelled) setRelationChoices(choicesByField);
-      } finally {
-        if (!cancelled) setRelationLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relationFieldsFetchSig, view.track_id]);
-
   const commitCell = useCallback(
     async (entry: Entry, key: string, value: unknown) => {
       const cellId = `${entry.id}:${key}`;
@@ -410,8 +318,9 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                         value={value}
                         onChange={next => commitCell(row, key, next)}
                         entryId={row.id}
-                        relationChoices={relationChoices[key]}
-                        relationLoading={relationLoading}
+                        relationSource={{ trackId: view.track_id, entryTypeId: activeEntryType?.id || '',
+                          schema: activeEntryType?.form_schema,
+                          entryId: row.track_id === view.track_id ? row.id : undefined }}
                       />
                     </td>
                   );

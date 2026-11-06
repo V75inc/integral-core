@@ -46,26 +46,44 @@ class RequestDBOpRecorder:
     def record_duration(self, name: str, seconds: float, /, **labels: Any) -> None:
         if name != "jvspatial.db.op.duration_seconds":
             return
+        from app.services.performance import record_value
+
+        elapsed = max(0.0, float(seconds))
+        record_value("db.logical_duration_ms", elapsed * 1000)
         holder = request_db_ops.get()
-        if holder is None:
-            return
-        holder.duration_seconds += max(0.0, float(seconds))
-        # ObservableDatabase emits a separate slow_count event using its own
-        # configured threshold. Counting here as well duplicates that event.
+        if holder is not None:
+            holder.duration_seconds += elapsed
 
     def increment_counter(
         self, name: str, /, *, amount: int = 1, **labels: Any
     ) -> None:
-        holder = request_db_ops.get()
-        if holder is None:
-            return
+        from app.services.performance import record_value
+
         if name == "jvspatial.db.op.count":
-            holder.ops += amount
-        elif name == "jvspatial.db.op.slow_count":
-            holder.slow_ops += amount
+            record_value("db.logical_operations", amount)
+        holder = request_db_ops.get()
+        if holder is not None:
+            if name == "jvspatial.db.op.count":
+                holder.ops += amount
+            elif name == "jvspatial.db.op.slow_count":
+                holder.slow_ops += amount
 
     def record_value(self, name: str, value: float, /, **labels: Any) -> None:
-        return None
+        from app.services.performance import record_value
+
+        allowed = {
+            "jvspatial.db.query.pool_wait_ms",
+            "jvspatial.db.query.driver_attempts",
+            "jvspatial.db.query.driver_statements",
+            "jvspatial.db.query.driver_duration_ms",
+            "jvspatial.db.query.retry_count",
+            "jvspatial.db.query.scanned_rows",
+            "jvspatial.db.query.decoded_bytes",
+            "jvspatial.db.query.decoded_chars",
+            "jvspatial.db.op.result_count",
+        }
+        if name in allowed:
+            record_value(name, value)
 
 
 class _RequestAndUpstreamRecorder:
@@ -92,6 +110,7 @@ class _RequestAndUpstreamRecorder:
             pass
 
     def record_value(self, name: str, value: float, /, **labels: Any) -> None:
+        self.request.record_value(name, value, **labels)
         try:
             self.upstream.record_value(name, value, **labels)
         except Exception:

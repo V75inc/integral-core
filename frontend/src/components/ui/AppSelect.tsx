@@ -38,6 +38,9 @@ export type AppSelectProps = {
   /** Opt-in type-ahead: a search box inside the open list filters the options. */
   searchable?: boolean;
   onSearchChange?: (query: string) => void;
+  onOpenChange?: (open: boolean) => void;
+  remoteSearch?: boolean;
+  footer?: ReactNode;
 };
 
 export function AppSelect({
@@ -52,8 +55,17 @@ export function AppSelect({
   placeholder,
   searchable = false,
   onSearchChange,
+  onOpenChange,
+  remoteSearch = false,
+  footer,
 }: AppSelectProps) {
   const [open, setOpen] = useState(false);
+  const openCallback = useRef(onOpenChange);
+  openCallback.current = onOpenChange;
+  useEffect(() => {
+    openCallback.current?.(open);
+    return () => { openCallback.current?.(false); };
+  }, [open]);
   const [coords, setCoords] = useState<{
     triggerTop: number;
     triggerBottom: number;
@@ -167,7 +179,7 @@ export function AppSelect({
     'flex min-w-0 max-w-full items-center justify-between gap-2 rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-1.5 pr-2 text-left text-sm text-[var(--text)] cursor-pointer outline-none transition focus:ring-2 focus:ring-[var(--focus-ring-color)] disabled:opacity-50 disabled:cursor-not-allowed';
 
   const filteredOptions = useMemo(() => {
-    if (!searchable || !query.trim()) return options;
+    if (remoteSearch || !searchable || !query.trim()) return options;
     const q = query.trim().toLowerCase();
     return options.filter(opt => {
       const label = typeof opt.label === 'string' ? opt.label : opt.value;
@@ -176,7 +188,7 @@ export function AppSelect({
         label.toLowerCase().includes(q)
       );
     });
-  }, [options, query, searchable]);
+  }, [options, query, searchable, remoteSearch]);
 
   function handleSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Escape') {
@@ -267,6 +279,7 @@ export function AppSelect({
           </li>
         );
       })}
+      {footer && <li role="presentation">{footer}</li>}
     </ul>
   );
 

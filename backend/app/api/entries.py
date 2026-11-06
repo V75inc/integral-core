@@ -52,6 +52,7 @@ from app.services.notification_paths import entry_path
 from app.services.operational_model_derived_fields import (
     resolve_derived_fields_for_entry,
 )
+from app.services.perf_trace import perf_traced
 from app.services.permissions import get_user_node
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.request_scope import resolve_workspace_id_from_request
@@ -273,6 +274,7 @@ async def _apply_view_entry_type_filter(
     return [e for e in entries if (getattr(e, "type_id", "") or "") in allowed_ids]
 
 
+@perf_traced("entries.enrichment")
 async def enrich_entry_page_for_response(
     page_entries: List[Entry],
 ) -> List[Dict[str, Any]]:

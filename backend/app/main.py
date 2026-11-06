@@ -1557,6 +1557,12 @@ from app.services.host_hooks import mount_host_middleware
 mount_host_middleware(app)
 app.add_middleware(RateLimitMiddleware)
 
+from app.middleware.performance import PerformanceMiddleware
+from app.services.performance import initialize_tracing
+
+initialize_tracing()
+app.add_middleware(PerformanceMiddleware)
+
 # jvspatial installs CORS before authentication, so auth can return a 401
 # without CORS headers. Cross-origin clients then see a network error instead
 # of the status that triggers session refresh or sign-in. Move the existing
@@ -1567,6 +1573,21 @@ from starlette.middleware.cors import CORSMiddleware
 
 for middleware in list(app.user_middleware):
     if middleware.cls is CORSMiddleware:
+        for option, additions in (
+            ("allow_headers", ["traceparent", "tracestate"]),
+            (
+                "expose_headers",
+                [
+                    "Server-Timing",
+                    "X-Trace-ID",
+                    "X-DB-Round-Trip-Count",
+                    "X-DB-Duration-Ms",
+                ],
+            ),
+        ):
+            middleware.kwargs[option] = list(
+                dict.fromkeys([*middleware.kwargs.get(option, []), *additions])
+            )
         app.user_middleware.remove(middleware)
         app.user_middleware.insert(0, middleware)
 
