@@ -1490,3 +1490,11 @@ s .doc-field-token {
   float: left;
   height: 0;
 }
+
+/* A table row that repeats once per item (payslip earnings, invoice lines). */
+.doc-template-prose tr.doc-repeat-row > td,
+.doc-template-prose tr.doc-repeat-row > th {
+  background: #fffbe6;
+  border-top: 1px dashed #d4a017;
+  border-bottom: 1px dashed #d4a017;
+}
