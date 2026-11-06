@@ -56,6 +56,7 @@ from app.exceptions import (
     AppUninstallBlockedError,
     BadRequestError,
 )
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.nodes import (
     App,
     Entry,
@@ -87,7 +88,6 @@ from app.services.operational_model_runtime import (
     slug_manifest_key,
 )
 from app.utils.time import utc_now_iso
-from app.middleware.permissions_cache import invalidates_job_facts
 
 logger = logging.getLogger(__name__)
 

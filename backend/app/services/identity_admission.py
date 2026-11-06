@@ -170,10 +170,7 @@ async def identity_admission(
             locked = await _hold_row_shared(
                 database, "object", identity_id, AuthUser._entity_name()
             )
-            if (
-                not locked
-                or await primary_auth_record(database, identity_id) is None
-            ):
+            if not locked or await primary_auth_record(database, identity_id) is None:
                 raise AuthorizationUnavailableError()
         for profile_id in sorted(profiles):
             locked = await _hold_row_shared(

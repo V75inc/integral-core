@@ -789,7 +789,9 @@ _MAX_TICKS_YIELDED_TO_APP_JOBS = 6
 async def _app_job_running() -> bool:
     from app.agentive.work_models import WorkItem
 
-    return bool(await WorkItem.find({"context.status": "running", "context.kind": "app_tool"}))
+    return bool(
+        await WorkItem.find({"context.status": "running", "context.kind": "app_tool"})
+    )
 
 
 async def _yield_to_app_job(ticks_yielded: int) -> bool:
@@ -811,7 +813,9 @@ async def indexing_loop() -> None:
     while True:
         if await _yield_to_app_job(ticks_yielded):
             ticks_yielded += 1
-            await asyncio.sleep(_worker_setting("INDEX_WORKER_INTERVAL_SECONDS", 10, 3600))
+            await asyncio.sleep(
+                _worker_setting("INDEX_WORKER_INTERVAL_SECONDS", 10, 3600)
+            )
             continue
         ticks_yielded = 0
         try:

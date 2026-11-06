@@ -18,6 +18,7 @@ from jvspatial.core.decorators import on_visit
 
 from app.agentive.services.skill_registry import unregister_skills_for_app
 from app.exceptions import AuthorizationUnavailableError
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.access_delegation import HAS_ACTION_BINDING
 from app.models.access_lifecycle import HAS_OWNERSHIP_PROPOSAL
 from app.models.edges import (
@@ -44,7 +45,6 @@ from app.models.nodes import (
 from app.services.app_graph import (
     get_track_attached_operational_model,
 )
-from app.middleware.permissions_cache import invalidates_job_facts
 
 logger = logging.getLogger(__name__)
 

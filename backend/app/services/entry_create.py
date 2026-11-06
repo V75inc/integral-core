@@ -676,7 +676,9 @@ async def create_entries_in_track(
             "type_id": type_id or (entry_type.id if entry_type else ""),
             "custom_fields": union_fields,
             "tags": [t for item in items for t in (item.get("tags") or [])],
-            "attachment_ids": [a for item in items for a in (item.get("attachment_ids") or [])],
+            "attachment_ids": [
+                a for item in items for a in (item.get("attachment_ids") or [])
+            ],
         }
         candidate_type = fresh_type or (
             await EntryType.find_one({"id": type_id}) if type_id else None
@@ -725,7 +727,9 @@ async def create_entries_in_track(
                 created.append(entry)
                 events_all.extend(events[:1])
                 if events and is_postgres_entry_transaction(graph.database):
-                    from app.services.app_operations.event_outbox import insert_entry_event
+                    from app.services.app_operations.event_outbox import (
+                        insert_entry_event,
+                    )
 
                     outbox_ids.append(
                         await insert_entry_event(

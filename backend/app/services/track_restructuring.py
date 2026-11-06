@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from jvspatial.core import Edge
 from jvspatial.core.context import get_default_context
 
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.edges import (
     ANCHORS,
     CATALOGS,
@@ -62,7 +63,6 @@ from app.services.query_filters import (
     normalize_filter_expressions,
 )
 from app.utils.time import utc_now_iso
-from app.middleware.permissions_cache import invalidates_job_facts
 
 _MAX_ENTRIES = 500
 

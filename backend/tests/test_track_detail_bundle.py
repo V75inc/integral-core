@@ -50,7 +50,11 @@ async def test_bundle_assembles_the_four_responses(monkeypatch):
     )
     out = await T.get_track_detail_bundle(object(), "t")
     assert out["track"] == {"id": "t"} and out["collaborators"] == [1]
-    assert out["entry_types"] == [2] and out["views"] == [3] and out["caller_role"] == "owner"
+    assert (
+        out["entry_types"] == [2]
+        and out["views"] == [3]
+        and out["caller_role"] == "owner"
+    )
 
 
 @pytest.mark.asyncio
@@ -63,6 +67,12 @@ async def test_track_error_wins_over_later_errors(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_later_error_is_raised_when_the_track_read_succeeds(monkeypatch):
-    _patch(monkeypatch, track={"track": {}}, collab={}, types={}, views=_raiser(ValueError("views")))
+    _patch(
+        monkeypatch,
+        track={"track": {}},
+        collab={},
+        types={},
+        views=_raiser(ValueError("views")),
+    )
     with pytest.raises(ValueError):
         await T.get_track_detail_bundle(object(), "t")

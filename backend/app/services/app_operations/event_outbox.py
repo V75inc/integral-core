@@ -301,7 +301,9 @@ async def _bulk_update(transaction: Any, sql_template: str, *args: Any) -> list:
         concrete = concrete.inner
     from jvspatial.db.postgres import _safe_collection
 
-    table = f"{_safe_collection(concrete._db.schema_name)}.{_safe_collection(_COLLECTION)}"
+    table = (
+        f"{_safe_collection(concrete._db.schema_name)}.{_safe_collection(_COLLECTION)}"
+    )
     async with concrete._operation_lock:
         concrete._ensure_active()
         return await concrete._connection.fetch(sql_template.format(table=table), *args)
@@ -359,7 +361,9 @@ async def deliver_operation_events(
                 await emit_change_event(**event)
                 emitted.append(row["id"])
             except Exception as exc:  # noqa: BLE001 - leave a durable pending fact
-                logger.warning("Batched event delivery failed for %s: %s", outbox_id, exc)
+                logger.warning(
+                    "Batched event delivery failed for %s: %s", outbox_id, exc
+                )
                 async with postgres_graph_transaction(database) as transaction:
                     await _bulk_update(
                         transaction,
@@ -424,7 +428,9 @@ async def deliver_pending_operation_events(
         "context.status": {"$in": ["pending", "delivering"]},
     }
     if min_age_seconds > 0:
-        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=min_age_seconds)).isoformat()
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=min_age_seconds)
+        ).isoformat()
         query["context.created_at"] = {"$lte": cutoff}
     records = await db.find(_COLLECTION, query)
     delivered = 0

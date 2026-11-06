@@ -238,11 +238,15 @@ async def _canonical_protected_state(
     from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
 
     if entry_id:
-        return await _canonical_protected_state_uncached(workspace_id, track_id, entry_id)
+        return await _canonical_protected_state_uncached(
+            workspace_id, track_id, entry_id
+        )
     key = ("protected_state", workspace_id, track_id)
     state = app_job_fact_get(key)
     if state is None:
-        state = await _canonical_protected_state_uncached(workspace_id, track_id, entry_id)
+        state = await _canonical_protected_state_uncached(
+            workspace_id, track_id, entry_id
+        )
         app_job_fact_put(key, state)
     return state
 

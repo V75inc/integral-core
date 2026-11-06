@@ -47,7 +47,6 @@ from app.services.pagination import DEFAULT_ENTITY_SORT, paginate_nodes_by_ids
 from app.services.permissions import (
     count_user_accessible_entries,
     count_user_accessible_entries_for_tracks,
-    get_user_accessible_tracks,
     get_user_accessible_tracks_for_navigation,
     get_user_node,
     resolve_role,

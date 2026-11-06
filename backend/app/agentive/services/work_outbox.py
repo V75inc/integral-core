@@ -689,7 +689,9 @@ async def reconcile_missing_outbox_facts(
     if work_item is not None:
         items = [work_item]
     elif updated_since:
-        items = list(await WorkItem.find({"context.updated_at": {"$gte": updated_since}}))
+        items = list(
+            await WorkItem.find({"context.updated_at": {"$gte": updated_since}})
+        )
     else:
         items = list(await WorkItem.find({}))
 

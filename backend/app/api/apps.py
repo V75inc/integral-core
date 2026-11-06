@@ -54,7 +54,6 @@ from app.services.operational_model_runtime import (
 from app.services.permissions import (
     can_create_app_under_workspace,
     count_user_accessible_entries_for_tracks,
-    get_user_accessible_apps,
     get_user_accessible_apps_for_navigation,
     get_user_node,
     resolve_role,
@@ -665,7 +664,11 @@ async def list_app_tracks(
         if missing:
             generation = _ppc.generation(user_id)
             missing_ids = {t.id for t in missing}
-            admitted = [t for t in admitted_tracks if t.id in missing_ids] if admitted_tracks else None
+            admitted = (
+                [t for t in admitted_tracks if t.id in missing_ids]
+                if admitted_tracks
+                else None
+            )
             fresh = await count_user_accessible_entries_for_tracks(
                 user_id, missing, admitted=admitted
             )

@@ -3,7 +3,6 @@
 from types import SimpleNamespace as NS
 
 import app.api.entry_types  # noqa: F401  (loads the service layer in its normal order)
-
 from app.services.entry_type_service import match_existing_entry_types as match
 
 

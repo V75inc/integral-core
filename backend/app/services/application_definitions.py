@@ -381,6 +381,7 @@ async def get_active_application_definition(
     if repair_legacy_pointer:
         app_node.active_definition_id = chosen.id
         from app.middleware.permissions_cache import note_definition_changed
+
         note_definition_changed()
         app_node.active_definition_revision = int(getattr(chosen, "revision", 0) or 0)
         await app_node.save()
@@ -537,6 +538,7 @@ async def _compile_application_definition(
             await current.save()
         app_node.active_definition_id = definition.id
         from app.middleware.permissions_cache import note_definition_changed
+
         note_definition_changed()
         app_node.active_definition_revision = revision
         await app_node.save()

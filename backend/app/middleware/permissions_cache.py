@@ -26,10 +26,12 @@ _live_permissions_var: ContextVar[bool] = ContextVar(
 # ``app_job_fact_scope()``, and an answer is reused for at most _APP_JOB_FACT_TTL seconds
 # and only until the next application definition change.
 _APP_JOB_FACT_TTL = 5.0
-_app_job_facts_var: ContextVar[Optional[Dict[Tuple[str, ...], Tuple[float, int, Any]]]] = ContextVar(
-    "integral_app_job_facts", default=None
+_app_job_facts_var: ContextVar[
+    Optional[Dict[Tuple[str, ...], Tuple[float, int, Any]]]
+] = ContextVar("integral_app_job_facts", default=None)
+_computation_scope_var: ContextVar[bool] = ContextVar(
+    "computation_scope_owns_facts", default=False
 )
-_computation_scope_var: ContextVar[bool] = ContextVar("computation_scope_owns_facts", default=False)
 _definition_generation = 0
 
 
@@ -150,7 +152,10 @@ def app_job_fact_get(key: Tuple[str, ...]) -> Any:
     if hit is None:
         return None
     stamped, generation, value = hit
-    if generation != _definition_generation or _time.monotonic() - stamped > _APP_JOB_FACT_TTL:
+    if (
+        generation != _definition_generation
+        or _time.monotonic() - stamped > _APP_JOB_FACT_TTL
+    ):
         facts.pop(key, None)
         return None
     return value

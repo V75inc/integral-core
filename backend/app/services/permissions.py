@@ -80,9 +80,8 @@ async def get_user_node(user_id: str) -> Optional[User]:
         app_job_fact_active,
         app_job_fact_get,
         app_job_fact_put,
+        computation_scope_owns_facts,
     )
-
-    from app.middleware.permissions_cache import computation_scope_owns_facts
 
     # A user node is bound to the transaction it was read in. Only a single short computation
     # may remember it; an App job (many transactions) must read it fresh each time.
@@ -436,15 +435,12 @@ async def _navigation_listing(user_id: str, key: str, compute_live: Any) -> Any:
 
 async def get_user_accessible_tracks_for_navigation(user_id: str) -> List[Track]:
     """Tracks for a listing endpoint (see ``_navigation_listing``)."""
-    return await _navigation_listing(
-        user_id, "nav_tracks", get_user_accessible_tracks
-    )
+    return await _navigation_listing(user_id, "nav_tracks", get_user_accessible_tracks)
 
 
 async def get_user_accessible_apps_for_navigation(user_id: str) -> List[App]:
     """Apps for a listing endpoint (see ``_navigation_listing``)."""
     return await _navigation_listing(user_id, "nav_apps", get_user_accessible_apps)
-
 
 
 async def _get_current_accessible_apps(user_id: str) -> List[App]:
@@ -1367,7 +1363,6 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
     """List current data access, including protected workspace stewardship."""
     with isolated_permissions_cache(), computation_fact_scope():
         return await _get_current_accessible_tracks(user_id)
-
 
 
 async def _get_current_accessible_tracks(user_id: str) -> List[Track]:

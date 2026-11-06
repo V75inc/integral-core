@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
-from importlib import metadata
 from functools import lru_cache
+from importlib import metadata
 from typing import Any, Dict, Optional
 
 from fastapi import Request

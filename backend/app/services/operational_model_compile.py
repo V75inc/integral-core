@@ -1702,7 +1702,6 @@ def repair_stored_manifest_for_compile(manifest: Dict[str, Any]) -> Dict[str, An
     ``key``). Author-time ``compile_canonical_manifest`` still rejects those;
     this helper only runs when reading an attached OperationalModel from the DB.
     """
-    import copy
 
     m = _fast_copy(manifest)
     scope = str(m.get("scope") or "").strip().lower()
