@@ -237,11 +237,36 @@ class ChangeEventLogger:
                     ("id", -1),
                 ],
             )
+            # The event feed (/api/events) reads oldest first. jvspatial sorts
+            # ascending keys NULLS LAST, which a backward scan of the newest-
+            # first index above cannot serve, so it gets its own ordered index,
+            # limited to DBLog rows.
+            await ctx.database.create_index(
+                "object",
+                [
+                    ("context.log_level", 1),
+                    ("context.log_data.workspace_id", 1),
+                    ("context.logged_at", 1),
+                    ("id", 1),
+                ],
+                entity="DBLog",
+                partial_by_entity=True,
+            )
             # Legacy/null attribution has its own ordered stream, instead of
             # forcing a bitmap OR and sort of every workspace candidate.
             await ctx.database.create_index(
                 "object",
                 [("context.log_level", 1), ("context.logged_at", -1), ("id", -1)],
+                entity="DBLog",
+                partial_by_entity=True,
+                index_partial_filter_expression={
+                    "context.log_data.workspace_id": {"$exists": False}
+                },
+            )
+            # Oldest-first twin of the unattributed stream, for the event feed.
+            await ctx.database.create_index(
+                "object",
+                [("context.log_level", 1), ("context.logged_at", 1), ("id", 1)],
                 entity="DBLog",
                 partial_by_entity=True,
                 index_partial_filter_expression={
@@ -363,12 +388,25 @@ class ChangeEventLogger:
             page_limit = min(max(1, limit), 200)
             if workspace_id:
                 rows = []
+                # Oldest-first reads (the /api/events feed) use plain equality:
+                # the translator then emits the JSONB equality that leads the
+                # ascending (log_level, workspace_id, logged_at, id) index, so a
+                # page is an index range read. The one-item ``$in`` emits only
+                # the text form, and Postgres sorted every event in the
+                # workspace for each oldest-first page (about 2.4 s on 434k
+                # events). Newest-first keeps ``$in``: it is already an index
+                # walk (about 13 ms) and its tied-continuation plan is gated by
+                # tests/contract/test_event_history_load_postgres.py.
+                attributed: Any = (
+                    {"$in": [workspace_id]} if descending else workspace_id
+                )
                 for attribution in (
-                    {"context.log_data.workspace_id": {"$in": [workspace_id]}},
+                    {"context.log_data.workspace_id": attributed},
                     {"context.log_data.workspace_id": {"$exists": False}},
                 ):
                     stream_query = dict(clauses[0])
-                    if "$in" in attribution["context.log_data.workspace_id"]:
+                    marker = attribution["context.log_data.workspace_id"]
+                    if isinstance(marker, dict) and "$in" in marker:
                         # Singleton membership avoids redundant text/JSONB
                         # equality predicates in the native query translator.
                         stream_query["context.log_level"] = {
