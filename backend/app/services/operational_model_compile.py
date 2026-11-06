@@ -244,6 +244,57 @@ def _as_dict(value: Any, *, where: str) -> Dict[str, Any]:
     return value
 
 
+def normalize_track_tabs(value: Any, *, where: str) -> Dict[str, Any]:
+    """Validate and normalize a track's ``defaults.tabs`` (see docs/platform/track-tabs.md).
+
+    ``order``: view keys in the order their tabs should appear; views not listed follow in the order the
+    manifest declares them. ``show_single_tab``: keep the tab strip when only one view is visible (the
+    default, which is how every track behaved before this option existed). Unknown keys are refused so a
+    typo is not silently ignored.
+    """
+    if value is None:
+        return {}
+    tabs = _as_dict(value, where=where)
+    unknown = sorted(set(tabs) - {"order", "show_single_tab"})
+    if unknown:
+        raise BadRequestError(
+            message=f"{where} has unknown option(s): {', '.join(unknown)}. Supported: order, show_single_tab"
+        )
+    out: Dict[str, Any] = {}
+    if "order" in tabs:
+        raw = _as_list(tabs["order"], where=f"{where}.order")
+        keys: List[str] = []
+        for item in raw:
+            if not isinstance(item, str) or not item.strip():
+                raise BadRequestError(
+                    message=f"{where}.order must be a list of view keys"
+                )
+            key = slug_manifest_key(item)
+            if key in keys:
+                raise BadRequestError(message=f"{where}.order lists {item!r} twice")
+            keys.append(key)
+        out["order"] = keys
+    if "show_single_tab" in tabs:
+        if not isinstance(tabs["show_single_tab"], bool):
+            raise BadRequestError(
+                message=f"{where}.show_single_tab must be true or false"
+            )
+        out["show_single_tab"] = tabs["show_single_tab"]
+    return out
+
+
+def _normalize_track_defaults(
+    defaults: Dict[str, Any], *, where: str
+) -> Dict[str, Any]:
+    """Validate the options inside a track's ``defaults`` that have a contract; pass the rest through."""
+    if "tabs" not in defaults:
+        return defaults
+    return {
+        **defaults,
+        "tabs": normalize_track_tabs(defaults.get("tabs"), where=f"{where}.tabs"),
+    }
+
+
 def _as_list(value: Any, *, where: str) -> List[Any]:
     if value is None:
         return []
@@ -1269,7 +1320,10 @@ def _normalize_track_template_spec(
             "taxonomy": _normalize_taxonomy(
                 _as_dict(td.get("taxonomy"), where=f"{where}.taxonomy")
             ),
-            "defaults": _as_dict(td.get("defaults"), where=f"{where}.defaults"),
+            "defaults": _normalize_track_defaults(
+                _as_dict(td.get("defaults"), where=f"{where}.defaults"),
+                where=f"{where}.defaults",
+            ),
         }
     )
 
@@ -4617,6 +4671,13 @@ def normalize_view_config(
         not isinstance(cfg["tab_order"], int) or isinstance(cfg["tab_order"], bool)
     ):
         raise BadRequestError(message="view.config.tab_order must be an integer")
+    if "default_tab_order" in cfg and (
+        not isinstance(cfg["default_tab_order"], int)
+        or isinstance(cfg["default_tab_order"], bool)
+    ):
+        raise BadRequestError(
+            message="view.config.default_tab_order must be an integer"
+        )
     kanban_columns = _as_list(
         cfg.get("kanban_columns"), where="view.config.kanban_columns"
     )
@@ -4672,6 +4733,9 @@ def normalize_view_config(
     }
     if "tab_order" in cfg:
         normalized["tab_order"] = cfg["tab_order"]
+    if "default_tab_order" in cfg:
+        # The App's own order for this tab. A person's drag order (tab_order) wins over it.
+        normalized["default_tab_order"] = cfg["default_tab_order"]
     if vt == "wiki":
         parent_field = str(normalized.get("parent_field") or "").strip()
         if not parent_field:
@@ -4750,6 +4814,33 @@ def normalize_view_config(
             if key not in normalized:
                 normalized[key] = value
     return normalized
+
+
+def default_tab_order_for(spec: Dict[str, Any], index: int) -> int:
+    """The App's default position for a view's tab: its declared ``tab_order``, else its place in the manifest."""
+    declared = spec.get("tab_order") if isinstance(spec, dict) else None
+    if isinstance(declared, int) and not isinstance(declared, bool):
+        return declared
+    return index
+
+
+def keep_person_tab_order(
+    existing_config: Optional[Dict[str, Any]], new_config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Carry a person's own tab order across an App update.
+
+    An update rewrites a view's config from the manifest. The order someone chose by dragging tabs
+    (``tab_order``) is theirs, not the App's, so it survives; the App's order (``default_tab_order``)
+    is refreshed from the manifest.
+    """
+    chosen = (existing_config or {}).get("tab_order")
+    if (
+        isinstance(chosen, int)
+        and not isinstance(chosen, bool)
+        and "tab_order" not in new_config
+    ):
+        return {**new_config, "tab_order": chosen}
+    return new_config
 
 
 def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:

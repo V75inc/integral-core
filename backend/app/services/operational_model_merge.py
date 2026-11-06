@@ -38,6 +38,10 @@ from app.services.app_graph import (
 from app.services.library_package_visibility import (
     assert_library_package_installable_in_workspace,
 )
+from app.services.operational_model_compile import (
+    default_tab_order_for,
+    keep_person_tab_order,
+)
 from app.services.operational_model_runtime import (
     SCHEMA_VERSION,
     app_manifest_provisioning_enabled,
@@ -1173,10 +1177,11 @@ async def merge_library_manifest_into_operational_model(
             legacy_views_by_identity.setdefault(identity, ev)
 
     pending_view_updates: List[View] = []
-    for spec in view_specs:
+    for spec_index, spec in enumerate(view_specs):
         vname = spec.get("name") or "View"
         view_type = spec.get("view_type") or spec.get("type") or "feed"
         view_config = materialize_view_config_from_spec(spec)
+        view_config["default_tab_order"] = default_tab_order_for(spec, spec_index)
         raw_vk = str(spec.get("key") or "").strip()
         spec_key = slug_manifest_key(raw_vk) if raw_vk else ""
         if default_view_key:
@@ -1209,6 +1214,7 @@ async def merge_library_manifest_into_operational_model(
             )
         if existing_view is not None:
             ev = existing_view
+            normalized_config = keep_person_tab_order(ev.config, normalized_config)
             dirty = False
             if str(ev.name or "") != str(vname):
                 ev.name = str(vname)

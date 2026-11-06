@@ -184,6 +184,12 @@ describe('SettingsHubWidget value-field badges', () => {
 
 const baseProps = { entries: [] as Entry[], isLoading: false, onEntryOpen: noop, entryTypes: [] as EntryTypeNode[] };
 
+function splitView(sections: Record<string, unknown>[]): SavedView {
+  const v = view(sections);
+  (v.config as Record<string, unknown>).variant = 'split';
+  return v;
+}
+
 describe('SettingsHubWidget split layout', () => {
   const sections = [
     { key: 'start', title: 'Start here', group: 'Get started', extension_view_key: 'setup_checklist' },
@@ -195,7 +201,7 @@ describe('SettingsHubWidget split layout', () => {
 
   it('lists sections under their group headings, each heading once', async () => {
     mockEntriesList.mockResolvedValue([]);
-    renderHub(<SettingsHubWidget {...baseProps} view={view(sections)} onEntryCreate={async () => undefined} />);
+    renderHub(<SettingsHubWidget {...baseProps} view={splitView(sections)} onEntryCreate={async () => undefined} />);
     const nav = await screen.findByRole('navigation', { name: 'Settings sections' });
     expect(nav).toHaveTextContent('Get started');
     expect(nav).toHaveTextContent('Employer and payments');
@@ -203,9 +209,17 @@ describe('SettingsHubWidget split layout', () => {
     expect(nav.textContent?.match(/Employer and payments/g)).toHaveLength(1);
   });
 
+  it('makes each group a labelled region so a heading is not mistaken for an item', async () => {
+    mockEntriesList.mockResolvedValue([]);
+    renderHub(<SettingsHubWidget {...baseProps} view={splitView(sections)} onEntryCreate={async () => undefined} />);
+    const group = await screen.findByRole('group', { name: /Employer and payments/i });
+    expect(group).toHaveTextContent('Employer');
+    expect(screen.queryByRole('button', { name: /^Employer and payments$/i })).toBeNull(); // the heading is not a button
+  });
+
   it('shows set up or not set up for record sections and nothing for App screens', async () => {
     mockEntriesList.mockResolvedValue([employer]);
-    renderHub(<SettingsHubWidget {...baseProps} entries={[employer]} view={view(sections)} onEntryCreate={async () => undefined} />);
+    renderHub(<SettingsHubWidget {...baseProps} entries={[employer]} view={splitView(sections)} onEntryCreate={async () => undefined} />);
     await screen.findByRole('navigation', { name: 'Settings sections' });
     expect(screen.getAllByLabelText('Set up')).toHaveLength(1);        // Employer has a record
     expect(screen.getAllByLabelText('Not set up yet')).toHaveLength(1); // Banks has none
@@ -213,7 +227,7 @@ describe('SettingsHubWidget split layout', () => {
 
   it('shows an App screen in the detail pane when its section is chosen', async () => {
     mockEntriesList.mockResolvedValue([]);
-    renderHub(<SettingsHubWidget {...baseProps} view={view(sections)} onEntryCreate={async () => undefined} />);
+    renderHub(<SettingsHubWidget {...baseProps} view={splitView(sections)} onEntryCreate={async () => undefined} />);
     expect((await screen.findByTestId('app-screen')).textContent).toBe('setup_checklist');
     fireEvent.click(screen.getByRole('button', { name: /Statutory rates/ }));
     expect(screen.getByTestId('app-screen').textContent).toBe('pay_rules');
@@ -221,7 +235,7 @@ describe('SettingsHubWidget split layout', () => {
 
   it('marks the open section for assistive technology', async () => {
     mockEntriesList.mockResolvedValue([]);
-    renderHub(<SettingsHubWidget {...baseProps} view={view(sections)} onEntryCreate={async () => undefined} />);
+    renderHub(<SettingsHubWidget {...baseProps} view={splitView(sections)} onEntryCreate={async () => undefined} />);
     const open = await screen.findByRole('button', { name: /Start here/ });
     expect(open).toHaveAttribute('aria-current', 'true');
   });
@@ -229,7 +243,7 @@ describe('SettingsHubWidget split layout', () => {
   it('gives an empty record section a next step', async () => {
     mockEntriesList.mockResolvedValue([]);
     const create = vi.fn(async () => undefined);
-    renderHub(<SettingsHubWidget {...baseProps} view={view(sections)} onEntryCreate={create} />);
+    renderHub(<SettingsHubWidget {...baseProps} view={splitView(sections)} onEntryCreate={create} />);
     fireEvent.click(await screen.findByRole('button', { name: /Banks/ }));
     expect(await screen.findByText('Nothing is set up here yet.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Set up banks/i }));
@@ -238,17 +252,74 @@ describe('SettingsHubWidget split layout', () => {
 
   it('offers "Add another" once a section already has a record', async () => {
     mockEntriesList.mockResolvedValue([employer]);
-    renderHub(<SettingsHubWidget {...baseProps} entries={[employer]} view={view(sections)} onEntryCreate={async () => undefined} />);
+    renderHub(<SettingsHubWidget {...baseProps} entries={[employer]} view={splitView(sections)} onEntryCreate={async () => undefined} />);
     fireEvent.click(await screen.findByRole('button', { name: /Employer/ }));
     expect(await screen.findByRole('button', { name: /Add another/i })).toBeInTheDocument();
   });
 
   it('draws no generic header when the view does not name itself', async () => {
     mockEntriesList.mockResolvedValue([]);
-    const v = view(sections);
+    const v = splitView(sections);
     (v.config as Record<string, unknown>).title = undefined;
     renderHub(<SettingsHubWidget {...baseProps} view={v} onEntryCreate={async () => undefined} />);
     await screen.findByRole('navigation', { name: 'Settings sections' });
     expect(screen.queryByRole('heading', { name: 'App settings' })).toBeNull();
+  });
+});
+
+describe('SettingsHubWidget keeps its original look unless an app asks for the split layout', () => {
+  const sections = [{ key: 'employer', title: 'Employer', group: 'Employer and payments', entry_type_keys: ['company_profile'] }];
+
+  it('shows the generic header, a record count and no group headings', async () => {
+    mockEntriesList.mockResolvedValue([]);
+    renderHub(<SettingsHubWidget {...baseProps} view={view(sections)} onEntryCreate={async () => undefined} />);
+    expect(await screen.findByRole('heading', { name: 'App settings' })).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(nav).not.toHaveTextContent('Employer and payments');
+    expect(screen.queryByLabelText('Not set up yet')).toBeNull();
+  });
+
+  it('keeps the original empty-section message and plain Add button', async () => {
+    mockEntriesList.mockResolvedValue([]);
+    renderHub(<SettingsHubWidget {...baseProps} view={view(sections)} onEntryCreate={async () => undefined} />);
+    expect(await screen.findByText('No records have been configured in this section yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Add Company Profile$/i })).toBeInTheDocument();
+  });
+});
+
+describe('SettingsHubWidget opens records in the dialog and avoids double buttons (split layout)', () => {
+  const entryTypes = [{ id: 'et1', name: 'Company profile', form_schema: { singleton: true } }] as unknown as EntryTypeNode[];
+  const sections = [{ key: 'employer', title: 'Employer', entry_type_keys: ['company_profile'] }, { key: 'banks', title: 'Banks', entry_type_keys: ['bank'] }];
+  const profile = { id: 'p1', title: 'Acme', type: 'company_profile', custom_fields: {} } as unknown as Entry;
+
+  it('asks for the dialog when editing a record', async () => {
+    mockEntriesList.mockResolvedValue([profile]);
+    const open = vi.fn();
+    renderHub(<SettingsHubWidget {...baseProps} entries={[profile]} entryTypes={entryTypes} onEntryOpen={open} view={splitView(sections)} onEntryCreate={async () => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Edit/ }));
+    expect(open).toHaveBeenCalledWith(profile, { forceModal: true });
+  });
+
+  it('does not ask for the dialog in the original layout', async () => {
+    mockEntriesList.mockResolvedValue([profile]);
+    const open = vi.fn();
+    renderHub(<SettingsHubWidget {...baseProps} entries={[profile]} entryTypes={entryTypes} onEntryOpen={open} view={view(sections)} onEntryCreate={async () => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Edit/ }));
+    expect(open).toHaveBeenCalledWith(profile, undefined);
+  });
+
+  it('offers no Add on a one-record type that already has its record', async () => {
+    mockEntriesList.mockResolvedValue([profile]);
+    renderHub(<SettingsHubWidget {...baseProps} entries={[profile]} entryTypes={entryTypes} view={splitView(sections)} onEntryCreate={async () => undefined} />);
+    await screen.findByRole('button', { name: /Edit/ });
+    expect(screen.queryByRole('button', { name: /Add/i })).toBeNull();
+  });
+
+  it('shows one button, not two, on an empty section', async () => {
+    mockEntriesList.mockResolvedValue([]);
+    renderHub(<SettingsHubWidget {...baseProps} view={splitView(sections)} onEntryCreate={async () => undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Banks/ }));
+    await screen.findByText('Nothing is set up here yet.');
+    expect(screen.getAllByRole('button', { name: /Add|Set up/i }).filter(b => !b.closest('nav'))).toHaveLength(1);
   });
 });
