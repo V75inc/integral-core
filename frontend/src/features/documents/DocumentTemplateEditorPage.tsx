@@ -515,6 +515,7 @@ export function DocumentTemplateEditorPage() {
               onEditorReady={setEditor}
               pageSize={pageSettings.pageSize as PageSizeKey}
               margins={pageSettings.margins as MarginsInches}
+              paged={new URLSearchParams(window.location.search).get('paged') === '1'}
             />
           </div>
           <aside className="doc-template-workspace__sidebar" aria-label="Template tools">
