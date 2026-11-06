@@ -38,6 +38,7 @@ from app.contracts.runtime import ExecutionScope
 from app.exceptions import PayloadTooLargeError
 from app.schemas.policy import Decision, PolicyAction, Resource, Subject
 from app.services.change_event import emit_change_event
+from app.services.perf_trace import perf_traced
 from app.services.permissions import (
     ROLE_RANK,
     can_admin_app,
@@ -828,6 +829,7 @@ async def evaluate_scoped(
         )
 
 
+@perf_traced("permissions.evaluate")
 async def evaluate(
     *,
     subject: Subject,

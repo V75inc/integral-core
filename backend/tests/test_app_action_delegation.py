@@ -23,6 +23,76 @@ from tests.test_resource_location import graph
 pytestmark = [pytest.mark.asyncio, pytest.mark.smoke]
 
 
+async def test_operation_metadata_reuses_definition_only_within_one_read(monkeypatch):
+    from app.services import access_delegation
+    from app.services.app_operations.dispatch import list_app_operations
+    from app.services.app_operations.registry import (
+        register_app_operations,
+        unregister_app_operations,
+    )
+
+    owner, reader, workspace, app, _, _, definition = await fixture()
+    operations = [
+        {"key": key, "kind": "read", "authorization": {"roles": ["reviewer"]}}
+        for key in ["read_first", "read_second"]
+    ]
+    definition.canonical_manifest = {"app": {"operations": operations}}
+    definition.manifest_fingerprint = definition_fingerprint(
+        definition.canonical_manifest
+    )
+    await definition.save()
+    register_app_operations(
+        workspace.id,
+        app.id,
+        "metadata-fixture",
+        [
+            {**operation, "_definition_fingerprint": definition.manifest_fingerprint}
+            for operation in operations
+        ],
+    )
+    binding = await create_binding(
+        actor_id=owner.id,
+        app_id=app.id,
+        subject_kind="human",
+        subject_id=reader.id,
+        role="reviewer",
+        conditions=[],
+    )
+    original = access_delegation._current_definition_uncached
+    calls = 0
+
+    async def verify(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(access_delegation, "_current_definition_uncached", verify)
+    try:
+        result = await list_app_operations(
+            user_id=reader.id, workspace_id=workspace.id, app_id=app.id
+        )
+        assert all(item["allowed"] for item in result["operations"])
+        assert calls == 1
+        targeted = await list_app_operations(
+            user_id=reader.id,
+            workspace_id=workspace.id,
+            app_id=app.id,
+            operation_key="read_second",
+        )
+        assert [item["key"] for item in targeted["operations"]] == ["read_second"]
+        assert targeted["operations"][0]["allowed"] is True
+        assert calls == 2
+        await revoke_binding(actor_id=owner.id, binding_id=binding.id)
+        before = calls
+        result = await list_app_operations(
+            user_id=reader.id, workspace_id=workspace.id, app_id=app.id
+        )
+        assert all(not item["allowed"] for item in result["operations"])
+        assert calls == before + 1
+    finally:
+        unregister_app_operations(workspace.id, app.id)
+
+
 async def fixture():
     owner, workspace, app, track, entry = await graph()
     await entry.connect(owner, edge=AUTHORED_BY)

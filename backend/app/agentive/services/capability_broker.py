@@ -555,7 +555,12 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
     }:
         mark_latency("firstOperationalToolMs")
     try:
-        data = await _call_adapter(inv, cap)
+        from app.services.performance import phase
+
+        with phase("tool.execute", tool_name=inv.capability_key):
+            data = await _call_adapter(inv, cap)
+        if inv.source in {"app", "connector"} and inv.op_class == "read":
+            mark_latency("firstDomainResultMs")
     except AdapterError as exc:
         step.status = "failed"
         step.error_code = ERR_ADAPTER

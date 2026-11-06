@@ -36,6 +36,7 @@ from app.services.hooks.tool_dispatch import (
     validate_input,
     validate_output,
 )
+from app.services.perf_trace import perf_traced
 from app.services.permissions import resolve_role
 from app.services.workspace_governance import ordinary_authority_call
 from app.services.workspace_permissions import can_access_workspace
@@ -93,13 +94,35 @@ async def _ensure_app_active(app: App, user_id: str) -> None:
     await require_installed_app_entitlement(app)
 
 
+@perf_traced("extensions.operations.list")
 async def list_app_operations(
     *,
     user_id: str,
     workspace_id: str,
     app_id: str,
+    operation_key: str | None = None,
 ) -> Dict[str, Any]:
     """Return public metadata for declarations registered on an app."""
+    from app.middleware.permissions_cache import computation_fact_scope
+
+    # Profiled Finance metadata repeatedly verified the same definition for
+    # each declared action. Reuse facts only while computing this read list.
+    with computation_fact_scope():
+        return await _list_app_operations(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            operation_key=operation_key,
+        )
+
+
+async def _list_app_operations(
+    *,
+    user_id: str,
+    workspace_id: str,
+    app_id: str,
+    operation_key: str | None = None,
+) -> Dict[str, Any]:
     try:
         execution_scope = ExecutionScope.create(
             principal_id=user_id,
@@ -117,6 +140,10 @@ async def list_app_operations(
         raise InsufficientPermissionsError(message="App/workspace mismatch")
     await _ensure_app_active(app, user_id)
     ops = list_registered_operations(workspace_id, app_id)
+    if operation_key is not None:
+        if len(operation_key) > 160:
+            raise BadRequestError(message="Operation key is too long")
+        ops = {operation_key: ops[operation_key]} if operation_key in ops else {}
     descriptors = []
     for spec in sorted(ops.values(), key=lambda operation: operation["key"]):
         descriptor = _public_operation(spec)
@@ -584,7 +611,7 @@ async def invoke_app_operation(
             if actor_subject.kind != "human":
                 ctx.user_id = bound_permit.delegator_id
 
-            async def invoke_handler():
+            async def _invoke_handler():
                 if tool_key:
                     tools = get_workspace_tools(workspace_id)
                     tool_spec = tools.get(tool_key)
@@ -600,6 +627,12 @@ async def invoke_app_operation(
                     message=f"operation {key!r} has no handler_ref or tool",
                     details={"error_code": "operation_misconfigured"},
                 )
+
+            async def invoke_handler():
+                from app.services.performance import phase
+
+                with phase("extensions.handler", tool_name=key):
+                    return await _invoke_handler()
 
             if timeout_seconds is None:
                 output = await invoke_handler()

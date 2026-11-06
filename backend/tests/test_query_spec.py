@@ -3005,9 +3005,41 @@ async def test_app_extension_route_invokes_declared_query_as_broker_read(
     assert response.status_code == 200, response.text
     assert calls[0]["source"] == "app"
     assert calls[0]["op_class"] == "read"
+    assert response.json()["operation_class"] == "read"
     assert calls[0]["arguments"] == {"cursor": "opaque"}
     assert response.json()["output"]["result_set_id"] == "result-app"
     assert response.json()["receipt"]["capability_key"] == "recent_open"
+
+
+@pytest.mark.asyncio
+async def test_targeted_operation_metadata_does_not_discover_the_workspace(
+    authenticated_client, monkeypatch
+):
+    calls = []
+
+    async def operations(**kwargs):
+        calls.append(kwargs)
+        return {"app_id": "app-query", "operations": []}
+
+    async def broad_discovery(*args, **kwargs):
+        raise AssertionError(
+            "A targeted permission read discovered unrelated capabilities"
+        )
+
+    monkeypatch.setattr(
+        "app.services.app_operations.dispatch.list_app_operations", operations
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.execution_runs.build_capability_snapshot",
+        broad_discovery,
+    )
+    response = await authenticated_client.get(
+        "/api/extensions/app-query/operations",
+        params={"operation_key": "create_contact"},
+    )
+    assert response.status_code == 200, response.text
+    assert calls[0]["operation_key"] == "create_contact"
+    assert response.json()["queries"] == []
 
 
 @pytest.mark.asyncio
@@ -3066,6 +3098,7 @@ async def test_app_extension_route_exposes_non_query_replay_marker(
         "replayed": True,
         "result_unavailable": True,
     }
+    assert response.json()["operation_class"] == "execute"
     assert "must-not-be-replayed" not in response.text
 
 

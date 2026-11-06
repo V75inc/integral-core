@@ -34,6 +34,7 @@ class AvailableOperationResponse(_AvailableOperationFields, total=False):
 
     output_disposition: Literal["available"]
     current_state_verified: Literal[False]
+    operation_class: Optional[Literal["read", "execute"]]
     operation_receipt: Optional[OperationReceiptReference]
     object_refs: List[Dict[str, Any]]
     evidence: Optional[Dict[str, Any]]

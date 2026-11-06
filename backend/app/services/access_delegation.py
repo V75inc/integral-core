@@ -31,6 +31,7 @@ from app.schemas.access_delegation import ActionAuthorization, ActionCondition
 from app.schemas.policy import Decision
 from app.services.authority_facts import primary_node_record, required_node_text
 from app.services.grant_history import grant_baseline
+from app.services.perf_trace import perf_traced
 from app.services.permissions import get_user_node, resolve_role
 from app.services.resource_location import locate_resource
 from app.services.workspace_governance import ordinary_authority_only
@@ -89,6 +90,7 @@ async def current_definition(
     return pair
 
 
+@perf_traced("definitions.verify")
 @_current_authority_read
 async def _current_definition_uncached(
     app_id: str, *, execution: bool = True

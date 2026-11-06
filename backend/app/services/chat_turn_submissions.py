@@ -387,6 +387,11 @@ async def submit_chat_turn(
         )
         input_payload["request_fingerprint"] = fingerprint
         input_payload.update(capsule_ref)
+        from app.services.performance import capture_trace_context
+
+        traceparent = capture_trace_context()
+        if traceparent:
+            input_payload["performance_traceparent"] = traceparent
         work_item.input_payload = input_payload
         await work_item.save()
 
