@@ -55,6 +55,9 @@ async def conditional_update_entry_custom_fields(
                 workspace_id=track.workspace_id,
                 payload={"entry_id": entry_id, "custom_fields": dict(updates or {})},
             ):
+                current = await Entry.find_one({"id": entry_id})
+                if current is None or current.track_id != track.id:
+                    return False, "state_conflict"
                 if (current.custom_fields or {}).get(state_field) != expected_state:
                     return False, "state_conflict"
                 await update_entry_in_track(

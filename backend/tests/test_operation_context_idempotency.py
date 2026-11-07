@@ -140,10 +140,12 @@ async def test_sdk_update_routes_revision_and_deferred_events_to_shared_command(
     )
     entry = SimpleNamespace(id="entry-one", track_id="track-one", record_revision=2)
     track = SimpleNamespace(id="track-one", workspace_id="ws-operation")
+    graph = SimpleNamespace(find_edges_between=AsyncMock(return_value=[object()]))
     app = SimpleNamespace(
+        id="app-one",
         workspace_id="ws-operation",
         lifecycle_state="active",
-        nodes=AsyncMock(return_value=[track]),
+        get_context=AsyncMock(return_value=graph),
     )
 
     async def shared_update(**kwargs):
@@ -179,4 +181,9 @@ async def test_sdk_update_routes_revision_and_deferred_events_to_shared_command(
         )
     assert saved is not stale
     assert update.await_count == 1
+    from app.models.edges import CONTAINS
+
+    graph.find_edges_between.assert_awaited_once_with(
+        app.id, track.id, edge_class=CONTAINS
+    )
     assert not operation_write_active()

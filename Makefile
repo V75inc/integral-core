@@ -206,6 +206,7 @@ test-postgres-ci:
 		tests/test_public_submission_capability.py tests/test_public_submission_capability_routes.py \
 		tests/test_verified_mailbox_activation_retry.py tests/test_password_reset.py \
 		tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py tests/test_install_seed_authority.py \
+		tests/test_native_entry_counts_postgres.py tests/test_permission_decision_cost.py \
 		tests/test_app_passage_candidates.py \
 		tests/test_resource_metadata_index.py tests/test_resource_metadata_scale.py \
 		tests/test_resource_schema_preview.py tests/test_definition_vector_reuse.py tests/test_app_record_read.py

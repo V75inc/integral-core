@@ -92,6 +92,43 @@ neither the count nor identities. Existing roster truncation indicators still ap
 
 ## Canonical facts and admission
 
+One bounded role decision may carry its freshly validated identity through
+parent and fact readers. It rechecks the same identity before returning an
+allow; later policy, effect and release boundaries admit current facts again.
+No role or identity TTL establishes authority. Native exact counts require a
+current protected-owner proof or a complete bounded ordinary audience proof.
+Entry-specific grants, exclusions, sourced grants and absolute blocks use the
+same canonical batch admission as pages. A readable Track excludes the denied
+exceptions; a direct-only audience includes only its admitted explicit targets.
+The full proof is checked before/after aggregation and again after page
+selection. Unsupported/incomplete aggregates or authority-probe overflow retain
+canonical streaming. A changed proof cannot release the earlier total.
+
+Pages retain the count's bounded candidate intersection rather than scanning
+an unshared Track for more direct grants. A no-total page may refine discovery
+after a severely rejected raw window, using a complete bounded proof that is
+rechecked after selection. Every selected row still receives canonical current
+admission. Ordinary full pages perform no extra audience proof, and candidate
+refinement never increases the raw-window or authority-inventory bounds.
+
+Numeric native pages require complete query/sort compiler coverage and fresh
+number/null type probes before and after selection. Null/missing tails and
+compound cursor positions retain canonical ordering. Labels, mixed types and
+unsupported predicates/orders retain the bounded portable comparator. Neither
+compiler coverage nor an internal count proof is an authorization lease.
+
+On PostgreSQL, participating effects and authority writers take the same logical
+workspace key through transaction completion. Metadata-only Entry updates and
+bounded result admission may share the key and active identity rows. Exact Entry
+row locks and revision checks still order competing changes. ACL/configuration,
+custom-field hooks, schema/type changes, creates and cascades retain exclusive
+ordering. Bootstrap creates exactly one rooted authorization state under an
+exclusive key; no no-op Workspace update is required. Nested scopes cannot
+upgrade a shared admission, and no network transport belongs inside the fence.
+Unsupported stores do not claim this distributed ordering. See
+`tests/contract/test_shared_entry_admission_postgres.py` and the release and
+authorization scope contract tests.
+
 Resource scope comes from the unique rooted structural graph. Scalar workspace
 and parent IDs are validated caches, not permission anchors. Missing, foreign,
 ambiguous or inconsistent parents cannot activate a direct grant. A single-parent

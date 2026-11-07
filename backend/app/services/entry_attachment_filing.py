@@ -55,10 +55,20 @@ async def file_chat_attachment(
             != location
         ):
             raise InsufficientPermissionsError(message="Entry scope changed")
-        row = await graph.database.find_one_and_update(
-            "node", {"id": entry_id, "entity": Entry._entity_name()}, {"$set": {}}
+        row = (
+            await graph.database.lock_record("node", entry_id)
+            if is_postgres_entry_transaction(graph.database)
+            else await graph.database.find_one(
+                "node", {"id": entry_id, "entity": Entry._entity_name()}
+            )
         )
-        entry = await graph._deserialize_entity(Entry, row) if row else None
+        entry = (
+            await graph._deserialize_entity(Entry, row)
+            if row
+            and row.get("id") == entry_id
+            and row.get("entity") == Entry._entity_name()
+            else None
+        )
         if entry is None:
             raise ResourceNotFoundError(message="Entry not found")
         before = list(entry.attachment_ids or [])
@@ -81,12 +91,17 @@ async def file_chat_attachment(
                 targets={"entry_id": entry_id, "attachment_id": attachment_id},
             ) as complete,
         ):
-            attachment_row = await graph.database.find_one_and_update(
-                "node",
-                {"id": attachment_id, "entity": Attachment._entity_name()},
-                {"$set": {}},
+            attachment_row = (
+                await graph.database.lock_record("node", attachment_id)
+                if is_postgres_entry_transaction(graph.database)
+                else await graph.database.find_one(
+                    "node", {"id": attachment_id, "entity": Attachment._entity_name()}
+                )
             )
-            if attachment_row is None:
+            if (
+                attachment_row is None
+                or attachment_row.get("entity") != Attachment._entity_name()
+            ):
                 raise ResourceNotFoundError(message="Attachment not found")
             source = attachment_row.get("context") or {}
             if (

@@ -86,23 +86,33 @@ async def entry_effect_scope(
     service = (
         None if subject.kind == "human" else await delegated_subject_record(subject)
     )
+    # Creates/types/custom fields can materialize schema or invoke cross-record
+    # hooks; deletes can cascade. Preserve exclusive ordering for those paths.
+    # Independent metadata updates retain an exact row lock and revision CAS.
+    concurrent_update = (
+        action == "entry.update"
+        and target_kind == "entry"
+        and "custom_fields" not in payload
+        and "type_id" not in payload
+    )
     with isolated_permissions_cache():
-        async with identity_admission(participants):
+        async with identity_admission(participants, shared=concurrent_update):
             database = get_default_context().database
             if service is not None and is_postgres_entry_transaction(database):
                 model, collection, identity = service
-                if (
-                    await database.find_one_and_update(
-                        collection,
-                        {"id": identity, "entity": model._entity_name()},
-                        {"$set": {}},
-                    )
-                    is None
-                ):
+                locked = await database.lock_record(
+                    collection, identity, shared=concurrent_update
+                )
+                if locked is None or locked.get("entity") != model._entity_name():
                     raise AuthorizationUnavailableError()
             async with AsyncExitStack() as stack:
                 if is_postgres_entry_transaction(database):
-                    await stack.enter_async_context(authorization_scope(workspace_id))
+                    await stack.enter_async_context(
+                        authorization_scope(workspace_id, shared=concurrent_update)
+                    )
+                    if target_kind == "entry":
+                        if await database.lock_record("node", target_id) is None:
+                            raise AuthorizationUnavailableError()
                 location = await locate_resource(
                     target_kind, target_id, allowed_app_states=DATA_APP_STATES
                 )

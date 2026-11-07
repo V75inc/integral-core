@@ -72,6 +72,11 @@ async def _current_sources(
     user = await get_user_node(user_id)
     if user is None:
         return None, []
+    return user, await _current_sources_for_user(user)
+
+
+async def _current_sources_for_user(user: User) -> list[tuple[ShareLink, dict]]:
+    """Read complete source facts within one current identity decision."""
     database = get_default_context().database
     rows = await database.find(
         "edge", {"target": user.id, "entity": SHARE_GRANT.__name__}, limit=1001
@@ -90,7 +95,7 @@ async def _current_sources(
         link = await current_link(source)
         values = validate_share_grant(row, link, user.id)
         admitted.append((link, values))
-    return user, admitted
+    return admitted
 
 
 async def share_grant_roles(
@@ -101,9 +106,17 @@ async def share_grant_roles(
     Disabling/expiring a link prevents future redemption; it does not remove
     previously accepted durable sources. Explicit source revocation does.
     """
-    user, sources = await _current_sources(user_id)
+    user = await get_user_node(user_id)
     if user is None:
         return []
+    return await _share_grant_roles_for_user(user, resource_type, resource_id)
+
+
+async def _share_grant_roles_for_user(
+    user: User, resource_type: str, resource_id: str
+) -> list[str]:
+    """Read source roles inside the resolver's current identity decision."""
+    sources = await _current_sources_for_user(user)
     roles = []
     for link, grant in sources:
         if (

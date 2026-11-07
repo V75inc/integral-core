@@ -251,10 +251,21 @@ async def workspace_staff_implicit_resource_role(
     ``resolve_role`` drops this implicit role when effective visibility
     is ``private``.
     """
+    from app.services.permissions import get_user_node
+
+    with isolated_permissions_cache():
+        user = await get_user_node(user_id)
+        if user is None:
+            return None
+        return await _staff_implicit_role_for_user(user, workspace_id)
+
+
+async def _staff_implicit_role_for_user(user: User, workspace_id: str) -> Optional[str]:
+    """Current staff facts inside a decision with a freshly admitted identity."""
     ws = await Workspace.find_one({"id": workspace_id})
     if not ws or getattr(ws, "kind", "") != "organization":
         return None
-    role = await can_access_workspace(user_id, workspace_id)
+    role = await _current_workspace_role(user, ws)
     if role in ("owner", "admin"):
         # Read + participate, nothing more. Org staff must still hold a direct
         # owner/admin grant on a resource to edit entries, mint shares or

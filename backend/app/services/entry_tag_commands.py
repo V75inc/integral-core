@@ -86,10 +86,18 @@ async def change_entry_tag(
             raise InsufficientPermissionsError(message="Entry scope changed")
         # Serialize delta computation, so a concurrent tag or field change
         # cannot be overwritten by a stale read-modify-write tag list.
-        row = await graph.database.find_one_and_update(
-            "node", {"id": entry_id, "entity": Entry._entity_name()}, {"$set": {}}
+        row = (
+            await graph.database.lock_record("node", entry_id)
+            if is_postgres_entry_transaction(graph.database)
+            else await graph.database.find_one(
+                "node", {"id": entry_id, "entity": Entry._entity_name()}
+            )
         )
-        if row is None:
+        if (
+            row is None
+            or row.get("id") != entry_id
+            or row.get("entity") != Entry._entity_name()
+        ):
             raise ResourceNotFoundError(message="Entry not found")
         entry = await graph._deserialize_entity(Entry, row)
         if entry is None:

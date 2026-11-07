@@ -1,4 +1,7 @@
-"""Per-request DB round-trip counting via the jvspatial MetricsRecorder seam.
+"""Per-request logical DB operation counting via the MetricsRecorder seam.
+
+These are observable adapter calls, not physical SQL statements or pool resets.
+Raw transaction-handle work is not automatically observed by the wrapper.
 
 Why not ``jvspatial.observability.db_op_counter`` alone: that ContextVar holds
 an ``int`` and ``ObservableDatabase`` rebinds it (``set(get() + 1)``). Every

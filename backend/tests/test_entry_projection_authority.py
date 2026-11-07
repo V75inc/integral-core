@@ -578,6 +578,8 @@ async def test_portable_sort_keeps_bounded_page_heap_and_current_audience(monkey
     import heapq
     from types import SimpleNamespace
 
+    from jvspatial.core.context import get_default_context
+
     from app.services import entry_access_projection
 
     _, workspace, _, track, initial = await graph()
@@ -611,6 +613,12 @@ async def test_portable_sort_keeps_bounded_page_heap_and_current_audience(monkey
         SimpleNamespace(heappush=push, heapreplace=replace),
     )
     monkeypatch.setattr(entry_access_projection, "WINDOW", 3)
+    monkeypatch.setattr(
+        get_default_context().database,
+        "can_pushdown_numeric_sort",
+        lambda *_: False,
+        raising=False,
+    )
     rows, metadata = await entry_access_projection.select_page(
         reader.id,
         {"context.track_id": track.id},

@@ -188,10 +188,28 @@ async def test_attach_uploaded_file_wires_entry_edge(monkeypatch):
     assert receipt["resource_id"] == entry.id
     assert receipt["before"] == {"attachment_ids": []}
     assert receipt["after"] == {"attachment_ids": [attachment_id], "record_revision": 2}
-    assert receipt["details"] == {
+    details = dict(receipt["details"])
+    event_fact_id = details.pop("event_fact_id", None)
+    assert details == {
         "attachment_id": attachment_id,
         "attachment_owner_kind_before": "chat",
     }
+    from jvspatial.db import get_prime_database
+
+    from app.services.app_operations.event_outbox import event_outbox_object_id
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    if graph_transaction_available():
+        assert isinstance(event_fact_id, str) and len(event_fact_id) == 64
+        fact = await get_prime_database().get(
+            "object", event_outbox_object_id(event_fact_id)
+        )
+        assert fact["entity"] == "OperationEventOutbox"
+        assert fact["context"]["status"] == "delivered"
+    else:
+        assert event_fact_id is None
 
 
 @pytest.mark.asyncio

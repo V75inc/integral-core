@@ -330,22 +330,18 @@ async def test_independent_membership_revocation_orders_own_history_release(
             actor, profile, workspace, app, _, _, scope, subject = await fixture()
             await record(scope, app)
             original_lookup = history.lookup_operation_outcome
-            original_update = PostgresTransaction.find_one_and_update
+            original_lock = PostgresTransaction.lock_record
 
-            async def observed_update(transaction, collection, query, update, **kwargs):
+            async def observed_lock(transaction, collection, record_id, **kwargs):
                 if (
                     asyncio.current_task() is second_actor.get("task")
                     and collection == "object"
-                    and query.get("id") == actor.id
+                    and record_id == actor.id
                 ):
                     attempted.set()
-                return await original_update(
-                    transaction, collection, query, update, **kwargs
-                )
+                return await original_lock(transaction, collection, record_id, **kwargs)
 
-            monkeypatch.setattr(
-                PostgresTransaction, "find_one_and_update", observed_update
-            )
+            monkeypatch.setattr(PostgresTransaction, "lock_record", observed_lock)
 
             async def paused_lookup(**kwargs):
                 entered.set()
@@ -387,7 +383,7 @@ async def test_independent_membership_revocation_orders_own_history_release(
             tasks.append(second)
             second_actor["task"] = second
             # Prove the independent actor reached the conflicting native Auth
-            # row CAS; startup or an unstarted coroutine is not lock evidence.
+            # row lock; startup or an unstarted coroutine is not lock evidence.
             await asyncio.wait_for(attempted.wait(), timeout=15)
             with pytest.raises(asyncio.TimeoutError):
                 await asyncio.wait_for(asyncio.shield(second), timeout=0.15)

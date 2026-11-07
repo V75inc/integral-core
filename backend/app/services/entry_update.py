@@ -153,6 +153,18 @@ async def update_entry_in_track(
             entry_type_key=key,
             authorization_subject=authorization_subject,
         ) as admitted_principal_id:
+            # Admission may wait for a peer updating this same Entry. Refresh
+            # after its exact row lock, before inspecting revisions or merging
+            # fields; an earlier snapshot cannot overwrite a committed peer.
+            prior_track_id = track.id
+            entry = await Entry.find_one({"id": entry_id})
+            track = await Track.find_one({"id": entry.track_id}) if entry else None
+            if entry is None or track is None:
+                raise ResourceNotFoundError(message="Entry no longer available")
+            if track.id != prior_track_id:
+                raise ResourceConflictError(message="Entry scope changed")
+            if workspace_id and track.workspace_id != workspace_id:
+                raise InsufficientPermissionsError(message="Entry scope changed")
             current_revision = int(entry.record_revision or 1)
             if (
                 expected_record_revision is not None
