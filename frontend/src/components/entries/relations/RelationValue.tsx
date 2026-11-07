@@ -56,10 +56,10 @@ function ResolvedTarget({
     // (the typed primitive — Phase 3-A FE templating). Long track titles
     // truncate instead of wrapping into multi-line pills.
     const chipClass =
-      'inline-block max-w-[min(100%,18rem)] truncate px-2.5 py-1 align-middle';
+      'inline-block max-w-full truncate px-2.5 py-1 align-middle';
     if (!route) {
       return (
-        <span title={target.label} className="inline-flex max-w-full">
+        <span title={target.label} className="inline-flex min-w-0 max-w-full">
           <Surface
             as="span"
             tone="panel-2"
@@ -75,7 +75,7 @@ function ResolvedTarget({
     return (
       <Link
         to={route}
-        className="inline-flex max-w-full rounded-full text-[var(--link)] hover:text-[var(--link-hover)] no-underline"
+        className="inline-flex min-w-0 max-w-full rounded-full text-[var(--link)] hover:text-[var(--link-hover)] no-underline"
         onClick={handleNavigate}
         title={target.label}
       >

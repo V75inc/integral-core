@@ -724,7 +724,7 @@ export function EntryMetaFields({
           ) : null}
         </>
       ) : (
-        <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+        <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2 [&>*]:min-w-0">
           {rows.map((row, idx) => renderRow(row, idx > 0 ? rows[idx - 1] : undefined))}
         </div>
       )}
