@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Surface } from '../../ui';
 import { useQuery } from '@tanstack/react-query';
 import { extensionsApi } from '../../api/extensions';
+import { entriesApi } from '../../api';
 import { useScope } from '../../context/ScopeContext';
 import { useNavigate } from 'react-router-dom';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
@@ -174,6 +175,20 @@ function ExtensionViewSession({
   }
 
   const hs = handshakeQuery.data;
+  // A record of the track this view is on (a bank, a rate, the company profile in Settings)
+  // opens as a dialog over the view, the way the track's own list opens its records.
+  // Records of other tracks (payslips, filings) and views on a record page keep the full page.
+  const openEntryFromView = (openId: string) => {
+    const fullPage = `/entries/${encodeURIComponent(openId)}`;
+    const onTrackPage = Boolean(trackId) && !bindings.entryId && !lifecycle?.entryId;
+    if (!onTrackPage) { navigate(fullPage); return; }
+    void entriesApi.get(openId).then(
+      entry => navigate(entry && entry.track_id === trackId
+        ? `/tracks/${encodeURIComponent(trackId)}?entry=${encodeURIComponent(openId)}`
+        : fullPage),
+      () => navigate(fullPage),
+    );
+  };
   const isTemplateEditor = viewKey === 'template_editor';
   return (
     <AppExtensionViewHost
@@ -188,7 +203,7 @@ function ExtensionViewSession({
       context={hostContext}
       onDraftPatch={lifecycle?.onDraftPatch}
       onError={() => setFailed(true)}
-      onOpenEntry={entryId => navigate(`/entries/${encodeURIComponent(entryId)}`)}
+      onOpenEntry={openEntryFromView}
       onNavigatePath={path => navigate(path)}
       className={
         isTemplateEditor ? EXTENSION_VIEW_TEMPLATE_EDITOR_SHELL_CLASS : undefined
