@@ -197,7 +197,7 @@ function renderCellValue(
       }
       if ((selectType === 'date' || selectType === 'datetime') && typeof val === 'string') {
         const shown = formatDateFieldDisplay(val, selectType);
-        if (shown) return <span className="text-sm text-[var(--text)]">{shown}</span>;
+        if (shown) return <span className="text-sm text-[var(--text)] whitespace-nowrap">{shown}</span>;
       }
       if (selectType === 'select' && typeof val === 'string') {
         return <span className="text-sm text-[var(--text)]">{humanizeEnumValue(val)}</span>;
