@@ -6,6 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc49 — 2026-11-07
+
+- Reduce repeated permission admission and database work for exact totals and paginated record lists. Preserve current exclusions, direct grants, and revocation checks.
+- Allow independent record metadata edits to proceed concurrently. Stale revisions still require a fresh edit or approval.
+- Keep complete Track schemas available during linked-record requests and explain when repeated schema reads prevent the assistant from finishing.
+- Pin jvspatial 0.2.5 for native PostgreSQL query support and transaction locks.
+
 ## 0.1.1rc45 — 2026-11-05
 
 - Supply direct dashboard destinations in authorized read and change responses, so native and external clients can open the named board independently of remembered App tabs.
