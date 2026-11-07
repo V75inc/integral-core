@@ -44,12 +44,11 @@ PHASE_8_FILES: list[str] = [
     "app/api/shared_with_me.py",
 ]
 
-# Baseline Literal-member counts at Phase 7 close (verified 2026-05-17 via
-# typing.get_args). Phase 8 plans (08-01..08-05) MUST NOT expand these.
-# A future plan that DOES expand a Literal must bump the baseline AND
-# justify the expansion in its SUMMARY — the bump is the review gate.
-POLICY_ACTION_BASELINE = 145  # +4: collaborator_role_update (9ffd952, I-ROLE-01); +3: workspace.apps_reorder, app.tracks_reorder, tool.invoke (hook/tool dispatch); +2: model_credential.{upsert,revoke} (e26adeb, per-user BYOK model credentials)
-CHANGE_EVENT_ACTION_BASELINE = 121  # +4: collaborator_role_update (9ffd952, I-ROLE-01); +3: workspace.apps_reorder, app.tracks_reorder, tool.invoke; +2: model_credential.{upsert,revoke} (e26adeb, per-user BYOK model credentials)
+# Reviewed additions after Phase 8 cover access lifecycle, model
+# configuration, routines and governed operations (9251cc2c, 0d5a65aa,
+# e0405cb2, 18292f01, e07271cd, 76e502ab, 51e796dc and 56d9c7c1).
+POLICY_ACTION_BASELINE = 174
+CHANGE_EVENT_ACTION_BASELINE = 146
 # ActorKind is a Phase 1 D-09 / D-10 single-Literal invariant — locked at 4.
 ACTOR_KIND_BASELINE = 4
 
@@ -174,7 +173,7 @@ def test_no_inline_basemodel_in_phase8_api_files() -> None:
 
 
 def test_policy_action_unchanged() -> None:
-    """PolicyAction Literal must hold exactly the Phase 7-close member count.
+    """PolicyAction Literal must match the reviewed action count.
 
     A1 of plan 08-06 — Settings panels are READ proxies (I-SET-01), so no
     new ``settings.*`` / ``retrieval.*`` / ``binding.*`` action members
@@ -201,7 +200,7 @@ def test_policy_action_unchanged() -> None:
 
 
 def test_change_event_action_unchanged() -> None:
-    """ChangeEventAction Literal must hold exactly the Phase 7-close count.
+    """ChangeEventAction Literal must match the reviewed audit action count.
 
     Phase 8 added zero new audit event types — Connector CRUD reuses the
     existing ``connector.create/update/delete`` members, resource-level

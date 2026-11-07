@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -30,14 +31,29 @@ pytestmark = [pytest.mark.slow, pytest.mark.model]
 # ---------------------------------------------------------------------------
 
 
-def _reset_retrieval_modules() -> None:
-    """Drop the retrieval package from ``sys.modules`` so each test starts
-    with a clean driver registry. Mirrors the technique in Phase 3 policy
-    engine tests."""
+def _retrieval_module_names():
+    package = "app.services.retrieval"
+    return [
+        name
+        for name in sys.modules
+        if name == package or name.startswith(package + ".")
+    ]
 
-    for mod in list(sys.modules):
-        if mod == "app.services.retrieval" or mod.startswith("app.services.retrieval."):
-            del sys.modules[mod]
+
+def _reset_retrieval_modules() -> None:
+    for name in _retrieval_module_names():
+        del sys.modules[name]
+
+
+@pytest.fixture(autouse=True)
+def _restore_retrieval_modules(monkeypatch):
+    from app import services
+
+    saved_modules = {name: sys.modules[name] for name in _retrieval_module_names()}
+    monkeypatch.setattr(services, "retrieval", services.retrieval)
+    yield
+    _reset_retrieval_modules()
+    sys.modules.update(saved_modules)
 
 
 def _fresh_retrieval():
@@ -252,21 +268,15 @@ def test_embedding_runtime_import_deferred():
 
     heavy = ("fastembed", "sentence_transformers", "onnxruntime", "torch")
 
-    # Drop any cached versions first.
-    for mod in list(sys.modules):
-        for prefix in heavy:
-            if mod == prefix or mod.startswith(prefix + "."):
-                del sys.modules[mod]
-                break
-    if "app.services.retrieval.embedding_model" in sys.modules:
-        del sys.modules["app.services.retrieval.embedding_model"]
-
-    importlib.import_module("app.services.retrieval.embedding_model")
-    for prefix in heavy:
-        assert prefix not in sys.modules, (
-            f"embedding_model module-load must not import {prefix!r} "
-            f"(deferral discipline, RESEARCH Pitfall 5)"
-        )
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import app.services.retrieval.embedding_model; "
+            f"assert not set({heavy!r}).intersection(sys.modules)",
+        ],
+        check=True,
+    )
 
 
 # ---------------------------------------------------------------------------

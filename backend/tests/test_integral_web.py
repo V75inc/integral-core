@@ -168,28 +168,36 @@ def test_proxies_websocket(tmp_path: Path) -> None:
         await websocket.send_text(message.upper())
 
     port = _free_port()
-    thread = threading.Thread(
-        target=uvicorn.run,
-        kwargs={
-            "app": stub,
-            "host": "127.0.0.1",
-            "port": port,
-            "log_level": "warning",
-        },
-        daemon=True,
+    server = uvicorn.Server(
+        uvicorn.Config(stub, host="127.0.0.1", port=port, log_level="warning")
     )
+    thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                break
-        except OSError:
-            time.sleep(0.05)
-    else:
-        raise RuntimeError("stub API did not listen")
-    app = create_web_app(_static(tmp_path), f"http://127.0.0.1:{port}")
-    with TestClient(app) as web:
-        with web.websocket_connect("/ws/ping") as ws:
-            ws.send_text("hi")
-            assert ws.receive_text() == "HI"
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise RuntimeError("stub API did not listen")
+        app = create_web_app(_static(tmp_path), f"http://127.0.0.1:{port}")
+        disconnected = threading.Event()
+
+        async def observe_disconnect(scope, receive, send):
+            await app(scope, receive, send)
+            if scope["type"] == "websocket":
+                disconnected.set()
+
+        with TestClient(observe_disconnect) as web:
+            with web.websocket_connect("/ws/ping") as ws:
+                ws.send_text("hi")
+                assert ws.receive_text() == "HI"
+                ws.close()
+                assert disconnected.wait(timeout=5)
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+    assert not thread.is_alive()
