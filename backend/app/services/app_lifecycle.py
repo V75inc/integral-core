@@ -1731,6 +1731,27 @@ async def _update_app_from_library(
             message=f"App {app_id!r} has no installed_from_library_id",
             details={"app_id": app_id},
         )
+    # The catalog copy of the package is only synced from disk at boot or by an admin
+    # rescan: refresh just this package first so Update from library sees its current
+    # files (a package that cannot be read or validated is merged as it was).
+    package_slug = (
+        getattr(app_node, "installed_package_slug", None)
+        or getattr(app_node, "source_operational_model_slug", None)
+        or ""
+    )
+    if package_slug:
+        try:
+            from app.services.operational_model_library_sync import (
+                refresh_library_package_from_disk,
+            )
+
+            await refresh_library_package_from_disk(str(package_slug))
+        except Exception:  # noqa: BLE001 - never fail an update over the refresh
+            logger.warning(
+                "update_app_from_library: could not refresh package %s from disk",
+                package_slug,
+                exc_info=True,
+            )
     library_cp = await OperationalModel.get(lib_id)
     if not library_cp:
         raise BadRequestError(

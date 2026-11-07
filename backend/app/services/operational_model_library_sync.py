@@ -228,6 +228,50 @@ async def load_library_bundle_index_async() -> (
     return token, {spec.slug: spec for spec in specs if spec.slug}
 
 
+async def refresh_library_package_from_disk(slug: str) -> bool:
+    """Bring ONE package's catalog copy up to date with its files on disk.
+
+    Update from library merges the catalog copy of a package, which is synced from the
+    package files only at boot or by an admin rescan, so an edit to a package could
+    change nothing until a restart. This re-reads just that package through the same
+    validated, signature-checked loader (cached on file stats, so it is cheap when
+    nothing changed) and refreshes its catalog row in place with the same seed upsert
+    boot uses (ids stay stable). Returns True when the catalog copy was changed.
+
+    A package that is missing on disk, fails validation, or has no catalog row is left
+    exactly as it was; the caller then merges the copy it already has.
+    """
+    slug = str(slug or "").strip()
+    if not slug:
+        return False
+    specs, _issues = await asyncio.to_thread(
+        load_library_operational_models_with_issues_cached
+    )
+    spec = next((candidate for candidate in specs if candidate.slug == slug), None)
+    if spec is None:
+        return False
+    rows = await OperationalModel.find(
+        {"context.library_package": True, "context.metadata.slug": slug}
+    )
+    if len(rows) != 1:
+        return False
+    if (rows[0].manifest or {}) == (spec.manifest or {}):
+        return False
+    from app.models.nodes import OPERATIONAL_MODELS_REGISTRY_ID, OperationalModels
+    from app.services.app_graph import ensure_catalog_edge
+
+    registry = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    if registry is None:
+        return False
+    await upsert_seeded_library_packages(
+        catalog_registry=registry,
+        specs=[spec],
+        now_iso=datetime.now(timezone.utc).isoformat(),
+        ensure_catalog_edge=ensure_catalog_edge,
+    )
+    return True
+
+
 def reset_library_operational_models_cache_for_testing() -> None:
     """Clear the session cache (tests that monkeypatch ``_PROFILES_ROOT``)."""
     global _CACHED_LIBRARY_SPECS, _CACHED_PROFILES_ROOT
