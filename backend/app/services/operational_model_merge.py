@@ -1221,12 +1221,15 @@ async def merge_library_manifest_into_operational_model(
                 patch_key = f"{spec_key}::__template__"
         existing_view = existing_views_by_key.get(patch_key) if patch_key else None
         if existing_view is None and track:
-            existing_view = legacy_views_by_identity.get(
+            # Adopt an unkeyed row at most once: two specs that share a name
+            # and type (a page copy of a tab view) must not both claim it.
+            existing_view = legacy_views_by_identity.pop(
                 _view_materialization_identity(
                     name=str(vname),
                     view_type=str(view_type),
                     track_id=str(track.id),
-                )
+                ),
+                None,
             )
         # What the manifest says about this view's visibility is remembered
         # on the view (``_manifest_hidden``). A library update changes the
