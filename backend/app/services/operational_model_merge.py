@@ -1505,6 +1505,58 @@ async def apply_space_track_spec_to_track(
     )
 
 
+def sync_track_description_from_manifest(
+    track: Any, desired: str, previous: str = ""
+) -> bool:
+    """Refresh a Track's description from the manifest unless a person edited it.
+
+    The stored description counts as manifest-owned while it is empty, equals the
+    text last written from the manifest (``purpose_from_manifest``), already equals
+    the new text, or equals the previous package's text for that Track (for Tracks made before that was
+    recorded). Anything else was edited by a person and is left alone. Returns True
+    when the Track changed.
+    """
+    desired = (desired or "").strip()
+    if not desired:
+        return False
+    current = str(getattr(track, "purpose", "") or "").strip()
+    written = str(getattr(track, "purpose_from_manifest", "") or "").strip()
+    owned = (
+        not current
+        or current == desired
+        or current == written
+        or (previous and current == previous)
+    )
+    changed = False
+    if owned and current != desired:
+        track.purpose = desired
+        changed = True
+    if owned and written != desired:
+        track.purpose_from_manifest = desired
+        changed = True
+    return changed
+
+
+async def _previous_track_descriptions(app_node: Any) -> Dict[str, str]:
+    """Track descriptions of the package this App was installed or last updated from."""
+    try:
+        from app.services.application_definitions import (
+            get_active_application_definition,
+        )
+
+        definition = await get_active_application_definition(
+            app_node, repair_legacy_pointer=False
+        )
+    except Exception:  # noqa: BLE001 - history is optional
+        return {}
+    base = dict(getattr(definition, "base_package_manifest", None) or {})
+    out: Dict[str, str] = {}
+    for raw in ((base.get("app") or {}).get("tracks")) or []:
+        if isinstance(raw, dict) and raw.get("key"):
+            out[str(raw["key"])] = str(raw.get("description") or "").strip()
+    return out
+
+
 async def provision_prescribed_tracks_from_app_manifest(
     app_node: App, owner_user_id: str
 ) -> None:
@@ -1524,6 +1576,7 @@ async def provision_prescribed_tracks_from_app_manifest(
     used_template_keys = {
         str(t.template_id) for t in existing if getattr(t, "template_id", None)
     }
+    previous_descriptions = await _previous_track_descriptions(app_node)
     for raw_spec in (canonical.get("app") or {}).get("tracks") or []:
         spec = raw_spec if isinstance(raw_spec, dict) else {}
         if not bool(spec.get("provision_on_create", True)):
@@ -1563,6 +1616,12 @@ async def provision_prescribed_tracks_from_app_manifest(
                 if bool(getattr(existing_track, "nav_visible", True)) != desired_nav:
                     existing_track.nav_visible = desired_nav
                     dirty = True
+                if sync_track_description_from_manifest(
+                    existing_track,
+                    str(spec.get("description") or "").strip(),
+                    previous_descriptions.get(key, ""),
+                ):
+                    dirty = True
                 if dirty:
                     await existing_track.save()
                 await apply_space_track_spec_to_track(existing_track, spec)
@@ -1585,6 +1644,7 @@ async def provision_prescribed_tracks_from_app_manifest(
             title=str(spec.get("name") or key),
             owner_id=owner_user_id,
             purpose=str(spec.get("description") or "").strip(),
+            purpose_from_manifest=str(spec.get("description") or "").strip(),
             icon="",
             visibility=resolved_vis,
             template_id=key,
