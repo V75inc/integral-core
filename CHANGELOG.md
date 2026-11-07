@@ -6,6 +6,10 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc50 — 2026-11-07
+
+- Let local desktop owners save providers and model profiles, set routing and context limits, and select a model for a conversation. These actions still require the existing authentication and ownership checks.
+
 ## 0.1.1rc49 — 2026-11-07
 
 - Reduce repeated permission admission and database work for exact totals and paginated record lists. Preserve current exclusions, direct grants, and revocation checks.

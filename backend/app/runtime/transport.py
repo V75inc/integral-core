@@ -83,6 +83,15 @@ def blocked_path(path: str, method: str) -> bool:
             ("model-credentials", "POST"),
             ("model-credentials", "DELETE"),
             ("model-credentials/validate", "POST"),
+            ("model-capabilities", "POST"),
+            ("model-connections", "POST"),
+            ("model-connections/test", "POST"),
+            ("model-connections/remove", "POST"),
+            ("model-profiles", "POST"),
+            ("model-profiles/activate", "POST"),
+            ("model-profiles/remove", "POST"),
+            ("conversation-model", "POST"),
+            ("model-routing", "POST"),
         }
         return (
             len(parts) < 3

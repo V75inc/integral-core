@@ -112,6 +112,9 @@ async def test_native_session_rejects_browser_and_missing_secret(
         ("/api/users/me/pinned/extra", "POST"),
         ("/api/users/me/model-credentials/extra", "POST"),
         ("/api/users/me/model-credentials/validate/extra", "POST"),
+        ("/api/users/other/conversation-model", "POST"),
+        ("/api/users/me/conversation-model/extra", "POST"),
+        ("/api/users/me/model-profiles/activate", "PUT"),
         ("/api/users/me/unknown-preference", "PATCH"),
         ("/api/users/me/role", "PUT"),
     ],
@@ -140,6 +143,15 @@ async def test_perimeter_closes_legacy_routes(desktop_profile, path, method):
         ("/api/users/me/model-credentials", "POST"),
         ("/api/users/me/model-credentials", "DELETE"),
         ("/api/users/me/model-credentials/validate", "POST"),
+        ("/api/users/me/model-capabilities", "POST"),
+        ("/api/users/me/model-connections", "POST"),
+        ("/api/users/me/model-connections/test", "POST"),
+        ("/api/users/me/model-connections/remove", "POST"),
+        ("/api/users/me/model-profiles", "POST"),
+        ("/api/users/me/model-profiles/activate", "POST"),
+        ("/api/users/me/model-profiles/remove", "POST"),
+        ("/api/users/me/conversation-model", "POST"),
+        ("/api/users/me/model-routing", "POST"),
     ],
 )
 async def test_local_settings_reach_route_authentication(desktop_profile, path, method):
@@ -168,6 +180,7 @@ async def test_local_settings_reach_route_authentication(desktop_profile, path, 
         ("/api/meta/deployment", "GET"),
         ("/api/users/me/pinned", "POST"),
         ("/api/users/me/model-credentials", "POST"),
+        ("/api/users/me/conversation-model", "POST"),
     ],
 )
 @pytest.mark.parametrize(
