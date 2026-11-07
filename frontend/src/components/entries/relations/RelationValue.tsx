@@ -177,7 +177,7 @@ export function RelationValue({
     }
     const wrapCls =
       variant === 'chips'
-        ? `inline-flex flex-wrap gap-1 ${className}`.trim()
+        ? `inline-flex min-w-0 max-w-full flex-wrap gap-1 ${className}`.trim()
         : `inline-flex flex-wrap gap-x-1 ${className}`.trim();
     return (
       <span className={wrapCls}>
@@ -218,7 +218,7 @@ export function RelationValue({
 
   if (variant === 'chips') {
     return (
-      <span className={`inline-flex flex-wrap gap-1 ${className}`.trim()}>
+      <span className={`inline-flex min-w-0 max-w-full flex-wrap gap-1 ${className}`.trim()}>
         {limited.map((t, i) => (
           <ResolvedTarget
             key={`${t.id}-${i}`}
