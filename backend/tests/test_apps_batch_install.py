@@ -469,3 +469,49 @@ async def test_batch_install_retains_only_public_error_details(
     assert failure["name"] == "Restricted package"
     assert failure["error_code"] == ("bad_request" if typed_error else "install_failed")
     assert failure.get("details") == (details if typed_error else None)
+
+
+@pytest.mark.asyncio
+async def test_default_settings_for_a_library_app_with_a_settings_schema(
+    test_user,
+) -> None:
+    """An install that sends no settings can use each setting's declared default."""
+    from app.services.app_batch_install import default_settings_for_library_model
+
+    lib = await _seed_library("Defaulted")
+    manifest = dict(lib.manifest)
+    manifest["app"] = {
+        **manifest["app"],
+        "settings_schema": {
+            "type": "object",
+            "properties": {
+                "cadence": {"type": "string", "default": "weekly"},
+                "owner": {"type": "string"},
+            },
+            "required": ["cadence"],
+        },
+    }
+    lib.manifest = manifest
+    await lib.save()
+    # Declared defaults only: a setting with no default is left out so the install
+    # fails validation instead of silently choosing a value for the person.
+    assert await default_settings_for_library_model(lib.id) == {"cadence": "weekly"}
+
+
+@pytest.mark.asyncio
+async def test_default_settings_for_an_app_without_a_schema_is_empty(test_user) -> None:
+    from app.services.app_batch_install import default_settings_for_library_model
+
+    lib = await _seed_library("Plain")
+    assert await default_settings_for_library_model(lib.id) == {}
+
+
+@pytest.mark.asyncio
+async def test_default_settings_for_an_unknown_library_app_is_refused(
+    test_user,
+) -> None:
+    from app.api.errors import BadRequestError
+    from app.services.app_batch_install import default_settings_for_library_model
+
+    with pytest.raises(BadRequestError):
+        await default_settings_for_library_model("n.OperationalModel.missing")

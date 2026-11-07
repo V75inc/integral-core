@@ -1960,8 +1960,13 @@ async def install_app_endpoint(
     version: Optional[str] = None,
     settings: Optional[Dict[str, Any]] = None,
     include_seed_data: bool = True,
+    use_default_settings: bool = False,
 ) -> Dict[str, Any]:
     """Install an App into a Workspace from a library OperationalModel.
+
+    ``use_default_settings`` installs with each setting's declared default when no
+    ``settings`` are sent, instead of pausing at awaiting_settings (opt-in; the
+    default keeps a person in the loop).
 
     The endpoint records a durable lifecycle WorkItem and returns its identity.
     A caller must read the WorkItem/result state rather than treating this
@@ -1977,6 +1982,13 @@ async def install_app_endpoint(
         )
 
     from app.services.app_lifecycle import enqueue_install_work
+
+    if settings is None and use_default_settings:
+        from app.services.app_batch_install import default_settings_for_library_model
+
+        settings = await default_settings_for_library_model(
+            library_operational_model_id
+        )
 
     return await enqueue_install_work(
         workspace_id=workspace_id,
