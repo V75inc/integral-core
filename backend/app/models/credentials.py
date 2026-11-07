@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute, compound_index
 from pydantic import Field
+
+from app.models.indexing import attribute, compound_index
 
 
 @compound_index(

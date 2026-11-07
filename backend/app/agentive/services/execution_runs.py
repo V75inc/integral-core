@@ -19,9 +19,9 @@ from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
 from pydantic import Field
 
+from app.models.indexing import attribute
 from app.services.perf_trace import perf_traced
 from app.utils.time import utc_now_iso
 

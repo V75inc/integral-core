@@ -7,9 +7,9 @@ Entity class names match persisted ``entity`` (no ``Node`` suffix).
 from typing import Any, Dict, List, Literal, Optional
 
 from jvspatial.core import Node
-from jvspatial.core.annotations import attribute, compound_index
 from pydantic import Field, PrivateAttr
 
+from app.models.indexing import attribute, compound_index
 from app.schemas.provenance import Provenance
 
 # --- Fixed graph singleton ids (app shell) ---
