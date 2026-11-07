@@ -31,6 +31,10 @@ from app.services.resource_location import (
 
 WINDOW = 500
 METADATA_WINDOW = 2500
+# deviation: the default native summary stopped at 100K and fell back to
+# streaming. At 250K, a bounded native summary took 1.46 s vs 10.81 s.
+_NATIVE_COUNT_MAX_RECORDS = 500_000
+_NATIVE_COUNT_MAX_EDGES = 1_000_000
 _AUTHORITY_FIELDS = [
     "id",
     "entity",
@@ -39,6 +43,23 @@ _AUTHORITY_FIELDS = [
     "track_id",
     "visibility",
 ]
+
+
+class _BinaryTitleUnavailable(Exception):
+    """The adapter cannot match the portable title comparator for this scope."""
+
+
+async def ensure_entry_title_indexes() -> None:
+    """Prepare optional storage indexes alongside the other model indexes."""
+    database = get_default_context().database
+    create = getattr(database, "create_binary_text_keyset_indexes", None)
+    if callable(create):
+        await create(
+            "node",
+            field="context.title",
+            scope_field="context.track_id",
+            entity=Entry._entity_name(),
+        )
 
 
 def _encode_position(record: dict, fields: list[tuple[str, int]]) -> str:
@@ -540,6 +561,7 @@ async def _iter_record_windows(
     cursor: str | None = None,
     allowed_app_states: frozenset[str] = DATA_APP_STATES,
     projection: list[str] | None = None,
+    binary_title: bool = False,
 ) -> AsyncIterator[_RecordWindow]:
     """Advance by raw rows, including rejected/unhydratable candidate windows."""
     context = get_default_context()
@@ -559,11 +581,32 @@ async def _iter_record_windows(
         position = {"id": position.get("id"), "sort": position["ts"]}
     try:
         while True:
-            after = _after_position(fields, position)
+            after = None if binary_title else _after_position(fields, position)
             candidate = merge_queries(
                 {"entity": Entry._entity_name()}, query, after or {}
             )
-            if projected:
+            if binary_title:
+                values = _cursor_values(position, fields)
+                if (
+                    values is not None
+                    and values[0] is not None
+                    and not isinstance(values[0], str)
+                ):
+                    raise _BinaryTitleUnavailable()
+                rows = await context.database.find_binary_text_keyset(
+                    "node",
+                    candidate,
+                    field="context.title",
+                    scope_field="context.track_id",
+                    scope_value=track_id,
+                    entity=Entry._entity_name(),
+                    direction=fields[0][1],
+                    after=(values[0], values[1]) if values is not None else None,
+                    limit=size + 1,
+                )
+                if rows is None:
+                    raise _BinaryTitleUnavailable()
+            elif projected:
                 rows = await _projected_records(
                     context.database,
                     candidate,
@@ -591,7 +634,7 @@ async def _iter_record_windows(
             if next_position is None or next_position == position:
                 raise AuthorizationUnavailableError()
             position = next_position
-    except (AuthorizationUnavailableError, BadRequestError):
+    except (AuthorizationUnavailableError, BadRequestError, _BinaryTitleUnavailable):
         raise
     except Exception as exc:
         raise AuthorizationUnavailableError() from exc
@@ -865,6 +908,8 @@ async def _native_bound_count(
                 "context.visibility", ("inherit", "private"), "visibility"
             ),
         ),
+        max_records=_NATIVE_COUNT_MAX_RECORDS,
+        max_edges=_NATIVE_COUNT_MAX_EDGES,
     )
     if summary is None:
         return None
@@ -1012,29 +1057,11 @@ async def _select_portable_page(
     ordered = sorted([item.obj for item in heap], key=cmp_to_key(compare))
     page = ordered[offset : offset + limit]
     has_more = remaining > offset + len(page)
-    if page and page[0].get("__entry_projection"):
-        context = get_default_context()
-        ids = [record["id"] for record in page]
-        current = await context.database.find(
-            "node", {"id": {"$in": ids}}, limit=len(ids) + 1
-        )
-        by_id = {record.get("id"): record for record in current}
-        if len(current) != len(ids) or set(by_id) != set(ids):
-            raise AuthorizationUnavailableError()
-        # Selection isn't a permission lease. Fetch the complete current
-        # payload and repeat canonical admission before rendering any Entry.
-        current = await admit_records(
-            user_id,
-            [by_id[node_id] for node_id in ids],
-            workspace_id=workspace_id,
-            track_id=track_id,
-            app_id=app_id,
-        )
-        if [record["id"] for record in current] != ids:
-            raise AuthorizationUnavailableError()
-        hydrated = await hydrate_records(current)
-    else:
-        hydrated = await hydrate_records(page)
+    hydrated = (
+        await _hydrate_current_page(user_id, page, workspace_id, track_id, app_id)
+        if page and page[0].get("__entry_projection")
+        else await hydrate_records(page)
+    )
     return hydrated, {
         "total": total if include_total else None,
         "has_more": has_more,
@@ -1042,6 +1069,28 @@ async def _select_portable_page(
             _encode_position(page[-1], fields) if has_more and page else None
         ),
     }
+
+
+async def _hydrate_current_page(user_id, page, workspace_id, track_id, app_id):
+    """Re-admit complete current records before releasing a selected page."""
+    context = get_default_context()
+    ids = [record["id"] for record in page]
+    current = await context.database.find(
+        "node", {"id": {"$in": ids}}, limit=len(ids) + 1
+    )
+    by_id = {record.get("id"): record for record in current}
+    if len(current) != len(ids) or set(by_id) != set(ids):
+        raise AuthorizationUnavailableError()
+    current = await admit_records(
+        user_id,
+        [by_id[node_id] for node_id in ids],
+        workspace_id=workspace_id,
+        track_id=track_id,
+        app_id=app_id,
+    )
+    if [record["id"] for record in current] != ids:
+        raise AuthorizationUnavailableError()
+    return await hydrate_records(current)
 
 
 @_unavailable_on_source_error
@@ -1100,6 +1149,7 @@ async def _select_native_page(
     track_id: str | None,
     app_id: str | None,
     refine_candidates: bool = True,
+    binary_title: bool = False,
 ) -> tuple[list[Entry], dict]:
     """Select current rows, narrowing a sparse audience without granting it.
 
@@ -1120,6 +1170,7 @@ async def _select_native_page(
         sort=fields,
         cursor=cursor,
         batch_size=min(WINDOW, offset + limit + 1),
+        binary_title=binary_title,
     ):
         for record in window.records:
             if visible >= offset and len(selected) <= limit:
@@ -1152,6 +1203,7 @@ async def _select_native_page(
                     track_id=track_id,
                     app_id=app_id,
                     refine_candidates=False,
+                    binary_title=binary_title,
                 )
                 if (
                     await _inherited_count_authority(
@@ -1163,14 +1215,21 @@ async def _select_native_page(
                     != authority
                 ):
                     raise AuthorizationUnavailableError()
-                if not await _native_numeric_order(query, fields, cursor):
+                if not binary_title and not await _native_numeric_order(
+                    query, fields, cursor
+                ):
                     raise AuthorizationUnavailableError()
                 return result
     has_more = len(selected) > limit
     page = selected[:limit]
-    if not await _native_numeric_order(query, fields, cursor):
+    if not binary_title and not await _native_numeric_order(query, fields, cursor):
         raise AuthorizationUnavailableError()
-    return await hydrate_records(page), {
+    hydrated = (
+        await _hydrate_current_page(user_id, page, workspace_id, track_id, app_id)
+        if binary_title and page
+        else await hydrate_records(page)
+    )
+    return hydrated, {
         "total": None,
         "has_more": has_more,
         "next_cursor": (
@@ -1194,18 +1253,29 @@ async def select_page(
 ) -> tuple[list[Entry], dict]:
     """Count the admitted audience and refill pages past rejected raw records."""
     fields = keyset_sort_fields(sort)
-    native_order = await _native_numeric_order(query, fields, cursor)
-    if include_total and track_id and native_order:
-        exact = await _native_bound_count(
-            user_id, track_id, query, workspace_id=workspace_id, app_id=app_id
+    binary_title = bool(
+        track_id
+        and fields
+        in (
+            [("context.title", 1), ("id", 1)],
+            [("context.title", -1), ("id", -1)],
         )
-        if exact is not None:
-            # The aggregate proves the exact audience without shipping it to
-            # Python. A separate current page still performs canonical
-            # admission and full-payload hydration, including denied refill.
+        and callable(
+            getattr(get_default_context().database, "find_binary_text_keyset", None)
+        )
+    )
+    native_order = binary_title or await _native_numeric_order(query, fields, cursor)
+    try:
+        exact = None
+        if include_total and track_id and native_order:
+            exact = await _native_bound_count(
+                user_id, track_id, query, workspace_id=workspace_id, app_id=app_id
+            )
+        if native_order and (exact is not None or not include_total):
+            candidates = exact.candidates if exact is not None else None
             entries, metadata = await _select_native_page(
                 user_id,
-                exact.candidates if exact.candidates is not None else query,
+                candidates if candidates is not None else query,
                 fields=fields,
                 limit=limit,
                 offset=offset,
@@ -1213,38 +1283,30 @@ async def select_page(
                 workspace_id=workspace_id,
                 track_id=track_id,
                 app_id=app_id,
+                binary_title=binary_title,
             )
-            if exact.recheck is not None and not await exact.recheck():
-                raise AuthorizationUnavailableError()
-            if not await _native_numeric_order(query, fields, cursor):
-                raise AuthorizationUnavailableError()
-            return entries, {**metadata, "total": exact.total}
-    # The portable comparator remains necessary for unproven numeric types,
-    # unsupported queries and labels whose collation can differ from Python.
-    # The 50K PostgreSQL fixture repeated 400–470ms sorts per 501-row window
-    # when exact totals walked the entire audience in presentation order.
-    # A bounded heap over one ID-ordered scan preserves exact scope/counts
-    # without requiring a full sorted audience for each window.
-    if include_total or not native_order:
-        return await _select_portable_page(
-            user_id,
-            query,
-            fields=fields,
-            limit=limit,
-            offset=offset,
-            cursor=cursor,
-            include_total=include_total,
-            workspace_id=workspace_id,
-            track_id=track_id,
-            app_id=app_id,
-        )
-    return await _select_native_page(
+            if exact is not None:
+                if exact.recheck is not None and not await exact.recheck():
+                    raise AuthorizationUnavailableError()
+                if not binary_title and not await _native_numeric_order(
+                    query, fields, cursor
+                ):
+                    raise AuthorizationUnavailableError()
+                metadata["total"] = exact.total
+            return entries, metadata
+    except _BinaryTitleUnavailable:
+        # A compiler refusal or malformed legacy sort value requires a fresh
+        # portable selection from the original cursor, never mixed ordering.
+        pass
+
+    return await _select_portable_page(
         user_id,
         query,
         fields=fields,
         limit=limit,
         offset=offset,
         cursor=cursor,
+        include_total=include_total,
         workspace_id=workspace_id,
         track_id=track_id,
         app_id=app_id,
