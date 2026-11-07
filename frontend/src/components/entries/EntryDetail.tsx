@@ -1,3 +1,4 @@
+import { BacklinkList } from './BacklinkList';
 import { useEntryHostRefresh } from '../../hooks/useEntryHostRefresh';
 import { errorMessageFromAxios } from '../../api/helpers';
 import { tagFilterHref } from '../../utils/tagFilters';
@@ -1373,42 +1374,7 @@ export function EntryDetail({
     refs: typeof referencedBy,
     label: string,
     totalHint?: number
-  ) => {
-    const total = totalHint ?? refs.length;
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5 text-[var(--text-subtle)]">
-          <ArrowUpRight
-            size={12}
-            strokeWidth={LINE_ICON_STROKE}
-            aria-hidden
-          />
-          <span>
-            {label} ({total}
-            {total > refs.length ? `; showing ${refs.length}` : ''})
-          </span>
-        </div>
-        <ul className="ml-[18px] flex flex-wrap gap-x-3 gap-y-1">
-          {refs.map(ref => (
-            <li key={ref.id} className="inline-flex items-center gap-1">
-              <Link
-                to={`/tracks/${ref.track_id}?entry=${encodeURIComponent(ref.id)}`}
-                className="text-[var(--link)] hover:underline"
-                onClick={e => e.stopPropagation()}
-              >
-                {ref.title || 'Untitled'}
-              </Link>
-              {ref.track_title ? (
-                <span className="text-[var(--text-subtle)]">
-                  · {ref.track_title}
-                </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  };
+  ) => <BacklinkList refs={refs} label={label} total={totalHint} />;
   const backlinksRow =
     anchorSource ||
     referencedBy.length > 0 ||
