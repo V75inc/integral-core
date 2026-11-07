@@ -1872,6 +1872,17 @@ async def _update_app_from_library(
                 "update_app_from_library: rematerialize EntryTypes failed for %s",
                 t.id,
             )
+        try:
+            from app.services.operational_model_runtime import (
+                resync_track_view_constraints_from_tier,
+            )
+
+            await resync_track_view_constraints_from_tier(t)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "update_app_from_library: view entry-type re-sync failed for %s",
+                t.id,
+            )
         await synchronize_track_view_default_flags(t)
     await run_bundle_post_seed(app_node, actor_id)
     # Operational layer follows the library package (source of truth on update).
