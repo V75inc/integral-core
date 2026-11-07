@@ -101,6 +101,7 @@ import {
 } from './entryFormCustomFields';
 import { entryPath } from '../../utils/resourcePaths';
 import type { ToastAction } from '../../context/ToastContext';
+import { isVisible as conditionHolds } from '../views/regionConditions';
 const EMPTY_FIELDS: OperationalModelFieldSpec[] = [];
 
 /** Inline ``[]`` from parents must not be used as a hook dependency; reuse this for empty lists. */
@@ -1180,7 +1181,9 @@ export function useEntryExpandedForm(
     }
   ): ReactNode {
     const locked =
-      Boolean(field.readonly) || autoLockedFieldKeys.has(field.key) || (proposalOnly && ['file', 'files'].includes(field.composite?.base || field.type));
+      Boolean(field.readonly) ||
+      Boolean(field.readonly_if && conditionHolds(field.readonly_if, fieldValues)) ||
+      autoLockedFieldKeys.has(field.key) || (proposalOnly && ['file', 'files'].includes(field.composite?.base || field.type));
     return (
       <FieldProblem fieldKey={field.key} message={problems[field.key]}>
       <SeamlessField

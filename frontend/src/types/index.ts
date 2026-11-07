@@ -212,6 +212,9 @@ export interface OperationalModelFieldSpec {
   type: string;
   required?: boolean;
   readonly?: boolean;
+  /** Read-only while this condition holds on the record's current values (same shape
+   *  as visible_if): ``{field, equals | in | not_in}``. */
+  readonly_if?: { field: string; equals?: unknown; in?: unknown[]; not_in?: unknown[] };
   /** Excluded from the CREATE-entry form only (EntryFormExpanded's
    *  dynamicFields) — still renders normally once the entry exists (edit
    *  mode, detail page, related_views). For fields a server-side hook

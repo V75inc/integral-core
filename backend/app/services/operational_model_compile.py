@@ -683,7 +683,31 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             raise BadRequestError(message=f"Computed field '{key}' cannot be required")
         out["readonly"] = True
         out["expression"] = attach_computed_expression(key, field.get("expression"))
+    if field.get("readonly_if") is not None:
+        out["readonly_if"] = _normalize_readonly_if(key, field.get("readonly_if"))
     return out
+
+
+def _normalize_readonly_if(key: str, raw: Any) -> Dict[str, Any]:
+    """A condition under which a field is read-only (same shape as ``visible_if``).
+
+    ``{field, equals | in | not_in}``: the field is locked while the condition holds on
+    the record's current values, for example a pay run's period once its status is
+    no longer draft. The server still enforces the rule; this makes the form say so.
+    """
+    cond = _as_dict(raw, where=f"field '{key}' readonly_if")
+    ref = str(cond.get("field") or "").strip()
+    if not ref:
+        raise BadRequestError(message=f"Field '{key}' readonly_if needs a field")
+    modes = [m for m in ("equals", "in", "not_in") if m in cond]
+    if len(modes) != 1:
+        raise BadRequestError(
+            message=f"Field '{key}' readonly_if needs exactly one of equals, in, not_in"
+        )
+    mode = modes[0]
+    if mode in ("in", "not_in") and not isinstance(cond[mode], list):
+        raise BadRequestError(message=f"Field '{key}' readonly_if {mode} must be a list")
+    return {"field": ref, mode: cond[mode]}
 
 
 def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
