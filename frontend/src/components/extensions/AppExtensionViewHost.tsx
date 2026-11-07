@@ -225,6 +225,18 @@ export const AppExtensionViewHost = forwardRef<
   );
   const waitingForData = !dataCapHit && (pendingQueries > 0 || (!sawQuery && !dataGraceOver));
 
+  // The skeleton covers the first load only. Once the view has been revealed it is never
+  // painted over the view again: a later refresh, search or status query would otherwise
+  // flash it back on top of a view that is already showing, and several queries in a row
+  // made it flicker. The latch resets with each new handshake (a new frame).
+  const [revealedToken, setRevealedToken] = useState('');
+  const showSkeletonNow = !loaded || !frameGrantMatches || waitingForData;
+  useEffect(() => {
+    if (handshakeToken && !showSkeletonNow) setRevealedToken(handshakeToken);
+  }, [handshakeToken, showSkeletonNow]);
+  const revealed = !!handshakeToken && revealedToken === handshakeToken;
+  const showSkeleton = showSkeletonNow && !revealed;
+
   const bridgeApi = useExtensionBridge(
     iframeRef,
     bridge,
@@ -287,7 +299,7 @@ export const AppExtensionViewHost = forwardRef<
           <Text as="p" variant="body-sm" tone="info">{RECORDED_OUTPUT_WITHHELD_MESSAGE}</Text>
         </div>
       ) : null}
-      {!loaded || !frameGrantMatches || waitingForData ? (
+      {showSkeleton ? (
         <div className="absolute inset-0 flex items-center justify-center" style={{ minHeight }}>
           <Skeleton className="h-full w-full min-h-[240px]" />
         </div>
