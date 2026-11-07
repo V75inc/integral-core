@@ -79,7 +79,7 @@ export function ExtensionViewWidget(props: ViewWidgetProps) {
 }
 
 function ExtensionViewSession({
-  view, entries, track, appId, viewKey, workspaceId,
+  view, entries, track, appId, viewKey, workspaceId, onEntryOpen,
 }: ViewWidgetProps & { appId: string; viewKey: string; workspaceId: string }) {
   const bindings = ((view.config || {}) as { __bindings?: ContributionBindings }).__bindings || {};
   const lifecycle = useContributionLifecycle();
@@ -183,9 +183,14 @@ function ExtensionViewSession({
     const onTrackPage = Boolean(trackId) && !bindings.entryId && !lifecycle?.entryId;
     if (!onTrackPage) { navigate(fullPage); return; }
     void entriesApi.get(openId).then(
-      entry => navigate(entry && entry.track_id === trackId
-        ? `/tracks/${encodeURIComponent(trackId)}?entry=${encodeURIComponent(openId)}`
-        : fullPage),
+      entry => {
+        if (entry && entry.track_id === trackId) {
+          if (onEntryOpen) { onEntryOpen(entry, { forceModal: true }); return; }
+          navigate(`/tracks/${encodeURIComponent(trackId)}?entry=${encodeURIComponent(openId)}`);
+          return;
+        }
+        navigate(fullPage);
+      },
       () => navigate(fullPage),
     );
   };
