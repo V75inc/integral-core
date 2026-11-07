@@ -32,7 +32,7 @@ def test_builtin_field_types_registered():
     assert expected.issubset(keys)
 
 
-def test_computed_field_requires_a_runtime_evaluator():
+def test_computed_field_requires_an_expression():
     manifest = {
         "operational_model_schema_version": 2,
         "scope": "track",
@@ -50,7 +50,7 @@ def test_computed_field_requires_a_runtime_evaluator():
         },
     }
 
-    with pytest.raises(BadRequestError, match="not supported by the current runtime"):
+    with pytest.raises(BadRequestError, match="requires an expression"):
         compile_canonical_manifest(manifest=manifest)
 
 

@@ -99,7 +99,9 @@ def _ensure_taxonomy_group(tier: Dict[str, Any], group_key: str) -> Dict[str, An
 
 
 def _op_add_entry_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
-    spec = op.get("spec") or {}
+    spec = op.get("spec")
+    if spec is None:
+        spec = {key: op[key] for key in ("name", "key", "fields") if key in op}
     if not isinstance(spec, dict) or not (spec.get("name") or spec.get("key")):
         raise BadRequestError(message="add_entry_type requires spec with name/key")
     tier, _ = _resolve_track_tier(manifest, op.get("track"))
@@ -108,7 +110,7 @@ def _op_add_entry_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     for et in ets:
         if str(et.get("key") or "") == key:
             raise BadRequestError(message=f"entry type with key '{key}' already exists")
-    ets.append(dict(spec))
+    ets.append({"key": key, **spec})
 
 
 def _op_modify_entry_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:

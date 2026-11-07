@@ -383,17 +383,6 @@ PHASE_7_NEW_FILES: List[str] = [
     "app/services/track_writer.py",
     "app/services/app_writer.py",
     "app/services/comment_writer.py",
-    # Seeded Operational Models migrated from Python dicts to YAML in
-    # ``app/packages/<slug>/operational-model.yaml`` (refactor eaaf4e3 —
-    # "migrate seeded profiles from Python dicts to YAML"). The catalogue
-    # now references the canonical YAML deliverables instead of the
-    # retired Python builders.
-    "app/packages/personal-goals-and-habits/operational-model.yaml",
-    "app/packages/event-planning/operational-model.yaml",
-    "app/packages/bug-tracking/operational-model.yaml",
-    "app/packages/content-calendar/operational-model.yaml",
-    "app/packages/personal-knowledge-base/operational-model.yaml",
-    "app/packages/personal-crm/operational-model.yaml",
 ]
 
 
