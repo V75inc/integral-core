@@ -160,3 +160,19 @@ describe('TableWidget column choices', () => {
     expect(screen.getByRole('columnheader', { name: 'Owner' })).toBeInTheDocument();
   });
 });
+
+describe('TableWidget date-field rendering', () => {
+  it('shows a stored ISO date the way record pages and date pickers show it', () => {
+    render(<TableWidget entries={[{ id: 'e1', custom_fields: { pay_date: '2027-11-01' } } as unknown as Entry]} onEntryOpen={noop} isLoading={false}
+      fields={[{ key: 'pay_date', name: 'Pay date', type: 'date' }]}
+      view={view({ columns: [{ field: 'custom_fields.pay_date' }] })} />);
+    expect(screen.getByRole('cell', { name: '1st November, 2027' })).toBeInTheDocument();
+  });
+
+  it('keeps an unparseable date value as stored instead of blanking it', () => {
+    render(<TableWidget entries={[{ id: 'e1', custom_fields: { pay_date: 'soon' } } as unknown as Entry]} onEntryOpen={noop} isLoading={false}
+      fields={[{ key: 'pay_date', name: 'Pay date', type: 'date' }]}
+      view={view({ columns: [{ field: 'custom_fields.pay_date' }] })} />);
+    expect(screen.getByRole('cell', { name: 'soon' })).toBeInTheDocument();
+  });
+});

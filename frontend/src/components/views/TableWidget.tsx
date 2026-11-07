@@ -6,6 +6,7 @@ import { RelationValue } from '../entries/relations';
 import type { ViewWidgetProps } from './types';
 import type { Entry, OperationalModelFieldSpec } from '../../types';
 import { formatRelativeTime } from '../../utils';
+import { formatDateFieldDisplay } from '../../utils/dateFieldValue';
 import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
 import { humanizeEnumValue, humanizeFieldKey } from '../../utils/humanizeFieldKey';
 
@@ -29,7 +30,7 @@ type MemberFieldPaths = Set<string>;
  *  same way every other select control in the app already displays it
  *  (SeamlessField's `resolveEnumOptionLabel`/`humanizeEnumValue`) instead
  *  of printing the raw snake/kebab-case value verbatim. */
-type SelectFieldTypes = Map<string, 'select' | 'multi_select'>;
+type SelectFieldTypes = Map<string, 'select' | 'multi_select' | 'date' | 'datetime'>;
 
 const DEFAULT_COLUMNS: TableColumn[] = [
   { field: 'title', label: 'Title / Content', sortable: true },
@@ -194,6 +195,10 @@ function renderCellValue(
           </span>
         );
       }
+      if ((selectType === 'date' || selectType === 'datetime') && typeof val === 'string') {
+        const shown = formatDateFieldDisplay(val, selectType);
+        if (shown) return <span className="text-sm text-[var(--text)]">{shown}</span>;
+      }
       if (selectType === 'select' && typeof val === 'string') {
         return <span className="text-sm text-[var(--text)]">{humanizeEnumValue(val)}</span>;
       }
@@ -238,7 +243,7 @@ function TableWidgetInner({
     const out: SelectFieldTypes = new Map();
     for (const f of fields ?? []) {
       const t = String(f.type || '').toLowerCase();
-      if (t === 'select' || t === 'multi_select') {
+      if (t === 'select' || t === 'multi_select' || t === 'date' || t === 'datetime') {
         if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
         out.set(`custom_fields.${f.key}`, t);
       }
