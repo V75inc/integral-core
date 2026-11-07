@@ -93,7 +93,13 @@ async def test_final_request_is_reserved_for_handoff_without_another_effect(
         instructions=build_integral_run_instructions("Use observed receipts only."),
     )
     result = await agent.run("Do the work", usage_limits=UsageLimits(request_limit=4))
-    assert ("couldn't finish" if ignore_reserve else "unfinished") in result.output
+    if ignore_reserve:
+        from app.agentive.harness.turn_progress import FINAL_RESPONSE_FALLBACK
+
+        assert result.output == FINAL_RESPONSE_FALLBACK
+        assert "pending approval is not a saved change" in result.output
+    else:
+        assert "unfinished" in result.output
     assert calls == 4
     assert effects == ["read"] * 3
 

@@ -429,6 +429,13 @@ class IntegralToolDisclosure(ToolSearch):
 
         return settings
 
+    def _failure_message(self):
+        return (
+            self.turn_progress.failure_message()
+            if self.turn_progress
+            else FINAL_RESPONSE_FALLBACK
+        )
+
     def _observe_discovery(self, ctx):
         if self.turn_progress is None:
             return
@@ -473,7 +480,7 @@ class IntegralToolDisclosure(ToolSearch):
             if calls:
                 # Provider noncompliance must not produce another effect or
                 # replace the conversation with a framework exception.
-                return replace(response, parts=[TextPart(FINAL_RESPONSE_FALLBACK)])
+                return replace(response, parts=[TextPart(self._failure_message())])
             return response
         tool_limit = getattr(ctx.usage_limits, "tool_calls_limit", None)
         if (
@@ -496,7 +503,7 @@ class IntegralToolDisclosure(ToolSearch):
                     "evidence or capability precisely; do not call more tools "
                     "or claim that the rejected actions happened."
                 )
-            return replace(response, parts=[TextPart(FINAL_RESPONSE_FALLBACK)])
+            return replace(response, parts=[TextPart(self._failure_message())])
 
         # A fixed host support response carries no current-state assertions.
         # This permits a model-recognized disclosure request to stop without
@@ -859,6 +866,8 @@ class IntegralToolResultCompaction(ClearToolResults):
     active_keep_pairs: int = 2
     active_fact_pairs: int = 32
     active_fact_bytes: int = 16_384
+    active_schema_pairs: int = 8
+    active_schema_bytes: int = 32_768
 
     _navigation_tools = frozenset({"integral_list_apps", "integral_list_tracks"})
     _identity_tools = frozenset({"integral_resolve_entry"})
@@ -1165,9 +1174,38 @@ class IntegralToolResultCompaction(ClearToolResults):
             and part.tool_name not in discovery_tools
         ]
         last_effect = max(effects, default=(-1, -1))
-        retained_track_schemas = set(
-            sorted(key for key in track_schemas if key > last_effect)[-2:]
-        )
+        # ClearToolResults supports name exclusions, not a bounded per-resource
+        # window. Keep the latest complete schema for each Track here, then
+        # protect that projection through its public exclude_tools facility.
+        # Two incomplete previews made a three-Track filing request continually
+        # re-read required enums and relation constraints. These are current-turn
+        # observations only; every later dispatch still performs live admission.
+        retained_track_schemas = {}
+        schema_tracks = set()
+        schema_bytes = 0
+        for key in sorted(track_schemas, reverse=True):
+            if key <= last_effect:
+                continue
+            part = messages[key[0]].parts[key[1]]
+            content = part.content
+            track = content.get("track") if isinstance(content, dict) else None
+            track_id = track.get("id") if isinstance(track, dict) else None
+            if not isinstance(track_id, str) or track_id in schema_tracks:
+                continue
+            schema_tracks.add(track_id)
+            size = len(json.dumps(content, default=str).encode("utf-8"))
+            projected_schema = (
+                part if size <= 16_384 else self._track_schema_preview(part)
+            )
+            size = len(
+                json.dumps(projected_schema.content, default=str).encode("utf-8")
+            )
+            if schema_bytes + size > self.active_schema_bytes:
+                continue
+            if len(retained_track_schemas) >= self.active_schema_pairs:
+                break
+            retained_track_schemas[key] = projected_schema
+            schema_bytes += size
         # Small current-task facts share one byte/count budget across all read
         # transports. Per-call classification still protects mixed effects.
         retained_facts: set[tuple[int, int]] = set()
@@ -1207,7 +1245,7 @@ class IntegralToolResultCompaction(ClearToolResults):
                     elif key in lookups:
                         part = replace(part, content=self.placeholder)
                     elif key in retained_track_schemas:
-                        part = self._track_schema_preview(part)
+                        part = retained_track_schemas[key]
                     elif key in track_schemas:
                         part = replace(part, content=self.placeholder)
                     elif key in retained_batch_identities:
