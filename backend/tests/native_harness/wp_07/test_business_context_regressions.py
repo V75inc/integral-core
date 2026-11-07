@@ -418,7 +418,7 @@ async def test_resource_lookup_survives_reads_with_honest_bounded_preview():
 
 @pytest.mark.asyncio
 async def test_track_schema_previews_survive_reads_without_unbounded_context():
-    """Retain two clearly incomplete schemas and clear older sensitive detail."""
+    """Oversized schemas stay bounded and explicitly incomplete."""
     name = "integral_get_track_schema"
     messages = [ModelRequest(parts=[UserPromptPart("Compare records")])]
     for index in range(3):
@@ -472,8 +472,7 @@ async def test_track_schema_previews_survive_reads_without_unbounded_context():
         for part in message.parts
         if type(part) is ToolReturnPart and part.tool_name == name
     ]
-    assert schemas[0].content == compactor.placeholder
-    for index, part in enumerate(schemas[1:], start=1):
+    for index, part in enumerate(schemas):
         assert part.content["track"]["id"] == f"track-{index}"
         assert part.content["entry_types"][0]["fields"] == [
             {"key": "status", "name": "Status", "type": "select"}
@@ -482,6 +481,89 @@ async def test_track_schema_previews_survive_reads_without_unbounded_context():
         assert "collaborators" not in part.content
         assert len(json.dumps(part.content).encode()) <= 6144
         assert compactor._track_schema_preview(part).content == part.content
+
+
+@pytest.mark.asyncio
+async def test_three_linked_track_schemas_remain_complete_until_an_effect():
+    """Filing across three Tracks must not lose enums, required fields or links."""
+    name = "integral_get_track_schema"
+    messages = [ModelRequest(parts=[UserPromptPart("Arrange a community session")])]
+    originals = []
+    for index in range(3):
+        schema = {
+            "track": {"id": f"track-{index}", "title": f"Track {index}"},
+            "description": "x" * 8000,
+            "entry_types": [
+                {
+                    "id": f"type-{index}",
+                    "form_schema": {
+                        "fields": [
+                            {
+                                "key": "status",
+                                "type": "select",
+                                "required": True,
+                                "options": ["Not started", "Done"],
+                            },
+                            {
+                                "key": "owner",
+                                "type": "relation",
+                                "target_track_id": "track-1",
+                                "multiple": False,
+                            },
+                        ]
+                    },
+                }
+            ],
+        }
+        originals.append(schema)
+        messages += [
+            ModelResponse(
+                parts=[ToolCallPart(name, {"track_id": f"track-{index}"}, str(index))]
+            ),
+            ModelRequest(parts=[ToolReturnPart(name, schema, str(index))]),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    result = await compactor.compact(result, SimpleNamespace())
+    schemas = [p.content for m in result for p in m.parts if type(p) is ToolReturnPart]
+    assert schemas == originals
+    assert [
+        p.content for m in messages for p in m.parts if type(p) is ToolReturnPart
+    ] == originals
+
+
+def test_schema_retention_is_bounded_and_keeps_latest_per_track():
+    name = "integral_get_track_schema"
+    messages = [ModelRequest(parts=[UserPromptPart("Review the setup")])]
+    for index in range(15):
+        schema = {
+            "track": {"id": f"t-{index % 10}"},
+            "entry_types": [],
+            "revision": index,
+        }
+        messages += [
+            ModelResponse(parts=[ToolCallPart(name, {}, str(index))]),
+            ModelRequest(parts=[ToolReturnPart(name, schema, str(index))]),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name})
+    )
+    result = compactor._compact_classified_reads(messages)
+    retained = [
+        p.content
+        for m in result
+        for p in m.parts
+        if type(p) is ToolReturnPart and isinstance(p.content, dict)
+    ]
+    assert len(retained) == 8
+    assert len({s["track"]["id"] for s in retained}) == 8
+    assert all(s["revision"] >= 7 for s in retained)
+    assert (
+        sum(len(json.dumps(s).encode()) for s in retained)
+        <= compactor.active_schema_bytes
+    )
 
 
 @pytest.mark.asyncio

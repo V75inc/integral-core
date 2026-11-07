@@ -17,6 +17,60 @@ READ = "integral_lookup_items"
 WRITE = "integral_write_item"
 
 
+def test_schema_loop_failure_explains_cause_without_claiming_write_outcomes():
+    from app.agentive.harness.turn_progress import TurnProgress
+
+    progress = TurnProgress()
+    for _ in range(3):
+        progress.observe(
+            "integral_get_track_schema",
+            {"track_id": "t"},
+            {"track": {"id": "t"}},
+            is_read=True,
+        )
+    assert progress.should_finalize
+    message = progress.failure_message()
+    assert "track setup repeatedly" in message
+    assert "approval" in message
+    assert "saved no changes" not in message
+    assert "saved successfully" not in message
+
+
+@pytest.mark.asyncio
+async def test_provider_ignoring_schema_loop_stop_gets_the_specific_message():
+    """The actual response hook explains the stall without executing more calls."""
+    from app.agentive.harness.turn_progress import TurnProgress
+
+    progress = TurnProgress()
+    for _ in range(3):
+        progress.observe(
+            "integral_get_track_schema",
+            {"track_id": "t"},
+            {"track": {"id": "t"}},
+            is_read=True,
+        )
+    executed = []
+
+    async def read():
+        executed.append(True)
+        return {}
+
+    def respond(messages, info):
+        assert info.function_tools == []
+        return ModelResponse(parts=[ToolCallPart("read", {})])
+
+    result = await Agent(
+        FunctionModel(respond),
+        tools=[read],
+        capabilities=[
+            IntegralToolDisclosure(require_initial_search=False, turn_progress=progress)
+        ],
+    ).run("Continue with my workshop.")
+    assert result.output == progress.failure_message()
+    assert "track setup repeatedly" in result.output
+    assert not executed
+
+
 def _scope(run_id="run-1"):
     return HarnessExecutionScope(
         tenant_id="workspace-1",

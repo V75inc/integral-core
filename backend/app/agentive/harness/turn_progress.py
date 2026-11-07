@@ -24,6 +24,22 @@ class TurnProgress:
     _available: frozenset[str] = frozenset()
     _seen_discovery: set[str] = field(default_factory=set, repr=False)
     _read_count: int = 0
+    _repeated_tool: str = ""
+
+    def failure_message(self) -> str:
+        """Explain observed failure without guessing whether writes succeeded."""
+        if self._repeated_tool:
+            subject = (
+                "the track setup"
+                if self._repeated_tool == "integral_get_track_schema"
+                else "the same information"
+            )
+            return (
+                f"I got stuck checking {subject} repeatedly and couldn't finish "
+                "your request. Review the saved results and any changes awaiting "
+                "approval in this chat before asking me to continue."
+            )
+        return FINAL_RESPONSE_FALLBACK
 
     @property
     def should_finalize(self) -> bool:
@@ -69,6 +85,7 @@ class TurnProgress:
         self._reads[fingerprint] = count
         if count >= 3:
             self.reason = "Repeated reads returned the same evidence."
+            self._repeated_tool = name
 
     def observe_discovery(self, call_id: str, available: frozenset[str]):
         if call_id in self._seen_discovery:
@@ -83,7 +100,7 @@ class TurnProgress:
 
 
 FINAL_RESPONSE_FALLBACK = (
-    "I ran into a problem and couldn't finish your request. "
-    "Before trying again, check this chat for any changes awaiting your approval "
-    "and review anything already saved. You can ask me to pick up where we left off."
+    "I couldn't complete your request within this turn. "
+    "Review the saved results and any changes awaiting approval in this chat "
+    "before asking me to continue. A pending approval is not a saved change."
 )
