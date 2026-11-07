@@ -90,11 +90,86 @@ async def current_definition(
     return pair
 
 
+# ---------------------------------------------------------------------------
+# Verified-definition memo. The stored manifest fingerprint is an integrity check on the
+# (large) canonical manifest. Recomputing it, and reading the whole row, on every
+# call dominated the cost of a replayed app page (about 19% of CPU, 0.5 s per call for a
+# 913 KB definition). Every authority check still runs on EVERY call (app state, the
+# active pointer, the single attachment, status, app id, workspace, revision), from a
+# small projection; only the full-manifest verification is remembered, per process, per
+# (definition id, stored fingerprint, revision), for a short window. A definition write
+# produces a new fingerprint or revision, so it can never reuse an old entry, and
+# invalidate_verified_definitions() drops entries explicitly. TTL 0 verifies every call.
+# ---------------------------------------------------------------------------
+_VERIFIED_DEFINITIONS: dict[tuple, tuple[float, dict]] = {}
+_VERIFIED_DEFINITIONS_MAX = 64
+_DEFINITION_META_FIELDS = [
+    "id",
+    "entity",
+    "context.status",
+    "context.app_id",
+    "context.workspace_id",
+    "context.revision",
+    "context.manifest_fingerprint",
+]
+
+
+def definition_verify_ttl_seconds() -> float:
+    """How long a verified definition is reused (INTEGRAL_DEFINITION_VERIFY_TTL_SECONDS)."""
+    import os
+
+    try:
+        return max(
+            0.0, float(os.getenv("INTEGRAL_DEFINITION_VERIFY_TTL_SECONDS", "30"))
+        )
+    except ValueError:
+        return 30.0
+
+
+def invalidate_verified_definitions(definition_id: str | None = None) -> None:
+    """Forget verified definitions (one, or all): the next call verifies in full."""
+    if definition_id is None:
+        _VERIFIED_DEFINITIONS.clear()
+        return
+    for key in [k for k in _VERIFIED_DEFINITIONS if k[0] == definition_id]:
+        _VERIFIED_DEFINITIONS.pop(key, None)
+
+
+async def _definition_meta(definition_id: str) -> dict:
+    """The authority facts of one definition without its manifest (one projected read)."""
+    database = get_default_context().database
+    rows = await database.find_projected(
+        "node",
+        {"id": definition_id, "entity": ApplicationDefinition._entity_name()},
+        fields=_DEFINITION_META_FIELDS,
+        limit=2,
+    )
+    if len(rows) != 1:
+        raise AuthorizationUnavailableError()
+    row = rows[0]
+    if row.get("id") != definition_id or row.get("entity") != (
+        ApplicationDefinition._entity_name()
+    ):
+        raise AuthorizationUnavailableError()
+    return row
+
+
+def _meta_value(meta: dict, field: str) -> Any:
+    """A projected context field, whether returned flat (dotted) or nested."""
+    flat = meta.get(f"context.{field}")
+    if flat is not None:
+        return flat
+    context = meta.get("context")
+    return context.get(field) if isinstance(context, dict) else None
+
+
 @perf_traced("definitions.verify")
 @_current_authority_read
 async def _current_definition_uncached(
     app_id: str, *, execution: bool = True
 ) -> tuple[dict, dict]:
+    import time
+
     app = await _record(App, app_id)
     from app.services.resource_location import ACTIVE_APP_STATES, DATA_APP_STATES
 
@@ -113,26 +188,21 @@ async def _current_definition_uncached(
     if locations.get(app_id) is None:
         raise AuthorizationUnavailableError()
     definition_id = required_node_text(app, "active_definition_id")
-    definition = await _record(ApplicationDefinition, definition_id)
+    meta = await _definition_meta(definition_id)
+    if len(await _edges(app_id, definition_id, HAS_APPLICATION_DEFINITION)) != 1:
+        raise AuthorizationUnavailableError()
+    stored_fingerprint = _meta_value(meta, "manifest_fingerprint")
     if (
-        definition is None
-        or len(await _edges(app_id, definition_id, HAS_APPLICATION_DEFINITION)) != 1
+        _meta_value(meta, "status") != "active"
+        or _meta_value(meta, "app_id") != app_id
+        or _meta_value(meta, "workspace_id") != app["context"].get("workspace_id")
+        or _meta_value(meta, "revision")
+        != app["context"].get("active_definition_revision")
+        or not isinstance(stored_fingerprint, str)
+        or not stored_fingerprint
     ):
         raise AuthorizationUnavailableError()
-    body = definition["context"]
-    if (
-        body.get("status") != "active"
-        or body.get("app_id") != app_id
-        or body.get("workspace_id") != app["context"].get("workspace_id")
-        or body.get("revision") != app["context"].get("active_definition_revision")
-    ):
-        raise AuthorizationUnavailableError()
-    from app.services.application_definitions import definition_fingerprint
-
-    if not isinstance(body.get("canonical_manifest"), dict) or definition_fingerprint(
-        body["canonical_manifest"]
-    ) != body.get("manifest_fingerprint"):
-        raise AuthorizationUnavailableError()
+    # Exactly one active definition for this app, by id only (no manifest read).
     active = await get_default_context().database.find_ids(
         "node",
         {
@@ -144,6 +214,30 @@ async def _current_definition_uncached(
     )
     if active != [definition_id]:
         raise AuthorizationUnavailableError()
+    ttl = definition_verify_ttl_seconds()
+    key = (definition_id, stored_fingerprint, _meta_value(meta, "revision"))
+    now = time.monotonic()
+    if ttl > 0:
+        remembered = _VERIFIED_DEFINITIONS.get(key)
+        if remembered is not None and remembered[0] > now:
+            return app, remembered[1]
+    definition = await _record(ApplicationDefinition, definition_id)
+    if definition is None:
+        raise AuthorizationUnavailableError()
+    body = definition["context"]
+    from app.services.application_definitions import definition_fingerprint
+
+    if (
+        body.get("manifest_fingerprint") != stored_fingerprint
+        or body.get("revision") != _meta_value(meta, "revision")
+        or not isinstance(body.get("canonical_manifest"), dict)
+        or definition_fingerprint(body["canonical_manifest"]) != stored_fingerprint
+    ):
+        raise AuthorizationUnavailableError()
+    if ttl > 0:
+        if len(_VERIFIED_DEFINITIONS) >= _VERIFIED_DEFINITIONS_MAX:
+            _VERIFIED_DEFINITIONS.pop(next(iter(_VERIFIED_DEFINITIONS)), None)
+        _VERIFIED_DEFINITIONS[key] = (now + ttl, definition)
     return app, definition
 
 

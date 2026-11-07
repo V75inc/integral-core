@@ -43,6 +43,14 @@ def note_definition_changed() -> None:
     """
     global _definition_generation
     _definition_generation += 1
+    # Also forget the verified full manifests (access_delegation): the next definition
+    # check re-verifies in full. Lazy import: access_delegation imports this module.
+    try:
+        from app.services.access_delegation import invalidate_verified_definitions
+
+        invalidate_verified_definitions()
+    except ImportError:  # pragma: no cover - during start-up import cycles
+        pass
 
 
 def invalidates_job_facts(function):
