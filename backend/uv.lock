@@ -1496,7 +1496,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "joserfc", specifier = ">=1.7.6" },
-    { name = "jvspatial", specifier = "==0.2.4" },
+    { name = "jvspatial", specifier = "==0.2.5" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.101.0,<1.102" },
     { name = "markdown-it-py", specifier = ">=4,<5" },
@@ -1710,7 +1710,7 @@ wheels = [
 
 [[package]]
 name = "jvspatial"
-version = "0.2.4"
+version = "0.2.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1730,9 +1730,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/e8/ba1018d50946ad8e7bfbf95d4635c54009d2390c114ac185d9071dc12d34/jvspatial-0.2.4.tar.gz", hash = "sha256:f1da9c985fe65ddfb9ef448c5a2b560436157cf6d148fefbf1bb8d0bbb554786", size = 587804, upload-time = "2026-11-02T00:34:35.225Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/bb/c32a66df9d9744763c142210bc7b6f359447d5c7636969976f2098ad683f/jvspatial-0.2.5.tar.gz", hash = "sha256:b27c088b8b5dceeb7cf1aa584771b3c043a8530ef49a6c7e8023cd7c495134c2", size = 589051, upload-time = "2026-11-06T17:49:28.917Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/63/486d7a35235cf729db6e7ad1beac4ff75a0a540ee0be2c97ef49988b7872/jvspatial-0.2.4-py3-none-any.whl", hash = "sha256:017fbec290bd9f1a9cd82d8cd90d4b776e84d4b603805479b0d141aa5f733d36", size = 675615, upload-time = "2026-11-02T00:34:33.544Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/0d/6c10169fafe5732c795bdc429ae2a659835550038de553700d4bda16febc/jvspatial-0.2.5-py3-none-any.whl", hash = "sha256:f80c67b7d00ca0542f0ecfea8a6f1b8e89d344c8ef7f7eea3d7983217d79b477", size = 676844, upload-time = "2026-11-06T17:49:27.114Z" },
 ]
 
 [[package]]

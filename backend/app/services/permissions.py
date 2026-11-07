@@ -847,7 +847,7 @@ async def _is_publicly_readable_resource(resource_type: str, node: Any) -> bool:
 
 
 async def _visibility_grant_role(
-    user_id: str, resource_type: str, node: Any
+    user: User, resource_type: str, node: Any
 ) -> Optional[str]:
     """ARCHITECTURE §9.5 step 5: visibility-based read grant, or None."""
     if resource_type not in ("app", "track"):
@@ -865,9 +865,9 @@ async def _visibility_grant_role(
         ws = await _load_resource_node("workspace", ws_id)
         if not ws or getattr(ws, "kind", "") != "organization":
             return None
-        from app.services.workspace_permissions import user_in_workspace_cascade_view
+        from app.services.workspace_permissions import _current_workspace_role
 
-        if not await user_in_workspace_cascade_view(user_id, ws_id):
+        if await _current_workspace_role(user, ws) not in ("owner", "admin", "member"):
             return None
         return "viewer"
     return None
@@ -1072,41 +1072,34 @@ async def _resolve_current_role(
     if resource_type not in ("workspace", "app", "track", "entry"):
         return None
 
-    cache = permissions_cache_get() if _permission_memo_enabled() else None
-    ck = ("rr", resource_type, resource_id, user_id)
-    if cache is not None and ck in cache:
-        return cache[ck]
-
-    from app.services import permissions_process_cache as _ppc
-
-    cache_generation = _ppc.generation(user_id)
-    if _ppc.enabled():
-        proc_hit = _ppc.get_resolve_role_cached(user_id, resource_type, resource_id)
-        if proc_hit is not _ppc._ROLE_CACHE_MISS:
-            if cache is not None:
-                cache[ck] = proc_hit
-            return proc_hit
-
-    def _finish(role: Optional[str]) -> Optional[str]:
-        if cache is not None:
-            cache[ck] = role
-        if _ppc.enabled():
-            _ppc.set_resolve_role_cached(
-                user_id,
-                resource_type,
-                resource_id,
-                role,
-                expected_generation=cache_generation,
-            )
-        return role
-
     user = await get_user_node(user_id)
-    if not user:
-        return _finish(None)
+    if user is None:
+        return None
+    identity = (user.id, user.user_id)
+    role = await _resolve_role_for_user(user, resource_type, resource_id)
+    if role is not None:
+        # A single decision may traverse several parents. Recheck at its exit
+        # so disabling/rebinding the identity during that work cannot release
+        # a role. Internal facts never need to re-admit it at every hop.
+        current = await get_user_node(user_id)
+        if current is None or (current.id, current.user_id) != identity:
+            return None
+    return role
 
+
+async def _resolve_role_for_user(
+    user: User, resource_type: str, resource_id: str
+) -> Optional[str]:
+    """Resolve one bounded cascade using its freshly validated identity.
+
+    Only the public resolver admits an identity. Recursive parent and fact
+    reads stay inside that decision; no identity or role survives its return.
+    Each later policy/effect/release decision still resolves current identity.
+    Resource, membership, deny and source facts remain current primary reads.
+    """
     node = await _load_resource_node(resource_type, resource_id)
     if node is None:
-        return _finish(None)
+        return None
 
     if resource_type == "workspace":
         # Edge-only resolution: read IS_MEMBER_OF for both kinds; map
@@ -1117,16 +1110,14 @@ async def _resolve_current_role(
         from app.services.workspace_permissions import can_access_workspace
 
         if await locate_resource("workspace", resource_id) is None:
-            return _finish(None)
+            return None
         role = await can_access_workspace(user.id, resource_id)
-        return _finish(
-            {
-                "owner": "owner",
-                "admin": "editor",
-                "member": "editor",
-                "guest": "viewer",
-            }.get(role)
-        )
+        return {
+            "owner": "owner",
+            "admin": "editor",
+            "member": "editor",
+            "guest": "viewer",
+        }.get(role)
 
     # deviation: procedural cascade rather than a Walker. AGENTS.md names
     # Workspace->App->Track->Entry as the textbook Walker case, so this owes a
@@ -1163,19 +1154,21 @@ async def _resolve_current_role(
         locate_resource(resource_type, resource_id, allowed_app_states=DATA_APP_STATES),
     )
     if location is None:
-        return _finish(None)
+        return None
     workspace_id = location.workspace_id
     from app.services.workspace_suspension import workspace_suspended
 
     if await workspace_suspended(user.id, workspace_id):
-        return _finish(None)
-    from app.services.resource_access_blocks import resource_blocked
+        return None
+    from app.services.resource_access_blocks import _resource_blocked_for_user
 
-    if await resource_blocked(user.id, resource_type, resource_id, location=location):
-        return _finish(None)
-    from app.services.share_grant_sources import share_grant_roles
+    if await _resource_blocked_for_user(
+        user, resource_type, resource_id, location=location
+    ):
+        return None
+    from app.services.share_grant_sources import _share_grant_roles_for_user
 
-    sourced = await share_grant_roles(user.id, resource_type, resource_id)
+    sourced = await _share_grant_roles_for_user(user, resource_type, resource_id)
     direct = max(
         ([direct] if direct else []) + sourced,
         key=lambda value: ROLE_RANK[value],
@@ -1189,22 +1182,22 @@ async def _resolve_current_role(
         workspace_allowed = ws is not None and await _is_workspace_owner_user(ws, user)
         if not workspace_allowed:
             if not await _is_publicly_readable_resource(resource_type, node):
-                return _finish(None)
+                return None
             # Public visibility grants read only. A stale direct ownership or
             # collaborator edge cannot restore write authority after revoke.
             if await _is_excluded_from_resource(user, resource_id):
-                return _finish(None)
-            return _finish("viewer")
+                return None
+            return "viewer"
 
     # Direct owner is already the maximum role. Exclusions only remove
     # inherited grants, and inherited roles cap at editor. After the workspace
     # gate above, no additional candidate can change this complete grant.
     if direct == "owner":
-        return _finish(direct)
+        return direct
 
     if await _is_excluded_from_resource(user, resource_id):
         # Explicit exclusions remove inherited candidates, not direct grants.
-        return _finish(direct)
+        return direct
 
     # Candidates from staff / visibility / parent cascade. Visibility is a
     # read floor (viewer), not a ceiling — an App editor on a workspace-
@@ -1218,18 +1211,14 @@ async def _resolve_current_role(
         # a second round trip for a value already in hand.
         ws_id = workspace_id
         from app.services.workspace_permissions import (
-            workspace_staff_implicit_resource_role,
+            _staff_implicit_role_for_user,
         )
 
         # Independent of each other: the staff-implicit role reads workspace
         # membership, the visibility grant reads the resource. Run together.
         implicit, vis_grant = await asyncio.gather(
-            (
-                workspace_staff_implicit_resource_role(user_id, ws_id)
-                if ws_id
-                else _none()
-            ),
-            _visibility_grant_role(user_id, resource_type, node),
+            (_staff_implicit_role_for_user(user, ws_id) if ws_id else _none()),
+            _visibility_grant_role(user, resource_type, node),
         )
         if implicit:
             # Private means the resource owner and people they add. Staff
@@ -1257,15 +1246,15 @@ async def _resolve_current_role(
         # inherit entry access. Org staff do not reach private inventory
         # through the implicit staff role.
         if not skip_cascade:
-            inherited = await resolve_role(user_id, parent[0], parent[1])
+            inherited = await _resolve_role_for_user(user, parent[0], parent[1])
             if inherited is not None:
                 candidates.append(_cap_inherited_role(inherited))
 
     if not candidates:
-        return _finish(None)
+        return None
 
     strongest = max(candidates, key=lambda r: ROLE_RANK.get(r, 0))
-    return _finish(strongest)
+    return strongest
 
 
 # --- Bulk queries ---

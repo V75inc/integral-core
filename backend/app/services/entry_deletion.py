@@ -305,6 +305,39 @@ async def delete_entry_fast(
             },
             entry_type_key=key,
         ):
+            # A metadata peer may have committed while this delete waited for
+            # exclusive workspace admission. Review and delete the locked
+            # current record, never the earlier pre-admission snapshot.
+            current = await Entry.find_one({"id": entry.id})
+            if current is None or current.track_id != track.id:
+                raise AuthorizationUnavailableError()
+            if (
+                expected_record_revision is not None
+                and current.record_revision != expected_record_revision
+            ):
+                from app.api.errors import ResourceConflictError
+
+                raise ResourceConflictError(
+                    message="Entry has changed since approval review"
+                )
+            track = await Track.find_one({"id": current.track_id})
+            entry_type = (
+                await EntryType.find_one({"id": current.type_id})
+                if current.type_id
+                else None
+            )
+            if track is None:
+                raise AuthorizationUnavailableError()
+            key = (
+                slug_manifest_key(
+                    str(
+                        (entry_type.form_schema or {}).get("_manifest_entry_type_key")
+                        or entry_type.name
+                    )
+                )
+                if entry_type
+                else ""
+            )
             await enforce_protected_field_write(
                 principal_id=actor_user_id,
                 workspace_id=track.workspace_id,

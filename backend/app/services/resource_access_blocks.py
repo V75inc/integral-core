@@ -56,6 +56,15 @@ async def resource_blocked(
     user = await get_user_node(user_id)
     if user is None:
         return False
+    return await _resource_blocked_for_user(
+        user, resource_type, resource_id, location=location
+    )
+
+
+async def _resource_blocked_for_user(
+    user, resource_type: str, resource_id: str, *, location=None
+) -> bool:
+    """Read denies within a decision that already resolved current identity."""
     location = location or await locate_resource(
         resource_type, resource_id, allowed_app_states=MANAGEMENT_APP_STATES
     )

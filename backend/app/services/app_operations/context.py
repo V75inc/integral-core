@@ -312,15 +312,13 @@ class OperationContext(ToolContext):
                 != "active"
             ):
                 return None
-            owned_tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
-            track = next(
-                (
-                    candidate
-                    for candidate in owned_tracks
-                    if candidate.id == target_track_id
-                ),
-                None,
+            track = await Track.find_one({"id": target_track_id})
+            graph = await app.get_context()
+            links = await graph.find_edges_between(
+                app.id, target_track_id, edge_class=CONTAINS
             )
+            if len(links) != 1:
+                return None
             if not isinstance(track, Track) or (
                 str(getattr(track, "workspace_id", "") or "") != self.workspace_id
             ):
@@ -439,8 +437,9 @@ class OperationContext(ToolContext):
             or str(getattr(app, "lifecycle_state", "active") or "active") != "active"
         ):
             return False
-        tracks = await app.nodes(edge=[CONTAINS], node=["Track"], direction="out")
-        if not any(str(candidate.id) == str(track.id) for candidate in tracks):
+        graph = await app.get_context()
+        links = await graph.find_edges_between(app.id, track.id, edge_class=CONTAINS)
+        if len(links) != 1:
             return False
         from app.services.app_operation_authority import entry_mutation_permitted
 
@@ -545,8 +544,9 @@ class OperationContext(ToolContext):
             or str(getattr(app, "workspace_id", "")) != self.workspace_id
         ):
             return False, "write_denied"
-        tracks = await app.nodes(edge=[CONTAINS], node=["Track"], direction="out")
-        if not any(str(candidate.id) == str(track.id) for candidate in tracks):
+        graph = await app.get_context()
+        links = await graph.find_edges_between(app.id, track.id, edge_class=CONTAINS)
+        if len(links) != 1:
             return False, "write_denied"
         from app.services.app_operation_authority import entry_mutation_permitted
 

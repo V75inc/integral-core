@@ -86,7 +86,7 @@ server work or raw-record size. Core permission resolution adds its own reads.
 
 ## Dependency and database adoption
 
-Core pins the published `jvspatial==0.2.4` package in
+Core pins the published `jvspatial==0.2.5` package in
 `backend/pyproject.toml` and `backend/uv.lock`; it does not use a sibling clone
 or Git source override. Reproduce the frozen environment with:
 

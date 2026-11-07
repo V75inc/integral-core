@@ -5,8 +5,9 @@ from __future__ import annotations
 import base64
 import heapq
 import json
+from dataclasses import dataclass
 from functools import cmp_to_key, wraps
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from jvspatial.core.context import get_default_context
 from jvspatial.core.pager import (
@@ -23,6 +24,7 @@ from app.models.nodes import Entry, Track, Workspace
 from app.services.authority_facts import relationship_literal
 from app.services.resource_location import (
     DATA_APP_STATES,
+    ResourceLocation,
     locate_resource,
     locate_resources,
 )
@@ -482,7 +484,51 @@ async def admit_records(
     return result
 
 
-async def iter_records(
+async def _projected_records(database, query, *, fields, limit, sort):
+    """Build bounded raw authority envelopes, preserving legacy validation."""
+    flat_rows = await database.find_projected(
+        "node", query, fields=fields, limit=limit, sort=sort
+    )
+    rows = []
+    for flat in flat_rows:
+        if not isinstance(flat, dict) or not set(flat).issubset(fields):
+            raise AuthorizationUnavailableError()
+        # This envelope is never a full Entry payload. Missing and explicit
+        # null stay distinct; hydration defaults cannot invent authority.
+        row: dict[str, Any] = {"context": {}, "__entry_projection": True}
+        for path, value in flat.items():
+            target = row
+            segments = path.split(".")
+            for segment in segments[:-1]:
+                target = target.setdefault(segment, {})
+            target[segments[-1]] = value
+        rows.append(row)
+    legacy = [
+        row["id"]
+        for row in rows
+        if "track_id" not in row["context"] or "visibility" not in row["context"]
+    ]
+    if legacy:
+        # Absent canonical fields can mean legacy storage or a corrupt context
+        # container. Read their complete primary facts instead of masking it.
+        complete = await database.find(
+            "node", {"id": {"$in": legacy}}, limit=len(legacy) + 1
+        )
+        by_id = {row.get("id"): row for row in complete}
+        if len(complete) != len(legacy) or set(by_id) != set(legacy):
+            raise AuthorizationUnavailableError()
+        rows = [by_id.get(row["id"], row) for row in rows]
+    return rows
+
+
+@dataclass(frozen=True)
+class _RecordWindow:
+    records: list[dict]
+    has_more: bool
+    raw_count: int
+
+
+async def _iter_record_windows(
     user_id: str,
     query: dict[str, Any],
     *,
@@ -494,7 +540,7 @@ async def iter_records(
     cursor: str | None = None,
     allowed_app_states: frozenset[str] = DATA_APP_STATES,
     projection: list[str] | None = None,
-) -> AsyncIterator[list[dict]]:
+) -> AsyncIterator[_RecordWindow]:
     """Advance by raw rows, including rejected/unhydratable candidate windows."""
     context = get_default_context()
     fields = keyset_sort_fields(sort)
@@ -518,47 +564,13 @@ async def iter_records(
                 {"entity": Entry._entity_name()}, query, after or {}
             )
             if projected:
-                flat_rows = await projected_reader(
-                    "node",
+                rows = await _projected_records(
+                    context.database,
                     candidate,
                     fields=projected_fields,
                     limit=size + 1,
                     sort=fields,
                 )
-                rows = []
-                for flat in flat_rows:
-                    if not isinstance(flat, dict) or not set(flat).issubset(
-                        projected_fields
-                    ):
-                        raise AuthorizationUnavailableError()
-                    # A projection is an internal authority/ranking envelope,
-                    # never an Entry payload. Missing and explicit null stay
-                    # distinct; do not fill model defaults into these records.
-                    row: dict[str, Any] = {"context": {}, "__entry_projection": True}
-                    for path, value in flat.items():
-                        target = row
-                        segments = path.split(".")
-                        for segment in segments[:-1]:
-                            target = target.setdefault(segment, {})
-                        target[segments[-1]] = value
-                    rows.append(row)
-                legacy = [
-                    row["id"]
-                    for row in rows
-                    if "track_id" not in row["context"]
-                    or "visibility" not in row["context"]
-                ]
-                if legacy:
-                    # A missing canonical field can be a legitimate legacy
-                    # representation, or a malformed context container. Read
-                    # those complete records rather than inventing context={}.
-                    complete = await context.database.find(
-                        "node", {"id": {"$in": legacy}}, limit=len(legacy) + 1
-                    )
-                    by_id = {row.get("id"): row for row in complete}
-                    if len(complete) != len(legacy) or set(by_id) != set(legacy):
-                        raise AuthorizationUnavailableError()
-                    rows = [by_id.get(row["id"], row) for row in rows]
             else:
                 rows = await context.database.find(
                     "node", candidate, limit=size + 1, sort=fields
@@ -572,8 +584,7 @@ async def iter_records(
                 app_id=app_id,
                 allowed_app_states=allowed_app_states,
             )
-            if admitted:
-                yield admitted
+            yield _RecordWindow(admitted, len(rows) > size, len(page))
             if len(rows) <= size:
                 return
             next_position = decode_keyset_cursor(_encode_position(page[-1], fields))
@@ -584,6 +595,36 @@ async def iter_records(
         raise
     except Exception as exc:
         raise AuthorizationUnavailableError() from exc
+
+
+async def iter_records(
+    user_id: str,
+    query: dict[str, Any],
+    *,
+    workspace_id: str | None = None,
+    track_id: str | None = None,
+    app_id: str | None = None,
+    sort: list[tuple[str, int]] | None = None,
+    batch_size: int = WINDOW,
+    cursor: str | None = None,
+    allowed_app_states: frozenset[str] = DATA_APP_STATES,
+    projection: list[str] | None = None,
+) -> AsyncIterator[list[dict]]:
+    """Yield admitted rows while advancing past every rejected raw window."""
+    async for window in _iter_record_windows(
+        user_id,
+        query,
+        workspace_id=workspace_id,
+        track_id=track_id,
+        app_id=app_id,
+        sort=sort,
+        batch_size=batch_size,
+        cursor=cursor,
+        allowed_app_states=allowed_app_states,
+        projection=projection,
+    ):
+        if window.records:
+            yield window.records
 
 
 @_unavailable_on_source_error
@@ -602,30 +643,160 @@ async def hydrate_records(records: list[dict]) -> list[Entry]:
     return result
 
 
+@dataclass(frozen=True)
+class _CountAuthority:
+    location: ResourceLocation
+    profile_id: str
+    identity_id: str
+    membership_id: str
+    parent_role: str | None
+    exception_ids: tuple[str, ...]
+    allowed_ids: tuple[str, ...]
+
+    @property
+    def denied_ids(self) -> tuple[str, ...]:
+        allowed = set(self.allowed_ids)
+        return tuple(
+            node_id for node_id in self.exception_ids if node_id not in allowed
+        )
+
+
+async def _inherited_count_authority(
+    user_id: str,
+    track_id: str,
+    *,
+    workspace_id: str | None,
+    app_id: str | None,
+) -> _CountAuthority | None:
+    """Prove a current inherited or bounded explicit Entry audience.
+
+    Every exceptional candidate uses canonical batch admission. The global
+    probe is complete and bounded; overflow retains streaming. Actual record
+    discriminators, never ID prefixes, identify Entry candidates. No decision
+    is cached and the complete proof must match after the aggregate.
+    """
+    from app.models.access_lifecycle import RESOURCE_ACCESS_BLOCK
+    from app.services.permissions import get_user_node, resolve_role
+    from app.services.share_grant_sources import share_grant_targets
+    from app.services.workspace_permissions import (
+        _current_workspace_role,
+        read_member_facts,
+    )
+
+    user = await get_user_node(user_id)
+    if user is None:
+        return None
+    location = await locate_resource(
+        "track", track_id, allowed_app_states=DATA_APP_STATES
+    )
+    if (
+        location is None
+        or (workspace_id and location.workspace_id != workspace_id)
+        or (app_id and location.app_id != app_id)
+    ):
+        return None
+    context = await user.get_context()
+    workspace = await Workspace.find_one({"id": location.workspace_id})
+    if workspace is None or await _current_workspace_role(user, workspace) == "none":
+        return None
+    member = await read_member_facts(user, location.workspace_id)
+    role = await resolve_role(user_id, "track", track_id)
+    if member is None:
+        return None
+    kinds = [
+        OWNS.__name__,
+        COLLABORATES_ON.__name__,
+        EXCLUDED_FROM.__name__,
+        RESOURCE_ACCESS_BLOCK.__name__,
+    ]
+    rows = await context.database.find(
+        "edge", {"source": user.id, "entity": {"$in": kinds}}, limit=1001
+    )
+    if len(rows) > 1000 or any(
+        row.get("source") != user.id
+        or row.get("entity") not in kinds
+        or not isinstance(row.get("target"), str)
+        or not row["target"]
+        for row in rows
+    ):
+        return None
+    targets = {row["target"] for row in rows}
+    targets.update(await share_grant_targets(user.id, "entry"))
+    if len(targets) > 1000:
+        return None
+    exceptions = []
+    if targets:
+        if not getattr(context.database, "supports_native_projected_reads", False):
+            return None
+        exceptions = await _projected_records(
+            context.database,
+            {"entity": Entry._entity_name(), "id": {"$in": sorted(targets)}},
+            fields=_AUTHORITY_FIELDS,
+            limit=1001,
+            sort=[("id", 1)],
+        )
+        if len(exceptions) > 1000:
+            return None
+    admitted = (
+        await admit_records(
+            user_id,
+            exceptions,
+            workspace_id=location.workspace_id,
+            track_id=track_id,
+            app_id=location.app_id or None,
+        )
+        if exceptions
+        else []
+    )
+    return _CountAuthority(
+        location,
+        user.id,
+        user.user_id,
+        member["id"],
+        role,
+        tuple(sorted(row["id"] for row in exceptions)),
+        tuple(sorted(row["id"] for row in admitted)),
+    )
+
+
+@dataclass(frozen=True)
+class _BoundCount:
+    total: int
+    recheck: Callable[[], Awaitable[bool]] | None
+    candidates: dict[str, Any] | None = None
+
+
+def _audience_candidates(query: dict, authority: _CountAuthority) -> dict:
+    """Narrow discovery only; selected rows still require current admission."""
+    if authority.parent_role is None:
+        return merge_queries(query, {"id": {"$in": list(authority.allowed_ids)}})
+    if authority.denied_ids:
+        return merge_queries(query, {"id": {"$nin": list(authority.denied_ids)}})
+    return query
+
+
 @_unavailable_on_source_error
-async def count_bound_records(
+async def _native_bound_count(
     user_id: str,
     track_id: str,
     query: dict[str, Any],
     *,
     workspace_id: str | None = None,
     app_id: str | None = None,
-) -> int | None:
-    """Use optional storage facts only after current protected-owner admission.
+) -> _BoundCount | None:
+    """Count native bindings after proving a uniform current audience.
 
     The framework supplies literal health and one-hop cardinality, never a
-    permission. Ordinary authority, unsupported adapters/predicates and bounded
-    aggregate overflow retain the canonical streaming executor. No summary is
-    reused across calls, and a projected/partial total is never returned.
+    permission. Unsupported predicates and bounded authority/aggregate
+    overflow retain the canonical streaming executor. No
+    summary is reused across calls, and partial totals are never returned.
     """
     from app.services.permissions import get_user_node
     from app.services.workspace_governance import owner_governance_allowed
     from app.services.workspace_permissions import _current_workspace_role
 
     context = get_default_context()
-    if not owner_governance_allowed() or not getattr(
-        context.database, "supports_native_graph_binding_summary", False
-    ):
+    if not getattr(context.database, "supports_native_graph_binding_summary", False):
         return None
     reader = getattr(context.database, "summarize_graph_bindings", None)
     if not callable(reader):
@@ -637,7 +808,7 @@ async def count_bound_records(
         # The canonical stream also returns zero without an audience to admit.
         # A raw empty result grants nothing; source failures still propagate.
         # This avoids repeating ancestor/role discovery for empty partitions.
-        return 0
+        return _BoundCount(0, None)
 
     # Feature-detected: the published baseline need not expose these new types.
     from jvspatial.db.graph_bindings import GraphBindingSummary, LiteralBindingFact
@@ -669,13 +840,22 @@ async def count_bound_records(
             or await _current_workspace_role(user, workspace) != "owner"
         ):
             return None
-        return location
+        return location, user.id, user.user_id
 
-    before = await current_owner_location()
+    protected = owner_governance_allowed()
+    before = await current_owner_location() if protected else None
+    if before is None:
+        protected = False
+        before = await _inherited_count_authority(
+            user_id, track_id, workspace_id=workspace_id, app_id=app_id
+        )
     if before is None:
         return None
+    aggregate_query = candidate
+    if not protected:
+        aggregate_query = _audience_candidates(candidate, before)
     summary = await reader(
-        candidate,
+        aggregate_query,
         record_entity=Entry._entity_name(),
         edge_entity=CONTAINS._entity_name(),
         parent_id=track_id,
@@ -694,9 +874,37 @@ async def count_bound_records(
         return None
     if summary.invalid_facts or summary.invalid_edges:
         raise AuthorizationUnavailableError()
-    if not owner_governance_allowed() or await current_owner_location() != before:
+
+    @_unavailable_on_source_error
+    async def recheck():
+        if protected:
+            after = (
+                await current_owner_location() if owner_governance_allowed() else None
+            )
+        else:
+            after = await _inherited_count_authority(
+                user_id, track_id, workspace_id=workspace_id, app_id=app_id
+            )
+        return after == before
+
+    if not await recheck():
         raise AuthorizationUnavailableError()
-    return summary.bound
+    return _BoundCount(summary.bound, recheck, aggregate_query)
+
+
+async def count_bound_records(
+    user_id: str,
+    track_id: str,
+    query: dict[str, Any],
+    *,
+    workspace_id: str | None = None,
+    app_id: str | None = None,
+) -> int | None:
+    """Return one currently admitted native count, or retain portable admission."""
+    result = await _native_bound_count(
+        user_id, track_id, query, workspace_id=workspace_id, app_id=app_id
+    )
+    return result.total if result is not None else None
 
 
 def _compare_values(
@@ -758,9 +966,9 @@ async def _select_portable_page(
 ) -> tuple[list[Entry], dict]:
     """Rank admitted rows with bounded windows and a page/offset-sized heap.
 
-    jvspatial 0.1.1 PostgreSQL sorts custom values as text, while its JSON
-    adapter uses native values. Scalar/custom sorts need this portable path:
-    an adapter LIMIT before numeric ordering otherwise loses the true top N.
+    Unsupported numeric compiler/type coverage and label ordering use this
+    portable comparator. Native numeric support is probed explicitly; it must
+    never apply LIMIT to an untranslatable or heterogeneously typed order.
     Exact-total reads also use this single ID-ordered admission scan, avoiding
     repeated database sorts of the whole audience for each count window.
     Reads without totals keep indexed storage keyset ordering when supported.
@@ -836,6 +1044,141 @@ async def _select_portable_page(
     }
 
 
+@_unavailable_on_source_error
+async def _native_numeric_order(query, fields, cursor=None) -> bool:
+    """Use existing numeric storage ordering only with complete type coverage.
+
+    Compiler support cannot certify current values. Reject non-number leaves
+    (including booleans), keep null/missing last, and repeat this live proof
+    after selection. Labels and unsupported predicates retain the bounded
+    portable comparator. No type or authority result survives this call.
+    """
+    special = [
+        field
+        for field, _ in fields
+        if field not in {"id", "context.created_at", "context.updated_at"}
+    ]
+    if not special:
+        return True
+    database = get_default_context().database
+    checker = getattr(database, "can_pushdown_numeric_sort", None)
+    if not getattr(database, "supports_native_projected_reads", False) or not callable(
+        checker
+    ):
+        return False
+    candidate = merge_queries({"entity": Entry._entity_name()}, query)
+    if not checker(candidate, fields):
+        return False
+    if cursor:
+        values = _cursor_values(decode_keyset_cursor(cursor), fields)
+        if values is not None and any(
+            field in special and value is not None and type(value) not in {int, float}
+            for (field, _), value in zip(fields, values)
+        ):
+            return False
+    for field in special:
+        invalid = merge_queries(
+            candidate, {field: {"$ne": None, "$not": {"$type": "number"}}}
+        )
+        if not checker(invalid, [("id", 1)]):
+            return False
+        if await database.find_ids("node", invalid, limit=1):
+            return False
+    return True
+
+
+@_unavailable_on_source_error
+async def _select_native_page(
+    user_id: str,
+    query: dict[str, Any],
+    *,
+    fields: list[tuple[str, int]],
+    limit: int,
+    offset: int,
+    cursor: str | None,
+    workspace_id: str | None,
+    track_id: str | None,
+    app_id: str | None,
+    refine_candidates: bool = True,
+) -> tuple[list[Entry], dict]:
+    """Select current rows, narrowing a sparse audience without granting it.
+
+    Ordinary pages do no extra authority work. Only a severely rejected raw
+    window triggers a complete bounded discovery proof, which is rechecked
+    after selection. The 50K mixed-ACL probe exposed minutes of 21-row refill
+    after Track revocation left one direct grant; retaining that count's
+    candidates, or refining a sparse no-total page, avoids the private scan.
+    """
+    selected: list[dict[str, Any]] = []
+    visible = 0
+    async for window in _iter_record_windows(
+        user_id,
+        query,
+        workspace_id=workspace_id,
+        track_id=track_id,
+        app_id=app_id,
+        sort=fields,
+        cursor=cursor,
+        batch_size=min(WINDOW, offset + limit + 1),
+    ):
+        for record in window.records:
+            if visible >= offset and len(selected) <= limit:
+                selected.append(record)
+            visible += 1
+        if len(selected) > limit:
+            break
+        if (
+            refine_candidates
+            and track_id
+            and window.has_more
+            and len(window.records) * 2 < window.raw_count
+        ):
+            refine_candidates = False
+            authority = await _inherited_count_authority(
+                user_id, track_id, workspace_id=workspace_id, app_id=app_id
+            )
+            narrowed = _audience_candidates(query, authority) if authority else query
+            if narrowed != query:
+                # These are candidates, never preauthorized results. Restart
+                # at the original position and canonically admit every row.
+                result = await _select_native_page(
+                    user_id,
+                    narrowed,
+                    fields=fields,
+                    limit=limit,
+                    offset=offset,
+                    cursor=cursor,
+                    workspace_id=workspace_id,
+                    track_id=track_id,
+                    app_id=app_id,
+                    refine_candidates=False,
+                )
+                if (
+                    await _inherited_count_authority(
+                        user_id,
+                        track_id,
+                        workspace_id=workspace_id,
+                        app_id=app_id,
+                    )
+                    != authority
+                ):
+                    raise AuthorizationUnavailableError()
+                if not await _native_numeric_order(query, fields, cursor):
+                    raise AuthorizationUnavailableError()
+                return result
+    has_more = len(selected) > limit
+    page = selected[:limit]
+    if not await _native_numeric_order(query, fields, cursor):
+        raise AuthorizationUnavailableError()
+    return await hydrate_records(page), {
+        "total": None,
+        "has_more": has_more,
+        "next_cursor": (
+            _encode_position(page[-1], fields) if has_more and page else None
+        ),
+    }
+
+
 async def select_page(
     user_id: str,
     query: dict[str, Any],
@@ -851,44 +1194,38 @@ async def select_page(
 ) -> tuple[list[Entry], dict]:
     """Count the admitted audience and refill pages past rejected raw records."""
     fields = keyset_sort_fields(sort)
-    if (
-        include_total
-        and track_id
-        and all(
-            field in {"id", "context.created_at", "context.updated_at"}
-            for field, _ in fields
-        )
-    ):
-        exact = await count_bound_records(
+    native_order = await _native_numeric_order(query, fields, cursor)
+    if include_total and track_id and native_order:
+        exact = await _native_bound_count(
             user_id, track_id, query, workspace_id=workspace_id, app_id=app_id
         )
         if exact is not None:
             # The aggregate proves the exact audience without shipping it to
             # Python. A separate current page still performs canonical
             # admission and full-payload hydration, including denied refill.
-            entries, metadata = await select_page(
+            entries, metadata = await _select_native_page(
                 user_id,
-                query,
+                exact.candidates if exact.candidates is not None else query,
+                fields=fields,
                 limit=limit,
                 offset=offset,
                 cursor=cursor,
-                include_total=False,
-                sort=sort,
                 workspace_id=workspace_id,
                 track_id=track_id,
                 app_id=app_id,
             )
-            return entries, {**metadata, "total": exact}
-    # The portable comparator is needed for custom/numeric values and
-    # labels whose database collation can differ from native ordering.
+            if exact.recheck is not None and not await exact.recheck():
+                raise AuthorizationUnavailableError()
+            if not await _native_numeric_order(query, fields, cursor):
+                raise AuthorizationUnavailableError()
+            return entries, {**metadata, "total": exact.total}
+    # The portable comparator remains necessary for unproven numeric types,
+    # unsupported queries and labels whose collation can differ from Python.
     # The 50K PostgreSQL fixture repeated 400–470ms sorts per 501-row window
     # when exact totals walked the entire audience in presentation order.
     # A bounded heap over one ID-ordered scan preserves exact scope/counts
     # without requiring a full sorted audience for each window.
-    if include_total or any(
-        field not in {"id", "context.created_at", "context.updated_at"}
-        for field, _ in fields
-    ):
+    if include_total or not native_order:
         return await _select_portable_page(
             user_id,
             query,
@@ -901,44 +1238,14 @@ async def select_page(
             track_id=track_id,
             app_id=app_id,
         )
-    selected: list[dict[str, Any]] = []
-    visible = 0
-    async for records in iter_records(
+    return await _select_native_page(
         user_id,
         query,
+        fields=fields,
+        limit=limit,
+        offset=offset,
+        cursor=cursor,
         workspace_id=workspace_id,
         track_id=track_id,
         app_id=app_id,
-        sort=fields,
-        cursor=cursor,
-        # A scrolling page needs one admitted lookahead, not 500 candidates.
-        # iter_records still refills past denied rows and checks every window.
-        batch_size=WINDOW if include_total else min(WINDOW, offset + limit + 1),
-    ):
-        for record in records:
-            if visible >= offset and len(selected) <= limit:
-                selected.append(record)
-            visible += 1
-        if not include_total and len(selected) > limit:
-            break
-    has_more = len(selected) > limit
-    page = selected[:limit]
-    total = visible if include_total else None
-    if include_total and cursor:
-        total = 0
-        async for records in iter_records(
-            user_id,
-            query,
-            workspace_id=workspace_id,
-            track_id=track_id,
-            app_id=app_id,
-            sort=fields,
-        ):
-            total += len(records)
-    return await hydrate_records(page), {
-        "total": total,
-        "has_more": has_more,
-        "next_cursor": (
-            _encode_position(page[-1], fields) if has_more and page else None
-        ),
-    }
+    )

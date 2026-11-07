@@ -29,11 +29,14 @@ async def release_admission(
         if not graph_transaction_available():
             yield  # The legacy local adapter cannot claim distributed ordering.
             return
-        async with postgres_graph_transaction(), identity_admission((principal_id,)):
+        async with (
+            postgres_graph_transaction(),
+            identity_admission((principal_id,), shared=True),
+        ):
             if workspace_id is None:
                 yield  # Immutable own-account audiences still require live identity.
                 return
-            async with authorization_scope(workspace_id):
+            async with authorization_scope(workspace_id, shared=True):
                 if await can_access_workspace(principal_id, workspace_id) == "none":
                     raise InsufficientPermissionsError(
                         message="Workspace access revoked"

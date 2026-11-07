@@ -19,9 +19,9 @@ from app.services.authority_facts import (
 )
 from app.services.entry_write_scope import is_postgres_entry_transaction
 
-_active: ContextVar[tuple[object, object, frozenset[str], frozenset[str]] | None] = (
-    ContextVar("integral_identity_admission", default=None)
-)
+_active: ContextVar[
+    tuple[object, object, frozenset[str], frozenset[str], bool] | None
+] = ContextVar("integral_identity_admission", default=None)
 
 
 async def _participant_profile(principal_id: str) -> User:
@@ -84,7 +84,10 @@ async def resolve_current_profile(
 
 @asynccontextmanager
 async def identity_admission(
-    principal_ids: Iterable[str], *, active_principal_ids: Iterable[str] | None = None
+    principal_ids: Iterable[str],
+    *,
+    active_principal_ids: Iterable[str] | None = None,
+    shared: bool | None = None,
 ) -> AsyncIterator[None]:
     """Lock explicit participants; active actors cannot be disabled cleanup subjects."""
     from app.api.errors import InsufficientPermissionsError
@@ -94,9 +97,13 @@ async def identity_admission(
     required_active = (
         requested if active_principal_ids is None else frozenset(active_principal_ids)
     )
-    if not required_active.issubset(requested) or any(
-        type(value) is not str or not value or value != value.strip()
-        for value in requested
+    if (
+        (shared is not None and type(shared) is not bool)
+        or not required_active.issubset(requested)
+        or any(
+            type(value) is not str or not value or value != value.strip()
+            for value in requested
+        )
     ):
         raise AuthorizationUnavailableError()
     database = get_default_context().database
@@ -106,6 +113,7 @@ async def identity_admission(
             active[0] is not asyncio.current_task()
             or active[1] is not database
             or not requested.issubset(active[2])
+            or (shared is False and active[4])
         ):
             raise AuthorizationUnavailableError()
         for principal_id in required_active:
@@ -128,27 +136,30 @@ async def identity_admission(
         for identity_id in sorted(
             {profile.user_id for profile in profiles.values() if profile.user_id}
         ):
-            locked = await database.find_one_and_update(
-                "object",
-                {"id": identity_id, "entity": AuthUser._entity_name()},
-                {"$set": {}},
+            locked = await database.lock_record(
+                "object", identity_id, shared=bool(shared)
             )
             if (
                 locked is None
+                or locked.get("entity") != AuthUser._entity_name()
                 or await primary_auth_record(database, identity_id) is None
             ):
                 raise AuthorizationUnavailableError()
         for profile_id in sorted(profiles):
-            locked = await database.find_one_and_update(
-                "node", {"id": profile_id, "entity": User._entity_name()}, {"$set": {}}
-            )
+            locked = await database.lock_record("node", profile_id, shared=bool(shared))
             current = await _participant_profile(profile_id)
-            if locked is None or current.user_id != profiles[profile_id].user_id:
+            if (
+                locked is None
+                or locked.get("entity") != User._entity_name()
+                or current.user_id != profiles[profile_id].user_id
+            ):
                 raise AuthorizationUnavailableError()
     for principal_id in required_active:
         if await get_user_node(principal_id) is None:
             raise InsufficientPermissionsError(message="Access denied")
-    token = _active.set((asyncio.current_task(), database, admitted, required_active))
+    token = _active.set(
+        (asyncio.current_task(), database, admitted, required_active, bool(shared))
+    )
     try:
         yield
     finally:
