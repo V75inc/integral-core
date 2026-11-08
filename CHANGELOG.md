@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc51 — 2026-11-08
+
+- Speed up exact counts on large Tracks and use indexed PostgreSQL title pagination where supported. Preserve exclusions, direct grants and access revocation.
+- Pin jvspatial 0.2.6 for PostgreSQL title ordering.
+
 ## 0.1.1rc50 — 2026-11-07
 
 - Let local desktop owners save providers and model profiles, set routing and context limits, and select a model for a conversation. These actions still require the existing authentication and ownership checks.
