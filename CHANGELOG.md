@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc55 — 2026-11-08
+
+- Add opt-in timing for PostgreSQL Entry write locks.
+- Reduce work performed during Entry create and delete admission.
+
 ## 0.1.1rc54 — 2026-11-08
 
 - Shorten PostgreSQL write admission by reusing verified authorization and indexing configuration reads.
