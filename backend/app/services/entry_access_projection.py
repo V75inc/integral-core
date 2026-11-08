@@ -33,7 +33,8 @@ WINDOW = 500
 METADATA_WINDOW = 2500
 # deviation: the default native summary stopped at 100K and fell back to
 # streaming. At 250K, a bounded native summary took 1.46 s vs 10.81 s.
-_NATIVE_COUNT_MAX_RECORDS = 500_000
+# Leave headroom for writes crossing the 500K qualification boundary.
+_NATIVE_COUNT_MAX_RECORDS = 550_000
 _NATIVE_COUNT_MAX_EDGES = 1_000_000
 _AUTHORITY_FIELDS = [
     "id",
@@ -950,6 +951,34 @@ async def count_bound_records(
         user_id, track_id, query, workspace_id=workspace_id, app_id=app_id
     )
     return result.total if result is not None else None
+
+
+async def count_accessible_records(
+    user_id: str,
+    query: dict[str, Any],
+    *,
+    workspace_id: str | None = None,
+    track_id: str | None = None,
+    app_id: str | None = None,
+) -> int:
+    """Count the current audience without sorting or hydrating a record page."""
+    scope = {"workspace_id": workspace_id, "app_id": app_id}
+    if track_id:
+        exact = await count_bound_records(user_id, track_id, query, **scope)
+        if exact is not None:
+            return exact
+    total = 0
+    async for records in iter_records(
+        user_id,
+        query,
+        track_id=track_id,
+        sort=[("id", 1)],
+        projection=[],
+        batch_size=METADATA_WINDOW,
+        **scope,
+    ):
+        total += len(records)
+    return total
 
 
 def _compare_values(

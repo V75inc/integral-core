@@ -690,9 +690,10 @@ async def get_track_entries(
         view_node=view_node,
         filters=parsed_filters,
         q=q,
-        cursor=None if count_only else cursor,
-        limit=1 if count_only else limit,
-        include_total=count_only or include_total,
+        cursor=cursor,
+        limit=limit,
+        include_total=include_total,
+        count_only=count_only,
         entry_ids=selected_entry_ids(entry_ids),
     )
     if count_only:
