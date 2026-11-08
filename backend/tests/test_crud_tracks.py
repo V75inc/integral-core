@@ -246,6 +246,34 @@ class TestTracksCRUD:
             )
             assert r.status_code == 200, r.text
 
+        detail = await authenticated_client.get(
+            f"/api/tracks/{track_id}/detail", params={"include_entry_count": "false"}
+        )
+        assert detail.status_code == 200
+        assert "entry_count" not in detail.json()["track"]
+
+        url = f"/api/tracks/{track_id}/entries"
+        page = await authenticated_client.get(
+            url, params={"include_total": "false", "limit": 2}
+        )
+        assert page.status_code == 200
+        first = page.json()
+        assert first.get("total") is None
+        assert first["has_more"] and first["next_cursor"]
+        continuation = await authenticated_client.get(
+            url, params={"include_total": "false", "cursor": first["next_cursor"]}
+        )
+        assert continuation.status_code == 200
+        last = continuation.json()
+        assert not last["has_more"]
+        assert len({entry["id"] for entry in first["entries"] + last["entries"]}) == 3
+
+        count = await authenticated_client.get(
+            url, params={"count_only": "true", "q": "BANANA"}
+        )
+        assert count.status_code == 200
+        assert count.json() == {"total": 1}
+
         # Title match (case-insensitive)
         response = await authenticated_client.get(
             f"/api/tracks/{track_id}/entries", params={"q": "BANANA"}

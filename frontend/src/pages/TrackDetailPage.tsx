@@ -535,6 +535,11 @@ export function TrackDetailPage() {
     feedFallbackView,
   ]);
 
+  const entryFilters = dashboardFilters
+    ? { dashboard_filters: JSON.stringify(dashboardFilters) }
+    : activeView?.id ? { view_id: activeView.id } : {};
+  const entryFilterKey = dashboardFiltersParam ?? activeView?.id;
+
   const {
     data: entriesData,
     error: entriesError,
@@ -545,7 +550,7 @@ export function TrackDetailPage() {
     fetchNextPage,
     refetch: refetchEntries
   } = useInfiniteQuery({
-    queryKey: ['track', id, 'entries', dashboardFiltersParam ?? activeView?.id],
+    queryKey: ['track', id, 'entries', entryFilterKey],
     enabled: Boolean(
       id &&
       trackDetailQuery.data &&
@@ -555,7 +560,8 @@ export function TrackDetailPage() {
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
       return tracksApi.getEntriesPage(id, {
-        ...(dashboardFilters ? { dashboard_filters: JSON.stringify(dashboardFilters) } : activeView?.id ? { view_id: activeView.id } : {}),
+        ...entryFilters,
+        include_total: false,
         ...(pageParam ? { cursor: pageParam } : {})
       });
     },
@@ -563,6 +569,15 @@ export function TrackDetailPage() {
       (error as { response?: { status?: number } }).response?.status !== 429 && attempt < 1,
     getNextPageParam: last =>
       last.hasMore && last.nextCursor ? last.nextCursor : undefined
+  });
+
+  const firstEntryPage = entriesData?.pages[0];
+  const { data: exactEntriesTotal } = useQuery({
+    queryKey: ['track', id, 'entries-total', entryFilterKey],
+    enabled: Boolean(id && firstEntryPage?.hasMore && firstEntryPage.nextCursor
+      && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
+    queryFn: () => tracksApi.getEntriesTotal(id!, entryFilters),
+    retry: false,
   });
 
   const allSavedViews = useMemo(
@@ -745,7 +760,9 @@ export function TrackDetailPage() {
   ]);
 
   const entriesTotal =
-    entriesData?.pages?.[0]?.total ?? allEntries.length;
+    exactEntriesTotal ?? firstEntryPage?.total ??
+    (firstEntryPage && !firstEntryPage.hasMore ? firstEntryPage.entries.length : undefined);
+  const loadedEntries = entriesData?.pages.reduce((sum, page) => sum + page.entries.length, 0);
 
   const loadError =
     trackDetailQuery.isError && trackDetailQuery.error
@@ -797,6 +814,7 @@ export function TrackDetailPage() {
   const invalidateTrackEntries = useCallback(() => {
     if (!id) return;
     queryClient.invalidateQueries({ queryKey: ['track', id, 'entries'] });
+    queryClient.invalidateQueries({ queryKey: ['track', id, 'entries-total'] });
     // Mission Control's dashboardPreview cache derives from the same
     // backend entries — keep it in step so the cross-workspace tallies
     // (entries-today, active-tracks, last-activity) update when the
@@ -1775,6 +1793,8 @@ export function TrackDetailPage() {
         track={track}
         workspaceAccentColor={trackWorkspaceAccentColor}
         entriesTotal={entriesTotal}
+        loadedEntries={loadedEntries}
+        hasMoreEntries={hasNextPage}
         publicShareEnabled={Boolean(publicShareQuery.data?.enabled)}
         trackWatchers={trackWatchersQuery.data}
         onToggleTrackWatch={handleToggleTrackWatch}

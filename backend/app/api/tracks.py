@@ -289,7 +289,9 @@ async def create_track(
 
 
 @endpoint("/tracks/{track_id}", methods=["GET"], auth=True, tags=["Tracks"])
-async def get_track(request: Request, track_id: str) -> Dict[str, Any]:
+async def get_track(
+    request: Request, track_id: str, include_entry_count: bool = True
+) -> Dict[str, Any]:
     """Get a specific track by ID."""
     validate_id(track_id, "track_id")
     user_id = resolve_principal_id(request)
@@ -306,7 +308,10 @@ async def get_track(request: Request, track_id: str) -> Dict[str, Any]:
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
     track_data = await export_node(track)
-    track_data["entry_count"] = await count_user_accessible_entries(user_id, track_id)
+    if include_entry_count:
+        track_data["entry_count"] = await count_user_accessible_entries(
+            user_id, track_id
+        )
     await attach_parent_app_to_track_data(track_data, track)
     await attach_operational_model_defaults_to_track_data(track_data, track)
     await attach_anchor_source_to_track_data(track_data, track)
@@ -314,7 +319,9 @@ async def get_track(request: Request, track_id: str) -> Dict[str, Any]:
 
 
 @endpoint("/tracks/{track_id}/detail", methods=["GET"], auth=True, tags=["Tracks"])
-async def get_track_detail_bundle(request: Request, track_id: str) -> Dict[str, Any]:
+async def get_track_detail_bundle(
+    request: Request, track_id: str, include_entry_count: bool = True
+) -> Dict[str, Any]:
     """Composite read for Track detail page bootstrap.
 
     Returns track metadata, collaborators, entry types, and saved views in a
@@ -322,7 +329,9 @@ async def get_track_detail_bundle(request: Request, track_id: str) -> Dict[str, 
     """
     validate_id(track_id, "track_id")
     # Reuse existing endpoint-level contracts to keep payload semantics aligned.
-    track_resp = await get_track(request, track_id)
+    track_resp = await get_track(
+        request, track_id, include_entry_count=include_entry_count
+    )
     from app.api.entry_types import list_entry_types as _list_entry_types
     from app.api.views import list_track_views as _list_track_views
 
@@ -615,6 +624,8 @@ async def get_track_entries(
     view_id: Optional[str] = None,
     dashboard_filters: Optional[str] = None,
     entry_ids: Optional[str] = None,
+    include_total: bool = True,
+    count_only: bool = False,
 ) -> Dict[str, Any]:
     """Get entries in a track, filtered by the user's visibility access.
 
@@ -679,11 +690,13 @@ async def get_track_entries(
         view_node=view_node,
         filters=parsed_filters,
         q=q,
-        cursor=cursor,
-        limit=limit,
-        include_total=True,
+        cursor=None if count_only else cursor,
+        limit=1 if count_only else limit,
+        include_total=count_only or include_total,
         entry_ids=selected_entry_ids(entry_ids),
     )
+    if count_only:
+        return {"total": response["total"]}
     enriched = await enrich_entry_page_for_response(page_entries)
     response["entries"] = enriched
     response["track_id"] = track_id
