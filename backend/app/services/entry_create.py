@@ -14,7 +14,7 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from app.api.errors import ResourceNotFoundError
+from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
@@ -127,7 +127,7 @@ async def _create_entry_in_track(
     authorization_subject: Optional[Subject] = None,
     provenance: Optional[Provenance] = None,
     idempotency_key: str = "",
-    skip_profanity: bool = False,
+    moderation_error: BadRequestError | None = None,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
     """Create an Entry on ``track`` with the full graph + materialize contract.
@@ -255,8 +255,6 @@ async def _create_entry_in_track(
             write_actor=user_id,
         )
     except ValueError as exc:
-        from app.api.errors import BadRequestError
-
         raise BadRequestError(message=str(exc)) from exc
     post_hook_custom_fields = {
         key: validated_custom_fields.get(key)
@@ -305,9 +303,8 @@ async def _create_entry_in_track(
         entry_type=resolved_type,
     )
 
-    if not skip_profanity:
-        validate_no_profanity(title, "title")
-        validate_no_profanity(body, "body")
+    if moderation_error is not None:
+        raise moderation_error
 
     now = utc_now_iso()
     if provenance is not None and provenance.source == "connector":
@@ -451,6 +448,15 @@ async def create_entry_in_track(
 
     events: List[Dict[str, Any]] = []
     outbox_id = None
+    moderation_error = None
+    if not skip_profanity:
+        try:
+            validate_no_profanity(title, "title")
+            validate_no_profanity(body, "body")
+        except BadRequestError as exc:
+            # Prepare the verdict before opening the transaction, but report it
+            # after admission and schema validation at the existing boundary.
+            moderation_error = exc
     caller_context = get_default_context()
     from app.services.approved_effect import (
         approved_capture_active,
@@ -521,7 +527,7 @@ async def create_entry_in_track(
                 authorization_subject=authorization_subject,
                 provenance=provenance,
                 idempotency_key=idempotency_key,
-                skip_profanity=skip_profanity,
+                moderation_error=moderation_error,
                 change_event_sink=change_event_sink or events.append,
             )
         if events and is_postgres_entry_transaction(graph.database):

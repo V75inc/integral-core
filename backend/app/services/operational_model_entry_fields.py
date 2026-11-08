@@ -1200,7 +1200,7 @@ async def validate_tags_apply_to_entry_type(
     entry_type: Optional[EntryType],
 ) -> None:
     """Reject tags whose ``applies_to_entry_types`` omits the entry type (manifest taxonomy)."""
-    if not entry_type:
+    if not entry_type or not tag_ids:
         return
     want = _slug(str(entry_type.name or ""))
     track = await Track.get(track_id)
