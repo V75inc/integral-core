@@ -17,6 +17,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import AsyncIterator
 
+from jvspatial.core.context import get_default_context
+
 from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import isolated_permissions_cache
 from app.models.edges import HAS_AUTHORIZATION_STATE
@@ -74,41 +76,28 @@ async def authorization_scope(
                 # deadlock. The outer command must choose exclusive admission.
                 raise AuthorizationUnavailableError()
             state_id = authorization_state_id(workspace_id)
-            state = await WorkspaceAuthorizationState.find_one({"id": state_id})
-            if existing is not None and existing[2] and state is None:
-                # A nested shared holder must never turn missing/corrupt state
-                # into an implicit exclusive lock upgrade.
-                raise AuthorizationUnavailableError()
             # First use needs an exclusive logical key to create the rooted
-            # state exactly once. Established effect/release peers may share
-            # it; ACL/configuration writers retain exclusive admission. Lock
-            # the key before any Workspace write, avoiding lock-order inversion
-            # with effects that later update actual storage accounting.
-            mode = mode and state is not None
+            # state exactly once. An established nested shared holder must
+            # fail closed on missing state instead of upgrading its lock.
+            if mode and existing is None:
+                mode = await transaction.get("node", state_id) is not None
             await transaction.advisory_lock(
                 "integral-workspace-authorization-v1", workspace_id, shared=mode
             )
-            workspace = await Workspace.find_one({"id": workspace_id})
-            if (
-                workspace is None
-                or await locate_resource("workspace", workspace_id) is None
-            ):
+            if await locate_resource("workspace", workspace_id) is None:
                 raise AuthorizationUnavailableError()
-            state = await WorkspaceAuthorizationState.find_one({"id": state_id})
-            if state is None:
+            row = await transaction.lock_record("node", state_id, shared=mode)
+            if row is None:
                 if mode:
+                    raise AuthorizationUnavailableError()
+                workspace = await Workspace.find_one({"id": workspace_id})
+                if workspace is None:
                     raise AuthorizationUnavailableError()
                 state = await WorkspaceAuthorizationState.create(
                     id=state_id, workspace_id=workspace_id
                 )
                 await workspace.connect(state, edge=HAS_AUTHORIZATION_STATE)
-            context = await workspace.get_context()
-            edges = await context.find_edges_between(
-                workspace.id, state.id, edge_class=HAS_AUTHORIZATION_STATE
-            )
-            if state.workspace_id != workspace_id or len(edges) != 1:
-                raise AuthorizationUnavailableError()
-            row = await transaction.lock_record("node", state_id, shared=mode)
+                row = await transaction.lock_record("node", state_id)
             if (
                 row is None
                 or row.get("id") != state_id
@@ -116,6 +105,13 @@ async def authorization_scope(
                 or relationship_literal(row, "workspace_id", {workspace_id})
                 != workspace_id
             ):
+                raise AuthorizationUnavailableError()
+            context = get_default_context()
+            state = await context._deserialize_entity(WorkspaceAuthorizationState, row)
+            edges = await context.find_edges_between(
+                workspace_id, state_id, edge_class=HAS_AUTHORIZATION_STATE
+            )
+            if state is None or state.workspace_id != workspace_id or len(edges) != 1:
                 raise AuthorizationUnavailableError()
             revision = (row.get("context") or {}).get("revision")
             if (

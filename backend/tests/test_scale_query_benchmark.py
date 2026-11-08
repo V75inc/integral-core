@@ -681,7 +681,7 @@ async def test_scale_repeated_count_plan_diagnostic(scale_records, monkeypatch):
     native = next(
         record
         for record in statements
-        if "WITH candidates AS MATERIALIZED" in record.query
+        if "WITH candidates AS" in record.query and "AS invalid_facts" in record.query
     )
     plans = {}
     async with acquire() as connection:
