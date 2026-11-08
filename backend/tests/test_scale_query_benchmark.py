@@ -161,8 +161,31 @@ async def scale_records(request):
     ]
 
     try:
-        assert await database.bulk_save(node_collection, node_rows) == len(node_rows)
-        assert await database.bulk_save(edge_collection, edge_rows) == len(edge_rows)
+        if size > 100_000:
+            # Setup only. COPY the same raw fixture documents to keep the
+            # larger matrix practical. Indexes and measured reads stay live.
+            async with inner._acquire_conn() as connection:
+                for collection, records in (
+                    (node_collection, node_rows),
+                    (edge_collection, edge_rows),
+                ):
+                    await connection.copy_records_to_table(
+                        collection,
+                        schema_name=schema,
+                        columns=("id", "entity", "data"),
+                        timeout=300,
+                        records=(
+                            (record["id"], record["entity"], json.dumps(record))
+                            for record in records
+                        ),
+                    )
+        else:
+            assert await database.bulk_save(node_collection, node_rows) == len(
+                node_rows
+            )
+            assert await database.bulk_save(edge_collection, edge_rows) == len(
+                edge_rows
+            )
 
         assert (
             await database.count(
@@ -479,6 +502,140 @@ async def test_scale_mixed_acl_surfaces_and_revocation(scale_records, client):
         f"{f['size']} mixed ACL: service, governed, SDK, resident projection, MCP and authenticated HTTP verified; revocation leaves only the direct grant",
         flush=True,
     )
+
+
+@pytest.mark.skipif(
+    os.getenv("INTEGRAL_CONCURRENT_SCALE") != "1",
+    reason="explicit large concurrent PostgreSQL qualification",
+)
+@pytest.mark.parametrize("scale_records", [250_000, 500_000], indirect=True)
+async def test_concurrent_large_exact_count(scale_records, monkeypatch):
+    """Verify exact native counts with four competing reads and live revocation."""
+    from jvspatial.core.context import get_default_context
+
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, IS_MEMBER_OF
+    from app.models.nodes import Entry, Track, User, Workspace
+    from app.services.app_graph import catalog_user
+    from app.services.entry_access_projection import (
+        ensure_entry_title_indexes,
+        select_page,
+    )
+
+    fixture = scale_records
+    reader = await User.create(display_name="Concurrent scale reader")
+    await catalog_user(reader)
+    workspace = await Workspace.get(fixture["workspace"])
+    track = await Track.get(fixture["track"])
+    await reader.connect(workspace, edge=IS_MEMBER_OF, role="guest")
+    inherited = await reader.connect(track, edge=COLLABORATES_ON, role="viewer")
+    ordered = sorted(fixture["ids"])
+    direct = await Entry.get(ordered[0])
+    denied = await Entry.get(ordered[1])
+    await reader.connect(direct, edge=COLLABORATES_ON, role="viewer")
+    await reader.connect(denied, edge=EXCLUDED_FROM)
+
+    database = get_default_context().database
+    summarize = database.summarize_graph_bindings
+    summaries = []
+
+    async def observe(*args, **kwargs):
+        result = await summarize(*args, **kwargs)
+        summaries.append(result)
+        return result
+
+    monkeypatch.setattr(database, "summarize_graph_bindings", observe)
+
+    async def page(actor, expected, total, *, order="id", direction=1, cursor=None):
+        start = time.perf_counter()
+        with isolated_permissions_cache():
+            entries, meta = await select_page(
+                actor,
+                {"context.track_id": track.id},
+                workspace_id=workspace.id,
+                track_id=track.id,
+                limit=20,
+                sort=[(order, direction)],
+                cursor=cursor,
+                include_total=total is not None,
+            )
+        assert [entry.id for entry in entries] == expected
+        assert meta["total"] == total
+        if total is not None:
+            assert meta["has_more"] is (total > len(expected))
+        return round((time.perf_counter() - start) * 1000, 1), meta["next_cursor"]
+
+    async def batch():
+        return await asyncio.wait_for(
+            asyncio.gather(
+                *(
+                    page(fixture["actor"], ordered[:20], fixture["size"])
+                    for _ in range(2)
+                ),
+                *(
+                    page(reader.id, ordered[:1] + ordered[2:21], fixture["size"] - 1)
+                    for _ in range(2)
+                ),
+            ),
+            timeout=60,
+        )
+
+    samples = [await batch() for _ in range(3)]
+    assert len(summaries) == 12 and all(summary.complete for summary in summaries)
+    timings = [[elapsed for elapsed, _ in batch] for batch in samples]
+    print(f"{fixture['size']} four concurrent exact reads, milliseconds: {timings}")
+    if os.getenv("INTEGRAL_CONCURRENT_TITLE") == "1":
+        await ensure_entry_title_indexes()
+        native_text = database.find_binary_text_keyset
+        native_calls = []
+
+        async def observe_title(*args, **kwargs):
+            rows = await native_text(*args, **kwargs)
+            assert rows is not None and len(rows) <= 22
+            native_calls.append(len(rows))
+            return rows
+
+        monkeypatch.setattr(database, "find_binary_text_keyset", observe_title)
+        title = "context.title"
+        _, continuation = await page(
+            reader.id, ordered[:1] + ordered[2:21], None, order=title
+        )
+        assert continuation
+        for _ in range(3):
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    page(fixture["actor"], ordered[:20], None, order=title),
+                    page(
+                        reader.id,
+                        ordered[21:41],
+                        None,
+                        order=title,
+                        cursor=continuation,
+                    ),
+                    page(
+                        reader.id, ordered[-1:-21:-1], None, order=title, direction=-1
+                    ),
+                    page(
+                        reader.id,
+                        ordered[:1] + ordered[2:21],
+                        fixture["size"] - 1,
+                        order=title,
+                    ),
+                ),
+                timeout=60,
+            )
+            print(
+                f"{fixture['size']} concurrent title first/next/descending/total, "
+                f"milliseconds: {[elapsed for elapsed, _ in results]}"
+            )
+        assert len(native_calls) >= 13
+    await inherited.delete()
+    await asyncio.gather(*(page(reader.id, ordered[:1], 1) for _ in range(4)))
+    assert all(summary.complete and summary.bound == 1 for summary in summaries[-4:])
+    if os.getenv("INTEGRAL_CONCURRENT_TITLE") == "1":
+        await asyncio.gather(
+            *(page(reader.id, ordered[:1], 1, order="context.title") for _ in range(4))
+        )
 
 
 @pytest.mark.skipif(

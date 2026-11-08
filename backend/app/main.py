@@ -559,6 +559,12 @@ async def _ensure_model_indexes() -> None:
                 await ctx_for_indexes.ensure_indexes(cls)
             except Exception as ix_err:  # noqa: BLE001
                 log.warning("ensure_indexes failed for %s: %s", cls.__name__, ix_err)
+        try:
+            from app.services.entry_access_projection import ensure_entry_title_indexes
+
+            await ensure_entry_title_indexes()
+        except Exception as title_ix_err:  # noqa: BLE001
+            log.warning("ensure_indexes failed for Entry title: %s", title_ix_err)
         # ``UserModelCredential`` is an Object (I-GRAPH-02), not a Node, so it
         # is not picked up by the Node/Edge walk above.
         try:

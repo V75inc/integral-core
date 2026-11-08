@@ -845,3 +845,46 @@ async def test_authority_source_failure_after_page_is_unavailable(
             include_total=True,
         )
     assert selected
+
+
+async def test_binary_title_rechecks_page_after_concurrent_revocation(
+    native_database, monkeypatch
+):
+    from app.models.edges import COLLABORATES_ON
+    from app.models.nodes import Entry
+    from app.services import entry_access_projection as projection
+
+    if not callable(getattr(native_database, "find_binary_text_keyset", None)):
+        pytest.skip("Optional binary text keyset adapter is not installed")
+
+    _, workspace, _, track, first = await graph()
+    first.title = "A"
+    await first.save()
+    second = await Entry.create(track_id=track.id, title="Z")
+    await track.connect(second, edge=CONTAINS)
+    reader = await exception_reader(workspace, track, parent_grant=False)
+    grant = await reader.connect(track, edge=COLLABORATES_ON, role="viewer")
+    await projection.ensure_entry_title_indexes()
+    admit = projection.admit_records
+    revocations = []
+
+    async def revoke_after_first_admission(*args, **kwargs):
+        admitted = await admit(*args, **kwargs)
+        if not revocations:
+            assert [record["id"] for record in admitted] == [first.id, second.id]
+            await grant.delete()
+            revocations.append(True)
+        return admitted
+
+    monkeypatch.setattr(projection, "admit_records", revoke_after_first_admission)
+    with pytest.raises(AuthorizationUnavailableError):
+        await projection.select_page(
+            reader.id,
+            {"context.track_id": track.id},
+            workspace_id=workspace.id,
+            track_id=track.id,
+            limit=1,
+            sort=[("context.title", 1)],
+            include_total=False,
+        )
+    assert revocations == [True]
