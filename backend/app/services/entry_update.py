@@ -109,19 +109,6 @@ async def update_entry_in_track(
         )
         from app.services.entry_effect_scope import entry_effect_scope
 
-        raw_type = (
-            await EntryType.find_one({"id": entry.type_id}) if entry.type_id else None
-        )
-        key = (
-            slug_manifest_key(
-                str(
-                    (raw_type.form_schema or {}).get("_manifest_entry_type_key")
-                    or raw_type.name
-                )
-            )
-            if raw_type
-            else ""
-        )
         actual_payload = {"entry_id": entry_id}
         for field, value in {
             "title": title,
@@ -150,7 +137,6 @@ async def update_entry_in_track(
             target_id=entry.id,
             workspace_id=track.workspace_id,
             payload=actual_payload,
-            entry_type_key=key,
             authorization_subject=authorization_subject,
         ) as admitted_principal_id:
             # Admission may wait for a peer updating this same Entry. Refresh

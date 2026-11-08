@@ -8,10 +8,13 @@ commit without a Core-side database compatibility adapter.
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+import logging
+import os
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from time import perf_counter
+from typing import Any, AsyncIterator, Iterator
 
 from anyio import CancelScope
 from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
@@ -19,6 +22,9 @@ from jvspatial.core.context import graph_transaction as _jv_graph_transaction
 from jvspatial.db import get_prime_database
 
 from app.middleware.permissions_cache import reset_permissions_cache
+
+_logger = logging.getLogger(__name__)
+_write_lock_timings = os.getenv("INTEGRAL_WRITE_LOCK_TIMINGS") == "1"
 
 
 class OperationTransactionUnavailable(RuntimeError):
@@ -36,11 +42,44 @@ class _TransactionScope:
     owner: Any
     failed: bool = False
     failure: BaseException | None = None
+    write_action: str | None = None
+    lock_timings: dict[str, tuple[float, float, int]] | None = None
 
 
 _active_transaction: ContextVar[_TransactionScope | None] = ContextVar(
     "integral_graph_transaction", default=None
 )
+
+
+def trace_entry_write(action: str) -> None:
+    """Enable timings for the owning transaction's first entry effect."""
+    if not _write_lock_timings:
+        return
+    active = _active_transaction.get()
+    if active is not None and active.owner is asyncio.current_task():
+        if active.write_action is None:
+            active.write_action = action
+            active.lock_timings = {}
+
+
+@contextmanager
+def measure_write_lock(scope: str, *, shared: bool = False) -> Iterator[None]:
+    """Record the acquisition round trip and first acquisition for each scope."""
+    active = _active_transaction.get() if _write_lock_timings else None
+    timings = (
+        active.lock_timings
+        if active and active.owner is asyncio.current_task()
+        else None
+    )
+    if timings is None:
+        yield
+        return
+    start = perf_counter()
+    yield
+    acquired = perf_counter()
+    key = f"{scope}.{'shared' if shared else 'exclusive'}"
+    first, elapsed, calls = timings.get(key, (acquired, 0.0, 0))
+    timings[key] = (first, elapsed + acquired - start, calls + 1)
 
 
 def _transaction_database(database: Any) -> Any:
@@ -189,6 +228,9 @@ async def postgres_graph_transaction(
     bound = database or get_prime_database()
     concrete = _transaction_database(bound)
     adapter = concrete
+    frame = None
+    body_end = None
+    committed = False
     try:
         async with _transaction_with_shielded_lifecycle(adapter) as ctx:
             # Discard authorization memo entries so reads inside this scope
@@ -205,9 +247,32 @@ async def postgres_graph_transaction(
                     ) from frame.failure
             finally:
                 _active_transaction.reset(token)
+                if frame.lock_timings is not None:
+                    body_end = perf_counter()
+        committed = True
     except _JvTxnUnavailable as exc:
         raise OperationTransactionUnavailable(str(exc)) from exc
     finally:
+        if (
+            frame is not None
+            and frame.lock_timings is not None
+            and body_end is not None
+        ):
+            finished = perf_counter()
+            _logger.info(
+                "entry_write_locks action=%s committed=%s transaction_exit_ms=%.3f locks=%s",
+                frame.write_action,
+                committed,
+                (finished - body_end) * 1000,
+                {
+                    scope: {
+                        "acquire_ms": round(elapsed * 1000, 3),
+                        "held_through_exit_ms": round((finished - first) * 1000, 3),
+                        "calls": calls,
+                    }
+                    for scope, (first, elapsed, calls) in frame.lock_timings.items()
+                },
+            )
         # Do not retain nodes bound to a completed or rolled-back transaction.
         reset_permissions_cache()
 
