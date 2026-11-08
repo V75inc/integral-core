@@ -125,28 +125,33 @@ def _effective_choice(choice: EmbeddingModelChoice) -> EmbeddingModelChoice:
 async def resolve_workspace_embedding_profile(workspace_id: str):
     """Pin the serving space, checking current owner, consent and host policy."""
     try:
-        workspace = await configuration_record(workspace_id)
-        if workspace is None:
-            # Deleted sources and legacy local jobs may lack a workspace.
-            return embedding_profile()
-        saved = workspace.embedding_serving_settings
-        if workspace.embedding_serving_profile is not None:
-            from app.config import settings
-
-            if settings.INTEGRAL_AGENT_KEY_MODE != "platform_only":
-                # A pinned space remains readable lexically after credential
-                # loss. Encoding still requires fresh explicit authority below.
-                return EmbeddingProfile(**workspace.embedding_serving_profile)
-        choice = EmbeddingModelChoice.model_validate(
-            workspace.embedding_settings if saved is None else saved
+        return await _serving_profile(
+            workspace_id, await configuration_record(workspace_id)
         )
-        return await selected_profile(workspace_id, _effective_choice(choice))
     except ValueError:
         from .profile_encoder import WorkspaceEmbeddingUnavailable
 
         raise WorkspaceEmbeddingUnavailable(
             "The workspace search model needs an update in AI Models"
         ) from None
+
+
+async def _serving_profile(workspace_id: str, workspace):
+    if workspace is None:
+        # Deleted sources and legacy local jobs may lack a workspace.
+        return embedding_profile()
+    saved = workspace.embedding_serving_settings
+    if workspace.embedding_serving_profile is not None:
+        from app.config import settings
+
+        if settings.INTEGRAL_AGENT_KEY_MODE != "platform_only":
+            # A pinned space remains readable lexically after credential
+            # loss. Encoding still requires fresh explicit authority below.
+            return EmbeddingProfile(**workspace.embedding_serving_profile)
+    choice = EmbeddingModelChoice.model_validate(
+        workspace.embedding_settings if saved is None else saved
+    )
+    return await selected_profile(workspace_id, _effective_choice(choice))
 
 
 async def indexing_profiles(workspace_id: str):
@@ -156,9 +161,9 @@ async def indexing_profiles(workspace_id: str):
     workspace = await configuration_record(workspace_id)
     profiles = {}
     try:
-        serving = await resolve_workspace_embedding_profile(workspace_id)
+        serving = await _serving_profile(workspace_id, workspace)
         profiles[serving.id] = serving
-    except WorkspaceEmbeddingUnavailable:
+    except (WorkspaceEmbeddingUnavailable, ValueError):
         pass
     if workspace is not None:
         choice = EmbeddingModelChoice.model_validate(workspace.embedding_settings or {})
