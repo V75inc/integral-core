@@ -226,7 +226,7 @@ class TestTracksCRUD:
         assert isinstance(data["entries"], list)
 
     async def test_get_track_entries_with_query(
-        self, authenticated_client: AsyncClient, test_user
+        self, authenticated_client: AsyncClient, test_user, monkeypatch
     ):
         """Track entries support case-insensitive substring search via ``q``."""
         create_response = await authenticated_client.post(
@@ -268,9 +268,16 @@ class TestTracksCRUD:
         assert not last["has_more"]
         assert len({entry["id"] for entry in first["entries"] + last["entries"]}) == 3
 
-        count = await authenticated_client.get(
-            url, params={"count_only": "true", "q": "BANANA"}
-        )
+        from app.services import entry_access_projection
+
+        async def unexpected_page(*args, **kwargs):
+            pytest.fail("Count-only requests must not select a record page")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(entry_access_projection, "select_page", unexpected_page)
+            count = await authenticated_client.get(
+                url, params={"count_only": "true", "q": "BANANA"}
+            )
         assert count.status_code == 200
         assert count.json() == {"total": 1}
 

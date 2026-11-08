@@ -17,20 +17,32 @@ async def barrier(workspace_id: str, *, lock: bool = False) -> int:
         return 0
     database = get_default_context().database
     identity = "o.WorkspaceIndexBarrier." + digest(workspace_id)
-    if lock:
-        await database.insert_if_absent(
-            "object",
-            {
-                "id": identity,
-                "entity": "WorkspaceIndexBarrier",
-                "context": {"workspace_id": workspace_id, "epoch": 0},
-            },
-        )
-        row = await database.find_one_and_update(
-            "object", {"id": identity}, {"$inc": {"context.epoch": 0}}
-        )
-    else:
+    if not lock:
         row = await database.get("object", identity)
+    else:
+        from app.services.entry_write_scope import is_postgres_entry_transaction
+
+        postgres = is_postgres_entry_transaction(database)
+        # PostgreSQL can fence an existing epoch by exact ID without rewriting
+        # the same row on every enqueue. First use still seeds it atomically.
+        row = await database.lock_record("object", identity) if postgres else None
+        if row is None:
+            await database.insert_if_absent(
+                "object",
+                {
+                    "id": identity,
+                    "entity": "WorkspaceIndexBarrier",
+                    "context": {"workspace_id": workspace_id, "epoch": 0},
+                },
+            )
+            if postgres:
+                row = await database.lock_record("object", identity)
+                if row is None:
+                    raise RuntimeError("Workspace index barrier disappeared")
+            else:
+                row = await database.find_one_and_update(
+                    "object", {"id": identity}, {"$inc": {"context.epoch": 0}}
+                )
     return int((row or {}).get("context", {}).get("epoch", 0))
 
 

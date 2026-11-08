@@ -508,7 +508,8 @@ async def test_scale_mixed_acl_surfaces_and_revocation(scale_records, client):
     os.getenv("INTEGRAL_CONCURRENT_SCALE") != "1",
     reason="explicit large concurrent PostgreSQL qualification",
 )
-@pytest.mark.parametrize("scale_records", [250_000, 500_000], indirect=True)
+# The extra record represents an insert crossing the 500K steady-state size.
+@pytest.mark.parametrize("scale_records", [250_000, 500_001], indirect=True)
 async def test_concurrent_large_exact_count(scale_records, monkeypatch):
     """Verify exact native counts with four competing reads and live revocation."""
     from jvspatial.core.context import get_default_context

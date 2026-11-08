@@ -178,23 +178,28 @@ async def fetch_accessible_entries_page(
     limit: int = 20,
     include_total: bool = False,
     entry_ids: Optional[List[str]] = None,
+    count_only: bool = False,
 ) -> Tuple[List[Entry], dict]:
     """Fetch one page of entries via DB keyset pagination."""
-    from app.services.entry_access_projection import candidate_query, select_page
+    from app.services.entry_access_projection import (
+        candidate_query,
+        count_accessible_records,
+        select_page,
+    )
 
     if track_id:
         app_id = None
     scope = {"track_id": track_id, "app_id": app_id, "workspace_id": workspace_id}
     scope_query = await candidate_query(user_id, **scope)
     if scope_query is None:
-        empty = 0 if include_total else None
+        empty = 0 if include_total or count_only else None
         return [], {"total": empty, "next_cursor": None, "has_more": False}
 
     clauses: List[Dict[str, Any]] = []
     if entry_ids is not None:
         if not entry_ids:
             return [], {
-                "total": 0 if include_total else None,
+                "total": 0 if include_total or count_only else None,
                 "next_cursor": None,
                 "has_more": False,
             }
@@ -209,7 +214,7 @@ async def fetch_accessible_entries_page(
         type_ids = await _resolve_view_type_ids(view_node)
         if type_ids is not None:
             if not type_ids:
-                empty = 0 if include_total else None
+                empty = 0 if include_total or count_only else None
                 return [], {"total": empty, "next_cursor": None, "has_more": False}
             clauses.append({"context.type_id": {"$in": list(type_ids)}})
 
@@ -225,6 +230,9 @@ async def fetch_accessible_entries_page(
         clauses.append(search_clause)
 
     query = _merge_query_clauses(*clauses)
+    if count_only:
+        total = await count_accessible_records(user_id, query, **scope)
+        return [], {"total": total}
     sort = list(DEFAULT_ENTITY_SORT)
     if view_node is not None:
         cfg = getattr(view_node, "config", None) or {}
