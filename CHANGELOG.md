@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc52 — 2026-11-08
+
+- Show Track Detail records and cursor pagination while the exact total loads separately.
+- Restore inline entry type additions and repair scheduled CI coverage.
+
 ## 0.1.1rc51 — 2026-11-08
 
 - Speed up exact counts on large Tracks and use indexed PostgreSQL title pagination where supported. Preserve exclusions, direct grants and access revocation.
