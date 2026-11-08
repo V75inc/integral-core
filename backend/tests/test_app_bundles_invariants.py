@@ -134,7 +134,8 @@ def test_I_APP_03_label_field_resolver_is_single_source():
         field on the canonical spec at compile time, does NOT read
         source-field content — same role as the runtime entry above)
       - models/edges.py — REFERENCES.target_app_id docstring reference
-      - tests/* — assertions about the contract
+      - Native Home and region plugin — unrelated configuration of labels
+      - operational_model_migrations.py — preserves configuration keys
     """
     result = subprocess.run(
         [
@@ -148,23 +149,23 @@ def test_I_APP_03_label_field_resolver_is_single_source():
         capture_output=True,
         text=True,
     )
-    offending = []
-    for line in result.stdout.splitlines():
-        path = line.split(":", 1)[0]
-        # Whitelisted readers.
-        if any(
-            white in path
-            for white in (
-                "relation_runtime.py",
-                "schemas/cross_app_relations.py",
-                "operational_model_runtime.py",
-                "operational_model_compile.py",
-                "models/edges.py",
-                "tests/",
-            )
-        ):
-            continue
-        offending.append(line)
+    assert result.returncode in (0, 1), result.stderr
+    allowed_paths = {
+        "services/relation_runtime.py",
+        "schemas/cross_app_relations.py",
+        "services/operational_model_runtime.py",
+        "services/operational_model_compile.py",
+        "models/edges.py",
+        "services/operational_model_migrations.py",  # Config key preservation.
+        "schemas/home_native.py",  # App-owned Home output schema.
+        "services/home_native.py",  # Validates declared query output only.
+        "plugins/region_system/__init__.py",  # Plugin config declaration.
+    }
+    offending = [
+        line
+        for line in result.stdout.splitlines()
+        if line.split(":", 1)[0].removeprefix("backend/app/") not in allowed_paths
+    ]
     assert not offending, (
         f"I-APP-03 violation: ``label_field`` referenced outside the "
         f"single-resolver whitelist. Offenders:\n" + "\n".join(offending)

@@ -285,3 +285,94 @@ async def test_registry_preview_does_not_persist(
     after = await authenticated_client.get("/api/agentive/connectors")
     after_ids = {c["id"] for c in after.json()["connectors"]}
     assert after_ids == before_ids
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("oauth_kind", ["discovered", "catalog", "none"])
+async def test_reauthorize_keeps_the_existing_mount(
+    authenticated_client: AsyncClient, test_user, monkeypatch, oauth_kind
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from urllib.parse import parse_qs, urlsplit
+
+    from app.agentive.connectors import mcp_oauth
+    from app.agentive.nodes import Connector
+    from app.agentive.services.connector_registry_node import (
+        create_connector,
+        decrypt_auth_state,
+    )
+    from app.connectors import catalog_loader
+
+    workspace_id = await _workspace_id(authenticated_client)
+    url = "https://mcp.example/mcp"
+    authorize_url = "https://auth.example/authorize"
+    auth_state = {"transport": "streamable_http", "url": url}
+    probe = AsyncMock(
+        return_value=SimpleNamespace(
+            needs_oauth=oauth_kind == "discovered", response=object()
+        )
+    )
+    monkeypatch.setattr(mcp_oauth, "probe_mcp_authorization", probe)
+    start = AsyncMock(
+        return_value={
+            "client_id": "test-client",
+            "redirect_uri": "https://integral.example/callback",
+            "code_challenge": "fixture-challenge",
+            "authorization_endpoint": authorize_url,
+        }
+    )
+    monkeypatch.setattr(mcp_oauth, "start_mcp_oauth_session", start)
+    if oauth_kind == "catalog":
+        auth_state["catalog_slug"] = "test-catalog"
+        monkeypatch.setattr(
+            catalog_loader,
+            "get_catalog_entry",
+            lambda slug: {
+                "oauth": {
+                    "authorization_endpoint": authorize_url,
+                    "token_endpoint": "https://auth.example/token",
+                }
+            },
+        )
+        monkeypatch.setattr(
+            mcp_oauth,
+            "google_oauth_client_credentials",
+            lambda: ("test-client", "test-secret"),
+        )
+
+    connector = await create_connector(
+        owner=test_user.id, kind="mcp", workspace_id=workspace_id, auth_state=auth_state
+    )
+    connector.subclass_slug = "mcp"
+    await connector.save()
+
+    response = await authenticated_client.post(
+        f"/api/agentive/connectors/{connector.id}/mcp/reauthorize",
+        headers={"X-Integral-Scope": f"ws:{workspace_id}"},
+    )
+    refreshed = await Connector.get(connector.id)
+    assert refreshed is not None
+    assert refreshed.workspace_id == workspace_id
+    saved_auth = decrypt_auth_state(refreshed.auth_state)
+    if oauth_kind == "none":
+        assert response.status_code == 400, response.text
+        assert "did not ask for authorization" in response.json()["message"]
+        assert "oauth" not in saved_auth
+        start.assert_not_awaited()
+        return
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["connector_id"] == connector.id
+    consent = urlsplit(body["consent_url"])
+    assert (consent.netloc, consent.path) == ("auth.example", "/authorize")
+    assert parse_qs(consent.query)["state"] == [body["state"]]
+    assert saved_auth["oauth"]["state"] == body["state"]
+    assert saved_auth["oauth"]["status"] == mcp_oauth.OAUTH_STATUS_PENDING
+    if oauth_kind == "catalog":
+        probe.assert_not_awaited()
+        start.assert_not_awaited()
+    else:
+        probe.assert_awaited_once_with(url)
+        start.assert_awaited_once()

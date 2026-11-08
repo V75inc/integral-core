@@ -232,22 +232,15 @@ async def test_link_notification_is_idempotent():
 # ===== SHARE_LINK =====
 
 
-async def _share_link_setup_owner_with_app_and_track() -> (
-    tuple[User, App, Track, Entry]
-):
+async def _share_link_setup_owner_with_app_and_track(
+    owner: User,
+) -> tuple[User, App, Track, Entry]:
     """Create owner User + Workspace + App + Track + Entry, all wired."""
     from datetime import datetime
 
     from app.models.edges import CONTAINS, OWNS
 
     now = datetime.now().isoformat()
-    owner = await User.create(
-        user_id="u_share_link_test_owner",
-        display_name="Owner",
-        created_at=now,
-        updated_at=now,
-    )
-    await catalog_user(owner)
     workspace = await ensure_personal_workspace(owner)
 
     app = await App.create(
@@ -302,7 +295,7 @@ async def _share_link_setup_owner_with_app_and_track() -> (
     ["app", "track", "entry"],
 )
 @pytest.mark.asyncio
-async def test_mint_share_link_wires_has_share_link(resource_kind: str):
+async def test_mint_share_link_wires_has_share_link(resource_kind: str, test_user):
     """For app / track / entry, the minted link is reachable via
     ``<resource>.nodes(edge=[HAS_SHARE_LINK])``.
 
@@ -314,7 +307,9 @@ async def test_mint_share_link_wires_has_share_link(resource_kind: str):
 
     from app.models.edges import COLLABORATES_ON
 
-    owner, app, track, entry = await _share_link_setup_owner_with_app_and_track()
+    owner, app, track, entry = await _share_link_setup_owner_with_app_and_track(
+        test_user
+    )
     resource_map = {"app": app, "track": track, "entry": entry}
     resource = resource_map[resource_kind]
 
@@ -349,11 +344,13 @@ async def test_mint_share_link_wires_has_share_link(resource_kind: str):
 
 
 @pytest.mark.asyncio
-async def test_backfill_share_link_edges_repairs_orphan():
+async def test_backfill_share_link_edges_repairs_orphan(test_user):
     """Persist a bare ShareLink (no edge), run backfill, assert wired."""
     from scripts.backfill_share_link_edges import backfill_share_link_edges
 
-    owner, app, _track, _entry = await _share_link_setup_owner_with_app_and_track()
+    owner, app, _track, _entry = await _share_link_setup_owner_with_app_and_track(
+        test_user
+    )
 
     bare_link = await ShareLink.create(
         resource_type="app",
@@ -376,11 +373,13 @@ async def test_backfill_share_link_edges_repairs_orphan():
 
 
 @pytest.mark.asyncio
-async def test_backfill_share_link_edges_idempotent():
+async def test_backfill_share_link_edges_idempotent(test_user):
     """Run backfill twice — second pass produces zero new wires."""
     from scripts.backfill_share_link_edges import backfill_share_link_edges
 
-    owner, app, _track, _entry = await _share_link_setup_owner_with_app_and_track()
+    owner, app, _track, _entry = await _share_link_setup_owner_with_app_and_track(
+        test_user
+    )
     await ShareLink.create(
         resource_type="app",
         resource_id=app.id,

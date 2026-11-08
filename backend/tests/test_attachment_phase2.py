@@ -265,9 +265,10 @@ async def test_ensure_preview_caches_then_reuses(monkeypatch, tmp_path):
     monkeypatch.setattr(
         FileValidator,
         "detect_mime_type",
-        lambda self, content, filename=None: (
-            "application/vnd.openxmlformats-officedocument."
-            "presentationml.presentation"
+        lambda self, content, filename=None, *, hint_mime=None: (
+            "application/pdf"
+            if content.startswith(b"%PDF-")
+            else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         ),
     )
 

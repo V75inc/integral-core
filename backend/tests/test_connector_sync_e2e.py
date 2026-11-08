@@ -10,7 +10,7 @@ Asserts ROADMAP AC#2 (TEST-03) — full sync round-trip:
   3. Each materialized Entry has:
        - provenance.source        == "connector"
        - provenance.source_id     == "<connector_id>:<external_id>"
-       - idempotency_key          == sha256("test_source:<external_id>")
+       - idempotency_key          == connector-scoped key for the upstream record
   4. Each materialization emits ChangeEvent with:
        - actor_kind = "connector"
        - actor_id   = <connector_id>
@@ -103,7 +103,6 @@ def _register_test_source_connector() -> None:
                 body=record.payload.get("body", ""),
                 entry_type_key="post",
                 tags=[],
-                custom_fields={"external_id": record.external_id},
             )
 
 
@@ -141,31 +140,23 @@ async def test_workspace_track_connector(authenticated_client, test_user):
     Per locked decision #14 — test fixture seeder, NOT a production seed.
     Returns dict with workspace_id, track_id, connector_id.
 
-    CRITICAL fixture detail (plan-check fix): the Phase 1 ``create_connector``
-    signature still takes ``mapping_profile`` but we leave it None — the
-    subclass dispatch in Plan 05-03's sync_runtime reads ``subclass_slug``
-    (I-CON-02). We set ``connector.subclass_slug = "test_source"`` AFTER
-    ``create_connector`` returns, then save the Connector.
     """
     _register_test_source_connector()
 
-    from app.agentive.services.connector_registry_node import create_connector
-    from app.models.edges import IS_CONNECTED_TO, OWNS
-    from app.models.nodes import Track, Workspace
-
-    now = datetime.now().isoformat()
-
-    # 1. Workspace (personal-kind owned by test_user) — workspace gate.
-    workspace = await Workspace.create(
-        name="TEST-03 Workspace",
-        kind="personal",
-        owner_id=test_user.id,
-        created_at=now,
-        updated_at=now,
+    from app.agentive.services.connector_registry_node import (
+        create_connector,
+        materialize_policies_for_connector,
     )
-    await test_user.connect(workspace, edge=OWNS, owned_at=now)
+    from app.models.edges import CONTAINS, IS_CONNECTED_TO, OWNS
+    from app.models.nodes import Track
+    from app.services.app_graph import (
+        catalog_track,
+        ensure_track_attached_operational_model,
+    )
+    from app.services.personal_workspace import ensure_personal_workspace
 
-    # 2. Track (owned by test_user) — sync target.
+    workspace = await ensure_personal_workspace(test_user)
+    now = datetime.now().isoformat()
     track = await Track.create(
         name="TEST-03 Sync Target",
         owner_id=test_user.id,
@@ -174,23 +165,21 @@ async def test_workspace_track_connector(authenticated_client, test_user):
         created_at=now,
         updated_at=now,
     )
-    await test_user.connect(track, edge=OWNS, owned_at=now)
+    await catalog_track(track)
+    await workspace.connect(track, edge=CONTAINS)
+    await test_user.connect(track, edge=OWNS)
+    await ensure_track_attached_operational_model(track)
 
-    # 3. Connector (owned by test_user) — wires per-connector Policy at
-    # creation time via materialize_policies_for_connector (I-CON-04).
     connector = await create_connector(
         owner=test_user.id,
-        kind="custom",  # Phase 1 default — kind != subclass_slug
-        auth_state={},
-        mapping_profile=None,  # Phase 1 signature retained; I-CON-02 deprecates
+        workspace_id=workspace.id,
+        kind="custom",
+        skip_default_policy=True,
     )
-    # I-CON-02 — subclass dispatch reads subclass_slug (NEVER mapping_profile).
     connector.subclass_slug = "test_source"
     await connector.save()
-
-    # 4. IS_CONNECTED_TO edge binds Connector → Track. The sync runtime
-    # reads via connector.nodes(edge=["IsConnectedTo"], direction="out", ...).
     await connector.connect(track, edge=IS_CONNECTED_TO, mapping_profile_yaml="")
+    await materialize_policies_for_connector(connector=connector, actor_id=test_user.id)
 
     return {
         "workspace_id": workspace.id,
@@ -231,6 +220,7 @@ async def test_03_connector_sync_round_trip(
 
     # === Assert: 2 Entries materialized with split provenance shape ===
     from app.models.nodes import Entry
+    from app.services.connectors.sync_runtime import connector_record_key
 
     entries = await Entry.find({"context.track_id": track_id})
     for _ in range(10):
@@ -252,8 +242,12 @@ async def test_03_connector_sync_round_trip(
         seen_ext.add(ext_id)
         assert prov.confidence == 1.0
         assert prov.synced_at is not None
-        # Idempotency_key default: sha256("test_source:<external_id>")
-        expected_key = hashlib.sha256(f"test_source:{ext_id}".encode()).hexdigest()
+        upstream_key = hashlib.sha256(f"test_source:{ext_id}".encode()).hexdigest()
+        expected_key = connector_record_key(
+            workspace_id=ctx["workspace_id"],
+            connector_id=connector_id,
+            upstream_key=upstream_key,
+        )
         assert e.idempotency_key == expected_key
 
     assert seen_ext == {"ext-1", "ext-2"}
