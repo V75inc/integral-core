@@ -272,6 +272,7 @@ async def delete_entry_fast(
             raise AuthorizationUnavailableError()
         from app.services.entry_effect_scope import entry_effect_scope
 
+        locked_entry: dict = {}
         async with entry_effect_scope(
             user_id=actor_user_id,
             actor_kind=actor_kind,
@@ -280,6 +281,7 @@ async def delete_entry_fast(
             target_kind="entry",
             target_id=current.id,
             workspace_id=track.workspace_id,
+            locked_entry_out=locked_entry,
             payload={
                 "entry_id": current.id,
                 **(
@@ -292,7 +294,14 @@ async def delete_entry_fast(
             # A metadata peer may have committed while this delete waited for
             # exclusive workspace admission. Review and delete the locked
             # current record, never the earlier pre-admission snapshot.
-            current = await Entry.find_one({"id": entry.id})
+            if locked_entry:
+                from jvspatial.core.context import get_default_context
+
+                current = await get_default_context()._deserialize_entity(
+                    Entry, locked_entry
+                )
+            else:
+                current = await Entry.find_one({"id": entry.id})
             if current is None or current.track_id != track.id:
                 raise AuthorizationUnavailableError()
             if (

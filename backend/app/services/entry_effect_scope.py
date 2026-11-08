@@ -25,6 +25,7 @@ async def entry_effect_scope(
     workspace_id: str,
     payload: dict,
     authorization_subject: Subject | None = None,
+    locked_entry_out: dict | None = None,
 ):
     """Join the command transaction; hold authority until its effects finish."""
     from app.api.errors import InsufficientPermissionsError
@@ -111,6 +112,7 @@ async def entry_effect_scope(
                 if locked is None or locked.get("entity") != model._entity_name():
                     raise AuthorizationUnavailableError()
             async with AsyncExitStack() as stack:
+                locked_entry = None
                 if is_postgres_entry_transaction(database):
                     await stack.enter_async_context(
                         authorization_scope(workspace_id, shared=concurrent_update)
@@ -245,6 +247,8 @@ async def entry_effect_scope(
                     raise InsufficientPermissionsError(
                         message="Current Entry effect authority denied"
                     )
+                if locked_entry_out is not None and locked_entry is not None:
+                    locked_entry_out.update(records[target_id])
                 if exact_principal is not None:
                     if exact_principal not in participants:
                         raise AuthorizationUnavailableError()
