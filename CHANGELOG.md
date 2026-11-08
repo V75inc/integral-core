@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc53 — 2026-11-08
+
+- Count Track records without loading a page and keep native counts available when concurrent writes take a Track above 500,000 records.
+- Acquire the PostgreSQL search index barrier without rewriting its unchanged epoch.
+
 ## 0.1.1rc52 — 2026-11-08
 
 - Show Track Detail records and cursor pagination while the exact total loads separately.
