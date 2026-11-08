@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc54 — 2026-11-08
+
+- Shorten PostgreSQL write admission by reusing verified authorization and indexing configuration reads.
+- Pin jvspatial 0.2.7 to reduce exact count query cost while retaining graph binding checks.
+
 ## 0.1.1rc53 — 2026-11-08
 
 - Count Track records without loading a page and keep native counts available when concurrent writes take a Track above 500,000 records.
