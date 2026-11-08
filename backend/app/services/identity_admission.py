@@ -91,6 +91,7 @@ async def identity_admission(
 ) -> AsyncIterator[None]:
     """Lock explicit participants; active actors cannot be disabled cleanup subjects."""
     from app.api.errors import InsufficientPermissionsError
+    from app.services.app_operations.transaction_scope import measure_write_lock
     from app.services.permissions import get_user_node
 
     requested = frozenset(principal_ids)
@@ -136,9 +137,10 @@ async def identity_admission(
         for identity_id in sorted(
             {profile.user_id for profile in profiles.values() if profile.user_id}
         ):
-            locked = await database.lock_record(
-                "object", identity_id, shared=bool(shared)
-            )
+            with measure_write_lock("identity_row", shared=bool(shared)):
+                locked = await database.lock_record(
+                    "object", identity_id, shared=bool(shared)
+                )
             if (
                 locked is None
                 or locked.get("entity") != AuthUser._entity_name()
@@ -146,7 +148,10 @@ async def identity_admission(
             ):
                 raise AuthorizationUnavailableError()
         for profile_id in sorted(profiles):
-            locked = await database.lock_record("node", profile_id, shared=bool(shared))
+            with measure_write_lock("profile_row", shared=bool(shared)):
+                locked = await database.lock_record(
+                    "node", profile_id, shared=bool(shared)
+                )
             current = await _participant_profile(profile_id)
             if (
                 locked is None

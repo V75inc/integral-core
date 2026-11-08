@@ -20,12 +20,16 @@ async def barrier(workspace_id: str, *, lock: bool = False) -> int:
     if not lock:
         row = await database.get("object", identity)
     else:
+        from app.services.app_operations.transaction_scope import measure_write_lock
         from app.services.entry_write_scope import is_postgres_entry_transaction
 
         postgres = is_postgres_entry_transaction(database)
         # PostgreSQL can fence an existing epoch by exact ID without rewriting
         # the same row on every enqueue. First use still seeds it atomically.
-        row = await database.lock_record("object", identity) if postgres else None
+        row = None
+        if postgres:
+            with measure_write_lock("index_barrier_row"):
+                row = await database.lock_record("object", identity)
         if row is None:
             await database.insert_if_absent(
                 "object",
@@ -36,7 +40,8 @@ async def barrier(workspace_id: str, *, lock: bool = False) -> int:
                 },
             )
             if postgres:
-                row = await database.lock_record("object", identity)
+                with measure_write_lock("index_barrier_row"):
+                    row = await database.lock_record("object", identity)
                 if row is None:
                     raise RuntimeError("Workspace index barrier disappeared")
             else:

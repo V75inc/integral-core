@@ -24,18 +24,22 @@ async def entry_effect_scope(
     target_id: str,
     workspace_id: str,
     payload: dict,
-    entry_type_key: str = "",
     authorization_subject: Subject | None = None,
 ):
     """Join the command transaction; hold authority until its effects finish."""
     from app.api.errors import InsufficientPermissionsError
     from app.services.app_operation_authority import permits_mutation
+    from app.services.app_operations.transaction_scope import (
+        measure_write_lock,
+        trace_entry_write,
+    )
     from app.services.policy_engine import evaluate
     from app.services.service_delegation import (
         delegated_principal_ids,
         delegated_subject_record,
     )
 
+    trace_entry_write(action)
     if user_id == "public":
         from app.services.public_entry_effect import public_entry_effect_permitted
 
@@ -100,9 +104,10 @@ async def entry_effect_scope(
             database = get_default_context().database
             if service is not None and is_postgres_entry_transaction(database):
                 model, collection, identity = service
-                locked = await database.lock_record(
-                    collection, identity, shared=concurrent_update
-                )
+                with measure_write_lock("delegation_row", shared=concurrent_update):
+                    locked = await database.lock_record(
+                        collection, identity, shared=concurrent_update
+                    )
                 if locked is None or locked.get("entity") != model._entity_name():
                     raise AuthorizationUnavailableError()
             async with AsyncExitStack() as stack:
@@ -111,22 +116,28 @@ async def entry_effect_scope(
                         authorization_scope(workspace_id, shared=concurrent_update)
                     )
                     if target_kind == "entry":
-                        if await database.lock_record("node", target_id) is None:
+                        with measure_write_lock("entry_row"):
+                            locked_entry = await database.lock_record("node", target_id)
+                        if locked_entry is None:
                             raise AuthorizationUnavailableError()
+                records: dict[str, dict] = {}
                 location = await locate_resource(
-                    target_kind, target_id, allowed_app_states=DATA_APP_STATES
+                    target_kind,
+                    target_id,
+                    allowed_app_states=DATA_APP_STATES,
+                    records_out=records if target_kind == "entry" else None,
                 )
                 if location is None or location.workspace_id != workspace_id:
                     raise InsufficientPermissionsError(
                         message="Entry target is outside the admitted workspace"
                     )
-                from app.models.nodes import Entry, EntryType
+                from app.models.nodes import EntryType
                 from app.services.authority_facts import primary_node_record
                 from app.services.operational_model_compile import slug_manifest_key
 
                 type_id = payload.get("type_id") if target_kind == "track" else ""
                 if target_kind == "entry":
-                    entry_row = await primary_node_record(database, Entry, target_id)
+                    entry_row = records.get(target_id)
                     if entry_row is None:
                         raise AuthorizationUnavailableError()
                     type_id = entry_row["context"].get("type_id")

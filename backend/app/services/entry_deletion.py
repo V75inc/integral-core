@@ -268,23 +268,8 @@ async def delete_entry_fast(
             )
             return
         track = await Track.find_one({"id": current.track_id})
-        entry_type = (
-            await EntryType.find_one({"id": current.type_id})
-            if current.type_id
-            else None
-        )
         if track is None:
             raise AuthorizationUnavailableError()
-        key = (
-            slug_manifest_key(
-                str(
-                    (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-                    or entry_type.name
-                )
-            )
-            if entry_type
-            else ""
-        )
         from app.services.entry_effect_scope import entry_effect_scope
 
         async with entry_effect_scope(
@@ -303,7 +288,6 @@ async def delete_entry_fast(
                     else {}
                 ),
             },
-            entry_type_key=key,
         ):
             # A metadata peer may have committed while this delete waited for
             # exclusive workspace admission. Review and delete the locked

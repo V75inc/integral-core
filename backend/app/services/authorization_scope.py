@@ -55,7 +55,10 @@ async def authorization_scope(
     dispatch intent needs the same lock, and subsequent provider results
     require reconciliation. Released bytes cannot be recalled by a revision.
     """
-    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+    from app.services.app_operations.transaction_scope import (
+        measure_write_lock,
+        postgres_graph_transaction,
+    )
 
     if not workspace_id or (shared is not None and type(shared) is not bool):
         raise AuthorizationUnavailableError()
@@ -81,12 +84,14 @@ async def authorization_scope(
             # fail closed on missing state instead of upgrading its lock.
             if mode and existing is None:
                 mode = await transaction.get("node", state_id) is not None
-            await transaction.advisory_lock(
-                "integral-workspace-authorization-v1", workspace_id, shared=mode
-            )
+            with measure_write_lock("workspace_advisory", shared=mode):
+                await transaction.advisory_lock(
+                    "integral-workspace-authorization-v1", workspace_id, shared=mode
+                )
             if await locate_resource("workspace", workspace_id) is None:
                 raise AuthorizationUnavailableError()
-            row = await transaction.lock_record("node", state_id, shared=mode)
+            with measure_write_lock("workspace_state_row", shared=mode):
+                row = await transaction.lock_record("node", state_id, shared=mode)
             if row is None:
                 if mode:
                     raise AuthorizationUnavailableError()
@@ -97,7 +102,8 @@ async def authorization_scope(
                     id=state_id, workspace_id=workspace_id
                 )
                 await workspace.connect(state, edge=HAS_AUTHORIZATION_STATE)
-                row = await transaction.lock_record("node", state_id)
+                with measure_write_lock("workspace_state_row"):
+                    row = await transaction.lock_record("node", state_id)
             if (
                 row is None
                 or row.get("id") != state_id

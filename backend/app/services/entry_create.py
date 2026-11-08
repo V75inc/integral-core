@@ -494,19 +494,6 @@ async def create_entry_in_track(
                 {"provenance": provenance.model_dump(mode="json")} if provenance else {}
             ),
         }
-        candidate_type = fresh_type or (
-            await EntryType.find_one({"id": type_id}) if type_id else None
-        )
-        key = (
-            slug_manifest_key(
-                str(
-                    (candidate_type.form_schema or {}).get("_manifest_entry_type_key")
-                    or candidate_type.name
-                )
-            )
-            if candidate_type
-            else ""
-        )
         async with entry_effect_scope(
             user_id=user_id,
             actor_kind=actor_kind,
@@ -516,7 +503,6 @@ async def create_entry_in_track(
             target_id=fresh_track.id,
             workspace_id=fresh_track.workspace_id,
             payload=actual_payload,
-            entry_type_key=key,
             authorization_subject=authorization_subject,
         ) as admitted_principal_id:
             entry = await _create_entry_in_track(
