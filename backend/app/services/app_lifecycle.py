@@ -46,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from copy import deepcopy
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from app.api.errors import InsufficientPermissionsError, ResourceConflictError
@@ -1328,15 +1329,24 @@ async def finalize_install(
             },
         )
 
-    # Fetch the canonical manifest from the attached OperationalModel.
+    # The immutable definition is the installed execution contract. The
+    # attached profile may contain authoring edits or materialized defaults;
+    # registering it can invalidate the governed-operation fingerprint.
     attached_cp = await get_app_attached_operational_model(app_node)
     if not attached_cp:
         raise AppInstallError(
             message="App attached OperationalModel missing on finalize",
             details={"app_id": app_id},
         )
-    canonical = await asyncio.to_thread(
-        compile_canonical_manifest, manifest=attached_cp.manifest or {}
+    definition = await get_active_application_definition(
+        app_node, repair_legacy_pointer=False
+    )
+    canonical = (
+        deepcopy(definition.canonical_manifest)
+        if definition is not None and definition.canonical_manifest
+        else await asyncio.to_thread(
+            compile_canonical_manifest, manifest=attached_cp.manifest or {}
+        )
     )
 
     from app.services.entitlements import require_installed_app_entitlement

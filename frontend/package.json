@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc && vite build",
-    "build:assets": "vite build",
+    "build": "tsc && vite build && node scripts/verify-ui-runtime.mjs",
+    "build:assets": "vite build && node scripts/verify-ui-runtime.mjs",
     "dev": "vite --port 9006 --host 0.0.0.0",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
@@ -13,7 +13,8 @@
     "preview": "vite preview --port 9006 --host 0.0.0.0",
     "sync:view-contracts": "cd ../backend && venv/bin/python scripts/sync_view_contracts.py",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "verify:ui-runtime": "node scripts/verify-ui-runtime.mjs"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.14.0",

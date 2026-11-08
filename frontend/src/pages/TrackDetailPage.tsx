@@ -295,7 +295,12 @@ export function TrackDetailPage() {
     enabled: Boolean(id),
     queryFn: async () => {
       if (!id) throw new Error('Missing track id');
-      return tracksApi.getDetail(id);
+      const detail = await tracksApi.getDetail(id);
+      // Seed before publishing detail: dependent observers must never start
+      // with an empty cache while a later hydration effect is still pending.
+      queryClient.setQueryData(entryTypesForTrackQueryKey(id), detail.entry_types);
+      queryClient.setQueryData(viewsForTrackQueryKey(id), detail.views as SavedView[]);
+      return detail;
     }
   });
 
@@ -334,8 +339,6 @@ export function TrackDetailPage() {
     };
     setTrack(trackWithCollab);
     queryClient.setQueryData(['track', id, 'meta'], { track: trackWithCollab });
-    queryClient.setQueryData(entryTypesForTrackQueryKey(id), d.entry_types);
-    queryClient.setQueryData(viewsForTrackQueryKey(id), d.views as SavedView[]);
   }, [id, queryClient, trackDetailQuery.data]);
 
   const documentTemplatesRedirect = useMemo(
@@ -446,7 +449,7 @@ export function TrackDetailPage() {
   const viewsQuery = useQuery({
     queryKey: viewsForTrackQueryKey(id ?? ''),
     enabled: Boolean(id && trackDetailQuery.data),
-    queryFn: () => trackViewsApi.list(id!).catch(() => [] as SavedView[]),
+    queryFn: () => trackViewsApi.list(id!),
     // Avoid a second views query immediately after the detail bundle.
     staleTime: 30_000,
   });

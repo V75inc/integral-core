@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Surface } from '../../ui';
 import { useQuery } from '@tanstack/react-query';
 import { extensionsApi } from '../../api/extensions';
@@ -6,6 +6,7 @@ import { useScope } from '../../context/ScopeContext';
 import { useNavigate } from 'react-router-dom';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { Button } from '../ui';
+import { AppReactComponentHost } from '../extensions/AppReactComponentHost';
 import { AppExtensionViewHost } from '../extensions/AppExtensionViewHost';
 import { ExtensionViewFallback } from '../extensions/ExtensionViewFallback';
 import {
@@ -66,7 +67,14 @@ export function ExtensionViewWidget(props: ViewWidgetProps) {
   // A host failure belongs to one authorized mount. A different App, view or
   // workspace starts a new session, including iframe state and error handling.
   const identity = JSON.stringify([appId, viewKey, workspaceId]);
-  return <ExtensionViewSession key={identity} {...props} appId={appId} viewKey={viewKey} workspaceId={workspaceId} />;
+  const componentKey = String(props.view.config?.component_key || '');
+  const lifecycle = useContributionLifecycle();
+  const legacy = <ExtensionViewSession key={identity} {...props} appId={appId} viewKey={viewKey} workspaceId={workspaceId} />;
+  if (!componentKey) return legacy;
+  return <AppReactComponentHost key={identity} appId={appId} componentKey={componentKey}
+    placement={lifecycle?.placement || 'track'} lifecycle={lifecycle || undefined}
+    context={{entryId: lifecycle?.entryId, trackId: props.track?.id || lifecycle?.trackId || props.view.track_id}}
+    props={(props.view.config?.component_props as Record<string, unknown>) || {}} fallback={legacy} />;
 }
 
 function ExtensionViewSession({
@@ -74,6 +82,11 @@ function ExtensionViewSession({
 }: ViewWidgetProps & { appId: string; viewKey: string; workspaceId: string }) {
   const bindings = ((view.config || {}) as { __bindings?: ContributionBindings }).__bindings || {};
   const lifecycle = useContributionLifecycle();
+  const frame = useRef<import('../extensions/AppExtensionViewHost').AppExtensionViewHostHandle>(null);
+  useEffect(() => lifecycle?.register({
+    requestValidate: async () => frame.current ? frame.current.requestValidate() : {ok: false, error: 'The App form is not ready.'},
+    requestSubmit: async id => frame.current ? frame.current.requestSubmit(id) : {ok: false, error: 'The App form is not ready.'},
+  }), [lifecycle?.register]);
   const trackId = String(
     track?.id || bindings.trackId || lifecycle?.trackId || view.track_id || '',
   ).trim();
@@ -164,6 +177,7 @@ function ExtensionViewSession({
   const isTemplateEditor = viewKey === 'template_editor';
   return (
     <AppExtensionViewHost
+      ref={frame}
       key={hs.handshake_token}
       appId={appId}
       viewKey={viewKey}

@@ -800,6 +800,8 @@ export function EntryDetail({
       entryTypeKey={entry.type}
       mode="edit"
       customFields={editForm.fieldValues}
+      fieldErrors={editForm.problems}
+      onFieldDataOwnerChange={editForm.setFieldDataOwner}
       onDraftPatch={patch => editForm.applyContributionPatch(patch)}
     />
   );

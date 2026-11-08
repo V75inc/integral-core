@@ -396,6 +396,16 @@ class ToolContext:
                 scoped.extend(await hydrate_records(records))
         return scoped
 
+    def track_write_scope(self, track_id: str):
+        """Fence this App's collection checks until the surrounding command commits.
+
+        Use async with; this orders writers without allocating values or
+        granting mutation authority. Read-only contexts are refused.
+        """
+        from app.services.track_write_scope import app_track_write_scope
+
+        return app_track_write_scope(self, track_id)
+
     async def read_entry_records(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Read a bounded App page or stream an explicit authorized count."""
         from app.services.app_record_read import read_app_records

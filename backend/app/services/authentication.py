@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import weakref
+from contextvars import ContextVar
+from datetime import datetime
 from typing import Any
 from weakref import WeakValueDictionary
 
@@ -29,6 +31,16 @@ _local_identity_locks: WeakValueDictionary[tuple, asyncio.Lock] = WeakValueDicti
 _OBSERVED_TYPES = (AuthUser, RefreshToken)
 _USER_GUARDS = ("is_active", "email", "password_hash", "roles", "permissions")
 _TOKEN_GUARDS = ("is_active", "token_hash", "token_lookup", "user_id", "expires_at")
+_token_validation_touch = ContextVar("integral_token_validation_touch", default=False)
+
+
+def _recent_activity_touch(row: dict, proposed: dict) -> bool:
+    try:
+        previous = datetime.fromisoformat(row["context"]["last_accessed"])
+        current = datetime.fromisoformat(proposed["last_accessed"])
+        return 0 <= (current - previous).total_seconds() < 60
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 class AuthenticationStateConflict(ValueError):
@@ -180,9 +192,20 @@ class AuthenticationContext(GraphContext):
                 if locked is None:
                     raise AuthenticationStateConflict("Authentication state changed")
                 if QueryEngine.match(locked, query):
-                    row = await transaction.find_one_and_update(
-                        "object", identity_query, update
-                    )
+                    if (
+                        activity_touch_only
+                        and _token_validation_touch.get()
+                        and _recent_activity_touch(locked, proposed)
+                    ):
+                        # Activity is advisory. Keep the current locked identity
+                        # fence, but avoid rewriting its timestamp on every read.
+                        # Passwords, roles, lifecycle and explicit saves retain
+                        # their existing compare-and-set write semantics.
+                        row = locked
+                    else:
+                        row = await transaction.find_one_and_update(
+                            "object", identity_query, update
+                        )
                 elif activity_touch_only and QueryEngine.match(locked, activity_query):
                     # The row lock already fenced the current identity. Keep
                     # its concurrent activity stamp rather than overwriting it.
@@ -275,7 +298,11 @@ class IntegralAuthenticationService(AuthenticationService):
         )
 
     async def validate_token(self, token: str) -> UserResponse | None:
-        response = await super().validate_token(token)
+        cadence = _token_validation_touch.set(True)
+        try:
+            response = await super().validate_token(token)
+        finally:
+            _token_validation_touch.reset(cadence)
         if response is None:
             return None
         # The upstream last_accessed write is best effort. A lost CAS must not

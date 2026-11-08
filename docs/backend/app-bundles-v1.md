@@ -62,14 +62,14 @@ for native skill references, approval boundaries, run limits and delivery.
 
 ## Entry UI compatibility
 
-For stored entry-type `ui_contributions` authored by a component-capable runtime,
-this runtime uses an explicitly declared `fallback_view` as the saved `view`
-when `component_key` is present and neither `view` nor `view_type` is supplied.
-It does not execute or admit the component. Contributions without a usable
-fallback still fail validation, and iframe/native view exclusivity still applies.
-This lets manifest readers, including public-share default resolution, compile
-those manifests while preserving permission validation. Compilation alone does
-not migrate the stored manifest or qualify the component UI for this runtime.
+Entry-type `ui_contributions` may select an App React `component_key`, with an
+explicit saved `fallback_view` for operator-disabled native execution. The compiler
+retains the component declaration; mounting still requires current App access,
+active-definition proof and operator admission. `owns_field_data` lets the admitted
+App use scoped declared queries while suppressing duplicate host field preloads;
+the explicit fallback restores host initialization. See the
+[React SDK contract](../platform/react-app-ui.md). This supersedes the earlier
+fallback-only compiler shim and does not itself activate stored installations.
 
 ## Boundary
 

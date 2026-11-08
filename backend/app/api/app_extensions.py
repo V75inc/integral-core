@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Dict
 
 from fastapi import Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from jvspatial.api import endpoint
 
 from app.api.errors import (
@@ -351,4 +351,62 @@ async def resolve_view_navigation(request: Request, app_id: str) -> Dict[str, An
         app_id=app_id,
         kind=body.kind,
         resource_id=body.id,
+        source_entry_id=body.source_entry_id,
+        field_key=body.field_key,
+    )
+
+
+@endpoint(
+    "/extensions/{app_id}/components/{component_key}/mount",
+    methods=["POST"],
+    auth=True,
+    tags=["App Extensions"],
+)
+async def mount_ui_component(request: Request, app_id: str, component_key: str):
+    """Resolve an active App component after scoped admission."""
+    from app.schemas.ui_components import (
+        UIComponentMountRequest,
+        UIComponentMountResponse,
+    )
+    from app.services.ui_components import resolve_component
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    scope = await resolve_execution_scope_from_request(
+        request, user_id, origin="http_ui_component"
+    )
+    body = UIComponentMountRequest.model_validate(await request.json())
+    result = await resolve_component(
+        user_id=scope.principal_id,
+        workspace_id=scope.workspace_id,
+        app_id=app_id,
+        key=component_key,
+        placement=body.placement,
+        props=body.props,
+    )
+    return UIComponentMountResponse.model_validate(result).model_dump()
+
+
+@endpoint(
+    "/ui-artifacts/{slug}/{digest}/index.mjs",
+    methods=["GET"],
+    auth=False,
+    tags=["App Extensions"],
+)
+async def ui_component_artifact(request: Request, slug: str, digest: str):
+    """Serve only previously admitted, immutable public JavaScript."""
+    import asyncio
+
+    from app.services.ui_components import read_artifact
+
+    content = await asyncio.to_thread(read_artifact, slug, digest)
+    return Response(
+        content,
+        media_type="text/javascript",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin",
+        },
     )

@@ -101,6 +101,9 @@ async def test_page_and_count_keep_current_denials_and_app_state():
     assert (await ctx.read_entry_records({"track": track.title, "count_only": True}))[
         "count"
     ] == 0
+    assert not (
+        await ctx.read_entry_records({"track": track.title, "fields": ["status"]})
+    )["rows"]
     await user.connect(entry, edge=COLLABORATES_ON, role="viewer")
     assert (await ctx.read_entry_records({"track": track.title, "count_only": True}))[
         "count"
@@ -279,3 +282,51 @@ async def test_invalid_record_parameters_are_repairable_without_input_echo(param
             SimpleNamespace(app_id="n.WorkspaceApp.test"), params
         )
     assert "private-input" not in str(error.value)
+
+
+async def test_stable_key_literal_search_and_selected_ids_are_bounded(monkeypatch):
+    _, _, _, track, _, ctx = await setup()
+    track.relation_type_key = "records"
+    track.title = "Renamed collection"
+    await track.save()
+    rows = []
+    for n in range(225):
+        row = await Entry.create(
+            title=f"Record {n}",
+            track_id=track.id,
+            custom_fields={"email": f"person{n}@example.test"},
+        )
+        await track.connect(row, edge=CONTAINS)
+        rows.append(row)
+    rows[-1].custom_fields["email"] = "literal.*[value]@example.test"
+    await rows[-1].save()
+    hydrate = record_read.hydrate_records
+    sizes = []
+
+    async def measured(records):
+        sizes.append(len(records))
+        return await hydrate(records)
+
+    monkeypatch.setattr(record_read, "hydrate_records", measured)
+    selection = {"track_key": "records", "limit": 20, "fields": ["email"]}
+    page = await ctx.read_entry_records(
+        {
+            **selection,
+            "text_search": {"value": "LITERAL.*[VALUE]", "fields": ["title", "email"]},
+        }
+    )
+    assert [r["id"] for r in page["rows"]] == [rows[-1].id]
+    assert sizes == []
+    page = await ctx.read_entry_records({**selection, "ids": [rows[210].id]})
+    assert [r["id"] for r in page["rows"]] == [rows[210].id]
+    assert (await ctx.read_entry_records({**selection, "ids": []}))["rows"] == []
+    first = await ctx.read_entry_records(selection)
+    with pytest.raises(BadRequestError):
+        await ctx.read_entry_records(
+            {
+                **selection,
+                "cursor": first["next_cursor"],
+                "text_search": {"value": "other", "fields": ["email"]},
+            }
+        )
+    assert sizes == []  # explicit fields never construct Entry entities

@@ -33,7 +33,7 @@ from app.services.authority_facts import primary_node_record, required_node_text
 from app.services.grant_history import grant_baseline
 from app.services.perf_trace import perf_traced
 from app.services.permissions import get_user_node, resolve_role
-from app.services.resource_location import locate_resource
+from app.services.resource_location import locate_resource, locate_resources
 from app.services.workspace_governance import ordinary_authority_only
 from app.services.workspace_permissions import can_access_workspace
 from app.utils.time import utc_now_iso
@@ -98,15 +98,19 @@ async def _current_definition_uncached(
     app = await _record(App, app_id)
     from app.services.resource_location import ACTIVE_APP_STATES, DATA_APP_STATES
 
-    if (
-        app is None
-        or await locate_resource(
-            "app",
-            app_id,
-            allowed_app_states=ACTIVE_APP_STATES if execution else DATA_APP_STATES,
-        )
-        is None
-    ):
+    if app is None:
+        raise AuthorizationUnavailableError()
+    # The bounded bulk reader proves the same complete parent graph with the
+    # same Walker, but fetches shared ancestors together. The selected App row
+    # was read from primary storage above; it is not a cached authority hint.
+    locations = await locate_resources(
+        "app",
+        [app_id],
+        workspace_hints=[required_node_text(app, "workspace_id")],
+        allowed_app_states=ACTIVE_APP_STATES if execution else DATA_APP_STATES,
+        selected_records=[app],
+    )
+    if locations.get(app_id) is None:
         raise AuthorizationUnavailableError()
     definition_id = required_node_text(app, "active_definition_id")
     definition = await _record(ApplicationDefinition, definition_id)
@@ -129,7 +133,7 @@ async def _current_definition_uncached(
         body["canonical_manifest"]
     ) != body.get("manifest_fingerprint"):
         raise AuthorizationUnavailableError()
-    active = await get_default_context().database.find(
+    active = await get_default_context().database.find_ids(
         "node",
         {
             "entity": ApplicationDefinition._entity_name(),
@@ -138,7 +142,7 @@ async def _current_definition_uncached(
         },
         limit=2,
     )
-    if len(active) != 1 or active[0].get("id") != definition_id:
+    if active != [definition_id]:
         raise AuthorizationUnavailableError()
     return app, definition
 

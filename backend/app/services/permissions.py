@@ -1234,11 +1234,28 @@ async def _resolve_role_for_user(
     # workspace anchor are independent and now run concurrently, and the anchor
     # is resolved once instead of twice — the candidates block below used to
     # recompute the same value with a second query.
-    from app.services.resource_location import DATA_APP_STATES, locate_resource
+    from app.services.resource_location import (
+        DATA_APP_STATES,
+        locate_resource,
+        locate_resources,
+    )
+
+    async def current_location():
+        if resource_type == "app":
+            locations = await locate_resources(
+                "app",
+                [resource_id],
+                workspace_hints=[node.workspace_id] if node.workspace_id else [],
+                allowed_app_states=DATA_APP_STATES,
+            )
+            return locations.get(resource_id)
+        return await locate_resource(
+            resource_type, resource_id, allowed_app_states=DATA_APP_STATES
+        )
 
     direct, location = await asyncio.gather(
         _direct_role_on_resource(user, resource_id),
-        locate_resource(resource_type, resource_id, allowed_app_states=DATA_APP_STATES),
+        current_location(),
     )
     if location is None:
         return None

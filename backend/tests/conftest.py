@@ -398,6 +398,10 @@ _DOMAIN_LIBRARY_MODULES = frozenset(
 # and tokenizer tests off the per-test ``ensure_integral_app_graph`` path.
 _UNIT_MODULES = frozenset(
     {
+        "test_app_track_write_scope",
+        "test_ui_components",
+        "test_ui_definition_activation",
+        "test_ui_contributions_compile",
         "test_validators_common",
         "test_keyword_match",
         "test_hooks_schemas",

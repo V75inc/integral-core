@@ -395,6 +395,9 @@ export interface OperationalModelFormSchema {
   ui_contributions?: Array<{
     placement: string;
     extension_view_key?: string;
+    component_key?: string; owns_field_data?: boolean;
+    fallback_view?: string;
+    props?: Record<string, unknown>;
     view?: string;
     view_type?: string;
     config?: Record<string, unknown>;

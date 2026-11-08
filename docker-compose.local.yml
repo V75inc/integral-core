@@ -100,8 +100,8 @@ services:
 
   web:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         NGINX_CONF: nginx.docker.conf
         # Same-origin /api via nginx on :9006 — leave empty so getApiBaseURL() → `/api`.

@@ -15,6 +15,7 @@ import {
   type EntryContributionSlotHandle,
 } from './EntryContributionSlot';
 import { CreateWizardModal, findCreateWizardEntryType } from './CreateWizardModal';
+import {preloadReactComponent} from '../extensions/preloadReactComponent';
 
 /** Stable empty list: default param ``tracks = []`` is a *new* array every render and breaks effect deps. */
 const EMPTY_TRACKS: Track[] = [];
@@ -107,9 +108,11 @@ export function EntryComposeModal({
       appId={form.appId}
       formSchema={form.entryTypeFormSchema}
       trackId={track?.id || form.selectedTrackId || undefined}
-      entryTypeKey={form.type}
+      entryTypeKey={form.entryTypeKey || form.type}
       mode="create"
       customFields={form.fieldValues}
+      fieldErrors={form.problems}
+      onFieldDataOwnerChange={form.setFieldDataOwner}
       onDraftPatch={patch => form.applyContributionPatch(patch)}
     />
   );
@@ -204,6 +207,19 @@ export function EntryComposer({
     showToast
   });
   const actionLabel = profilePreview.composerActionLabel;
+  const preloadContribution = resolveEntryContribution(profilePreview.entryTypeFormSchema, 'entry_compose');
+  const preloadKey = preloadContribution?.component_key;
+  const preloadApp = profilePreview.appId;
+  const preloadWorkspace = track?.workspace_id || track?.app?.workspace_id;
+  const preloadProps = JSON.stringify(preloadContribution?.props || {});
+  useEffect(() => {
+    if (!preloadApp || !preloadKey || !preloadWorkspace) return;
+    const controller = new AbortController();
+    // Track metadata identifies the likely next form. Do not fetch its data
+    // or retain its admission as authority for a later mount.
+    void preloadReactComponent(preloadApp, preloadKey, preloadWorkspace, JSON.parse(preloadProps), controller.signal).catch(() => undefined);
+    return () => controller.abort();
+  }, [preloadApp, preloadKey, preloadWorkspace, preloadProps]);
 
   // Opt-in per entry type (form_schema.create_wizard) — e.g. payroll-app's
   // pay_run — routes to the generic multi-step CreateWizardModal instead

@@ -58,10 +58,11 @@ A mixed Home retains `renderer: widgets` and the existing dashboard widgets.
 Add a custom block as `{id, type: native_component, grid, content}`. Static
 content needs no fake data source. Legacy native widget Homes remain supported.
 
-The first native increment deliberately does not execute arbitrary package
-React/JavaScript inside Core. New rendering primitives extend the native
-component contract; business logic remains in declared App operations through
-the public Python facade. Existing isolated Track/Entry extensions retain their
+The data composition path does not accept inline package JavaScript. Reviewed
+packages may opt into a `react_component` leaf through the separately admitted
+[React App UI contract](react-app-ui.md). New declarative rendering primitives
+extend the native component contract; business logic remains in declared App
+operations through the public Python facade. Existing isolated Track/Entry extensions retain their
 sandbox and legacy bridge SDK, independently of native Home rendering.
 
 ## Data, actions and state

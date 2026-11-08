@@ -1026,6 +1026,15 @@ async def merge_library_manifest_into_operational_model(
                 "queries": merged_queries,
                 "protected_state": merged_protected_state,
                 "extension_views": merged_extension_views,
+                **(
+                    {
+                        "ui_components": canonical_app.get(
+                            "ui_components", target_app.get("ui_components", [])
+                        )
+                    }
+                    if "ui_components" in canonical_app or "ui_components" in target_app
+                    else {}
+                ),
             },
             "package": canonical.get("package") or {},
             "migrations": canonical.get("migrations") or [],

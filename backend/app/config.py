@@ -13,6 +13,7 @@ already reads from the environment is not duplicated here; the legacy
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -107,6 +108,16 @@ class Settings(BaseSettings):
     #
     # Local development sets DEBUG=true explicitly (see .env.example).
     DEBUG: bool = False
+    # Native React execution is disabled unless an operator admits each component.
+    INTEGRAL_UI_ENABLED_COMPONENTS: str = ""
+    INTEGRAL_UI_PUBLISHERS: str = "{}"
+    INTEGRAL_UI_DEVELOPMENT_PACKAGES: str = ""
+    INTEGRAL_UI_ARTIFACT_ROOT: str = Field(
+        default_factory=lambda: str(
+            Path(tempfile.gettempdir()) / "integral-ui-artifacts"
+        )
+    )
+
     WORKERS: int = 1
 
     # Ceiling on simultaneous chat turns for ONE user. The client caps itself

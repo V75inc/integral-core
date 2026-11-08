@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
+import { findEntryTypeBySlug } from '../../utils/entryMetaFields';
 import { SeamlessField } from '../entries/SeamlessField';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { appsApi, entriesApi, entryTypesApi } from '../../api';
@@ -111,10 +112,8 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     if (!entryTypes.length) return undefined;
     const wantKey = view.default_entry_type_key;
     if (wantKey) {
-      const byManifestKey = entryTypes.find(
-        et => et.form_schema?._manifest_entry_type_key === wantKey
-      );
-      if (byManifestKey) return byManifestKey;
+      const requested = findEntryTypeBySlug(entryTypes, wantKey);
+      if (requested) return requested;
     }
     return entryTypes[0];
   }, [entryTypes, view.default_entry_type_key]);
@@ -470,8 +469,10 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
           const fieldLocked =
             (readOnly && !detailEditable) || autoLockedKeys.has(field.key);
           return (
+            <div key={field.key} data-field-key={field.key}>
+              {config.show_labels === true && <Text as="div" variant="label" className="mb-1.5">{field.name}{field.required ? ' *' : ''}</Text>}
             <SeamlessField
-              key={field.key}
+              externalLabel={config.show_labels === true ? true : undefined}
               field={fieldLocked ? { ...field, readonly: true } : field}
               value={values[field.key]}
               onChange={next => commitField(field.key, next)}
@@ -485,6 +486,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
               siblingFields={allFields}
               siblingValues={values}
             />
+            </div>
           );
         })}
       </div>

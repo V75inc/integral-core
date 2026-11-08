@@ -143,6 +143,12 @@ class ExtensionNavigationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["app", "track", "entry", "dashboard"]
     id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    source_entry_id: str | None = Field(
+        default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$"
+    )
+    field_key: str | None = Field(
+        default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_]+$"
+    )
 
 
 class ScaffoldHome(BaseModel):
@@ -240,3 +246,4 @@ class ScaffoldHome(BaseModel):
                 children=paragraphs,
             ),
         ).model_dump(mode="json", exclude_none=True)
+
