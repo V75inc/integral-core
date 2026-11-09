@@ -160,6 +160,7 @@ async def scale_records(request):
         for i, entry_id in enumerate(ids)
     ]
 
+    fixture: dict = {}
     try:
         if size > 100_000:
             # Setup only. COPY the same raw fixture documents to keep the
@@ -209,7 +210,7 @@ async def scale_records(request):
                 flush=True,
             )
         del node_rows, edge_rows
-        yield {
+        fixture = {
             "actor": auth.id,
             "workspace": workspace.id,
             "track": track_id,
@@ -219,18 +220,21 @@ async def scale_records(request):
             "profile": user.id,
             "app": app_id,
         }
+        yield fixture
     finally:
+        if fixture.get("projection_installed"):
+            await database.invalidate_graph_binding_projection()
         async with inner._acquire_conn() as connection:
             await connection.execute(
                 f"DELETE FROM {schema}.{edge_collection} "
-                "WHERE data->>'source' = $1 AND data->>'entity' = 'CONTAINS' "
-                "AND data->>'target' = ANY($2::text[])",
+                "WHERE entity = 'CONTAINS' AND data->>'source' = $1 "
+                "AND starts_with(id, $2)",
                 track_id,
-                ids,
+                f"e.CONTAINS.scale-{run_id}-",
             )
             await connection.execute(
-                f"DELETE FROM {schema}.{node_collection} WHERE id = ANY($1::text[])",
-                ids,
+                f"DELETE FROM {schema}.{node_collection} WHERE starts_with(id, $1)",
+                f"n.Entry.scale-{run_id}-",
             )
 
         assert (
@@ -519,6 +523,7 @@ async def test_concurrent_large_exact_count(scale_records, monkeypatch):
     from app.models.nodes import Entry, Track, User, Workspace
     from app.services.app_graph import catalog_user
     from app.services.entry_access_projection import (
+        configure_entry_count_projection,
         ensure_entry_title_indexes,
         select_page,
     )
@@ -585,6 +590,26 @@ async def test_concurrent_large_exact_count(scale_records, monkeypatch):
     assert len(summaries) == 12 and all(summary.complete for summary in summaries)
     timings = [[elapsed for elapsed, _ in batch] for batch in samples]
     print(f"{fixture['size']} four concurrent exact reads, milliseconds: {timings}")
+    if os.getenv("INTEGRAL_COUNT_PROJECTION_TEST") == "1":
+        from jvspatial.db import _graph_binding_postgres
+
+        assert await configure_entry_count_projection(track.id, rebuild=True)
+        fixture["projection_installed"] = True
+        assert await configure_entry_count_projection(track.id)
+        native_summary = _graph_binding_postgres.summarize
+        native_calls = []
+
+        async def observe_native(*args, **kwargs):
+            native_calls.append(True)
+            return await native_summary(*args, **kwargs)
+
+        monkeypatch.setattr(_graph_binding_postgres, "summarize", observe_native)
+        projected = [await batch() for _ in range(3)]
+        assert not native_calls
+        print(
+            f"{fixture['size']} four concurrent projected reads, milliseconds: "
+            f"{[[elapsed for elapsed, _ in group] for group in projected]}"
+        )
     if os.getenv("INTEGRAL_CONCURRENT_TITLE") == "1":
         await ensure_entry_title_indexes()
         native_text = database.find_binary_text_keyset
@@ -633,6 +658,8 @@ async def test_concurrent_large_exact_count(scale_records, monkeypatch):
     await inherited.delete()
     await asyncio.gather(*(page(reader.id, ordered[:1], 1) for _ in range(4)))
     assert all(summary.complete and summary.bound == 1 for summary in summaries[-4:])
+    if os.getenv("INTEGRAL_COUNT_PROJECTION_TEST") == "1":
+        assert native_calls
     if os.getenv("INTEGRAL_CONCURRENT_TITLE") == "1":
         await asyncio.gather(
             *(page(reader.id, ordered[:1], 1, order="context.title") for _ in range(4))

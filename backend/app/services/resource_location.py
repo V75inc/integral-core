@@ -500,8 +500,9 @@ async def locate_resource(
     *,
     allowed_app_states: frozenset[str] = ACTIVE_APP_STATES,
     records_out: dict[str, dict] | None = None,
+    selected_record: dict | None = None,
 ) -> ResourceLocation | None:
-    """Resolve live canonical scope; deny corrupt facts and surface read outages."""
+    """Prove the live parent path, optionally starting from a current raw row."""
     model = {
         "entry": Entry,
         "track": Track,
@@ -515,6 +516,14 @@ async def locate_resource(
     try:
         context = get_default_context()
         walker = ResourceLocationWalker(allowed_app_states=allowed_app_states)
+        if selected_record is not None:
+            if (
+                selected_record.get("id") != resource_id
+                or selected_record.get("entity") != model._entity_name()
+                or not isinstance(selected_record.get("context"), dict)
+            ):
+                raise AuthorizationUnavailableError()
+            walker._records[resource_id] = selected_record
         node = await walker.read_node(model, resource_id, context)
         if node is None:
             return None

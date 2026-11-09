@@ -18,16 +18,13 @@ from app.models.edges import CONTAINS
 from app.models.nodes import EntryType, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import get_track_attached_operational_model
-from app.services.change_event import emit_change_event
-from app.services.entry_type_service import create_entry_type_for_track
-from app.services.operational_model_runtime import (
-    normalize_entry_type_form_schema,
-    slug_manifest_key,
-    sync_attached_manifest,
+from app.services.entry_type_service import (
+    create_entry_type_for_track,
+    delete_entry_type_for_actor,
+    update_entry_type_for_actor,
 )
+from app.services.operational_model_runtime import slug_manifest_key
 from app.services.policy_engine import evaluate as policy_evaluate
-from app.services.uniqueness import assert_unique
-from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -182,77 +179,10 @@ async def update_entry_type(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    entry_type = await EntryType.get(entry_type_id)
-    if not entry_type:
-        raise ResourceNotFoundError(message="Entry type not found")
-
-    if entry_type.track_id:
-        _decision = await policy_evaluate(
-            subject=Subject(kind="human", id=user_id),
-            action="track.update",
-            resource=Resource(
-                kind="track",
-                id=entry_type.track_id,
-                scope=f"track:{entry_type.track_id}",
-            ),
-        )
-        if not _decision.allowed:
-            raise InsufficientPermissionsError(message="Access denied")
-
-    prior_snapshot = await export_node(entry_type)  # D-03 before-snapshot
-
-    if name is not None:
-        safe_name = non_empty_after_strip(name, "name")
-        if len(safe_name) > 120:
-            raise BadRequestError(message="name must be 120 characters or fewer")
-        new_fold = compute_fold(safe_name)
-        if new_fold != (getattr(entry_type, "name_fold", "") or ""):
-            await assert_unique(
-                EntryType,
-                {
-                    "context.track_id": entry_type.track_id,
-                    "context.name_fold": new_fold,
-                },
-                entity="entry_type",
-                field_label="name",
-                value=safe_name,
-                scope_label="in this track",
-                exclude_id=entry_type.id,
-            )
-        entry_type.name = safe_name
-        entry_type.name_fold = new_fold
-    if icon is not None:
-        entry_type.icon = icon
-    if form_schema is not None:
-        entry_type.form_schema = normalize_entry_type_form_schema(form_schema)
-
-    entry_type.updated_at = utc_now_iso()
-    await entry_type.save()
-
-    # Sync the attached operational model manifest
-    if entry_type.track_id:
-        track = await Track.get(entry_type.track_id)
-        if track:
-            cp = await get_track_attached_operational_model(track)
-            if cp:
-                await sync_attached_manifest(cp)
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry_type.update",
-        resource_type="EntryType",
-        resource_id=entry_type.id,
-        before=prior_snapshot,
-        after=await export_node(entry_type),
-        scope=f"track:{entry_type.track_id or ''}",
+    entry_type = await update_entry_type_for_actor(
+        user_id, entry_type_id, name=name, icon=icon, form_schema=form_schema
     )
-
-    return {
-        "entry_type": await export_node(entry_type),
-        "message": "Entry type updated successfully",
-    }
+    return {"entry_type": entry_type, "message": "Entry type updated successfully"}
 
 
 @endpoint(
@@ -263,55 +193,7 @@ async def delete_entry_type(request: Request, entry_type_id: str) -> Dict[str, A
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    entry_type = await EntryType.get(entry_type_id)
-    if not entry_type:
-        raise ResourceNotFoundError(message="Entry type not found")
-
-    if entry_type.track_id:
-        _decision = await policy_evaluate(
-            subject=Subject(kind="human", id=user_id),
-            action="track.update",
-            resource=Resource(
-                kind="track",
-                id=entry_type.track_id,
-                scope=f"track:{entry_type.track_id}",
-            ),
-        )
-        if not _decision.allowed:
-            raise InsufficientPermissionsError(message="Access denied")
-
-    prior_snapshot = await export_node(entry_type)  # D-03 before-snapshot
-    track_id_for_scope = entry_type.track_id or ""
-
-    # Sync manifest before deleting the node (so manifest reflects removal)
-    sync_cp = None
-    if entry_type.track_id:
-        track = await Track.get(entry_type.track_id)
-        if track:
-            sync_cp = await get_track_attached_operational_model(track)
-
-    if sync_cp:
-        from app.services.entry_type_service import assert_entry_type_deletable
-
-        await assert_entry_type_deletable(entry_type, sync_cp)
-
-    await entry_type.delete()
-
-    if sync_cp:
-        await sync_attached_manifest(sync_cp)
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry_type.delete",
-        resource_type="EntryType",
-        resource_id=entry_type_id,
-        before=prior_snapshot,
-        after=None,
-        scope=f"track:{track_id_for_scope}",
-    )
-
+    await delete_entry_type_for_actor(user_id, entry_type_id)
     return {
         "message": "Entry type deleted successfully",
         "deleted_entry_type_id": entry_type_id,

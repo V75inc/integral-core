@@ -27,7 +27,8 @@ _active: ContextVar[
 async def _participant_profile(principal_id: str) -> User:
     """Resolve current profile including disabled affected subjects, without allow."""
     context = get_default_context()
-    if principal_id.startswith("o.User."):
+    by_auth_id = principal_id.startswith("o.User.")
+    if by_auth_id:
         records = await context.database.find(
             "node",
             {
@@ -47,20 +48,19 @@ async def _participant_profile(principal_id: str) -> User:
             raise AuthorizationUnavailableError()
     auth_id = required_node_text(record, "user_id", allow_empty=True)
     if auth_id:
-        records = await context.database.find(
-            "node",
-            {
-                "entity": User._entity_name(),
-                "$or": [{"context.user_id": auth_id}, {"user_id": auth_id}],
-            },
-            limit=2,
-        )
-        if (
-            len(records) != 1
-            or records[0]["id"] != record["id"]
-            or not auth_id.startswith("o.User.")
-        ):
+        if not auth_id.startswith("o.User."):
             raise AuthorizationUnavailableError()
+        if not by_auth_id:
+            records = await context.database.find(
+                "node",
+                {
+                    "entity": User._entity_name(),
+                    "$or": [{"context.user_id": auth_id}, {"user_id": auth_id}],
+                },
+                limit=2,
+            )
+            if len(records) != 1 or records[0]["id"] != record["id"]:
+                raise AuthorizationUnavailableError()
         if await primary_auth_record(context.database, auth_id) is None:
             raise AuthorizationUnavailableError()
     profile = await context._deserialize_entity(User, record)
@@ -143,8 +143,10 @@ async def identity_admission(
                 )
             if (
                 locked is None
+                or locked.get("id") != identity_id
                 or locked.get("entity") != AuthUser._entity_name()
-                or await primary_auth_record(database, identity_id) is None
+                or not isinstance(locked.get("context"), dict)
+                or not isinstance(locked["context"].get("is_active"), bool)
             ):
                 raise AuthorizationUnavailableError()
         for profile_id in sorted(profiles):

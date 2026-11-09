@@ -231,8 +231,10 @@ async def postgres_graph_transaction(
     frame = None
     body_end = None
     committed = False
+    opening = perf_counter() if _write_lock_timings else 0.0
     try:
         async with _transaction_with_shielded_lifecycle(adapter) as ctx:
+            opened = perf_counter() if _write_lock_timings else 0.0
             # Discard authorization memo entries so reads inside this scope
             # observe grants written on the transaction's connection.
             reset_permissions_cache()
@@ -260,9 +262,12 @@ async def postgres_graph_transaction(
         ):
             finished = perf_counter()
             _logger.info(
-                "entry_write_locks action=%s committed=%s transaction_exit_ms=%.3f locks=%s",
+                "entry_write_locks action=%s committed=%s transaction_open_ms=%.3f "
+                "transaction_body_ms=%.3f transaction_exit_ms=%.3f locks=%s",
                 frame.write_action,
                 committed,
+                (opened - opening) * 1000,
+                (body_end - opened) * 1000,
                 (finished - body_end) * 1000,
                 {
                     scope: {

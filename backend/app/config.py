@@ -274,6 +274,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     # Query metrics stay enabled independently of noisy per-operation messages.
     DB_OPERATION_LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING"] = "INFO"
+    ENTRY_COUNT_PROJECTION_TRACK_ID: str = ""
+    ENTRY_SHARED_CREATE_ENABLED: bool = False
     DB_LOGGING_ENABLED: bool = Field(
         default=True,
         validation_alias="JVSPATIAL_DB_LOGGING_ENABLED",

@@ -85,3 +85,66 @@ async def create_track_internal(
             **fields,
         )
         return await track.export(flat=True)
+
+
+async def set_app_track_binding(
+    *, user_id: str, app_id: str, track_id: str, present: bool
+) -> None:
+    """Change an existing Track's parent relationship under workspace admission."""
+    from app.api.errors import (
+        InsufficientPermissionsError,
+        ResourceNotFoundError,
+    )
+    from app.api.utils import export_node
+    from app.models.edges import CONTAINS
+    from app.models.nodes import App, Track
+    from app.schemas.policy import Resource, Subject
+    from app.services.change_event import emit_change_event
+    from app.services.membership_write_scope import membership_write_scope
+    from app.services.policy_engine import evaluate
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+    from app.utils.time import utc_now_iso
+
+    location = await locate_resource(
+        "app", app_id, allowed_app_states=MANAGEMENT_APP_STATES
+    )
+    if location is None:
+        raise ResourceNotFoundError(message="App not found")
+    async with membership_write_scope(location.workspace_id, principal_ids=(user_id,)):
+        app = await App.find_one({"id": app_id})
+        if app is None or app.workspace_id != location.workspace_id:
+            raise ResourceNotFoundError(message="App no longer available")
+        decision = await evaluate(
+            subject=Subject(kind="human", id=user_id),
+            action="app.update",
+            resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+        )
+        if not decision.allowed:
+            raise InsufficientPermissionsError(message="Access denied")
+        track = await Track.find_one({"id": track_id})
+        if track is None:
+            raise ResourceNotFoundError(message="Track not found")
+        if track.workspace_id != location.workspace_id:
+            raise InsufficientPermissionsError(
+                message="Track is outside the App workspace"
+            )
+        before = await export_node(app)
+        context = await app.get_context()
+        edges = await context.find_edges_between(app.id, track.id, edge_class=CONTAINS)
+        if present and not edges:
+            await app.connect(track, edge=CONTAINS, added_at=utc_now_iso())
+        elif not present:
+            for edge in edges:
+                await edge.delete()
+        after = await export_node(app)
+
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="app.update",
+        resource_type="App",
+        resource_id=app_id,
+        before=before,
+        after=after,
+        scope=f"app:{app_id}",
+    )

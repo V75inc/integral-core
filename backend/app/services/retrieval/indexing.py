@@ -174,15 +174,26 @@ async def enqueue_entry(
 
     if not isinstance(get_embedding_store(), PgVectorEmbeddingStore):
         return
+    from app.services.entry_write_scope import is_postgres_entry_transaction
+    from app.services.resource_location import DATA_APP_STATES, locate_resource
+
     doc = None
+    workspace_id = ""
     if not source_error:
         try:
-            doc = await index_document(entry)
+            location = await locate_resource(
+                "entry", entry.id, allowed_app_states=DATA_APP_STATES
+            )
+            if location is not None:
+                doc = await index_document(entry, location=location)
+                if is_postgres_entry_transaction(get_default_context().database):
+                    workspace_id = location.workspace_id
         except Exception as exc:
             source_error = type(exc).__name__
     await _enqueue_document(
         entry,
         doc,
+        workspace_id=workspace_id,
         force=force,
         source_error=source_error,
         verify_integrity=verify_integrity,
@@ -190,7 +201,7 @@ async def enqueue_entry(
 
 
 async def _enqueue_document(
-    entry, doc, *, force=False, source_error="", verify_integrity=False
+    entry, doc, *, workspace_id="", force=False, source_error="", verify_integrity=False
 ):
     """Retain prepared reconciliation facts as intent, never as publication authority."""
     from app.services.entry_write_scope import entry_write_scope
@@ -198,8 +209,9 @@ async def _enqueue_document(
     from .embedding_configuration import indexing_profiles
     from .migration_barrier import barrier
 
-    workspace_id = doc["workspace_id"] if doc else ""
-    if doc is None:
+    if doc:
+        workspace_id = doc["workspace_id"]
+    if not workspace_id:
         from app.services.resource_location import (
             MANAGEMENT_APP_STATES,
             locate_resource,

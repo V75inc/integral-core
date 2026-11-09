@@ -669,38 +669,10 @@ async def add_track_to_app(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    _decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="app.update",
-        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
-    )
-    if not _decision.allowed:
-        raise InsufficientPermissionsError(message="Access denied")
+    from app.services.track_writer import set_app_track_binding
 
-    sp = await App.get(app_id)
-    if not sp:
-        raise ResourceNotFoundError(message="App not found")
-
-    track = await Track.get(track_id)
-    if not track:
-        raise ResourceNotFoundError(message="Track not found")
-
-    prior_snapshot = await export_node(sp)  # D-03 before-snapshot
-    ctx = await sp.get_context()
-    existing = await ctx.find_edges_between(sp.id, track.id, edge_class=CONTAINS)
-    if not existing:
-        await sp.connect(track, edge=CONTAINS, added_at=utc_now_iso())
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="app.update",
-        resource_type="App",
-        resource_id=sp.id,
-        before=prior_snapshot,
-        after=await export_node(sp),
-        scope=f"app:{sp.id}",
+    await set_app_track_binding(
+        user_id=user_id, app_id=app_id, track_id=track_id, present=True
     )
 
     return {
@@ -808,38 +780,10 @@ async def remove_track_from_app(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    _decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="app.update",
-        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
-    )
-    if not _decision.allowed:
-        raise InsufficientPermissionsError(message="Access denied")
+    from app.services.track_writer import set_app_track_binding
 
-    sp = await App.get(app_id)
-    if not sp:
-        raise ResourceNotFoundError(message="App not found")
-
-    track = await Track.get(track_id)
-    if not track:
-        raise ResourceNotFoundError(message="Track not found")
-
-    prior_snapshot = await export_node(sp)  # D-03 before-snapshot
-    ctx = await sp.get_context()
-    edges = await ctx.find_edges_between(sp.id, track.id, edge_class=CONTAINS)
-    for edge in edges:
-        await edge.delete()
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="app.update",
-        resource_type="App",
-        resource_id=sp.id,
-        before=prior_snapshot,
-        after=await export_node(sp),
-        scope=f"app:{sp.id}",
+    await set_app_track_binding(
+        user_id=user_id, app_id=app_id, track_id=track_id, present=False
     )
 
     return {

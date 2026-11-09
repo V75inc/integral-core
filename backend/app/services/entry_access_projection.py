@@ -50,6 +50,38 @@ class _BinaryTitleUnavailable(Exception):
     """The adapter cannot match the portable title comparator for this scope."""
 
 
+def _entry_count_binding_facts(track_id: str):
+    from jvspatial.db.graph_bindings import LiteralBindingFact
+
+    return (
+        LiteralBindingFact("context.track_id", (track_id,), "track_id"),
+        LiteralBindingFact("context.visibility", ("inherit", "private"), "visibility"),
+    )
+
+
+async def configure_entry_count_projection(
+    track_id: str, *, rebuild: bool = False
+) -> bool:
+    """Attach the existing projection, or backfill during explicit maintenance."""
+    database = get_default_context().database
+    name = (
+        "install_graph_binding_projection"
+        if rebuild
+        else "attach_graph_binding_projection"
+    )
+    configure = getattr(database, name, None)
+    if not track_id or not callable(configure):
+        return False
+    attached = await configure(
+        partition_path="context.track_id",
+        record_entity=Entry._entity_name(),
+        edge_entity=CONTAINS._entity_name(),
+        parent_id=track_id,
+        facts=_entry_count_binding_facts(track_id),
+    )
+    return rebuild or bool(attached)
+
+
 async def ensure_entry_title_indexes() -> None:
     """Prepare optional storage indexes alongside the other model indexes."""
     database = get_default_context().database
@@ -855,7 +887,7 @@ async def _native_bound_count(
         return _BoundCount(0, None)
 
     # Feature-detected: the published baseline need not expose these new types.
-    from jvspatial.db.graph_bindings import GraphBindingSummary, LiteralBindingFact
+    from jvspatial.db.graph_bindings import GraphBindingSummary
 
     async def current_owner_location():
         user = await get_user_node(user_id)
@@ -903,12 +935,7 @@ async def _native_bound_count(
         record_entity=Entry._entity_name(),
         edge_entity=CONTAINS._entity_name(),
         parent_id=track_id,
-        facts=(
-            LiteralBindingFact("context.track_id", (track_id,), "track_id"),
-            LiteralBindingFact(
-                "context.visibility", ("inherit", "private"), "visibility"
-            ),
-        ),
+        facts=_entry_count_binding_facts(track_id),
         max_records=_NATIVE_COUNT_MAX_RECORDS,
         max_edges=_NATIVE_COUNT_MAX_EDGES,
     )

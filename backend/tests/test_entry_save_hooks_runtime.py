@@ -22,7 +22,7 @@ import pytest
 
 from app.models.edges import CONTAINS
 from app.models.nodes import App, Entry, EntryType, Track, Workspace
-from app.services.hooks import entry_save_runtime, resolver
+from app.services.hooks import entry_save_runtime, registry, resolver
 
 
 @pytest.mark.asyncio
@@ -35,6 +35,7 @@ async def test_hook_dispatch_prefers_manifest_key_over_slugified_name(monkeypatc
         captured.append(payload)
         return []
 
+    monkeypatch.setattr(registry, "get_workspace_hooks", lambda *_: [{}])
     monkeypatch.setattr(resolver, "find_matching_bindings", fake_find_matching_bindings)
 
     track = await Track.create(
@@ -85,6 +86,7 @@ async def test_hook_dispatch_falls_back_to_slugified_name_when_no_manifest_key(
         captured.append(payload)
         return []
 
+    monkeypatch.setattr(registry, "get_workspace_hooks", lambda *_: [{}])
     monkeypatch.setattr(resolver, "find_matching_bindings", fake_find_matching_bindings)
 
     track = await Track.create(
@@ -151,13 +153,14 @@ async def test_before_write_dispatch_includes_phase_and_manifest_key(monkeypatch
 @pytest.mark.parametrize("point", ["entry.create", "entry.update"])
 async def test_save_hooks_only_dispatch_from_owning_bundle(monkeypatch, point):
     """Common type names must not trigger hooks from another installed App."""
-    from app.services.hooks import registry, tool_dispatch
+    from app.services.hooks import tool_dispatch
 
     calls = []
     bindings = [
         {"key": slug, "mode": "tool", "tool": slug, "_bundle_slug": slug}
         for slug in ("bundle-a", "bundle-b")
     ]
+    monkeypatch.setattr(registry, "get_workspace_hooks", lambda *_: bindings)
     monkeypatch.setattr(resolver, "find_matching_bindings", lambda *args: bindings)
     monkeypatch.setattr(
         registry, "get_workspace_tools", lambda ws: {b["tool"]: b for b in bindings}

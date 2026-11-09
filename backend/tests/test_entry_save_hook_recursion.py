@@ -19,6 +19,7 @@ def hook_entry(monkeypatch):
         )
 
     monkeypatch.setattr(EntryType, "get", entry_type)
+    monkeypatch.setattr(registry, "get_workspace_hooks", lambda *_: [{}])
     monkeypatch.setattr(
         registry, "get_workspace_tools", lambda _ws: {"mirror": {"key": "mirror"}}
     )

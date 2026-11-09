@@ -17,18 +17,20 @@ from typing import Any, Callable, Dict, List, Optional
 from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
-from app.models.nodes import Entry, EntryType, Tag, Track
+from app.models.nodes import Entry, EntryType, OperationalModel, Tag, Track
 from app.schemas.policy import Subject
 from app.schemas.provenance import Provenance
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
+from app.services.entry_effect_scope import ExclusiveEntryCreateRequired
 from app.services.entry_type_service import materialize_entry_types_from_tier
 from app.services.hooks.entry_save_runtime import (
     entry_type_hook_slug,
     run_entry_before_write_hooks,
     run_entry_save_hooks,
 )
+from app.services.hooks.registry import get_workspace_hooks
 from app.services.operational_model_compile import slug_manifest_key
 from app.services.operational_model_runtime import (
     resolve_entry_type_spec,
@@ -110,6 +112,28 @@ async def _seed_preview_default_fields(
     return out
 
 
+async def _locked_create_node(model, node_id):
+    """Use the current typed row while protecting it through create commit."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import measure_write_lock
+
+    context = get_default_context()
+    with measure_write_lock("entry_create_schema_row", shared=True):
+        row = await context.database.lock_record("node", node_id, shared=True)
+    if (
+        row is None
+        or row.get("id") != node_id
+        or row.get("entity") != model._entity_name()
+        or not isinstance(row.get("context"), dict)
+    ):
+        raise ExclusiveEntryCreateRequired()
+    node = await context._deserialize_entity(model, row)
+    if node is None:
+        raise ExclusiveEntryCreateRequired()
+    return node
+
+
 async def _create_entry_in_track(
     *,
     track: Track,
@@ -128,6 +152,7 @@ async def _create_entry_in_track(
     provenance: Optional[Provenance] = None,
     idempotency_key: str = "",
     moderation_error: BadRequestError | None = None,
+    shared_create: bool = False,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
     """Create an Entry on ``track`` with the full graph + materialize contract.
@@ -138,12 +163,18 @@ async def _create_entry_in_track(
     track_id = track.id
     from app.services.migration_write_guard import assert_track_schema_writable
 
-    await assert_track_schema_writable(track)
+    if shared_create:
+        if track.template_id or not track.attached_operational_model_id:
+            raise ExclusiveEntryCreateRequired()
+    else:
+        await assert_track_schema_writable(track)
     resolved_type = entry_type
 
     if resolved_type is None and type_id:
         resolved_type = await EntryType.get(type_id)
         if resolved_type is None:
+            if shared_create:
+                raise ExclusiveEntryCreateRequired()
             # Anchored tracks may only have types in the manifest tier until
             # first materialization — try once, then fail closed on the
             # caller's explicit id (never silently swap to another type).
@@ -155,6 +186,8 @@ async def _create_entry_in_track(
     if resolved_type is None:
         found = await EntryType.find({"context.track_id": track_id})
         if not found:
+            if shared_create:
+                raise ExclusiveEntryCreateRequired()
             await ensure_track_attached_operational_model(track)
             found = await EntryType.find({"context.track_id": track_id})
         if not found:
@@ -169,6 +202,17 @@ async def _create_entry_in_track(
         raise ResourceNotFoundError(message="Entry type not found")
     if resolved_type.track_id and resolved_type.track_id != track_id:
         raise ResourceNotFoundError(message="Entry type not found on track")
+
+    if shared_create:
+        resolved_type = await _locked_create_node(EntryType, resolved_type.id)
+        if resolved_type.track_id != track.id or resolved_type.is_template:
+            raise ExclusiveEntryCreateRequired()
+        model = await _locked_create_node(
+            OperationalModel, track.attached_operational_model_id
+        )
+        if model.scope != "track":
+            raise ExclusiveEntryCreateRequired()
+        await assert_track_schema_writable(track)
 
     # Every generic creation surface (HTTP, public sharing, imports and
     # transforms) converges here. Protected App state is writable only by a
@@ -202,6 +246,12 @@ async def _create_entry_in_track(
         track_id=track_id, user_id=user_id, type_id=resolved_type_id
     )
     operational_model, runtime_tier, _ = await resolve_track_runtime_profile(track)
+    if shared_create and (
+        operational_model is None
+        or operational_model.id != track.attached_operational_model_id
+        or resolve_entry_type_spec(resolved_type, runtime_tier).get("fields")
+    ):
+        raise ExclusiveEntryCreateRequired()
     schema_revision = schema_revision_from_profile_version(
         getattr(operational_model, "version_number", None)
     )
@@ -241,6 +291,8 @@ async def _create_entry_in_track(
     # Schema materialization may add protected defaults or empty fields. Those
     # are not caller writes. Snapshot deeply so hooks cannot hide nested edits
     # by mutating their input in place.
+    if shared_create and get_workspace_hooks(ws_id, "entry.create"):
+        raise ExclusiveEntryCreateRequired()
     before_hook_custom_fields = deepcopy(validated_custom_fields)
     try:
         validated_custom_fields = await run_entry_before_write_hooks(
@@ -382,6 +434,8 @@ async def _create_entry_in_track(
             await entry.connect(tag, edge=TAGGED_WITH, tagged_at=now, tagged_by=user_id)
 
     await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
+    if shared_create and get_workspace_hooks(ws_id, "entry.create"):
+        raise ExclusiveEntryCreateRequired()
     await run_entry_save_hooks(
         entry=entry,
         workspace_id=workspace_id or getattr(track, "workspace_id", "") or "",
@@ -446,8 +500,6 @@ async def create_entry_in_track(
         is_postgres_entry_transaction,
     )
 
-    events: List[Dict[str, Any]] = []
-    outbox_id = None
     moderation_error = None
     if not skip_profanity:
         try:
@@ -467,81 +519,127 @@ async def create_entry_in_track(
         change_event_sink = approved_event_sink
     from app.agentive.services.staging_execution import staged_entry_effect
 
-    async with (
-        entry_write_scope(f"track:{track.id}") as graph,
-        staged_entry_effect(
-            user_id=user_id,
-            workspace_id=workspace_id or track.workspace_id,
-            track_id=track.id,
-        ) as complete_staged_effect,
-    ):
-        fresh_track = await Track.get(track.id)
-        if fresh_track is None:
-            raise ResourceNotFoundError(message="Track not found")
-        if workspace_id and fresh_track.workspace_id != workspace_id:
-            from app.api.errors import InsufficientPermissionsError
+    async def attempt(shared_create: bool):
+        events: List[Dict[str, Any]] = []
+        outbox_id = None
+        async with (
+            entry_write_scope(f"track:{track.id}") as graph,
+            staged_entry_effect(
+                user_id=user_id,
+                workspace_id=workspace_id or track.workspace_id,
+                track_id=track.id,
+            ) as complete_staged_effect,
+        ):
+            if shared_create and (
+                complete_staged_effect is not None
+                or not is_postgres_entry_transaction(graph.database)
+            ):
+                raise ExclusiveEntryCreateRequired()
+            fresh_track = await Track.get(track.id)
+            if fresh_track is None:
+                raise ResourceNotFoundError(message="Track not found")
+            if workspace_id and fresh_track.workspace_id != workspace_id:
+                from app.api.errors import InsufficientPermissionsError
 
-            raise InsufficientPermissionsError(
-                message="Track is outside the bound workspace"
-            )
-        # Rehydrate the type under the command's context as well.
-        fresh_type = await EntryType.get(entry_type.id) if entry_type else None
-        from app.services.entry_effect_scope import entry_effect_scope
+                raise InsufficientPermissionsError(
+                    message="Track is outside the bound workspace"
+                )
+            # Rehydrate the type under the command's context as well.
+            fresh_type = await EntryType.get(entry_type.id) if entry_type else None
+            from app.services.entry_effect_scope import entry_effect_scope
 
-        actual_payload = {
-            "track_id": fresh_track.id,
-            "title": title,
-            "body": body,
-            "type_id": type_id or (entry_type.id if entry_type else ""),
-            "custom_fields": dict(custom_fields or {}),
-            "tags": list(tags or []),
-            "attachment_ids": list(attachment_ids or []),
-            **(
-                {"provenance": provenance.model_dump(mode="json")} if provenance else {}
-            ),
-        }
-        async with entry_effect_scope(
-            user_id=user_id,
-            actor_kind=actor_kind,
-            actor_id=actor_id,
-            action="entry.create",
-            target_kind="track",
-            target_id=fresh_track.id,
-            workspace_id=fresh_track.workspace_id,
-            payload=actual_payload,
-            authorization_subject=authorization_subject,
-        ) as admitted_principal_id:
-            entry = await _create_entry_in_track(
-                track=fresh_track,
-                user_id=admitted_principal_id,
-                title=title,
-                body=body,
-                custom_fields=custom_fields,
-                tags=tags,
-                entry_type=fresh_type,
-                type_id=type_id or (entry_type.id if entry_type else ""),
-                attachment_ids=attachment_ids,
-                workspace_id=workspace_id,
+            actual_payload = {
+                "track_id": fresh_track.id,
+                "title": title,
+                "body": body,
+                "type_id": type_id or (entry_type.id if entry_type else ""),
+                "custom_fields": dict(custom_fields or {}),
+                "tags": list(tags or []),
+                "attachment_ids": list(attachment_ids or []),
+                **(
+                    {"provenance": provenance.model_dump(mode="json")}
+                    if provenance
+                    else {}
+                ),
+            }
+            locked_track: dict = {}
+            async with entry_effect_scope(
+                user_id=user_id,
                 actor_kind=actor_kind,
                 actor_id=actor_id,
-                authorization_subject=authorization_subject,
-                provenance=provenance,
-                idempotency_key=idempotency_key,
-                moderation_error=moderation_error,
-                change_event_sink=change_event_sink or events.append,
-            )
-        if events and is_postgres_entry_transaction(graph.database):
-            from app.services.app_operations.event_outbox import insert_entry_event
-
-            outbox_id = await insert_entry_event(
-                transaction=graph.database,
+                action="entry.create",
+                target_kind="track",
+                target_id=fresh_track.id,
                 workspace_id=fresh_track.workspace_id,
-                event=events[0],
-            )
-        if complete_staged_effect is not None:
-            await complete_staged_effect(
-                {"entry_id": entry.id, "track_id": fresh_track.id}
-            )
+                payload=actual_payload,
+                authorization_subject=authorization_subject,
+                shared_create=shared_create,
+                locked_target_out=locked_track if shared_create else None,
+            ) as admitted_principal_id:
+                if shared_create:
+                    current = await graph._deserialize_entity(Track, locked_track)
+                    if (
+                        current is None
+                        or current.workspace_id != fresh_track.workspace_id
+                    ):
+                        raise ExclusiveEntryCreateRequired()
+                    fresh_track = current
+                entry = await _create_entry_in_track(
+                    track=fresh_track,
+                    user_id=admitted_principal_id,
+                    title=title,
+                    body=body,
+                    custom_fields=custom_fields,
+                    tags=tags,
+                    entry_type=fresh_type,
+                    type_id=type_id or (entry_type.id if entry_type else ""),
+                    attachment_ids=attachment_ids,
+                    workspace_id=workspace_id,
+                    actor_kind=actor_kind,
+                    actor_id=actor_id,
+                    authorization_subject=authorization_subject,
+                    provenance=provenance,
+                    idempotency_key=idempotency_key,
+                    moderation_error=moderation_error,
+                    shared_create=shared_create,
+                    change_event_sink=change_event_sink or events.append,
+                )
+            if events and is_postgres_entry_transaction(graph.database):
+                from app.services.app_operations.event_outbox import insert_entry_event
+
+                outbox_id = await insert_entry_event(
+                    transaction=graph.database,
+                    workspace_id=fresh_track.workspace_id,
+                    event=events[0],
+                )
+            if complete_staged_effect is not None:
+                await complete_staged_effect(
+                    {"entry_id": entry.id, "track_id": fresh_track.id}
+                )
+        return entry, graph, events, outbox_id
+
+    from app.config import settings
+
+    shared_candidate = (
+        settings.ENTRY_SHARED_CREATE_ENABLED
+        and actor_kind == "human"
+        and user_id != "public"
+        and authorization_subject is None
+        and not any((custom_fields, tags, attachment_ids, provenance, idempotency_key))
+        and change_event_sink is None
+        and not track.template_id
+        and not get_workspace_hooks(track.workspace_id, "entry.create")
+        and getattr(
+            caller_context.database, "supports_native_graph_binding_summary", False
+        )
+        and not is_postgres_entry_transaction(caller_context.database)
+    )
+    try:
+        entry, graph, events, outbox_id = await attempt(shared_candidate)
+    except ExclusiveEntryCreateRequired:
+        if not shared_candidate:
+            raise
+        entry, graph, events, outbox_id = await attempt(False)
     # Callers may save provenance or connect a transformed record after this
     # command returns. Its owned transaction has released the connection; a
     # nested command must instead retain the caller's still-active context.
