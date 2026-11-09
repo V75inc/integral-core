@@ -319,24 +319,34 @@ entries, not a second Mowers Track.
 
 ### Home and dashboard in the first design
 
-Every new App gets a distinct **Home** tab. In `blueprint.app.home`, write an
-`introduction` (up to 500 characters) that explains the App's purpose, and
-up to five `steps` (up to 300 characters each) that tell people where to
-start, what to record, and where to return to review or act. Set
-`track_shortcuts` to the exact names of the most useful planned Tracks
-(up to five). Home links to those Tracks and shows their current record counts.
-For a meaningful workflow, include up to three `actions` with a short
-`label` and a `draft` describing the task in chat. These open a draft for the
-user to review and send. For example, “Log a grocery run” can open a draft
-to record a receipt and update the pantry. Put the welcome, links, readouts
-and actions in the proposal. Never invent URLs or promise an action runs
-on click.
-Treat Home as a welcome page. Start with one short sentence about the
-outcome, then use two to four short, verb-led steps in working order.
-Put the main Track first, link only useful destinations, and offer the
-one to three actions people will actually repeat. Use distinct, readable
-labels and avoid repeating the same guidance in the welcome, steps and
-action labels.
+Every new App gets a distinct **Home** tab. Choose one layout based on
+why people will open the App. Name it in the proposal and set
+`blueprint.app.home.layout` to the matching value:
+
+- **Quick Start** (`quick_start`): use for recurring actions or when the
+  requirements are sparse. Lead with the primary action, give two to four
+  short workflow paragraphs in order, then link the main Tracks.
+- **Operations Overview** (`operations_overview`): use when people return
+  to review a queue, deadlines, or exceptions. Put the operational Tracks
+  first so their live record counts are visible next to guidance on what to
+  check. Only use a Track count to describe what that Track actually contains.
+  If a filtered queue or KPI is needed, place it in the appropriate saved
+  view or dashboard and tell people where to find it in the guidance.
+- **Resource Hub** (`resource_hub`): use when finding information is the
+  main job. Put categories first and use `shortcut_descriptions` to explain
+  each destination in one sentence. Follow with short "Start with" guidance
+  that points people to resources or sections that actually exist.
+
+Write an `introduction` (up to 500 characters) and up to five `steps`
+(up to 300 characters each). Each item is a short, complete prose paragraph.
+Let the UI wrap it. Avoid hard line breaks, padding, bullet characters and
+manual numbering. Use exact planned Track names in `track_shortcuts`
+(up to five), and use the same names as keys in `shortcut_descriptions`.
+Put the most useful destination first. Use up to three `actions` with a
+short `label` and a `draft` that opens in chat for review. Put the primary
+action first. Leave actions out when a Track link is the better starting
+point. Include the layout, guidance, links, and actions in the proposal.
+Never invent URLs, counts, records, or automatic actions.
 Keep an existing App's Home when scaffolding an extension unless asked to edit it.
 
 When asked to add Home or sample records to an existing App, there is no new
@@ -349,14 +359,31 @@ Do not inspect every Track before starting, and do not repeat schema reads
 already returned in this turn. If one part cannot proceed, explain what is
 missing and continue with the part that can.
 
-For every new App, decide whether a separate dashboard would help someone
-monitor a meaningful outcome, such as spend over time, low stock, or workload
-by status. If useful, include it in the first proposal and `blueprint.dashboard`
-with a clear name and the widgets that answer those questions. Use
-`integral_describe_dashboard_substrate` for supported widgets, bind them to
-planned Tracks and fields, and build the dashboard in the same approved batch.
-For example, a grocery App's Home can explain how to log receipts and review
-replenishment, while its dashboard can summarize spending and stock status.
+Decide dashboard scope before proposing every new App. Include a dashboard
+by default when the brief describes a recurring review, decision, or comparison
+that can be supported by the planned records. Examples include a coordinator
+prioritizing service calls every morning, a team monitoring deadlines or
+exceptions, and an owner reviewing spending or receipts. The user does not
+need to ask for a dashboard by name. Treat Operations Overview as a strong
+signal to include one. A saved queue shows which records to act on, while
+a dashboard can show the size or shape of that workload across statuses,
+dates, or Tracks. Include both when they answer different questions.
+
+For example, Facilities Dispatch needs a morning dashboard with separate
+Service Calls and Inspections status breakdowns, plus due or overdue counts
+if supported by the planned fields and filters. A simple Print Requests app
+can omit analytics if people only submit and check individual requests.
+A handbook can omit analytics if people mainly look up resources. Respect
+an explicit request to omit dashboards and never invent a metric, data source,
+or reporting requirement. If omitting one, briefly say why in the proposal.
+An empty new App can still have a dashboard when its planned fields support
+the analysis.
+
+When included, name the dashboard and its widgets in the first proposal and
+`blueprint.dashboard`. Use `integral_describe_dashboard_substrate` to confirm
+supported widgets, bind them to the planned Tracks and fields, and build the
+dashboard in the same approved batch. Verify that the saved dashboard contains
+the proposed widgets and renders valid values or an honest empty state.
 Design the dashboard around the questions a person checks repeatedly.
 Place two or three headline metrics in a single top row with aligned
 edges and equal widths. Give the main trend a full-width row below
@@ -398,7 +425,7 @@ it lets them do:
 - App + each track (what it keeps track of, its fields by display name, and
   which other lists it links to)
 - Views and the question each one answers
-- Home introduction and first steps for new Apps, and the dashboard when useful
+- Home introduction and first steps for new Apps, plus the dashboard and its decision or a short reason for omitting it
 - Routines it will remember, each usable only in this App (default) or from
   anywhere in the workspace
 - Reminders (when, how far ahead, how often, delivered in this chat)

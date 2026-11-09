@@ -48,6 +48,8 @@ export interface AppHome {
   renderer?: 'widgets' | 'native';
   content?: HomeElement;
   track_shortcuts?: string[];
+  layout?: 'quick_start' | 'operations_overview' | 'resource_hub';
+  shortcut_descriptions?: Record<string, string>;
   actions?: Array<{ label: string; draft: string; when?: { widget: string; state: 'empty' | 'has_records' } }>;
   widgets?: HomeWidget[];
 }

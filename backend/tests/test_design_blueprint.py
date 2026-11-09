@@ -911,3 +911,35 @@ def test_approved_dashboard_cannot_silently_drop_the_monthly_chart():
     assert "payments by month" in errors[0]
     dashboard["widgets"].append({"title": "Payments by month", "type": "chart_line"})
     assert plan_fidelity_errors(blueprint, operations, new_app=True) == []
+
+
+@pytest.mark.parametrize(
+    ("layout", "section"),
+    [
+        ("quick_start", "Start here"),
+        ("operations_overview", "What to check"),
+        ("resource_hub", "Start with"),
+    ],
+)
+def test_scaffold_home_compiles_layout_and_compact_paragraphs(layout, section):
+    from app.schemas.app_home import AppHomeComposition, ScaffoldHome
+
+    home = ScaffoldHome.model_validate(
+        {
+            "layout": layout,
+            "introduction": "Manage orders.\n   Record payments.",
+            "steps": ["Open the\n    orders Track.", "Review the due dates."],
+            "track_shortcuts": ["Orders"],
+            "shortcut_descriptions": {"Orders": "Open orders and due dates."},
+        }
+    ).composition()
+    assert AppHomeComposition.model_validate(home).layout == layout
+    assert home["description"] == "Manage orders. Record payments."
+    assert home["shortcut_descriptions"] == {"Orders": "Open orders and due dates."}
+    assert home["content"]["type"] == "card"
+    assert home["content"]["title"] == section
+    assert home["content"]["gap"] == "sm"
+    assert [(item["type"], item["text"]) for item in home["content"]["children"]] == [
+        ("text", "Open the orders Track."),
+        ("text", "Review the due dates."),
+    ]

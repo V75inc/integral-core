@@ -1737,6 +1737,7 @@ async def build_approved_design(
         if not home:
             # Older approved designs still get a guide grounded in their plan.
             home = {
+                "layout": "quick_start",
                 "introduction": (
                     app_design.get("description")
                     or params.get("description")

@@ -476,6 +476,7 @@ async def test_stages_and_commits_once_with_bound_identity(
         home
         if with_blueprint
         else {
+            "layout": "quick_start",
             "introduction": "Bicycle Repair Management",
             "steps": ["Open Customers to work with its records."],
             "track_shortcuts": ["Customers"],
