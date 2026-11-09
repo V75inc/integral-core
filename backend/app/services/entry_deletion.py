@@ -281,7 +281,7 @@ async def delete_entry_fast(
             target_kind="entry",
             target_id=current.id,
             workspace_id=track.workspace_id,
-            locked_entry_out=locked_entry,
+            locked_target_out=locked_entry,
             payload={
                 "entry_id": current.id,
                 **(

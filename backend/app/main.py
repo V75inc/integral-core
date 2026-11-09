@@ -787,6 +787,17 @@ async def _startup() -> None:
     if _auto_create_indexes_enabled():
         await _ensure_model_indexes()
 
+    projection_track_id = settings.ENTRY_COUNT_PROJECTION_TRACK_ID.strip()
+    if projection_track_id:
+        from app.services.entry_access_projection import (
+            configure_entry_count_projection,
+        )
+
+        if not await configure_entry_count_projection(projection_track_id):
+            std_logging.getLogger(__name__).warning(
+                "Entry count projection unavailable. Using native binding summaries."
+            )
+
     sep = "=" * 80
     print(sep)
     print("Integral Backend API starting...")

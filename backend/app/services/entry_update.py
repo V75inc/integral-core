@@ -128,6 +128,7 @@ async def update_entry_in_track(
             actual_payload["replace_custom_fields"] = True
         if provenance is not None:
             actual_payload["provenance"] = provenance.model_dump(mode="json")
+        locked_entry: dict = {}
         async with entry_effect_scope(
             user_id=user_id,
             actor_kind=actor_kind,
@@ -138,12 +139,17 @@ async def update_entry_in_track(
             workspace_id=track.workspace_id,
             payload=actual_payload,
             authorization_subject=authorization_subject,
+            locked_target_out=locked_entry,
         ) as admitted_principal_id:
             # Admission may wait for a peer updating this same Entry. Refresh
             # after its exact row lock, before inspecting revisions or merging
             # fields; an earlier snapshot cannot overwrite a committed peer.
             prior_track_id = track.id
-            entry = await Entry.find_one({"id": entry_id})
+            entry = (
+                await get_default_context()._deserialize_entity(Entry, locked_entry)
+                if locked_entry
+                else await Entry.find_one({"id": entry_id})
+            )
             track = await Track.find_one({"id": entry.track_id}) if entry else None
             if entry is None or track is None:
                 raise ResourceNotFoundError(message="Entry no longer available")

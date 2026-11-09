@@ -65,6 +65,43 @@ Explicit DSN `options` or `plan_cache_mode` remain authoritative; transaction
 poolers receive no new session option. See the backend's governed-read
 performance qualification instructions for the isolated scale gate.
 
+The optional exact-count projection covers one configured Track per PostgreSQL
+schema. Use a Core build with projection support in its jvspatial dependency.
+Set `ENTRY_COUNT_PROJECTION_TRACK_ID` to the target Track ID. In a maintenance
+window, run the following inside the configured Core environment. Backfill
+holds a write fence on the source tables until publication commits.
+
+```bash
+python - <<'PY'
+import asyncio
+import app.main
+from app.config import settings
+from app.services.entry_access_projection import configure_entry_count_projection
+
+async def main():
+    track_id = settings.ENTRY_COUNT_PROJECTION_TRACK_ID.strip()
+    if not track_id or not await configure_entry_count_projection(track_id, rebuild=True):
+        raise SystemExit("Configure a Track and a PostgreSQL adapter with projection support")
+
+asyncio.run(main())
+PY
+```
+
+Workers attach on startup. Core still evaluates live access before and after
+counting. Other Tracks, unsupported filters, and invalidated projections use
+the native count path. To roll back, call
+`await get_default_context().database.invalidate_graph_binding_projection()`
+from the configured Core environment. This unpublishes the projection across
+workers and stops its maintenance. Remove the environment setting on the next
+restart.
+
+Set `ENTRY_SHARED_CREATE_ENABLED=true` for a controlled PostgreSQL rollout of
+shared authorization admission for ordinary Entry creates on standalone Tracks.
+The create transaction locks the current Track, EntryType, and attached schema
+rows. It retries with exclusive admission if the current Track has an App
+parent, needs schema materialization, has custom fields, or has save hooks.
+Leave the setting unset for the default exclusive create path.
+
 Provide JWT, OAuth, and model-credential encryption keys through a secret manager. Configure public URL, allowed origins, reverse proxy, TLS, CSP, email delivery, provider policy, retention, and a real attachment scanner as required. Core-only boot does not disable the resident or agentive layer.
 
 Mailbox verification and password recovery use the platform's `EMAIL_PROVIDER`,

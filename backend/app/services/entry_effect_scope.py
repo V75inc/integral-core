@@ -13,6 +13,10 @@ from app.services.identity_admission import identity_admission
 from app.services.resource_location import DATA_APP_STATES, locate_resource
 
 
+class ExclusiveEntryCreateRequired(Exception):
+    """Abort an optimistic create before retrying with exclusive admission."""
+
+
 @asynccontextmanager
 async def entry_effect_scope(
     *,
@@ -25,7 +29,8 @@ async def entry_effect_scope(
     workspace_id: str,
     payload: dict,
     authorization_subject: Subject | None = None,
-    locked_entry_out: dict | None = None,
+    locked_target_out: dict | None = None,
+    shared_create: bool = False,
 ):
     """Join the command transaction; hold authority until its effects finish."""
     from app.api.errors import InsufficientPermissionsError
@@ -91,48 +96,67 @@ async def entry_effect_scope(
     service = (
         None if subject.kind == "human" else await delegated_subject_record(subject)
     )
-    # Creates/types/custom fields can materialize schema or invoke cross-record
-    # hooks; deletes can cascade. Preserve exclusive ordering for those paths.
-    # Independent metadata updates retain an exact row lock and revision CAS.
-    concurrent_update = (
+    # Type changes, custom fields and cascades may affect other records.
+    # Only metadata updates and guarded standalone creates can share admission.
+    shared = (
         action == "entry.update"
         and target_kind == "entry"
         and "custom_fields" not in payload
         and "type_id" not in payload
     )
+    shared = shared or (
+        shared_create
+        and action == "entry.create"
+        and target_kind == "track"
+        and subject.kind == "human"
+    )
     with isolated_permissions_cache():
-        async with identity_admission(participants, shared=concurrent_update):
+        async with identity_admission(participants, shared=shared):
             database = get_default_context().database
             if service is not None and is_postgres_entry_transaction(database):
                 model, collection, identity = service
-                with measure_write_lock("delegation_row", shared=concurrent_update):
+                with measure_write_lock("delegation_row", shared=shared):
                     locked = await database.lock_record(
-                        collection, identity, shared=concurrent_update
+                        collection, identity, shared=shared
                     )
                 if locked is None or locked.get("entity") != model._entity_name():
                     raise AuthorizationUnavailableError()
             async with AsyncExitStack() as stack:
-                locked_entry = None
+                locked_target = None
                 if is_postgres_entry_transaction(database):
                     await stack.enter_async_context(
-                        authorization_scope(workspace_id, shared=concurrent_update)
+                        authorization_scope(workspace_id, shared=shared)
                     )
                     if target_kind == "entry":
                         with measure_write_lock("entry_row"):
-                            locked_entry = await database.lock_record("node", target_id)
-                        if locked_entry is None:
+                            locked_target = await database.lock_record(
+                                "node", target_id
+                            )
+                        if locked_target is None:
                             raise AuthorizationUnavailableError()
+                    elif shared_create:
+                        with measure_write_lock("entry_create_track_row", shared=True):
+                            locked_target = await database.lock_record(
+                                "node", target_id, shared=True
+                            )
+                        if locked_target is None:
+                            raise ExclusiveEntryCreateRequired()
                 records: dict[str, dict] = {}
                 location = await locate_resource(
                     target_kind,
                     target_id,
                     allowed_app_states=DATA_APP_STATES,
-                    records_out=records if target_kind == "entry" else None,
+                    records_out=(
+                        records if target_kind == "entry" or shared_create else None
+                    ),
+                    selected_record=locked_target,
                 )
                 if location is None or location.workspace_id != workspace_id:
                     raise InsufficientPermissionsError(
                         message="Entry target is outside the admitted workspace"
                     )
+                if shared_create and location.app_id:
+                    raise ExclusiveEntryCreateRequired()
                 from app.models.nodes import EntryType
                 from app.services.authority_facts import primary_node_record
                 from app.services.operational_model_compile import slug_manifest_key
@@ -247,8 +271,8 @@ async def entry_effect_scope(
                     raise InsufficientPermissionsError(
                         message="Current Entry effect authority denied"
                     )
-                if locked_entry_out is not None and locked_entry is not None:
-                    locked_entry_out.update(records[target_id])
+                if locked_target_out is not None and locked_target is not None:
+                    locked_target_out.update(records[target_id])
                 if exact_principal is not None:
                     if exact_principal not in participants:
                         raise AuthorizationUnavailableError()

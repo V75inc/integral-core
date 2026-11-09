@@ -541,6 +541,35 @@ async def test_poison_source_does_not_block_other_records_and_recovers(
     assert row["context"]["error"] == "InvalidEmbeddingProfile"
 
 
+async def test_excluded_write_retains_invalidation_with_one_location_read(
+    vector_driver, monkeypatch
+):
+    """A transaction can reuse the proven workspace for index invalidation."""
+    from app.services import resource_location
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    _, workspace, _, track, entry = await graph()
+    track.search_index = {"enabled": False}
+    await track.save()
+    original = resource_location.locate_resource
+    reads = []
+
+    async def locate(kind, resource_id, **kwargs):
+        reads.append((kind, resource_id))
+        return await original(kind, resource_id, **kwargs)
+
+    monkeypatch.setattr(resource_location, "locate_resource", locate)
+    async with postgres_graph_transaction():
+        await indexing.enqueue_entry(entry)
+    assert reads == [("entry", entry.id)]
+    jobs = await get_default_context().database.find(
+        "object", {"entity": indexing.ENTITY, "context.entry_id": entry.id}
+    )
+    assert jobs
+    assert all(job["context"]["workspace_id"] == workspace.id for job in jobs)
+    assert all(job["context"]["source_hash"] == "excluded" for job in jobs)
+
+
 async def test_invalid_embedding_configuration_preserves_primary_writes(
     vector_driver, monkeypatch
 ):

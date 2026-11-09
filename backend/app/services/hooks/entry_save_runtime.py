@@ -168,11 +168,19 @@ async def run_entry_save_hooks(
     """
     # Lazy imports — avoid circular import through registry → errors → api.__init__
     from app.models.nodes import EntryType
-    from app.services.hooks.registry import ToolContext, get_workspace_tools
+    from app.services.hooks.registry import (
+        ToolContext,
+        get_workspace_hooks,
+        get_workspace_tools,
+    )
     from app.services.hooks.resolver import find_matching_bindings
     from app.services.hooks.tool_dispatch import run_tool
 
-    if not workspace_id or not getattr(entry, "type_id", None):
+    if (
+        not workspace_id
+        or not getattr(entry, "type_id", None)
+        or not get_workspace_hooks(workspace_id, hook_point)
+    ):
         return
 
     et = await EntryType.get(entry.type_id)

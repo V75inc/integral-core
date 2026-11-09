@@ -1299,9 +1299,9 @@ async def list_access(
         postgres_graph_transaction(context.database) if transactional else nullcontext()
     )
     with isolated_permissions_cache():
-        async with transaction, identity_admission((actor_user_id,)):
+        async with transaction, identity_admission((actor_user_id,), shared=True):
             fence = (
-                authorization_scope(location.workspace_id)
+                authorization_scope(location.workspace_id, shared=True)
                 if transactional
                 else nullcontext()
             )
