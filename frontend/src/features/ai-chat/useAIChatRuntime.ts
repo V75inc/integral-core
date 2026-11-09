@@ -1868,7 +1868,7 @@ export function useAIChatRuntime(
     const session = peekSessions()[threadId];
     const item = session?.followUps?.find((entry) => entry.id === id);
     const workItemId = session?.steeringWorkItemId;
-    if (!item || !workItemId || !session.streaming || session.cancellation ||
+    if (!item || item.refs.length || !workItemId || !session.streaming || session.cancellation ||
         (item.state !== "queued" && item.state !== "unconfirmed") ||
         (item.workItemId && item.workItemId !== workItemId)) return;
 

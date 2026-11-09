@@ -11,11 +11,11 @@ export function ChatFollowUps({ locked }: { locked: boolean }) {
   return (
     <ul aria-label="Follow-up messages" className="flex min-w-0 flex-col gap-2 px-2">
       {followUps.map((item) => {
-        const canSteer = !locked && steeringRunning && Boolean(steeringWorkItemId) &&
+        const canSteer = item.refs.length === 0 && !locked && steeringRunning && Boolean(steeringWorkItemId) &&
           (!item.workItemId || item.workItemId === steeringWorkItemId) &&
           (item.state === "queued" || item.state === "unconfirmed");
         const status = {
-          queued: "Queued for the next turn",
+          queued: item.refs.length ? "Queued with tagged records for the next turn" : "Queued for the next turn",
           sending: "Sending correction…",
           accepted: item.workItemId === steeringWorkItemId && steeringRunning
             ? "Accepted · Waiting for delivery" : "Accepted · Delivery unconfirmed",
