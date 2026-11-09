@@ -26,8 +26,10 @@ export interface ChatLatency {
   clientFirstTextMs?: number; clientFirstToolMs?: number; clientCompletionMs?: number;
 }
 
+export type SteeringReceipt = { correction_id: string; text: string };
+
 export type NormalizedEvent =
-  | { type: "steering-delivered"; correction_id: string }
+  | { type: "steering-delivered"; correction_id: string; text?: string }
   | { type: "navigation"; path: string; thread_id: string; workspace_id: string }
   | { type: "text-delta"; delta: string }
   | { type: "text-replace"; content: string }

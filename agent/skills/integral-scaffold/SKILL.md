@@ -1,7 +1,7 @@
 ---
 name: integral-scaffold
 description: 'Designs and delivers a new operational App or an app-level schema extension: an equipment or tool tracker, inventory register, maintenance log, or multi-part team workflow. Use when the requested outcome needs new or changed structure; check whether an existing App fits, propose the smallest useful design, build it after approval, and verify it. General how-to advice about an existing workflow does not need a proposal when current structure supports the request. For adding, finding, or changing one record in an existing Track or list, use integral-entries. Keep delivery ownership while consulting integral-model for schema choices and integral-scheduling for requested routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.'
-allowed-tools: integral_find_workspace_resources integral_get_page_context integral_whoami integral_describe_substrate integral_list_models integral_list_apps integral_ask_user integral_check_design_coverage integral_verify_build integral_propose_design integral_get_artifact integral_list_artifacts integral_begin_batch integral_build_approved_design integral_create_app integral_create_app_track integral_apply_model_to_track integral_author_model integral_save_view integral_create_entry integral_create_dashboard integral_author_skill integral_create_tag integral_register_track_template integral_commit_batch integral_list_tracks integral_get_track_schema integral_query_entries integral_list_views integral_schedule_task integral_list_routines integral_cancel_batch
+allowed-tools: integral_find_workspace_resources integral_get_page_context integral_whoami integral_describe_substrate integral_list_models integral_list_apps integral_ask_user integral_check_design_coverage integral_verify_build integral_propose_design integral_get_artifact integral_list_artifacts integral_begin_batch integral_build_approved_design integral_create_app integral_create_app_track integral_apply_model_to_track integral_author_model integral_save_view integral_create_entry integral_create_dashboard integral_describe_dashboard_substrate integral_read_app_home integral_suggest_dashboard integral_update_app integral_author_skill integral_create_tag integral_register_track_template integral_commit_batch integral_list_tracks integral_get_track_schema integral_query_entries integral_list_views integral_schedule_task integral_list_routines integral_cancel_batch
 ---
 
 # Operational app delivery
@@ -65,8 +65,9 @@ not a complete operational app — schema, views, relations, procedures, and acc
 evidence must land. An explicitly requested **blank App** is a valid exception:
 propose its exact name with `tracks: []`, no views, seeds, dashboard, skills or
 routines, and an acceptance assertion of zero Tracks. After the user approves,
-build only `integral_create_app` through `integral_build_approved_design` and
-verify that empty container. Never invent a minimum Track requirement.
+build only `integral_create_app` through `integral_build_approved_design`,
+with a simple Home that describes the empty App and how to begin. Verify
+that Home is present and there are zero Tracks. Never invent a minimum Track requirement.
 
 General how-to advice about using an existing workflow is not, by itself, a
 request for new structure. When the current App and its schema cover the stated
@@ -316,6 +317,100 @@ Tools Track already stores each mower and its next service date, a request to
 keep service history calls for a Service Log linked to the existing Tool
 entries, not a second Mowers Track.
 
+### Home and dashboard in the first design
+
+Every new App gets a distinct **Home** tab. Choose one layout based on
+why people will open the App. Name it in the proposal and set
+`blueprint.app.home.layout` to the matching value:
+
+- **Quick Start** (`quick_start`): use for recurring actions or when the
+  requirements are sparse. Lead with the primary action, give two to four
+  short workflow paragraphs in order, then link the main Tracks.
+- **Operations Overview** (`operations_overview`): use when people return
+  to review a queue, deadlines, or exceptions. Put the operational Tracks
+  first so their live record counts are visible next to guidance on what to
+  check. Only use a Track count to describe what that Track actually contains.
+  If a filtered queue or KPI is needed, place it in the appropriate saved
+  view or dashboard and tell people where to find it in the guidance.
+- **Resource Hub** (`resource_hub`): use when finding information is the
+  main job. Put categories first and use `shortcut_descriptions` to explain
+  each destination in one sentence. Follow with short "Start with" guidance
+  that points people to resources or sections that actually exist.
+
+Write an `introduction` (up to 500 characters) and up to five `steps`
+(up to 300 characters each). Each item is a short, complete prose paragraph.
+Let the UI wrap it. Avoid hard line breaks, padding, bullet characters and
+manual numbering. Use exact planned Track names in `track_shortcuts`
+(up to five), and use the same names as keys in `shortcut_descriptions`.
+Put the most useful destination first. Use up to three `actions` with a
+short `label` and a `draft` that opens in chat for review. Put the primary
+action first. Leave actions out when a Track link is the better starting
+point. Include the layout, guidance, links, and actions in the proposal.
+Never invent URLs, counts, records, or automatic actions.
+Keep an existing App's Home when scaffolding an extension unless asked to edit it.
+
+When asked to add Home or sample records to an existing App, there is no new
+scaffold to design. For Home, read its current composition once, then call
+`integral_suggest_dashboard` once for eligible sources. Use its returned
+Home as the starting point and stage the edit with `integral_update_app`.
+For sample records, inspect the chosen Track schema once per Track and reuse
+it for all samples. Stage the requested records through the entry workflow.
+Do not inspect every Track before starting, and do not repeat schema reads
+already returned in this turn. If one part cannot proceed, explain what is
+missing and continue with the part that can.
+
+Decide dashboard scope before proposing every new App. Include a dashboard
+by default when the brief describes a recurring review, decision, or comparison
+that can be supported by the planned records. Examples include a coordinator
+prioritizing service calls every morning, a team monitoring deadlines or
+exceptions, and an owner reviewing spending or receipts. The user does not
+need to ask for a dashboard by name. Treat Operations Overview as a strong
+signal to include one. A saved queue shows which records to act on, while
+a dashboard can show the size or shape of that workload across statuses,
+dates, or Tracks. Include both when they answer different questions.
+
+For example, Facilities Dispatch needs a morning dashboard with separate
+Service Calls and Inspections status breakdowns, plus due or overdue counts
+if supported by the planned fields and filters. A simple Print Requests app
+can omit analytics if people only submit and check individual requests.
+A handbook can omit analytics if people mainly look up resources. Respect
+an explicit request to omit dashboards and never invent a metric, data source,
+or reporting requirement. If omitting one, briefly say why in the proposal.
+An empty new App can still have a dashboard when its planned fields support
+the analysis.
+
+When included, name the dashboard and its widgets in the first proposal and
+`blueprint.dashboard`. Use `integral_describe_dashboard_substrate` to confirm
+supported widgets, bind them to the planned Tracks and fields, and build the
+dashboard in the same approved batch. Verify that the saved dashboard contains
+the proposed widgets and renders valid values or an honest empty state.
+Design the dashboard around the questions a person checks repeatedly.
+Place two or three headline metrics in a single top row with aligned
+edges and equal widths. Give the main trend a full-width row below
+with room for its axis and labels. Use short labels that identify the
+measure and time period. Only name a KPI "this month" if its actual data
+source filters to the current calendar month on the business date. An
+unfiltered sum is "Total received"; `period: month` alone does not filter
+an aggregate. Add a breakdown only if it informs a different
+decision. Use the 12-column grid without overlaps; for two metrics and
+a trend, use x=0/6, y=0, w=6, h=2 for the metrics and x=0, y=2, w=12,
+h=4 for the chart. Use the exact same dashboard name and widget titles
+in the saved blueprint and build plan.
+For month-by-month totals use a `chart_line` with
+`data_source: {kind: aggregate, op: sum, track_id: "{{track.id:Track Name}}", field: "custom_fields.amount", group_by: "date:custom_fields.received_on", date_grain: month}`
+using the real planned field keys. Infer cash received from phrases
+such as "what we bring in each month" when the user also talks about
+being paid or money owed. Model each receipt of money with its own
+amount and received date, linked to the order or invoice, so a deposit
+and a later payment can belong to different months. Bind the chart to
+those receipts. Use order value grouped by due date only when the user
+wants booked or forecast revenue. A current-month metric alone does not
+cover a monthly trend. Keep the chart when the source is empty and verify it
+appears with an honest empty state.
+Omit dashboards that would add no useful decision or lack supporting data.
+A dashboard never substitutes for the Home tab. Do not add sample records
+just to populate a dashboard.
+
 Call `integral_propose_design` with a concise design in `proposal`. Include
 only the requested scope and necessary setup. This tool persists both the
 proposal and its blueprint; do not store them separately with an artifact
@@ -330,6 +425,7 @@ it lets them do:
 - App + each track (what it keeps track of, its fields by display name, and
   which other lists it links to)
 - Views and the question each one answers
+- Home introduction and first steps for new Apps, plus the dashboard and its decision or a short reason for omitting it
 - Routines it will remember, each usable only in this App (default) or from
   anywhere in the workspace
 - Reminders (when, how far ahead, how often, delivered in this chat)
@@ -413,7 +509,8 @@ The parent's relation field is `{target: "track", target_track_template:
 Track exists after the build: each parent entry gets its own when it is
 created, so seeds leave the anchored field out.
 
-For a **new App**, first use `integral_create_app`, then create its Tracks with
+For a **new App**, first use `integral_create_app`. The builder carries the
+approved `blueprint.app.home` onto the new App in that create, then creates its Tracks with
 `app_id: "{{app.id}}"`. For an **addition to an existing App**, look up its
 real ID, pass `target_app_id`, and make the first operation
 `integral_create_app_track` with that same real `app_id`. Never create the App
@@ -538,7 +635,9 @@ entries (parents before linked children) → skills → routines → commit.
 
 After an apply returns `design_id`, `design_revision`, and
 `execution_receipt_id`, call `integral_verify_build` with those three values
-before telling the user anything was built. The call only reads the objects
+before telling the user anything was built. For a new App, read
+`integral_read_app_home` on the returned App ID to confirm the Home renders.
+The verification call only reads the objects
 from that apply. Calling it again does not build again. A later amendment or
 a later change to those objects needs a new apply and a new verification.
 

@@ -12,6 +12,7 @@ from app.services.model_provider_endpoints import (
     OLLAMA_CLOUD_API_BASE,
     normalize_custom_base_url,
 )
+from app.services.model_settings import DEFAULT_OLLAMA_CONTEXT_WINDOW
 
 
 async def resolve_native_model_route(
@@ -47,7 +48,9 @@ def _local_ollama_num_ctx() -> int:
     # schemas, and provider framing on real scaffold turns. Keep this scoped to
     # the Ollama route; hosted OpenAI-compatible routes manage context at the
     # provider.
-    raw = os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "32768").strip()
+    raw = os.getenv(
+        "INTEGRAL_NATIVE_OLLAMA_NUM_CTX", str(DEFAULT_OLLAMA_CONTEXT_WINDOW)
+    ).strip()
     try:
         value = int(raw)
     except ValueError as exc:

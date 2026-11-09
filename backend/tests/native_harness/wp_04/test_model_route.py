@@ -193,7 +193,7 @@ async def test_local_ollama_route_uses_configured_local_api_base(monkeypatch) ->
     assert route.api_base == "http://127.0.0.1:11434"
     assert route.api_key is None
     assert route.credential_source == "local"
-    assert route.ollama_num_ctx == 32768
+    assert route.ollama_num_ctx == 65536
     assert route.ollama_num_predict == 8192
 
 
@@ -220,7 +220,7 @@ async def test_platform_ollama_route_uses_typed_native_chat_adapter(
     assert route.api_base == "http://127.0.0.1:11434"
     assert route.api_key is None
     assert route.credential_source == "local"
-    assert route.ollama_num_ctx == 32768
+    assert route.ollama_num_ctx == 65536
     assert route.ollama_num_predict == 8192
 
 

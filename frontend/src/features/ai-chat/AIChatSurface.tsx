@@ -1,3 +1,5 @@
+import type { FollowUp } from "./threadSessionRegistry";
+import type { ChatEntityRef } from "../../types/chatEntityRefs";
 import { createContext, useContext, type ReactNode } from "react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useAIChatRuntime } from "./useAIChatRuntime";
@@ -38,9 +40,12 @@ const ChatActivityContext = createContext<{
    *  REST surface keys on (distinct from the provider session id). */
   activeThreadId: string | null;
   composerReady: boolean;
+  followUps?: readonly FollowUp[];
+  queueFollowUp?: (text: string, refs: ChatEntityRef[]) => boolean;
+  removeFollowUp?: (id: string) => void;
+  steerFollowUp?: (id: string) => Promise<void>;
   steeringWorkItemId: string | null;
   steeringRunning: boolean;
-  deliveredSteeringIds?: readonly string[];
   streamingThreadIds: readonly string[];
   /** Threads busy with a turn this tab did not start. */
   remoteTurns: Record<string, { workspaceId: string | null; turnId: string | null }>;
@@ -161,8 +166,11 @@ function AIChatRuntimeBoundaryInner({
     activeProviderSessionId,
     activeThreadId,
     composerReady,
+    followUps,
+    queueFollowUp,
+    removeFollowUp,
+    steerFollowUp,
     steeringWorkItemId,
-    deliveredSteeringIds,
     steeringRunning,
     streamingThreadIds,
     remoteTurns,
@@ -192,8 +200,11 @@ function AIChatRuntimeBoundaryInner({
           activeProviderId: provider.id,
           activeThreadId,
           composerReady,
+          followUps,
+          queueFollowUp,
+          removeFollowUp,
+          steerFollowUp,
           steeringWorkItemId,
-          deliveredSteeringIds,
           steeringRunning,
           streamingThreadIds,
           remoteTurns,

@@ -1558,11 +1558,25 @@ async def test_steering_survives_worker_process_death(
         thread_id=item.thread_id,
         work_item_id=item.work_item_id,
     )
+    expected_steering = [
+        {"correction_id": request.client_request_id, "text": request.text}
+        for request in (correction, late)
+    ]
     assert [
-        event["correction_id"]
+        {"correction_id": event["correction_id"], "text": event["text"]}
         for event in replay.events
         if event["type"] == "steering-delivered"
-    ] == [correction.client_request_id, late.client_request_id]
+    ] == expected_steering
+    from app.models.edges import CONTAINS
+    from app.models.nodes import ChatThread
+
+    thread = await ChatThread.get(item.thread_id)
+    assert thread is not None
+    transcript = await thread.nodes(
+        edge=[CONTAINS], node=["ChatMessage"], direction="out", limit=10
+    )
+    (answer,) = [message for message in transcript if message.role == "assistant"]
+    assert answer.provider_metadata["steering"] == expected_steering
     with pytest.raises(ResourceConflictError):
         await accept_steering_correction(
             item.work_item_id,

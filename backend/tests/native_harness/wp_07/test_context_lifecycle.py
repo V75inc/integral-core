@@ -37,10 +37,31 @@ from app.agentive.harness.pydantic_ai_compat import (
     IntegralContextPolicy,
     classify_integral_harness_exception,
 )
-from app.agentive.harness.pydantic_context import project_disclosures
+from app.agentive.harness.pydantic_context import active_turn_start, project_disclosures
 from app.agentive.harness.runtime import build_native_runtime
 
 pytestmark = pytest.mark.smoke
+
+
+def test_default_input_budget_follows_a_large_model_window():
+    model = OpenAIChatModel(
+        "large-test-model",
+        provider=OpenAIProvider(api_key="fixture"),
+        profile={"context_window": 131_072},
+    )
+    assert IntegralContextPolicy().input_limit(model, {"max_tokens": 8192}) == 109_773
+
+
+def test_steering_keeps_the_current_task_anchor():
+    messages = [
+        ModelRequest(parts=[UserPromptPart("Draft the report")]),
+        ModelResponse(parts=[TextPart("Draft in progress")]),
+        ModelRequest(
+            parts=[UserPromptPart("Make it shorter")],
+            metadata={"integral_steering": ["work", "correction"]},
+        ),
+    ]
+    assert active_turn_start(messages) == 0
 
 
 def _scope(run):

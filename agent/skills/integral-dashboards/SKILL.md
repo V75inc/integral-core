@@ -67,6 +67,19 @@ published fields. Home supports up to 12 nonoverlapping widgets, an introduction
 and ordinary approval. Do not create a dashboard named Home or claim a default
 dashboard creates a Home tab. Call `integral_read_app_home` after approval to verify it.
 
+### Existing App Home plus sample records
+
+When a user asks for both, handle the two parts independently. Read the
+current Home once and call `integral_suggest_dashboard` once. Adapt its
+validated Home and stage `integral_update_app` as soon as the layout is ready.
+The suggested sources already identify eligible Tracks and published fields.
+Do not wait for sample records or inspect all Track schemas to design Home.
+
+Use `integral-entries` to prepare the requested sample records separately.
+Read each selected Track schema once and reuse it for all samples in that
+Track. If a Track or field is still ambiguous, ask about that specific part
+and keep the Home proposal available for review.
+
 ### Home authoring and repair
 
 Use the `home` schema advertised by `integral_update_app`; it is the same
@@ -110,6 +123,13 @@ Once a proposal is staged, present it and stop until the user decides.
   Never substitute generic Core counts/scans on package-owned Tracks. Core can
   qualify portable record query templates and complete their pagination.
   Treat a missing source or a preview error as unavailable, never as zero.
+- For a monthly trend, use a line chart with a date grouping and
+  `date_grain: month` on an aggregate or declared-query source. Sum the
+  amount by its business date, and keep that chart even when no records
+  exist yet.
+- A headline aggregate is all-time unless its source includes the actual
+  date restriction. Do not label an unfiltered aggregate "this month";
+  the generic `period` setting alone does not filter an aggregate.
 - A starter suggestion is optional inspiration, not proof it answers the request.
   Preserve the user's requested scope and explain unsupported details.
 - `recent_entries` shows titles only. `table_widget` shows Record, platform Status,

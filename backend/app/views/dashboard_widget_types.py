@@ -172,8 +172,14 @@ def _register_builtins() -> None:
                     "kind": {"enum": ["grouped_count", "aggregate"]},
                     "group_by": {
                         "type": "string",
-                        "examples": ["date", "date:due_date"],
+                        "examples": ["date", "date:custom_fields.received_on"],
                     },
+                    "date_grain": {
+                        "enum": ["day", "month"],
+                        "description": "Calendar bucket size for date-grouped aggregates.",
+                    },
+                    "op": {"enum": ["count", "sum", "avg", "min", "max", "distinct"]},
+                    "field": {"type": "string"},
                 }
             },
         ),

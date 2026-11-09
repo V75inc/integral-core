@@ -744,9 +744,18 @@ async def build_dashboard_drilldown_spec(
                     "date drill-through group must be an ISO date"
                 ) from exc
             start = datetime.combine(local_day, datetime.min.time(), tzinfo=zone)
-            end = datetime.combine(
-                local_day + timedelta(days=1), datetime.min.time(), tzinfo=zone
-            )
+            if (
+                source.get("date_grain") == "month"
+                and source.get("kind") == "aggregate"
+            ):
+                if local_day.day != 1:
+                    raise ValueError(
+                        "monthly drill-through requires the first day of the month"
+                    )
+                next_day = (local_day + timedelta(days=31)).replace(day=1)
+            else:
+                next_day = local_day + timedelta(days=1)
+            end = datetime.combine(next_day, datetime.min.time(), tzinfo=zone)
             filters.extend(
                 [
                     {
@@ -1241,6 +1250,7 @@ async def _resolve_aggregate_data_source(
         op=data_source.get("op") or "count",
         field=data_source.get("field") or "",
         group_by=data_source.get("group_by") or "",
+        date_grain=data_source.get("date_grain") or "day",
         timezone=data_source.get("timezone") or "UTC",
         scale=data_source.get("scale"),
         budget=data_source.get("budget", 5000),
@@ -1508,6 +1518,7 @@ async def _resolve_declared_query_data(
         op=data_source.get("op") or "count",
         field=field,
         group_by=group_by,
+        date_grain=data_source.get("date_grain") or "day",
         timezone=data_source.get("timezone") or "UTC",
         scale=data_source.get("scale"),
         budget=data_source.get("budget", 5000),

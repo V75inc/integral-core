@@ -1862,7 +1862,9 @@ class PydanticAIProvider:
                     ctx.text,
                     message_history=public_dialogue(messages, exclude_id=accepted_id),
                     cancellation_token=self._active_tokens.get(ctx.thread_id),
-                    usage_limits=turn_usage_limits(light=True),
+                    # Native steering can open another model request after the
+                    # first reply. Give that path the normal turn allowance.
+                    usage_limits=turn_usage_limits(light=steering is None),
                 )
         except TimeoutError as exc:
             if not routing_deadline.expired():

@@ -440,22 +440,22 @@ async def get_dashboard_widget_result_set(
         if widget_data.get("display") is not None
         else widget_data.get("value")
     )
-    if payload["current_widget_value"] is None and body.group_key is not None:
-        # Grouped chart resolvers expose their values as series rather than a
-        # scalar. Report the selected bar's live value so the drill-through
-        # page calculation can be compared to the exact plotted group.
+    if body.group_key is not None:
+        # Compare the selected group's live value with its contributing rows,
+        # even when the aggregate also returns a scalar for the entire series.
         series = widget_data.get("series") or []
         matching_group = next(
             (
                 row
                 for row in series
                 if isinstance(row, dict)
-                and str(row.get("label") or "") == str(body.group_key)
+                and str(row.get("key", row.get("label", ""))) == body.group_key
             ),
             None,
         )
-        if matching_group is not None:
-            payload["current_widget_value"] = matching_group.get("value")
+        payload["current_widget_value"] = (
+            matching_group.get("value") if matching_group is not None else None
+        )
     if widget_data.get("error"):
         payload["current_widget_error"] = widget_data["error"]
     if widget_data.get("refused"):

@@ -392,7 +392,16 @@ def _constituents(blueprint: Dict[str, Any]) -> List[Tuple[str, str, Dict[str, A
 
 def _matches(kind: str, expected: Dict[str, Any], snap: Dict[str, Any]) -> bool:
     if kind == "app":
-        return _fold(snap.get("name")) == _fold(expected.get("name"))
+        if _fold(snap.get("name")) != _fold(expected.get("name")):
+            return False
+        if not expected.get("home"):
+            return True
+        from app.schemas.app_home import ScaffoldHome
+
+        return (
+            snap.get("home")
+            == ScaffoldHome.model_validate(expected["home"]).composition()
+        )
     if kind == "track":
         return _fold(snap.get("name")) == _fold(expected.get("name"))
     if kind in {"entry_type", "template_entry_type"}:
@@ -836,7 +845,7 @@ class _Reader:
         if node is None:
             return None
         await self._role("app", object_id)
-        return {"name": getattr(node, "name", "")}
+        return {"name": getattr(node, "name", ""), "home": node.home_composition}
 
     async def _track(self, object_id: str) -> Optional[Dict[str, Any]]:
         from app.models.nodes import Track

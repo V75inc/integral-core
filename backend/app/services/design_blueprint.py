@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.schemas.design_blueprint import DesignBlueprint
 from app.services.operational_model_compile import slug_manifest_key
+from app.views.dashboard_widget_types import TYPE_ALIASES
 
 _TRACK_REF = re.compile(r"^\{\{track\.id:(.+)\}\}$")
 _TAG_REF = re.compile(r"^\{\{tag[._]id:(.+)\}\}$")
@@ -470,13 +471,45 @@ def plan_fidelity_errors(
             if difference:
                 errors.append(difference)
 
-    has_dashboard = bool(by_tool.get("integral_create_dashboard"))
-    if bool(blueprint.get("dashboard")) != has_dashboard:
+    approved_dashboard = blueprint.get("dashboard")
+    planned_dashboards = by_tool.get("integral_create_dashboard", [])
+    if bool(approved_dashboard) != bool(planned_dashboards):
         errors.append(
             "The approved dashboard is missing from the plan."
             if blueprint.get("dashboard")
             else "The plan adds a dashboard the design does not include."
         )
+    elif approved_dashboard:
+        if len(planned_dashboards) != 1 or (
+            planned_dashboards[0].get("name", "").strip().casefold()
+            != approved_dashboard["name"].strip().casefold()
+        ):
+            errors.append(
+                f'Build exactly the approved dashboard {approved_dashboard["name"]!r}.'
+            )
+        else:
+
+            def widget_identity(widget: Dict[str, Any]) -> tuple[str, str]:
+                title = str(widget.get("title") or "").strip().casefold()
+                kind = (
+                    str(widget.get("type") or "").strip().casefold().replace("-", "_")
+                )
+                return title, TYPE_ALIASES.get(kind, kind)
+
+            approved_widgets = Counter(
+                widget_identity(widget) for widget in approved_dashboard["widgets"]
+            )
+            planned_widgets = Counter(
+                widget_identity(widget)
+                for widget in planned_dashboards[0].get("widgets") or []
+                if isinstance(widget, dict)
+            )
+            if approved_widgets != planned_widgets:
+                errors.append(
+                    "Dashboard widgets must match the approved design: "
+                    f"missing {sorted((approved_widgets - planned_widgets).elements())}, "
+                    f"extra {sorted((planned_widgets - approved_widgets).elements())}."
+                )
     approved_skills = {s["name"].casefold() for s in blueprint.get("skills") or []}
     planned_skills = {
         str(p.get("name") or "").casefold()

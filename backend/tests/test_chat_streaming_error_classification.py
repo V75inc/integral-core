@@ -28,7 +28,9 @@ def test_model_context_limit_is_actionable_without_leaking_provider_error() -> N
 
     assert code == "model_context_limit"
     assert "larger context window" in message
-    assert "provider default" not in message
+    assert "fewer attachments" in message
+    assert "Settings → AI Models" in message
+    assert "private provider detail" not in message
 
 
 def test_host_context_limit_is_distinct_from_provider_overflow() -> None:
@@ -38,7 +40,8 @@ def test_host_context_limit_is_distinct_from_provider_overflow() -> None:
     )
     assert code == "harness_context_limit"
     assert "conversation is saved" in message
-    assert "start a new chat" not in message
+    assert "one part of the task at a time" in message
+    assert "Settings → AI Models" in message
     assert "private" not in message
 
 

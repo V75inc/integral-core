@@ -34,7 +34,7 @@ def _raw_field(row: Dict[str, Any], field: str) -> Any:
     fields = (
         row.get("custom_fields") if isinstance(row.get("custom_fields"), dict) else {}
     )
-    return fields.get(field)
+    return fields.get(field.removeprefix("custom_fields."))
 
 
 def _money(value: Any) -> Optional[tuple]:
@@ -148,7 +148,10 @@ def aggregate_rows(rows: List[Dict[str, Any]], spec: AggregateSpec) -> Dict[str,
     for row in deduped:
         ident = _entry_id(row)
         if date_field:
-            keys = _group_keys(_bucket(_raw_field(row, date_field), tz))
+            day = _bucket(_raw_field(row, date_field), tz)
+            keys = _group_keys(
+                f"{day[:7]}-01" if day and spec.date_grain == "month" else day
+            )
         elif group_by:
             keys = _group_keys(_raw_field(row, group_by))
         else:

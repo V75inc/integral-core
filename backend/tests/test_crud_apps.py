@@ -37,6 +37,67 @@ class TestAppsCRUD:
         assert "id" in data["app"]
         assert data["app"].get("visibility") == "private"
 
+    async def test_new_app_home_reads_back_the_workflow(self, authenticated_client):
+        response = await authenticated_client.post(
+            "/api/apps",
+            json={
+                "name": "Pantry",
+                "initial_home": {
+                    "introduction": "Track pantry supplies and grocery spending.",
+                    "track_shortcuts": ["Purchases", "Pantry Items"],
+                    "actions": [
+                        {
+                            "label": "Log a grocery run",
+                            "draft": "Help me record a grocery receipt.",
+                        }
+                    ],
+                    "steps": [
+                        "Log a receipt in Purchases.",
+                        "Check low stock in Pantry Items.",
+                    ],
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+        app = response.json()["app"]
+        result = await authenticated_client.get(
+            f"/api/apps/{app['id']}/home",
+            headers={"X-Integral-Scope": f"ws:{app['workspace_id']}"},
+        )
+        assert result.status_code == 200, result.text
+        home = result.json()["home"]
+        assert home["title"] == "Home"
+        assert home["renderer"] == "native"
+        assert home["track_shortcuts"] == ["Purchases", "Pantry Items"]
+        assert home["actions"][0]["label"] == "Log a grocery run"
+        assert home["description"] == "Track pantry supplies and grocery spending."
+        assert [item["text"] for item in home["content"]["children"]] == [
+            "Start here",
+            "Log a receipt in Purchases.",
+            "Check low stock in Pantry Items.",
+        ]
+
+        home["content"]["children"].append(
+            {
+                "id": "return-note",
+                "type": "text",
+                "text": "Return borrowed items by their due date.",
+            }
+        )
+        edited = await authenticated_client.put(
+            f"/api/apps/{app['id']}",
+            json={
+                "home": home,
+                "expected_home_revision": result.json()["home_revision"],
+            },
+        )
+        assert edited.status_code == 200, edited.text
+        readback = await authenticated_client.get(
+            f"/api/apps/{app['id']}/home",
+            headers={"X-Integral-Scope": f"ws:{app['workspace_id']}"},
+        )
+        assert readback.json()["home"]["content"]["children"][-1]["id"] == "return-note"
+
     async def test_create_space_defaults_private_in_organization(
         self, authenticated_client: AsyncClient, test_user
     ):

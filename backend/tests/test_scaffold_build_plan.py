@@ -402,10 +402,45 @@ def test_oversized_repeated_plan_coalesces_without_losing_seed_refinement():
 
 
 @pytest.mark.asyncio
-async def test_stages_and_commits_once_with_bound_identity(approved, monkeypatch):
+@pytest.mark.parametrize("with_blueprint", [False, True])
+async def test_stages_and_commits_once_with_bound_identity(
+    approved, monkeypatch, with_blueprint
+):
     from app.agentive.tooling import dispatch
 
     calls = []
+    home = {
+        "introduction": "Keep customer records for the bicycle workshop.",
+        "steps": ["Add new repair customers in Customers."],
+    }
+    if with_blueprint:
+        approved.design_proposed["blueprint"] = {
+            "app": {
+                "id": "app.bicycle",
+                "name": "Bicycle Repair Management",
+                "home": home,
+            },
+            "tracks": [
+                {
+                    "id": "track.customers",
+                    "name": "Customers",
+                    "entry_types": [
+                        {
+                            "id": "et.customer",
+                            "name": "Customer",
+                            "fields": [
+                                {
+                                    "id": "field.name",
+                                    "key": "name",
+                                    "name": "Name",
+                                    "type": "text",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
 
     async def stage(tool, args, **context):
         calls.append((tool, args, context))
@@ -437,6 +472,16 @@ async def test_stages_and_commits_once_with_bound_identity(approved, monkeypatch
         "integral_create_app_track",
         "integral_commit_batch",
     ]
+    assert calls[0][1]["initial_home"] == (
+        home
+        if with_blueprint
+        else {
+            "layout": "quick_start",
+            "introduction": "Bicycle Repair Management",
+            "steps": ["Open Customers to work with its records."],
+            "track_shortcuts": ["Customers"],
+        }
+    )
     assert all(call[2]["principal_id"] == "user-1" for call in calls)
     assert all(call[2]["scope"] == "workspace-1" for call in calls)
     assert {

@@ -598,6 +598,8 @@ async def _x_create_app(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
         body["visibility"] = payload["visibility"]
     if payload.get("type_hint"):
         body["type_hint"] = payload["type_hint"]
+    if "initial_home" in payload:
+        body["initial_home"] = payload["initial_home"]
     return await _call_endpoint(handler, user_id, **body)
 
 

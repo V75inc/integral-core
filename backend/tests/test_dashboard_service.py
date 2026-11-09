@@ -981,8 +981,15 @@ async def test_dashboard_drilldown_compiles_exact_group_and_filter_scope(monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "grain, group_key, start, end",
+    [
+        ("day", "2026-09-28", "2026-09-28T04:00:00", "2026-09-29T04:00:00"),
+        ("month", "2026-12-01", "2026-12-01T04:00:00", "2027-01-01T04:00:00"),
+    ],
+)
 async def test_dashboard_drilldown_business_date_bucket_uses_timezone_bounds(
-    monkeypatch,
+    monkeypatch, grain, group_key, start, end
 ):
     from app.services import dashboard_service as ds
 
@@ -994,15 +1001,20 @@ async def test_dashboard_drilldown_business_date_bucket_uses_timezone_bounds(
     spec = await ds.build_dashboard_drilldown_spec(
         app=object(),
         widget={
-            "data_source": {"group_by": "date:due_at", "timezone": "America/Guyana"}
+            "data_source": {
+                "kind": "aggregate",
+                "group_by": "date:due_at",
+                "timezone": "America/Guyana",
+                "date_grain": grain,
+            }
         },
-        group_key="2026-09-28",
+        group_key=group_key,
         cursor=None,
     )
     bounds = [item for item in spec.filters if item.field == "custom_fields.due_at"]
     assert [item.op for item in bounds] == ["gte", "lt"]
-    assert bounds[0].value.startswith("2026-09-28T04:00:00")
-    assert bounds[1].value.startswith("2026-09-29T04:00:00")
+    assert bounds[0].value.startswith(start)
+    assert bounds[1].value.startswith(end)
 
 
 @pytest.mark.asyncio

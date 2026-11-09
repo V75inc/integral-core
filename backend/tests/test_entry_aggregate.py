@@ -163,3 +163,25 @@ async def test_aggregate_entries_computes_from_the_scan(monkeypatch):
     result = await aggregate_entries("user", "sum", field="amount")
     assert result["value"] == "5"
     assert result["boundary"]["omitted"] == 1
+
+
+def test_monthly_payment_sum_groups_business_dates_across_month_boundaries():
+    rows = [
+        _row("a", amount="10.20", received="2026-12-01"),
+        _row("b", amount="15.30", received="2027-01-01T02:30:00Z"),
+        _row("c", amount="40", received="2027-01-15"),
+    ]
+    result = aggregate_rows(
+        rows,
+        _spec(
+            "sum",
+            field="custom_fields.amount",
+            group_by="date:custom_fields.received",
+            date_grain="month",
+            timezone="America/Guyana",
+        ),
+    )
+    assert [(group["key"], group["value"]) for group in result["groups"]] == [
+        ("2026-12-01", "25.50"),
+        ("2027-01-01", "40"),
+    ]

@@ -18,7 +18,7 @@ import { CHAT_MESSAGE_LENGTH_HINT, chatMessageTooLong } from "../messageLength";
 type AuiTaggableComposerProps = Omit<
   React.TextareaHTMLAttributes<HTMLTextAreaElement>,
   "value" | "onChange"
-> & { acceptHandoff?: boolean; onSendAttempt?: () => void };
+> & { acceptHandoff?: boolean; queueWhileRunning?: boolean; onSendAttempt?: () => void };
 
 export function AuiTaggableComposer({
   className,
@@ -29,13 +29,14 @@ export function AuiTaggableComposer({
   autoFocus,
   "aria-label": ariaLabel,
   acceptHandoff = true,
+  queueWhileRunning = false,
   onSendAttempt,
 }: AuiTaggableComposerProps) {
   const aui = useAui();
   const { scope } = useScope();
   const auth = useAuthOptional();
   const principalId = auth?.user?.id ?? null;
-  const { activeThreadId, composerReady, isRunning } = useChatActivity();
+  const { activeThreadId, composerReady, isRunning, steeringRunning, queueFollowUp } = useChatActivity();
   const composerText = useAuiState((s) => s.composer.text ?? "");
   const [localValue, setLocalValue] = useState(composerText);
   const lengthHintId = useId();
@@ -126,12 +127,22 @@ export function AuiTaggableComposer({
   const sendNow = useCallback(() => {
     // Dictation can add words after submit was requested. Validate the live
     // composer before consuming references or clearing any draft state.
-    if (chatMessageTooLong(aui.composer().getState().text)) return;
+    const composer = aui.composer();
+    const { text, attachments } = composer.getState();
+    if (chatMessageTooLong(text)) return;
+    if (queueWhileRunning && steeringRunning && queueFollowUp) {
+      if (attachments.length || !text.trim() || !queueFollowUp(text.trim(), entityRefsRef.current)) return;
+      setLocalValue("");
+      composer.setText("");
+      setEntityRefs([]);
+      entityRefsCtx?.setPendingEntityRefs([]);
+      return;
+    }
     entityRefsCtx?.setPendingEntityRefs(entityRefsRef.current);
     entityRefsCtx?.flushPendingEntityRefs();
     onSendAttempt?.();
     void aui.composer().send();
-  }, [aui, entityRefsCtx, onSendAttempt]);
+  }, [aui, entityRefsCtx, onSendAttempt, queueFollowUp, queueWhileRunning, steeringRunning]);
 
   const handleSubmit = useCallback(() => {
     // Finish dictation first so the last words land before the message goes.

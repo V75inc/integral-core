@@ -87,9 +87,13 @@ async def validate_home_composition(
         if app is None:
             raise ValueError("App not found")
         await _ensure_app_access(app, user_id, app.workspace_id)
-        if not getattr(app, "active_definition_id", ""):
-            raise ValueError("Custom Home requires an active App definition")
-        canonical = await _compiled_app_manifest(app)
+        # A standalone App can use descriptive native components. An empty
+        # contract still rejects every undeclared query or operation binding.
+        canonical = (
+            await _compiled_app_manifest(app)
+            if getattr(app, "active_definition_id", "")
+            else {}
+        )
         validate_native_home(normalized, canonical)
     return normalized
 
