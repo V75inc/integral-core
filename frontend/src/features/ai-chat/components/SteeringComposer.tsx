@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import apiClient from "../../../api/client";
 import { Text } from "../../../ui";
+import { randomUUID } from "../../../utils/randomUUID";
 
 type Receipt = { id: string; text: string };
 
@@ -24,14 +25,14 @@ export function SteeringComposer({
     event.preventDefault();
     const text = draft.trim();
     if (!running || !text || inFlight.current) return;
-    const correction = pending.current?.text === text
-      ? pending.current
-      : { id: crypto.randomUUID(), text };
-    pending.current = correction;
     inFlight.current = true;
     setSending(true);
     setError(false);
     try {
+      const correction = pending.current?.text === text
+        ? pending.current
+        : { id: randomUUID(), text };
+      pending.current = correction;
       await apiClient.post(`/work-items/${encodeURIComponent(workItemId)}/steering`, {
         client_request_id: correction.id,
         text,

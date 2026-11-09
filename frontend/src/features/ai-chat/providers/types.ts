@@ -132,8 +132,9 @@ export interface TurnContext {
   focusedAppId?: string;
   /** Snapshotted page context (URL, breadcrumbs, visible data) at send time. */
   pageContext?: ChatPageContextPayload;
-  /** Host initiated continuation; never represented as a user utterance. */
+  /** Called when the server identifies the durable work for this turn. */
   onDurableTurn?: (workItemId: string) => void;
+  /** Host initiated continuation; never represented as a user utterance. */
   hostAction?: "prompt_sheet_resume" | "staging_follow_through";
 }
 
