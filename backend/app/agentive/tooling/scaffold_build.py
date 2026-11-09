@@ -1725,6 +1725,30 @@ async def build_approved_design(
                 "omitted approved items. This is plan repair, not a request to "
                 "re-approve the unchanged design.",
             )
+    if existing_app is None:
+        tool, params = operations[0]
+        app_design = (blueprint or {}).get("app") or {}
+        home = app_design.get("home")
+        track_names = [
+            args["name"]
+            for name, args in operations
+            if name == "integral_create_app_track"
+        ][:5]
+        if not home:
+            # Older approved designs still get a guide grounded in their plan.
+            home = {
+                "introduction": (
+                    app_design.get("description")
+                    or params.get("description")
+                    or params["name"]
+                )[:500],
+                "steps": [
+                    f"Open {name} to work with its records." for name in track_names
+                ],
+                "track_shortcuts": track_names,
+            }
+        operations[0] = (tool, {**params, "initial_home": home})
+
     # Each Track this plan creates opens on its most useful specific view, not
     # the substrate Feed: the design's choice, else the plan's, else the first
     # non-feed view. Existing Tracks change default only when asked.

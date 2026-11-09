@@ -91,3 +91,32 @@ it('refreshes Home immediately after an App update event', async () => {
   await act(() => invalidateAfterChangeEvent(client, { id: 'event', action: 'app.update', scope: 'app:a1' } as never));
   expect(await screen.findByText('Updated Home')).toBeInTheDocument();
 });
+
+it('shows only available Track links and readouts, with draft-only workflow shortcuts', async () => {
+  vi.mocked(dashboardsApi.home).mockResolvedValue({
+    home: {
+      title: 'Home',
+      description: 'Keep shared equipment in circulation.',
+      track_shortcuts: ['Equipment', 'Loans', 'Private inventory'],
+      actions: [{ label: 'Start a checkout', draft: 'Help me start an equipment checkout.' }],
+    },
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <AppHomePanel appId="a1" workspaceId="ws1" hasDashboards tracks={[
+          { id: 'n.Track.equipment', title: 'Equipment', entry_count: 2 },
+          { id: 'n.Track.loans', title: 'Loans' },
+        ]} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByRole('link', { name: 'Equipment 2 entries' })).toHaveAttribute('href', '/tracks/n.Track.equipment');
+  expect(screen.getByRole('link', { name: 'Loans' })).toHaveAttribute('href', '/tracks/n.Track.loans');
+  expect(screen.queryByText('Private inventory')).not.toBeInTheDocument();
+  expect(screen.queryByText('0 entries')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'View dashboards' })).toHaveAttribute('href', '/apps/a1?section=dashboards');
+  fireEvent.click(screen.getByRole('button', { name: 'Start a checkout' }));
+  expect(requestOpenCompanionChat).toHaveBeenCalledWith({ draftText: 'Help me start an equipment checkout.' });
+});

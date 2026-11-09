@@ -103,6 +103,7 @@ async def create_app_for_user(
     accent_color: Optional[str] = None,
     icon: Optional[str] = None,
     include_seed_data: bool = True,
+    initial_home: Optional[Dict[str, Any]] = None,
     actor_kind: str = "human",
     actor_id: Optional[str] = None,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -122,6 +123,18 @@ async def create_app_for_user(
     """
     from app.services.app_identity import validate_app_icon
 
+    home_composition = None
+    if initial_home is not None:
+        from app.schemas.app_home import ScaffoldHome
+
+        if library_package_id:
+            raise BadRequestError(
+                message="A scaffold Home cannot replace an installed package Home"
+            )
+        try:
+            home_composition = ScaffoldHome.model_validate(initial_home).composition()
+        except ValueError as exc:
+            raise BadRequestError(message="Invalid scaffold Home guide") from exc
     safe_icon = validate_app_icon(icon)
     resolved_workspace_id = await resolve_workspace_id(
         user_id=user_id, workspace_id=workspace_id
@@ -213,6 +226,7 @@ async def create_app_for_user(
         workspace_id=resolved_workspace_id,
         accent_color=safe_accent,
         icon=safe_icon,
+        home_composition=home_composition,
         created_at=now,
         updated_at=now,
     )

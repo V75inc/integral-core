@@ -383,6 +383,7 @@
         "integral_update_dashboard"
       ],
       "delegates_to": [
+        "integral-entries",
         "integral-insights",
         "integral-models",
         "integral-workspace"
@@ -880,6 +881,7 @@
         "integral_create_dashboard",
         "integral_create_entry",
         "integral_create_tag",
+        "integral_describe_dashboard_substrate",
         "integral_describe_substrate",
         "integral_find_workspace_resources",
         "integral_get_artifact",
@@ -893,9 +895,12 @@
         "integral_list_views",
         "integral_propose_design",
         "integral_query_entries",
+        "integral_read_app_home",
         "integral_register_track_template",
         "integral_save_view",
         "integral_schedule_task",
+        "integral_suggest_dashboard",
+        "integral_update_app",
         "integral_verify_build",
         "integral_whoami"
       ],
@@ -914,6 +919,7 @@
         "integral_create_dashboard",
         "integral_create_entry",
         "integral_create_tag",
+        "integral_describe_dashboard_substrate",
         "integral_describe_substrate",
         "integral_find_workspace_resources",
         "integral_get_artifact",
@@ -922,9 +928,12 @@
         "integral_list_routines",
         "integral_list_tracks",
         "integral_propose_design",
+        "integral_read_app_home",
         "integral_register_track_template",
         "integral_save_view",
         "integral_schedule_task",
+        "integral_suggest_dashboard",
+        "integral_update_app",
         "integral_verify_build"
       ],
       "delegates_to": [
@@ -2822,7 +2831,8 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral-dashboards"
+        "integral-dashboards",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2841,7 +2851,8 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral-dashboards"
+        "integral-dashboards",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2917,7 +2928,8 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral-dashboards"
+        "integral-dashboards",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -3095,6 +3107,7 @@
       "skills": [
         "integral-dashboards",
         "integral-model",
+        "integral-scaffold",
         "integral-workspace"
       ],
       "status": "existing"

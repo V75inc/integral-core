@@ -2239,6 +2239,7 @@ domains:
         params:
           name: {type: string, required: true, desc: "Name of the new app."}
           description: {type: string, optional: true, desc: "Optional short description of what the app is for."}
+          initial_home: {type: object, optional: true, desc: "Approved plain-text Home guide: introduction and up to five workflow steps."}
           visibility: {type: string, optional: true, enum: [private, workspace, public], desc: "Access scope (default 'private'). Only set 'workspace'/'public' when the user explicitly asks."}
         returns: { staged_token: str, preview: object }
       - name: integral_create_app_track

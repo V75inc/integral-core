@@ -1386,10 +1386,19 @@ def _stage_create_app(args: Dict[str, Any]) -> Dict[str, Any]:
     if src.get("type_hint"):
         payload["type_hint"] = src["type_hint"]
 
+    if src.get("initial_home") is not None:
+        from app.schemas.app_home import ScaffoldHome
+
+        payload["initial_home"] = ScaffoldHome.model_validate(
+            src["initial_home"]
+        ).model_dump()
     lines = [f"**Create app** *{name}*"]
     if payload.get("description"):
         lines.append("")
         lines.append(f"> {_truncate(payload['description'], 160)}")
+    if "initial_home" in payload:
+        lines.extend(["", "**Home:** " + payload["initial_home"]["introduction"]])
+        lines.extend(f"- {step}" for step in payload["initial_home"]["steps"])
     return {
         "kind": "create_app",
         "summary": f"Create app “{name}”",

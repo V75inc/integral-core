@@ -208,7 +208,6 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
                         "properties": {
                             "renderer": {"const": "native"},
                             "widgets": {"maxItems": 0},
-                            "actions": {"maxItems": 0},
                         },
                         "required": ["renderer", "content"],
                     },
@@ -230,6 +229,15 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
             "integral_describe_dashboard_substrate and integral_suggest_dashboard."
         )
         properties["home"] = home_schema
+    if spec.name == "integral_create_app" and "initial_home" in properties:
+        from app.schemas.app_home import ScaffoldHome
+
+        guide_schema = ScaffoldHome.model_json_schema()
+        schema["$defs"] = guide_schema.pop("$defs", {})
+        properties["initial_home"] = {
+            **guide_schema,
+            "description": properties["initial_home"]["description"],
+        }
     if spec.name == "integral_query_spec":
         schema["additionalProperties"] = False
     if (

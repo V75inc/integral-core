@@ -180,6 +180,7 @@ async def create_app(
     icon: Optional[str] = None,
     type_hint: Optional[str] = None,
     include_seed_data: bool = True,
+    initial_home: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Create a new App owned by the current user inside a Workspace.
 
@@ -250,6 +251,7 @@ async def create_app(
         accent_color=accent_color,
         icon=icon,
         include_seed_data=include_seed_data,
+        initial_home=initial_home,
     )
 
     return await create_app_response_payload(sp, type_hint_warning=type_hint_warning)

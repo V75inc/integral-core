@@ -870,3 +870,44 @@ def test_plan_fidelity_rejects_renaming_an_approved_field_key():
         "must retain approved key 'due_date', not 'target_date'" in error
         for error in errors
     )
+
+
+def test_approved_dashboard_cannot_silently_drop_the_monthly_chart():
+    blueprint, error = validate_blueprint(
+        {
+            "app": {"id": "app", "name": "Test App"},
+            "tracks": [],
+            "dashboard": {
+                "id": "board",
+                "name": "Income",
+                "widgets": [
+                    {
+                        "id": "metric",
+                        "title": "Received",
+                        "type": "metric_card",
+                        "decision": "Current total",
+                    },
+                    {
+                        "id": "trend",
+                        "title": "Payments by month",
+                        "type": "chart_line",
+                        "decision": "Monthly trend",
+                    },
+                ],
+            },
+        }
+    )
+    assert error is None
+    dashboard = {
+        "name": "Income",
+        "widgets": [{"title": "Received", "type": "metric_card"}],
+    }
+    operations = [
+        ("integral_create_app", {"name": "Test App"}),
+        ("integral_create_dashboard", dashboard),
+    ]
+    errors = plan_fidelity_errors(blueprint, operations, new_app=True)
+    assert len(errors) == 1
+    assert "payments by month" in errors[0]
+    dashboard["widgets"].append({"title": "Payments by month", "type": "chart_line"})
+    assert plan_fidelity_errors(blueprint, operations, new_app=True) == []

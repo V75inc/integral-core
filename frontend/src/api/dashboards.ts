@@ -47,6 +47,7 @@ export interface AppHome {
   description?: string;
   renderer?: 'widgets' | 'native';
   content?: HomeElement;
+  track_shortcuts?: string[];
   actions?: Array<{ label: string; draft: string; when?: { widget: string; state: 'empty' | 'has_records' } }>;
   widgets?: HomeWidget[];
 }

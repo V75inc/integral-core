@@ -22,6 +22,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.schemas.app_home import ScaffoldHome
+
 ItemId = Annotated[
     str,
     StringConstraints(
@@ -71,6 +73,7 @@ class _Item(BaseModel):
 class BlueprintApp(_Item):
     name: Label
     description: Optional[Text] = None
+    home: Optional[ScaffoldHome] = None
 
 
 class BlueprintGoal(_Item):
@@ -425,6 +428,10 @@ class DesignBlueprint(BaseModel):
     @model_validator(mode="after")
     def _references_resolve(self) -> "DesignBlueprint":
         track_names = {track.name.casefold() for track in self.tracks}
+        if self.app.home and any(
+            name.casefold() not in track_names for name in self.app.home.track_shortcuts
+        ):
+            raise ValueError("Home Track shortcuts must match Tracks in this blueprint")
         both = [
             t.name for t in self.track_templates if t.name.casefold() in track_names
         ]
