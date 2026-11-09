@@ -2,6 +2,7 @@ import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, us
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AppUIProvider, UIPrimitivesProvider, SDK_VERSION, type AppUI, type Placement } from '@integral/sdk-react';
+import * as AppPatterns from '../../ui/AppPatterns';
 import apiClient from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
@@ -215,7 +216,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
         setLoaded(null); setFailure(false); setReload(value => value + 1);
       }
     }}>Reload view</Button></div> : null}
-    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput}}>
+    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{...AppPatterns, Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput}}>
       <AppUIProvider value={{...api, context, lifecycle: composedLifecycle}}><EntryRegionHostContext.Provider value={composedLifecycle || null}><Loaded {...effectiveProps} /></EntryRegionHostContext.Provider></AppUIProvider>
     </UIPrimitivesProvider></Boundary>
   </>;

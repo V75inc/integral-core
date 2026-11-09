@@ -1,4 +1,4 @@
-# Integral React SDK 1.0
+# Integral React SDK 1.2
 
 Reviewed packages can ship independently built React components for Home, Track,
 Entry compose and Entry detail. Install `@integral/sdk-react` and React 18 as peer
@@ -43,7 +43,7 @@ assets and unsupported static imports. Bundle dependencies locally. The build co
 in shared controls or namespaced inline styles. No Core source imports are
 supported. Core supplies import mappings and preserves public runtime exports.
 
-Declare the artifact, SHA-256, export, `sdk_range: ^1.0.0`, placements and an
+Declare the artifact, SHA-256, export, `sdk_range: ^1.2.0`, placements and an
 object props schema in `app.ui_components`. See the
 [platform contract](../../docs/platform/react-app-ui.md) for admission and routing.
 The React 18 runtime is part of SDK v1 compatibility; an incompatible React major
@@ -87,3 +87,12 @@ opaque continuation cursors; they never fetch the complete collection.
 See the [full 1.1 contract](../../docs/platform/react-app-ui.md#react-sdk-11-app-owned-fields-and-bounded-lookups)
 and Business's Finance `InvoiceFields.tsx` reference. Build verification checks
 these exports in the actual production runtime, including after tree shaking.
+
+## Shared App UI kit
+
+Read [APP_UI_GUIDE.md](APP_UI_GUIDE.md) before new or migrated UI work. SDK 1.2
+adds host-backed AppPage, AppHeader, AppSection, AppGrid, AppField, AppActions,
+AppSummary and AppNotice; existing SDK 1.0/1.1 controls remain supported.
+Use `bin/app-ui-guides.mjs --target <project> --starter` for a neutral Entry
+starter and local automatic Cursor/Claude/Codex guides. `--apps-root` synchronizes
+manifest-bearing App folders; `--check` verifies without changing files.

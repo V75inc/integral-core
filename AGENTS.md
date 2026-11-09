@@ -681,3 +681,12 @@ docker-compose up  # builds backend from Dockerfile, runs API on :4000
 When this repository is part of a local multi-repository workspace and the files exist, [architecture](../docs/ARCHITECTURE.md), [foundation map](../docs/JVSPATIAL_FOUNDATION.md) and [contracts](../docs/API_CONTRACTS.md) provide additional source-navigation context. These documents describe one developer's setup; they do not require sibling repositories, directory names, branches, dependency overrides, tools or deployment choices in other checkouts.
 
 Use this repository's own configuration and instructions as the baseline. Verify actual dependency artifacts and assess affected consumers when changing shared contracts. If another consumer checkout is unavailable, report the validation limit; its absence alone does not block unrelated work. Local workflow exceptions apply only when explicitly authorized for the current workspace.
+
+<!-- integral-app-ui:start -->
+## Shared App UI — automatic instructions
+
+Before creating or changing App UI, read [APP_UI_GUIDE.md](APP_UI_GUIDE.md). Use Core's public React SDK patterns and host theme; keep domain behavior in the App.
+New/migrated React components require SDK ^1.2.0 and design checks. Preserve
+existing scoped instructions. Never treat UI work as permission to publish, deploy
+or activate a release.
+<!-- integral-app-ui:end -->

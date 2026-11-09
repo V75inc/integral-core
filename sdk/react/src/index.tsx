@@ -1,14 +1,16 @@
 /** Public React authoring contract. No imports from Core's private modules. */
+import type {AppActionsProps, AppFieldProps, AppGridProps, AppHeaderProps, AppNoticeProps, AppPageProps, AppSectionProps, AppSummaryProps} from './app-patterns';
+export type * from './app-patterns';
 import { forwardRef, createContext, useContext, useEffect, useRef, useState, type ComponentType, type ReactNode, type ComponentProps, type ElementType, type HTMLAttributes } from 'react';
 
-export const SDK_VERSION = '1.1.0';
+export const SDK_VERSION = '1.2.0';
 export class AppUIError extends Error {
   constructor(message: string, readonly outcome: 'rejected' | 'unconfirmed' | 'withheld' = 'rejected', readonly operationReceipt?: unknown) { super(message); this.name = 'AppUIError'; }
 }
 export type Placement = 'home' | 'track' | 'entry_compose' | 'entry_detail';
 export type Json = Record<string, unknown>;
 export interface ComponentDeclaration {
-  key: string; entry: string; digest: string; export_name: string; sdk_range: '^1.0.0' | '^1.1.0';
+  key: string; entry: string; digest: string; export_name: string; sdk_range: '^1.0.0' | '^1.1.0' | '^1.2.0';
   placements: Placement[]; props_schema: Json;
 }
 export type OperationResult = { output: Json; operation_receipt?: unknown; current_state_verified?: false };
@@ -108,13 +110,22 @@ export type ButtonProps = ComponentProps<'button'> & {variant?: 'primary' | 'sec
 export type InputProps = Omit<ComponentProps<'input'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
 export type SelectProps = Omit<ComponentProps<'select'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
 export type TextareaProps = ComponentProps<'textarea'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
-export type TextProps = HTMLAttributes<HTMLElement> & {as?: ElementType; variant?: 'display-lg' | 'display-md' | 'display-sm' | 'heading-lg' | 'heading-md' | 'heading-sm' | 'body-lg' | 'body' | 'body-sm' | 'subtitle' | 'meta' | 'mono' | 'label'; tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'info' | 'success' | 'warn' | 'danger' | 'ai' | 'inherit'};
-export type SurfaceProps = HTMLAttributes<HTMLDivElement> & {tone?: 'panel' | 'panel-2' | 'transparent'; border?: 'default' | 'subtle' | 'entry-table' | 'transparent' | 'none'; radius?: 'card' | 'input' | 'pill' | 'none'; padding?: 'none' | 'sm' | 'md' | 'lg'};
+export type TextProps = HTMLAttributes<HTMLElement> & {as?: ElementType; variant?: 'display-lg' | 'display-md' | 'display-sm' | 'heading-lg' | 'heading-md' | 'heading-sm' | 'body-lg' | 'body' | 'body-sm' | 'subtitle' | 'meta' | 'mono' | 'label'; weight?: 'normal' | 'medium' | 'semibold' | 'bold'; tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'info' | 'success' | 'warn' | 'danger' | 'ai' | 'inherit'};
+export type SurfaceProps = HTMLAttributes<HTMLDivElement> & {tone?: 'panel' | 'panel-2' | 'transparent'; border?: 'default' | 'subtle' | 'entry-table' | 'transparent' | 'none'; radius?: 'card' | 'input' | 'pill' | 'none'; as?: ElementType; elevation?: 'flat' | 'sm' | 'card' | 'pop'; padding?: 'none' | 'xs' | 'sm' | 'md' | 'lg'};
 export type LayoutProps = HTMLAttributes<HTMLDivElement> & {gap?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'; align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline'};
 export type ModalProps = {open: boolean; onClose: () => void; title?: ReactNode; children?: ReactNode; width?: string; variant?: 'default' | 'compact'};
 
 /** Components are supplied by the host; these declarations are the public UI surface. */
 export interface UIPrimitives {
+  AppPage?: ComponentType<AppPageProps>;
+  AppHeader?: ComponentType<AppHeaderProps>;
+  AppSection?: ComponentType<AppSectionProps>;
+  AppGrid?: ComponentType<AppGridProps>;
+  AppField?: ComponentType<AppFieldProps>;
+  AppActions?: ComponentType<AppActionsProps>;
+  AppSummary?: ComponentType<AppSummaryProps>;
+  AppNotice?: ComponentType<AppNoticeProps>;
+
   EntryRegion?: ComponentType<EntryRegionProps>;
   AsyncCombobox?: ComponentType<AsyncComboboxProps>;
   DateInput?: ComponentType<DateInputProps>;
@@ -158,4 +169,28 @@ export const Modal = Object.assign(ModalRoot, {
   Body: function Body({children}: {children: ReactNode}) { const ui = useContext(Primitives)!; return <ui.Modal.Body>{children}</ui.Modal.Body>; },
   Footer: function Footer({children}: {children: ReactNode}) { const ui = useContext(Primitives)!; return <ui.Modal.Footer>{children}</ui.Modal.Footer>; },
 });
-export const themeTokens = Object.freeze({background: 'var(--bg)', foreground: 'var(--text)', muted: 'var(--text-muted)', border: 'var(--border)', danger: 'var(--danger)'});
+
+export const AppPage = primitive<AppPageProps>('AppPage');
+export const AppHeader = primitive<AppHeaderProps>('AppHeader');
+export const AppSection = primitive<AppSectionProps>('AppSection');
+export const AppGrid = primitive<AppGridProps>('AppGrid');
+export const AppField = primitive<AppFieldProps>('AppField');
+export const AppActions = primitive<AppActionsProps>('AppActions');
+export const AppSummary = primitive<AppSummaryProps>('AppSummary');
+export const AppNotice = primitive<AppNoticeProps>('AppNotice');
+
+/** Semantic aliases inherit the live host theme; fonts and spacing use typed controls. */
+export const appTheme = Object.freeze({
+  canvas: 'var(--bg)', panel: 'var(--panel)', inset: 'var(--panel-2)',
+  text: 'var(--text)', muted: 'var(--text-muted)', subtle: 'var(--text-subtle)',
+  border: 'var(--panel-border)', subtleBorder: 'var(--border-subtle)',
+  focus: 'var(--focus-ring-color)', brand: 'var(--brand-accent)',
+  info: 'var(--info-fg)', infoBackground: 'var(--info-bg)',
+  success: 'var(--success-fg)', successBackground: 'var(--success-bg)',
+  warning: 'var(--warn-fg)', warningBackground: 'var(--warn-bg)',
+  danger: 'var(--danger-fg)', dangerBackground: 'var(--danger-bg)',
+  cardRadius: 'var(--radius-card)', inputRadius: 'var(--radius-input)', pillRadius: 'var(--radius-pill)',
+  shadowSmall: 'var(--shadow-sm)', shadowCard: 'var(--shadow-card)', shadowOverlay: 'var(--shadow-pop)',
+});
+
+export const themeTokens = Object.freeze({...appTheme, background: 'var(--bg)', foreground: 'var(--text)', muted: 'var(--text-muted)', border: 'var(--border)', danger: 'var(--danger)'});

@@ -15,7 +15,7 @@ class UIComponentDeclaration(BaseModel):
     entry: str = Field(pattern=r"^ui/[a-zA-Z0-9_/-]+\.mjs$", max_length=240)
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     export_name: str = Field(default="default", pattern=r"^[A-Za-z_$][A-Za-z0-9_$]*$")
-    sdk_range: Literal["^1.0.0", "^1.1.0"] = "^1.0.0"
+    sdk_range: Literal["^1.0.0", "^1.1.0", "^1.2.0"] = "^1.0.0"
     placements: List[UIPlacement] = Field(min_length=1, max_length=4)
     props_schema: Dict[str, Any] = Field(
         default_factory=lambda: {"type": "object", "additionalProperties": False}

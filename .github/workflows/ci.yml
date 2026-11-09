@@ -29,6 +29,10 @@ on:
       - "agent/**"
       - "examples/**"
       - "Makefile"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "APP_UI_GUIDE.md"
+      - ".cursor/**"
   push:
     branches:
       - main

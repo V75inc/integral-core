@@ -20,7 +20,7 @@
  * cell, etc.).
  */
 
-import { type ElementType, type ReactNode } from 'react';
+import { type ElementType, type ReactNode, type HTMLAttributes } from 'react';
 
 /**
  * Semantic typography roles. Each maps to a (size, line-height, weight,
@@ -109,7 +109,7 @@ const WEIGHT_CLASSES: Record<TextWeight, string> = {
   bold: 'font-bold',
 };
 
-export interface TextProps {
+export interface TextProps extends Omit<HTMLAttributes<HTMLElement>, 'children'> {
   children: ReactNode;
   /** Semantic typography role. */
   variant?: TextVariant;
@@ -192,6 +192,7 @@ export function Text({
   htmlFor,
   title,
   'data-testid': testId,
+  ...rest
 }: TextProps) {
   const Element = (as ?? defaultElement(variant)) as ElementType;
   const resolvedTone = tone ?? defaultTone(variant);
@@ -208,6 +209,7 @@ export function Text({
 
   return (
     <Element
+      {...rest}
       id={id}
       htmlFor={htmlFor}
       title={title}

@@ -296,3 +296,9 @@ verify: guards precommit format-check lint types verify-artifact test-frontend t
 clean-pyc:
 	@find backend -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 	@find backend -name '*.pyc' -delete 2>/dev/null || true
+
+.PHONY: check-app-ui-guides
+check-app-ui-guides:
+	node sdk/react/bin/app-ui-guides.mjs --check --target .
+
+verify: check-app-ui-guides

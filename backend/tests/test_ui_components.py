@@ -449,3 +449,20 @@ def test_native_entry_component_preserves_declarative_rollback():
     assert normalized[0]["component_key"] == "editor"
     assert normalized[0]["fallback_view"] == "document"
     assert _normalize_ui_contributions(normalized, where="test") == normalized
+
+
+@pytest.mark.parametrize("sdk_range", ["^1.0.0", "^1.1.0", "^1.2.0"])
+def test_additive_sdk_ranges_are_admitted(release, sdk_range):
+    bundle, component, _, sign = release
+    declaration = dict(component, sdk_range=sdk_range)
+    UIComponentDeclaration.model_validate(declaration)
+    sign(declaration)
+    assert service._admit(bundle, "Example", "sample", declaration)
+
+
+def test_future_major_sdk_range_fails_closed(release):
+    from pydantic import ValidationError
+
+    _, component, _, _ = release
+    with pytest.raises(ValidationError):
+        UIComponentDeclaration.model_validate(dict(component, sdk_range="^2.0.0"))

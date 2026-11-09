@@ -2,9 +2,9 @@ import {act, renderHook, waitFor} from '@testing-library/react';
 import {expect, it, vi} from 'vitest';
 import {AppUIProvider, useAppQuery, useEntryDraft, type AppUI} from '@integral/sdk-react';
 import {supportsSDKRange} from './AppReactComponentHost';
-it('supports SDK 1.0 and 1.1 while rejecting newer required contracts', () => {
-  expect(supportsSDKRange('^1.0.0')).toBe(true); expect(supportsSDKRange('^1.1.0')).toBe(true);
-  expect(supportsSDKRange('^1.2.0')).toBe(false); expect(supportsSDKRange('^2.0.0')).toBe(false);
+it('supports SDK 1.0, 1.1 and 1.2 while rejecting newer required contracts', () => {
+  expect(supportsSDKRange('^1.0.0')).toBe(true); expect(supportsSDKRange('^1.1.0')).toBe(true); expect(supportsSDKRange('^1.2.0')).toBe(true);
+  expect(supportsSDKRange('^1.3.0')).toBe(false); expect(supportsSDKRange('^2.0.0')).toBe(false);
 });
 it('uses host draft metadata and does not dispatch or subscribe while disabled', async () => {
   const query = vi.fn(async () => ({items: []})); const subscribe = vi.fn(() => () => {}); const patch = vi.fn();

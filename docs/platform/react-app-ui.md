@@ -278,3 +278,23 @@ failures reproduce on the original source, frontend accessibility timeouts pass
 in isolation, and existing static-check failures remain. The owning Finance
 report records full percentiles, work counters and limitations; in an adjacent
 Business checkout see [invoice qualification](../../../integral-business/docs/finance-invoice-performance.md).
+
+## Shared App patterns (SDK 1.2)
+
+SDK 1.2 is additive to 1.0/1.1. The host supplies AppPage, AppHeader, AppSection,
+AppGrid, AppField, AppActions, AppSummary and AppNotice through the same primitive
+provider. These are presentation only. The public `appTheme` aliases resolve
+Core's existing live CSS variables; Apps inherit its light/dark theme. Field
+bindings associate controls with labels, required state, help and errors.
+
+The canonical [App UI guide](../../sdk/react/APP_UI_GUIDE.md) ships in the SDK.
+`bin/app-ui-guides.mjs` synchronizes local, digest-marked guide snapshots and
+Codex/Claude/Cursor entry files, preserving handwritten instructions. Its `--check`
+mode performs no writes. Project instruction loading depends on the client;
+independent design/guide checks enforce the contract in Business CI. Native code
+continues to require operator trust and signed/admitted artifacts; the design
+guard is not a security sandbox. SDK 1.2 source changes do not update deployment
+pins or activate installed Apps.
+
+The paired Business source pilot records SDK 1.2 measurements and unresolved
+admission-tail limits in its [shared UI qualification report](../../../integral-business/docs/shared-app-ui-qualification.md). The initial matrix and fixed follow-up are retained separately; do not infer release qualification from a smaller artifact or a passing follow-up alone.
