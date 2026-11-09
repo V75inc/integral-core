@@ -123,6 +123,9 @@ class ChatTurnContext:
     field. Reserved for future composer affordances (focused entry id,
     selected tool override, etc.)."""
 
+    accepts_steering: bool = False
+    """Set only by the durable interactive worker."""
+
     start_time: Optional[float] = None
     """``time.monotonic()`` snapshot taken when the request entered the
     router — adapters use this to compute end-to-end timing for

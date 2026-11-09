@@ -260,6 +260,7 @@ def build_light_agent(
     orientation_context: str = "",
     identity_context: str = "",
     skill_candidates: list[dict[str, str]] | None = None,
+    steering: AbstractCapability | None = None,
 ) -> Agent:
     """Require an explicit conversational, reminder or operational routing outcome."""
     return Agent(
@@ -292,6 +293,7 @@ def build_light_agent(
         ),
         retries=0,
         capabilities=[
+            *([steering] if steering is not None else []),
             LightRoutingProtocol(),
             InstructionDisclosureGuard(protected_instructions=LIGHT_INSTRUCTIONS),
             IntegralContextAdmission(),

@@ -51,6 +51,7 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
     "navigation": ("path", "thread_id", "workspace_id"),
     "source": ("title", "url"),
     "status": ("status", "text"),
+    "steering-delivered": ("correction_id",),
     "error": ("code", "message"),
 }
 

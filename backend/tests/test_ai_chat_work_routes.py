@@ -481,6 +481,7 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
         json=payload,
     )
     assert response.status_code == 200, response.text
+    assert response.text.startswith("event: turn-accepted\n")
     assert response.headers["X-Integral-Work-Item"] == "chat-turn:accepted"
     assert response.headers["X-Integral-Accepted-Message"] == "n.ChatMessage.accepted"
     accepted = submit.await_args.args[0]

@@ -13,6 +13,7 @@ from app.models.harness_records import (
     HarnessPlanState,
     HarnessRunRecord,
     HarnessSnapshotRecord,
+    HarnessSteeringInbox,
     HarnessToolEffectRecord,
     HarnessTurnInputRecord,
 )
@@ -37,6 +38,7 @@ _RECORD_TYPES: tuple[type[Any], ...] = (
     HarnessRunRecord,
     HarnessEventRecord,
     HarnessSnapshotRecord,
+    HarnessSteeringInbox,
     HarnessMessageRecord,
     HarnessCheckpointManifestRecord,
     HarnessToolEffectRecord,
@@ -46,8 +48,8 @@ _RECORD_TYPES: tuple[type[Any], ...] = (
 )
 
 
-async def _rewrap_plan_state(record_id: str, *, scope_key: str) -> bool:
-    """Rewrap mutable PlanStore content without overwriting concurrent edits."""
+async def _rewrap_mutable_payload(record_id: str, *, scope_key: str) -> bool:
+    """Rewrap mutable Harness content without overwriting concurrent edits."""
     from jvspatial.core.context import get_default_context
 
     context = get_default_context()
@@ -57,25 +59,29 @@ async def _rewrap_plan_state(record_id: str, *, scope_key: str) -> bool:
             return False
         stored = document.get("context") or {}
         if stored.get("scope_key") != scope_key:
-            raise RuntimeError("Harness plan scope changed during key rotation")
+            raise RuntimeError("Harness record scope changed during key rotation")
         old_ciphertext = str(stored.get("payload_ciphertext") or "")
         ciphertext, changed = rewrap_secret_for_storage(old_ciphertext, aad=record_id)
         if not changed:
             return False
-        revision = int(stored.get("revision") or 0)
+        revision_guard = (
+            {"context.revision": int(stored.get("revision") or 0)}
+            if "revision" in stored
+            else {}
+        )
         updated = await context.database.find_one_and_update(
             "object",
             {
                 "id": record_id,
                 "context.scope_key": scope_key,
-                "context.revision": revision,
                 "context.payload_ciphertext": old_ciphertext,
+                **revision_guard,
             },
             {"$set": {"context.payload_ciphertext": ciphertext}},
         )
         if updated is not None:
             return True
-    raise RuntimeError("Harness plan changed repeatedly during key rotation")
+    raise RuntimeError("Harness record changed repeatedly during key rotation")
 
 
 async def rewrap_harness_session_records(*, scope_key: str) -> dict[str, int]:
@@ -105,8 +111,8 @@ async def rewrap_harness_session_records(*, scope_key: str) -> dict[str, int]:
         records = await record_type.find({"scope_key": scope_key})
         for record in records:
             seen += 1
-            if record_type is HarnessPlanState:
-                changed = await _rewrap_plan_state(record.id, scope_key=scope_key)
+            if record_type in (HarnessPlanState, HarnessSteeringInbox):
+                changed = await _rewrap_mutable_payload(record.id, scope_key=scope_key)
                 if changed:
                     rewrapped += 1
                     by_model[record_type.__name__] = (

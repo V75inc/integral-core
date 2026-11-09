@@ -147,3 +147,13 @@ class HarnessChatEventRecord(Object):
     sequence: int = attribute(default=0, indexed=True)
     created_at: str = attribute(default="", indexed=True)
     payload_ciphertext: str = ""
+
+
+class HarnessSteeringInbox(Object):
+    """Bounded encrypted corrections for one durable interactive turn."""
+
+    scope_key: str = attribute(default="", indexed=True)
+    work_item_id: str = ""
+    expires_at: str = attribute(default="", indexed=True)
+
+    payload_ciphertext: str = ""

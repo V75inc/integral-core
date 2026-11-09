@@ -25,6 +25,7 @@ class WorkItem(Object):
     idempotency_key: str = attribute(default="", indexed=True)
     input_payload: Dict[str, Any] = Field(default_factory=dict)
     input_fingerprint: str = ""
+    steering_closed: bool = False
     # Revision-bound continuation state belongs to the durable work authority,
     # never to chat or staging presentation state.
     plan_revision: str = ""

@@ -1,3 +1,4 @@
+import { SteeringComposer } from "./SteeringComposer";
 import { RoutineRunLink } from './RoutineRunLink';
 import { CollapsibleUserMessage } from './CollapsibleUserMessage';
 import { ConversationModelPicker } from './ConversationModelPicker';
@@ -104,7 +105,7 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
-  const { activeProviderId } = useChatActivity();
+  const { activeProviderId, steeringWorkItemId, deliveredSteeringIds, steeringRunning } = useChatActivity();
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
   // region or a dismissed popover moves focus off it and typing then went
@@ -192,6 +193,14 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
               {({ composerLocked, canReplyInChat, sheet }) => (
                 <>
                   {sheet}
+                  {steeringWorkItemId && (
+                    <SteeringComposer
+                      key={steeringWorkItemId}
+                      workItemId={steeringWorkItemId}
+                      running={steeringRunning && !composerLocked}
+                      deliveredIds={deliveredSteeringIds}
+                    />
+                  )}
                   <Composer
                     locked={
                       composerLocked &&

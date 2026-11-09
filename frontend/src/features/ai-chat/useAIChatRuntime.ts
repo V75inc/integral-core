@@ -1462,6 +1462,8 @@ export function useAIChatRuntime(
       markThreadStreaming(threadId);
       updateSession(threadId, {
         messages: [...priorMessages, draftToMessage(draft)],
+        steeringWorkItemId: null,
+        deliveredSteeringIds: [],
         streaming: true,
         activityText: null,
         streamError: null,
@@ -1513,10 +1515,24 @@ export function useAIChatRuntime(
           pageContext,
           hostAction,
           resumeWorkItemId,
+          onDurableTurn: (workItemId) => {
+            if (!controller.signal.aborted) {
+              updateSession(threadId, (session) => ({
+                ...session, steeringWorkItemId: workItemId,
+              }));
+            }
+          },
         });
 
         for await (const ev of stream as AsyncIterable<NormalizedEvent>) {
           if (controller.signal.aborted) break;
+          if (ev.type === "steering-delivered") {
+            updateSession(threadId, (session) => ({
+              ...session,
+              deliveredSteeringIds: [...(session.deliveredSteeringIds ?? []), ev.correction_id],
+            }));
+            continue;
+          }
           if (ev.type === "navigation") {
             navigationPath = agentNavigationPath({ ok: true, navigation: ev }, threadId, navigationWorkspace);
             continue;
@@ -2103,6 +2119,9 @@ export function useAIChatRuntime(
       remoteTurns,
       isThreadStreaming,
       appendAssistantNote,
+      steeringWorkItemId: activeSession?.steeringWorkItemId ?? null,
+      deliveredSteeringIds: activeSession?.deliveredSteeringIds,
+      steeringRunning: Boolean(activeSession?.streaming && !activeSession.cancellation),
       switchToThread: selectThread,
       switchToNewThread,
     }),
@@ -2123,6 +2142,10 @@ export function useAIChatRuntime(
       remoteTurns,
       isThreadStreaming,
       appendAssistantNote,
+      activeSession?.steeringWorkItemId,
+      activeSession?.deliveredSteeringIds,
+      activeSession?.streaming,
+      activeSession?.cancellation,
     ],
   );
 }

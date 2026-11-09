@@ -85,6 +85,7 @@ def build_native_runtime(
     model: Any,
     protected_instruction_text: str | None = None,
     initial_skill: tuple[str, str] | None = None,
+    accepts_steering: bool = False,
     instructions: str,
     tools: Sequence[Any],
     step_store_backend: StepStore | None = None,
@@ -222,6 +223,11 @@ def build_native_runtime(
 
     capabilities.append(InstructionDisclosureGuard(protected_instructions=protected))
     capabilities.append(IntegralContextAdmission())
+
+    if accepts_steering and work_execution_context is not None:
+        from app.agentive.harness.steering import DurableSteering
+
+        capabilities.insert(0, DurableSteering(work_execution_context))
 
     agent = Agent(
         model,
