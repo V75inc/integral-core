@@ -45,6 +45,7 @@ from pydantic_ai.capabilities import (
     ToolSearch,
 )
 from pydantic_ai.messages import (
+    EnqueuedMessagesEvent,
     LoadCapabilityCallPart,
     LoadCapabilityReturnPart,
     ModelMessagesTypeAdapter,
@@ -84,6 +85,7 @@ from pydantic_ai_harness.step_persistence import (
     continue_run,
 )
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
+from pydantic_graph import End
 
 from app.agentive.harness.pydantic_context import (
     IntegralContextAdmission,
@@ -1746,6 +1748,9 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
 
 
 __all__ = [
+    "AbstractCapability",
+    "End",
+    "EnqueuedMessagesEvent",
     "IntegralContextAdmission",
     "IntegralContextLifecycle",
     "IntegralContextOverflow",

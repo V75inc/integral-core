@@ -2288,6 +2288,18 @@ async def _stream_accepted_chat_turn(
 ) -> StreamingResponse:
     """Expose the same public receipt on acceptance and idempotent recovery."""
     response = await stream_chat_turn_events(request, thread_id, receipt.work_item_id)
+    from app.services.chat_sse import sse_bytes
+
+    committed_events = response.body_iterator
+
+    async def accepted_then_committed():
+        # Flush acceptance even when the worker has not published a sequenced
+        # event yet. The receipt is already committed and authorized above.
+        yield sse_bytes("turn-accepted", {})
+        async for event in committed_events:
+            yield event
+
+    response.body_iterator = accepted_then_committed()
     response.headers["X-Integral-Work-Item"] = receipt.work_item_id
     response.headers["X-Integral-Accepted-Message"] = receipt.message_id
     response.headers["Access-Control-Expose-Headers"] = (

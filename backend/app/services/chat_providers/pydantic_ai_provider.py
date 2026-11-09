@@ -1820,12 +1820,27 @@ class PydanticAIProvider:
                 focused_app_id=ctx.focused_space_id,
                 query=ctx.text,
             )
+        from app.agentive.harness.events import is_serialized_tool_text
+
+        steering = None
+        if ctx.accepts_steering and work_context is not None:
+            from app.agentive.harness.steering import DurableSteering
+
+            def settles(output: object) -> bool:
+                return isinstance(output, SimpleReminderRequest) or (
+                    isinstance(output, str)
+                    and not is_serialized_tool_text(output)
+                    and not is_printed_context_request(output)
+                )
+
+            steering = DurableSteering(work_context, settles=settles)
         agent = build_light_agent(
             model,
             time_context=time_context,
             orientation_context=await workspace_orientation(ctx, thread),
             identity_context=await user_identity_context(ctx.user_id),
             skill_candidates=candidates,
+            steering=steering,
         )
         from app.config import settings
         from app.services.chat_latency import current_latency
@@ -1855,8 +1870,6 @@ class PydanticAIProvider:
             from app.agentive.harness.model_errors import NativeModelRequestError
 
             raise NativeModelRequestError("model_request_timeout") from exc
-        from app.agentive.harness.events import is_serialized_tool_text
-
         if isinstance(result.output, OperationalContextRequest) or (
             isinstance(result.output, str)
             and (
@@ -2437,6 +2450,7 @@ class PydanticAIProvider:
                     agent_name="integral_core",
                     initial_skill=initial_skill,
                     turn_progress=run_state["turn_progress"],
+                    accepts_steering=ctx.accepts_steering,
                     skill_directories=[Path(skill_temp.name)],
                     allowed_skill_names=allowed_skill_names,
                     work_execution_context=work_execution_context,

@@ -721,6 +721,7 @@ async def _execute_chat_turn(
             focused_view_id=execution.focused_view_id,
             workspace_id=ctx.workspace_id,
             extra_data=extra_data,
+            accepts_steering=execution.host_control is None,
         )
     except WorkError as exc:
         if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:

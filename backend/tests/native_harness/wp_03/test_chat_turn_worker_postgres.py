@@ -1422,3 +1422,150 @@ async def test_answer_finishes_before_independently_leased_title(
         is None
     )
     assert model_calls == [True]
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_steering_survives_worker_process_death(
+    postgres_graph_context, monkeypatch
+) -> None:
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import EnqueuedMessagesEvent, UserPromptPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from app.agentive.harness.steering import DurableSteering
+    from app.api.errors import ResourceConflictError, ResourceNotFoundError
+    from app.schemas.agentive.steering import SteeringCorrectionRequest
+    from app.schemas.agentive.work import WorkExecutionContext
+    from app.services import chat_providers
+    from app.services.chat_steering import accept_steering_correction
+
+    item, principal_id = await _submitted_claimed_turn(claim=False)
+    correction = SteeringCorrectionRequest(
+        client_request_id="correction-1", text="Use the revised destination."
+    )
+    accepted = await accept_steering_correction(
+        item.work_item_id, principal_id, correction
+    )
+    assert accepted == {"correction_id": "correction-1", "status": "accepted"}
+    assert (
+        await accept_steering_correction(item.work_item_id, principal_id, correction)
+        == accepted
+    )
+    with pytest.raises(ResourceConflictError):
+        await accept_steering_correction(
+            item.work_item_id,
+            principal_id,
+            correction.model_copy(update={"text": "other"}),
+        )
+    with pytest.raises(ResourceNotFoundError):
+        await accept_steering_correction(item.work_item_id, "another-user", correction)
+
+    process = multiprocessing.get_context("spawn").Process(
+        target=_claim_and_exit_abruptly,
+        args=(
+            item.work_item_id,
+            "crashed-steering-worker",
+            _active_postgres_dsn(),
+            120,
+        ),
+    )
+    process.start()
+    process.join(timeout=30)
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+    assert process.exitcode == 77
+
+    from jvspatial.core.context import get_default_context
+
+    await get_default_context()._evict_from_cache(item.id)
+    await work_items.force_expire_lease_for_tests(item.work_item_id)
+    received = []
+    deliveries = []
+    late = SteeringCorrectionRequest(
+        client_request_id="correction-2", text="Use the short format."
+    )
+    model_calls = 0
+
+    async def respond(messages, _info):
+        nonlocal model_calls
+        model_calls += 1
+        if model_calls == 1:
+            await accept_steering_correction(item.work_item_id, principal_id, late)
+        received.extend(
+            part.content
+            for message in messages
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        yield "Ready."
+
+    class SteeringProvider(_Provider):
+        async def stream_turn(self, turn):
+            assert turn.accepts_steering
+            authority = WorkExecutionContext.model_validate(
+                turn.extra_data["work_execution_context"]
+            )
+            assert authority.lease_fence == 2
+            agent = Agent(
+                FunctionModel(stream_function=respond),
+                capabilities=[DurableSteering(authority)],
+            )
+            async with agent.run_stream_events(turn.text) as stream:
+                async for event in stream:
+                    if isinstance(event, EnqueuedMessagesEvent):
+                        deliveries.append(event.enqueue_id)
+            # The WorkItem is still running, but the last drain has sealed
+            # acceptance so a successful terminal response cannot lose input.
+            with pytest.raises(ResourceConflictError):
+                await accept_steering_correction(
+                    item.work_item_id,
+                    principal_id,
+                    late.model_copy(update={"client_request_id": "after-final-drain"}),
+                )
+            async for event in super().stream_turn(turn):
+                yield event
+
+    provider = SteeringProvider(
+        [
+            {"type": "text-delta", "delta": "Ready."},
+            {"type": "message-finish"},
+        ]
+    )
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+    from app.agentive.services.work_recovery import run_recovery_pass
+
+    report = await run_recovery_pass(reclaim_worker_id="replacement-steering-worker")
+    assert report.reclaimed == 1
+    await get_default_context()._evict_from_cache(item.id)
+    finished = await WorkItem.get(item.id)
+    assert finished is not None and finished.status == "succeeded"
+    assert model_calls == 2
+    assert received == [
+        "Give a concise answer.",
+        correction.text,
+        "Give a concise answer.",
+        correction.text,
+        late.text,
+    ]
+    assert len(set(deliveries)) == len(deliveries) == 2
+    replay = await replay_work_item_chat_events(
+        principal_id=principal_id,
+        workspace_id=item.workspace_id,
+        thread_id=item.thread_id,
+        work_item_id=item.work_item_id,
+    )
+    assert [
+        event["correction_id"]
+        for event in replay.events
+        if event["type"] == "steering-delivered"
+    ] == [correction.client_request_id, late.client_request_id]
+    with pytest.raises(ResourceConflictError):
+        await accept_steering_correction(
+            item.work_item_id,
+            principal_id,
+            late.model_copy(update={"client_request_id": "too-late"}),
+        )

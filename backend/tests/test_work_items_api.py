@@ -237,3 +237,31 @@ async def test_legacy_failure_does_not_break_safe_work_list(
     stranger = await second_user_client.get(f"/api/work-items/{failed.work_item_id}")
     assert stranger.status_code == 404
     assert await database.get("object", failed.id) == before
+
+
+@pytest.mark.asyncio
+async def test_steering_route_binds_flat_json_and_authenticated_request(
+    authenticated_client: AsyncClient, monkeypatch
+) -> None:
+    from unittest.mock import AsyncMock
+
+    accept = AsyncMock(
+        return_value={"correction_id": "correction-1", "status": "accepted"}
+    )
+    monkeypatch.setattr("app.services.chat_steering.accept_steering_correction", accept)
+    path = "/api/work-items/active-turn/steering"
+    response = await authenticated_client.post(
+        path, json={"client_request_id": "correction-1", "text": "Keep it short."}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "accepted"
+    work_item_id, principal_id, correction = accept.await_args.args
+    assert work_item_id == "active-turn"
+    assert principal_id
+    assert correction.text == "Keep it short."
+
+    response = await authenticated_client.post(
+        path, json={"client_request_id": "correction-2", "text": " "}
+    )
+    assert response.status_code == 400
+    assert accept.await_count == 1

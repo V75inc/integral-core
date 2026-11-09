@@ -27,6 +27,7 @@ export interface ChatLatency {
 }
 
 export type NormalizedEvent =
+  | { type: "steering-delivered"; correction_id: string }
   | { type: "navigation"; path: string; thread_id: string; workspace_id: string }
   | { type: "text-delta"; delta: string }
   | { type: "text-replace"; content: string }
@@ -132,6 +133,7 @@ export interface TurnContext {
   /** Snapshotted page context (URL, breadcrumbs, visible data) at send time. */
   pageContext?: ChatPageContextPayload;
   /** Host initiated continuation; never represented as a user utterance. */
+  onDurableTurn?: (workItemId: string) => void;
   hostAction?: "prompt_sheet_resume" | "staging_follow_through";
 }
 

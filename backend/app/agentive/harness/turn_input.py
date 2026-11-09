@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.harness_records import HarnessTurnInputRecord
+from app.models.harness_records import HarnessSteeringInbox, HarnessTurnInputRecord
 from app.schemas.agentive.work import TERMINAL_WORK_STATUSES, ChatTurnExecutionContext
 from app.services.credential_crypto import (
     CIPHER_PREFIX_V1,
@@ -205,6 +205,8 @@ async def purge_turn_input_capsules_for_thread(
             raise ValueError("turn input capsule scope index is inconsistent")
         await record.delete()
         deleted += 1
+    for inbox in await HarnessSteeringInbox.find({"scope_key": scope_key}):
+        await inbox.delete()
     return deleted
 
 
@@ -240,6 +242,14 @@ async def purge_expired_turn_input_capsules(
             continue
         await record.delete()
         deleted += 1
+    for inbox in await context.find(
+        HarnessSteeringInbox,
+        {"context.expires_at": {"$lt": cutoff_iso}},
+        limit=batch_size,
+    ):
+        work_item = await WorkItem.get(_object_id(inbox.work_item_id))
+        if work_item is None or work_item.status in TERMINAL_WORK_STATUSES:
+            await inbox.delete()
     return {"capsules_deleted": deleted, "active_work_skipped": skipped_active}
 
 
