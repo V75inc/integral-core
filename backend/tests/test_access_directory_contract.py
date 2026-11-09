@@ -67,6 +67,48 @@ async def test_track_detail_keeps_hidden_directory_count():
     assert response["caller_role"] == "viewer"
 
 
+async def test_track_detail_rechecks_access_after_assembling_components(monkeypatch):
+    from app.api import views
+
+    _, reader, workspace, app, track, _ = await rooted_graph()
+    original = views._track_views_payload
+
+    async def revoke_after_read(current_track):
+        payload = await original(current_track)
+        context = await app.get_context()
+        [grant] = await context.find_edges_between(
+            reader.id, app.id, edge_class=COLLABORATES_ON
+        )
+        await grant.delete()
+        return payload
+
+    monkeypatch.setattr(views, "_track_views_payload", revoke_after_read)
+    with pytest.raises(InsufficientPermissionsError):
+        await get_track_detail_bundle(
+            request_for(reader.id, workspace.id), track.id, include_entry_count=False
+        )
+
+
+async def test_track_detail_rechecks_directory_visibility_before_response(monkeypatch):
+    from app.services import sharing
+
+    _, reader, workspace, _, track, _ = await rooted_graph()
+    decisions = iter((True, False))
+
+    async def directory_access(user_id, kind, resource_id):
+        assert (user_id, kind, resource_id) == (reader.id, "track", track.id)
+        return next(decisions)
+
+    monkeypatch.setattr(sharing, "can_review_resource_access", directory_access)
+    response = await get_track_detail_bundle(
+        request_for(reader.id, workspace.id), track.id, include_entry_count=False
+    )
+    assert response["collaborators"] == []
+    assert response["collaborator_effective_total"] == 2
+    assert response["caller_role"] == "viewer"
+    assert next(decisions, None) is None
+
+
 async def test_guest_member_pool_is_restricted_to_administration():
     owner, reader, workspace, _, _, _ = await rooted_graph()
     with pytest.raises(InsufficientPermissionsError):

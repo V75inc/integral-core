@@ -46,7 +46,14 @@ async def list_entry_types(
         )
         if not _decision.allowed:
             raise InsufficientPermissionsError(message="Access denied")
-        track = await Track.get(track_id)
+        return await _entry_types_payload(track_id, await Track.get(track_id))
+    return await _entry_types_payload()
+
+
+async def _entry_types_payload(
+    track_id: Optional[str] = None, track: Optional[Track] = None
+) -> Dict[str, Any]:
+    if track_id:
         if track is not None:
             try:
                 from app.services.entry_type_service import (
@@ -71,7 +78,8 @@ async def list_entry_types(
             # carry no single track_id to match). Mirrors
             # ``_list_track_views`` (app/api/views.py), which already
             # resolves Views the same way for the identical reason.
-            track = await Track.get(track_id)
+            if track is None:
+                track = await Track.get(track_id)
             if track:
                 cp = await get_track_attached_operational_model(track)
                 if cp:

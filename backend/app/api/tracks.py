@@ -300,6 +300,11 @@ async def get_track(
     track = await Track.get(track_id)
     if not track:
         raise ResourceNotFoundError(message="Track not found")
+    await _require_track_read(user_id, track_id)
+    return {"track": await _track_payload(track, user_id, include_entry_count)}
+
+
+async def _require_track_read(user_id: str, track_id: str) -> None:
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="track.read",
@@ -307,15 +312,20 @@ async def get_track(
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
+
+
+async def _track_payload(
+    track: Track, user_id: str, include_entry_count: bool
+) -> Dict[str, Any]:
     track_data = await export_node(track)
     if include_entry_count:
         track_data["entry_count"] = await count_user_accessible_entries(
-            user_id, track_id
+            user_id, track.id
         )
     await attach_parent_app_to_track_data(track_data, track)
     await attach_operational_model_defaults_to_track_data(track_data, track)
     await attach_anchor_source_to_track_data(track_data, track)
-    return {"track": track_data}
+    return track_data
 
 
 @endpoint("/tracks/{track_id}/detail", methods=["GET"], auth=True, tags=["Tracks"])
@@ -328,25 +338,35 @@ async def get_track_detail_bundle(
     single round-trip.
     """
     validate_id(track_id, "track_id")
-    # Reuse existing endpoint-level contracts to keep payload semantics aligned.
-    track_resp = await get_track(
-        request, track_id, include_entry_count=include_entry_count
-    )
-    from app.api.entry_types import list_entry_types as _list_entry_types
-    from app.api.views import list_track_views as _list_track_views
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    track = await Track.get(track_id)
+    if not track:
+        raise ResourceNotFoundError(message="Track not found")
+    await _require_track_read(user_id, track_id)
 
-    # These three reads are independent after the track-level permission
-    # check above. Running them together removes two serial graph/policy
-    # round-trips from every track navigation without changing their response
-    # contracts.
+    from app.api.entry_types import _entry_types_payload
+    from app.api.views import _track_views_payload
+    from app.services.sharing import can_review_resource_access
+
+    directory_visible = await can_review_resource_access(user_id, "track", track_id)
+    track_data = await _track_payload(track, user_id, include_entry_count)
     collab_resp, entry_types_resp, views_resp = await asyncio.gather(
-        list_collaborators(request, track_id),
-        _list_entry_types(request, track_id=track_id),
-        _list_track_views(request, track_id),
+        _track_collaborators_payload(track, user_id, directory_visible),
+        _entry_types_payload(track_id, track),
+        _track_views_payload(track),
     )
+    # The component reads belong to one response. Recheck the resource and
+    # sensitive directory audience before releasing any assembled payload.
+    await _require_track_read(user_id, track_id)
+    if directory_visible and not await can_review_resource_access(
+        user_id, "track", track_id
+    ):
+        collab_resp["collaborators"] = []
 
     return {
-        "track": track_resp.get("track"),
+        "track": track_data,
         "collaborators": collab_resp.get("collaborators", []),
         "collaborator_effective_total": collab_resp.get("effective_total", 0),
         "collaborator_inherited_truncated": collab_resp.get(
@@ -776,6 +796,13 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     if not track:
         raise ResourceNotFoundError(message="Track not found")
 
+    return await _track_collaborators_payload(track, user_id, directory_visible)
+
+
+async def _track_collaborators_payload(
+    track: Track, user_id: str, directory_visible: bool
+) -> Dict[str, Any]:
+    track_id = track.id
     ctx = await track.get_context()
 
     # Collect exclusion edges for this track, keyed by user_id.

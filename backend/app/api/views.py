@@ -261,6 +261,10 @@ async def list_track_views(
     if not track:
         raise ResourceNotFoundError(message="Track not found")
 
+    return await _track_views_payload(track)
+
+
+async def _track_views_payload(track: Track) -> Dict[str, Any]:
     views = await _list_track_views(track)
     items = [await export_node(v) for v in views]
     # Use node-level is_default as the source of truth for the list response.
@@ -271,7 +275,7 @@ async def list_track_views(
     if not winner_id:
         winner_id = await pick_default_view_id_for_track(track, views)
     items = normalize_view_list_default_exports(items, winner_id)
-    return {"views": items, "total": len(items), "track_id": track_id}
+    return {"views": items, "total": len(items), "track_id": track.id}
 
 
 @endpoint("/tracks/{track_id}/views", methods=["POST"], auth=True, tags=["Views"])

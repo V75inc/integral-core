@@ -42,27 +42,25 @@ def test_apps_api_no_can_delete_alias():
 
 def test_collaborator_lists_use_public_user_view():
     """Track/app collaborator lists must not full-export User (prefs/OTP leak)."""
-    for rel, fn_name in (
-        ("app/api/tracks.py", "list_collaborators"),
-        ("app/api/apps.py", "list_app_collaborators"),
+    for rel, route, payload in (
+        ("app/api/tracks.py", "list_collaborators", "_track_collaborators_payload"),
+        ("app/api/apps.py", "list_app_collaborators", "list_app_collaborators"),
     ):
-        src = Path(rel).read_text(encoding="utf-8")
-        tree = ast.parse(src)
-        found = False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == fn_name:
-                found = True
-                body = ast.unparse(node)
-                assert "public_user_view" in body, f"{fn_name} missing public_user_view"
-                assert (
-                    "export_node(owner" not in body
-                ), f"{fn_name} still export_node(owner…)"
-                assert (
-                    "export_node(collab" not in body
-                ), f"{fn_name} still export_node(collab…)"
-                assert "export_node(sc)" not in body, f"{fn_name} still export_node(sc)"
-                break
-        assert found, f"{fn_name} not found in {rel}"
+        tree = ast.parse(Path(rel).read_text(encoding="utf-8"))
+        functions = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+        }
+        route_body = ast.unparse(functions[route])
+        payload_body = ast.unparse(functions[payload])
+        if payload != route:
+            assert f"await {payload}(" in route_body
+        assert "public_user_view" in payload_body, f"{payload} missing public_user_view"
+        for body in (route_body, payload_body):
+            assert "export_node(owner" not in body
+            assert "export_node(collab" not in body
+            assert "export_node(sc)" not in body
 
 
 @pytest.mark.asyncio
