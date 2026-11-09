@@ -1,12 +1,14 @@
 """Bridge durable steering inputs into Pydantic's native pending-message queue."""
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from app.agentive.harness.pydantic_ai_compat import (
     AbstractCapability,
     Agent,
     End,
     EnqueuedMessagesEvent,
+    InstructionPart,
     ModelRequest,
     UserPromptPart,
 )
@@ -23,17 +25,22 @@ class DurableSteering(AbstractCapability):
     ) -> None:
         self.context = context
         self.settles = settles
-        self.enqueued: dict[str, str] = {}
+        self.enqueued: dict[str, tuple[str, str]] = {}
 
     async def on_event(self, ctx, *, event):
         if not isinstance(event, EnqueuedMessagesEvent):
             return
-        correction_id = self.enqueued.get(event.enqueue_id)
-        if correction_id is not None:
+        correction = self.enqueued.get(event.enqueue_id)
+        if correction is not None:
+            correction_id, text = correction
             await append_work_item_chat_event(
                 context=self.context,
                 event_key=f"steering-delivered:{correction_id}",
-                event={"type": "steering-delivered", "correction_id": correction_id},
+                event={
+                    "type": "steering-delivered",
+                    "correction_id": correction_id,
+                    "text": text,
+                },
             )
 
     async def wrap_node_run(self, ctx, *, node, handler):
@@ -49,17 +56,51 @@ class DurableSteering(AbstractCapability):
                 await self._enqueue_pending(ctx, close_if_drained=True)
         return result
 
-    async def _enqueue_pending(self, ctx, *, close_if_drained=False):
-        seen = set(self.enqueued.values()) | {
-            marker[1]
-            for message in ctx.messages
-            if isinstance(message, ModelRequest)
-            and isinstance(
-                marker := (message.metadata or {}).get("integral_steering"), list
-            )
+    async def before_model_request(self, ctx, request_context):
+        if not any(
+            self._correction_id(message) for message in request_context.messages
+        ):
+            return request_context
+
+        parameters = request_context.model_request_parameters
+        return replace(
+            request_context,
+            model_request_parameters=replace(
+                parameters,
+                instruction_parts=[
+                    *(parameters.instruction_parts or []),
+                    InstructionPart(
+                        "The user has sent a correction during this turn. Treat their newest "
+                        "user message in this turn as the current request. If it changes the "
+                        "task or asks for a different answer, stop pursuing the superseded "
+                        "work and answer the correction. An earlier draft or tool result "
+                        "does not override it. Keep all workspace authorization and "
+                        "approval requirements in effect.",
+                        dynamic=True,
+                        name="integral-live-steering",
+                    ),
+                ],
+            ),
+        )
+
+    def _correction_id(self, message) -> str | None:
+        if not isinstance(message, ModelRequest):
+            return None
+        marker = (message.metadata or {}).get("integral_steering")
+        if (
+            isinstance(marker, list)
             and len(marker) == 2
             and marker[0] == self.context.work_item_id
             and isinstance(marker[1], str)
+        ):
+            return marker[1]
+        return None
+
+    async def _enqueue_pending(self, ctx, *, close_if_drained=False):
+        seen = {correction_id for correction_id, _ in self.enqueued.values()} | {
+            correction_id
+            for message in ctx.messages
+            if (correction_id := self._correction_id(message)) is not None
         }
         for correction_id, text in (
             await load_steering_corrections(
@@ -79,4 +120,4 @@ class DurableSteering(AbstractCapability):
                 priority="asap",
             )
             if enqueue_id is not None:
-                self.enqueued[enqueue_id] = correction_id
+                self.enqueued[enqueue_id] = (correction_id, text)

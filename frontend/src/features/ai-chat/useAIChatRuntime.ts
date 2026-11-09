@@ -1,3 +1,5 @@
+import apiClient from "../../api/client";
+import { randomUUID } from "../../utils/randomUUID";
 import { friendlyAssistantText, friendlyChatFailure, friendlyToolFailure } from "./components/assistantMessagePresentation";
 import { agentNavigationPath } from "./agentNavigation";
 import {
@@ -26,6 +28,7 @@ import type {
   ChatImageInput,
   ChatProvider,
   NormalizedEvent,
+  SteeringReceipt,
 } from "./providers/types";
 import { createImageAttachmentAdapter } from "./attachments/imageAttachmentAdapter";
 import { createFileAttachmentAdapter } from "./attachments/fileAttachmentAdapter";
@@ -141,6 +144,7 @@ type AssistantMessageDraft = {
   finalPayload?: Record<string, unknown>;
   errorCode?: string;
   errorDetail?: string;
+  steering?: SteeringReceipt[];
 };
 
 function freshDraft(id: string): AssistantMessageDraft {
@@ -159,7 +163,7 @@ function freshDraft(id: string): AssistantMessageDraft {
 export function draftHasVisibleParts(draft: AssistantMessageDraft): boolean {
   if (draft.textParts.some((t) => t.length > 0)) return true;
   if (draft.toolCallOrder.length > 0) return true;
-  if (draft.sources.length > 0) return true;
+  if (draft.sources.length > 0 || draft.steering?.length) return true;
   for (const key of draft.reasoningOrder) {
     if ((draft.reasoningSegments.get(key) ?? "").length > 0) return true;
   }
@@ -250,9 +254,10 @@ function draftToMessage(draft: AssistantMessageDraft): ThreadMessageLike {
         draft.interactPayload ||
         draft.finalContent ||
         draft.finalPayload ||
-        draft.errorCode
+        draft.errorCode || draft.steering?.length
           ? {
               ...(draft.latency ? { latency: draft.latency } : undefined),
+              ...(draft.steering?.length ? { steering: draft.steering } : undefined),
               ...(draft.errorCode ? { errorCode: draft.errorCode } : undefined),
               ...(draft.errorDetail ? { errorDetail: draft.errorDetail } : undefined),
               ...(draft.customSteps?.length
@@ -570,6 +575,7 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
           finalContent?: string;
           finalPayload?: Record<string, unknown>;
           error?: { code?: string; message?: string } | null;
+          steering?: SteeringReceipt[];
         }
       | undefined;
     const pmSteps = Array.isArray(pm?.steps) ? pm!.steps : [];
@@ -607,6 +613,7 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
       !!pmInteract ||
       !!pmFinalContent ||
       !!pmFinalPayload ||
+      !!pm?.steering?.length ||
       !!errorCode;
     return {
       id: m.id,
@@ -643,6 +650,7 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
                 }
               : undefined,
             custom: {
+              ...(pm?.steering?.length ? { steering: pm.steering } : undefined),
               ...(pmTiming ? { latency: pmTiming } : undefined),
               ...(errorCode ? { errorCode } : undefined),
               ...(persistedError?.message || pm?.error?.message
@@ -1463,7 +1471,6 @@ export function useAIChatRuntime(
       updateSession(threadId, {
         messages: [...priorMessages, draftToMessage(draft)],
         steeringWorkItemId: null,
-        deliveredSteeringIds: [],
         streaming: true,
         activityText: null,
         streamError: null,
@@ -1527,9 +1534,16 @@ export function useAIChatRuntime(
         for await (const ev of stream as AsyncIterable<NormalizedEvent>) {
           if (controller.signal.aborted) break;
           if (ev.type === "steering-delivered") {
+            const text = ev.text ?? peekSessions()[threadId]?.followUps?.find(
+              (item) => item.id === ev.correction_id,
+            )?.text;
+            if (text) {
+              draft.steering = [...(draft.steering ?? []), { correction_id: ev.correction_id, text }];
+              flush();
+            }
             updateSession(threadId, (session) => ({
               ...session,
-              deliveredSteeringIds: [...(session.deliveredSteeringIds ?? []), ev.correction_id],
+              followUps: session.followUps?.filter((item) => item.id !== ev.correction_id),
             }));
             continue;
           }
@@ -1692,7 +1706,10 @@ export function useAIChatRuntime(
         ) {
           const composing = [...document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Message input"]')]
             .some(input => Boolean(input.value.trim()));
-          if (!composing) onNavigateRef.current?.(navigationPath, threadId);
+          const hasFollowUp = session?.followUps?.some(
+            (item) => item.state === "queued" || item.state === "sending",
+          );
+          if (!composing && !hasFollowUp) onNavigateRef.current?.(navigationPath, threadId);
         }
       }
     },
@@ -1822,6 +1839,82 @@ export function useAIChatRuntime(
       admissionError,
     ],
   );
+
+  const queueFollowUp = useCallback((text: string, refs: ChatEntityRef[]) => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId || provider.id !== "integral_native") return false;
+    const session = peekSessions()[threadId];
+    if (!session?.streaming || session.cancellation) return false;
+    const id = randomUUID();
+    updateSession(threadId, (session) => ({
+      ...session,
+      followUps: [...(session.followUps ?? []), { id, text, refs, state: "queued" }],
+    }));
+    return true;
+  }, [provider.id, updateSession]);
+
+  const removeFollowUp = useCallback((id: string) => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId) return;
+    updateSession(threadId, (session) => ({
+      ...session,
+      followUps: session.followUps?.filter((item) => item.id !== id || item.state === "sending"),
+    }));
+  }, [updateSession]);
+
+  const steerFollowUp = useCallback(async (id: string) => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId) return;
+    const session = peekSessions()[threadId];
+    const item = session?.followUps?.find((entry) => entry.id === id);
+    const workItemId = session?.steeringWorkItemId;
+    if (!item || !workItemId || !session.streaming || session.cancellation ||
+        (item.state !== "queued" && item.state !== "unconfirmed") ||
+        (item.workItemId && item.workItemId !== workItemId)) return;
+
+    const updateReceipt = (state: "sending" | "accepted" | "unconfirmed" | "queued") => {
+      updateSession(threadId, (current) => ({
+        ...current,
+        followUps: current.followUps?.map((entry) => entry.id === id
+          ? { ...entry, state, workItemId: state === "queued" ? undefined : workItemId } : entry),
+      }));
+    };
+
+    updateReceipt("sending");
+    try {
+      await apiClient.post(`/work-items/${encodeURIComponent(workItemId)}/steering`, {
+        client_request_id: id,
+        text: item.text,
+      });
+      updateReceipt("accepted");
+    } catch (error) {
+      // A lost response can hide an accepted correction. Keep its request ID
+      // for retry and wait for delivery rather than submitting it twice.
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      updateReceipt(item.state === "queued" && status === 409 ? "queued" : "unconfirmed");
+    }
+  }, [updateSession]);
+
+  useEffect(() => {
+    if (provider.id !== "integral_native" || !activeThreadId || !composerReady || admissionError(activeThreadId)) return;
+    const session = peekSessions()[activeThreadId];
+    if (!session || session.followUps?.some((item) => item.state === "sending")) return;
+    const next = session.followUps?.find((item) => item.state === "queued");
+    if (!next) return;
+
+    const userMessage: ThreadMessageLike = {
+      id: nextId("u"),
+      role: "user",
+      content: [{ type: "text", text: next.text }],
+      ...(next.refs.length ? { metadata: { custom: { entityRefs: next.refs } } } : {}),
+    };
+    const priorMessages = [...session.messages, userMessage];
+    updateSession(activeThreadId, {
+      messages: priorMessages,
+      followUps: session.followUps?.filter((item) => item.id !== next.id),
+    });
+    void streamAssistantTurn(activeThreadId, next.text, priorMessages, next.refs);
+  }, [activeThreadId, admissionError, composerReady, nextId, provider.id, remoteTurns, sessions, streamingThreadIds, streamAssistantTurn, updateSession]);
 
   const onEdit = useCallback(
     async (message: AppendMessage) => {
@@ -2119,8 +2212,11 @@ export function useAIChatRuntime(
       remoteTurns,
       isThreadStreaming,
       appendAssistantNote,
+      followUps: activeSession?.followUps,
+      queueFollowUp,
+      removeFollowUp,
+      steerFollowUp,
       steeringWorkItemId: activeSession?.steeringWorkItemId ?? null,
-      deliveredSteeringIds: activeSession?.deliveredSteeringIds,
       steeringRunning: Boolean(activeSession?.streaming && !activeSession.cancellation),
       switchToThread: selectThread,
       switchToNewThread,
@@ -2142,8 +2238,11 @@ export function useAIChatRuntime(
       remoteTurns,
       isThreadStreaming,
       appendAssistantNote,
+      activeSession?.followUps,
+      queueFollowUp,
+      removeFollowUp,
+      steerFollowUp,
       activeSession?.steeringWorkItemId,
-      activeSession?.deliveredSteeringIds,
       activeSession?.streaming,
       activeSession?.cancellation,
     ],

@@ -10,6 +10,8 @@ from typing import Any
 
 from app.schemas.model_settings import ModelGenerationSettings
 
+DEFAULT_OLLAMA_CONTEXT_WINDOW = 65536
+
 # Provider metadata fills gaps in the pinned LiteLLM catalog. Verified against
 # https://ollama.com/api/show on 2026-10-22; values are model-specific, not a
 # universal reasoning ladder. Ollama's false value is represented as "none".
@@ -20,6 +22,18 @@ _OLLAMA_REASONING = {
     "gpt-oss:120b": ["low", "medium", "high"],
     "gpt-oss:120b-cloud": ["low", "medium", "high"],
 }
+
+
+# First-party Ollama Cloud capacity absent from the pinned LiteLLM catalog.
+# https://ollama.com/library/deepseek-v4.1-flash
+_OLLAMA_CLOUD_CONTEXT = dict.fromkeys(
+    (
+        "deepseek-v4.1-flash",
+        "deepseek-v4.1-flash:cloud",
+        "deepseek-v4.1-flash:1017-cloud",
+    ),
+    1_000_000,
+)
 
 
 # Explicit tool contracts verified with Ollama /api/show and the publisher pages:
@@ -179,7 +193,10 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         or bool(native_efforts)
         or (known and info.get("supports_reasoning") is not None),
         "output_limit": info.get("max_output_tokens"),
-        "native_context": info.get("max_input_tokens"),
+        "native_context": (
+            _OLLAMA_CLOUD_CONTEXT.get(model) if provider == "ollama" else None
+        )
+        or (info.get("max_input_tokens") if known else None),
         "tool_calling": (
             True
             if provider in {"ollama", "ollama_local"} and model in _OLLAMA_TOOL_CALLING
@@ -230,7 +247,12 @@ def validate_model_settings(
         k in settings for k in ("max_tokens", "context_window")
     ):
         context = settings.get(
-            "context_window", int(os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "32768"))
+            "context_window",
+            int(
+                os.getenv(
+                    "INTEGRAL_NATIVE_OLLAMA_NUM_CTX", str(DEFAULT_OLLAMA_CONTEXT_WINDOW)
+                )
+            ),
         )
         output = settings.get(
             "max_tokens", int(os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT", "8192"))

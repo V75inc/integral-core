@@ -1806,6 +1806,7 @@ __all__ = [
     "ToolOutput",
     "UsageLimitExceeded",
     "UsageLimits",
+    "InstructionPart",
     "UserPromptPart",
     "build_integral_json_schema_tool",
     "build_integral_context_compaction",

@@ -48,13 +48,16 @@ class IntegralContextPolicy:
     revealed_tools: int = 16
     trigger_tokens: int = 24_576
     target_tokens: int = 16_384
-    input_tokens: int = 65_536
+    input_tokens: int | None = None
     fallback_window: int = 32_768
 
     def input_limit(self, model, settings) -> int:
         window = resolve_context_window(model) or self.fallback_window
         output = (settings or {}).get("max_tokens") or 4096
-        return max(0, min(self.input_tokens, window - output - max(1024, window // 10)))
+        available = window - output - max(1024, window // 10)
+        if self.input_tokens is not None:
+            available = min(self.input_tokens, available)
+        return max(0, available)
 
 
 def active_turn_start(messages) -> int | None:
@@ -62,6 +65,8 @@ def active_turn_start(messages) -> int | None:
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
         if not isinstance(message, ModelRequest):
+            continue
+        if (message.metadata or {}).get("integral_steering"):
             continue
         if any(isinstance(part, UserPromptPart) for part in message.parts):
             return index

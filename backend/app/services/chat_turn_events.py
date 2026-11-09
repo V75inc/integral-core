@@ -23,6 +23,9 @@ from app.services.credential_crypto import (
 )
 
 _EVENT_LIMIT = 16_000
+# A full-length chat correction can exceed the generic event limit once
+# encoded as UTF-8 or JSON escapes.
+_STEERING_EVENT_LIMIT = 64_000
 _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
     "text-delta": ("delta",),
     "text-replace": ("content",),
@@ -51,7 +54,7 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
     "navigation": ("path", "thread_id", "workspace_id"),
     "source": ("title", "url"),
     "status": ("status", "text"),
-    "steering-delivered": ("correction_id",),
+    "steering-delivered": ("correction_id", "text"),
     "error": ("code", "message"),
 }
 
@@ -167,7 +170,10 @@ def normalize_public_event(
         ensure_ascii=False,
         allow_nan=False,
     )
-    if len(encoded.encode("utf-8")) > _EVENT_LIMIT:
+    size_limit = (
+        _STEERING_EVENT_LIMIT if event_type == "steering-delivered" else _EVENT_LIMIT
+    )
+    if len(encoded.encode("utf-8")) > size_limit:
         raise ValueError("public chat event exceeds its size limit")
     return normalized
 
@@ -209,15 +215,22 @@ async def append_work_item_chat_event(
             await HarnessChatEventRecord.get(record_id),
         )
         if existing is not None:
+            previous = _decode(existing)
+            # Older in-flight turns emitted receipts without transcript text.
+            comparable = payload
+            if previous.get("type") == "steering-delivered" and "text" not in previous:
+                comparable = {
+                    key: value for key, value in payload.items() if key != "text"
+                }
             if (
                 existing.scope_key != identity
                 or existing.work_item_id != context.work_item_id
                 or existing.thread_id != context.thread_id
                 or existing.event_key != key
-                or _decode(existing) != payload
+                or previous != comparable
             ):
                 raise ValueError("event key is bound to other content")
-            return {"sequence": existing.sequence, **payload}
+            return {"sequence": existing.sequence, **previous}
 
         now = datetime.now(timezone.utc).isoformat()
         cursor = cast(

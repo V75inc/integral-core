@@ -1746,6 +1746,30 @@ async def test_cloud_capacity_uses_the_same_metadata_as_settings(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ollama_cloud_deepseek_flash_uses_published_context():
+    from pydantic_ai_harness.compaction import resolve_context_window
+
+    from app.agentive.harness.pydantic_context import IntegralContextPolicy
+    from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+
+    route = _route().model_copy(
+        update={
+            "provider": "ollama_chat",
+            "model": "ollama_chat/deepseek-v4.1-flash",
+            "api_base": OLLAMA_CLOUD_API_BASE,
+        }
+    )
+    model = build_litellm_sdk_model(
+        route=route, scope=_scope(), observer=_ignore_observation
+    )
+    try:
+        assert resolve_context_window(model) == 1_000_000
+        assert IntegralContextPolicy().input_limit(model, {}) > 65_536
+    finally:
+        await model.client.close()
+
+
+@pytest.mark.asyncio
 async def test_custom_endpoint_does_not_inherit_a_borrowed_vendor_capacity(monkeypatch):
     from unittest.mock import Mock
 

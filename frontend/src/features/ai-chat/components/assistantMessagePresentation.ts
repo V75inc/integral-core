@@ -96,7 +96,14 @@ export function modelSetupMessage(code: unknown): string {
   return "Choose an AI model in Settings to start chatting. Once it's connected, return here and send your message again.";
 }
 
+export function isContextLimitFailure(code: unknown): boolean {
+  return code === "harness_context_limit" || code === "model_context_limit";
+}
+
 export function friendlyChatFailure(code: unknown, message: unknown): string {
+  if (isContextLimitFailure(code)) {
+    return "This step exceeded the context available to the selected model. Your conversation is saved. Try one part of the task at a time, send fewer attachments, or switch to a model with a larger context window.";
+  }
   if (isModelSetupFailure(code)) return modelSetupMessage(code);
   if (code === "work.cancelled") return "You stopped this request.";
   if (code === "image_input_unsupported") return "Attach a PNG, JPEG, WebP, or GIF image, then try again.";

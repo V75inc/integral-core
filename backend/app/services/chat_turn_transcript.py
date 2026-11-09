@@ -127,7 +127,7 @@ def _public_parts(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _public_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     """Retain product observability while excluding prompts and raw model payloads."""
-    allowed_fields = {"steps", "timing", "error"}
+    allowed_fields = {"steps", "timing", "error", "steering"}
     if set(metadata).difference(allowed_fields):
         raise ValueError("assistant observability contains unsupported fields")
     result: dict[str, Any] = {"streaming": True}
@@ -163,6 +163,23 @@ def _public_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         ):
             raise ValueError("assistant error metadata has an invalid shape")
         result["error"] = dict(error)
+    steering = metadata.get("steering")
+    if steering is not None:
+        if not isinstance(steering, list):
+            raise ValueError("assistant steering receipts must be a list")
+        result["steering"] = [
+            {
+                "correction_id": entry["correction_id"],
+                "text": entry["text"],
+            }
+            for entry in (
+                normalize_public_event(
+                    {"type": "steering-delivered", **receipt},
+                    reject_unknown_fields=True,
+                )
+                for receipt in steering
+            )
+        ]
     return result
 
 
@@ -182,6 +199,7 @@ def fold_chat_transcript(
     tool_positions: dict[str, int] = {}
     steps: list[dict[str, Any]] = []
     timing: dict[str, Any] = {}
+    steering: list[dict[str, str]] = []
     for event in events:
         kind = event.get("type")
         if kind == "text-delta":
@@ -229,6 +247,10 @@ def fold_chat_transcript(
             )
         elif kind == "message-finish" and isinstance(event.get("timing"), dict):
             timing = dict(normalize_public_event(event)["timing"])
+        elif kind == "steering-delivered" and event.get("text"):
+            steering.append(
+                {"correction_id": event["correction_id"], "text": event["text"]}
+            )
         elif kind == "error":
             error = {
                 "code": str(event.get("code") or "internal_error"),
@@ -243,6 +265,8 @@ def fold_chat_transcript(
     metadata: dict[str, Any] = {"steps": steps}
     if timing:
         metadata["timing"] = timing
+    if steering:
+        metadata["steering"] = steering
     if error:
         metadata["error"] = error
     return parts, metadata

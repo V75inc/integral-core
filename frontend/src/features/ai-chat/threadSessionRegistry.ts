@@ -1,5 +1,15 @@
 import type { ThreadMessageLike } from "@assistant-ui/react";
 
+import type { ChatEntityRef } from "../../types/chatEntityRefs";
+
+export type FollowUp = {
+  id: string;
+  text: string;
+  refs: ChatEntityRef[];
+  state: "queued" | "sending" | "accepted" | "unconfirmed";
+  workItemId?: string;
+};
+
 /** Max concurrent in-flight streams across different threads (I-CHAT-PAR-02). */
 export const MAX_CONCURRENT_STREAMS = 5;
 
@@ -31,8 +41,8 @@ export type ThreadSessionState = {
   abortController: AbortController | null;
   lastLoadedAt: number;
   activeWorkItemId?: string | null;
+  followUps?: readonly FollowUp[];
   steeringWorkItemId?: string | null;
-  deliveredSteeringIds?: readonly string[];
   cancellation?: "pending" | "failed" | null;
   cancellationTarget?: import("../../api/aiChat").ChatCancellationTarget | null;
   cancellationRequestId?: string | null;
