@@ -24,7 +24,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc55"
+version = "0.1.1rc56"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 license-files = ["LICENSE", "NOTICE"]
@@ -70,7 +70,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     # IANA tz database for zoneinfo on minimal images.
     "tzdata>=2024.1",
-    "jvspatial==0.2.7",
+    "jvspatial==0.2.8",
     # jvspatial depends on PyJWT without an upper bound; keep the resolved
     # version above releases flagged by the backend dependency audit.
     "PyJWT>=2.14.0",

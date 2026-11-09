@@ -6,6 +6,11 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc56 — 2026-11-09
+
+- Reduce Entry write contention and add opt-in shared admission for eligible standalone Track creates.
+- Pin jvspatial 0.2.8 for opt-in exact counts on a configured Track. Preserve live authorization and native fallback.
+
 ## 0.1.1rc55 — 2026-11-08
 
 - Add opt-in timing for PostgreSQL Entry write locks.

@@ -1385,7 +1385,7 @@ wheels = [
 
 [[package]]
 name = "integral-core"
-version = "0.1.1rc55"
+version = "0.1.1rc56"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1496,7 +1496,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "joserfc", specifier = ">=1.7.6" },
-    { name = "jvspatial", specifier = "==0.2.7" },
+    { name = "jvspatial", specifier = "==0.2.8" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.101.0,<1.102" },
     { name = "markdown-it-py", specifier = ">=4,<5" },
@@ -1710,7 +1710,7 @@ wheels = [
 
 [[package]]
 name = "jvspatial"
-version = "0.2.7"
+version = "0.2.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1730,9 +1730,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b3/7f/8394617150495bce8b5f622174e164aee9de4c28b62d83102ad2910fe556/jvspatial-0.2.7.tar.gz", hash = "sha256:75d36b8039292f4d8e7419135fdca52e6d007b539a6c75e2ac9b47154238573a", size = 591123, upload-time = "2026-11-08T16:36:25.308Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/14/85/f37ddb49e525c4604048325c7dac78d214df225ab3a210736351a0f65dee/jvspatial-0.2.8.tar.gz", hash = "sha256:1570840636eb37ddb607ce59b23443b50683233dfdf1c78c3648efa83b0cc1dc", size = 596523, upload-time = "2026-11-09T09:12:59.105Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/1e/4a1e5623bf381d68369268a048fbe6c95be45b5fb63cbf29131396aded93/jvspatial-0.2.7-py3-none-any.whl", hash = "sha256:6bd5a39f44830461314854b9d5b24022ec34da30452feb5b25f506339c4096a8", size = 679475, upload-time = "2026-11-08T16:36:23.427Z" },
+    { url = "https://files.pythonhosted.org/packages/77/2d/85917cc46f8b7f0f992bb24600a5cbdb99ef78d6fbaa1f715c2fc5dc183d/jvspatial-0.2.8-py3-none-any.whl", hash = "sha256:af5ff87c599fcb065eb3bb00c8539daa2fc31435975ee83301011dbeb78199e4", size = 685434, upload-time = "2026-11-09T09:12:57.101Z" },
 ]
 
 [[package]]
