@@ -6,6 +6,10 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc57 — 2026-11-09
+
+- Reduce repeated authorization work in Track Detail and recheck current Track and collaborator-directory access before returning the response.
+
 ## 0.1.1rc56 — 2026-11-09
 
 - Reduce Entry write contention and add opt-in shared admission for eligible standalone Track creates.
