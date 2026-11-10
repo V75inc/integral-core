@@ -1,4 +1,4 @@
-<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 c42a65f3fae56b200cec7cf4aa2133a0421a1258fa41c5fcd0b94f3edb049250. Do not edit. -->
+<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 00ccbce4809979116fbf45f5d4a49e1475d63df16dccf6491bc351b9017edc02. Do not edit. -->
 
 # Integral Business App UI authoring — React SDK 1.2
 
@@ -55,6 +55,8 @@ Use `Button`, `Input`, `Select`, `Textarea`, `DateInput`, `AsyncCombobox`, `Text
 Keep native buttons/inputs/labels and styled heading implementations inside Core.
 Structural HTML such as a namespaced scrolling div or disclosure is allowed.
 Do not pass color, typography, border, padding or radius utilities in className.
+`Text` takes `variant`, `tone`, `weight`, `align` (`end` for amounts) and `numeric` (equal-width digits).
+`Stack` and `Inline` take `gap`, `align`, and for `Inline` also `justify` and `wrap`.
 
 `AppField` provides `id`, `required`, `invalid`, `aria-invalid` and
 `aria-describedby`. Spread these onto the control; the visible label and both

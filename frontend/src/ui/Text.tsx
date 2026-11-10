@@ -118,6 +118,10 @@ export interface TextProps extends Omit<HTMLAttributes<HTMLElement>, 'children'>
   tone?: TextTone;
   /** Weight override. Leave unset to use the variant's default weight. */
   weight?: TextWeight;
+  /** Horizontal alignment of the text inside its box. Default: the start. */
+  align?: 'start' | 'center' | 'end';
+  /** Draw digits at equal width so amounts line up. */
+  numeric?: boolean;
   /** Render element. Default: `span` for body-ish variants, `h2` for
    *  `heading-lg`, etc. — see `defaultElement` in the implementation.
    *  Override when semantic HTML demands a different tag. */
@@ -185,6 +189,8 @@ export function Text({
   variant = 'body',
   tone,
   weight,
+  align,
+  numeric = false,
   as,
   truncate = false,
   className,
@@ -202,6 +208,8 @@ export function Text({
     TONE_CLASSES[resolvedTone],
     weight ? WEIGHT_CLASSES[weight] : '',
     truncate ? 'truncate min-w-0' : '',
+    align === 'end' ? 'text-right' : align === 'center' ? 'text-center' : '',
+    numeric ? 'tabular-nums' : '',
     className ?? '',
   ]
     .filter(Boolean)

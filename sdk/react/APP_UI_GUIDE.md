@@ -53,6 +53,8 @@ Use `Button`, `Input`, `Select`, `Textarea`, `DateInput`, `AsyncCombobox`, `Text
 Keep native buttons/inputs/labels and styled heading implementations inside Core.
 Structural HTML such as a namespaced scrolling div or disclosure is allowed.
 Do not pass color, typography, border, padding or radius utilities in className.
+`Text` takes `variant`, `tone`, `weight`, `align` (`end` for amounts) and `numeric` (equal-width digits).
+`Stack` and `Inline` take `gap`, `align`, and for `Inline` also `justify` and `wrap`.
 
 `AppField` provides `id`, `required`, `invalid`, `aria-invalid` and
 `aria-describedby`. Spread these onto the control; the visible label and both

@@ -117,9 +117,9 @@ export type ButtonProps = ComponentProps<'button'> & {variant?: 'primary' | 'sec
 export type InputProps = Omit<ComponentProps<'input'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
 export type SelectProps = Omit<ComponentProps<'select'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
 export type TextareaProps = ComponentProps<'textarea'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
-export type TextProps = HTMLAttributes<HTMLElement> & {as?: ElementType; variant?: 'display-lg' | 'display-md' | 'display-sm' | 'heading-lg' | 'heading-md' | 'heading-sm' | 'body-lg' | 'body' | 'body-sm' | 'subtitle' | 'meta' | 'mono' | 'label'; weight?: 'normal' | 'medium' | 'semibold' | 'bold'; tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'info' | 'success' | 'warn' | 'danger' | 'ai' | 'inherit'};
+export type TextProps = HTMLAttributes<HTMLElement> & {as?: ElementType; variant?: 'display-lg' | 'display-md' | 'display-sm' | 'heading-lg' | 'heading-md' | 'heading-sm' | 'body-lg' | 'body' | 'body-sm' | 'subtitle' | 'meta' | 'mono' | 'label'; weight?: 'normal' | 'medium' | 'semibold' | 'bold'; align?: 'start' | 'center' | 'end'; numeric?: boolean; tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'info' | 'success' | 'warn' | 'danger' | 'ai' | 'inherit'};
 export type SurfaceProps = HTMLAttributes<HTMLDivElement> & {tone?: 'panel' | 'panel-2' | 'transparent'; border?: 'default' | 'subtle' | 'entry-table' | 'transparent' | 'none'; radius?: 'card' | 'input' | 'pill' | 'none'; as?: ElementType; elevation?: 'flat' | 'sm' | 'card' | 'pop'; padding?: 'none' | 'xs' | 'sm' | 'md' | 'lg'};
-export type LayoutProps = HTMLAttributes<HTMLDivElement> & {gap?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'; align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline'};
+export type LayoutProps = HTMLAttributes<HTMLDivElement> & {gap?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'; align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline'; justify?: 'start' | 'center' | 'end' | 'between' | 'around'; wrap?: boolean};
 export type ModalProps = {open: boolean; onClose: () => void; title?: ReactNode; children?: ReactNode; width?: string; variant?: 'default' | 'compact'};
 
 /** Components are supplied by the host; these declarations are the public UI surface. */
