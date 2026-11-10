@@ -45,3 +45,14 @@ describe('BridgeChart', () => {
     expect(container.querySelector('svg')).toBeNull();
   });
 });
+
+describe('BridgeChart labels', () => {
+  it('keeps a long label inside the chart and still shows it in full on hover', () => {
+    const long = 'A very long reason for the change in net pay that will not fit';
+    const { container } = render(<BridgeChart steps={[{ key: 'a', label: long, value: 5000 }]} ariaLabel="x" />);
+    const label = Array.from(container.querySelectorAll('text')).find(t => t.textContent?.endsWith('…'));
+    expect(label).toBeTruthy();
+    expect(long.startsWith((label!.textContent || '').slice(0, -1))).toBe(true);
+    expect(container.querySelector('title')?.textContent).toContain(long);
+  });
+});

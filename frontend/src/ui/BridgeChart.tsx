@@ -20,7 +20,10 @@ export interface BridgeChartProps {
 export function BridgeChart({ steps, ariaLabel, formatValue = v => Math.round(v).toLocaleString('en-US'), upLabel = 'Added', downLabel = 'Took away' }: BridgeChartProps) {
   const { ref, width: W } = useChartWidth(340, 620, 620);
   if (!steps.length) return null;
-  const rowH = 28, L = W < 460 ? 150 : 196, R = 8, H = steps.length * rowH + 8;
+  // Room for the longest label at about 6.4px a letter, never more than 45% of the chart; longer labels end in an ellipsis.
+  const longest = Math.max(...steps.map(s => s.label.length));
+  const rowH = 28, L = Math.round(Math.max(110, Math.min(W * 0.45, longest * 6.4 + 16))), R = 8, H = steps.length * rowH + 8;
+  const fit = (label: string) => { const max = Math.floor((L - 14) / 6.4); return label.length > max ? `${label.slice(0, Math.max(1, max - 1))}…` : label; };
   const big = Math.max(...steps.map(s => Math.abs(s.value)), 1);
   const mid = L + (W - L - R) / 2, half = (W - L - R) / 2 - 58;
   return (
@@ -31,7 +34,7 @@ export function BridgeChart({ steps, ariaLabel, formatValue = v => Math.round(v)
           const y0 = i * rowH + 6, bh = 16, w = Math.max(3, (Math.abs(s.value) / big) * half), up = s.value >= 0;
           return (
             <g key={s.key}>
-              <text x={L - 10} y={y0 + bh / 2 + 4} textAnchor="end" fill="currentColor">{s.label}</text>
+              <text x={L - 10} y={y0 + bh / 2 + 4} textAnchor="end" fill="currentColor">{fit(s.label)}</text>
               <rect x={up ? mid : mid - w} y={y0} width={w} height={bh} rx={4} fill={up ? 'var(--viz-up)' : 'var(--viz-down)'}><title>{`${s.label}: ${up ? '+' : '−'}${formatValue(Math.abs(s.value))}`}</title></rect>
               <text x={up ? mid + w + 6 : mid - w - 6} y={y0 + bh / 2 + 4} textAnchor={up ? 'start' : 'end'} fill="var(--text)">{up ? '+' : '−'}{shortNumber(Math.abs(s.value))}</text>
             </g>
