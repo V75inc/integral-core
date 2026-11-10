@@ -1,4 +1,4 @@
-<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 92daa9e617e6536c82f6dc473920a6c99606b0f046a5f672479a6fffa4e31589. Do not edit. -->
+<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 3f4c31ed06e3d086b06f88c07fecdb794c9dc5570702df4a7454b31889aea1be. Do not edit. -->
 
 # Integral Business App UI authoring — React SDK 1.2
 
@@ -38,12 +38,13 @@ must improve in Core rather than being copied independently into each App.
 | `AppPage` | Content root with consistent vertical rhythm; does not create navigation, a modal or a Save action. Accepts HTML attributes and layout-only `className`. |
 | `AppHeader` | `title`, optional `description`, `eyebrow`, `meta`, `actions`; shared title hierarchy and wrapping. |
 | `AppSection` | `title`, `description`, `actions`, children; `variant="panel"` or `"plain"`. Sections remain in the App's chosen order. |
-| `AppGrid` | `columns={1|2|3}`, `gap` presets; collapses to one column below Core's medium breakpoint. Preserve logical DOM/tab order. |
+| `AppGrid` | `columns={1|2|3|4}`, `gap` presets; collapses to one column below Core's medium breakpoint. Preserve logical DOM/tab order. |
 | `AppField` | `label`, optional `id`, `fieldKey`, `required`, `help`, `error`; render-function child receives control bindings. |
 | `AppActions` | Wrapping action layout with `align="start"`, `"end"` or `"between"`. Does not implement mutations. |
 | `AppSummary` | `title`, optional `description`, `rows` containing stable `key`, `label`, formatted `value`, optional `emphasis`. No calculation or currency policy. |
 | `AppNotice` | Shared loading/empty/information/error presentation; optional `title`, `action`, `tone="info|success|warn|danger"`. Warning/error notices announce alerts; other notices use status semantics. |
-| `DataTable` | Rows and columns for the App's own data. `columns` (`key`, `label`, `align="end"` for amounts, `sortable`, `pinned` for a leading column kept in view, `width`, `render`, `total`), `rows`, `rowKey`, `caption`; optional `defaultSort`, `pageSize`, `onRowClick`, `empty`, `maxHeight`. Sorting, paging, the totals row and number alignment are built in; do not draw tables by hand. |
+| `DataTable` | Rows and columns for the App's own data. `columns` (`key`, `label`, `align="end"` for amounts, `sortable`, `pinned` (`start`/`end`) to keep a column in view, `width`, `group`, `emphasis="link"`, `render`, `total`), `rows`, `rowKey`, `caption`; optional `groups` (column group headings), `defaultSort`, `pageSize`, `onRowClick`, `empty`, `maxHeight`, `density="compact"`, `rowTone`, `sectionBy` with `sectionTotals`, `columnPicker` (presets, `persistKey`), `pinnable`, `toolbar`. Sorting, paging, grouped headings, section rows, totals, the column picker and number alignment are built in; do not draw tables by hand. |
+| `Stat` | One headline figure: `label`, `value`, optional `note`, `delta` (text with its arrow and sign), `emphasis`, `trend` (recent values drawn as a small line) and `trendLabel`. Lay tiles out with `AppGrid`. |
 | `Tabs` | A short strip that switches the section below it: `options` (`value`, `label`, `count`), `value`, `onChange`, `ariaLabel`. |
 | `Badge` | A short coloured state label: `tone="neutral|success|warn|danger|info"` and the text. Meaning must also be in the text, not colour alone. |
 

@@ -24,7 +24,7 @@ export function AppSection({title, description, actions, children, variant = 'pa
     </Stack>{actions ? <AppActions>{actions}</AppActions> : null}</Inline> : null}{children}</Stack>
   </Surface>;
 }
-const columns = {1: 'grid-cols-1', 2: 'grid-cols-1 md:grid-cols-2', 3: 'grid-cols-1 md:grid-cols-3'};
+const columns = {1: 'grid-cols-1', 2: 'grid-cols-1 md:grid-cols-2', 3: 'grid-cols-1 md:grid-cols-3', 4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'};
 const gaps = {none: 'gap-0', xs: 'gap-1', sm: 'gap-2', md: 'gap-3', lg: 'gap-4', xl: 'gap-5', '2xl': 'gap-6'};
 export function AppGrid({children, columns: count = 2, gap = 'lg', className, ...rest}: AppGridProps) {
   return <div {...rest} className={['grid min-w-0 items-start', columns[count], gaps[gap], className].filter(Boolean).join(' ')}>{children}</div>;

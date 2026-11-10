@@ -76,3 +76,65 @@ describe('Tabs and StatusBadge', () => {
     expect(screen.getByText('Approved')).toBeTruthy();
   });
 });
+
+describe('DataTable sheet features', () => {
+  type P = { id: string; name: string; kind: 'employee' | 'consultant'; basic: number; net: number; bad?: boolean };
+  const people: P[] = [
+    { id: '1', name: 'Ann', kind: 'employee', basic: 100, net: 80 }, { id: '2', name: 'Bob', kind: 'employee', basic: 200, net: 150, bad: true },
+    { id: '3', name: 'Cy', kind: 'consultant', basic: 300, net: 300 },
+  ];
+  const sum = (key: 'basic' | 'net') => (list: P[]) => String(list.reduce((t, r) => t + r[key], 0));
+  const cols: DataTableColumn<P>[] = [
+    { key: 'name', label: 'Employee', pinned: 'start', width: '10rem', total: 'Total' },
+    { key: 'basic', label: 'Basic', align: 'end', group: 'earn', total: sum('basic') },
+    { key: 'net', label: 'Net pay', align: 'end', group: 'pay', pinned: 'end', width: '8rem', total: sum('net') },
+  ];
+  const groups = [{ key: 'earn', label: 'Earnings' }, { key: 'pay', label: 'Pay' }];
+
+  it('shows group headings, labels the right-pinned columns and sticks them to the right', () => {
+    render(<DataTable columns={cols} rows={people} rowKey={r => r.id} caption="Register" groups={groups} />);
+    expect(screen.getByRole('columnheader', { name: 'Earnings' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Pinned' })).toBeTruthy();
+    const cells = within(screen.getAllByRole('row')[2]).getAllByRole('cell');
+    expect(cells[2].style.position).toBe('sticky');
+    expect(cells[2].style.right).toBe('0rem');
+  });
+
+  it('adds section rows with subtotals and a grand total using each column total', () => {
+    render(<DataTable columns={cols} rows={people} rowKey={r => r.id} caption="Register" groups={groups} sectionBy={r => (r.kind === 'employee' ? 'Employees' : 'Consultants')} sectionTotals />);
+    expect(screen.getByText('Employees')).toBeTruthy();
+    expect(screen.getByText('Employees subtotal')).toBeTruthy();
+    expect(screen.getByText('Consultants subtotal')).toBeTruthy();
+    expect(screen.getAllByText('300').length).toBeGreaterThan(1); // employee basic subtotal and the consultant row
+    expect(screen.getByText('Total')).toBeTruthy();
+    expect(screen.getByText('600')).toBeTruthy(); // grand total basic
+  });
+
+  it('lets people hide columns and use a preset, and remembers the choice', () => {
+    localStorage.clear();
+    const { unmount } = render(<DataTable columns={cols} rows={people} rowKey={r => r.id} caption="Register" groups={groups} columnPicker={{ presets: [{ label: 'Money only', keys: ['net'] }], persistKey: 'test-columns' }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Money only' }));
+    expect(screen.queryByRole('columnheader', { name: 'Basic' })).toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'Net pay' })).toBeTruthy();
+    unmount();
+    render(<DataTable columns={cols} rows={people} rowKey={r => r.id} caption="Register" groups={groups} columnPicker={{ persistKey: 'test-columns' }} />);
+    expect(screen.queryByRole('columnheader', { name: 'Basic' })).toBeNull(); // remembered
+  });
+
+  it('lets people pin a column to the right', () => {
+    render(<DataTable columns={cols} rows={people} rowKey={r => r.id} caption="Register" groups={groups} pinnable />);
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Basic' }));
+    const header = screen.getByRole('columnheader', { name: /Basic/ });
+    expect(header.style.position).toBe('sticky');
+    expect(header.style.right).not.toBe('');
+  });
+
+  it('tints a row that needs attention', () => {
+    render(<DataTable columns={cols} rows={people} rowKey={r => r.id} caption="Register" rowTone={r => (r.bad ? 'danger' : undefined)} />);
+    const bad = screen.getByText('Bob').closest('tr') as HTMLElement;
+    const ok = screen.getByText('Ann').closest('tr') as HTMLElement;
+    expect(within(bad).getAllByRole('cell')[0].style.background).toContain('danger-bg');
+    expect(within(ok).getAllByRole('cell')[0].style.background).not.toContain('danger-bg');
+  });
+});

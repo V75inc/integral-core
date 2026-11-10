@@ -16,6 +16,8 @@ export { DataTable } from './DataTable';
 export type { DataTableProps, DataTableColumn, DataTableSort } from './DataTable';
 export { Tabs } from './Tabs';
 export type { TabsProps } from './Tabs';
+export { Stat } from './Stat';
+export type { StatProps } from './Stat';
 export { StatusBadge } from './StatusBadge';
 export type { StatusBadgeTone } from './StatusBadge';
 

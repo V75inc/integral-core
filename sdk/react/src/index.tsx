@@ -21,8 +21,9 @@ export type AppQueryOptions = AppReadOptions & {enabled?: boolean};
 export type LookupOption = {id: string; label: string; description?: string; disabled?: boolean; [key: string]: unknown};
 export type LookupPage = {items: LookupOption[]; next_cursor?: string | null};
 export type AsyncComboboxProps = {id?: string; required?: boolean; 'aria-describedby'?: string; label: string; value: string; selectedLabel?: string; loadPage: (query: string, cursor: string | null, signal: AbortSignal) => Promise<LookupPage>; onChange: (option: LookupOption) => void; disabled?: boolean; placeholder?: string; invalid?: boolean; onCreate?: () => void; createLabel?: string};
-export type DataTableColumn<Row = Json> = {key: string; label: ReactNode; align?: 'start' | 'end'; sortable?: boolean; sortValue?: (row: Row) => string | number | null | undefined; pinned?: boolean; width?: string; render?: (row: Row) => ReactNode; total?: ReactNode};
-export type DataTableProps<Row = Json> = {columns: DataTableColumn<Row>[]; rows: Row[]; rowKey: (row: Row) => string; caption: string; defaultSort?: {key: string; direction: 'asc' | 'desc'} | null; pageSize?: number; onRowClick?: (row: Row) => void; empty?: ReactNode; maxHeight?: string};
+export type DataTableColumn<Row = Json> = {key: string; label: ReactNode; align?: 'start' | 'end'; sortable?: boolean; sortValue?: (row: Row) => string | number | null | undefined; pinned?: boolean | 'start' | 'end'; width?: string; group?: string; emphasis?: 'link'; render?: (row: Row) => ReactNode; total?: ReactNode | ((rows: Row[]) => ReactNode)};
+export type DataTableProps<Row = Json> = {columns: DataTableColumn<Row>[]; rows: Row[]; rowKey: (row: Row) => string; caption: string; groups?: {key: string; label: string}[]; defaultSort?: {key: string; direction: 'asc' | 'desc'} | null; pageSize?: number; onRowClick?: (row: Row) => void; empty?: ReactNode; maxHeight?: string; density?: 'comfortable' | 'compact'; rowTone?: (row: Row) => 'danger' | 'warn' | undefined; sectionBy?: (row: Row) => string | undefined; sectionTotals?: boolean; columnPicker?: {presets?: {label: string; keys: string[]}[]; persistKey?: string}; pinnable?: boolean; toolbar?: ReactNode};
+export type StatProps = {label: ReactNode; value: ReactNode; note?: ReactNode; delta?: ReactNode; emphasis?: boolean; trend?: number[]; trendLabel?: string};
 export type TabsProps = {options: {value: string; label: ReactNode; count?: number | null}[]; value: string; onChange: (value: string) => void; ariaLabel?: string};
 export type BadgeProps = {tone?: 'neutral' | 'success' | 'warn' | 'danger' | 'info'; children: ReactNode};
 export type DateInputProps = {required?: boolean; invalid?: boolean; 'aria-describedby'?: string; value: string; onChange: (value: string) => void; mode?: 'date' | 'datetime'; disabled?: boolean; placeholder?: string; 'aria-label'?: string; id?: string};
@@ -133,6 +134,7 @@ export interface UIPrimitives {
   EntryRegion?: ComponentType<EntryRegionProps>;
   AsyncCombobox?: ComponentType<AsyncComboboxProps>;
   DataTable?: ComponentType<DataTableProps<any>>;
+  Stat?: ComponentType<StatProps>;
   Tabs?: ComponentType<TabsProps>;
   Badge?: ComponentType<BadgeProps>;
   DateInput?: ComponentType<DateInputProps>;
@@ -168,6 +170,7 @@ export const EntryRegion = primitive<EntryRegionProps>('EntryRegion');
 export const AsyncCombobox = primitive<AsyncComboboxProps>('AsyncCombobox');
 const DataTableBase = primitive<DataTableProps<any>>('DataTable');
 export function DataTable<Row extends object = Json>(props: DataTableProps<Row>) { return <DataTableBase {...(props as DataTableProps<any>)} />; }
+export const Stat = primitive<StatProps>('Stat');
 export const Tabs = primitive<TabsProps>('Tabs');
 export const Badge = primitive<BadgeProps>('Badge');
 export const DateInput = primitive<DateInputProps>('DateInput');
