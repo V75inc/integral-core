@@ -102,6 +102,8 @@
   --entry-table-header: #eeeff2;
   --entry-table-row-alt: #f8f8fa;
   --entry-table-row-hover: #eef0f4;
+  /* Chart palette for App charts (LineChart, BridgeChart). */
+  --viz-1: #2a78d6; --viz-2: #eb6834; --viz-up: #2a78d6; --viz-down: #e34948; --viz-total: #8a8984; --viz-grid: #ececea;
   --collection-border: #e0e1e5;
   --collection-divider: #e8e9ec;
 
@@ -294,6 +296,7 @@
   --entry-table-header: #323232;
   --entry-table-row-alt: #272727;
   --entry-table-row-hover: #363636;
+  --viz-1: #3987e5; --viz-2: #d95926; --viz-up: #3987e5; --viz-down: #e66767; --viz-total: #8f8e88; --viz-grid: #2e2e2c;
   --collection-border: #424242;
   --collection-divider: #393939;
 
