@@ -1111,7 +1111,7 @@ export function AppDetailPage() {
               const target = tracks.find(t => t.title === page.track) ?? (hidden as Track[]).find(t => t.title === page.track);
               if (!target) return;
               setShowAppSettingsModal(false);
-              navigate(`/tracks/${target.id}`);
+              navigate(`/tracks/${target.id}?as=settings`);
             })();
           }}
           onSaved={() => {

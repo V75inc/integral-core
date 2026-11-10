@@ -51,6 +51,7 @@ import {
   Button,
   CardSkeleton,
   EmptyState,
+  PageHeading,
   PageShell,
   PageSection,
   Skeleton,
@@ -1861,8 +1862,26 @@ export function TrackDetailPage() {
     return <Navigate to={documentTemplatesRedirect} replace />;
   }
 
+  // A track an App keeps out of its track list and opens from its Settings: shown as that App's settings screen,
+  // with a way back to the App and none of the track controls (share, watch, pin, counts).
+  const settingsMode = searchParams.get('as') === 'settings';
+  const settingsApp = track.app;
+
   return (
     <PageShell>
+      {settingsMode ? (
+        <PageSection>
+          <header className="mb-8 space-y-2">
+            <Link
+              to={settingsApp?.id ? `/apps/${settingsApp.id}` : '/apps'}
+              className="text-[var(--link)] hover:text-[var(--link-hover)] text-sm hover:underline inline-block"
+            >
+              ← Back to {settingsApp?.name || 'the App'}
+            </Link>
+            <PageHeading>{settingsApp?.name ? `${settingsApp.name} settings` : 'Settings'}</PageHeading>
+          </header>
+        </PageSection>
+      ) : (
       <TrackDetailHeader
         track={track}
         workspaceAccentColor={trackWorkspaceAccentColor}
@@ -1884,6 +1903,7 @@ export function TrackDetailPage() {
         onOpenDerive={() => setDeriveModalOpen(true)}
         onDeleteTrack={handleDeleteTrack}
       />
+      )}
 
       {dashboardFilters ? (
         <div className="flex items-center justify-between gap-3 px-4 py-2">
@@ -1902,6 +1922,7 @@ export function TrackDetailPage() {
         </div>
       ) : null}
 
+      {settingsMode ? null : (
       <TrackDetailViewChrome
         trackId={id}
         viewTabOptions={viewTabOptions}
@@ -1928,6 +1949,7 @@ export function TrackDetailPage() {
         onToggleConfig={() => setTrackConfigOpen(o => !o)}
         onToggleActivity={() => setTrackActivityOpen(o => !o)}
       />
+      )}
 
       <PageSection
         innerClassName={`
