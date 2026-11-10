@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
@@ -16,6 +17,7 @@ from app.agentive.harness.capability_search import (
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.effect_reconciliation import BUILD_PRE_EFFECT_ERRORS
 from app.agentive.harness.pydantic_ai_compat import (
+    CallDeferred,
     ModelRetry,
     RunContext,
     Tool,
@@ -420,6 +422,18 @@ def _make_handler(
             else None
         )
 
+        defer_approval = (
+            call_state.get("native_deferred_approvals")
+            and tool_work_context is not None
+            and capability_source == "core"
+            and capability_op_class == "propose"
+            and capability_name
+            in {
+                "integral_create_entry",
+                "integral_attach_uploaded_file_to_entry",
+            }
+        )
+
         async def dispatch() -> Any:
             connector_id = None
             if capability_source == "connector":
@@ -442,25 +456,32 @@ def _make_handler(
                         message="Connector tool is unavailable in this scope.",
                     )
                 connector_id = str(connector.id)
-            return await invoke_declared(
-                principal_id=scope.principal_id,
-                workspace_id=scope.workspace_id,
-                capability_key=capability_name,
-                origin="chat",
-                source=capability_source,
-                connector_id=connector_id,
-                op_class=capability_op_class,
-                arguments=arguments,
-                run_id=scope.run_id,
-                work_execution_context=tool_work_context,
-                idempotency_key=_idempotency_key(
-                    scope.run_id, ctx.tool_call_id, capability_name
-                ),
-                session_id=conversation_id or scope.session_id,
-                skill_tools_required=(
-                    list(skill_allowlist) if skill_allowlist else None
-                ),
-            )
+            from app.agentive.services.proposal_origin import bind_deferred_proposal
+
+            with (
+                bind_deferred_proposal(tool_work_context)
+                if defer_approval and tool_work_context is not None
+                else nullcontext()
+            ):
+                return await invoke_declared(
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                    capability_key=capability_name,
+                    origin="chat",
+                    source=capability_source,
+                    connector_id=connector_id,
+                    op_class=capability_op_class,
+                    arguments=arguments,
+                    run_id=scope.run_id,
+                    work_execution_context=tool_work_context,
+                    idempotency_key=_idempotency_key(
+                        scope.run_id, ctx.tool_call_id, capability_name
+                    ),
+                    session_id=conversation_id or scope.session_id,
+                    skill_tools_required=(
+                        list(skill_allowlist) if skill_allowlist else None
+                    ),
+                )
 
         if work_execution_context is None or (
             capability_source == "core"
@@ -520,6 +541,27 @@ def _make_handler(
                     op_class=capability_op_class,
                     arguments=arguments,
                 )
+        if (
+            defer_approval
+            and result.ok
+            and result.receipt is not None
+            and result.receipt.status == "waiting_for_human"
+        ):
+            from app.agentive.staging import get_token
+
+            token = result.data.get("token") if isinstance(result.data, dict) else ""
+            staged = await get_token(token) if token else None
+            proof = (staged.origin_proof or {}) if staged is not None else {}
+            if (
+                proof.get("requires_deferred_link") is True
+                and tool_work_context is not None
+                and proof.get("work_item_id") == tool_work_context.work_item_id
+                and proof.get("run_id") == tool_work_context.run_id
+                and proof.get("effect_key") == tool_work_context.effect_key
+            ):
+                # StepPersistence captures the frontier after the broker commits
+                # the proposal and its requirement for a linked approval.
+                raise CallDeferred()
         model_result = _resource_links_for_model(result.for_model())
         executed = model_result.get("execute_result")
         if (

@@ -15,6 +15,7 @@ from app.models.harness_records import (
     HarnessRunRecord,
     HarnessSnapshotRecord,
     HarnessSteeringInbox,
+    HarnessSteeringResumeBaseline,
     HarnessToolEffectRecord,
     HarnessTurnInputRecord,
 )
@@ -41,6 +42,7 @@ _RECORD_TYPES: tuple[type[Any], ...] = (
     HarnessFollowUpInbox,
     HarnessSnapshotRecord,
     HarnessSteeringInbox,
+    HarnessSteeringResumeBaseline,
     HarnessMessageRecord,
     HarnessCheckpointManifestRecord,
     HarnessToolEffectRecord,
@@ -116,6 +118,7 @@ async def rewrap_harness_session_records(*, scope_key: str) -> dict[str, int]:
             if record_type in (
                 HarnessPlanState,
                 HarnessSteeringInbox,
+                HarnessSteeringResumeBaseline,
                 HarnessFollowUpInbox,
             ):
                 changed = await _rewrap_mutable_payload(record.id, scope_key=scope_key)

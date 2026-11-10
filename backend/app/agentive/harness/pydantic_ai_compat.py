@@ -19,6 +19,7 @@ from pydantic_ai import (
     Agent,
     AgentRunResultEvent,
     BinaryContent,
+    CallDeferred,
     CancellationToken,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -63,7 +64,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
-from pydantic_ai.tools import DeferredToolRequests
+from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.compaction import (
@@ -1766,11 +1767,13 @@ __all__ = [
     "BinaryContent",
     "Capability",
     "CancellationToken",
+    "CallDeferred",
     "ClearToolResults",
     "build_integral_history_compaction",
     "ContinuableSnapshot",
     "ConversationSearch",
     "DeferredToolRequests",
+    "DeferredToolResults",
     "FunctionToolCallEvent",
     "FunctionToolResultEvent",
     "Instrumentation",

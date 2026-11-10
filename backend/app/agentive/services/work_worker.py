@@ -468,6 +468,8 @@ async def _execute_chat_turn(
     from datetime import datetime, timezone
     from time import monotonic
 
+    from jvspatial.core.context import get_default_context
+
     from app.agentive.services.execution_runs import AgentRun, start_run
     from app.agentive.services.work_items import authorized_work_item_effect
     from app.services.chat_providers import ChatTurnContext, get_registry
@@ -536,7 +538,10 @@ async def _execute_chat_turn(
             cursor = page.next_after_sequence
 
     async def _terminalize_pre_stream_failure(
-        failure: dict[str, str], *, status: ChatTerminalStatus = "failed"
+        failure: dict[str, str],
+        *,
+        status: ChatTerminalStatus = "failed",
+        parked_run_id: str = "",
     ) -> WorkItem:
         if status == "cancelled":
             return await terminalize_chat_turn(ctx, status="cancelled", failure=failure)
@@ -556,6 +561,7 @@ async def _execute_chat_turn(
             status=status,
             failure=failure,
             result_fingerprint=ctx.effect_key,
+            parked_run_id=parked_run_id,
         )
 
     async def _reconcile_committed_result() -> WorkItem | None:
@@ -611,6 +617,7 @@ async def _execute_chat_turn(
                 status=status,
                 failure=failure,
                 result_fingerprint=ctx.effect_key,
+                parked_run_id=item.run_id if deferred else "",
             )
 
         parts, metadata = _native_chat_transcript(events, error=failure)
@@ -622,9 +629,37 @@ async def _execute_chat_turn(
             status=status,
             failure=failure,
             result_fingerprint=ctx.effect_key,
+            parked_run_id=item.run_id if deferred else "",
         )
 
+    deferred = []
+    deferred_resume = None
+    if item.run_id and item.run_id != ctx.run_id:
+        deferred = await get_default_context().database.find(
+            "object",
+            {
+                "entity": "WorkApproval",
+                "context.work_item_id": item.work_item_id,
+                "context.run_id": item.run_id,
+                "context.status": "approved",
+                "context.framework_snapshot_id": {"$exists": True, "$ne": ""},
+            },
+            limit=1,
+        )
     try:
+        if deferred:
+            from app.agentive.harness.deferred_staging import (
+                admit_deferred_chat_resume,
+                current_core_deferred_schema,
+            )
+
+            reconciled = await _reconcile_committed_result()
+            if reconciled is not None:
+                return reconciled
+            tool = (deferred[0].get("context") or {}).get("framework_tool_name", "")
+            deferred_resume = await admit_deferred_chat_resume(
+                context=ctx, input_schema=current_core_deferred_schema(tool)
+            )
         worker_input = await load_claimed_chat_turn_input(item)
     except WorkError as exc:
         if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
@@ -634,7 +669,8 @@ async def _execute_chat_turn(
                 {"code": exc.code, "message": exc.message}, status="cancelled"
             )
         return await _terminalize_pre_stream_failure(
-            {"code": exc.code, "message": exc.message}
+            {"code": exc.code, "message": exc.message},
+            parked_run_id=item.run_id if deferred else "",
         )
     except Exception as exc:  # noqa: BLE001
         code, message = classify_turn_exception(exc)
@@ -700,10 +736,14 @@ async def _execute_chat_turn(
             extra_data["staging_outcome_continuation"] = True
         # Durable input intentionally excludes bearer-like staging tokens.
         # Reconstruct the decision tool's scoped authority after claiming work.
-        extra_data["pending_approval_tokens"] = await _pending_write_references(
-            principal_id=ctx.principal_id,
-            workspace_id=ctx.workspace_id,
-            session_id=ctx.thread_id,
+        extra_data["pending_approval_tokens"] = (
+            {}
+            if deferred_resume is not None
+            else await _pending_write_references(
+                principal_id=ctx.principal_id,
+                workspace_id=ctx.workspace_id,
+                session_id=ctx.thread_id,
+            )
         )
         extra_data.update(
             {
@@ -720,13 +760,16 @@ async def _execute_chat_turn(
             text=worker_input.text,
             thread_id=ctx.thread_id,
             session_id=worker_input.thread.provider_session_id,
-            system_context=execution.system_context or None,
+            system_context=(
+                None if deferred_resume else execution.system_context or None
+            ),
             focused_track_id=execution.focused_track_id,
             focused_space_id=execution.focused_space_id,
             focused_view_id=execution.focused_view_id,
             workspace_id=ctx.workspace_id,
             extra_data=extra_data,
             accepts_steering=execution.host_control is None,
+            deferred_resume=deferred_resume,
         )
     except WorkError as exc:
         if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
@@ -736,7 +779,8 @@ async def _execute_chat_turn(
                 {"code": exc.code, "message": exc.message}, status="cancelled"
             )
         return await _terminalize_pre_stream_failure(
-            {"code": exc.code, "message": exc.message}
+            {"code": exc.code, "message": exc.message},
+            parked_run_id=item.run_id if deferred else "",
         )
     except Exception as exc:  # noqa: BLE001
         code, message = classify_turn_exception(exc, provider=provider)
@@ -744,7 +788,7 @@ async def _execute_chat_turn(
     event_ordinal = 0
     saw_message_finish = False
 
-    async def _body() -> None:
+    async def _body() -> dict[str, Any] | None:
         nonlocal event_ordinal, saw_message_finish
         await work_execution.assert_effect_boundary_allowed(ctx)
         # Cancellation can arrive while persisting a yielded event, with the
@@ -755,6 +799,8 @@ async def _execute_chat_turn(
             cast(AsyncGenerator[dict[str, Any], None], provider.stream_turn(turn))
         ) as stream:
             async for event in stream:
+                if event.get("type") == "_deferred-approval":
+                    return event
                 if event.get("type") == "message-finish":
                     timing = dict(event.get("timing") or {})
                     if queue_ms is not None:
@@ -791,16 +837,47 @@ async def _execute_chat_turn(
                 event_ordinal += 1
                 if event_type == "message-finish":
                     saw_message_finish = True
+        return None
 
     failure: dict[str, str] | None = None
     status: ChatTerminalStatus = "succeeded"
     try:
-        await asyncio.wait_for(
+        frontier = await asyncio.wait_for(
             _with_supervised_heartbeat(
                 item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
             ),
             timeout=_chat_turn_timeout_seconds(item),
         )
+        if frontier is not None:
+            from app.agentive.harness.deferred_staging import (
+                current_core_deferred_schema,
+                park_deferred_staged_work,
+            )
+
+            requests = frontier["requests"]
+            if saw_message_finish or len(requests.calls) != 1 or requests.approvals:
+                raise WorkError(
+                    "work.non_replayable_effect",
+                    "Deferred calls require reconciliation",
+                )
+            call = requests.calls[0]
+            approval, parked = await park_deferred_staged_work(
+                scope=frontier["scope"],
+                context=ctx,
+                store=frontier["store"],
+                requests=requests,
+                tool_call_id=call.tool_call_id,
+                input_schema=current_core_deferred_schema(call.tool_name),
+            )
+            try:
+                from app.agentive.staging import _push_created_event, get_token
+
+                staged = await get_token(approval.staging_token)
+                if staged is not None and staged.state == "pending":
+                    await _push_created_event(staged)
+            except Exception:  # noqa: BLE001 — the inbox can reload the committed card
+                log.debug("Deferred approval notification unavailable", exc_info=True)
+            return parked
     except asyncio.TimeoutError:
         status = "failed"
         failure = {
@@ -878,6 +955,7 @@ async def _execute_chat_turn(
             status=status,
             failure=failure,
             result_fingerprint=ctx.effect_key,
+            parked_run_id=item.run_id if deferred else "",
         )
     except WorkError as exc:
         if exc.code != "work.cancelled":

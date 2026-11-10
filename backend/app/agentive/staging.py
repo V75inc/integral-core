@@ -826,7 +826,8 @@ async def create_staged_change(
     # When/if agent runtime ships SPEC §7.3 and the chat stream carries
     # tool results, the inbox path remains useful as a fallback /
     # cross-tab notifier.
-    await _push_created_event(sc)
+    if (sc.origin_proof or {}).get("requires_deferred_link") is not True:
+        await _push_created_event(sc)
     return sc
 
 
@@ -1824,6 +1825,46 @@ async def get_pending_for_user(user_id: str) -> List[StagedChange]:
         # Native rows are authoritative, including terminal transitions made
         # by another worker. Do not merge stale cache-only approvals into them.
         items = await staging_store.load_pending_for_user(user_id)
+        deferred = [
+            item
+            for item in items
+            if (item.origin_proof or {}).get("requires_deferred_link") is True
+        ]
+        if deferred:
+            from jvspatial.core.context import get_default_context
+
+            links = await get_default_context().database.find(
+                "object",
+                {
+                    "entity": "WorkApproval",
+                    "context.staging_token": {"$in": [item.token for item in deferred]},
+                    "context.status": "pending",
+                    "context.framework_snapshot_id": {"$exists": True, "$ne": ""},
+                },
+            )
+            ready = {
+                (
+                    fields.get("staging_token"),
+                    fields.get("work_item_id"),
+                    fields.get("run_id"),
+                    fields.get("framework_tool_name"),
+                )
+                for row in links
+                if (fields := row.get("context"))
+            }
+            items = [
+                item
+                for item in items
+                if (proof := item.origin_proof or {}).get("requires_deferred_link")
+                is not True
+                or (
+                    item.token,
+                    proof.get("work_item_id"),
+                    proof.get("run_id"),
+                    proof.get("capability_key"),
+                )
+                in ready
+            ]
         current = [await _cache_durable_decision(item) for item in items]
         return sorted(current, key=lambda item: item.created_at, reverse=True)
     async with _lock:

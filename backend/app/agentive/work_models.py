@@ -94,7 +94,14 @@ class WorkApproval(Object):
     framework_tool_call_id: str = ""
     framework_tool_name: str = ""
     deferred_intent_fingerprint: str = ""
+    deferred_schema_fingerprint: str = ""
+    deferred_declaration_fingerprint: str = ""
     deferred_thread_revision: str = ""
+    deferred_admission_revision: str = ""
+    deferred_admission_attempt: int = 0
+    deferred_admission_fence: int = 0
+    deferred_admission_requests: List[str] = Field(default_factory=list)
+    deferred_steering_baseline_id: str = ""
     framework_session_id: str = ""
     framework_permission_revision: str = ""
     framework_capability_version: str = ""
@@ -102,6 +109,7 @@ class WorkApproval(Object):
     staging_intent_fingerprint: str = ""
     staging_execution_id: str = ""
     staging_request_hash: str = ""
+    staging_result_fingerprint: str = ""
     decision: str = ""
     decider_id: str = ""
     expires_at: str = attribute(default="", indexed=True)

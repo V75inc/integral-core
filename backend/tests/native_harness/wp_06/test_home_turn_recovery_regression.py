@@ -103,11 +103,12 @@ async def test_scripted_home_turn_repairs_validation_and_stages_once(monkeypatch
     async def create_staged_change(**kwargs):
         staged.append(kwargs)
         return SimpleNamespace(
+            origin_proof=kwargs.get("origin_proof"),
             to_dict=lambda: {
                 "token": "pending-home-1",
                 "kind": "update_app",
                 "state": "pending",
-            }
+            },
         )
 
     monkeypatch.setattr(

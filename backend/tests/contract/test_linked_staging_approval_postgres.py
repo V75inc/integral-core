@@ -64,6 +64,8 @@ async def _linked_proposal():
         "framework_tool_call_id",
         "framework_tool_name",
         "deferred_intent_fingerprint",
+        "deferred_schema_fingerprint",
+        "deferred_declaration_fingerprint",
         "deferred_thread_revision",
         "framework_session_id",
         "framework_permission_revision",
@@ -135,6 +137,17 @@ async def test_racing_approval_insert_rechecks_existing_intent(
         ("chat_turn", True),
         ("chat_turn", "race"),
         ("chat_turn", "cas"),
+        ("chat_turn", "dispatch"),
+        ("chat_turn", "correction"),
+        ("chat_turn", "correction_changed"),
+        ("chat_turn", "correction_scope"),
+        ("chat_turn", "rotation"),
+        ("chat_turn", "settlement_changed"),
+        ("chat_turn", "receipt_changed"),
+        ("chat_turn", "rejected"),
+        ("chat_turn", "expired"),
+        ("chat_turn", "worker_park"),
+        ("chat_turn", "worker_reject"),
     ],
 )
 async def test_native_deferred_frontier_with_real_broker_approval(
@@ -156,6 +169,7 @@ async def test_native_deferred_frontier_with_real_broker_approval(
     from app.agentive.harness.contracts import HarnessExecutionScope
     from app.agentive.harness.deferred_staging import (
         admit_deferred_chat_resume,
+        current_core_deferred_schema,
         park_deferred_staged_work,
         read_deferred_applied_chat,
         verify_deferred_staged_call,
@@ -253,6 +267,24 @@ async def test_native_deferred_frontier_with_real_broker_approval(
         broker_results = []
 
         async def integral_create_entry(ctx: RunContext, track_id: str, title: str):
+            if intervention in {"worker_park", "worker_reject"}:
+                from app.agentive.harness.broker_tools import _make_handler
+
+                handler = _make_handler(
+                    scope=scope,
+                    capability_name="integral_create_entry",
+                    capability_source="core",
+                    capability_op_class="propose",
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
+                    skill_allowlist=(),
+                    invoke_declared=capability_broker.invoke_declared_capability,
+                    work_execution_context=context,
+                    call_state={"native_deferred_approvals": True, "attempted": 0},
+                    no_workspace_writes=False,
+                    design_only=False,
+                    conversation_id=thread,
+                )
+                return await handler(ctx, track_id=track_id, title=title)
             tool_context = _tool_work_context(context, ctx.tool_call_id, ctx.tool_name)
             async with work_items.authorized_work_item_effect(context):
                 result = await capability_broker.invoke_declared_capability(
@@ -292,6 +324,297 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                 StepPersistence(store=store, run_id=scope.run_id, capture_frontier=True)
             ],
         )
+        if intervention in {"worker_park", "worker_reject"}:
+            import tempfile
+
+            from pydantic_ai import Tool
+
+            from app.agentive.harness.runtime import build_native_runtime
+            from app.agentive.services.work_worker import execute_claimed_work
+            from app.services.chat_providers.pydantic_ai_provider import (
+                PydanticAIProvider,
+            )
+
+            provider = PydanticAIProvider()
+            agent, store = build_native_runtime(
+                model=FunctionModel(stream_function=model),
+                instructions="",
+                tools=[Tool(integral_create_entry)],
+                scope=scope,
+                agent_name="integral_core",
+                work_execution_context=context,
+                accepts_deferred_approvals=True,
+            )
+
+            async def prepare(_turn):
+                return (
+                    scope,
+                    None,
+                    agent,
+                    store,
+                    [],
+                    tempfile.TemporaryDirectory(),
+                    context,
+                    {"native_deferred_approvals": True},
+                )
+
+            class Registry:
+                def get(self, provider_id):
+                    assert provider_id == "integral_native"
+                    return provider
+
+            monkeypatch.setattr(provider, "_prepare", prepare)
+            monkeypatch.setattr(provider, "is_available", lambda: True)
+            monkeypatch.setattr("app.services.chat_providers.get_registry", Registry)
+            original_stream = provider.stream_turn
+            early_checks = []
+            published = []
+
+            async def observe_created(change):
+                published.append(change.token)
+
+            monkeypatch.setattr(staging, "_push_created_event", observe_created)
+
+            async def verify_early_decision(turn):
+                from contextlib import aclosing
+
+                async with aclosing(original_stream(turn)) as stream:
+                    async for event in stream:
+                        if event["type"] == "_deferred-approval":
+                            proposals = await postgres_raw_db.find(
+                                "object",
+                                {
+                                    "entity": "StagedChangeRecord",
+                                    "context.origin_proof.work_item_id": item.work_item_id,
+                                },
+                            )
+                            assert len(proposals) == 1
+                            fields = proposals[0]["context"]
+                            assert (
+                                fields["origin_proof"]["requires_deferred_link"] is True
+                            )
+                            assert fields["token"] not in {
+                                change.token
+                                for change in await staging.get_pending_for_user(
+                                    auth.id
+                                )
+                            }
+                            assert published == []
+                            thread_facts = (await postgres_raw_db.get("node", thread))[
+                                "context"
+                            ]
+                            assert fields["token"] not in {
+                                queued.get("token")
+                                for queued in (
+                                    thread_facts.get("prompt_queue") or {}
+                                ).get("items", [])
+                            }
+                            with pytest.raises(StagingError) as refused:
+                                await staging_apply.bless_and_execute(
+                                    user_id=auth.id, token=fields["token"]
+                                )
+                            assert refused.value.code == "approval_not_ready"
+                            assert not await Entry.find({"track_id": track.id})
+                            early_checks.append(fields["token"])
+                        yield event
+
+            monkeypatch.setattr(provider, "stream_turn", verify_early_decision)
+            parked = await execute_claimed_work(
+                claimed, worker_id="deferred-probe", lease_seconds=60
+            )
+            assert parked.status == "waiting_for_human", parked.failure
+            approval = await work_approvals.get_pending_by_work_item(item.work_item_id)
+            assert (
+                approval is not None
+                and approval.framework_tool_call_id == "native-probe-call"
+            )
+            assert early_checks == [approval.staging_token]
+            assert published == [approval.staging_token]
+            assert approval.staging_token in {
+                change.token for change in await staging.get_pending_for_user(auth.id)
+            }
+            assert not await Entry.find({"track_id": track.id})
+            assert (await postgres_raw_db.get("node", thread))["context"][
+                "active_work_item_id"
+            ] == ""
+            if intervention == "worker_reject":
+                from app.agentive.services.approval_decisions import decide_staged_write
+
+                original_decide = work_approvals.decide_work_approval_unit
+
+                async def fail_after_closure(**kwargs):
+                    await original_decide(**kwargs)
+                    raise WorkError("work.injected_failure")
+
+                with monkeypatch.context() as patch:
+                    patch.setattr(
+                        work_approvals, "decide_work_approval_unit", fail_after_closure
+                    )
+                    with pytest.raises(
+                        StagingError, match="Linked work requires reconciliation"
+                    ):
+                        await decide_staged_write(
+                            principal_id=auth.id,
+                            proposal_id=approval.staging_token,
+                            decision="reject",
+                            source="card",
+                        )
+                assert (
+                    await staging.get_token(approval.staging_token)
+                ).state == "pending"
+                assert (await postgres_raw_db.get("object", item.id))["context"][
+                    "status"
+                ] == "waiting_for_human"
+                rejected = await decide_staged_write(
+                    principal_id=auth.id,
+                    proposal_id=approval.staging_token,
+                    decision="reject",
+                    source="card",
+                )
+                assert rejected["state"] == "revoked"
+                assert (await postgres_raw_db.get("object", item.id))["context"][
+                    "status"
+                ] == "failed"
+                assert (await postgres_raw_db.get("object", approval.id))["context"][
+                    "status"
+                ] == "rejected"
+                runs = await postgres_raw_db.find(
+                    "object", {"entity": "AgentRun", "context.run_id": context.run_id}
+                )
+                assert runs[0]["context"]["error"]["code"] == "work.approval_rejected"
+                assert not await Entry.find({"track_id": track.id})
+                return
+
+            applied = await staging_apply.bless_and_execute(
+                user_id=auth.id, token=approval.staging_token
+            )
+            assert applied["consumed"], applied
+            assert len(await Entry.find({"track_id": track.id})) == 1
+            monkeypatch.setattr(provider, "stream_turn", original_stream)
+
+            async def prepare_second(turn):
+                from app.agentive.harness.broker_tools import _make_handler
+                from app.schemas.agentive.work import WorkExecutionContext
+
+                admitted = turn.deferred_resume
+                assert admitted is not None
+                current = WorkExecutionContext.model_validate(
+                    turn.extra_data["work_execution_context"]
+                )
+                new_scope = scope.model_copy(update={"run_id": current.run_id})
+                handler = _make_handler(
+                    scope=new_scope,
+                    capability_name="integral_create_entry",
+                    capability_source="core",
+                    capability_op_class="propose",
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
+                    skill_allowlist=(),
+                    invoke_declared=capability_broker.invoke_declared_capability,
+                    work_execution_context=current,
+                    call_state={"native_deferred_approvals": True, "attempted": 0},
+                    no_workspace_writes=False,
+                    design_only=False,
+                    conversation_id=thread,
+                )
+
+                async def integral_create_entry(
+                    ctx: RunContext, track_id: str, title: str
+                ):
+                    return await handler(ctx, track_id=track_id, title=title)
+
+                async def second_model(messages, _info):
+                    assert any(
+                        part.tool_call_id == admitted.tool_call_id
+                        and part.content == admitted.result
+                        for message in messages
+                        if isinstance(message, ModelRequest)
+                        for part in message.parts
+                        if isinstance(part, ToolReturnPart)
+                    )
+                    if admitted.tool_call_id == "second-native-call":
+                        yield "Both approved Entries were created."
+                        return
+                    yield {
+                        0: DeltaToolCall(
+                            name="integral_create_entry",
+                            json_args=json.dumps(
+                                {"track_id": track.id, "title": "Second approved Entry"}
+                            ),
+                            tool_call_id="second-native-call",
+                        )
+                    }
+
+                agent, second_store = build_native_runtime(
+                    model=FunctionModel(stream_function=second_model),
+                    instructions="",
+                    tools=[Tool(integral_create_entry)],
+                    scope=new_scope,
+                    agent_name="integral_core",
+                    work_execution_context=current,
+                    accepts_deferred_approvals=True,
+                )
+                history, results = admitted.native_resume_input(accepted_text=turn.text)
+                return (
+                    new_scope,
+                    None,
+                    agent,
+                    second_store,
+                    history,
+                    tempfile.TemporaryDirectory(),
+                    current,
+                    {
+                        "native_deferred_approvals": True,
+                        "deferred_tool_results": results,
+                        "user_prompt": None,
+                    },
+                )
+
+            monkeypatch.setattr(provider, "_prepare", prepare_second)
+            second = await work_items.claim_due_candidate(
+                worker_id="deferred-probe",
+                work_item_id=item.work_item_id,
+                lease_seconds=60,
+            )
+            assert second is not None
+            parked_again = await execute_claimed_work(
+                second, worker_id="deferred-probe", lease_seconds=60
+            )
+            assert parked_again.status == "waiting_for_human", parked_again.failure
+            approval2 = await work_approvals.get_pending_by_work_item(item.work_item_id)
+            assert (
+                approval2 is not None
+                and approval2.framework_tool_call_id == "second-native-call"
+            )
+            original_runs = await postgres_raw_db.find(
+                "object", {"entity": "AgentRun", "context.run_id": context.run_id}
+            )
+            assert original_runs[0]["context"]["status"] == "succeeded"
+            assert len(await Entry.find({"track_id": track.id})) == 1
+            applied2 = await staging_apply.bless_and_execute(
+                user_id=auth.id, token=approval2.staging_token
+            )
+            assert applied2["consumed"], applied2
+            assert len(await Entry.find({"track_id": track.id})) == 2
+            third = await work_items.claim_due_candidate(
+                worker_id="deferred-probe",
+                work_item_id=item.work_item_id,
+                lease_seconds=60,
+            )
+            assert third is not None
+            finished = await execute_claimed_work(
+                third, worker_id="deferred-probe", lease_seconds=60
+            )
+            assert finished.status == "succeeded", finished.failure
+            runs = await postgres_raw_db.find(
+                "object",
+                {"entity": "AgentRun", "context.work_item_id": item.work_item_id},
+            )
+            assert len(runs) == 3 and all(
+                row["context"]["status"] == "succeeded" for row in runs
+            )
+            assert len(await Entry.find({"track_id": track.id})) == 2
+            return
+
         events = []
         async with agent.run_stream_events(
             "Create the entry.", conversation_id=scope.session_id, run_id=scope.run_id
@@ -325,7 +648,7 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             "store": store,
             "requests": deferred.requests,
             "tool_call_id": "native-probe-call",
-            "input_schema": {},
+            "input_schema": current_core_deferred_schema("integral_create_entry"),
         }
         binding = await verify_deferred_staged_call(**verify_args)
         assert binding.staging_token == token
@@ -442,6 +765,38 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             )
             == []
         )
+        if intervention in {"rejected", "expired"}:
+            approval, _ = await park_deferred_staged_work(**verify_args)
+            with pytest.raises(WorkError, match="requires an applied staging receipt"):
+                await work_approvals.approve_work_approval(
+                    work_approval_id=approval.work_approval_id, decider_id=auth.id
+                )
+            assert (await postgres_raw_db.get("object", item.id))["context"][
+                "status"
+            ] == "waiting_for_human"
+            decision = {
+                "work_approval_id": approval.work_approval_id,
+                "decision": intervention,
+                "decider_id": auth.id,
+            }
+            for _ in range(2):
+                decided, finished = await work_approvals.decide_work_approval_unit(
+                    **decision
+                )
+                assert decided.status == intervention
+                assert finished.status == (
+                    "expired" if intervention == "expired" else "failed"
+                )
+            runs = await postgres_raw_db.find(
+                "object", {"entity": "AgentRun", "context.run_id": context.run_id}
+            )
+            assert len(runs) == 1
+            assert runs[0]["context"]["status"] == "failed"
+            assert (
+                runs[0]["context"]["error"]["code"] == f"work.approval_{intervention}"
+            )
+            assert not await Entry.find({"track_id": track.id})
+            return
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def hold_before_commit(**kwargs):
@@ -497,13 +852,80 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                 logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
             )
             recovered = await read_deferred_applied_chat(
-                context=resumed_context, input_schema={}
+                context=resumed_context,
+                input_schema=current_core_deferred_schema("integral_create_entry"),
             )
             assert recovered.scope == scope
             assert recovered.tool_call_id == "native-probe-call"
+            with pytest.raises(
+                WorkError, match="Deferred outcome needs reconciliation"
+            ):
+                await read_deferred_applied_chat(
+                    context=resumed_context, input_schema={"type": "object"}
+                )
+            from app.agentive.tooling.catalogue import build_tool_catalogue
+
+            catalogue = build_tool_catalogue()
+            original_schema = current_core_deferred_schema("integral_create_entry")
+            changed_catalogue = deepcopy(catalogue)
+            changed_item = next(
+                row
+                for row in changed_catalogue
+                if row["name"] == "integral_create_entry"
+            )
+            changed_item["input_schema"]["properties"]["new_field"] = {"type": "string"}
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    "app.agentive.tooling.catalogue.build_tool_catalogue",
+                    lambda: changed_catalogue,
+                )
+                with pytest.raises(
+                    WorkError, match="Deferred outcome needs reconciliation"
+                ):
+                    await read_deferred_applied_chat(
+                        context=resumed_context, input_schema=original_schema
+                    )
+            changed_catalogue = deepcopy(catalogue)
+            changed_item = next(
+                row
+                for row in changed_catalogue
+                if row["name"] == "integral_create_entry"
+            )
+            changed_item["policy_action"] = "entry.different_action"
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    "app.agentive.tooling.catalogue.build_tool_catalogue",
+                    lambda: changed_catalogue,
+                )
+                with pytest.raises(
+                    WorkError, match="Deferred outcome needs reconciliation"
+                ):
+                    await read_deferred_applied_chat(
+                        context=resumed_context, input_schema=original_schema
+                    )
             assert (
                 recovered.result["entry_id"] == outcome["execute_result"]["entry"]["id"]
             )
+            from app.services.permissions import resolve_role
+
+            async def deny_created_entry(user_id, kind, resource_id, **kwargs):
+                if kind == "entry" and resource_id == recovered.result["entry_id"]:
+                    return None
+                return await resolve_role(user_id, kind, resource_id, **kwargs)
+
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    "app.services.permissions.resolve_role", deny_created_entry
+                )
+                with pytest.raises(
+                    WorkError, match="Deferred outcome needs reconciliation"
+                ):
+                    await read_deferred_applied_chat(
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
+                    )
             thread_doc = await postgres_raw_db.get("node", thread)
             original_revision = thread_doc["context"]["updated_at"]
             await postgres_raw_db.find_one_and_update(
@@ -515,7 +937,8 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                 WorkError, match="Deferred outcome needs reconciliation"
             ):
                 await read_deferred_applied_chat(
-                    context=resumed_context, input_schema={}
+                    context=resumed_context,
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
                 )
             await postgres_raw_db.find_one_and_update(
                 "node",
@@ -542,17 +965,49 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                 )
                 with pytest.raises(WorkError):
                     await read_deferred_applied_chat(
-                        context=resumed_context, input_schema={}
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
                     )
                 await postgres_raw_db.find_one_and_update(
                     collection,
                     {"id": record_id},
                     {"$set": {f"context.{field}": original}},
                 )
+            from app.services.credential_crypto import encrypt_secret_for_storage
+
+            original_ciphertext = (
+                await postgres_raw_db.get("object", recovered.receipt_id)
+            )["context"]["result_ciphertext"]
+            await postgres_raw_db.find_one_and_update(
+                "object",
+                {"id": recovered.receipt_id},
+                {
+                    "$set": {
+                        "context.result_ciphertext": encrypt_secret_for_storage(
+                            json.dumps({"entry_id": "substituted-before-admission"}),
+                            aad=recovered.receipt_id,
+                        )
+                    }
+                },
+            )
+            with pytest.raises(
+                WorkError, match="Deferred outcome needs reconciliation"
+            ):
+                await read_deferred_applied_chat(
+                    context=resumed_context,
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
+                )
+            await postgres_raw_db.find_one_and_update(
+                "object",
+                {"id": recovered.receipt_id},
+                {"$set": {"context.result_ciphertext": original_ciphertext}},
+            )
             with pytest.raises(WorkError) as stale_resume:
                 await read_deferred_applied_chat(
                     context=resumed_context.model_copy(update={"lease_token": "stale"}),
-                    input_schema={},
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
                 )
             assert stale_resume.value.code == "work.lease_lost"
 
@@ -572,7 +1027,10 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                     WorkError, match="Deferred outcome needs reconciliation"
                 ):
                     await read_deferred_applied_chat(
-                        context=resumed_context, input_schema={}
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
                     )
 
         async def resumed_model(_messages, _info):
@@ -722,7 +1180,12 @@ asyncio.run(main())
                         wait_before_reservation,
                     )
                 admitting = asyncio.create_task(
-                    admit_deferred_chat_resume(context=resumed_context, input_schema={})
+                    admit_deferred_chat_resume(
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
+                    )
                 )
                 await asyncio.wait_for(reconciled.wait(), timeout=10)
                 try:
@@ -753,7 +1216,7 @@ asyncio.run(main())
                 },
             )
             assert original_slots == []
-        elif thread_node is not None and intervention:
+        elif thread_node is not None and intervention is True:
             newer = await submit_chat_turn(
                 ChatTurnSubmissionRequest(
                     principal_id=auth.id,
@@ -768,13 +1231,15 @@ asyncio.run(main())
                 WorkError, match="Deferred outcome needs reconciliation"
             ):
                 await read_deferred_applied_chat(
-                    context=resumed_context, input_schema={}
+                    context=resumed_context,
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
                 )
             with pytest.raises(
                 WorkError, match="Deferred outcome needs reconciliation"
             ):
                 await admit_deferred_chat_resume(
-                    context=resumed_context, input_schema={}
+                    context=resumed_context,
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
                 )
             assert len(await Entry.find({"track_id": track.id})) == 1
         elif thread_node is not None:
@@ -790,7 +1255,10 @@ asyncio.run(main())
                 )
                 with pytest.raises(WorkError, match="injected recheck failure"):
                     await admit_deferred_chat_resume(
-                        context=resumed_context, input_schema={}
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
                     )
             assert (await postgres_raw_db.get("node", thread))["context"][
                 "active_work_item_id"
@@ -802,10 +1270,91 @@ asyncio.run(main())
                     "context.work_item_id": item.work_item_id,
                 },
             )
-            admitted = await admit_deferred_chat_resume(
-                context=resumed_context, input_schema={}
+            original_record = ScopedStepStore.record_tool_effect
+
+            async def fail_after_effect_write(store_instance, record):
+                await original_record(store_instance, record)
+                if record.status == "completed":
+                    raise WorkError("work.policy_denied", "injected settlement failure")
+
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    ScopedStepStore, "record_tool_effect", fail_after_effect_write
+                )
+                with pytest.raises(WorkError, match="injected settlement failure"):
+                    await admit_deferred_chat_resume(
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
+                    )
+            assert (
+                await store.get_tool_effect(
+                    run_id=scope.run_id, tool_call_id="native-probe-call"
+                )
+            ).status == "started"
+            assert (await postgres_raw_db.get("node", thread))["context"][
+                "active_work_item_id"
+            ] == ""
+            assert not await postgres_raw_db.find(
+                "object",
+                {
+                    "entity": "HarnessTurnAdmissionSlot",
+                    "context.work_item_id": item.work_item_id,
+                },
             )
-            assert admitted.receipt_id == recovered.receipt_id
+            crash_worker = """
+import asyncio, os, sys
+from jvspatial.core.context import GraphContext, set_default_context
+from jvspatial.db.factory import create_database
+from app.agentive.harness.deferred_staging import admit_deferred_chat_resume, current_core_deferred_schema
+from app.schemas.agentive.work import WorkExecutionContext
+async def main():
+    db = create_database(db_type='postgres')
+    set_default_context(GraphContext(database=db))
+    await admit_deferred_chat_resume(context=WorkExecutionContext.model_validate_json(sys.argv[1]), input_schema=current_core_deferred_schema("integral_create_entry"))
+    os._exit(77)
+asyncio.run(main())
+"""
+            crashed = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                crash_worker,
+                resumed_context.model_dump_json(),
+                env={**os.environ, "EMBEDDING_STORE_DRIVER": "null"},
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, crash_stderr = await asyncio.wait_for(crashed.communicate(), timeout=60)
+            assert crashed.returncode == 77, crash_stderr.decode()
+            settled_effect = await store.get_tool_effect(
+                run_id=scope.run_id, tool_call_id="native-probe-call"
+            )
+            assert settled_effect.status == "completed"
+            assert settled_effect.effect_summary == recovered.settlement_summary
+            assert await store.list_unresolved_tool_effects(run_id=scope.run_id) == []
+            if intervention == "settlement_changed":
+                unguarded_store = ScopedStepStore(
+                    store=JvSpatialStepStore(scope=scope), scope=scope
+                )
+                await unguarded_store.record_tool_effect(
+                    replace(settled_effect, effect_summary="foreign receipt")
+                )
+            if intervention == "receipt_changed":
+                from app.services.credential_crypto import encrypt_secret_for_storage
+
+                await postgres_raw_db.find_one_and_update(
+                    "object",
+                    {"id": recovered.receipt_id},
+                    {
+                        "$set": {
+                            "context.result_ciphertext": encrypt_secret_for_storage(
+                                json.dumps({"entry_id": "substituted"}),
+                                aad=recovered.receipt_id,
+                            )
+                        }
+                    },
+                )
             assert (await postgres_raw_db.get("node", thread))["context"][
                 "active_work_item_id"
             ] == item.work_item_id
@@ -817,6 +1366,228 @@ asyncio.run(main())
                 },
             )
             assert len(slots) == 1
+            if intervention == "dispatch":
+                await postgres_raw_db.insert_if_absent(
+                    "object",
+                    {
+                        "id": "o.HarnessModelRequestRecord.test-" + unrelated.token,
+                        "entity": "HarnessModelRequestRecord",
+                        "context": {
+                            "run_key": scope.run_id,
+                            "outcome": "dispatch_intent",
+                        },
+                    },
+                )
+            if intervention in {
+                "correction",
+                "correction_changed",
+                "correction_scope",
+                "rotation",
+            }:
+                from app.schemas.agentive.steering import SteeringCorrectionRequest
+                from app.services.chat_steering import (
+                    _inbox_id,
+                    accept_steering_correction,
+                )
+
+                await accept_steering_correction(
+                    item.work_item_id,
+                    auth.id,
+                    SteeringCorrectionRequest(
+                        client_request_id="recovery-correction",
+                        text="Use the new destination.",
+                    ),
+                )
+                if intervention == "correction":
+                    await accept_steering_correction(
+                        item.work_item_id,
+                        auth.id,
+                        SteeringCorrectionRequest(
+                            client_request_id="recovery-correction-2",
+                            text="Keep the answer concise.",
+                        ),
+                    )
+                if intervention == "correction_changed":
+                    from app.services.credential_crypto import (
+                        encrypt_secret_for_storage,
+                    )
+
+                    await admit_deferred_chat_resume(
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
+                    )
+                    ciphertext = encrypt_secret_for_storage(
+                        json.dumps({"recovery-correction": "Substituted correction."}),
+                        aad=_inbox_id(item.work_item_id),
+                    )
+                    await postgres_raw_db.find_one_and_update(
+                        "object",
+                        {"id": _inbox_id(item.work_item_id)},
+                        {"$set": {"context.payload_ciphertext": ciphertext}},
+                    )
+                elif intervention == "correction_scope":
+                    await postgres_raw_db.find_one_and_update(
+                        "object",
+                        {"id": _inbox_id(item.work_item_id)},
+                        {"$set": {"context.scope_key": "foreign"}},
+                    )
+                elif intervention == "rotation":
+                    from app.agentive.harness.key_rotation import (
+                        rewrap_harness_session_records,
+                    )
+                    from app.agentive.harness.turn_input import thread_scope_key
+                    from app.services.credential_crypto import (
+                        decrypt_secret_from_storage,
+                    )
+
+                    await admit_deferred_chat_resume(
+                        context=resumed_context,
+                        input_schema=current_core_deferred_schema(
+                            "integral_create_entry"
+                        ),
+                    )
+                    link = await postgres_raw_db.get("object", approval.id)
+                    baseline_id = link["context"]["deferred_steering_baseline_id"]
+                    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "33" * 32)
+                    monkeypatch.setenv(
+                        "INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS", "22" * 32
+                    )
+                    report = await rewrap_harness_session_records(
+                        scope_key=thread_scope_key(
+                            principal_id=auth.id,
+                            workspace_id=workspace.id,
+                            thread_id=thread,
+                        )
+                    )
+                    assert report["HarnessSteeringResumeBaseline"] == 1
+                    monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS")
+                    baseline = await postgres_raw_db.get("object", baseline_id)
+                    assert json.loads(
+                        decrypt_secret_from_storage(
+                            baseline["context"]["payload_ciphertext"], aad=baseline_id
+                        )
+                    ) == {"recovery-correction": "Use the new destination."}
+                    monkeypatch.setenv(
+                        "INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS", "22" * 32
+                    )
+            await work_items.force_expire_lease_for_tests(item.work_item_id)
+            worker = """
+import asyncio, json, sys
+from jvspatial.core.context import GraphContext, set_default_context
+from jvspatial.db.factory import create_database
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelRequest, ToolReturnPart, UserPromptPart
+from pydantic_ai.models.function import FunctionModel
+from app.services.chat_turn_worker_input import load_claimed_chat_turn_input
+from app.agentive.services import work_execution, work_items
+from app.agentive.harness.deferred_staging import admit_deferred_chat_resume, current_core_deferred_schema
+from app.agentive.harness.steering import DurableSteering
+from app.schemas.agentive.work import WorkError
+async def main():
+    db = create_database(db_type='postgres')
+    set_default_context(GraphContext(database=db))
+    try:
+        item = await work_items.reclaim_expired_lease(sys.argv[1], worker_id='resume-recovery')
+        context = work_execution.build_work_execution_context(work_item=item, logical_step_key=work_execution.logical_step_key_for(kind='chat_turn'))
+        try:
+            result = await admit_deferred_chat_resume(context=context, input_schema=current_core_deferred_schema("integral_create_entry"))
+            response = {'state': 'admitted', 'receipt': result.receipt_id, 'fence': context.lease_fence}
+            if sys.argv[2] == 'correction':
+                received = []
+                async def model(messages, info):
+                    received.append([part.content for message in messages if isinstance(message, ModelRequest) for part in message.parts if isinstance(part, UserPromptPart)])
+                    assert any(part.tool_call_id == result.tool_call_id and part.content == result.result for message in messages if isinstance(message, ModelRequest) for part in message.parts if isinstance(part, ToolReturnPart))
+                    yield 'Continued with the correction.'
+                async def integral_create_entry(track_id: str, title: str):
+                    raise AssertionError('approved tool was dispatched again')
+                agent = Agent(FunctionModel(stream_function=model), tools=[integral_create_entry], capabilities=[DurableSteering(context)])
+                accepted = await load_claimed_chat_turn_input(item)
+                history, deferred_results = result.native_resume_input(accepted_text=accepted.text)
+                assert len(history) == 2 and history[-1].parts[0].args == {}
+                async with agent.run_stream_events(message_history=history, deferred_tool_results=deferred_results) as stream:
+                    events = [type(event).__name__ async for event in stream]
+                assert 'AgentRunResultEvent' in events
+                response['received'] = received
+            print('__RESULT__' + json.dumps(response))
+        except WorkError as exc:
+            print('__RESULT__' + json.dumps({'state': 'refused', 'code': exc.code}))
+    finally:
+        await db.close()
+asyncio.run(main())
+"""
+            child = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                worker,
+                item.work_item_id,
+                str(intervention),
+                env={**os.environ, "EMBEDDING_STORE_DRIVER": "null"},
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(child.communicate(), timeout=60)
+            assert child.returncode == 0, stderr.decode()
+            result_line = next(
+                line
+                for line in stdout.decode().splitlines()
+                if line.startswith("__RESULT__")
+            )
+            child_result = json.loads(result_line.removeprefix("__RESULT__"))
+            if intervention in {
+                "dispatch",
+                "correction_changed",
+                "correction_scope",
+                "settlement_changed",
+                "receipt_changed",
+            }:
+                assert child_result == {
+                    "state": "refused",
+                    "code": "work.non_replayable_effect",
+                }
+            else:
+                assert child_result["state"] == "admitted"
+                assert child_result["receipt"] == recovered.receipt_id
+                assert child_result["fence"] > resumed_context.lease_fence
+                if intervention == "correction":
+                    assert any(
+                        [
+                            part
+                            for part in call
+                            if part
+                            in {"Use the new destination.", "Keep the answer concise."}
+                        ]
+                        == ["Use the new destination.", "Keep the answer concise."]
+                        for call in child_result["received"]
+                    )
+                    from app.services.chat_turn_events import (
+                        replay_work_item_chat_events,
+                    )
+
+                    replay = await replay_work_item_chat_events(
+                        principal_id=auth.id,
+                        workspace_id=workspace.id,
+                        thread_id=thread,
+                        work_item_id=item.work_item_id,
+                    )
+                    assert [
+                        event["text"]
+                        for event in replay.events
+                        if event["type"] == "steering-delivered"
+                    ] == ["Use the new destination.", "Keep the answer concise."]
+                transitions = [
+                    record
+                    for record in await store.list_tool_effects(run_id=scope.run_id)
+                    if record.tool_call_id == "native-probe-call"
+                    and record.status == "completed"
+                ]
+                assert len(transitions) == 1
+            with pytest.raises(WorkError):
+                await admit_deferred_chat_resume(
+                    context=resumed_context,
+                    input_schema=current_core_deferred_schema("integral_create_entry"),
+                )
             with pytest.raises(ResourceConflictError):
                 await submit_chat_turn(
                     ChatTurnSubmissionRequest(
@@ -827,6 +1598,46 @@ asyncio.run(main())
                         parts=[{"type": "text", "text": "Another message."}],
                     )
                 )
+
+            if intervention == "correction":
+                from jvspatial.core.context import get_default_context
+
+                from app.agentive.services.work_worker import execute_claimed_work
+
+                class ResumingProvider:
+                    def get(self, provider_id):
+                        assert provider_id == "integral_native"
+                        return self
+
+                    def is_available(self):
+                        return True
+
+                    async def stream_turn(self, turn):
+                        assert turn.deferred_resume is not None
+                        assert turn.deferred_resume.receipt_id == recovered.receipt_id
+                        assert turn.deferred_resume.result == recovered.result
+                        yield {
+                            "type": "text-delta",
+                            "delta": "Continued from the approved result.",
+                        }
+                        yield {"type": "message-finish"}
+
+                monkeypatch.setattr(
+                    "app.services.chat_providers.get_registry", ResumingProvider
+                )
+                await get_default_context()._evict_from_cache(item.id)
+                reclaimed = await WorkItem.get(item.id)
+                finished = await execute_claimed_work(
+                    reclaimed, worker_id="resume-recovery", lease_seconds=60
+                )
+                assert finished.status == "succeeded", finished.failure
+                runs = await postgres_raw_db.find(
+                    "object",
+                    {"entity": "AgentRun", "context.work_item_id": item.work_item_id},
+                )
+                assert len(runs) == 2
+                assert all(run["context"]["status"] == "succeeded" for run in runs)
+                assert len(await Entry.find({"track_id": track.id})) == 1
 
 
 async def test_foreign_caller_cannot_decide_linked_work(postgres_raw_db, monkeypatch):

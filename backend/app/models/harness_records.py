@@ -188,6 +188,16 @@ class HarnessSteeringInbox(Object):
     payload_ciphertext: str = ""
 
 
+class HarnessSteeringResumeBaseline(Object):
+    """Encrypted pre-dispatch correction baseline for one approved work slot."""
+
+    scope_key: str = attribute(default="", indexed=True)
+    work_item_id: str = attribute(default="", indexed=True)
+    approval_id: str = ""
+    expires_at: str = attribute(default="", indexed=True)
+    payload_ciphertext: str = ""
+
+
 class HarnessFollowUpInbox(Object):
     """Encrypted pending follow-ups and disposition receipts for a chat thread."""
 

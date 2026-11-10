@@ -1630,7 +1630,10 @@ async def _dispatch_propose(
         interaction_id=interaction_id,
     )
     data = enrich_filing_tool_result(spec.name, sc.to_dict())
-    if session_id is not None:
+    if (
+        session_id is not None
+        and (sc.origin_proof or {}).get("requires_deferred_link") is not True
+    ):
         from app.services.prompt_queue import enqueue_staged_write
 
         await enqueue_staged_write(

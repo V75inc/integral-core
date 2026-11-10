@@ -12,6 +12,7 @@ from app.models.harness_records import (
     HarnessFollowUpInbox,
     HarnessProactiveDeliveryRecord,
     HarnessSteeringInbox,
+    HarnessSteeringResumeBaseline,
     HarnessTurnInputRecord,
 )
 from app.schemas.agentive.work import TERMINAL_WORK_STATUSES, ChatTurnExecutionContext
@@ -212,6 +213,8 @@ async def purge_turn_input_capsules_for_thread(
         deleted += 1
     for inbox in await HarnessSteeringInbox.find({"scope_key": scope_key}):
         await inbox.delete()
+    for baseline in await HarnessSteeringResumeBaseline.find({"scope_key": scope_key}):
+        await baseline.delete()
     for inbox in await HarnessFollowUpInbox.find({"scope_key": scope_key}):
         await inbox.delete()
     for receipt in await HarnessProactiveDeliveryRecord.find({"scope_key": scope_key}):
@@ -272,6 +275,14 @@ async def purge_expired_turn_input_capsules(
         limit=batch_size,
     ):
         await inbox.delete()
+    for baseline in await context.find(
+        HarnessSteeringResumeBaseline,
+        {"context.expires_at": {"$lt": cutoff_iso}},
+        limit=batch_size,
+    ):
+        work_item = await WorkItem.get(_object_id(baseline.work_item_id))
+        if work_item is None or work_item.status in TERMINAL_WORK_STATUSES:
+            await baseline.delete()
     return {"capsules_deleted": deleted, "active_work_skipped": skipped_active}
 
 

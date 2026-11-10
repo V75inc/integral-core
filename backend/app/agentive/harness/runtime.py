@@ -21,6 +21,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     Agent,
     Capability,
     ConversationSearch,
+    DeferredToolRequests,
     InstructionDisclosureGuard,
     Instrumentation,
     IntegralContextAdmission,
@@ -86,6 +87,7 @@ def build_native_runtime(
     protected_instruction_text: str | None = None,
     initial_skill: tuple[str, str] | None = None,
     accepts_steering: bool = False,
+    accepts_deferred_approvals: bool = False,
     instructions: str,
     tools: Sequence[Any],
     step_store_backend: StepStore | None = None,
@@ -176,6 +178,7 @@ def build_native_runtime(
             store=scoped_store,
             agent_name=agent_name,
             run_id=scope.framework_run_id,
+            capture_frontier=accepts_deferred_approvals,
         ),
         # Bound repeated read payloads even within a long active turn. Only
         # tools explicitly marked read-only in the Core catalogue may be
@@ -237,6 +240,11 @@ def build_native_runtime(
         tools=list(tools),
         retries={"output": 3},
         capabilities=capabilities,
+        **(
+            {"output_type": [str, DeferredToolRequests]}
+            if accepts_deferred_approvals
+            else {}
+        ),
     )
     agent.output_validator(instruction_output_validator(protected))
     return agent, scoped_store
