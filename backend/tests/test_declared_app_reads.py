@@ -158,3 +158,28 @@ def test_manifest_parser_keeps_read_only_when_literally_true():
         ("c", False),
         ("d", False),
     ]
+
+
+def test_extension_view_keeps_its_react_component_key_and_props():
+    """A view hosted by an App React component keeps the key (and props) when it is stored; the iframe key stays as fallback."""
+    from app.services.operational_model_compile import normalize_view_config
+
+    cfg = normalize_view_config(
+        "extension_view",
+        {
+            "extension_view_key": "pay_run_workflow",
+            "component_key": "pay_run_workflow_react",
+            "component_props": {"mode": "compact"},
+            "unknown": 1,
+        },
+    )
+    assert cfg["extension_view_key"] == "pay_run_workflow"
+    assert cfg["component_key"] == "pay_run_workflow_react"
+    assert cfg["component_props"] == {"mode": "compact"}
+    assert "unknown" not in cfg
+    plain = normalize_view_config("extension_view", {"extension_view_key": "x"})
+    assert "component_key" not in plain and "component_props" not in plain
+    other = normalize_view_config("table", {"component_key": "nope"})
+    assert (
+        "component_key" not in other
+    )  # only extension views can be hosted by a component

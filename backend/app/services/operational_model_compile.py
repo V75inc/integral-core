@@ -4737,6 +4737,8 @@ BUILTIN_VIEW_CONFIG_KEYS = frozenset(
         "default_page_id",
         "columns",
         "extension_view_key",
+        "component_key",
+        "component_props",
         "_manifest_view_key",
         "card_template",
         "density",
@@ -4869,6 +4871,17 @@ def normalize_view_config(
         extension_view_key = str(cfg.get("extension_view_key") or "").strip()
         if extension_view_key:
             normalized["extension_view_key"] = extension_view_key
+        # An operator-admitted App React component may host the view; the iframe key above stays as its
+        # fallback. Admission, placement and props are checked again when the component is mounted.
+        component_key = str(cfg.get("component_key") or "").strip()
+        if component_key:
+            if len(component_key) > 80:
+                raise BadRequestError(message="view.config.component_key is too long")
+            normalized["component_key"] = component_key
+            if cfg.get("component_props") is not None:
+                normalized["component_props"] = _as_dict(
+                    cfg.get("component_props"), where="view.config.component_props"
+                )
     mk = cfg.get("_manifest_view_key")
     if mk is not None and str(mk).strip():
         normalized["_manifest_view_key"] = str(mk).strip()

@@ -42,7 +42,9 @@ Home compositions use a leaf `{id, type: react_component, component_key, props}`
 The key must be declared for Home, including when preserving instance layouts
 through an upgrade. Entry `ui_contributions` may use `component_key` plus `props`
 instead of a saved view, inline widget or iframe key. A Track `extension_view`
-widget may set `config.component_key` and `config.component_props`. Its existing
+widget may set `config.component_key` and `config.component_props`. A manifest
+`extension_view` view declares the same two keys in its `config:` block and Core stores
+them; the declaration must list the `track` placement for a view on a record page or Track tab. Its existing
 `extension_view_key` is the initial, operator-disabled fallback. Nested Entry
 regions derive compose/detail placement from the contribution lifecycle.
 
