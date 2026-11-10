@@ -25,6 +25,7 @@ export type DataTableColumn<Row = Json> = {key: string; label: ReactNode; align?
 export type DataTableProps<Row = Json> = {columns: DataTableColumn<Row>[]; rows: Row[]; rowKey: (row: Row) => string; caption: string; groups?: {key: string; label: string}[]; defaultSort?: {key: string; direction: 'asc' | 'desc'} | null; pageSize?: number; onRowClick?: (row: Row) => void; empty?: ReactNode; maxHeight?: string; density?: 'comfortable' | 'compact'; rowTone?: (row: Row) => 'danger' | 'warn' | undefined; sectionBy?: (row: Row) => string | undefined; sectionTotals?: boolean; columnPicker?: {presets?: {label: string; keys: string[]}[]; persistKey?: string}; pinnable?: boolean; toolbar?: ReactNode; minWidth?: string};
 export type LineChartProps = {labels: string[]; series: {key: string; label: string; values: number[]}[]; tooltips?: string[]; ariaLabel: string; formatValue?: (value: number) => string};
 export type BridgeChartProps = {steps: {key: string; label: string; value: number}[]; ariaLabel: string; formatValue?: (value: number) => string; upLabel?: string; downLabel?: string};
+export type ProgressProps = {value?: number; ariaLabel: string};
 export type StatProps = {label: ReactNode; value: ReactNode; note?: ReactNode; delta?: ReactNode; emphasis?: boolean; trend?: number[]; trendLabel?: string};
 export type TabsProps = {options: {value: string; label: ReactNode; count?: number | null}[]; value: string; onChange: (value: string) => void; ariaLabel?: string};
 export type BadgeProps = {tone?: 'neutral' | 'success' | 'warn' | 'danger' | 'info'; children: ReactNode};
@@ -138,6 +139,7 @@ export interface UIPrimitives {
   AsyncCombobox?: ComponentType<AsyncComboboxProps>;
   DataTable?: ComponentType<DataTableProps<any>>;
   Stat?: ComponentType<StatProps>;
+  Progress?: ComponentType<ProgressProps>;
   LineChart?: ComponentType<LineChartProps>;
   BridgeChart?: ComponentType<BridgeChartProps>;
   Tabs?: ComponentType<TabsProps>;
@@ -176,6 +178,7 @@ export const AsyncCombobox = primitive<AsyncComboboxProps>('AsyncCombobox');
 const DataTableBase = primitive<DataTableProps<any>>('DataTable');
 export function DataTable<Row extends object = Json>(props: DataTableProps<Row>) { return <DataTableBase {...(props as DataTableProps<any>)} />; }
 export const Stat = primitive<StatProps>('Stat');
+export const Progress = primitive<ProgressProps>('Progress');
 export const LineChart = primitive<LineChartProps>('LineChart');
 export const BridgeChart = primitive<BridgeChartProps>('BridgeChart');
 export const Tabs = primitive<TabsProps>('Tabs');

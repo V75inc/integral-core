@@ -1599,3 +1599,13 @@
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
+
+/* Progress (App UI SDK): smooth fill, a moving sheen while work is under way, a sliding bar when the amount is unknown. */
+.integral-progress-fill { transition: width 0.45s ease; }
+.integral-progress-unknown { width: 35%; }
+@media (prefers-reduced-motion: no-preference) {
+  .integral-progress-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent); animation: integral-progress-sheen 1.4s ease-in-out infinite; }
+  .integral-progress-unknown { animation: integral-progress-slide 1.3s ease-in-out infinite; }
+  @keyframes integral-progress-sheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes integral-progress-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+}

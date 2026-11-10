@@ -1,4 +1,4 @@
-<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 6523f56d43de8980dbc1636a1b9eceee7f348cfb8b2e6188de0edf837101eaee. Do not edit. -->
+<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 b9f1ffc1b9ea43243616f1a5119d9112605162e16cd05ed1f7d370454541c617. Do not edit. -->
 
 # Integral Business App UI authoring — React SDK 1.2
 
@@ -45,6 +45,7 @@ must improve in Core rather than being copied independently into each App.
 | `AppNotice` | Shared loading/empty/information/error presentation; optional `title`, `action`, `tone="info|success|warn|danger"`. Warning/error notices announce alerts; other notices use status semantics. |
 | `DataTable` | Rows and columns for the App's own data. `columns` (`key`, `label`, `align="end"` for amounts, `sortable`, `pinned` (`start`/`end`) to keep a column in view, `width`, `group`, `emphasis="link"`, `render`, `total`), `rows`, `rowKey`, `caption`; optional `groups` (column group headings), `defaultSort`, `pageSize`, `onRowClick`, `empty`, `maxHeight`, `density="compact"`, `rowTone`, `sectionBy` with `sectionTotals`, `columnPicker` (presets, `persistKey`), `pinnable`, `toolbar`, `minWidth` (`0` for a narrow card). Sorting, paging, grouped headings, section rows, totals, the column picker and number alignment are built in; do not draw tables by hand. |
 | `Stat` | One headline figure: `label`, `value`, optional `note`, `delta` (text with its arrow and sign), `emphasis`, `trend` (recent values drawn as a small line) and `trendLabel`. Lay tiles out with `AppGrid`. |
+| `Progress` | A bar for work under way: `value` (percent, 0 to 100) with `ariaLabel`; leave `value` out when the amount is not known and the bar slides. It fills smoothly and respects reduced motion. |
 | `LineChart` | One or more series over a short row of labelled points, oldest first: `labels`, `series` (`key`, `label`, `values`), `ariaLabel`; optional `tooltips`, `formatValue`. Coloured from Core's chart palette. |
 | `BridgeChart` | The reasons a figure moved, one bar each around a zero line: `steps` (`key`, `label`, signed `value`), `ariaLabel`; optional `formatValue`, `upLabel`, `downLabel`. |
 | `Tabs` | A short strip that switches the section below it: `options` (`value`, `label`, `count`), `value`, `onChange`, `ariaLabel`. |

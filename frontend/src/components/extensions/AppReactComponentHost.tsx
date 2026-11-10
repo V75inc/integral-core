@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
 import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmContext';
-import { BridgeChart, DataTable, LineChart, Stat, Tabs, StatusBadge, Input, Select, Textarea, Text, Surface, Stack, Inline } from '../../ui';
+import { BridgeChart, DataTable, LineChart, Progress, Stat, Tabs, StatusBadge, Input, Select, Textarea, Text, Surface, Stack, Inline } from '../../ui';
 import { Button, Skeleton } from '../ui';
 import { Modal } from '../ui/Modal';
 import {AsyncCombobox} from './AsyncCombobox';
@@ -216,7 +216,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
         setLoaded(null); setFailure(false); setReload(value => value + 1);
       }
     }}>Reload view</Button></div> : null}
-    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{...AppPatterns, DataTable, Stat, LineChart, BridgeChart, Tabs, Badge: StatusBadge, Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput}}>
+    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{...AppPatterns, DataTable, Stat, Progress, LineChart, BridgeChart, Tabs, Badge: StatusBadge, Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput}}>
       <AppUIProvider value={{...api, context, lifecycle: composedLifecycle}}><EntryRegionHostContext.Provider value={composedLifecycle || null}><Loaded {...effectiveProps} /></EntryRegionHostContext.Provider></AppUIProvider>
     </UIPrimitivesProvider></Boundary>
   </>;

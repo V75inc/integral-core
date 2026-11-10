@@ -20,6 +20,8 @@ export { LineChart } from './LineChart';
 export type { LineChartProps, LineChartSeries } from './LineChart';
 export { BridgeChart } from './BridgeChart';
 export type { BridgeChartProps, BridgeStep } from './BridgeChart';
+export { Progress } from './Progress';
+export type { ProgressProps } from './Progress';
 export { Stat } from './Stat';
 export type { StatProps } from './Stat';
 export { StatusBadge } from './StatusBadge';
