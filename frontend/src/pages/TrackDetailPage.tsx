@@ -1087,7 +1087,27 @@ export function TrackDetailPage() {
     (u: Entry) => {
       patchEntriesCache(p => ({
         ...p,
-        entries: p.entries.map(e => (e.id === u.id ? u : e))
+        // Merge rather than replace: a detail payload may omit list-only
+        // fields. The single-entry read can carry a display-name slug
+        // (``request``) while the list carries the canonical manifest key
+        // (``crm_request``); keep the list's key for that same-type variant
+        // so a type-scoped view does not drop the row. A genuine type change
+        // from the edit form still wins.
+        entries: p.entries.map(e => {
+          if (e.id !== u.id) return e;
+          const listType = String(e.type || '');
+          const detailType = String(u.type || '');
+          const sameTypeVariant =
+            !listType ||
+            !detailType ||
+            listType === detailType ||
+            listType.endsWith(`_${detailType}`);
+          return {
+            ...e,
+            ...u,
+            type: sameTypeVariant ? listType || detailType : detailType
+          };
+        })
       }));
     },
     [patchEntriesCache]

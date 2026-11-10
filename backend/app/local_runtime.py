@@ -290,6 +290,11 @@ def free_port(preferred: int) -> int:
         except OSError:
             pass
     with socket.socket() as sock:
+        # A just-stopped Core leaves accepted connections in TIME_WAIT on its
+        # port. uvicorn binds with SO_REUSEADDR, so mirror that here; otherwise
+        # this probe refuses the familiar port and startup drifts to a random
+        # one. A live listener is still rejected by the connect() probe above.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", preferred))
         except OSError:

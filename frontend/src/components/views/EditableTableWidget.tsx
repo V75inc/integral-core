@@ -4,6 +4,7 @@ import { SeamlessField } from '../entries/SeamlessField';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { slug } from '../entries/entryFormCustomFields';
 import { entriesApi, entryTypesApi, tracksApi } from '../../api';
+import { formatDateFieldDisplay } from '../../utils/dateFieldValue';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
@@ -387,12 +388,20 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                   const field = fieldByKey.get(key);
                   const value = (row.custom_fields || {})[key];
                   if (!field || field.type === 'computed' || field.readonly) {
+                    const isDateField =
+                      !!field && (field.type === 'date' || field.type === 'datetime');
+                    const display =
+                      isDateField && typeof value === 'string'
+                        ? formatDateFieldDisplay(value, field.type as 'date' | 'datetime', {
+                            compact: true,
+                          })
+                        : value === undefined || value === null || value === ''
+                          ? '—'
+                          : String(value);
                     return (
                       <td key={key} className="px-3 py-2">
                         <Text variant="body-sm" tone="muted">
-                          {value === undefined || value === null || value === ''
-                            ? '—'
-                            : String(value)}
+                          {display || '—'}
                         </Text>
                       </td>
                     );

@@ -6,6 +6,7 @@ import { RelationValue } from '../entries/relations';
 import type { ViewWidgetProps } from './types';
 import type { Entry, OperationalModelFieldSpec } from '../../types';
 import { formatRelativeTime } from '../../utils';
+import { formatDateFieldDisplay } from '../../utils/dateFieldValue';
 import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
 import { humanizeEnumValue, humanizeFieldKey } from '../../utils/humanizeFieldKey';
 
@@ -30,6 +31,10 @@ type MemberFieldPaths = Set<string>;
  *  (SeamlessField's `resolveEnumOptionLabel`/`humanizeEnumValue`) instead
  *  of printing the raw snake/kebab-case value verbatim. */
 type SelectFieldTypes = Map<string, 'select' | 'multi_select'>;
+/** `custom_fields.<key>` (or bare `<key>`) -> 'date' | 'datetime', so the
+ *  default cell renderer formats stored ISO values as "21 Oct 2026, 12:00 PM"
+ *  instead of printing the raw timestamp. */
+type DateFieldTypes = Map<string, 'date' | 'datetime'>;
 
 const DEFAULT_COLUMNS: TableColumn[] = [
   { field: 'title', label: 'Title / Content', sortable: true },
@@ -78,6 +83,7 @@ function renderCellValue(
   relationByField: RelationByField,
   memberFieldPaths: MemberFieldPaths,
   selectFieldTypes: SelectFieldTypes,
+  dateFieldTypes: DateFieldTypes,
 ) {
   switch (column.field) {
     case 'title':
@@ -176,6 +182,15 @@ function renderCellValue(
       }
       const val = getFieldValue(entry, column.field, commentCounts);
       if (val === undefined || val === null) return <span className="text-[var(--text-muted)] text-xs">—</span>;
+      const dateType = dateFieldTypes.get(column.field);
+      if (dateType && typeof val === 'string') {
+        const text = formatDateFieldDisplay(val, dateType, { compact: true });
+        return (
+          <span className="text-sm text-[var(--text)] whitespace-nowrap">
+            {text || '—'}
+          </span>
+        );
+      }
       if (typeof val === 'boolean') return val ? 'Yes' : 'No';
       const selectType = selectFieldTypes.get(column.field);
       if (selectType === 'multi_select' && Array.isArray(val)) {
@@ -239,6 +254,18 @@ function TableWidgetInner({
     for (const f of fields ?? []) {
       const t = String(f.type || '').toLowerCase();
       if (t === 'select' || t === 'multi_select') {
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
+        out.set(`custom_fields.${f.key}`, t);
+      }
+    }
+    return out;
+  }, [fields]);
+
+  const dateFieldTypes = useMemo<DateFieldTypes>(() => {
+    const out: DateFieldTypes = new Map();
+    for (const f of fields ?? []) {
+      const t = String(f.type || '').toLowerCase();
+      if (t === 'date' || t === 'datetime') {
         if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
         out.set(`custom_fields.${f.key}`, t);
       }
@@ -437,7 +464,7 @@ function TableWidgetInner({
               >
                 {visibleCols.map(col => (
                   <td key={col.field} className="px-4 py-3">
-                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, dateFieldTypes)}
                   </td>
                 ))}
               </tr>
@@ -462,7 +489,7 @@ function TableWidgetInner({
               >
                 {headCol ? (
                   <div className="min-w-0">
-                    {renderCellValue(entry, headCol, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                    {renderCellValue(entry, headCol, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, dateFieldTypes)}
                   </div>
                 ) : null}
                 {restCols.length > 0 ? (
@@ -471,7 +498,7 @@ function TableWidgetInner({
                       <FragmentRow
                         key={col.field}
                         label={col.label}
-                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, dateFieldTypes)}
                       />
                     ))}
                   </dl>
