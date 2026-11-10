@@ -246,4 +246,3 @@ class ScaffoldHome(BaseModel):
                 children=paragraphs,
             ),
         ).model_dump(mode="json", exclude_none=True)
-

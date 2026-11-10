@@ -33,6 +33,7 @@ def wired(monkeypatch):
         for k, s in TOOLS.items()
     ]
     monkeypatch.setattr(resolver, "find_matching_bindings", lambda *args: bindings)
+    monkeypatch.setattr(registry, "get_workspace_hooks", lambda *args: bindings)
     monkeypatch.setattr(registry, "get_workspace_tools", lambda ws: TOOLS)
 
     async def get_type(_id):

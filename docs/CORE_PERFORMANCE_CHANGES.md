@@ -27,11 +27,14 @@ write in it serialised behind every other write, including writes that had nothi
 (about 68 minutes of summed waiting). With the change: about 220 reads averaging 0.7 s. Finalize went from 23.9 minutes to
 5.4 to 6.0 minutes for the whole patch set.
 
-**What changed.** Non-authority writes take `FOR SHARE` instead. Authority writes (membership, collaborators, exclusions,
-revokes) still take the exclusive lock, so they wait for in-flight readers and block new ones.
+**Current implementation.** The historical prototype has been superseded by main's admission scopes, using jvspatial's
+public transaction `lock_record` and advisory-lock APIs. Eligible Entry writes request shared admission; authority mutations
+retain exclusive admission, and nested shared-to-exclusive upgrades are refused. The measurements above describe the
+historical prototype, not qualification of the current implementation.
 
-**Not yet safe to merge.** Needs starvation and deadlock tests: a steady stream of shared holders must not starve an authority
-write, and lock ordering with the per-entry locks must be documented. Tests so far: `tests/test_identity_admission_shared_lock.py`.
+PostgreSQL coverage for the retained implementation is in
+[`test_shared_entry_admission_postgres.py`](../backend/tests/contract/test_shared_entry_admission_postgres.py), including
+concurrent writes, revocation ordering and refused lock upgrades. The job-cache merge risks below remain separate.
 
 ## 2. Job-scoped authority and location caches (implemented)
 
