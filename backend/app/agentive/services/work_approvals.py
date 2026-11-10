@@ -55,6 +55,15 @@ def build_work_approval_document(
     created_at: str,
     definition_id: str = "",
     status: str = "pending",
+    framework_snapshot_id: str = "",
+    framework_tool_call_id: str = "",
+    framework_tool_name: str = "",
+    deferred_intent_fingerprint: str = "",
+    deferred_thread_revision: str = "",
+    framework_session_id: str = "",
+    framework_permission_revision: str = "",
+    framework_capability_version: str = "",
+    deferred_workspace_role: str = "",
 ) -> Dict[str, Any]:
     return {
         "id": work_approval_object_id(work_approval_id),
@@ -69,6 +78,15 @@ def build_work_approval_document(
             "run_id": run_id,
             "run_step_id": run_step_id,
             "authority_digest": authority_digest,
+            "framework_snapshot_id": framework_snapshot_id,
+            "framework_tool_call_id": framework_tool_call_id,
+            "framework_tool_name": framework_tool_name,
+            "deferred_intent_fingerprint": deferred_intent_fingerprint,
+            "deferred_thread_revision": deferred_thread_revision,
+            "framework_session_id": framework_session_id,
+            "framework_permission_revision": framework_permission_revision,
+            "framework_capability_version": framework_capability_version,
+            "deferred_workspace_role": deferred_workspace_role,
             "decision": "",
             "decider_id": "",
             "expires_at": expires_at,
@@ -97,6 +115,15 @@ def _assert_same_approval_intent(
         "run_id",
         "run_step_id",
         "authority_digest",
+        "framework_snapshot_id",
+        "framework_tool_call_id",
+        "framework_tool_name",
+        "deferred_intent_fingerprint",
+        "deferred_thread_revision",
+        "framework_session_id",
+        "framework_permission_revision",
+        "framework_capability_version",
+        "deferred_workspace_role",
         "expires_at",
     )
     if any(
@@ -179,6 +206,12 @@ async def lock_linked_staging_work(
         or (data.get("run_id") or "") != (work_data.get("run_id") or "")
     ):
         raise WorkError("work.policy_denied", "staging approval linkage changed")
+    deferred_intent = str(data.get("deferred_intent_fingerprint") or "")
+    if deferred_intent:
+        from app.agentive import staging_store
+
+        if deferred_intent != staging_store.decision_intent_fingerprint(staging_data):
+            raise WorkError("work.policy_denied", "deferred proposal intent changed")
     if data.get("status") == "approved":
         # Compatibility with previously admitted linked work: it may already
         # have been queued before this atomic completion path was deployed.
@@ -355,6 +388,15 @@ async def propose_work_approval_unit(
     expires_at: str = "",
     policy_approval_id: str = "",
     transaction: Any = None,
+    framework_snapshot_id: str = "",
+    framework_tool_call_id: str = "",
+    framework_tool_name: str = "",
+    deferred_intent_fingerprint: str = "",
+    deferred_thread_revision: str = "",
+    framework_session_id: str = "",
+    framework_permission_revision: str = "",
+    framework_capability_version: str = "",
+    deferred_workspace_role: str = "",
 ) -> Tuple[WorkApproval, WorkItem]:
     """Atomic unit 3: WorkApproval + projection + running→waiting_for_human.
 
@@ -387,6 +429,15 @@ async def propose_work_approval_unit(
         run_id=run_id or "",
         run_step_id=run_step_id or "",
         authority_digest=authority_digest,
+        framework_snapshot_id=framework_snapshot_id,
+        framework_tool_call_id=framework_tool_call_id,
+        framework_tool_name=framework_tool_name,
+        deferred_intent_fingerprint=deferred_intent_fingerprint,
+        deferred_thread_revision=deferred_thread_revision,
+        framework_session_id=framework_session_id,
+        framework_permission_revision=framework_permission_revision,
+        framework_capability_version=framework_capability_version,
+        deferred_workspace_role=deferred_workspace_role,
         expires_at=expires_at or "",
         created_at=now,
     )

@@ -54,7 +54,22 @@ async def _linked_proposal():
 
 
 @pytest.mark.parametrize(
-    "changed", ["run_id", "run_step_id", "authority_digest", "expires_at"]
+    "changed",
+    [
+        "run_id",
+        "run_step_id",
+        "authority_digest",
+        "expires_at",
+        "framework_snapshot_id",
+        "framework_tool_call_id",
+        "framework_tool_name",
+        "deferred_intent_fingerprint",
+        "deferred_thread_revision",
+        "framework_session_id",
+        "framework_permission_revision",
+        "framework_capability_version",
+        "deferred_workspace_role",
+    ],
 )
 async def test_existing_approval_cannot_alias_different_work_intent(
     postgres_raw_db, monkeypatch, changed
@@ -112,8 +127,18 @@ async def test_racing_approval_insert_rechecks_existing_intent(
         ] == "waiting_for_human"
 
 
+@pytest.mark.parametrize(
+    "work_kind,intervention",
+    [
+        ("capability", False),
+        ("chat_turn", False),
+        ("chat_turn", True),
+        ("chat_turn", "race"),
+        ("chat_turn", "cas"),
+    ],
+)
 async def test_native_deferred_frontier_with_real_broker_approval(
-    postgres_raw_db, monkeypatch
+    postgres_raw_db, monkeypatch, work_kind, intervention
 ):
     """Probe native deferral against the real broker, decision and graph effect."""
     from pydantic_ai import Agent, CallDeferred, RunContext
@@ -129,7 +154,12 @@ async def test_native_deferred_frontier_with_real_broker_approval(
     from app.agentive import staging
     from app.agentive.harness.broker_tools import _idempotency_key, _tool_work_context
     from app.agentive.harness.contracts import HarnessExecutionScope
-    from app.agentive.harness.deferred_staging import verify_deferred_staged_call
+    from app.agentive.harness.deferred_staging import (
+        admit_deferred_chat_resume,
+        park_deferred_staged_work,
+        read_deferred_applied_chat,
+        verify_deferred_staged_call,
+    )
     from app.agentive.harness.jvspatial_store import JvSpatialStepStore
     from app.agentive.harness.scoped_store import ScopedStepStore
     from app.agentive.services import capability_broker, work_execution
@@ -139,34 +169,63 @@ async def test_native_deferred_frontier_with_real_broker_approval(
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         auth, workspace, track, unrelated = await proposal()
         await staging.revoke_token(user_id=auth.id, token=unrelated.token)
-        thread = "deferred-probe-" + unrelated.token
+        if work_kind == "chat_turn":
+            from app.services.chat_threads import create_thread
+
+            thread_node = await create_thread(
+                user_id=auth.id,
+                workspace_id=workspace.id,
+                provider_id="integral_native",
+            )
+            thread = thread_node.id
+        else:
+            thread_node = None
+            thread = "deferred-probe-" + unrelated.token
         arguments = {"track_id": track.id, "title": "Deferred broker probe"}
-        item = await work_items.enqueue_work_item(
-            kind="capability",
-            origin="http",
-            principal_id=auth.id,
-            workspace_id=workspace.id,
-            thread_id=thread,
-            idempotency_key="deferred-" + unrelated.token,
-            input_payload={
-                "capability_key": "integral_create_entry",
-                "source": "core",
-                "op_class": "propose",
-                "arguments": arguments,
-            },
-        )
+        if thread_node is not None:
+            from app.schemas.agentive.work import ChatTurnSubmissionRequest
+            from app.services.chat_turn_submissions import submit_chat_turn
+
+            accepted = await submit_chat_turn(
+                ChatTurnSubmissionRequest(
+                    principal_id=auth.id,
+                    workspace_id=workspace.id,
+                    thread_id=thread,
+                    client_request_id="deferred-" + unrelated.token,
+                    parts=[{"type": "text", "text": "Create the entry."}],
+                )
+            )
+            item = await WorkItem.get(f"o.WorkItem.{accepted.work_item_id}")
+        else:
+            item = await work_items.enqueue_work_item(
+                kind=work_kind,
+                origin="http",
+                principal_id=auth.id,
+                workspace_id=workspace.id,
+                thread_id=thread,
+                idempotency_key="deferred-" + unrelated.token,
+                input_payload={
+                    "capability_key": "integral_create_entry",
+                    "source": "core",
+                    "op_class": "propose",
+                    "arguments": arguments,
+                },
+            )
         claimed = await work_items.claim_due_candidate(
             worker_id="deferred-probe", work_item_id=item.work_item_id, lease_seconds=60
         )
         context = work_execution.build_work_execution_context(
-            work_item=claimed, logical_step_key="capability:0"
+            work_item=claimed,
+            logical_step_key=work_execution.logical_step_key_for(kind=work_kind),
         )
         await start_run(
             thread_id=thread,
             user_id=auth.id,
             workspace_id=workspace.id,
-            provider_id="deferred-probe",
-            origin="http",
+            provider_id=(
+                "integral_native" if work_kind == "chat_turn" else "deferred-probe"
+            ),
+            origin="chat" if work_kind == "chat_turn" else "http",
             run_id=context.run_id,
             work_item_id=item.work_item_id,
         )
@@ -180,6 +239,12 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             permission_revision="probe",
             capability_version="probe",
         )
+        if thread_node is not None:
+            from app.services.harness_sessions import ensure_harness_session
+
+            await ensure_harness_session(
+                scope=scope, binding_id="pydantic_ai_v1", work_execution_context=context
+            )
         store = ScopedStepStore(
             store=JvSpatialStepStore(scope=scope),
             scope=scope,
@@ -194,7 +259,7 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                     principal_id=auth.id,
                     workspace_id=workspace.id,
                     capability_key="integral_create_entry",
-                    origin="http",
+                    origin="chat" if work_kind == "chat_turn" else "http",
                     source="core",
                     op_class="propose",
                     arguments={"track_id": track_id, "title": title},
@@ -277,6 +342,8 @@ async def test_native_deferred_frontier_with_real_broker_approval(
         changed.calls.append(deepcopy(changed.calls[0]))
         with pytest.raises(WorkError, match="Deferred call needs reconciliation"):
             await verify_deferred_staged_call(**{**verify_args, "requests": changed})
+        with pytest.raises(WorkError, match="Deferred calls require reconciliation"):
+            await park_deferred_staged_work(**{**verify_args, "requests": changed})
         changed = deepcopy(deferred.requests)
         changed.approvals.append(deepcopy(changed.calls[0]))
         with pytest.raises(WorkError, match="Deferred call needs reconciliation"):
@@ -296,6 +363,18 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                 }
             )
         assert stale_lease.value.code == "work.lease_lost"
+        if thread_node is not None:
+            await postgres_raw_db.find_one_and_update(
+                "node", {"id": thread}, {"$set": {"context.archived": True}}
+            )
+            with pytest.raises(WorkError):
+                await park_deferred_staged_work(**verify_args)
+            assert (await postgres_raw_db.get("object", item.id))["context"][
+                "status"
+            ] == "running"
+            await postgres_raw_db.find_one_and_update(
+                "node", {"id": thread}, {"$set": {"context.archived": False}}
+            )
 
         from dataclasses import replace
 
@@ -339,19 +418,162 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             with pytest.raises(WorkError, match="Deferred call needs reconciliation"):
                 await verify_deferred_staged_call(**verify_args)
 
-        _, parked = await work_approvals.propose_work_approval_unit(
-            work_item_id=item.work_item_id,
-            lease_token=claimed.lease_token,
-            lease_fence=claimed.lease_fence,
-            run_id=context.run_id,
-            run_step_id=step.step_key,
-            staging_token=token,
-            authority_digest=context.effect_key,
+        original_propose = work_approvals.propose_work_approval_unit
+
+        async def fail_after_park(**kwargs):
+            await original_propose(**kwargs)
+            raise RuntimeError("injected failure before commit")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(work_approvals, "propose_work_approval_unit", fail_after_park)
+            with pytest.raises(RuntimeError, match="injected failure"):
+                await park_deferred_staged_work(**verify_args)
+        assert (await postgres_raw_db.get("object", item.id))["context"][
+            "status"
+        ] == "running"
+        if thread_node is not None:
+            assert (await postgres_raw_db.get("node", thread))["context"][
+                "active_work_item_id"
+            ] == item.work_item_id
+        assert (
+            await postgres_raw_db.find(
+                "object",
+                {"entity": "WorkApproval", "context.work_item_id": item.work_item_id},
+            )
+            == []
         )
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def hold_before_commit(**kwargs):
+            result = await original_propose(**kwargs)
+            entered.set()
+            await release.wait()
+            return result
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                work_approvals, "propose_work_approval_unit", hold_before_commit
+            )
+            parking = asyncio.create_task(park_deferred_staged_work(**verify_args))
+            await asyncio.wait_for(entered.wait(), timeout=10)
+            applying = asyncio.create_task(
+                staging_apply.bless_and_execute(user_id=auth.id, token=token)
+            )
+            try:
+                done, _ = await asyncio.wait({applying}, timeout=0.2)
+                assert not done, "A decision passed the uncommitted park"
+            finally:
+                release.set()
+            approval, parked = await parking
+            outcome = await asyncio.wait_for(applying, timeout=20)
         assert parked.status == "waiting_for_human"
-        outcome = await staging_apply.bless_and_execute(user_id=auth.id, token=token)
+        assert approval.framework_snapshot_id == frontier.idempotency_key
+        assert approval.framework_tool_call_id == "native-probe-call"
+        assert approval.framework_tool_name == "integral_create_entry"
+        assert approval.deferred_intent_fingerprint
+        if thread_node is not None:
+            assert (await postgres_raw_db.get("node", thread))["context"][
+                "active_work_item_id"
+            ] == ""
+            slots = await postgres_raw_db.find(
+                "object",
+                {
+                    "entity": "HarnessTurnAdmissionSlot",
+                    "context.work_item_id": item.work_item_id,
+                },
+            )
+            assert slots == []
         assert outcome["consumed"] is True, outcome
         assert len(await Entry.find({"track_id": track.id})) == 1
+        if thread_node is not None:
+            resumed_item = await work_items.claim_due_candidate(
+                worker_id="deferred-resume-probe",
+                work_item_id=item.work_item_id,
+                lease_seconds=60,
+            )
+            assert resumed_item is not None
+            resumed_context = work_execution.build_work_execution_context(
+                work_item=resumed_item,
+                logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
+            )
+            recovered = await read_deferred_applied_chat(
+                context=resumed_context, input_schema={}
+            )
+            assert recovered.scope == scope
+            assert recovered.tool_call_id == "native-probe-call"
+            assert (
+                recovered.result["entry_id"] == outcome["execute_result"]["entry"]["id"]
+            )
+            thread_doc = await postgres_raw_db.get("node", thread)
+            original_revision = thread_doc["context"]["updated_at"]
+            await postgres_raw_db.find_one_and_update(
+                "node",
+                {"id": thread},
+                {"$set": {"context.updated_at": "changed-by-user"}},
+            )
+            with pytest.raises(
+                WorkError, match="Deferred outcome needs reconciliation"
+            ):
+                await read_deferred_applied_chat(
+                    context=resumed_context, input_schema={}
+                )
+            await postgres_raw_db.find_one_and_update(
+                "node",
+                {"id": thread},
+                {"$set": {"context.updated_at": original_revision}},
+            )
+            from app.agentive.staging_store import _decision_record_id
+
+            session_node_id = thread_doc["context"]["active_harness_session_id"]
+            for collection, record_id, field in (
+                ("node", session_node_id, "status"),
+                ("object", _decision_record_id(token), "intent_fingerprint"),
+                ("object", recovered.receipt_id, "request_hash"),
+                ("object", recovered.receipt_id, "result_ciphertext"),
+                ("object", step.id, "input_fingerprint"),
+            ):
+                original = (await postgres_raw_db.get(collection, record_id))[
+                    "context"
+                ][field]
+                await postgres_raw_db.find_one_and_update(
+                    collection,
+                    {"id": record_id},
+                    {"$set": {f"context.{field}": "changed"}},
+                )
+                with pytest.raises(WorkError):
+                    await read_deferred_applied_chat(
+                        context=resumed_context, input_schema={}
+                    )
+                await postgres_raw_db.find_one_and_update(
+                    collection,
+                    {"id": record_id},
+                    {"$set": {f"context.{field}": original}},
+                )
+            with pytest.raises(WorkError) as stale_resume:
+                await read_deferred_applied_chat(
+                    context=resumed_context.model_copy(update={"lease_token": "stale"}),
+                    input_schema={},
+                )
+            assert stale_resume.value.code == "work.lease_lost"
+
+            async def changed_workspace_role(*_args: Any, **_kwargs: Any):
+                return (
+                    "viewer"
+                    if approval.deferred_workspace_role != "viewer"
+                    else "member"
+                )
+
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    "app.services.workspace_permissions.can_access_workspace",
+                    changed_workspace_role,
+                )
+                with pytest.raises(
+                    WorkError, match="Deferred outcome needs reconciliation"
+                ):
+                    await read_deferred_applied_chat(
+                        context=resumed_context, input_schema={}
+                    )
 
         async def resumed_model(_messages, _info):
             yield "Continued after the approved effect."
@@ -464,6 +686,147 @@ asyncio.run(main())
             != os.getpid()
         )
         assert len(await Entry.find({"track_id": track.id})) == 1
+        if thread_node is not None and intervention in {"race", "cas"}:
+            from app.agentive.harness import deferred_staging
+            from app.api.errors import ResourceConflictError
+            from app.services import chat_turn_admission
+
+            reconciled, release_admission = asyncio.Event(), asyncio.Event()
+            original_read = deferred_staging.read_deferred_applied_chat
+
+            async def wait_after_reconciliation(**kwargs):
+                result = await original_read(**kwargs)
+                reconciled.set()
+                await release_admission.wait()
+                return result
+
+            original_reserve = chat_turn_admission.reserve_chat_turn_admission
+
+            async def wait_before_reservation(**kwargs):
+                if kwargs["work_item"].work_item_id == item.work_item_id:
+                    reconciled.set()
+                    await release_admission.wait()
+                return await original_reserve(**kwargs)
+
+            with monkeypatch.context() as patch:
+                if intervention == "race":
+                    patch.setattr(
+                        deferred_staging,
+                        "read_deferred_applied_chat",
+                        wait_after_reconciliation,
+                    )
+                else:
+                    patch.setattr(
+                        chat_turn_admission,
+                        "reserve_chat_turn_admission",
+                        wait_before_reservation,
+                    )
+                admitting = asyncio.create_task(
+                    admit_deferred_chat_resume(context=resumed_context, input_schema={})
+                )
+                await asyncio.wait_for(reconciled.wait(), timeout=10)
+                try:
+                    newer = await asyncio.wait_for(
+                        submit_chat_turn(
+                            ChatTurnSubmissionRequest(
+                                principal_id=auth.id,
+                                workspace_id=workspace.id,
+                                thread_id=thread,
+                                client_request_id="racing-" + unrelated.token,
+                                parts=[{"type": "text", "text": "Change the plan."}],
+                            )
+                        ),
+                        timeout=10,
+                    )
+                finally:
+                    release_admission.set()
+                assert newer.work_item_id != item.work_item_id
+                with pytest.raises((WorkError, ResourceConflictError)):
+                    await asyncio.wait_for(admitting, timeout=10)
+            row = await postgres_raw_db.get("node", thread)
+            assert row["context"]["active_work_item_id"] == newer.work_item_id
+            original_slots = await postgres_raw_db.find(
+                "object",
+                {
+                    "entity": "HarnessTurnAdmissionSlot",
+                    "context.work_item_id": item.work_item_id,
+                },
+            )
+            assert original_slots == []
+        elif thread_node is not None and intervention:
+            newer = await submit_chat_turn(
+                ChatTurnSubmissionRequest(
+                    principal_id=auth.id,
+                    workspace_id=workspace.id,
+                    thread_id=thread,
+                    client_request_id="intervening-" + unrelated.token,
+                    parts=[{"type": "text", "text": "Change the plan."}],
+                )
+            )
+            assert newer.work_item_id != item.work_item_id
+            with pytest.raises(
+                WorkError, match="Deferred outcome needs reconciliation"
+            ):
+                await read_deferred_applied_chat(
+                    context=resumed_context, input_schema={}
+                )
+            with pytest.raises(
+                WorkError, match="Deferred outcome needs reconciliation"
+            ):
+                await admit_deferred_chat_resume(
+                    context=resumed_context, input_schema={}
+                )
+            assert len(await Entry.find({"track_id": track.id})) == 1
+        elif thread_node is not None:
+            from app.api.errors import ResourceConflictError
+
+            async def fail_after_admission(*_args: Any, **_kwargs: Any):
+                raise WorkError("work.policy_denied", "injected recheck failure")
+
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    "app.services.chat_turn_worker_input.load_claimed_chat_turn_input",
+                    fail_after_admission,
+                )
+                with pytest.raises(WorkError, match="injected recheck failure"):
+                    await admit_deferred_chat_resume(
+                        context=resumed_context, input_schema={}
+                    )
+            assert (await postgres_raw_db.get("node", thread))["context"][
+                "active_work_item_id"
+            ] == ""
+            assert not await postgres_raw_db.find(
+                "object",
+                {
+                    "entity": "HarnessTurnAdmissionSlot",
+                    "context.work_item_id": item.work_item_id,
+                },
+            )
+            admitted = await admit_deferred_chat_resume(
+                context=resumed_context, input_schema={}
+            )
+            assert admitted.receipt_id == recovered.receipt_id
+            assert (await postgres_raw_db.get("node", thread))["context"][
+                "active_work_item_id"
+            ] == item.work_item_id
+            slots = await postgres_raw_db.find(
+                "object",
+                {
+                    "entity": "HarnessTurnAdmissionSlot",
+                    "context.work_item_id": item.work_item_id,
+                },
+            )
+            assert len(slots) == 1
+            with pytest.raises(ResourceConflictError):
+                await submit_chat_turn(
+                    ChatTurnSubmissionRequest(
+                        principal_id=auth.id,
+                        workspace_id=workspace.id,
+                        thread_id=thread,
+                        client_request_id="after-admission-" + unrelated.token,
+                        parts=[{"type": "text", "text": "Another message."}],
+                    )
+                )
 
 
 async def test_foreign_caller_cannot_decide_linked_work(postgres_raw_db, monkeypatch):
@@ -484,6 +847,29 @@ async def test_foreign_caller_cannot_decide_linked_work(postgres_raw_db, monkeyp
         assert (await WorkApproval.get(approval.id)).status == "approved"
         assert (await WorkItem.get(item.id)).status == "queued"
         assert len(await Entry.find({"track_id": track.id})) == 1
+
+
+async def test_deferred_intent_mismatch_cannot_apply_effect(
+    postgres_raw_db, monkeypatch
+):
+    """A proposal changed after parking cannot acquire the parked authority."""
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "22" * 32)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, track, sc, item, approval = await _linked_proposal()
+        await postgres_raw_db.find_one_and_update(
+            "object",
+            {"id": approval.id},
+            {"$set": {"context.deferred_intent_fingerprint": "different-intent"}},
+        )
+        result = await staging_apply.bless_and_execute(user_id=auth.id, token=sc.token)
+        assert result["consumed"] is False
+        assert await Entry.find({"track_id": track.id}) == []
+        assert (await postgres_raw_db.get("object", item.id))["context"]["status"] == (
+            "waiting_for_human"
+        )
+        assert (await postgres_raw_db.get("object", approval.id))["context"][
+            "status"
+        ] == ("pending")
 
 
 async def test_work_waits_until_applied_decision_commits(postgres_raw_db, monkeypatch):
