@@ -77,7 +77,8 @@ export function useAppQuery(key: string, input: Json = {}, options: AppQueryOpti
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
-    setState({signature, source: api.query, loading: true});
+    // Keep what is on screen while the same query refreshes; only a different query starts empty.
+    setState(previous => previous.signature === signature && previous.source === api.query ? {...previous, loading: true} : {signature, source: api.query, loading: true});
     api.query(key, input, controller.signal, {staleTime}).then(
       data => { if (!controller.signal.aborted) setState({signature, source: api.query, data, loading: false}); },
       error => { if (!controller.signal.aborted) setState({signature, source: api.query, error, loading: false}); },
