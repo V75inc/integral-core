@@ -56,13 +56,11 @@ it('opens directly to function access when it is the only applicable settings se
   expect(screen.queryByRole('button', {name:'Save settings'})).toBeNull();
 });
 
-it('lists the App\'s declared settings pages and opens one on request', async () => {
-  const open = vi.fn();
-  mocks.get.mockResolvedValue({ ...configured, settings_schema: { ...configured.settings_schema, 'ui:pages': [{ label: 'Pay rules', description: 'Rates and tables', track: 'Rules' }, { nolabel: true }] } });
-  show({ onOpenPage: open });
-  await screen.findByLabelText('Record prefix');
-  expect(screen.getByText('Rates and tables')).toBeInTheDocument();
-  expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
-  expect(open).toHaveBeenCalledWith({ label: 'Pay rules', description: 'Rates and tables', track: 'Rules' });
+vi.mock('./AppSettingsPageHost', () => ({ AppSettingsPageHost: ({ page }: { page: { label: string; view?: string } }) => <div>Page host: {page.label} / {page.view}</div> }));
+it('shows an App\'s declared settings pages inside the dialog, above its plain options', async () => {
+  mocks.get.mockResolvedValue({ ...configured, settings_schema: { ...configured.settings_schema, 'ui:pages': [{ label: 'Pay rules', track: 'Rules', view: 'hub' }, { nolabel: true }] } });
+  show();
+  expect(await screen.findByText('Page host: Pay rules / hub')).toBeInTheDocument();
+  expect(screen.getByText('Options')).toBeInTheDocument();
+  expect(screen.getByLabelText('Record prefix')).toBeInTheDocument();
 });

@@ -10,6 +10,7 @@ import { Button } from '../ui';
 import { Text } from '../../ui';
 import { AppFunctionAccess } from '../access/AppFunctionAccess';
 import { AppSettingsForm } from './AppSettingsForm';
+import { AppSettingsPageHost, type AppSettingsPageSpec } from './AppSettingsPageHost';
 import { appsApi } from '../../api/apps';
 import { errorMessageFromAxios } from '../../api/helpers';
 import { useToast } from '../../context/ToastContext';
@@ -37,15 +38,17 @@ function seedDefaultsFromSchema(
   return seeded;
 }
 
-/** A settings page an App declares beside its fields (``ui:pages`` in its settings schema), such as reference tables. */
-export type AppSettingsPage = { label: string; description?: string; track: string };
+/** A settings page an App declares beside its fields (``ui:pages`` in its settings schema): a hidden track's screen. */
+export type AppSettingsPage = AppSettingsPageSpec;
 
 function settingsPages(schema: Record<string, unknown> | null): AppSettingsPage[] {
   const raw = schema?.['ui:pages'];
   if (!Array.isArray(raw)) return [];
   return raw.flatMap(item => {
     const page = item as Partial<AppSettingsPage> | null;
-    return page && typeof page.label === 'string' && typeof page.track === 'string' ? [{ label: page.label, description: typeof page.description === 'string' ? page.description : undefined, track: page.track }] : [];
+    return page && typeof page.label === 'string' && typeof page.track === 'string'
+      ? [{ label: page.label, description: typeof page.description === 'string' ? page.description : undefined, track: page.track, view: typeof page.view === 'string' ? page.view : undefined }]
+      : [];
   });
 }
 
@@ -55,8 +58,6 @@ export interface AppSettingsModalProps {
   appName: string;
   onClose(): void;
   onSaved?(): void;
-  /** Opens one of the App's declared settings pages (the host resolves it and navigates). */
-  onOpenPage?(page: AppSettingsPage): void;
   initialSection?: 'settings' | 'access';
   /** Only supplied for a workspace owner; server checks remain authoritative. */
   functionAccessWorkspaceId?: string;
@@ -68,7 +69,6 @@ export function AppSettingsModal({
   appName,
   onClose,
   onSaved,
-  onOpenPage,
   functionAccessWorkspaceId,
   initialSection = 'settings',
 }: AppSettingsModalProps) {
@@ -132,7 +132,7 @@ export function AppSettingsModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={`${appName} settings`}>
+    <Modal open={open} onClose={onClose} title={`${appName} settings`} width={pages.length ? 'max-w-dialog-workspace' : undefined} tall={pages.length > 0}>
       <Modal.Body>
         {functionAccessWorkspaceId && hasFields && <div role="tablist" aria-label="App settings sections" className="mb-5 flex flex-wrap gap-2">
           <Button size="sm" role="tab" aria-selected={section === 'settings'} variant={section === 'settings' ? 'primary' : 'outline'} onClick={() => setSection('settings')}>Settings</Button>
@@ -142,6 +142,10 @@ export function AppSettingsModal({
           <Text variant="body-sm" tone="muted" as="p" className="mb-4">Manage permission to run App-defined operations. These grants do not replace access to App records.</Text>
           <AppFunctionAccess appId={appId} workspaceId={functionAccessWorkspaceId} />
         </> : <>
+        {pages.map(page => <section key={page.track + page.label} aria-label={page.label} className="mb-6">
+          <AppSettingsPageHost page={page} />
+        </section>)}
+        {pages.length > 0 && hasFields ? <Text variant="heading-sm" as="h3" className="mb-3 mt-2">Options</Text> : null}
         {loading ? (
           <Text variant="body-sm" tone="subtle" as="p">
             Loading settings…
@@ -154,16 +158,6 @@ export function AppSettingsModal({
             disabled={saving}
           />
         ) : null}
-        {pages.length > 0 && onOpenPage ? <section aria-label="More settings" className="mt-6 space-y-3 border-t border-[var(--panel-border)] pt-5">
-          <Text variant="heading-sm" as="h3">More settings</Text>
-          {pages.map(page => <div key={page.track + page.label} className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <Text variant="body" weight="semibold" as="p">{page.label}</Text>
-              {page.description ? <Text variant="body-sm" tone="muted" as="p">{page.description}</Text> : null}
-            </div>
-            <Button variant="outline" size="sm" onClick={() => onOpenPage(page)}>Open</Button>
-          </div>)}
-        </section> : null}
         {loadError && <div className="space-y-3">
           <Text as="p" tone="muted">App settings are unavailable.</Text>
           <Button variant="secondary" onClick={() => setRetry(count => count + 1)}>Retry settings</Button>
