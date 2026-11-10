@@ -1,5 +1,6 @@
 import type { SteeringReceipt } from "../providers/types";
 import { ChatFollowUps } from "./ChatFollowUps";
+import { DocumentDraftCard, extractDocumentDrafts } from "./DocumentDrafts";
 import { RoutineRunLink } from './RoutineRunLink';
 import { CollapsibleUserMessage } from './CollapsibleUserMessage';
 import { ConversationModelPicker } from './ConversationModelPicker';
@@ -651,6 +652,7 @@ function AssistantMessage() {
             staged writes. Inline attachment lists stay as transcript
             artifacts when already in message parts. */}
         <InlineAttachmentLists />
+        <InlineDocumentDrafts />
         <MessageError />
         <WorkTrail>{renderParts(true)}</WorkTrail>
       </div>
@@ -750,6 +752,15 @@ function InlineAttachmentLists() {
       ))}
     </div>
   );
+}
+
+function InlineDocumentDrafts() {
+  const content = useAuiState((s) => s.message.content);
+  const parts = useAuiState((s) => s.message.parts);
+  const drafts = useMemo(() => extractDocumentDrafts(content, parts), [content, parts]);
+  if (!drafts.length) return null;
+  return <div>{drafts.map((draft) => <DocumentDraftCard
+    key={`${draft.threadId}:${draft.key}:${draft.version}`} draft={draft} />)}</div>;
 }
 
 // ---------------------------------------------------------------------------

@@ -794,3 +794,62 @@ async def test_cancel_accepts_legacy_empty_target(monkeypatch, body):
     dispatch.assert_awaited_once_with(
         request, "thread", expected_work_item_id=None, expected_turn_id=None
     )
+
+
+@pytest.mark.asyncio
+async def test_follow_up_routes_bind_owned_thread_and_validated_content(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.models.nodes import ChatThread
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
+    from app.services import chat_followups
+
+    workspace_id, thread_id = await _owned_native_thread(authenticated_client)
+    thread = await ChatThread.get(thread_id)
+    thread.provider_id = "integral_native"
+    await thread.save()
+    path = f"/api/chat/threads/{thread_id}/follow-ups"
+    headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+    follow_up = ChatFollowUpRequest(
+        client_request_id="next-1", after_work_item_id="turn-1", text="Follow up."
+    )
+    payload = follow_up.model_dump(mode="json")
+    accept = AsyncMock(return_value="queued")
+    read = AsyncMock(return_value=[follow_up])
+    dismiss = AsyncMock()
+    monkeypatch.setattr(
+        chat_followups, "chat_follow_ups_paused", AsyncMock(return_value=False)
+    )
+    monkeypatch.setattr(chat_followups, "accept_chat_follow_up", accept)
+    monkeypatch.setattr(chat_followups, "list_chat_follow_ups", read)
+    monkeypatch.setattr(chat_followups, "dismiss_chat_follow_up", dismiss)
+
+    response = await authenticated_client.post(path, json=payload, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"client_request_id": "next-1", "status": "queued"}
+    scope = dict(
+        principal_id=thread.user_id, workspace_id=workspace_id, thread_id=thread_id
+    )
+    accept.assert_awaited_once_with(**scope, request=follow_up)
+    response = await authenticated_client.get(path, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"items": [payload], "paused": False}
+    read.assert_awaited_once_with(**scope)
+    response = await authenticated_client.delete(f"{path}/next-1", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "dismissed"
+    dismiss.assert_awaited_once_with(**scope, client_request_id="next-1")
+
+    invalid = await authenticated_client.post(
+        path, json={**payload, "host_control": "forged"}, headers=headers
+    )
+    assert invalid.status_code == 400
+    wrong_workspace = await authenticated_client.post(
+        path, json=payload, headers={"X-Integral-Scope": "ws:n.Workspace.wrong"}
+    )
+    assert wrong_workspace.status_code == 409
+    stranger = await second_user_client.get(path, headers=headers)
+    assert stranger.status_code == 404
+    assert accept.await_count == read.await_count == 1

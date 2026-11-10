@@ -220,6 +220,7 @@ async def source_fixture(monkeypatch):
                 for row in rows[HarnessSnapshotRecord].values()
                 if row.scope_key == query["context.scope_key"]
                 and row.run_key == query.get("context.run_key")
+                and ("$or" not in query or row.save_sequence == -1)
                 and (
                     "context.state" not in query or row.state == query["context.state"]
                 )
@@ -243,6 +244,7 @@ async def source_fixture(monkeypatch):
                         "record_key": row.record_key,
                         "occurred_at": row.occurred_at,
                         "step_index": row.step_index,
+                        "save_sequence": row.save_sequence,
                         "state": row.state,
                         "payload_ciphertext": row.payload_ciphertext,
                     },
@@ -295,7 +297,7 @@ async def source_fixture(monkeypatch):
                         ]
                     )
                 ],
-                idempotency_key=f"snapshot-{index}",
+                idempotency_key=f"{index}:{index}:{state}",
             )
         )
 

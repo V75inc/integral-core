@@ -91,6 +91,7 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
     )
 
     next_harness_retention = 0.0
+    next_draft_cleanup = 0.0
     while True:
         try:
             await run_recovery_pass(reclaim_worker_id="periodic-recovery")
@@ -100,6 +101,17 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
             await purge_email_history()
         except Exception:  # noqa: BLE001
             log.exception("work recovery loop failed")
+
+        if time.monotonic() >= next_draft_cleanup:
+            try:
+                from app.services.document_draft_cleanup import (
+                    reconcile_draft_blob_attempts,
+                )
+
+                await reconcile_draft_blob_attempts()
+            except Exception:  # noqa: BLE001
+                log.exception("Generated file cleanup pass failed")
+            next_draft_cleanup = time.monotonic() + 60
 
         if time.monotonic() >= next_harness_retention:
             try:

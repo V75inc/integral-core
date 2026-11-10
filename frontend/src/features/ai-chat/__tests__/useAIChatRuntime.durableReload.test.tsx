@@ -52,6 +52,8 @@ vi.mock("../../../api/aiChat", () => ({
       messages: [],
     })),
     createThread: vi.fn(),
+    listFollowUps: vi.fn(async () => ({items: [], paused: false})),
+    queueFollowUp: vi.fn(),
     cancelThread: vi.fn(async () => ({ thread_id: "t1", cancelled: true })),
   },
 }));
@@ -70,7 +72,12 @@ function nativeProvider(streamTurn: ChatProvider["streamTurn"]): ChatProvider {
 }
 
 describe("owned durable work after reload", () => {
-  beforeEach(() => { vi.clearAllMocks(); __resetThreadSessionStoreForTests(); localStorage.clear(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(aiChatApi.listFollowUps).mockResolvedValue({items: [], paused: false});
+    __resetThreadSessionStoreForTests();
+    localStorage.clear();
+  });
   it("loads background messages missed while the events socket was disconnected", async () => {
     vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
     vi.mocked(aiChatApi.getThread).mockResolvedValue({...thread, messages: [user]});
@@ -103,6 +110,30 @@ describe("owned durable work after reload", () => {
     expect(aiChatApi.getThread).toHaveBeenCalledTimes(2);
     expect(onNavigate).not.toHaveBeenCalled();
   });
+  it("restores queued follow-ups and attaches to a worker-promoted turn", async () => {
+    const queued = {client_request_id: "queue-1", text: "Afterward", entity_refs: []};
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
+    vi.mocked(aiChatApi.listFollowUps).mockResolvedValue({items: [queued], paused: false});
+    vi.mocked(aiChatApi.getThread).mockResolvedValue({...thread, messages: [user]});
+    const stream = vi.fn(async function* (_ctx: Parameters<ChatProvider["streamTurn"]>[0]): AsyncIterable<NormalizedEvent> {
+      yield {type: "message-finish"};
+    });
+    const provider = nativeProvider(stream);
+    const {result} = renderHook(() => useAIChatRuntime(provider, {initialThreadId: "t1"}));
+    await waitFor(() => expect(result.current.followUps).toEqual([
+      expect.objectContaining({id: "queue-1", text: "Afterward", state: "queued"}),
+    ]));
+    expect(stream).not.toHaveBeenCalled();
+    vi.mocked(aiChatApi.listFollowUps).mockResolvedValue({items: [], paused: false});
+    vi.mocked(aiChatApi.getThread)
+      .mockResolvedValueOnce({...thread, active_work_item_id: "worker-follow-up", messages: [user]})
+      .mockResolvedValue({...thread, messages: [user, assistant]});
+    await waitFor(() => expect(stream).toHaveBeenCalledTimes(1), {timeout: 3000});
+    expect(stream.mock.calls[0][0].resumeWorkItemId).toBe("worker-follow-up");
+    expect(result.current.followUps).toEqual([]);
+    expect(aiChatApi.queueFollowUp).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("defers live navigation and protects a composer draft (%s)", async blocked => {
     vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
     vi.mocked(aiChatApi.getThread).mockResolvedValue({...thread, messages: [user]});

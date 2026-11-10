@@ -63,6 +63,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
+from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.compaction import (
@@ -1737,6 +1738,10 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         if isinstance(current, UnexpectedModelBehavior):
+            if str(current).startswith(
+                "Model token limit ("
+            ) and " exceeded before any response was generated." in str(current):
+                return "model_output_limit"
             return "model_response_invalid"
         current = current.__cause__ or current.__context__
     if isinstance(exc, UsageLimitExceeded):
@@ -1765,6 +1770,7 @@ __all__ = [
     "build_integral_history_compaction",
     "ContinuableSnapshot",
     "ConversationSearch",
+    "DeferredToolRequests",
     "FunctionToolCallEvent",
     "FunctionToolResultEvent",
     "Instrumentation",

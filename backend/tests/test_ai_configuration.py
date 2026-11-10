@@ -222,6 +222,21 @@ def test_invalid_or_arbitrary_settings_rejected(value):
         ModelGenerationSettings.model_validate(value)
 
 
+def test_proxied_cloud_context_setting_uses_verified_capacity(monkeypatch):
+    """The explicit context control can match the chosen cloud model."""
+    from app.services.model_settings import model_capabilities, validate_model_settings
+
+    monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "openai/test")
+    monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", raising=False)
+    model = "deepseek-v4.1-flash:cloud"
+    assert model_capabilities("ollama_local", model)["native_context"] == 1_000_000
+    assert validate_model_settings(
+        "ollama_local", model, {"context_window": 1_000_000}
+    ) == {"context_window": 1_000_000}
+    with pytest.raises(ValueError, match="cannot exceed"):
+        validate_model_settings("ollama_local", model, {"context_window": 1_000_001})
+
+
 @pytest.mark.asyncio
 async def test_public_api_lists_metadata_and_refuses_foreign_items(
     authenticated_client,

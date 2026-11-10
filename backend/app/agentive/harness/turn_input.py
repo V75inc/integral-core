@@ -8,7 +8,12 @@ from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.harness_records import HarnessSteeringInbox, HarnessTurnInputRecord
+from app.models.harness_records import (
+    HarnessFollowUpInbox,
+    HarnessProactiveDeliveryRecord,
+    HarnessSteeringInbox,
+    HarnessTurnInputRecord,
+)
 from app.schemas.agentive.work import TERMINAL_WORK_STATUSES, ChatTurnExecutionContext
 from app.services.credential_crypto import (
     CIPHER_PREFIX_V1,
@@ -207,6 +212,17 @@ async def purge_turn_input_capsules_for_thread(
         deleted += 1
     for inbox in await HarnessSteeringInbox.find({"scope_key": scope_key}):
         await inbox.delete()
+    for inbox in await HarnessFollowUpInbox.find({"scope_key": scope_key}):
+        await inbox.delete()
+    for receipt in await HarnessProactiveDeliveryRecord.find({"scope_key": scope_key}):
+        if (
+            receipt.principal_id != principal_id
+            or receipt.workspace_id != workspace_id
+            or receipt.thread_id != thread_id
+        ):
+            raise ValueError("proactive delivery receipt scope is inconsistent")
+        await receipt.delete()
+        deleted += 1
     return deleted
 
 
@@ -250,6 +266,12 @@ async def purge_expired_turn_input_capsules(
         work_item = await WorkItem.get(_object_id(inbox.work_item_id))
         if work_item is None or work_item.status in TERMINAL_WORK_STATUSES:
             await inbox.delete()
+    for inbox in await context.find(
+        HarnessFollowUpInbox,
+        {"context.expires_at": {"$lt": cutoff_iso}},
+        limit=batch_size,
+    ):
+        await inbox.delete()
     return {"capsules_deleted": deleted, "active_work_skipped": skipped_active}
 
 

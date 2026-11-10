@@ -226,6 +226,11 @@ async def _handle_capability(
     ctx = work_execution.build_work_execution_context(
         work_item=item, logical_step_key=logical
     )
+    from app.agentive.services.work_approval_recovery import recover_staged_capability
+
+    recovered = await recover_staged_capability(item, ctx)
+    if recovered is not None:
+        return recovered
     run = await start_run(
         thread_id=item.thread_id or "",
         user_id=item.principal_id,
@@ -1426,6 +1431,7 @@ async def process_one_due_item(
     kinds: Optional[frozenset[str]] = None,
     exclude_kinds: Optional[frozenset[str]] = None,
     claim_cursor: Optional[dict[str, str]] = None,
+    follow_up_cursor: Optional[dict[str, str]] = None,
 ) -> Optional[WorkItem]:
     """Claim one due item (optional id, optionally limited by kind) and execute it."""
     claimed = await work_items.claim_due_candidate(
@@ -1436,6 +1442,18 @@ async def process_one_due_item(
         exclude_kinds=exclude_kinds,
         claim_cursor=claim_cursor,
     )
+    if claimed is None and work_item_id is None and follow_up_cursor is not None:
+        from app.services.chat_followups import promote_next_chat_follow_up
+
+        receipt = await promote_next_chat_follow_up(follow_up_cursor)
+        if receipt is not None:
+            claimed = await work_items.claim_due_candidate(
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                work_item_id=receipt.work_item_id,
+                kinds=kinds,
+                exclude_kinds=exclude_kinds,
+            )
     if claimed is None:
         return None
     _maybe_crash("after_enqueue")
@@ -1456,6 +1474,9 @@ async def worker_loop(
     """Background poll loop. Stops when ``stop_event`` is set."""
     stop = stop_event or asyncio.Event()
     claim_cursor: dict[str, str] = {}
+    follow_up_cursor: dict[str, str] | None = (
+        {} if kinds == frozenset({"chat_turn"}) else None
+    )
     while not stop.is_set():
         try:
             result = await process_one_due_item(
@@ -1464,6 +1485,7 @@ async def worker_loop(
                 kinds=kinds,
                 exclude_kinds=exclude_kinds,
                 claim_cursor=claim_cursor,
+                follow_up_cursor=follow_up_cursor,
             )
             if result is None:
                 try:

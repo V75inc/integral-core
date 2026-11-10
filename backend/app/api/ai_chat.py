@@ -40,7 +40,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
 
 from fastapi import Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from jvspatial.api import endpoint
 
 from app.agentive.services.approval_intent import looks_like_bless
@@ -64,6 +64,11 @@ from app.api.errors import (
 )
 from app.api.utils import resolve_principal_id
 from app.config import settings
+from app.schemas.agentive.chat_followups import (
+    ChatFollowUpReceipt,
+    ChatFollowUpRequest,
+    FollowUpRequestId,
+)
 from app.schemas.api.ai_chat import PageContext
 from app.schemas.chat_entity_refs import EntityRef
 from app.services import chat_threads as chat_store
@@ -1060,6 +1065,230 @@ async def thread_activity(request: Request, thread_id: str) -> Dict[str, Any]:
         "work_item_id": work_item_id if running_work else None,
         "turn_id": handle.turn_id if handle else None,
     }
+
+
+async def _follow_up_scope(request: Request, thread_id: str) -> dict[str, str]:
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id or thread.provider_id != "integral_native" or thread.archived:
+        raise ResourceNotFoundError(message="Native chat thread not found")
+    if not settings.INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED:
+        raise ServiceUnavailableError(message="Durable chat follow-ups are unavailable")
+    return {
+        "principal_id": user_id,
+        "workspace_id": workspace_id,
+        "thread_id": thread.id,
+    }
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups", methods=["GET"], auth=True, tags=["AI Chat"]
+)
+async def get_thread_follow_ups(request: Request, thread_id: str) -> dict[str, Any]:
+    """List pending follow-ups for the owned thread."""
+    from app.services.chat_followups import chat_follow_ups_paused, list_chat_follow_ups
+
+    scope = await _follow_up_scope(request, thread_id)
+    items = await list_chat_follow_ups(**scope)
+    return {
+        "items": [item.model_dump(mode="json") for item in items],
+        "paused": await chat_follow_ups_paused(**scope),
+    }
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def post_thread_follow_up(request: Request, thread_id: str) -> dict[str, Any]:
+    """Accept a follow-up for the owned thread."""
+    from app.services.chat_followups import accept_chat_follow_up
+
+    scope = await _follow_up_scope(request, thread_id)
+    try:
+        follow_up = ChatFollowUpRequest.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError(message="Invalid queued follow-up") from None
+    if not follow_up.after_work_item_id:
+        raise BadRequestError(message="The active conversation turn is required")
+    status = await accept_chat_follow_up(**scope, request=follow_up)
+    return ChatFollowUpReceipt(
+        client_request_id=follow_up.client_request_id, status=status
+    ).model_dump(mode="json")
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups/resume",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def resume_thread_follow_ups(request: Request, thread_id: str) -> dict[str, str]:
+    """Resume follow-ups after reviewing an interrupted turn."""
+    from app.services.chat_followups import resume_chat_follow_ups
+
+    await resume_chat_follow_ups(**await _follow_up_scope(request, thread_id))
+    return {"status": "queued"}
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups/{client_request_id}",
+    methods=["DELETE"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def delete_thread_follow_up(
+    request: Request, thread_id: str, client_request_id: FollowUpRequestId
+) -> dict[str, Any]:
+    """Dismiss one pending follow-up."""
+    from app.services.chat_followups import dismiss_chat_follow_up
+
+    await dismiss_chat_follow_up(
+        **await _follow_up_scope(request, thread_id),
+        client_request_id=client_request_id,
+    )
+    return ChatFollowUpReceipt(
+        client_request_id=client_request_id, status="dismissed"
+    ).model_dump(mode="json")
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/attachments/{attachment_id}/review",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def review_chat_attachment(
+    request: Request, thread_id: str, attachment_id: str, expected_sha256: str = ""
+) -> StreamingResponse:
+    """Download the exact still-private chat file for a pending review."""
+    from app.services.chat_attachment_review import read_chat_attachment_for_review
+
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise BadRequestError(message="A reviewed file fingerprint is required.")
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Chat attachment not found")
+    blob, mime_type = await read_chat_attachment_for_review(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        attachment_id=attachment_id,
+    )
+    if hashlib.sha256(blob).hexdigest() != expected_sha256:
+        raise ResourceConflictError(
+            message="The approved file changed. Review it again."
+        )
+    return StreamingResponse(
+        iter([blob]),
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": "attachment",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/artifacts/{key}/preview",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def preview_document_draft(
+    request: Request, thread_id: str, key: str, version: int = 0
+) -> JSONResponse:
+    """Return the exact private draft source only to its current owner."""
+    from app.schemas.agentive.document_draft import DocumentDraftPreview
+    from app.services.document_draft_access import load_document_draft_snapshot
+    from app.services.release_admission import release_admission
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id or thread.provider_id != "integral_native":
+        raise ResourceNotFoundError(message="Document draft not found")
+    async with release_admission(user_id, workspace_id):
+        draft = await load_document_draft_snapshot(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            key=key,
+            version=version,
+        )
+        preview = DocumentDraftPreview(
+            title=draft.title,
+            body=draft.body,
+            format=draft.format,
+            version=draft.version,
+        )
+        return JSONResponse(
+            content=preview.model_dump(),
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/artifacts/{key}/download",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def download_document_draft(
+    request: Request, thread_id: str, key: str, version: int = 0
+) -> StreamingResponse:
+    """Render the exact current private draft for its authorized owner."""
+    from app.services.document_draft_access import (
+        load_document_draft_snapshot,
+        require_current_document_draft,
+    )
+    from app.services.document_drafts import render_document_draft
+    from app.services.release_admission import release_admission
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id or thread.provider_id != "integral_native":
+        raise ResourceNotFoundError(message="Document draft not found")
+    draft = await load_document_draft_snapshot(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        key=key,
+        version=version,
+    )
+    try:
+        rendered = await asyncio.to_thread(
+            render_document_draft,
+            title=draft.title,
+            body=draft.body,
+            format=draft.format,
+        )
+    except (ValueError, ImportError) as exc:
+        raise BadRequestError(message="This draft could not be rendered.") from exc
+
+    # Rendering runs outside the authority lock. Admit the release again and
+    # ensure that the exact revision/content did not change while rendering.
+    async with release_admission(user_id, workspace_id):
+        await require_current_document_draft(draft)
+        return StreamingResponse(
+            iter([rendered.content]),
+            media_type=rendered.mime_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="draft.{rendered.extension}"',
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "private, no-store",
+            },
+        )
 
 
 @endpoint("/chat/threads/{thread_id}", methods=["PATCH"], auth=True, tags=["AI Chat"])

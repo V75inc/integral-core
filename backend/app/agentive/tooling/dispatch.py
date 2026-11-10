@@ -253,6 +253,10 @@ def _tool_error_from_exception(exc: Exception) -> ToolResult:
         )
     from app.agentive.connectors.mcp_proxy import McpProxyError
     from app.agentive.staging import StagingBlockedError
+    from app.schemas.agentive.work import WorkError
+
+    if isinstance(exc, WorkError):
+        return ToolResult(is_error=True, error_code=exc.code, message=exc.message)
 
     if isinstance(exc, McpProxyError):
         return ToolResult(
@@ -409,6 +413,36 @@ async def dispatch_tool(
     op_class = "unknown"
     result: Optional[ToolResult] = None
     try:
+        if name in {
+            "integral_upsert_artifact",
+            "integral_prepare_document_attachment",
+            "integral_get_artifact",
+            "integral_list_artifacts",
+        } and (not scope or not session_id):
+            return ToolResult(
+                is_error=True,
+                error_code="scope_required",
+                message="Session artifacts require a bound workspace and conversation.",
+            )
+        if name in {
+            "integral_upsert_artifact",
+            "integral_prepare_document_attachment",
+            "integral_get_artifact",
+            "integral_list_artifacts",
+        }:
+            # This gate runs before session-level prompt/design lookups: those
+            # lookups can themselves expose text from the referenced chat.
+            from app.agentive.artifacts import _resolve_artifact_thread
+
+            thread = await _resolve_artifact_thread(
+                user_id=principal_id, session_id=session_id, workspace_id=scope
+            )
+            if thread is None:
+                return ToolResult(
+                    is_error=True,
+                    error_code="session_unavailable",
+                    message="Conversation is unavailable in the current workspace.",
+                )
         if skill_tools_required:
             from app.agentive.tooling.skill_allowlist import (
                 SkillToolAllowlistError,
@@ -483,7 +517,18 @@ async def dispatch_tool(
                 from app.services.chat_threads import get_thread_by_session
 
                 prior = ""
-                thread = await get_thread_by_session(session_id)
+                if name in {
+                    "integral_upsert_artifact",
+                    "integral_prepare_document_attachment",
+                    "integral_get_artifact",
+                    "integral_list_artifacts",
+                }:
+                    # Do not copy prior design text from a separately resolved
+                    # session into an artifact-tool refusal. The authorized
+                    # draft can be read after the design gate clears.
+                    thread = None
+                else:
+                    thread = await get_thread_by_session(session_id)
                 if thread is not None:
                     marker = getattr(thread, "design_proposed", None) or {}
                     if isinstance(marker, dict):
@@ -1275,6 +1320,40 @@ async def _dispatch_propose(
                 data[key] = result[key]
         return ToolResult(data=data)
 
+    if spec.name == "integral_prepare_document_attachment":
+        from app.agentive.artifacts import _resolve_artifact_thread
+        from app.api.errors import BadRequestError, ResourceNotFoundError
+        from app.services.document_draft_access import load_document_draft_snapshot
+        from app.services.document_draft_preparation import prepare_document_draft
+
+        version = args.get("version")
+        if type(version) is not int or version < 1:
+            raise BadRequestError(
+                message="A current document draft version is required."
+            )
+        thread = await _resolve_artifact_thread(
+            user_id=principal_id, session_id=session_id, workspace_id=scope
+        )
+        if thread is None:
+            raise ResourceNotFoundError(message="Conversation not found")
+        snapshot = await load_document_draft_snapshot(
+            user_id=principal_id,
+            workspace_id=scope,
+            thread_id=thread.id,
+            key=str(args.get("key") or ""),
+            version=version,
+        )
+        attachment_id = await prepare_document_draft(snapshot)
+        return ToolResult(
+            data={
+                "ok": True,
+                "attachment_id": attachment_id,
+                "key": snapshot.key,
+                "version": snapshot.version,
+                "message": "Private file prepared. Filing it requires a separate approval.",
+            }
+        )
+
     if spec.name in {
         "integral_upsert_artifact",
         "integral_get_artifact",
@@ -1287,8 +1366,10 @@ async def _dispatch_propose(
             out = await artifact_svc.upsert_artifact(
                 user_id=principal_id,
                 session_id=session_id,
+                workspace_id=scope,
                 key=str(_args.get("key") or ""),
                 kind=str(_args.get("kind") or ""),
+                expected_version=_args.get("expected_version"),
                 title=str(_args.get("title") or ""),
                 body=str(_args.get("body") or ""),
                 metadata=(

@@ -8,6 +8,7 @@ export type FollowUp = {
   refs: ChatEntityRef[];
   state: "queued" | "sending" | "accepted" | "unconfirmed";
   workItemId?: string;
+  correctionId?: string;
 };
 
 /** Max concurrent in-flight streams across different threads (I-CHAT-PAR-02). */
@@ -42,6 +43,7 @@ export type ThreadSessionState = {
   lastLoadedAt: number;
   activeWorkItemId?: string | null;
   followUps?: readonly FollowUp[];
+  followUpsPaused?: boolean;
   steeringWorkItemId?: string | null;
   cancellation?: "pending" | "failed" | null;
   cancellationTarget?: import("../../api/aiChat").ChatCancellationTarget | null;

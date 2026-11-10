@@ -74,6 +74,7 @@ _INTERCEPTED_EPHEMERAL_TOOLS = frozenset(
         "integral_build_approved_design",
         "integral_ask_user",
         "integral_upsert_artifact",
+        "integral_prepare_document_attachment",
         "integral_get_artifact",
         "integral_list_artifacts",
     }

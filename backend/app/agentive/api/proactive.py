@@ -1,8 +1,8 @@
 """Proactive intelligence endpoints — digests, reminders, and agent push webhook.
 
-D-06: `/proactive/push` is renamed to `/proactive/log-push` and is logging-only —
-it does NOT actually deliver. Real delivery (agent runtime webhook / channel queue) lands
-in Phase 5 or Phase 6. The old path retains a 308 redirect for one release window.
+The legacy `/proactive/push` path redirects to `/proactive/log-push`. The latter
+records intent and only delivers to an exact chat session in the authenticated
+workspace; it is not a general channel-delivery queue.
 """
 
 import logging
@@ -291,21 +291,16 @@ async def proactive_log_push(
 ) -> Dict[str, Any]:
     """Log a proactive-message intent and deliver into chat when possible.
 
-    Full Sweep R2: when ``payload.content`` is present, persist onto the
-    matching (or most recent) ChatThread and emit a thread WS badge via
-    ``persist_proactive_message_on_thread``. Channel adapters (WhatsApp etc.)
-    remain separate; in-app delivery is live.
+    In-app delivery requires an exact provider session in the authenticated
+    caller's active workspace and a stable delivery_id for retry recovery.
+    Missing inputs or an ambiguous binding are not delivered. Channel adapters
+    (WhatsApp etc.) remain separate.
     """
-    # Resolve principal — supports both service-auth and regular auth.
-    user = getattr(request.state, "user", None)
-    user_id: Optional[str]
-    if user and hasattr(user, "id"):
-        user_id = str(user.id)
-    else:
-        user_id = resolve_principal_id(request)
+    user_id = resolve_principal_id(request)
 
     logged_at = datetime.now(timezone.utc).isoformat()
     delivered_thread_id: Optional[str] = None
+    delivery_reason: Optional[str] = None
 
     logger.info(
         "Proactive log-push accepted: user=%s type=%s channel=%s schedule=%s",
@@ -318,23 +313,35 @@ async def proactive_log_push(
     if user_id and isinstance(payload, dict):
         content = str(payload.get("content") or "").strip()
         session_id = str(payload.get("session_id") or "").strip()
-        if content:
+        delivery_id = str(payload.get("delivery_id") or "").strip()
+        if content and not session_id:
+            delivery_reason = "session_required"
+        elif content and not delivery_id:
+            delivery_reason = "delivery_id_required"
+        elif content:
             from app.services.chat_proactive_bridge import (
                 persist_proactive_message_on_thread,
             )
+            from app.services.request_scope import resolve_workspace_id_from_request
 
+            workspace_id = await resolve_workspace_id_from_request(request, user_id)
             delivered_thread_id = await persist_proactive_message_on_thread(
                 user_id=user_id,
+                workspace_id=workspace_id or "",
                 session_id=session_id,
                 content=content,
+                delivery_id=delivery_id,
                 metadata={"channel": channel, "message_type": message_type},
             )
+            if not delivered_thread_id:
+                delivery_reason = "destination_unavailable"
 
     return {
         "accepted": True,
         "logged_at": logged_at,
         "delivered": bool(delivered_thread_id),
         "thread_id": delivered_thread_id,
+        "delivery_reason": delivery_reason,
     }
 
 

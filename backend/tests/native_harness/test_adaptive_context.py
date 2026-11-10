@@ -265,6 +265,40 @@ async def test_provider_light_preparation_skips_skills_and_preserves_checkpoint(
 
 
 @pytest.mark.asyncio
+async def test_light_turn_receives_trusted_resume_context(monkeypatch):
+    from app.agentive.harness import adaptive
+
+    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    from dataclasses import replace
+
+    ctx = replace(
+        ctx,
+        system_context=(
+            "[SYSTEM:FOLLOW-UP-AFTER-INTERRUPTION]\n"
+            "Only the immediately preceding reply was interrupted."
+        ),
+    )
+    original = adaptive.build_light_agent
+    captured = {}
+
+    def capture_agent(*args, **kwargs):
+        agent = original(*args, **kwargs)
+        run = agent.run
+
+        async def capture_run(*args, **kwargs):
+            captured["instructions"] = kwargs.get("instructions")
+            return await run(*args, **kwargs)
+
+        agent.run = capture_run
+        return agent
+
+    monkeypatch.setattr(adaptive, "build_light_agent", capture_agent)
+    result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
+    assert isinstance(result, LightTurnResult)
+    assert captured["instructions"] == ctx.system_context
+
+
+@pytest.mark.asyncio
 async def test_provider_escalation_keeps_usage_in_same_run(monkeypatch):
     ctx, thread, _, calls = await setup_turn(monkeypatch, escalation=True)
     result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)

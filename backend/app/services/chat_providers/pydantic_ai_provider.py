@@ -221,7 +221,12 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                         }
                         for r in targets
                     ]
-                return append_completion_links("Your setup is ready.", links)
+                message = (
+                    output
+                    if run_state.get("post_build_activity")
+                    else "Your setup is ready."
+                )
+                return append_completion_links(message, links)
 
             if not run_state.get("verification_succeeded"):
                 status = run_state.get("verification_status")
@@ -1861,6 +1866,7 @@ class PydanticAIProvider:
                 result = await agent.run(
                     ctx.text,
                     message_history=public_dialogue(messages, exclude_id=accepted_id),
+                    instructions=ctx.system_context or None,
                     cancellation_token=self._active_tokens.get(ctx.thread_id),
                     # Native steering can open another model request after the
                     # first reply. Give that path the normal turn allowance.

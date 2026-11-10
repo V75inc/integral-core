@@ -104,9 +104,9 @@ async def bless_and_execute(
     V1 accepts only one-time approval for this token. Session-wide approval
     is rejected before deciding linked work or dispatching any mutation.
 
-    When a durable ``WorkApproval`` is linked to ``token``, the decide unit
-    requeues the original WorkItem before the staging apply path continues.
-    Cards without a linked approval keep the legacy inline path.
+    On a transactional store, a linked ``WorkApproval`` is decided with the
+    consumed staging decision after application. Legacy stores retain the
+    earlier non-atomic linked-work path. Approval is not proof of application.
     """
     if autonomy != "single":
         raise StagingError(
@@ -114,15 +114,20 @@ async def bless_and_execute(
             "Integral V1 can approve only the specific proposed change. "
             "Session-wide auto-approval is not enabled.",
         )
-    await _maybe_decide_linked_work_approval(
-        token=token, user_id=user_id, decision="approved"
-    )
     sc = await bless_token(
         user_id=user_id,
         token=token,
         autonomy="single",
         decision_source=decision_source,
     )
+    from app.agentive import staging
+
+    if not staging._durable_decisions_available():
+        # Legacy stores cannot couple the consumed decision and work outbox.
+        # Blessing still admits the caller before deciding linked work.
+        await _maybe_decide_linked_work_approval(
+            token=token, user_id=user_id, decision="approved"
+        )
     return await execute_blessed_change(
         user_id=user_id,
         token=token,

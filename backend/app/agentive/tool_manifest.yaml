@@ -1338,18 +1338,37 @@ domains:
         priority: P2
         summary: >-
           Create or replace a session working artifact (blueprint, checklist,
-          note). Harness-agnostic scratchpad keyed by `key`. Prefer kind
-          app_design_blueprint for greenfield designs (integral_propose_design
+          note), or a private downloadable document_draft with metadata.format
+          markdown|docx|pdf|pptx and expected_version. Harness-agnostic
+          scratchpad keyed by `key`. Prefer kind app_design_blueprint for greenfield designs (integral_propose_design
           also upserts that key). Does not stage a write.
         http: "(conversation context)"
         policy_action: null
         params:
           key: {type: string, required: true, desc: "Stable key within the conversation (e.g. app_design_blueprint)."}
-          kind: {type: string, required: true, desc: "Artifact kind (e.g. app_design_blueprint, checklist, note)."}
+          kind: {type: string, required: true, desc: "Artifact kind (e.g. app_design_blueprint, checklist, note, document_draft)."}
+          expected_version: {type: integer, required: false, desc: "Version last read; use 0 for a new key. A stale revision is refused."}
           title: {type: string, required: false, desc: "Short human label."}
           body: {type: string, required: false, desc: "Full artifact body (markdown/text)."}
           metadata: {type: object, required: false, desc: "Optional JSON metadata."}
         returns: { ok: bool, key: str, kind: str, version: int }
+      - name: integral_prepare_document_attachment
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Prepare the exact current private document draft as a conversation-owned
+          attachment when the user wants the generated file filed. Returns an
+          attachment_id for integral_attach_uploaded_file_to_entry. This is private
+          preparation only: it does not file the file or approve an Entry write.
+          Repeated preparation of the same revision returns the existing file.
+        http: "(conversation-scoped preparation)"
+        policy_action: null
+        params:
+          key: {type: string, required: true, desc: "Document draft key from this conversation."}
+          version: {type: integer, required: true, desc: "Exact current draft version returned by the artifact tool."}
+        returns: { ok: bool, attachment_id: str, key: str, version: int }
+        privacy: "Principal, workspace and conversation come from the host, not arguments. File preparation is private; destination filing requires its own approval."
       - name: integral_get_artifact
         status: existing
         op_class: read
@@ -2540,13 +2559,13 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Associate a file produced in the caller's sandbox (e.g. a claude-skill PDF) with an entry."
+        summary: "Stage a configured caller-sandbox file for attachment; the approval binds its SHA-256 and size and execution refuses changed bytes. Text files receive a bounded plain-text preview; other files require separate inspection. This does not create a file."
         http: "(sandbox file -> entry attachment)"
         policy_action: attachment.create
         staging_kind: attach_file
         params: { entry_id: {type: string, required: true}, sandbox_path: {type: string, required: true} }
         returns: { staged_token: str }
-        privacy: "sandbox_path validated by validate_relative_path; cannot escape <agent_id>/<user_id>/ (PC-7)."
+        privacy: "Requires INTEGRAL_SANDBOX_ROOT; reads only regular files under the caller's user slice with no symlink traversal, within the attachment size limit. Live entry policy and workspace scope are checked at execution. Older approvals without a digest must be reviewed again."
       - name: integral_attach_uploaded_file_to_entry
         status: existing
         op_class: propose
@@ -2818,11 +2837,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 134
-  existing_tools: 132    # status: existing
+  total_tools: 135
+  existing_tools: 133    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 60, propose: 73, execute: 1 }
-  by_priority: { P0: 17, P1: 47, P2: 70 }
+  by_op_class: { read: 60, propose: 74, execute: 1 }
+  by_priority: { P0: 17, P1: 47, P2: 71 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

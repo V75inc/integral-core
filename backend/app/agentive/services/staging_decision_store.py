@@ -400,6 +400,18 @@ async def _write_locked_decision(database, *, row, data, updates, expires):
                 raise StagingError(
                     "approval_identity_conflict", "Terminal decision proof conflicts"
                 )
+    if target == "consumed":
+        from app.agentive.services.work_approvals import complete_linked_staging_work
+        from app.schemas.agentive.work import WorkError
+
+        # The work transition and its outbox must commit with consumption, so
+        # no worker can observe a successful decision before this point.
+        try:
+            await complete_linked_staging_work(transaction=database, staging_data=data)
+        except WorkError as exc:
+            raise StagingError(
+                "approval_unavailable", "Linked work requires reconciliation"
+            ) from exc
     sc = staging_store._record_to_sc(
         staging_store.StagedChangeRecord(id=row["id"], **updated["context"])
     )

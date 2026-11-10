@@ -920,6 +920,18 @@ async def test_completed_build_requires_readback_before_final_answer():
         "The feed and requested post are ready."
     )
 
+    continuation = _scaffold_completion_validator(
+        {
+            "build_succeeded": True,
+            "verification_succeeded": True,
+            "verified_build_resources": [],
+            "post_build_activity": True,
+        }
+    )
+    assert await continuation(None, "The file is waiting for approval.") == (
+        "The file is waiting for approval."
+    )
+
     state["verification_succeeded"] = False
     state["verification_status"] = "partial"
     state["verification_reply"] = (

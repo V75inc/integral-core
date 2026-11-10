@@ -462,7 +462,18 @@ def _make_handler(
                 ),
             )
 
-        if work_execution_context is None:
+        if work_execution_context is None or (
+            capability_source == "core"
+            and capability_op_class == "propose"
+            and capability_name
+            in {
+                "integral_prepare_document_attachment",
+                "integral_attach_uploaded_file_to_entry",
+            }
+        ):
+            # The broker delegates this specific recoverable multi-stage
+            # operation to short worker-fenced graph transactions. Its blob
+            # I/O must not inherit the generic outer effect transaction.
             result = await dispatch()
         else:
             from app.agentive.services.capability_adapters import AdapterError
@@ -619,6 +630,11 @@ def _make_handler(
                     "built without a material change, present only that specific "
                     "change and ask for approval of the change."
                 )
+        if (
+            call_state.get("verification_succeeded")
+            and capability_name != "integral_verify_build"
+        ):
+            call_state["post_build_activity"] = True
         if capability_name == "integral_verify_build":
             call_state["verification_status"] = model_result.get("status")
             call_state["verification_succeeded"] = bool(
@@ -631,13 +647,10 @@ def _make_handler(
                 call_state.get("build_succeeded")
                 and call_state["verification_succeeded"]
             ):
-                # This workflow has reached its declared readback boundary.
-                # Reserve one tool-free closing answer instead of reopening
-                # batches or rediscovering capabilities after a completed build.
-                call_state["turn_progress"].reason = (
-                    "The approved setup has been applied and verified. Report "
-                    "the result using its verified resource links; do not build again."
-                )
+                # The setup is settled, but the user's original request may
+                # also include work to perform in it. Keep the one-build guard
+                # while allowing the resident to continue through normal
+                # capability and approval checks.
                 call_state["verified_build_resources"] = (
                     model_result.get("resources") or []
                 )

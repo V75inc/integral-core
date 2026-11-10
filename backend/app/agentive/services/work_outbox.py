@@ -802,6 +802,15 @@ async def _release_terminal_chat_admission(
         thread_id=str(context.get("thread_id") or ""),
         work_item_id=work_item_id,
     )
+    if target != "succeeded":
+        from app.services.chat_followups import pause_follow_ups_after_failure
+
+        await pause_follow_ups_after_failure(
+            transaction=transaction,
+            principal_id=str(context.get("principal_id") or ""),
+            workspace_id=str(context.get("workspace_id") or ""),
+            thread_id=str(context.get("thread_id") or ""),
+        )
 
 
 async def _cas_postgres(

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { aiChatApi } from '../../../../api/aiChat';
 import { ApprovalRequestContent, approvalRequestSentence } from '../ApprovalRequestContent';
 
 vi.mock('../../../../components/entries/relations/RelationValue', () => ({
   RelationValue: ({ value }: {value: string}) => <span>{value}</span>,
 }));
+vi.mock('../../../../api/aiChat', () => ({ aiChatApi: { downloadChatAttachmentForReview: vi.fn() } }));
 afterEach(cleanup);
 
 describe('plain-language approval request', () => {
@@ -56,5 +58,61 @@ describe('plain-language approval request', () => {
     }} />);
     expect(screen.getByText(/Future runs may change the approved resources without another prompt/)).toBeVisible();
     expect(screen.getByText(/continue until you pause or stop/)).toBeVisible();
+  });
+});
+
+describe('file approval preview', () => {
+  it('offers the bound chat file for review inside a batch', async () => {
+    const fetchFile = vi.mocked(aiChatApi.downloadChatAttachmentForReview);
+    fetchFile.mockResolvedValueOnce(new Blob(['reviewed']));
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+    const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const machine = { op: 'attach_uploaded_file', attachment_id: 'n.Attachment.1', expected_sha256: 'a'.repeat(64),
+      file_review: { thread_id: 'n.ChatThread.1', attachment_id: 'n.Attachment.1', filename: 'Report.docx' } };
+    render(<ApprovalRequestContent staged={{ kind: 'batch', summary: 'File report', diff_human: '',
+      diff_machine: { operations: [{ kind: 'attach_uploaded_file', diff_machine: machine }] } }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Download Report.docx for review' }));
+    await waitFor(() => expect(fetchFile).toHaveBeenCalledWith('n.ChatThread.1', 'n.Attachment.1', 'a'.repeat(64)));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(revokeUrl).toHaveBeenCalledWith('blob:test');
+    createUrl.mockRestore(); revokeUrl.mockRestore(); click.mockRestore();
+  });
+
+  it('does not offer a review link for a different attachment', () => {
+    render(<ApprovalRequestContent staged={{ kind: 'attach_uploaded_file', summary: 'Attach file', diff_human: '',
+      diff_machine: { op: 'attach_uploaded_file', attachment_id: 'n.Attachment.1', expected_sha256: 'a'.repeat(64),
+        file_review: { thread_id: 'n.ChatThread.1', attachment_id: 'n.Attachment.2', filename: 'Other.pdf' } } }} />);
+    expect(screen.queryByRole('button', { name: /for review/ })).not.toBeInTheDocument();
+  });
+
+  it('explains when the authorized review download is no longer available', async () => {
+    vi.mocked(aiChatApi.downloadChatAttachmentForReview).mockRejectedValueOnce(new Error('denied'));
+    render(<ApprovalRequestContent staged={{ kind: 'attach_uploaded_file', summary: 'Attach file', diff_human: '',
+      diff_machine: { op: 'attach_uploaded_file', attachment_id: 'n.Attachment.1', expected_sha256: 'a'.repeat(64),
+        file_review: { thread_id: 'n.ChatThread.1', attachment_id: 'n.Attachment.1', filename: 'Report.pdf' } } }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Download Report.pdf for review' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('may no longer have access');
+  });
+
+  it('shows the exact preview as text and labels incomplete content', () => {
+    const text = '<img src=x onerror=alert(1)>\nDraft paragraph';
+    const { container } = render(<ApprovalRequestContent staged={{
+      kind: 'attach_file', summary: 'Attach report', diff_human: '',
+      diff_machine: { op: 'attach_file', file_preview: { available: true, text, complete: false } },
+    }} />);
+    expect(screen.getByText(/Partial preview/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Preview file content'));
+    expect(container.querySelector('pre')).toHaveTextContent(text, { normalizeWhitespace: false });
+    expect(container.querySelector('pre')).toBeVisible();
+    expect(container.querySelector('img')).not.toBeInTheDocument();
+  });
+
+  it('says when a preview is unavailable', () => {
+    render(<ApprovalRequestContent staged={{
+      kind: 'attach_file', summary: 'Attach report', diff_human: '',
+      diff_machine: { op: 'attach_file', file_preview: { available: false } },
+    }} />);
+    expect(screen.getByText(/content preview is not available/)).toBeVisible();
   });
 });

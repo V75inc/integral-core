@@ -90,6 +90,9 @@ class WorkApproval(Object):
     run_id: str = ""
     run_step_id: str = ""
     authority_digest: str = ""
+    staging_intent_fingerprint: str = ""
+    staging_execution_id: str = ""
+    staging_request_hash: str = ""
     decision: str = ""
     decider_id: str = ""
     expires_at: str = attribute(default="", indexed=True)

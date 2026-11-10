@@ -1,4 +1,5 @@
 import { apiClient } from './index';
+import type { ChatEntityRef } from '../types/chatEntityRefs';
 
 export interface ChatCancellationTarget {
   work_item_id?: string | null;
@@ -62,7 +63,69 @@ export interface AIChatPersistedMessage {
   created_at?: string;
 }
 
+export interface ChatFollowUpInput {
+  client_request_id: string;
+  after_work_item_id?: string;
+  text: string;
+  entity_refs: ChatEntityRef[];
+}
+
+interface ChatFollowUpReceipt {
+  client_request_id: string;
+  status: 'queued' | 'promoted' | 'steered' | 'dismissed';
+}
+
 export const aiChatApi = {
+  async downloadChatAttachmentForReview(threadId: string, attachmentId: string, expectedSha256: string): Promise<Blob> {
+    const response = await apiClient.get(
+      `/chat/threads/${encodeURIComponent(threadId)}/attachments/${encodeURIComponent(attachmentId)}/review`,
+      { params: { expected_sha256: expectedSha256 }, responseType: 'blob' },
+    );
+    return response.data as Blob;
+  },
+
+  async previewDocumentDraft(threadId: string, key: string, version: number): Promise<{title: string; body: string; format: string; version: number}> {
+    const { data } = await apiClient.get(
+      `/chat/threads/${encodeURIComponent(threadId)}/artifacts/${encodeURIComponent(key)}/preview`,
+      { params: { version } },
+    );
+    return data;
+  },
+
+  async downloadDocumentDraft(threadId: string, key: string, version: number): Promise<Blob> {
+    const response = await apiClient.get(
+      `/chat/threads/${encodeURIComponent(threadId)}/artifacts/${encodeURIComponent(key)}/download`,
+      { params: { version }, responseType: 'blob' },
+    );
+    return response.data as Blob;
+  },
+
+  async queueFollowUp(threadId: string, input: ChatFollowUpInput) {
+    const { data } = await apiClient.post<ChatFollowUpReceipt>(
+      `/chat/threads/${encodeURIComponent(threadId)}/follow-ups`, input,
+    );
+    return data;
+  },
+
+  async listFollowUps(threadId: string) {
+    const { data } = await apiClient.get<{ items: ChatFollowUpInput[]; paused: boolean }>(
+      `/chat/threads/${encodeURIComponent(threadId)}/follow-ups`,
+    );
+    return data;
+  },
+
+  async resumeFollowUps(threadId: string) {
+    await apiClient.post(
+      `/chat/threads/${encodeURIComponent(threadId)}/follow-ups/resume`,
+    );
+  },
+
+  async dismissFollowUp(threadId: string, id: string) {
+    await apiClient.delete(
+      `/chat/threads/${encodeURIComponent(threadId)}/follow-ups/${encodeURIComponent(id)}`,
+    );
+  },
+
   async listProviders(): Promise<AIChatProviderInfo[]> {
     const res = await apiClient.get<{ providers: AIChatProviderInfo[] }>(
       '/chat/providers',

@@ -144,6 +144,15 @@ allowed-tools: integral_list_views integral_open_view integral_find_workspace_re
   fields, including a profile field named `status`, inside `updates.fields`.
   Top-level `updates.status` is Integral's lifecycle state and is only for a
   deliberate platform-state change.
+  For a schema-confirmed `file` field, the value is one existing attachment
+  ID string; for `files`, it is a list of attachment ID strings. Do not pass
+  file objects, filenames, URLs, or staged tokens. The referenced file must
+  already be attached to this Entry before the update is applied. Resolve the
+  current Entry and its attachments, preserve existing list values, and do not
+  replace a populated single-file value without instruction. If attachment
+  approval is still pending, wait for successful application before proposing
+  the field update. Read the field back after its own approval; linking an
+  attachment alone does not populate a file field.
    - **Delete** — call `integral_delete_entry` with `entry_id`. The
      approval card explicitly states the deletion is irreversible. It
      stages a delete the user approves in Integral. Never narrate a

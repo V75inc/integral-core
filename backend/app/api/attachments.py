@@ -38,7 +38,7 @@ from app.api.errors import (
 from app.api.utils import export_node, resolve_principal_id
 from app.config import settings
 from app.models.edges import HAS_ATTACHMENT
-from app.models.nodes import Attachment, ChatThread, Entry
+from app.models.nodes import Attachment, Entry
 from app.schemas.policy import Resource, Subject
 from app.services.attachment_metadata import get_metadata_extraction_service
 from app.services.attachment_preview import (
@@ -66,6 +66,9 @@ from app.services.attachment_upload_shared import (
 )
 from app.services.attachment_urls import enrich_attachment_export, is_visible_to_user
 from app.services.change_event import emit_change_event
+from app.services.chat_attachment_upload import (
+    persist_chat_upload as _persist_uploaded_chat_file,
+)
 from app.services.chat_threads import get_thread as chat_threads_get_thread
 from app.services.chunked_upload import append_chunk as chunked_append_chunk
 from app.services.chunked_upload import assemble_session as chunked_assemble_session
@@ -76,13 +79,9 @@ from app.services.chunked_upload import session_to_dict as chunked_session_to_di
 from app.services.chunked_upload import start_session as chunked_start_session
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.url_safety import validate_public_http_url
-from app.services.workspace_storage_usage import check_quota as check_workspace_quota
 from app.services.workspace_storage_usage import (
     check_quota_for_entry,
     decrement_for_entry,
-)
-from app.services.workspace_storage_usage import increment as increment_workspace_usage
-from app.services.workspace_storage_usage import (
     increment_for_entry,
 )
 from app.utils.time import utc_now_iso
@@ -455,160 +454,6 @@ async def upload_attachments_batch(
             else f"{successes} succeeded, {failures} failed"
         ),
     }
-
-
-async def _find_duplicate_hash_on_thread(
-    thread: ChatThread, content_hash: str
-) -> Optional[Attachment]:
-    """Return an existing chat attachment on ``thread`` matching ``content_hash``."""
-    if not content_hash:
-        return None
-    existing = await thread.nodes(edge=["HAS_ATTACHMENT"], direction="out")
-    for att in existing:
-        if (
-            isinstance(att, Attachment)
-            and getattr(att, "content_hash", "") == content_hash
-        ):
-            return att
-    return None
-
-
-async def _persist_uploaded_chat_file(
-    *,
-    thread: ChatThread,
-    user_id: str,
-    file: UploadFile,
-) -> Dict[str, Any]:
-    """Chat-thread-scoped sibling of ``_persist_uploaded_file``.
-
-    Reuses the same MIME sniff / dedup / scan / thumbnail / metadata
-    pipeline but wires the resulting ``Attachment`` (``owner_kind="chat"``)
-    to the owning ``ChatThread`` instead of an ``Entry`` — see
-    ``HAS_ATTACHMENT`` docstring and I-GRAPH-01.
-    """
-    content, filename, sha256_hex, head_bytes = await _read_upload_streaming(
-        file, max_bytes=settings.ATTACHMENT_MAX_UPLOAD_BYTES
-    )
-    file_size = len(content)
-    mime_type = _resolve_effective_mime(
-        head_bytes=head_bytes,
-        content_type_claim=file.content_type or "",
-        filename=filename,
-    )
-
-    existing = await _find_duplicate_hash_on_thread(thread, sha256_hex)
-    if existing is not None:
-        # Idempotent: composer re-sends the same file on a follow-up turn.
-        # Returning the prior attachment keeps attachment_ids[] valid for the
-        # agent (integral_attach_uploaded_file_to_entry) instead of a 409 that
-        # blocks the whole send.
-        return {"attachment": await export_node(existing), "deduplicated": True}
-
-    over_quota = await check_workspace_quota(thread.workspace_id, file_size)
-    if over_quota is not None:
-        raise BadRequestError(
-            message=(
-                "Workspace storage quota exceeded "
-                f"({over_quota.bytes_used} / {over_quota.quota_bytes} bytes). "
-                "Delete files or contact an admin to raise the quota."
-            ),
-        )
-
-    storage = get_attachment_storage_service()
-    attachment = await Attachment.create(
-        filename=filename,
-        mime_type=mime_type,
-        size=file_size,
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=user_id,
-        owner_kind="chat",
-        content_hash=sha256_hex,
-        scan_status="pending",
-        metadata_status="pending",
-        created_at=utc_now_iso(),
-    )
-    try:
-        result = await storage.save_attachment(
-            entry_id=f"chat/{thread.id}",
-            attachment_id=attachment.id,
-            filename=filename,
-            content=content,
-            mime_type=mime_type,
-            metadata={
-                "chat_thread_id": thread.id,
-                "attachment_id": attachment.id,
-                "uploaded_by": user_id,
-                "sha256": sha256_hex,
-            },
-        )
-    except Exception:
-        await attachment.delete()
-        raise
-
-    attachment.storage_key = str(result.get("path") or "")
-    await attachment.save()
-
-    scanner = get_attachment_scanner()
-    try:
-        verdict = await scanner.scan(
-            content=content,
-            mime_type=mime_type,
-            filename=filename,
-        )
-    except Exception as e:  # noqa: BLE001
-        attachment.scan_status = "failed"
-        attachment.scan_engine = scanner.name
-        attachment.scan_message = f"scanner crashed: {e}"
-    else:
-        attachment.scan_status = verdict.status
-        attachment.scan_engine = verdict.engine
-        attachment.scan_message = verdict.message
-        if verdict.is_blocked:
-            with contextlib.suppress(Exception):
-                await storage.delete_attachment(attachment.storage_key)
-            attachment.storage_key = ""
-    await attachment.save()
-
-    if attachment.scan_status != SCAN_STATUS_BLOCKED:
-        try:
-            thumb_key = await ensure_thumbnail(
-                attachment,
-                entry_id=f"chat/{thread.id}",
-                content=content,
-                storage=storage,
-            )
-            if thumb_key:
-                await attachment.save()
-        except Exception:  # noqa: BLE001
-            pass
-
-    await thread.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="attachment.create",
-        resource_type="Attachment",
-        resource_id=attachment.id,
-        before=None,
-        after=await export_node(attachment),
-        scope=f"chat_thread:{thread.id}",
-    )
-
-    if attachment.scan_status != SCAN_STATUS_BLOCKED:
-        get_metadata_extraction_service().schedule_extraction(attachment.id)
-
-    if attachment.scan_status != SCAN_STATUS_BLOCKED and attachment.storage_key:
-        await increment_workspace_usage(thread.workspace_id, file_size)
-
-    return {"attachment": await export_node(attachment)}
 
 
 @endpoint(

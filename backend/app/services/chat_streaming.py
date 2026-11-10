@@ -106,6 +106,7 @@ _ERROR_MESSAGES: Dict[str, str] = {
     "model_authentication_failed": "The AI service wouldn't let Integral connect. Ask your workspace administrator to check the connection in Settings → AI Models.",
     "model_endpoint_unreachable": "I couldn't connect to the AI service. Please try again shortly. If this continues, ask your workspace administrator to check the connection.",
     "model_response_invalid": "The selected model couldn’t complete this request reliably. Try again, or choose another model in the chat’s model menu.",
+    "model_output_limit": "The model reached its response limit before it could finish. Your conversation is saved. Try again, choose another model, or ask your workspace administrator to increase the model's output limit in Settings → AI Models.",
     "model_empty_response": "I didn't receive an answer from the AI service. Please try again shortly.",
     "model_request_timeout": "The AI service took too long to reply. Please try again shortly.",
     "model_rate_limited": "The AI service is at its usage limit. Please try again later, or ask your workspace administrator to check the allowance.",

@@ -110,7 +110,7 @@ async def test_dispatch_propose_design_records_marker(
     denied = await get_artifact(
         user_id="other", session_id="sess-PD", key="app_design_blueprint"
     )
-    assert denied["error"] == "forbidden"
+    assert denied["error"] == "not_found"
     assert "blueprint" not in denied
     # No Prompt Sheet / staged design card.
     from app.services.prompt_queue import get_queue, queue_is_open
@@ -324,8 +324,19 @@ async def test_dispatch_scaffold_batch_refuses_track_without_app(
 
 
 @pytest.mark.asyncio
-async def test_artifact_upsert_get_list(bind_fresh_graph_context_for_async_tests):
-    await _thread("sess-art", 1, user_id="u1")
+async def test_artifact_upsert_get_list(
+    bind_fresh_graph_context_for_async_tests, monkeypatch
+):
+    thread = await _thread("sess-art", 1, user_id="u1")
+    thread.workspace_id = "ws1"
+    await thread.save()
+    from unittest.mock import AsyncMock
+
+    from app.services import workspace_permissions
+
+    monkeypatch.setattr(
+        workspace_permissions, "can_access_workspace", AsyncMock(return_value="member")
+    )
     up = await dispatch_tool(
         "integral_upsert_artifact",
         {
@@ -340,6 +351,19 @@ async def test_artifact_upsert_get_list(bind_fresh_graph_context_for_async_tests
     )
     assert not up.is_error, up
     assert up.data.get("version") == 1
+    stale = await dispatch_tool(
+        "integral_upsert_artifact",
+        {
+            "key": "checklist",
+            "kind": "checklist",
+            "body": "stale",
+            "expected_version": 0,
+        },
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-art",
+    )
+    assert stale.is_error and stale.error_code == "version_conflict"
 
     got = await dispatch_tool(
         "integral_get_artifact",
@@ -360,3 +384,223 @@ async def test_artifact_upsert_get_list(bind_fresh_graph_context_for_async_tests
     )
     assert not listed.is_error, listed
     assert listed.data.get("count") == 1
+
+
+@pytest.mark.asyncio
+async def test_artifact_tools_refuse_foreign_scope_and_revoked_membership(monkeypatch):
+    """A private draft cannot cross the active workspace or survive revocation."""
+    from unittest.mock import AsyncMock
+
+    from app.agentive import artifacts
+    from app.services import workspace_permissions
+
+    thread = await _thread("sess-scoped-artifact", 1, user_id="u1")
+    thread.workspace_id = "ws1"
+    await thread.save()
+    allow = AsyncMock(return_value="member")
+    monkeypatch.setattr(workspace_permissions, "can_access_workspace", allow)
+    saved = await artifacts.upsert_artifact(
+        user_id="u1",
+        session_id="sess-scoped-artifact",
+        workspace_id="ws1",
+        key="draft",
+        kind="note",
+        body="private draft",
+    )
+    assert saved["ok"]
+    for tool, args in (
+        ("integral_get_artifact", {"key": "draft"}),
+        ("integral_list_artifacts", {}),
+        (
+            "integral_upsert_artifact",
+            {"key": "draft", "kind": "note", "body": "overwrite"},
+        ),
+    ):
+        result = await dispatch_tool(
+            tool,
+            args,
+            principal_id="u1",
+            scope="ws2",
+            session_id="sess-scoped-artifact",
+        )
+        assert result.is_error and result.error_code == "session_unavailable"
+        assert "private draft" not in str(result)
+    allow.return_value = "none"
+    denied = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-scoped-artifact",
+    )
+    assert denied.is_error and denied.error_code == "session_unavailable"
+    assert (await ChatThread.get(thread.id)).artifacts["draft"][
+        "body"
+    ] == "private draft"
+
+
+@pytest.mark.asyncio
+async def test_artifact_tool_refuses_ambiguous_provider_session(monkeypatch):
+    """Two matching sessions are not resolved by arbitrary query order."""
+    from unittest.mock import AsyncMock
+
+    from app.services import workspace_permissions
+
+    monkeypatch.setattr(
+        workspace_permissions, "can_access_workspace", AsyncMock(return_value="member")
+    )
+    for _ in range(2):
+        thread = await _thread("ambiguous-artifact-session", 1, user_id="u1")
+        thread.workspace_id = "ws1"
+        thread.artifacts = {"draft": {"body": "private", "kind": "note"}}
+        await thread.save()
+    result = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id="u1",
+        scope="ws1",
+        session_id="ambiguous-artifact-session",
+    )
+    assert result.is_error and result.error_code == "session_unavailable"
+    assert "private" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_native_artifact_scope_uses_live_workspace_membership():
+    """Scoped draft access follows actual workspace membership and revocation."""
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services import chat_threads
+    from app.services.app_graph import catalog_user, ensure_integral_app_graph
+    from tests.fixtures.workspaces import make_org_workspace
+
+    await ensure_integral_app_graph(include_library=False)
+    user_id = "o.User.artifact-scope"
+    await AuthUser.create(
+        id=user_id, email="artifact-scope@example.com", password_hash="fixture"
+    )
+    user = await User.create(user_id=user_id, display_name="Tester")
+    await catalog_user(user)
+    first = await make_org_workspace("Drafts one", owner=user)
+    second = await make_org_workspace("Drafts two", owner=user)
+    thread = await chat_threads.create_thread(
+        user_id=user_id, provider_id="integral_native", workspace_id=first.id
+    )
+    saved = await dispatch_tool(
+        "integral_upsert_artifact",
+        {"key": "draft", "kind": "note", "body": "private"},
+        principal_id=user_id,
+        scope=first.id,
+        session_id=thread.id,
+    )
+    assert not saved.is_error
+    wrong = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id=user_id,
+        scope=second.id,
+        session_id=thread.id,
+    )
+    assert wrong.is_error and wrong.error_code == "session_unavailable"
+    graph = await user.get_context()
+    memberships = await graph.find_edges_between(
+        user.id, first.id, edge_class=IS_MEMBER_OF
+    )
+    assert memberships
+    for membership in memberships:
+        await membership.delete()
+    revoked = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id=user_id,
+        scope=first.id,
+        session_id=thread.id,
+    )
+    assert revoked.is_error and revoked.error_code == "session_unavailable"
+    assert "private" not in str(revoked)
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_artifact_revisions_serialize_and_reject_stale_writes():
+    """Concurrent revisions cannot clobber other drafts or a newer version."""
+    import asyncio
+
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.agentive import artifacts
+    from app.models.nodes import User
+    from app.services import chat_threads
+    from app.services.app_graph import catalog_user, ensure_integral_app_graph
+    from tests.fixtures.workspaces import make_org_workspace
+
+    await ensure_integral_app_graph(include_library=False)
+    user_id = "o.User.artifact-concurrency"
+    await AuthUser.create(
+        id=user_id, email="artifact-concurrency@example.com", password_hash="fixture"
+    )
+    user = await User.create(user_id=user_id, display_name="Tester")
+    await catalog_user(user)
+    workspace = await make_org_workspace("Draft concurrency", owner=user)
+    thread = await chat_threads.create_thread(
+        user_id=user_id, provider_id="integral_native", workspace_id=workspace.id
+    )
+    scope = {"user_id": user_id, "workspace_id": workspace.id, "session_id": thread.id}
+    first = await artifacts.upsert_artifact(
+        **scope, key="draft", kind="note", body="initial", expected_version=0
+    )
+    assert first["version"] == 1
+    results = await asyncio.gather(
+        artifacts.upsert_artifact(
+            **scope, key="draft", kind="note", body="left", expected_version=1
+        ),
+        artifacts.upsert_artifact(
+            **scope, key="draft", kind="note", body="right", expected_version=1
+        ),
+        artifacts.upsert_artifact(
+            **scope, key="other", kind="note", body="independent", expected_version=0
+        ),
+    )
+    assert sum(item.get("error") == "version_conflict" for item in results) == 1
+    assert sum(item.get("ok") is True for item in results) == 2
+    draft = await artifacts.get_artifact(**scope, key="draft")
+    other = await artifacts.get_artifact(**scope, key="other")
+    assert draft["version"] == 2 and draft["body"] in {"left", "right"}
+    assert other["body"] == "independent" and other["version"] == 1
+    stale = await artifacts.upsert_artifact(
+        **scope, key="draft", kind="note", body="stale", expected_version=1
+    )
+    assert stale["error"] == "version_conflict" and stale["current_version"] == 2
+    assert (await artifacts.get_artifact(**scope, key="draft"))["body"] == draft["body"]
+
+    initial_document = await artifacts.upsert_artifact(
+        **scope,
+        key="report",
+        kind="document_draft",
+        title="Report",
+        body="Initial draft",
+        metadata={"format": "markdown"},
+        expected_version=0,
+    )
+    assert initial_document["version"] == 1
+    revised, unfenced = await asyncio.gather(
+        artifacts.upsert_artifact(
+            **scope,
+            key="report",
+            kind="document_draft",
+            title="Report",
+            body="Reviewed revision",
+            metadata={"format": "markdown"},
+            expected_version=1,
+        ),
+        artifacts.upsert_artifact(
+            **scope, key="report", kind="note", body="Unfenced replacement"
+        ),
+    )
+    assert revised.get("ok") is True and revised["version"] == 2
+    assert unfenced["error"] == "version_required"
+    saved_document = await artifacts.get_artifact(**scope, key="report")
+    assert saved_document["kind"] == "document_draft"
+    assert saved_document["body"] == "Reviewed revision"

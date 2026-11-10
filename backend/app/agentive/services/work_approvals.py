@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional, Tuple
@@ -83,6 +84,29 @@ def _hydrate_approval(doc: Dict[str, Any]) -> WorkApproval:
     return WorkApproval(id=doc["id"], **ctx)
 
 
+def _assert_same_approval_intent(
+    existing: Dict[str, Any], expected: Dict[str, Any]
+) -> None:
+    """A stable approval ID must never alias a different reviewed work slot."""
+    fields = (
+        "work_approval_id",
+        "work_item_id",
+        "definition_id",
+        "staging_token",
+        "policy_approval_id",
+        "run_id",
+        "run_step_id",
+        "authority_digest",
+        "expires_at",
+    )
+    if any(
+        (existing.get(field) or "") != (expected.get(field) or "") for field in fields
+    ):
+        raise WorkError(
+            "work.idempotency_conflict", "approval identity has different work intent"
+        )
+
+
 async def _refresh_work_approval_cache(approval: WorkApproval) -> None:
     """Keep the identity cache aligned with transactional approval CAS writes."""
     try:
@@ -107,6 +131,134 @@ async def get_pending_by_staging_token(staging_token: str) -> Optional[WorkAppro
         {"context.staging_token": token, "context.status": "pending"}
     )
     return found[0] if found else None
+
+
+async def lock_linked_staging_work(
+    *, transaction: Any, staging_data: Dict[str, Any]
+) -> Optional[str]:
+    """Lock and admit any linked work using the current staging scope."""
+    token = str(staging_data.get("token") or "")
+    principal_id = str(staging_data.get("user_id") or "")
+    workspace_id = str(staging_data.get("workspace_id") or "")
+    links = await transaction.find(
+        OBJECT_COLLECTION,
+        {"entity": "WorkApproval", "context.staging_token": token},
+        limit=2,
+    )
+    if not links:
+        return None
+    if len(links) != 1:
+        raise WorkError("work.policy_denied", "staging approval linkage is ambiguous")
+    link = await transaction.find_one_and_update(
+        OBJECT_COLLECTION,
+        {"id": links[0]["id"], "entity": "WorkApproval"},
+        {"$set": {}},
+    )
+    if link is None:
+        raise WorkError("work.policy_denied", "staging approval linkage changed")
+    data = link.get("context") or {}
+    approval_id = str(data.get("work_approval_id") or "")
+    work_id = str(data.get("work_item_id") or "")
+    work = await transaction.find_one_and_update(
+        OBJECT_COLLECTION,
+        {"id": f"o.WorkItem.{work_id}", "entity": "WorkItem"},
+        {"$set": {}},
+    )
+    work_data = (work or {}).get("context") or {}
+    if (
+        not token
+        or not principal_id
+        or not workspace_id
+        or not approval_id
+        or not work_id
+        or link.get("id") != work_approval_object_id(approval_id)
+        or (work or {}).get("entity") != "WorkItem"
+        or work_data.get("principal_id") != principal_id
+        or work_data.get("workspace_id") != workspace_id
+        or (work_data.get("thread_id") or "") != (staging_data.get("session_id") or "")
+        or (data.get("run_id") or "") != (work_data.get("run_id") or "")
+    ):
+        raise WorkError("work.policy_denied", "staging approval linkage changed")
+    if data.get("status") == "approved":
+        # Compatibility with previously admitted linked work: it may already
+        # have been queued before this atomic completion path was deployed.
+        # Do not issue a second transition or claim the old ordering was safe.
+        if work_data.get("cancel_requested_at") or work_data.get("status") in {
+            "cancelled",
+            "expired",
+            "dead_letter",
+            "failed",
+        }:
+            raise WorkError("work.policy_denied", "linked work is no longer active")
+        return None
+    if (
+        data.get("status") != "pending"
+        or work_data.get("status") != "waiting_for_human"
+        or work_data.get("cancel_requested_at")
+    ):
+        raise WorkError("work.policy_denied", "staging approval linkage changed")
+    return approval_id
+
+
+async def complete_linked_staging_work(
+    *, transaction: Any, staging_data: Dict[str, Any]
+) -> None:
+    """Queue linked work atomically with its exact consumed staging decision."""
+    approval_id = await lock_linked_staging_work(
+        transaction=transaction, staging_data=staging_data
+    )
+    if approval_id is None:
+        return
+    await approve_work_approval(
+        work_approval_id=approval_id,
+        decider_id=staging_data["user_id"],
+        transaction=transaction,
+    )
+    # Canonical command receipts are sufficient to reconcile a worker retry
+    # without dispatching the original proposal again. Bind both the consumed
+    # intent and receipt while their decision and work transition are locked.
+    # Other effect families retain empty fields and require reconciliation.
+    from app.agentive import staging_store
+    from app.agentive.services.staging_execution import execution_record_id
+
+    token = staging_data["token"]
+    execution_id = execution_record_id(token)
+    execution = await transaction.get(OBJECT_COLLECTION, execution_id)
+    facts = (execution or {}).get("context") or {}
+    request_hash = hashlib.sha256(
+        json.dumps(
+            staging_data.get("payload"),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+    if (
+        (execution or {}).get("entity") == "StagingExecutionRecord"
+        and facts.get("principal_id") == staging_data["user_id"]
+        and facts.get("workspace_id") == staging_data["workspace_id"]
+        and facts.get("kind") == staging_data["kind"]
+        and facts.get("request_hash") == request_hash
+        and facts.get("state") == "applied"
+        and facts.get("local_effect_state") == "applied"
+        and facts.get("result_ciphertext")
+        and facts.get("external_outcome") in {None, "not_dispatched", "returned"}
+    ):
+        bound = await transaction.find_one_and_update(
+            OBJECT_COLLECTION,
+            {"id": work_approval_object_id(approval_id), "context.status": "approved"},
+            {
+                "$set": {
+                    "context.staging_intent_fingerprint": staging_store.decision_intent_fingerprint(
+                        staging_data
+                    ),
+                    "context.staging_execution_id": execution_id,
+                    "context.staging_request_hash": request_hash,
+                }
+            },
+        )
+        if bound is None:
+            raise WorkError("work.policy_denied", "Consumed approval binding changed")
 
 
 async def get_pending_by_work_item(work_item_id: str) -> Optional[WorkApproval]:
@@ -147,20 +299,11 @@ async def _persist_staged_projection(fields: Dict[str, Any]) -> None:
         token = str(fields.get("token") or "").strip()
         if not token:
             return
-        # Ensure work_approval_id rides on the projection.
         existing = await _find_record(token)
         if existing is not None:
-            for key, val in fields.items():
-                if hasattr(existing, key):
-                    setattr(existing, key, val)
-            # Stash authority link in payload when model lacks the field.
-            payload = dict(getattr(existing, "payload", None) or {})
-            if fields.get("work_approval_id"):
-                payload["work_approval_id"] = fields["work_approval_id"]
-            existing.payload = payload
-            if "state" not in fields or existing.state not in ("pending", "blessed"):
-                existing.state = existing.state or "pending"
-            await existing.save()
+            # The proposal is the reviewed source of truth. The WorkApproval
+            # already links by token; adding internal metadata or replaying
+            # stale projection fields here changes the reviewed intent.
             return
         create_fields = {
             k: v
@@ -188,10 +331,6 @@ async def _persist_staged_projection(fields: Dict[str, Any]) -> None:
                 "idempotency_key",
             }
         }
-        payload = dict(create_fields.get("payload") or {})
-        if fields.get("work_approval_id"):
-            payload["work_approval_id"] = fields["work_approval_id"]
-        create_fields["payload"] = payload
         create_fields.setdefault("state", "pending")
         create_fields.setdefault("token", token)
         if not create_fields.get("created_at"):
@@ -235,19 +374,6 @@ async def propose_work_approval_unit(
         policy_approval_id=policy_approval_id,
     )
     now = utc_now_iso()
-    existing = await get_work_approval(wa_id)
-    if existing is not None:
-        item = await WorkItem.get(f"o.WorkItem.{work_item_id}")
-        if item is None:
-            raise WorkError("work.not_found", f"work item {work_item_id} not found")
-        if existing.status == "pending" and item.status == "waiting_for_human":
-            return existing, item
-        if existing.status != "pending":
-            raise WorkError(
-                "work.approval_decided",
-                f"work approval already {existing.status}",
-            )
-
     work_item = await WorkItem.get(f"o.WorkItem.{work_item_id}")
     if work_item is None:
         raise WorkError("work.not_found", f"work item {work_item_id} not found")
@@ -264,6 +390,16 @@ async def propose_work_approval_unit(
         expires_at=expires_at or "",
         created_at=now,
     )
+
+    existing = await get_work_approval(wa_id)
+    if existing is not None:
+        _assert_same_approval_intent(existing.model_dump(), doc["context"])
+        if existing.status == "pending" and work_item.status == "waiting_for_human":
+            return existing, work_item
+        if existing.status != "pending":
+            raise WorkError(
+                "work.approval_decided", f"work approval already {existing.status}"
+            )
 
     db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
@@ -306,11 +442,13 @@ async def _propose_dev(
 
     ctx = dict(doc["context"])
     approval, created = await WorkApproval.create_if_absent(id=doc["id"], **ctx)
-    if not created and approval.status != "pending":
-        raise WorkError(
-            "work.approval_decided",
-            f"work approval already {approval.status}",
-        )
+    if not created:
+        _assert_same_approval_intent(approval.model_dump(), ctx)
+        if approval.status != "pending":
+            raise WorkError(
+                "work.approval_decided",
+                f"work approval already {approval.status}",
+            )
     # Call unlocked CAS body — caller already holds `_dev_lock`.
     item = await _cas_dev(
         object_id=f"o.WorkItem.{work_item_id}",
@@ -362,16 +500,20 @@ async def _propose_postgres(
     bare_id = object_id.removeprefix("o.WorkItem.")
     try:
         inserted = await txn.insert_if_absent(OBJECT_COLLECTION, doc)
-        if not inserted:
-            existing_doc = await txn.get(OBJECT_COLLECTION, doc["id"])
+        if not inserted.created:
+            existing_doc = inserted.record or await txn.get(
+                OBJECT_COLLECTION, doc["id"]
+            )
             if existing_doc is None:
                 raise WorkError("work.cas_conflict", "approval insert raced")
             existing_ctx = dict(existing_doc.get("context") or {})
+            _assert_same_approval_intent(existing_ctx, doc["context"])
             if existing_ctx.get("status") != "pending":
                 raise WorkError(
                     "work.approval_decided",
                     f"work approval already {existing_ctx.get('status')}",
                 )
+            doc = existing_doc
         current = await txn.get(OBJECT_COLLECTION, object_id)
         if current is None:
             raise WorkError("work.not_found", f"work item {bare_id} not found")

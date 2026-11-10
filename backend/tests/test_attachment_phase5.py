@@ -227,3 +227,99 @@ async def test_recalculate_sums_attachments_from_graph():
 
     snap = await recalculate_for_workspace(org.id)
     assert snap.bytes_used == sum(sizes)
+
+
+@pytest.mark.asyncio
+async def test_recalculate_includes_chat_files_once_and_respects_workspace():
+    """Count unfiled chat blobs while avoiding provenance double counting."""
+    from app.models.edges import CONTAINS
+    from app.services import chat_threads
+
+    workspace, track, entry = await _make_org_track_entry()
+    other, _, _ = await _make_org_track_entry()
+    await track.connect(entry, edge=CONTAINS, added_at=datetime.now().isoformat())
+    thread = await chat_threads.create_thread(
+        user_id="u1", provider_id="integral_native", workspace_id=workspace.id
+    )
+    other_thread = await chat_threads.create_thread(
+        user_id="u1", provider_id="integral_native", workspace_id=other.id
+    )
+
+    async def attach(parent, size, owner, storage_key):
+        attachment = await Attachment.create(
+            filename="file.txt",
+            size=size,
+            storage_key=storage_key,
+            owner_kind=owner,
+            scan_status="skipped",
+            uploaded_by="u1",
+        )
+        await parent.connect(attachment, edge=HAS_ATTACHMENT, attached_by="u1")
+        return attachment
+
+    await attach(thread, 100, "chat", "chat-key")
+    await attach(thread, 500, "chat", "")  # no persisted blob
+    filed = await attach(thread, 200, "entry", "filed-key")
+    await entry.connect(filed, edge=HAS_ATTACHMENT, attached_by="u1")
+    await attach(other_thread, 1000, "chat", "other-key")
+
+    snap = await recalculate_for_workspace(workspace.id)
+    assert snap.bytes_used == 300
+
+
+@pytest.mark.asyncio
+async def test_recalculate_does_not_persist_partial_total_when_chat_read_fails(
+    monkeypatch,
+):
+    """A failed chat lookup must leave the existing usage counter intact."""
+    from app.models.nodes import ChatThread
+
+    workspace, _, _ = await _make_org_track_entry()
+    workspace.storage_bytes_used = 1234
+    await workspace.save()
+
+    async def failed_find(*args: object, **kwargs: object):
+        raise RuntimeError("chat storage unavailable")
+
+    monkeypatch.setattr(ChatThread, "find", failed_find)
+    with pytest.raises(RuntimeError, match="chat storage unavailable"):
+        await recalculate_for_workspace(workspace.id)
+    assert (await get_usage(workspace.id)).bytes_used == 1234
+
+
+@pytest.mark.asyncio
+async def test_recalculate_does_not_persist_partial_total_when_track_read_fails(
+    monkeypatch,
+):
+    """Entry-side lookup failures must not reset the counter either."""
+    workspace, _, _ = await _make_org_track_entry()
+    workspace.storage_bytes_used = 1234
+    await workspace.save()
+
+    async def failed_find(*args: object, **kwargs: object):
+        raise RuntimeError("track storage unavailable")
+
+    monkeypatch.setattr(Track, "find", failed_find)
+    with pytest.raises(RuntimeError, match="track storage unavailable"):
+        await recalculate_for_workspace(workspace.id)
+    assert (await get_usage(workspace.id)).bytes_used == 1234
+
+
+@pytest.mark.asyncio
+async def test_recalculate_refuses_to_overwrite_a_concurrent_usage_change(monkeypatch):
+    """A successful delta during the scan must not be replaced by a stale sum."""
+    from app.api.errors import ResourceConflictError
+    from app.models.nodes import ChatThread
+    from app.services.workspace_storage_usage import increment
+
+    workspace, _, _ = await _make_org_track_entry()
+    original_find = ChatThread.find
+
+    async def increment_during_scan(*args: object, **kwargs: object):
+        await increment(workspace.id, 75)
+        return await original_find(*args, **kwargs)
+
+    monkeypatch.setattr(ChatThread, "find", increment_during_scan)
+    with pytest.raises(ResourceConflictError, match="Storage changed"):
+        await recalculate_for_workspace(workspace.id)
+    assert (await get_usage(workspace.id)).bytes_used == 75

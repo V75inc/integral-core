@@ -270,19 +270,26 @@
   "core_skills": [
     {
       "allowed_tools": [
+        "integral_attach_uploaded_file_to_entry",
+        "integral_begin_batch",
+        "integral_commit_batch",
         "integral_get_artifact",
         "integral_list_artifacts",
+        "integral_prepare_document_attachment",
         "integral_upsert_artifact"
       ],
       "body_tools": [
+        "integral_attach_uploaded_file_to_entry",
         "integral_get_artifact",
         "integral_list_artifacts",
+        "integral_prepare_document_attachment",
         "integral_upsert_artifact"
       ],
       "delegates_to": [
+        "integral-attachments",
         "integral-scaffold"
       ],
-      "intent": "Maintains session working artifacts \u2014 upsert, get, and list harness-agnostic blueprints, checklists, and notes keyed on the conversation for multi-turn fidelity without Integral UI cards.",
+      "intent": "Maintains session working artifacts and creates downloadable private document drafts in Markdown, DOCX, PDF or PowerPoint from conversation content. Use for writing and revising requested files; use filing and attachment workflows for approved placement in an App or Track.",
       "name": "integral-artifacts",
       "source": "agent/skills/integral-artifacts/SKILL.md",
       "unresolved_refs": []
@@ -310,7 +317,8 @@
         "integral_query_entries",
         "integral_rank_destinations",
         "integral_resolve_entry",
-        "integral_transcribe_audio"
+        "integral_transcribe_audio",
+        "integral_update_entry"
       ],
       "body_tools": [
         "integral_attach_file",
@@ -333,7 +341,8 @@
         "integral_query_entries",
         "integral_rank_destinations",
         "integral_resolve_entry",
-        "integral_transcribe_audio"
+        "integral_transcribe_audio",
+        "integral_update_entry"
       ],
       "delegates_to": [
         "integral-entries",
@@ -869,6 +878,7 @@
       "allowed_tools": [
         "integral_apply_model_to_track",
         "integral_ask_user",
+        "integral_attach_uploaded_file_to_entry",
         "integral_author_model",
         "integral_author_skill",
         "integral_begin_batch",
@@ -889,10 +899,12 @@
         "integral_get_track_schema",
         "integral_list_apps",
         "integral_list_artifacts",
+        "integral_list_attachments",
         "integral_list_models",
         "integral_list_routines",
         "integral_list_tracks",
         "integral_list_views",
+        "integral_prepare_document_attachment",
         "integral_propose_design",
         "integral_query_entries",
         "integral_read_app_home",
@@ -901,6 +913,7 @@
         "integral_schedule_task",
         "integral_suggest_dashboard",
         "integral_update_app",
+        "integral_update_entry",
         "integral_verify_build",
         "integral_whoami"
       ],
@@ -937,6 +950,8 @@
         "integral_verify_build"
       ],
       "delegates_to": [
+        "integral-artifacts",
+        "integral-attachments",
         "integral-entries",
         "integral-model",
         "integral-models",
@@ -1070,15 +1085,15 @@
     }
   ],
   "counts": {
-    "advertised": 132,
+    "advertised": 133,
     "apps": 6,
     "by_op_class": {
       "execute": 1,
-      "propose": 71,
+      "propose": 72,
       "read": 60
     },
     "core_skills": 18,
-    "tools": 134
+    "tools": 135
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1940,8 +1955,10 @@
       "op_class": "propose",
       "policy_action": "entry.update",
       "skills": [
+        "integral-attachments",
         "integral-entries",
-        "integral-organize"
+        "integral-organize",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2031,6 +2048,26 @@
       },
       "domain": "C_entry_lifecycle",
       "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_prepare_document_attachment",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral-artifacts",
+        "integral-scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
       "mcp_min_scope": "integral:read",
       "name": "integral_get_artifact",
       "op_class": "read",
@@ -2095,6 +2132,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
+        "integral-artifacts",
         "integral-attachments",
         "integral-entries",
         "integral-model",
@@ -2139,6 +2177,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
+        "integral-artifacts",
         "integral-attachments",
         "integral-entries",
         "integral-model",
@@ -3370,7 +3409,8 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral-attachments"
+        "integral-attachments",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -3484,7 +3524,9 @@
       "op_class": "propose",
       "policy_action": "attachment.create",
       "skills": [
-        "integral-attachments"
+        "integral-artifacts",
+        "integral-attachments",
+        "integral-scaffold"
       ],
       "status": "existing"
     },

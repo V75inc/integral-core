@@ -22,6 +22,53 @@ def authenticated_entry_stage(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind,value,accepted",
+    [
+        ("file", {"attachment_id": "n.Attachment.1"}, False),
+        ("files", [{"attachment_id": "n.Attachment.1"}], False),
+        ("file", "n.Attachment.1", True),
+        ("files", ["n.Attachment.1"], True),
+    ],
+)
+async def test_file_field_shape_is_checked_before_staging(
+    monkeypatch, kind, value, accepted
+):
+    """Malformed file objects are rejected before an approval is created."""
+    monkeypatch.setattr(
+        bindings._sd,
+        "load_entry_record",
+        AsyncMock(
+            return_value={
+                "id": "entry",
+                "title": "Document",
+                "track_id": "track",
+                "type_id": "type",
+            }
+        ),
+    )
+    monkeypatch.setattr("app.models.nodes.Track.get", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        "app.services.view_create_resolution.load_entry_types_for_track",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    id="type",
+                    form_schema={"fields": [{"key": "document", "type": kind}]},
+                )
+            ]
+        ),
+    )
+    args = {"entry_id": "entry", "updates": {"fields": {"document": value}}}
+    if accepted:
+        staged = await bindings._stage_update_entry(args)
+        assert staged["payload"]["fields"]["document"] == value
+    else:
+        with pytest.raises(ValueError, match="attachment ID string"):
+            await bindings._stage_update_entry(args)
+
+
+@pytest.mark.asyncio
 async def test_stage_update_entry_uses_entry_title(monkeypatch):
     entry_id = "n.Entry.abc123def456"
     monkeypatch.setattr(
