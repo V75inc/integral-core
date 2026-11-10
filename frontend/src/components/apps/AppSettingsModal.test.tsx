@@ -56,11 +56,11 @@ it('opens directly to function access when it is the only applicable settings se
   expect(screen.queryByRole('button', {name:'Save settings'})).toBeNull();
 });
 
-vi.mock('./AppSettingsPageHost', () => ({ AppSettingsPageHost: ({ page }: { page: { label: string; view?: string } }) => <div>Page host: {page.label} / {page.view}</div> }));
+vi.mock('./AppSettingsPageHost', () => ({ AppSettingsPageHost: ({ appId, page }: { appId: string; page: { label: string; view?: string } }) => <div>Page host: {page.label} / {page.view} / {appId}</div> }));
 it('shows an App\'s declared settings pages inside the dialog, above its plain options', async () => {
   mocks.get.mockResolvedValue({ ...configured, settings_schema: { ...configured.settings_schema, 'ui:pages': [{ label: 'Pay rules', track: 'Rules', view: 'hub' }, { nolabel: true }] } });
   show();
-  expect(await screen.findByText('Page host: Pay rules / hub')).toBeInTheDocument();
+  expect(await screen.findByText('Page host: Pay rules / hub / app')).toBeInTheDocument();
   expect(screen.getByText('Options')).toBeInTheDocument();
   expect(screen.getByLabelText('Record prefix')).toBeInTheDocument();
 });

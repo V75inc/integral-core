@@ -143,7 +143,7 @@ export function AppSettingsModal({
           <AppFunctionAccess appId={appId} workspaceId={functionAccessWorkspaceId} />
         </> : <>
         {pages.map(page => <section key={page.track + page.label} aria-label={page.label} className="mb-6">
-          <AppSettingsPageHost page={page} />
+          <AppSettingsPageHost appId={appId} page={page} />
         </section>)}
         {pages.length > 0 && hasFields ? <Text variant="heading-sm" as="h3" className="mb-3 mt-2">Options</Text> : null}
         {loading ? (

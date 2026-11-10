@@ -20,7 +20,7 @@ import type { EntryCreateInput } from '../../views/types';
 
 export type AppSettingsPageSpec = { label: string; description?: string; track: string; view?: string };
 
-export function AppSettingsPageHost({ page }: { page: AppSettingsPageSpec }) {
+export function AppSettingsPageHost({ appId, page }: { appId: string; page: AppSettingsPageSpec }) {
   const { showToast } = useToast();
   const [track, setTrack] = useState<Track | null>(null);
   const [entryTypes, setEntryTypes] = useState<EntryTypeNode[]>([]);
@@ -78,6 +78,7 @@ export function AppSettingsPageHost({ page }: { page: AppSettingsPageSpec }) {
         key={refresh}
         trackId={track.id}
         viewKey={page.view}
+        bindings={{ appId }}
         entryTypes={entryTypes}
         onEntryOpen={entry => setOpen(entry)}
         onEntryCreate={create}
