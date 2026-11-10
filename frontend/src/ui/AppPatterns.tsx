@@ -24,10 +24,12 @@ export function AppSection({title, description, actions, children, variant = 'pa
     </Stack>{actions ? <AppActions>{actions}</AppActions> : null}</Inline> : null}{children}</Stack>
   </Surface>;
 }
-const columns = {1: 'grid-cols-1', 2: 'grid-cols-1 md:grid-cols-2', 3: 'grid-cols-1 md:grid-cols-3', 4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'};
+const columns = {1: 'grid-cols-1', 2: 'grid-cols-1 md:grid-cols-2', 3: 'grid-cols-1 md:grid-cols-3', 4: 'grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))]'};
+// fit="container": columns follow the room the grid has (a page beside the assistant is narrower than the window), not the window width.
+const containerColumns = {1: 'grid-cols-1', 2: 'grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))]', 3: 'grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]', 4: 'grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))]'};
 const gaps = {none: 'gap-0', xs: 'gap-1', sm: 'gap-2', md: 'gap-3', lg: 'gap-4', xl: 'gap-5', '2xl': 'gap-6'};
-export function AppGrid({children, columns: count = 2, gap = 'lg', className, ...rest}: AppGridProps) {
-  return <div {...rest} className={['grid min-w-0 items-start', columns[count], gaps[gap], className].filter(Boolean).join(' ')}>{children}</div>;
+export function AppGrid({children, columns: count = 2, gap = 'lg', fit, className, ...rest}: AppGridProps) {
+  return <div {...rest} className={['grid min-w-0 items-start', (fit === 'container' ? containerColumns : columns)[count], gaps[gap], className].filter(Boolean).join(' ')}>{children}</div>;
 }
 export function AppField({id, fieldKey, label, required, help, error, children}: AppFieldProps) {
   const generated = useId();

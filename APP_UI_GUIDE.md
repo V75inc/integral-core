@@ -1,4 +1,4 @@
-<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 00ccbce4809979116fbf45f5d4a49e1475d63df16dccf6491bc351b9017edc02. Do not edit. -->
+<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 6523f56d43de8980dbc1636a1b9eceee7f348cfb8b2e6188de0edf837101eaee. Do not edit. -->
 
 # Integral Business App UI authoring — React SDK 1.2
 
@@ -38,7 +38,7 @@ must improve in Core rather than being copied independently into each App.
 | `AppPage` | Content root with consistent vertical rhythm; does not create navigation, a modal or a Save action. Accepts HTML attributes and layout-only `className`. |
 | `AppHeader` | `title`, optional `description`, `eyebrow`, `meta`, `actions`; shared title hierarchy and wrapping. |
 | `AppSection` | `title`, `description`, `actions`, children; `variant="panel"` or `"plain"`. Sections remain in the App's chosen order. |
-| `AppGrid` | `columns={1|2|3|4}`, `gap` presets; collapses to one column below Core's medium breakpoint. Preserve logical DOM/tab order. |
+| `AppGrid` | `columns={1|2|3|4}`, `gap` presets; collapses to one column below Core's medium breakpoint (four columns fit the room the grid has). `fit="container"` makes any column count follow the grid's own width instead, for a page beside the assistant. Preserve logical DOM/tab order. |
 | `AppField` | `label`, optional `id`, `fieldKey`, `required`, `help`, `error`; render-function child receives control bindings. |
 | `AppActions` | Wrapping action layout with `align="start"`, `"end"` or `"between"`. Does not implement mutations. |
 | `AppSummary` | `title`, optional `description`, `rows` containing stable `key`, `label`, formatted `value`, optional `emphasis`. No calculation or currency policy. |
