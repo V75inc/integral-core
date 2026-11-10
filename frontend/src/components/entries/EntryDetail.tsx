@@ -794,7 +794,7 @@ export function EntryDetail({
     <EntryContributionSlot
       ref={editContributionApiRef}
       placement="entry_detail"
-      appId={track?.app?.id || entry.track?.app?.id || editForm.appId}
+      appId={track?.app?.id || trackContext?.app?.id || entry.app?.id || entry.track?.app?.id || editForm.appId}
       formSchema={editForm.entryTypeFormSchema || entryTypeFormSchema}
       trackId={entry.track_id}
       entryId={entry.id}
