@@ -184,12 +184,13 @@ def build_native_runtime(
         # tools explicitly marked read-only in the Core catalogue may be
         # compacted; capability loading, skills, staging, and writes stay exact.
         build_integral_working_context(
+            retrieval_scope=scope,
             clearable_tools=frozenset(
                 tool.name
                 for tool in tools
                 if (getattr(tool, "metadata", None) or {}).get("integral_op_class")
                 == "read"
-            )
+            ),
         ),
         # Search only this server-assigned Pydantic conversation. The source
         # is the exact tenant/principal/thread/session-scoped StepStore used by

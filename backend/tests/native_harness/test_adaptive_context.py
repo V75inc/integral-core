@@ -299,6 +299,53 @@ async def test_light_turn_receives_trusted_resume_context(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operational_generation", [0, 2])
+async def test_light_turn_does_not_reuse_unverified_assistant_text(
+    monkeypatch, operational_generation
+):
+    from app.agentive.harness import adaptive
+    from app.services.chat_threads import append_message
+
+    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    thread.harness_session_generation = operational_generation
+    await thread.save()
+    await append_message(
+        thread=thread,
+        role="assistant",
+        parts=[{"type": "text", "text": "SOURCE_DERIVED_ASSISTANT_TEXT"}],
+        provider_metadata=(
+            {} if operational_generation else {"resident_assignment_draft": True}
+        ),
+    )
+    await append_message(
+        thread=thread,
+        role="user",
+        parts=[{"type": "text", "text": "SAFE_USER_HISTORY"}],
+    )
+    original = adaptive.build_light_agent
+    captured = {}
+
+    def capture_agent(*args, **kwargs):
+        agent = original(*args, **kwargs)
+        run = agent.run
+
+        async def capture_run(*args, **kwargs):
+            captured["history"] = kwargs["message_history"]
+            return await run(*args, **kwargs)
+
+        agent.run = capture_run
+        return agent
+
+    monkeypatch.setattr(adaptive, "build_light_agent", capture_agent)
+    assert isinstance(
+        await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None),
+        LightTurnResult,
+    )
+    assert "SAFE_USER_HISTORY" in str(captured["history"])
+    assert "SOURCE_DERIVED_ASSISTANT_TEXT" not in str(captured["history"])
+
+
+@pytest.mark.asyncio
 async def test_provider_escalation_keeps_usage_in_same_run(monkeypatch):
     ctx, thread, _, calls = await setup_turn(monkeypatch, escalation=True)
     result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)

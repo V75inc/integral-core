@@ -55,6 +55,7 @@ HANDLED_KINDS = frozenset(
         "chat_turn",
         "chat_title",
         "attachment_analysis",
+        "resident_assignment",
     }
 )
 
@@ -1415,6 +1416,24 @@ async def _execute_claimed_work(
                 lease_fence=int(item.lease_fence or 0),
                 expected_status="running",
                 target="succeeded",
+            )
+        if kind == "resident_assignment":
+            from app.services.resident_assignment_execution import (
+                prepare_resident_assignment,
+                publish_resident_assignment_preparation,
+            )
+
+            context = work_execution.build_work_execution_context(
+                work_item=item, logical_step_key="resident_assignment:0"
+            )
+            revision, result = await _with_supervised_heartbeat(
+                item,
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                body=lambda: prepare_resident_assignment(context),
+            )
+            return await publish_resident_assignment_preparation(
+                context, revision, result
             )
         if kind == "attachment_analysis":
             from app.services.attachment_metadata.analysis import (

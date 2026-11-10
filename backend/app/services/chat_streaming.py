@@ -99,6 +99,7 @@ _ERROR_MESSAGES: Dict[str, str] = {
     "ai_quota_exceeded": "This workspace has used its AI allowance. Ask your workspace administrator about adding more, or try again when the allowance renews.",
     "walker_failed": "I ran into a problem and couldn't finish. Please try again.",
     "model_context_limit": "The AI service said this step exceeds the selected model’s context limit. Your conversation is saved. Retry with fewer attachments or one part of the task at a time, or choose a model with a larger context window. If you run the model locally, check its context window in Settings → AI Models.",
+    "harness_retrieval_history_stale": "A source changed or is no longer available. Your chat and pending approvals are saved. Send a new request to continue with current sources.",
     "harness_context_limit": "This step exceeded the context available to the selected model. Your conversation is saved. Retry with fewer attachments or one part of the task at a time, or choose a model with a larger context window. If you run the model locally, check its context window in Settings → AI Models.",
     "harness_usage_limit": "I couldn't finish everything in one go. Check any saved changes and approvals in this chat, then ask me to continue with what's left.",
     "harness_reconciliation_required": "I couldn't pick up the earlier request reliably. Its actions haven't been repeated. Check what was already saved, then tell me what you'd like to do next in this chat.",

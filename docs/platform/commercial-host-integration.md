@@ -155,6 +155,39 @@ host integration APIs, not model tools or permission grants.
 | `register_middleware_factory` | Host request middleware; required by default | No host middleware |
 | `register_background_task` | Host reconciliation/task coroutine | No host task |
 
+### Operator-configured evidence for bounded text requests
+
+Set `INTEGRAL_BOUNDED_MODEL_POLICY_FILE` to an operator-managed JSON file to
+install both model evidence resolvers at boot. Leave it unset when the host
+extension supplies the resolvers. Configuring both sources is a boot error.
+
+The file contains an array of attestations. Each binds one `workspace_id`, an
+exact `route` (provider, model, credential source and opaque credential
+reference), and an `endpoint_fingerprint`. The fingerprint is the lowercase
+SHA-256 of the adapter's exact API base, or of `provider-default` when the
+adapter supplies no API base. Restrict the deployment's upstream endpoint
+configuration to the account covered by the attestation.
+
+Supply the following from verified deployment and account evidence.
+
+- `policy_ref`, `source_ref`, `account_terms_ref`, and timezone-aware
+  `valid_from` and `valid_until`
+- `max_payload_bytes` and `max_output_parameter` for the supported SDK request
+  shape, and conservative `input_tokens_upper` and `output_tokens_upper` for
+  the full allowed envelope, including provider framing and billed reasoning
+- `input_usd_per_million`, `output_usd_per_million` and
+  `request_fee_upper_usd` as exact USD decimals covering the applicable account
+  terms without relying on discounts
+
+The configured resolver accepts nonstreaming text messages and a single
+explicit output limit. Tools, multimodal inputs, and provider-specific
+options are outside this profile. It compares the final SDK payload, route,
+credential generation and endpoint before issuing short-lived evidence.
+Token ceilings and prices are operator attestations. Review them whenever the
+provider, deployment or account terms change. Restart Core to load a new
+policy file. The existing work ledger applies the resulting conservative cost
+to the approved assignment budget before any provider request.
+
 AI allowance checks and App entitlements are separate. The deployment-funded
 model route invokes the platform quota gate; user/workspace credentials follow
 the model credential resolver. The host decides how funding source affects

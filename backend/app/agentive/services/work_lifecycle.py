@@ -89,6 +89,9 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
     from app.services.app_operations.event_outbox import (
         deliver_pending_operation_events,
     )
+    from app.services.resident_assignment_execution import (
+        deliver_resident_assignment_approvals,
+    )
 
     next_harness_retention = 0.0
     next_draft_cleanup = 0.0
@@ -96,6 +99,7 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
         try:
             await run_recovery_pass(reclaim_worker_id="periodic-recovery")
             await deliver_pending_operation_events()
+            await deliver_resident_assignment_approvals()
             from app.services.email_delivery import purge_email_history
 
             await purge_email_history()
@@ -157,9 +161,13 @@ async def start_work_kernel_background(
         from app.services.app_operations.event_outbox import (
             deliver_pending_operation_events,
         )
+        from app.services.resident_assignment_execution import (
+            deliver_resident_assignment_approvals,
+        )
 
         await reconcile_missing_outbox_facts()
         await deliver_pending_operation_events()
+        await deliver_resident_assignment_approvals()
     except Exception:  # noqa: BLE001
         if not _is_dev_boot():
             raise

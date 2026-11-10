@@ -154,12 +154,24 @@ def requires_operational_path(ctx: Any, thread: Any, previous_run: Any) -> bool:
     )
 
 
-def public_dialogue(messages: list[Any], *, exclude_id: str | None = None):
+def public_dialogue(
+    messages: list[Any],
+    *,
+    exclude_id: str | None = None,
+    allow_assistant: bool = True,
+):
     """Project recent plain dialogue; omit tools, reasoning and host messages."""
     projected: list[ModelRequest | ModelResponse] = []
     remaining = 12_000
     for message in reversed(messages):
         if message.id == exclude_id or message.role not in {"user", "assistant"}:
+            continue
+        if message.role == "assistant" and (
+            not allow_assistant
+            or (getattr(message, "provider_metadata", None) or {}).get(
+                "resident_assignment_draft"
+            )
+        ):
             continue
         text = "\n".join(
             str(part.get("text") or "")
@@ -177,6 +189,14 @@ def public_dialogue(messages: list[Any], *, exclude_id: str | None = None):
             else ModelResponse(parts=[TextPart(text)])
         )
     return list(reversed(projected))
+
+
+def thread_has_operational_history(thread: Any) -> bool:
+    """A retired checkpoint does not make older assistant text source-free."""
+    return bool(
+        getattr(thread, "active_harness_session_id", None)
+        or getattr(thread, "harness_session_generation", 0)
+    )
 
 
 async def recent_public_messages(thread: Any) -> list[Any]:

@@ -555,6 +555,7 @@ class Settings(BaseSettings):
     # Module path imported after the Core API so a host process can register
     # routes/hooks. Open-source Core leaves this empty.
     INTEGRAL_HOST_EXTENSION_MODULE: str = ""
+    INTEGRAL_BOUNDED_MODEL_POLICY_FILE: str = ""
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with

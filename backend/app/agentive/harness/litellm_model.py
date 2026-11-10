@@ -16,6 +16,7 @@ import logging
 from builtins import anext
 from collections import defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -834,25 +835,28 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 # conservatively for the separate no-dispatch recovery path.
                 await readiness()
 
-            if self._request_validator is not None:
-                try:
+            try:
+                if self._request_validator is not None:
                     await self._request_validator(body)
-                except BaseException as exc:
-                    # The SDK was never entered. Settle the dispatch intent as
-                    # a known refusal so revoked uploads cannot leave an
-                    # unknown request that blocks durable chat continuation.
-                    await self._observe(
-                        request_id=request_id,
-                        request_context=request_context,
-                        attempt=attempt,
-                        started_at=started_at,
-                        outcome=(
-                            "cancelled"
-                            if isinstance(exc, asyncio.CancelledError)
-                            else "failed"
-                        ),
-                    )
-                    raise
+                from app.services.retrieval.history import (
+                    assert_bound_model_retrieval_current,
+                )
+
+                await assert_bound_model_retrieval_current(self._scope)
+            except BaseException as exc:
+                # No SDK call was made. Settle the intent as a known refusal.
+                await self._observe(
+                    request_id=request_id,
+                    request_context=request_context,
+                    attempt=attempt,
+                    started_at=started_at,
+                    outcome=(
+                        "cancelled"
+                        if isinstance(exc, asyncio.CancelledError)
+                        else "failed"
+                    ),
+                )
+                raise
 
             try:
                 deadline = asyncio.get_running_loop().time() + self._timeout_seconds
@@ -1099,6 +1103,40 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         )
 
 
+class RetrievalAwareOpenAIChatModel(OpenAIChatModel):
+    """Bind native message evidence before the SDK projects messages to HTTP."""
+
+    def __init__(
+        self, *args: Any, retrieval_scope: HarnessExecutionScope, **kwargs: Any
+    ):
+        super().__init__(*args, **kwargs)
+        self._retrieval_scope = retrieval_scope
+
+    async def request(self, messages, model_settings, model_request_parameters):
+        from app.services.retrieval.history import bind_model_request_retrieval
+
+        with bind_model_request_retrieval(
+            self._retrieval_scope, messages, allow_unproven_tool_results=True
+        ):
+            return await super().request(
+                messages, model_settings, model_request_parameters
+            )
+
+    @asynccontextmanager
+    async def request_stream(
+        self, messages, model_settings, model_request_parameters, run_context=None
+    ):
+        from app.services.retrieval.history import bind_model_request_retrieval
+
+        with bind_model_request_retrieval(
+            self._retrieval_scope, messages, allow_unproven_tool_results=True
+        ):
+            async with super().request_stream(
+                messages, model_settings, model_request_parameters, run_context
+            ) as response:
+                yield response
+
+
 def build_litellm_sdk_model(
     *,
     route: ResolvedModelRoute,
@@ -1168,4 +1206,6 @@ def build_litellm_sdk_model(
         and context_window > 0
         else None
     )
-    return OpenAIChatModel(route.model, provider=provider, profile=profile)
+    return RetrievalAwareOpenAIChatModel(
+        route.model, provider=provider, profile=profile, retrieval_scope=scope
+    )

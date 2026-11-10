@@ -466,7 +466,9 @@ async def _resume_history(
         )
 
         dialogue = public_dialogue(
-            await recent_public_messages(thread), exclude_id=current_message_id
+            await recent_public_messages(thread),
+            exclude_id=current_message_id,
+            allow_assistant=False,
         )
         dialogue.append(
             build_integral_host_turn(
@@ -1685,7 +1687,6 @@ class PydanticAIProvider:
             with isolated_permissions_cache():
                 try:
                     await assert_model_image_access(scope, payload)
-
                 except WorkError as exc:
                     raise NativeModelRequestError("image_access_denied") from exc
 
@@ -1739,6 +1740,7 @@ class PydanticAIProvider:
             public_dialogue,
             recent_public_messages,
             requires_operational_path,
+            thread_has_operational_history,
         )
         from app.agentive.services.execution_runs import AgentRun
 
@@ -1883,7 +1885,11 @@ class PydanticAIProvider:
             async with routing_deadline:
                 result = await agent.run(
                     ctx.text,
-                    message_history=public_dialogue(messages, exclude_id=accepted_id),
+                    message_history=public_dialogue(
+                        messages,
+                        exclude_id=accepted_id,
+                        allow_assistant=not thread_has_operational_history(thread),
+                    ),
                     instructions=ctx.system_context or None,
                     cancellation_token=self._active_tokens.get(ctx.thread_id),
                     # Native steering can open another model request after the
@@ -2595,12 +2601,38 @@ class PydanticAIProvider:
                 history = await _refresh_staged_history(
                     history, scope, conversation_id=ctx.thread_id
                 )
+                from app.services.retrieval.history import retained_retrieval_is_current
+
+                if not await retained_retrieval_is_current(
+                    history,
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                ):
+                    if (
+                        not current_message_id
+                        or (ctx.extra_data or {}).get("origin")
+                        not in (None, "", "interactive_chat")
+                        or (
+                            previous_run is not None
+                            and previous_run.status != "succeeded"
+                        )
+                    ):
+                        raise ResourceConflictError(
+                            message="Prior retrieval evidence changed. Start a new turn to retrieve current sources.",
+                            details={"reason": "harness_retrieval_history_stale"},
+                        )
+                    # Public assistant messages may paraphrase the same passages.
+                    # Preserve the saved transcript, but start model context clean.
+                    history = []
+                    run_state["public_dialogue_restored"] = True
+
                 # Public conversation completed since the last operational
                 # checkpoint must remain visible after light turns. Those turns
                 # never mutate the operational restore pointer or its tool effects.
                 from app.agentive.harness.adaptive import (
                     public_dialogue,
                     recent_public_messages,
+                    thread_has_operational_history,
                 )
 
                 cutoff = str(getattr(previous_run, "finished_at", "") or "")
@@ -2622,6 +2654,7 @@ class PydanticAIProvider:
                         public_dialogue(
                             newer,
                             exclude_id=(core_run.metadata or {}).get("chat_message_id"),
+                            allow_assistant=not thread_has_operational_history(thread),
                         )
                     )
         except BaseException:

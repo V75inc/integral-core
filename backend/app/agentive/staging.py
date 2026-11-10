@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import datetime, timedelta, timezone
@@ -708,6 +709,7 @@ async def create_staged_change(
     ttl_seconds: int = _DEFAULT_TTL_SECONDS,
     interaction_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
+    entry_edit_fences: Optional[Dict[str, Any]] = None,
 ) -> StagedChange:
     """Mint a new staged change.
 
@@ -768,6 +770,7 @@ async def create_staged_change(
         idempotency_key=idem,
         execution_contract_version="durable-staging-v1",
         origin_proof=current_proposal_origin(user_id, minted_workspace_id),
+        entry_edit_fences=deepcopy(entry_edit_fences or {}),
     )
 
     async with _lock:

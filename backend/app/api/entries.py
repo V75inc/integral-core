@@ -11,6 +11,7 @@ from app.api.errors import (
     BadRequestError,
     InsufficientPermissionsError,
     MissingAuthenticationError,
+    ResourceConflictError,
     ResourceNotFoundError,
 )
 from app.api.utils import (
@@ -28,8 +29,12 @@ from app.models.edges import (
 from app.models.nodes import Entry, EntryType, Track
 from app.schemas.policy import Resource, Subject
 from app.schemas.resident_assignment import (
+    ResidentAssignmentPlacementView,
     ResidentAssignmentRequest,
     ResidentAssignmentResponse,
+    ResidentAssignmentReviewDecision,
+    ResidentAssignmentReviewRequest,
+    ResidentAssignmentReviewView,
     ResidentAssignmentView,
 )
 from app.services import notification_router
@@ -602,6 +607,141 @@ async def update_resident_assignment(
         entry_id=entry_id,
         request=assignment,
     )
+
+
+@endpoint(
+    "/entries/{entry_id}/resident-assignment/review",
+    methods=["GET"],
+    auth=True,
+    tags=["Entries"],
+)
+async def read_resident_assignment_review(
+    request: Request, entry_id: str
+) -> ResidentAssignmentReviewView | None:
+    """Return the current assignment review to an authorized viewer."""
+    from app.services.resident_assignment import get_resident_assignment_review
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    return await get_resident_assignment_review(
+        user_id=user_id, workspace_id=workspace_id, entry_id=entry_id
+    )
+
+
+@endpoint(
+    "/entries/{entry_id}/resident-assignment/review",
+    methods=["POST"],
+    auth=True,
+    tags=["Entries"],
+)
+async def request_entry_resident_assignment_review(
+    request: Request, entry_id: str
+) -> ResidentAssignmentReviewView | None:
+    """Request preparation review for the displayed assignment revision."""
+    from app.services.resident_assignment import (
+        get_resident_assignment_review,
+        request_resident_assignment_review,
+    )
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    try:
+        payload = ResidentAssignmentReviewRequest.model_validate(await request.json())
+    except ValueError as exc:
+        raise BadRequestError(message="Invalid assignment review request") from exc
+    await request_resident_assignment_review(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        entry_id=entry_id,
+        assignment_revision=payload.expected_assignment_revision,
+    )
+    return await get_resident_assignment_review(
+        user_id=user_id, workspace_id=workspace_id, entry_id=entry_id
+    )
+
+
+@endpoint(
+    "/entries/{entry_id}/resident-assignment/review",
+    methods=["PUT"],
+    auth=True,
+    tags=["Entries"],
+)
+async def decide_resident_assignment_review(
+    request: Request, entry_id: str
+) -> ResidentAssignmentReviewView | None:
+    """Approve the exact assignment review shown to the reviewer."""
+    from app.services.resident_assignment import (
+        approve_resident_assignment_review,
+        get_resident_assignment_review,
+    )
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    try:
+        decision = ResidentAssignmentReviewDecision.model_validate(await request.json())
+    except ValueError as exc:
+        raise BadRequestError(message="Invalid assignment review decision") from exc
+    view = await get_resident_assignment_review(
+        user_id=user_id, workspace_id=workspace_id, entry_id=entry_id
+    )
+    if view is None:
+        raise ResourceNotFoundError(message="Resident assignment review not found")
+    await approve_resident_assignment_review(
+        workspace_id=workspace_id,
+        reviewer_id=user_id,
+        work_item_id=view.work_item_id,
+        expected_review_digest=decision.review_digest,
+    )
+    return await get_resident_assignment_review(
+        user_id=user_id, workspace_id=workspace_id, entry_id=entry_id
+    )
+
+
+@endpoint(
+    "/entries/{entry_id}/resident-assignment/placement",
+    methods=["POST"],
+    auth=True,
+    tags=["Entries"],
+)
+async def propose_resident_assignment_placement(
+    request: Request, entry_id: str
+) -> ResidentAssignmentPlacementView:
+    """Stage the private preparation result for placement on its original Entry."""
+    from app.agentive.staging import StagingError
+    from app.services.resident_assignment_placement import stage_assignment_placement
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    try:
+        payload = ResidentAssignmentReviewDecision.model_validate(await request.json())
+    except ValueError as exc:
+        raise BadRequestError(message="Invalid assignment placement request") from exc
+    try:
+        staged = await stage_assignment_placement(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            entry_id=entry_id,
+            review_digest=payload.review_digest,
+        )
+    except StagingError as exc:
+        raise ResourceConflictError(message=str(exc)) from exc
+    return ResidentAssignmentPlacementView(proposal_token=staged.token)
 
 
 @endpoint("/entries/{entry_id}", methods=["PUT"], auth=True, tags=["Entries"])

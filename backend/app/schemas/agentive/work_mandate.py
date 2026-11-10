@@ -78,7 +78,7 @@ class MandateLimits(MandateContract):
 
     deadline_at: datetime
     max_model_requests: int = Field(ge=1, le=10000)
-    max_tool_calls: int = Field(ge=1, le=10000)
+    max_tool_calls: int = Field(ge=0, le=10000)
     max_internal_writes: int = Field(ge=0, le=10000)
     max_external_effects: int = Field(ge=0, le=10000)
     currency: Literal["USD"] = "USD"
@@ -94,6 +94,16 @@ class MandateLimits(MandateContract):
         return self
 
 
+class MandateAssignmentSource(MandateContract):
+    """Exact reviewed source of a resident assignment."""
+
+    entry_id: CanonicalKey
+    assignment_revision: int = Field(ge=1)
+    intake_fact_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    task_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    resident_provider_id: CanonicalKey
+
+
 class WorkMandateRevision(MandateContract):
     """Complete reviewed intent for one revision of a generic work mandate.
 
@@ -102,6 +112,7 @@ class WorkMandateRevision(MandateContract):
     """
 
     schema_version: Literal[1] = 1
+    assignment_source: MandateAssignmentSource | None = None
     mandate_id: CanonicalKey
     revision: int = Field(ge=1)
     principal_id: CanonicalKey
@@ -109,7 +120,7 @@ class WorkMandateRevision(MandateContract):
     thread_id: CanonicalKey
     goal: ReviewText
     inputs: tuple[MandateResource, ...] = Field(max_length=100)
-    grants: tuple[MandateCapabilityGrant, ...] = Field(min_length=1, max_length=100)
+    grants: tuple[MandateCapabilityGrant, ...] = Field(max_length=100)
     external_grants: tuple[MandateExternalGrant, ...] = Field(
         default=(), max_length=100
     )
@@ -123,6 +134,12 @@ class WorkMandateRevision(MandateContract):
 
     @model_validator(mode="after")
     def _coherent_scope(self) -> "WorkMandateRevision":
+        if self.assignment_source is None and (
+            not self.grants or not self.limits.max_tool_calls
+        ):
+            raise ValueError("general mandates require tool grants and a tool limit")
+        if self.grants and not self.limits.max_tool_calls:
+            raise ValueError("tool grants require a nonzero tool limit")
         for values in (
             self.inputs,
             self.grants,
@@ -155,6 +172,9 @@ class WorkMandateRevision(MandateContract):
     def canonical_review_payload(self) -> dict:
         """Detached JSON values for storage and digest-equivalent retries."""
         payload = self.model_dump(mode="json")
+        if self.assignment_source is None:
+            # Preserve existing review digests and stored snapshots.
+            payload.pop("assignment_source")
         # Normalize equivalent monetary/time representations before hashing.
         spend = self.limits.max_spend
         monetary_text = format(spend, "f")

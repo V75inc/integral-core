@@ -7,6 +7,7 @@ Only authenticated host code may call it; model output is never authority.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -22,6 +23,7 @@ async def propose_work_mandate_review(
     principal_id: str,
     workspace_id: str,
     thread_id: str,
+    transaction: Any = None,
 ) -> tuple[WorkItem, WorkApproval]:
     """Atomically persist one pending review, never runnable work.
 
@@ -50,6 +52,14 @@ async def propose_work_mandate_review(
         outbox_id_for,
     )
 
+    if transaction is not None:
+        from app.services.app_operations.transaction_scope import (
+            current_graph_transaction_database,
+        )
+
+        if transaction is not current_graph_transaction_database():
+            raise WorkError("work.transaction_required")
+
     # Revalidate even a model constructed with unchecked copy/update helpers.
     try:
         revision = WorkMandateRevision.model_validate(revision.model_dump(mode="json"))
@@ -64,16 +74,19 @@ async def propose_work_mandate_review(
     now = datetime.now(timezone.utc)
     if revision.limits.deadline_at <= now:
         raise WorkError("work.mandate_expired")
-    db = _active_database()
-    if not _is_postgres_txn_db(db):
-        raise WorkError("work.transaction_required")
-    db = _txn_database(db)
+    db = None
+    if transaction is None:
+        db = _active_database()
+        if not _is_postgres_txn_db(db):
+            raise WorkError("work.transaction_required")
+        db = _txn_database(db)
     digest = revision.review_digest()
     # Thread is in the immutable digest; a same-revision cross-thread retry
     # conflicts instead of producing a second independently approvable review.
     identity = f"mandate:{revision.mandate_id}:{revision.revision}"
+    kind = "resident_assignment" if revision.assignment_source else "capability"
     object_id = work_item_object_id(
-        kind="capability",
+        kind=kind,
         origin="mandate_review",
         principal_id=principal_id,
         workspace_id=workspace_id,
@@ -89,7 +102,7 @@ async def propose_work_mandate_review(
     work_doc = build_work_item_document(
         object_id=object_id,
         work_item_id=work_id,
-        kind="capability",
+        kind=kind,
         origin="mandate_review",
         principal_id=principal_id,
         workspace_id=workspace_id,
@@ -131,7 +144,8 @@ async def propose_work_mandate_review(
         created_at=timestamp,
         deadline_at=deadline,
     )
-    txn = await db.begin_transaction()
+    owns_txn = transaction is None
+    txn = await db.begin_transaction() if owns_txn else transaction
     try:
         inserted = await txn.insert_if_absent(OBJECT_COLLECTION, work_doc)
         if not inserted.created:
@@ -171,12 +185,15 @@ async def propose_work_mandate_review(
             await txn.insert_if_absent(OBJECT_COLLECTION, outbox_doc)
             item = _hydrate_work_item(work_doc)
             approval = _hydrate_approval(approval_doc)
-        await db.commit_transaction(txn)
-    except Exception:
-        await db.rollback_transaction(txn)
+        if owns_txn:
+            await db.commit_transaction(txn)
+    except BaseException:
+        if owns_txn:
+            await db.rollback_transaction(txn)
         raise
-    await _refresh_work_item_cache(item)
-    await _refresh_work_approval_cache(approval)
+    if owns_txn:
+        await _refresh_work_item_cache(item)
+        await _refresh_work_approval_cache(approval)
     return item, approval
 
 
@@ -209,6 +226,7 @@ async def _validate_approved_mandate_item(
     principal_id: str,
     workspace_id: str,
     fresh_approval: bool = False,
+    allow_parked_assignment: bool = False,
 ) -> WorkMandateRevision:
     """Verify the exact supplied durable snapshot and its approval binding."""
     if (
@@ -242,7 +260,7 @@ async def _validate_approved_mandate_item(
         raise WorkError("work.mandate_revision_conflict")
     approval = (
         await _load_lineage_approval(approval_id)
-        if fresh_approval
+        if fresh_approval or revision.assignment_source is not None
         else await get_work_approval(approval_id)
     )
     if approval is None or (
@@ -270,6 +288,12 @@ async def _validate_approved_mandate_item(
         raise WorkError("work.mandate_approval_invalid")
     if expires <= now or revision.limits.deadline_at <= now:
         raise WorkError("work.mandate_expired")
+    if (
+        revision.assignment_source is not None
+        and item.status == "waiting_for_human"
+        and not allow_parked_assignment
+    ):
+        raise WorkError("work.mandate_admission_required")
     if item.cancel_requested_at or item.status not in {
         "queued",
         "running",
@@ -370,6 +394,8 @@ async def load_approved_mandate_path(
         )
     except ValidationError as exc:
         raise WorkError("work.mandate_invalid") from exc
+    if stored_revision.assignment_source is not None and len(ancestors) != 1:
+        raise WorkError("work.mandate_lineage_invalid")
     digest = stored_revision.review_digest()
     parent_deadline = stored_revision.limits.deadline_at
     for child in reversed(ancestors[:-1]):

@@ -37,6 +37,17 @@ from app.schemas.agentive.work_mandate import (
     WorkMandateRevision,
 )
 from app.schemas.agentive.work_price import ModelPriceRequest
+from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+
+async def _fence_assignment_source(
+    transaction: Any, revision: WorkMandateRevision
+) -> None:
+    if revision.assignment_source is None:
+        return
+    from app.services.resident_assignment import assert_assignment_model_authority
+
+    await assert_assignment_model_authority(revision, transaction=transaction)
 
 
 async def _transaction_database():
@@ -379,20 +390,25 @@ async def reserve_mandate_budget(
     if request.quote.upper_cost is None:
         raise WorkError("work.cost_unavailable")
     db = await _transaction_database()
-    async with graph_transaction(database=db) as graph:
-        root, _, path = await load_approved_mandate_path(
+    async with postgres_graph_transaction(db) as transaction:
+        root, initial_revision, path = await load_approved_mandate_path(
             work_item_id=work_item_id,
             principal_id=principal_id,
             workspace_id=workspace_id,
             thread_id=thread_id,
         )
+        await _fence_assignment_source(transaction, initial_revision)
+        if initial_revision.assignment_source is not None and (
+            execution_context is None or request.model_price_binding is None
+        ):
+            raise WorkError("work.model_bounds_required")
         # Root-to-leaf order is shared by all siblings. Locks live until the
         # reservation transaction commits; no provider call holds these locks.
         locked_path = []
         for item in path if execution_context is not None else (root,):
             locked_path.append(
                 await _lock_work_scope(
-                    graph.database,
+                    transaction,
                     item.work_item_id,
                     principal_id,
                     workspace_id,
@@ -408,6 +424,8 @@ async def reserve_mandate_budget(
             workspace_id=workspace_id,
             thread_id=thread_id,
         )
+        if revision != initial_revision:
+            raise WorkError("work.mandate_revision_conflict")
         if root.plan_revision != locked.plan_revision:
             raise WorkError("work.mandate_revision_conflict")
         if execution_context is not None:
@@ -422,7 +440,7 @@ async def reserve_mandate_budget(
             f"{root.work_item_id}:{work_item_id}:{request.logical_effect_key}".encode()
         ).hexdigest()
         object_id = f"o.WorkBudgetReservation.{reservation_id}"
-        stored = await graph.database.get(OBJECT_COLLECTION, object_id)
+        stored = await transaction.get(OBJECT_COLLECTION, object_id)
         fingerprint = request.fingerprint()
         if stored is not None:
             record = _hydrate_reservation(stored)
@@ -507,7 +525,7 @@ async def reserve_mandate_budget(
             upper_units=upper,
             created_at=now,
         )
-        inserted = await graph.database.insert_if_absent(
+        inserted = await transaction.insert_if_absent(
             OBJECT_COLLECTION,
             {
                 "id": object_id,
@@ -517,9 +535,7 @@ async def reserve_mandate_budget(
         )
         if not inserted.created:
             raise WorkError("work.cas_conflict")
-        await _write_ledger(
-            graph.database, root, {"context.plan.mandate_budget": ledger}
-        )
+        await _write_ledger(transaction, root, {"context.plan.mandate_budget": ledger})
         return record
 
 
@@ -646,17 +662,18 @@ async def assert_mandate_model_dispatch_current(
     """
     ctx = WorkExecutionContext.model_validate(execution_context.model_dump())
     db = await _transaction_database()
-    async with graph_transaction(database=db) as graph:
-        root, _, path = await load_approved_mandate_path(
+    async with postgres_graph_transaction(db) as transaction:
+        root, initial_revision, path = await load_approved_mandate_path(
             work_item_id=ctx.work_item_id,
             principal_id=ctx.principal_id,
             workspace_id=ctx.workspace_id,
             thread_id=ctx.thread_id,
         )
+        await _fence_assignment_source(transaction, initial_revision)
         locked_ids = []
         for item in path:
             await _lock_work_scope(
-                graph.database,
+                transaction,
                 item.work_item_id,
                 ctx.principal_id,
                 ctx.workspace_id,
@@ -669,10 +686,12 @@ async def assert_mandate_model_dispatch_current(
             workspace_id=ctx.workspace_id,
             thread_id=ctx.thread_id,
         )
+        if revision != initial_revision:
+            raise WorkError("work.mandate_revision_conflict")
         if locked_ids != [item.work_item_id for item in path]:
             raise WorkError("work.mandate_lineage_invalid")
         record = await _read_scoped_reservation(
-            graph.database,
+            transaction,
             reservation_id,
             ctx.principal_id,
             ctx.workspace_id,
@@ -737,9 +756,9 @@ async def mark_mandate_dispatch_intent(
     except (ValidationError, AttributeError) as exc:
         raise WorkError("work.lease_lost") from exc
     db = await _transaction_database()
-    async with graph_transaction(database=db) as graph:
+    async with postgres_graph_transaction(db) as transaction:
         record = await _read_scoped_reservation(
-            graph.database,
+            transaction,
             reservation_id,
             ctx.principal_id,
             ctx.workspace_id,
@@ -747,16 +766,17 @@ async def mark_mandate_dispatch_intent(
         )
         if record.work_item_id != ctx.work_item_id:
             raise WorkError("work.mandate_scope_denied")
-        root, _, path = await load_approved_mandate_path(
+        root, initial_revision, path = await load_approved_mandate_path(
             work_item_id=ctx.work_item_id,
             principal_id=ctx.principal_id,
             workspace_id=ctx.workspace_id,
             thread_id=ctx.thread_id,
         )
+        await _fence_assignment_source(transaction, initial_revision)
         locked_ids = []
         for item in path:
             await _lock_work_scope(
-                graph.database,
+                transaction,
                 item.work_item_id,
                 ctx.principal_id,
                 ctx.workspace_id,
@@ -769,10 +789,12 @@ async def mark_mandate_dispatch_intent(
             workspace_id=ctx.workspace_id,
             thread_id=ctx.thread_id,
         )
+        if revision != initial_revision:
+            raise WorkError("work.mandate_revision_conflict")
         if locked_ids != [item.work_item_id for item in path]:
             raise WorkError("work.mandate_lineage_invalid")
         record = await _read_scoped_reservation(
-            graph.database,
+            transaction,
             reservation_id,
             ctx.principal_id,
             ctx.workspace_id,
@@ -815,7 +837,7 @@ async def mark_mandate_dispatch_intent(
         if _ledger(root.plan)["reserved_units"] < record.upper_units:
             raise WorkError("work.budget_invalid")
         now = datetime.now(timezone.utc).isoformat()
-        saved = await graph.database.find_one_and_update(
+        saved = await transaction.find_one_and_update(
             OBJECT_COLLECTION,
             {
                 "id": record.id,

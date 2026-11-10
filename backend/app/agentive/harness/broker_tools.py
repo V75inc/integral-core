@@ -250,6 +250,20 @@ def _make_handler(
                 result,
                 is_read=effective_op_class == "read",
             )
+            if effective_op_class == "read":
+                from app.services.retrieval.history import (
+                    RETRIEVAL_EVIDENCE,
+                    RETRIEVAL_TOOLS,
+                    retrieval_result_evidence,
+                )
+
+                if capability_name in RETRIEVAL_TOOLS:
+                    return ToolReturn(
+                        result,
+                        metadata={
+                            RETRIEVAL_EVIDENCE: retrieval_result_evidence(result)
+                        },
+                    )
             if capability_op_class != "read" and effective_op_class == "read":
                 # Framework metadata is checkpointed, never sourced from model
                 # arguments or an App payload. Classify calls, not tool names.

@@ -89,6 +89,7 @@ from pydantic_ai_harness.step_persistence import (
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 from pydantic_graph import End
 
+from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.pydantic_context import (
     IntegralContextAdmission,
     IntegralContextLifecycle,
@@ -1436,6 +1437,7 @@ class IntegralHistorySummary(SummarizingCompaction):
     current registration and the broker remain the authorization boundary.
     """
 
+    retrieval_scope: HarnessExecutionScope | None = None
     max_history_bytes: int = 96_000
     _compacted_history_digest: str | None = None
 
@@ -1491,6 +1493,12 @@ class IntegralHistorySummary(SummarizingCompaction):
             <= self.max_history_bytes
         ):
             return messages
+        from app.services.retrieval.history import (
+            RETRIEVAL_EVIDENCE,
+            retained_retrieval_evidence,
+        )
+
+        retrieval_evidence = retained_retrieval_evidence(history)
         # A summary request must not resend large completed-turn tool payloads.
         # Durable scoped checkpoints keep the full evidence searchable.
         history = await ClearToolResults(
@@ -1539,7 +1547,19 @@ class IntegralHistorySummary(SummarizingCompaction):
                 else self
             )
         )
-        compacted = await SummarizingCompaction.compact(summarizer, history, ctx)
+        if self.retrieval_scope is not None:
+            from app.services.retrieval.history import (
+                assert_bound_model_retrieval_current,
+                bind_model_request_retrieval,
+            )
+
+            with bind_model_request_retrieval(self.retrieval_scope, history):
+                await assert_bound_model_retrieval_current(self.retrieval_scope)
+                compacted = await SummarizingCompaction.compact(
+                    summarizer, history, ctx
+                )
+        else:
+            compacted = await SummarizingCompaction.compact(summarizer, history, ctx)
         # Native message-count cutoffs can retain a retry after summarizing its
         # original call. Remove only that settled historical validation pair's
         # orphan feedback; never synthesize a result or alter an open effect.
@@ -1606,14 +1626,29 @@ class IntegralHistorySummary(SummarizingCompaction):
             )
         # A summary is a leading system request; attach state after it and
         # before the retained current task. No execution is replayed.
-        retained_history = [compacted[0], *evidence, *compacted[1:]]
+        summary = compacted[0]
+        if retrieval_evidence is None or retrieval_evidence:
+            summary = replace(
+                summary,
+                metadata={
+                    **(summary.metadata or {}),
+                    RETRIEVAL_EVIDENCE: (
+                        [row.model_dump(mode="json") for row in retrieval_evidence]
+                        if retrieval_evidence is not None
+                        else None
+                    ),
+                },
+            )
+        retained_history = [summary, *evidence, *compacted[1:]]
         self._compacted_history_digest = hashlib.sha256(
             ModelMessagesTypeAdapter.dump_json(retained_history)
         ).hexdigest()
         return [*retained_history, *active_turn]
 
 
-def build_integral_history_compaction() -> IntegralHistorySummary:
+def build_integral_history_compaction(
+    *, retrieval_scope: HarnessExecutionScope | None = None
+) -> IntegralHistorySummary:
     """Summarize old prose after the separate cheap result-clearing pass.
 
     The populated browser chat retained 112k conversation characters after
@@ -1624,6 +1659,7 @@ def build_integral_history_compaction() -> IntegralHistorySummary:
     checkpoints remain searchable. Summary requests share model accounting.
     """
     return IntegralHistorySummary(
+        retrieval_scope=retrieval_scope,
         max_messages=40,
         max_tokens=24_576,
         # Only completed turns reach this strategy. Keeping 20 messages plus
@@ -1647,8 +1683,23 @@ class IntegralWorkingContext(TieredCompaction):
 
     policy: IntegralContextPolicy = IntegralContextPolicy()
 
+    retrieval_scope: HarnessExecutionScope | None = None
+
+    async def _assert_live_retrieval(self, messages):
+        if self.retrieval_scope is None:
+            return
+        from app.services.retrieval.history import assert_retrieval_history_current
+
+        await assert_retrieval_history_current(
+            messages,
+            principal_id=self.retrieval_scope.principal_id,
+            workspace_id=self.retrieval_scope.workspace_id,
+            allow_unproven_tool_results=True,
+        )
+
     async def before_model_request(self, ctx, request_context):
         before = list(request_context.messages)
+        await self._assert_live_retrieval(before)
         # Small read clearings happen without inference even below the history
         # trigger. Typed activation was already normalized before node prepare.
         request_context.messages = account_context_reclaim(
@@ -1700,16 +1751,22 @@ class IntegralWorkingContext(TieredCompaction):
                     ).compact(prior, ctx),
                 )
         if request_context.messages != before:
+            await self._assert_live_retrieval(request_context.messages)
             ctx.messages[:] = request_context.messages
         return request_context
 
 
-def build_integral_working_context(*, clearable_tools: frozenset[str]):
+def build_integral_working_context(
+    *,
+    clearable_tools: frozenset[str],
+    retrieval_scope: HarnessExecutionScope | None = None,
+):
     """Use native tier orchestration; Core supplies protection and lifecycle rules."""
     return IntegralWorkingContext(
+        retrieval_scope=retrieval_scope,
         tiers=[
             build_integral_context_compaction(clearable_tools=clearable_tools),
-            build_integral_history_compaction(),
+            build_integral_history_compaction(retrieval_scope=retrieval_scope),
         ],
         target_tokens=16_384,
     )
@@ -1718,11 +1775,14 @@ def build_integral_working_context(*, clearable_tools: frozenset[str]):
 def classify_integral_harness_exception(exc: BaseException) -> str | None:
     """Translate Pydantic AI failures to Integral's stable error categories."""
     from app.agentive.harness.model_errors import classified_model_error
+    from app.services.retrieval.history import RetrievalEvidenceStale
 
     current: BaseException | None = exc
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
+        if isinstance(current, RetrievalEvidenceStale):
+            return "harness_retrieval_history_stale"
         if isinstance(current, IntegralContextOverflow):
             return "harness_context_limit"
         if isinstance(current, UsageLimitExceeded):
