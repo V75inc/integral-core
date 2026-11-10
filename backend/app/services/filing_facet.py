@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from jvspatial.core.context import get_default_context
@@ -25,17 +26,25 @@ from app.models.nodes import Entry, EntryType, Tag, Track
 from app.schemas.policy import Resource, Subject
 from app.services.agent_scope import active_workspace_id
 from app.services.app_invariant_guards import enforce_protected_field_write
+from app.services.app_operations.event_outbox import (
+    deliver_operation_event,
+    insert_entry_event,
+)
 from app.services.app_operations.transaction_scope import (
     OperationTransactionUnavailable,
+    current_graph_transaction_database,
     graph_transaction_available,
     measure_write_lock,
     postgres_graph_transaction,
 )
 from app.services.authorization_scope import authorization_scope
+from app.services.mutation_provenance import provenance_details
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.query_boundary import generic_entry_read, relation_visible
 from app.services.resource_location import DATA_APP_STATES, locate_resource
 from app.utils.time import utc_now_iso
+
+logger = logging.getLogger(__name__)
 
 _PROBE: Optional[Callable[[str], None]] = None
 _OBJECT_COLLECTION = "object"
@@ -531,7 +540,10 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             "Supporting evidence, tags and relation links require a transactional store",
         )
 
+    effect_outbox_id: str | None = None
+
     async def _run(store: Any, *, lock_entry: bool = False) -> Dict[str, Any]:
+        nonlocal effect_outbox_id
         if lock_entry:
             records = {}
             for record_id in sorted({entry_id, *evidence}):
@@ -637,6 +649,8 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
                         result=result,
                     )
                 return result
+        provenance = provenance_details() if close_goal else {}
+        before = {"body": fresh.body, "status": fresh.status} if provenance else None
         result = await _mutate_entry(
             entry=fresh,
             payload=payload,
@@ -649,6 +663,26 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             current_revision=current_revision,
             current_schema=current_schema,
         )
+        if before is not None:
+            effect_outbox_id = await insert_entry_event(
+                transaction=store,
+                workspace_id=workspace_id,
+                event={
+                    "actor_kind": "agent",
+                    "actor_id": user_id,
+                    "action": "entry.update",
+                    "resource_type": "Entry",
+                    "resource_id": fresh.id,
+                    "before": before,
+                    "after": {
+                        "body": fresh.body,
+                        "status": fresh.status,
+                        "record_revision": fresh.record_revision,
+                    },
+                    "scope": f"track:{fresh.track_id}",
+                    "details": {**provenance, "goal_closure": True},
+                },
+            )
         if receipt_id:
             await _write_receipt(
                 store,
@@ -663,8 +697,9 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             async with postgres_graph_transaction() as transaction:
                 if evidence:
                     async with authorization_scope(workspace_id):
-                        return await _run(transaction, lock_entry=True)
-                return await _run(transaction, lock_entry=True)
+                        result = await _run(transaction, lock_entry=True)
+                else:
+                    result = await _run(transaction, lock_entry=True)
         except OperationTransactionUnavailable:
             if needs_txn:
                 return _refused(
@@ -676,5 +711,14 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             refused = _refused("facet_rolled_back", str(exc) or "facet rolled back")
             refused["rolled_back"] = True
             return refused
+        if (
+            effect_outbox_id
+            and current_graph_transaction_database(required=False) is None
+        ):
+            try:
+                await deliver_operation_event(outbox_id=effect_outbox_id)
+            except Exception:
+                logger.exception("Goal closure change event awaits recovery")
+        return result
 
     return await _run(_store())

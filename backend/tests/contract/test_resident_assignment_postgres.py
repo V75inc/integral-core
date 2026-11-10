@@ -1317,13 +1317,66 @@ async def test_reviewed_task_watch_only_posts_material_changes(
                 }
                 assert closure.session_id == thread.id
                 assert (await Entry.find_one({"id": entry.id})).status == "active"
-                approved = await staging_apply.bless_and_execute(
-                    user_id=auth.id, token=closure.token
+                from app.services import filing_facet, mutation_rollback
+                from app.services.app_operations.event_outbox import (
+                    deliver_pending_operation_events,
                 )
+
+                original = await Entry.find_one({"id": entry.id})
+                original_body = original.body
+
+                async def interrupt_delivery(**kwargs):
+                    raise RuntimeError("worker interrupted after closure commit")
+
+                with monkeypatch.context() as patch:
+                    if not crash_before_commit:
+                        patch.setattr(
+                            filing_facet, "deliver_operation_event", interrupt_delivery
+                        )
+                    approved = await staging_apply.bless_and_execute(
+                        user_id=auth.id, token=closure.token
+                    )
                 assert approved.get("consumed"), approved
                 entry = await Entry.find_one({"id": entry.id})
                 assert entry.status == "completed"
                 assert entry.body.count("All published closure criteria") == 1
+
+                async def assess():
+                    return await mutation_rollback.assess_rollback(
+                        staging_token=closure.token, user_id=auth.id
+                    )
+
+                if not crash_before_commit:
+                    assert (await assess())["reason"] == "no_events"
+                    async with scoped_default_context_async(
+                        GraphContext(database=postgres_raw_db)
+                    ):
+                        await deliver_pending_operation_events(database=postgres_raw_db)
+                assert await assess() == {
+                    "available": True,
+                    "event_count": 1,
+                    "actions": ["entry.update"],
+                }
+                if crash_before_commit:
+                    result = await mutation_rollback.rollback_staged_change(
+                        staging_token=closure.token, user_id=auth.id
+                    )
+                    assert result["ok"]
+                    entry = await Entry.find_one({"id": entry.id})
+                    assert (entry.status, entry.body) == ("active", original_body)
+                    assert (await assess())["reason"] == "already_rolled_back"
+                else:
+                    entry.title = "Newer title"
+                    entry.record_revision += 1
+                    await entry.save()
+                    with pytest.raises(mutation_rollback.RollbackError) as exc:
+                        await mutation_rollback.rollback_staged_change(
+                            staging_token=closure.token, user_id=auth.id, force=True
+                        )
+                    assert exc.value.code == "conflict"
+                    assert (
+                        await Entry.find_one({"id": entry.id})
+                    ).status == "completed"
             else:
                 assert (
                     "ask Integral to prepare a closure review"

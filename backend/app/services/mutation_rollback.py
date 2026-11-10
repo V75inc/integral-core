@@ -166,8 +166,15 @@ async def _invert_event(
                 "resource_gone",
                 f"Entry {resource_id!r} no longer exists",
             )
-        conflicts = _conflict_fields(current, envelope.after or {})
-        if conflicts and not force:
+        after = envelope.after or {}
+        conflicts = _conflict_fields(current, after)
+        goal_closure = (envelope.details or {}).get("goal_closure") is True
+        revision = after.get("record_revision")
+        if goal_closure and (
+            type(revision) is not int or current.get("record_revision") != revision
+        ):
+            conflicts.append("record_revision")
+        if conflicts and (goal_closure or not force):
             raise RollbackError(
                 "conflict",
                 f"Entry was edited after the agent change ({', '.join(conflicts)})",
@@ -175,6 +182,8 @@ async def _invert_event(
         from app.api.entries import update_entry
 
         kwargs: Dict[str, Any] = {"entry_id": resource_id}
+        if goal_closure:
+            kwargs["expected_record_revision"] = revision
         if "title" in before:
             kwargs["title"] = before.get("title")
         if "body" in before:
@@ -534,7 +543,12 @@ async def rollback_staged_change(
     rollback_ids: List[str] = []
     ce_logger = get_change_event_logger()
 
+    reverted_facts: set[str] = set()
     for envelope in to_invert:
+        details = envelope.details or {}
+        fact_id = details.get("event_fact_id") if details.get("goal_closure") else None
+        if fact_id and fact_id in reverted_facts:
+            continue
         if _snapshot_missing(envelope):
             raise RollbackError(
                 "snapshot_expired",
@@ -542,6 +556,8 @@ async def rollback_staged_change(
             )
         result = await _invert_event(envelope=envelope, user_id=user_id, force=force)
         inverted.append(result)
+        if fact_id:
+            reverted_facts.add(fact_id)
         await ce_logger.patch_event_details(
             envelope.id,
             {
