@@ -62,7 +62,7 @@ def invalidates_job_facts(function):
     import functools
 
     @functools.wraps(function)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: Any, **kwargs):
         note_definition_changed()
         try:
             return await function(*args, **kwargs)
@@ -138,6 +138,7 @@ def defer_job_event(outbox_id: str) -> Optional[int]:
 
 
 def take_deferred_job_events() -> list:
+    """Drain the current job's pending event identifiers for delivery."""
     pending = _app_job_events_var.get()
     if not pending:
         return []
@@ -170,6 +171,7 @@ def app_job_fact_get(key: Tuple[str, ...]) -> Any:
 
 
 def app_job_fact_put(key: Tuple[str, ...], value: Any) -> None:
+    """Store a fact with its timestamp and current invalidation generation."""
     import time as _time
 
     facts = _app_job_facts_var.get()

@@ -40,6 +40,7 @@ async def _require_read(user_id: str, kind: str, node_id: str, track_id: str) ->
 async def relation_options(
     user_id: str, workspace_id: str, params: RelationOptionsRequest
 ) -> RelationOptionsResponse:
+    """Resolve schema-derived relation choices under current source and target access."""
     # The 10K picker probe spent ~30ms repeating source authorization within
     # a ~70–90ms read. Reuse only this source computation's current facts;
     # target admission below runs after the scope has ended.

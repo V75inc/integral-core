@@ -575,7 +575,10 @@ async def resync_track_view_constraints_from_tier(track: Track) -> int:
         if list(getattr(view, "entry_type_keys", None) or []) != wanted:
             view.entry_type_keys = wanted
             dirty = True
-        if default_key and str(getattr(view, "default_entry_type_key", "") or "") != default_key:
+        if (
+            default_key
+            and str(getattr(view, "default_entry_type_key", "") or "") != default_key
+        ):
             view.default_entry_type_key = default_key
             dirty = True
         if dirty:

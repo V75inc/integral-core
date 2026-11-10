@@ -23,6 +23,7 @@ when the TTL is set to 0.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -175,8 +176,6 @@ def clear_all() -> None:
 # cache above (``invalidate_user``), is fenced by the per-user generation, and
 # concurrent identical computations share one in-flight task.
 # ---------------------------------------------------------------------------
-
-import asyncio
 
 _NAV_TTL_SECONDS = float(os.getenv("INTEGRAL_NAV_SNAPSHOT_TTL", "0") or 0)
 _NAV_ENABLED = os.getenv("TESTING", "") != "1" and _NAV_TTL_SECONDS > 0

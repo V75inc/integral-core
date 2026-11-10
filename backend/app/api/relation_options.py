@@ -23,6 +23,7 @@ async def get_relation_options(
     cursor: str | None = None,
     limit: int = 50,
 ) -> dict:
+    """Return authorized choices for a relation field in the active workspace."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")

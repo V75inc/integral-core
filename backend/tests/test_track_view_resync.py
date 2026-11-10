@@ -26,7 +26,11 @@ async def _run(views, tier):
     track = SimpleNamespace(id="n.Track.t")
     saved = AsyncMock()
     with (
-        patch.object(rt, "resolve_track_runtime_profile", new=AsyncMock(return_value=(None, tier, None))),
+        patch.object(
+            rt,
+            "resolve_track_runtime_profile",
+            new=AsyncMock(return_value=(None, tier, None)),
+        ),
         patch.object(rt, "_catalog_views_for_track", new=AsyncMock(return_value=views)),
         patch("app.services.graph_hydration.bulk_save_nodes", new=saved),
     ):
@@ -39,7 +43,13 @@ async def test_stale_copy_is_rewritten_to_the_template_entry_type():
     stale = _view("lines_table", ["employee_line"], default="nis_schedule_line")
     n, saved = await _run(
         [stale],
-        _tier({"key": "lines_table", "entry_type_keys": ["nis_schedule_line"], "default_entry_type": "nis_schedule_line"}),
+        _tier(
+            {
+                "key": "lines_table",
+                "entry_type_keys": ["nis_schedule_line"],
+                "default_entry_type": "nis_schedule_line",
+            }
+        ),
     )
     assert n == 1
     assert stale.entry_type_keys == ["nis_schedule_line"]
@@ -52,7 +62,13 @@ async def test_matching_copy_is_left_alone_and_nothing_is_saved():
     ok = _view("lines_table", ["nis_schedule_line"], default="nis_schedule_line")
     n, saved = await _run(
         [ok],
-        _tier({"key": "lines_table", "entry_type_keys": ["nis_schedule_line"], "default_entry_type": "nis_schedule_line"}),
+        _tier(
+            {
+                "key": "lines_table",
+                "entry_type_keys": ["nis_schedule_line"],
+                "default_entry_type": "nis_schedule_line",
+            }
+        ),
     )
     assert n == 0
     saved.assert_not_awaited()
@@ -86,8 +102,16 @@ async def test_only_the_changed_views_are_saved_and_other_fields_survive():
     n, saved = await _run(
         [a, b],
         _tier(
-            {"key": "lines_table", "entry_types": ["Nis Schedule Line", "nis_schedule_line"], "default_entry_type": "nis_schedule_line"},
-            {"key": "lines_scope", "entry_type_keys": ["paye_filing_line"], "default_entry_type": "paye_filing_line"},
+            {
+                "key": "lines_table",
+                "entry_types": ["Nis Schedule Line", "nis_schedule_line"],
+                "default_entry_type": "nis_schedule_line",
+            },
+            {
+                "key": "lines_scope",
+                "entry_type_keys": ["paye_filing_line"],
+                "default_entry_type": "paye_filing_line",
+            },
         ),
     )
     assert n == 1

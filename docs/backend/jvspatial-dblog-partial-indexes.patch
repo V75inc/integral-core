@@ -2,8 +2,8 @@
 +++ b/jvspatial/logging/models.py	2026-11-06 23:42:51.587920167 -0400
 @@ -12,11 +12,11 @@
  from jvspatial.core.annotations import attribute, compound_index
- 
- 
+
+
 -@compound_index([("logged_at", -1)], name="logged_at")
 -@compound_index([("status_code", 1), ("logged_at", -1)], name="status_logged_at")
 -@compound_index([("event_code", 1), ("logged_at", -1)], name="event_code_logged_at")
@@ -16,9 +16,9 @@
 +@compound_index([("log_level", 1), ("logged_at", -1)], name="log_level_logged_at", partial_by_entity=True)
  class DBLog(Object):
      """Base log entry for database logging.
- 
+
 @@ -111,21 +111,25 @@
- 
+
      status_code: Optional[int] = attribute(
          indexed=True,
 +        index_partial_by_entity=True,

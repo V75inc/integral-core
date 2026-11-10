@@ -727,6 +727,19 @@ async def create_entries_in_track(
             for item in items
         ]
 
+    # Match single-entry creation: prepare moderation before the transaction,
+    # then let the admitted write report it after authorization and validation.
+    moderation_errors: list[BadRequestError | None] = []
+    for item in items:
+        moderation_error = None
+        if not skip_profanity:
+            try:
+                validate_no_profanity(str(item.get("title") or ""), "title")
+                validate_no_profanity(str(item.get("body") or ""), "body")
+            except BadRequestError as exc:
+                moderation_error = exc
+        moderation_errors.append(moderation_error)
+
     created: List[Entry] = []
     outbox_ids: List[str] = []
     events_all: List[Dict[str, Any]] = []
@@ -749,7 +762,6 @@ async def create_entries_in_track(
             )
         fresh_type = await EntryType.get(entry_type.id) if entry_type else None
         from app.services.entry_effect_scope import entry_effect_scope
-        from app.services.operational_model_compile import slug_manifest_key
 
         union_fields: Dict[str, Any] = {}
         any_title = any_body = False
@@ -770,19 +782,6 @@ async def create_entries_in_track(
                 a for item in items for a in (item.get("attachment_ids") or [])
             ],
         }
-        candidate_type = fresh_type or (
-            await EntryType.find_one({"id": type_id}) if type_id else None
-        )
-        key = (
-            slug_manifest_key(
-                str(
-                    (candidate_type.form_schema or {}).get("_manifest_entry_type_key")
-                    or candidate_type.name
-                )
-            )
-            if candidate_type
-            else ""
-        )
         async with entry_effect_scope(
             user_id=user_id,
             actor_kind=actor_kind,
@@ -792,10 +791,9 @@ async def create_entries_in_track(
             target_id=fresh_track.id,
             workspace_id=fresh_track.workspace_id,
             payload=actual_payload,
-            entry_type_key=key,
             authorization_subject=authorization_subject,
         ) as admitted_principal_id:
-            for item in items:
+            for item, moderation_error in zip(items, moderation_errors, strict=True):
                 events: List[Dict[str, Any]] = []
                 entry = await _create_entry_in_track(
                     track=fresh_track,
@@ -811,7 +809,7 @@ async def create_entries_in_track(
                     actor_kind=actor_kind,
                     actor_id=actor_id,
                     authorization_subject=authorization_subject,
-                    skip_profanity=skip_profanity,
+                    moderation_error=moderation_error,
                     change_event_sink=events.append,
                 )
                 created.append(entry)

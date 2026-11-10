@@ -21,7 +21,9 @@ def test_readonly_if_not_in_is_carried_through():
 
 
 def test_readonly_if_equals_and_in_are_carried_through():
-    eq = _normalize_field_spec(_field(readonly_if={"field": "status", "equals": "paid"}))
+    eq = _normalize_field_spec(
+        _field(readonly_if={"field": "status", "equals": "paid"})
+    )
     assert eq["readonly_if"] == {"field": "status", "equals": "paid"}
     within = _normalize_field_spec(
         _field(readonly_if={"field": "status", "in": ["approved", "paid"]})

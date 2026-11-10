@@ -34,7 +34,9 @@ def test_a_track_made_before_recording_matches_the_previous_package_text():
 
 def test_a_track_made_before_recording_with_other_text_is_treated_as_edited():
     t = _track("something else")
-    assert not sync_track_description_from_manifest(t, "package v2 text", "package v1 text")
+    assert not sync_track_description_from_manifest(
+        t, "package v2 text", "package v1 text"
+    )
     assert t.purpose == "something else"
 
 

@@ -16,6 +16,7 @@ logger = logging.getLogger("perf.trace")
 
 
 def enabled() -> bool:
+    """Return whether optional performance tracing is enabled."""
     return os.getenv("INTEGRAL_PERF_TRACE", "").lower() in {"1", "true", "yes"}
 
 
@@ -32,12 +33,14 @@ current_performance: ContextVar[RequestPerformance | None] = ContextVar(
 
 
 def record_value(name: str, value: float) -> None:
+    """Accumulate a numeric measurement in the current performance scope."""
     state = current_performance.get()
     if state is not None:
         state.values[name] = state.values.get(name, 0) + value
 
 
 def initialize_tracing() -> bool:
+    """Configure the optional exporter, returning whether initialization succeeded."""
     if not enabled():
         return False
     logger.setLevel(logging.INFO)
@@ -102,6 +105,7 @@ def trace_span(name: str, attributes: dict[str, Any] | None = None, *, context=N
 
 
 def trace_id() -> str | None:
+    """Return the current valid trace identifier, if available."""
     try:
         from opentelemetry import trace
 
@@ -113,6 +117,7 @@ def trace_id() -> str | None:
 
 @contextmanager
 def phase(name: str, **attributes):
+    """Measure a phase and export only bounded, content-free observations."""
     if not enabled():
         yield {}
         return
@@ -156,12 +161,13 @@ def phase(name: str, **attributes):
 
 
 def capture_trace_context() -> str | None:
+    """Capture the current traceparent for a later worker execution."""
     if not enabled():
         return None
     try:
         from opentelemetry.propagate import inject
 
-        carrier = {}
+        carrier: dict[str, str] = {}
         inject(carrier)
         return carrier.get("traceparent")
     except Exception:
@@ -170,6 +176,7 @@ def capture_trace_context() -> str | None:
 
 @contextmanager
 def worker_trace(parent: str | None):
+    """Trace worker execution and restore the caller's performance scope afterward."""
     if not enabled():
         yield None
         return
@@ -239,6 +246,7 @@ def worker_trace(parent: str | None):
 
 
 def emit(event: str, payload: dict) -> None:
+    """Log a content-free performance event when informational logging is active."""
     if not logger.isEnabledFor(logging.INFO):
         return
     logger.info(

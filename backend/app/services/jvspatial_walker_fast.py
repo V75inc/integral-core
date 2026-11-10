@@ -74,6 +74,7 @@ async def _execute_exit_hooks_cached(self: Any) -> None:
 
 
 def reset_walker_handler_cache() -> None:
+    """Clear discovery caches after a Walker class's handlers change."""
     _CLASS_HANDLERS.clear()
     _CLASS_EXIT_HOOKS.clear()
 

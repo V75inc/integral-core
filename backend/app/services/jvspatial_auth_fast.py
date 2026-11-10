@@ -41,6 +41,7 @@ def _compiled(pattern: str) -> Optional["re.Pattern[str]"]:
 
 
 def path_matches_cached(pattern: str, path: str) -> bool:
+    """Match a route using the library's semantics and a cached regex."""
     if pattern == path:
         return True
     rx = _compiled(pattern)
