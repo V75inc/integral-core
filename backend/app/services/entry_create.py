@@ -227,17 +227,23 @@ async def _create_entry_in_track(
             or getattr(resolved_type, "name", "")
         )
     )
-    await enforce_protected_field_write(
-        principal_id=(
-            actor_id if actor_id and actor_kind in {"agent", "connector"} else user_id
-        ),
-        workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
-        entry_type_key=entry_type_key,
-        proposed_custom_fields=custom_fields,
-        track_id=track.id,
-        mutation_kind="create",
-        proposed_fields={"title": title, "body": body},
-    )
+    # Shared creation has already proved that this Track is standalone under
+    # the workspace and Track locks. Keep the live guard after normalization
+    # and hooks, before the Entry or any of its edges can be written.
+    if not shared_create:
+        await enforce_protected_field_write(
+            principal_id=(
+                actor_id
+                if actor_id and actor_kind in {"agent", "connector"}
+                else user_id
+            ),
+            workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
+            entry_type_key=entry_type_key,
+            proposed_custom_fields=custom_fields,
+            track_id=track.id,
+            mutation_kind="create",
+            proposed_fields={"title": title, "body": body},
+        )
 
     resolved_type_id = resolved_type.id
     from app.services.entry_import_reservations import consume_import_entry
@@ -263,17 +269,20 @@ async def _create_entry_in_track(
         user_id=user_id,
         workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
     )
-    await enforce_protected_field_write(
-        principal_id=(
-            actor_id if actor_id and actor_kind in {"agent", "connector"} else user_id
-        ),
-        workspace_id=str(track.workspace_id or workspace_id),
-        entry_type_key=entry_type_key,
-        proposed_custom_fields=seeded_custom_fields,
-        track_id=track.id,
-        mutation_kind="create",
-        proposed_fields={"title": title, "body": body},
-    )
+    if not shared_create:
+        await enforce_protected_field_write(
+            principal_id=(
+                actor_id
+                if actor_id and actor_kind in {"agent", "connector"}
+                else user_id
+            ),
+            workspace_id=str(track.workspace_id or workspace_id),
+            entry_type_key=entry_type_key,
+            proposed_custom_fields=seeded_custom_fields,
+            track_id=track.id,
+            mutation_kind="create",
+            proposed_fields={"title": title, "body": body},
+        )
     (
         validated_custom_fields,
         relation_refs,
