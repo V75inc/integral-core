@@ -29,12 +29,28 @@ function RoutineRequest({ staged }: { staged: Review }) {
   const limit = typeof change.max_runs === 'number' && Number.isInteger(change.max_runs) && change.max_runs > 0
     ? ` It will stop after ${change.max_runs} successful ${change.max_runs === 1 ? 'run' : 'runs'}.`
     : ' It will continue until you pause or stop it.';
+  const taskWatch = change.delivery_mode === 'task_watch';
+  const assignmentDigest = change.delivery_mode === 'assignment_digest';
+  const watchEntry = typeof change.watch_entry_id === 'string' ? change.watch_entry_id : '';
+  const delivery = taskWatch
+    ? 'Integral will check the watched task'
+    : assignmentDigest
+      ? 'Integral will check for assignments ready for review'
+      : change.delivery_mode === 'reminder'
+        ? 'The saved text will be posted'
+        : 'Integral will check current information and post its result';
   const writes = Array.isArray(change.write_scope) && change.write_scope.length > 0;
   return <div className="flex flex-col gap-3">
     {instruction ? <Text as="p" variant="body-sm" className="whitespace-pre-wrap break-words">{instruction}</Text> : null}
     {cadence ? <Text as="p" variant="body-sm" tone="muted">
-      {change.delivery_mode === 'reminder' ? 'The saved text will be posted' : 'Integral will check current information and post its result'} {cadence.charAt(0).toLowerCase() + cadence.slice(1)}.{limit}
+      {delivery} {cadence.charAt(0).toLowerCase() + cadence.slice(1)}.{limit}
     </Text> : null}
+    {taskWatch && watchEntry ? <Text as="p" variant="body-sm">
+      Watched Entry {watchEntry}. This routine posts only when the task changes and cannot edit the Entry. It checks the declared outcome, acceptance criteria, due date, dependencies, and assignment.
+    </Text> : null}
+    {assignmentDigest && <Text as="p" variant="body-sm">
+      Integral will post up to three new suggestions from assignments you sponsored in this workspace. It cannot prepare or edit tasks from this routine.
+    </Text>}
     {writes ? <Text as="p" variant="body-sm">
       Future runs may change the approved resources without another prompt. Review the permitted resources in the change details before approving.
     </Text> : null}

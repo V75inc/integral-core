@@ -971,6 +971,7 @@
         "integral_count_workspace_entries",
         "integral_delete_routine",
         "integral_get_digest",
+        "integral_list_resident_opportunities",
         "integral_list_routines",
         "integral_query_entries",
         "integral_resolve_entry",
@@ -983,6 +984,7 @@
         "integral_cancel_routine",
         "integral_count_workspace_entries",
         "integral_get_digest",
+        "integral_list_resident_opportunities",
         "integral_list_routines",
         "integral_query_entries",
         "integral_resolve_entry",
@@ -1085,15 +1087,15 @@
     }
   ],
   "counts": {
-    "advertised": 133,
+    "advertised": 134,
     "apps": 6,
     "by_op_class": {
       "execute": 1,
       "propose": 72,
-      "read": 60
+      "read": 61
     },
     "core_skills": 18,
-    "tools": 135
+    "tools": 136
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -3679,6 +3681,25 @@
       "policy_action": "entry.read",
       "skills": [
         "integral-review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.resident_opportunities.list_resident_opportunities"
+        ]
+      },
+      "domain": "P_scheduling",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_resident_opportunities",
+      "op_class": "read",
+      "policy_action": "routine_task.read",
+      "skills": [
+        "integral-scheduling"
       ],
       "status": "existing"
     },

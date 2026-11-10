@@ -227,3 +227,21 @@ it.each([
   const message = result.current.runtime.thread.getState().messages[0];
   expect(message.metadata?.custom).toMatchObject({ interactPayload: { origin: 'routine_task', routine_id: 'routine-1' } });
 });
+
+it("refreshes an open conversation for a persisted task watch alert", async () => {
+  __resetThreadSessionStoreForTests();
+  vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
+  vi.mocked(aiChatApi.getThread).mockResolvedValue({ ...thread, messages: [user] });
+  const provider = nativeProvider(async function* () {});
+  const { result } = renderHook(() => useAIChatRuntime(provider, { initialThreadId: "t1" }));
+  await waitFor(() => expect(result.current.composerReady).toBe(true));
+  vi.mocked(aiChatApi.getThread).mockResolvedValue({
+    ...thread,
+    messages: [user, { ...assistant, provider_metadata: { origin: "routine_task", delivery_mode: "task_watch" } }],
+  });
+  act(() => window.dispatchEvent(new CustomEvent("integral:thread-stream-update", {
+    detail: { thread_id: "t1", status: "message", message_id: assistant.id },
+  })));
+  await waitFor(() => expect(result.current.runtime.thread.getState().messages.map(message => message.id))
+    .toEqual([user.id, assistant.id]));
+});

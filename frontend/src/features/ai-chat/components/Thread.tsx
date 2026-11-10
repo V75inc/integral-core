@@ -2,6 +2,8 @@ import type { SteeringReceipt } from "../providers/types";
 import { ChatFollowUps } from "./ChatFollowUps";
 import { DocumentDraftCard, extractDocumentDrafts } from "./DocumentDrafts";
 import { RoutineRunLink } from './RoutineRunLink';
+import { AssignmentDigestSuggestions } from './AssignmentDigestSuggestions';
+import type { AssignmentSuggestion } from '../../../api/routines';
 import { CollapsibleUserMessage } from './CollapsibleUserMessage';
 import { ConversationModelPicker } from './ConversationModelPicker';
 import { ExpandableChatError } from "./ExpandableChatError";
@@ -521,6 +523,10 @@ function RoutineRunBadge() {
 }
 
 function AssistantMessage() {
+  const messageId = useAuiState((s) => s.message.id);
+  const assignmentSuggestions = useAuiState((s) =>
+    s.message.metadata?.custom?.assignmentSuggestions as AssignmentSuggestion[] | undefined,
+  );
   const steering = useAuiState((s) =>
     s.message.metadata?.custom?.steering as SteeringReceipt[] | undefined,
   );
@@ -645,7 +651,9 @@ function AssistantMessage() {
             ))}
           </ul>
         ) : null}
-        {renderParts(false)}
+        {assignmentSuggestions?.length
+          ? <AssignmentDigestSuggestions messageId={messageId} suggestions={assignmentSuggestions} />
+          : renderParts(false)}
         {isCancelled && (
           <div role="status" className="my-2 flex items-center gap-2 text-xs text-[var(--text-muted)]">
             <StopCircleIcon aria-hidden="true" className="size-3.5 shrink-0" />

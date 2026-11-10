@@ -17,6 +17,7 @@ import {
   type ExternalStoreThreadListAdapter,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
+import type { AssignmentSuggestion } from "../../api/routines";
 import { aiChatApi, type AIChatThread, type AIChatPersistedMessage } from "../../api/aiChat";
 import { useScope } from "../../context/ScopeContext";
 import { useAuthOptional } from "../../context/AuthContext";
@@ -573,6 +574,8 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
           interact_payload?: Record<string, unknown>;
           origin?: string;
           routine_id?: string;
+          delivery_mode?: string;
+          assignment_suggestions?: AssignmentSuggestion[];
           finalContent?: string;
           finalPayload?: Record<string, unknown>;
           error?: { code?: string; message?: string } | null;
@@ -659,6 +662,9 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
                 : undefined),
               ...(pmSteps.length > 0 ? { steps: pmSteps } : undefined),
               ...(pmInteract ? { interactPayload: pmInteract } : undefined),
+              ...(pm?.delivery_mode === "assignment_digest" && Array.isArray(pm.assignment_suggestions)
+                ? { assignmentSuggestions: pm.assignment_suggestions }
+                : undefined),
               ...(pmFinalContent
                 ? { finalContent: pmFinalContent }
                 : undefined),
@@ -1382,8 +1388,10 @@ export function useAIChatRuntime(
         return;
       }
 
-      if (detail.status !== "completed") return;
-      markRemoteTurnFinished(threadId, detail.turn_id ?? null);
+      if (detail.status !== "completed" && detail.status !== "message") return;
+      if (detail.status === "completed") {
+        markRemoteTurnFinished(threadId, detail.turn_id ?? null);
+      }
       if (isOurs) return;
       // Refetch only threads this tab has actually cached. One that was
       // never opened here has nothing to refresh — it loads fresh on first

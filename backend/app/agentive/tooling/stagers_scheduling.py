@@ -61,7 +61,8 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
     delivery_mode = src.get("delivery_mode", "agent")
     from app.agentive.services.routine_tasks import validate_delivery_mode
 
-    validate_delivery_mode(delivery_mode, instruction, write_scope)
+    watch_entry_id = (src.get("watch_entry_id") or "").strip()
+    validate_delivery_mode(delivery_mode, instruction, write_scope, watch_entry_id)
 
     if not instruction:
         raise ValueError("schedule_task: instruction is required")
@@ -135,6 +136,18 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         "workspace_id": active_workspace_id() or thread.workspace_id or "",
         "max_runs": max_runs,
     }
+    if watch_entry_id:
+        from app.services.resident_assignment import read_declared_task
+
+        if payload[
+            "workspace_id"
+        ] != thread.workspace_id or not await read_declared_task(
+            principal_id, thread.workspace_id, watch_entry_id
+        ):
+            raise ValueError(
+                "schedule_task: choose a readable Entry with published task semantics in this workspace"
+            )
+        payload["watch_entry_id"] = watch_entry_id
     if run_at:
         payload["run_at"] = run_at
 
@@ -160,6 +173,15 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         f"Stops: {stop_desc}",
     ]
 
+    if delivery_mode == "assignment_digest":
+        diff_lines[3] = (
+            "Delivery: new review-ready assignments you sponsored in this workspace, with no model call or Entry writes"
+        )
+    if watch_entry_id:
+        diff_lines[3] = (
+            "Delivery: read-only task changes, with no model call or unchanged updates"
+        )
+        diff_lines.insert(4, f"Watched Entry: {watch_entry_id}")
     return {
         "kind": "routine_task_create",
         "summary": summary,

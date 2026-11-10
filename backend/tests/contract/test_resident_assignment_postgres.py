@@ -50,6 +50,77 @@ from tests.test_work_mandate_contract import mandate_payload
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+async def _run_observation_worker(work_id, mode, expected_exit, *, kind="watch"):
+    import os
+    import sys
+
+    from app.config import settings
+
+    worker = """
+import asyncio, os, sys
+from jvspatial.core.context import GraphContext, set_default_context
+from jvspatial.db.factory import create_database
+from app.agentive.services import work_recovery, work_worker
+from app.services import chat_thread_events
+
+async def main():
+    db = create_database(db_type="postgres")
+    set_default_context(GraphContext(database=db))
+    work_id, mode, kind = sys.argv[1:]
+    if kind == "digest":
+        from types import SimpleNamespace
+        from app.services import chat_providers, resident_opportunities
+        chat_providers.get_registry = lambda: {"integral_native": SimpleNamespace(id="integral_native")}
+        resident_opportunities._RESULT_LIMIT = 1
+    try:
+        if mode == "crash":
+            async def crash_after_commit(*args, **kwargs):
+                os._exit(77)
+            chat_thread_events.notify_thread_message = crash_after_commit
+            await work_worker.process_one_due_item(worker_id="crashed-watch", work_item_id=work_id)
+            raise AssertionError("Observation did not reach notification")
+        if mode == "queued":
+            result = await work_worker.process_one_due_item(worker_id="fresh-watch", work_item_id=work_id)
+            assert result is not None and result.status == "succeeded", result
+            return
+        from unittest.mock import AsyncMock
+        notify = AsyncMock()
+        chat_thread_events.notify_thread_message = notify
+        report = await work_recovery.run_recovery_pass(reclaim_worker_id="recovered-watch")
+        assert report.reclaimed == 1, report
+        notify.assert_awaited_once()
+        print("__OBSERVATION_MESSAGE__" + notify.await_args.kwargs["message_id"])
+    finally:
+        await db.close()
+
+asyncio.run(main())
+"""
+    child = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        worker,
+        work_id,
+        mode,
+        kind,
+        env={
+            **os.environ,
+            "EMBEDDING_STORE_DRIVER": "null",
+            "SECRET_KEY": settings.SECRET_KEY,
+        },
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(child.communicate(), timeout=60)
+    except BaseException:
+        if child.returncode is None:
+            child.kill()
+        await child.wait()
+        raise
+    assert child.returncode == expected_exit, (stdout.decode(), stderr.decode())
+    return stdout.decode()
+
+
 async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
     postgres_raw_db, monkeypatch
 ):
@@ -308,6 +379,312 @@ async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
             assert updated.definition_digest == snapshot.definition_digest
             assert updated.fingerprint() != snapshot.fingerprint()
 
+        from app.agentive.tooling.dispatch import dispatch_tool
+        from app.services import resident_opportunities
+
+        async def discover(principal_id=auth.id, *, cursor=None):
+            result = await dispatch_tool(
+                "integral_list_resident_opportunities",
+                {"cursor": cursor} if cursor else {},
+                principal_id=principal_id,
+                scope=workspace.id,
+            )
+            assert not result.is_error, result
+            return result.data
+
+        second_entry = await Entry.create(
+            track_id=track.id, type_id=task_type.id, title="Another task"
+        )
+        await track.connect(second_entry, edge=CONTAINS)
+        await second_entry.connect(task_type, edge=IS_OF_TYPE)
+        await resident_assignment.set_resident_assignment(
+            user_id=auth.id,
+            workspace_id=workspace.id,
+            entry_id=second_entry.id,
+            request=ResidentAssignmentRequest(
+                state="assigned", expected_assignment_revision=0
+            ),
+        )
+        discovery = await discover()
+        assert discovery == {
+            "opportunities": [
+                {
+                    "entry_id": entry.id,
+                    "track_id": track.id,
+                    "assignment_revision": 3,
+                    "entry_revision": updated.entry_revision,
+                    "source_fingerprint": updated.fingerprint(),
+                    "due_date": None,
+                    "reason": "assigned_awaiting_review",
+                    "suggested_action": "request_preparation_review",
+                }
+            ],
+            "scan_complete": True,
+            "has_more_eligible": False,
+        }
+        assert (await discover(member_auth.id))["opportunities"] == []
+        second_fact = await postgres_raw_db.find_one(
+            "object",
+            {
+                "entity": "OperationEventOutbox",
+                "context.event.resource_id": second_entry.id,
+                "context.event.action": RESIDENT_ASSIGNMENT_CHANGED,
+            },
+        )
+        await deliver_operation_event(
+            outbox_id=second_fact["context"]["outbox_id"], database=postgres_raw_db
+        )
+        assert {row["entry_id"] for row in (await discover())["opportunities"]} == {
+            entry.id,
+            second_entry.id,
+        }
+
+        with monkeypatch.context() as page:
+            page.setattr(resident_opportunities, "_RESULT_LIMIT", 1)
+            first_page = await discover()
+            assert first_page["scan_complete"] and first_page["has_more_eligible"]
+            second_page = await discover(cursor=first_page["next_cursor"])
+            assert "next_cursor" not in second_page
+            assert {
+                first_page["opportunities"][0]["entry_id"],
+                second_page["opportunities"][0]["entry_id"],
+            } == {entry.id, second_entry.id}
+            mismatched = await dispatch_tool(
+                "integral_list_resident_opportunities",
+                {"cursor": first_page["next_cursor"]},
+                principal_id=member_auth.id,
+                scope=workspace.id,
+            )
+            assert mismatched.is_error
+
+            page.setattr(resident_opportunities, "_SCAN_LIMIT", 1)
+            first_scan = await discover()
+            assert not first_scan["scan_complete"]
+            second_scan = await discover(cursor=first_scan["next_cursor"])
+            assert second_scan["scan_complete"] and "next_cursor" not in second_scan
+            assert {
+                first_scan["opportunities"][0]["entry_id"],
+                second_scan["opportunities"][0]["entry_id"],
+            } == {entry.id, second_entry.id}
+
+        from app.agentive.nodes import RoutineTask
+        from app.agentive.staging import create_staged_change
+        from app.services import routine_task_scheduler
+        from app.services.agent_scope import current_scope_workspace_id
+        from app.services.chat_threads import list_messages
+        from app.utils.time import utc_now_iso
+
+        digest_thread = await create_thread(
+            user_id=auth.id, workspace_id=workspace.id, provider_id=provider.id
+        )
+        reset = current_scope_workspace_id.set(workspace.id)
+        try:
+            staged_digest = await create_staged_change(
+                user_id=auth.id,
+                session_id=digest_thread.id,
+                kind="routine_task_create",
+                summary="Assignment digest",
+                diff_human="Read-only assignment digest",
+                diff_machine={},
+                payload={
+                    "workspace_id": workspace.id,
+                    "thread_id": digest_thread.id,
+                    "instruction": "Find assignments ready for review",
+                    "delivery_mode": "assignment_digest",
+                    "cron": "0 9 * * *",
+                    "timezone": "UTC",
+                },
+            )
+        finally:
+            current_scope_workspace_id.reset(reset)
+        approved = await staging_apply.bless_and_execute(
+            user_id=auth.id, token=staged_digest.token
+        )
+        assert approved.get("consumed"), approved
+        digest_routine = await RoutineTask.find_one({"thread_id": digest_thread.id})
+
+        async def enqueue_digest():
+            await postgres_raw_db.find_one_and_update(
+                "node",
+                {"id": digest_routine.id},
+                {"$set": {"context.next_run_at": utc_now_iso()}},
+            )
+            assert await routine_task_scheduler.run_scheduler_pass() == 1
+            row = await postgres_raw_db.get("node", digest_routine.id)
+            return row["context"]["watch_pending_work_id"]
+
+        async def fire_digest():
+            work_id = await enqueue_digest()
+            result = await process_one_due_item(
+                worker_id="assignment-digest-test",
+                work_item_id=work_id.removeprefix("o.WorkItem."),
+            )
+            assert result is not None and result.status == "succeeded", result
+            assert await routine_task_scheduler.run_scheduler_pass() == 0
+
+        with monkeypatch.context() as page:
+            page.setattr(resident_opportunities, "_RESULT_LIMIT", 1)
+            from datetime import datetime, timedelta, timezone
+
+            work_id = await enqueue_digest()
+            await _run_observation_worker(
+                work_id.removeprefix("o.WorkItem."), "crash", 77, kind="digest"
+            )
+            row = await postgres_raw_db.get("node", digest_routine.id)
+            checkpoint = row["context"]["opportunity_cursor"]
+            assert checkpoint
+            (first_digest,) = await list_messages(digest_thread)
+            stored = await postgres_raw_db.get("object", work_id)
+            assert stored["context"]["status"] == "running"
+            await postgres_raw_db.find_one_and_update(
+                "object",
+                {"id": work_id, "context.status": "running"},
+                {
+                    "$set": {
+                        "context.lease_expires_at": (
+                            datetime.now(timezone.utc) - timedelta(seconds=1)
+                        ).isoformat()
+                    }
+                },
+            )
+            recovered = await _run_observation_worker(
+                work_id.removeprefix("o.WorkItem."), "recover", 0, kind="digest"
+            )
+            assert f"__OBSERVATION_MESSAGE__{first_digest.id}" in recovered.splitlines()
+            stored = await postgres_raw_db.get("object", work_id)
+            assert stored["context"]["status"] == "succeeded"
+            row = await postgres_raw_db.get("node", digest_routine.id)
+            assert row["context"]["opportunity_cursor"] == checkpoint
+            assert len(await list_messages(digest_thread)) == 1
+            assert await routine_task_scheduler.run_scheduler_pass() == 0
+            await fire_digest()
+            row = await postgres_raw_db.get("node", digest_routine.id)
+            assert row["context"]["opportunity_cursor"] is None
+            await fire_digest()
+            await fire_digest()
+            assert len(await list_messages(digest_thread)) == 2
+
+        second_entry.body = "An unrelated body edit"
+        await second_entry.save()
+        await fire_digest()
+        assert len(await list_messages(digest_thread)) == 2
+        second_entry.title = "Changed task outcome"
+        await second_entry.save()
+        await fire_digest()
+        alerts = await list_messages(digest_thread)
+        assert len(alerts) == 3
+        assert second_entry.id in alerts[-1].parts[0]["text"]
+        assert entry.id not in alerts[-1].parts[0]["text"]
+
+        from app.agentive.api.routines import set_routine_opportunity_disposition
+        from app.agentive.tooling.invoke import invoke_route_in_process
+
+        async def disposition(message, principal=auth.id, *, action="dismiss"):
+            return await invoke_route_in_process(
+                set_routine_opportunity_disposition,
+                principal_id=principal,
+                scope=workspace.id,
+                message_id=message.id,
+                entry_id=second_entry.id,
+                action=action,
+            )
+
+        prior = next(
+            msg for msg in alerts[:-1] if second_entry.id in msg.parts[0]["text"]
+        )
+        with pytest.raises(ResourceConflictError, match="superseded"):
+            await disposition(prior)
+        with pytest.raises(ResourceNotFoundError, match="Suggestion not found"):
+            await disposition(alerts[-1], member_auth.id)
+        assert await disposition(alerts[-1]) == {"dismissed": True}
+        assert await disposition(alerts[-1]) == {"dismissed": True}
+        stored_message = await postgres_raw_db.get("node", alerts[-1].id)
+        assert stored_message["context"]["provider_metadata"]["assignment_suggestions"][
+            0
+        ]["dismissed"]
+
+        await fire_digest()
+        assert len(await list_messages(digest_thread)) == 3
+        second_entry.title = "New outcome after dismissal"
+        await second_entry.save()
+        await fire_digest()
+        alerts = await list_messages(digest_thread)
+        assert len(alerts) == 4
+        assert (
+            not alerts[-1]
+            .provider_metadata["assignment_suggestions"][0]
+            .get("dismissed")
+        )
+
+        from app.agentive.services import routine_assignment_digest
+        from app.services import resident_opportunity_actions
+
+        now = datetime.now(timezone.utc)
+        follow_up = now + timedelta(hours=24)
+        with monkeypatch.context() as clock:
+            clock.setattr(resident_opportunity_actions, "utc_now", lambda: now)
+            saved = await disposition(alerts[-1], action="later")
+            assert saved == {"deferred_until": follow_up.isoformat()}
+            assert await disposition(alerts[-1], action="later") == saved
+            old_message = await postgres_raw_db.get("node", alerts[-1].id)
+            assert (
+                old_message["context"]["provider_metadata"]["assignment_suggestions"][
+                    0
+                ]["deferred_until"]
+                == follow_up.isoformat()
+            )
+
+            clock.setattr(
+                routine_assignment_digest,
+                "utc_now",
+                lambda: follow_up - timedelta(seconds=1),
+            )
+            await fire_digest()
+            assert len(await list_messages(digest_thread)) == 4
+            clock.setattr(routine_assignment_digest, "utc_now", lambda: follow_up)
+            await fire_digest()
+            await fire_digest()
+            alerts = await list_messages(digest_thread)
+            assert len(alerts) == 5
+            assert second_entry.id in alerts[-1].parts[0]["text"]
+            assert (
+                not alerts[-1]
+                .provider_metadata["assignment_suggestions"][0]
+                .get("deferred_until")
+            )
+
+        # A scheduler tick arriving after the next cron minute can account
+        # for the completed run and durably admit one successor immediately.
+        await postgres_raw_db.find_one_and_update(
+            "node", {"id": digest_routine.id}, {"$set": {"context.cron": "* * * * *"}}
+        )
+        completed_id = await enqueue_digest()
+        completed = await process_one_due_item(
+            worker_id="digest-cadence",
+            work_item_id=completed_id.removeprefix("o.WorkItem."),
+        )
+        assert completed is not None and completed.status == "succeeded"
+        from app.agentive.services.routine_tasks import compute_next_run_at
+
+        next_due = compute_next_run_at(
+            "* * * * *", "UTC", base_iso=completed.updated_at
+        )
+        delayed_tick = (
+            datetime.fromisoformat(next_due) + timedelta(minutes=2)
+        ).isoformat()
+        with monkeypatch.context() as clock:
+            clock.setattr(routine_task_scheduler, "utc_now_iso", lambda: delayed_tick)
+            assert await routine_task_scheduler.run_scheduler_pass() == 1
+            assert await routine_task_scheduler.run_scheduler_pass() == 0
+        row = await postgres_raw_db.get("node", digest_routine.id)
+        assert row["context"]["next_run_at"] == next_due
+        assert row["context"]["last_run_at"] == completed.updated_at
+        successor_id = row["context"]["watch_pending_work_id"]
+        assert successor_id and successor_id != completed_id
+        successor = await postgres_raw_db.get("object", successor_id)
+        assert successor["context"]["status"] == "queued"
+        assert successor["context"]["input_payload"]["scheduled_for"] == next_due
+
         thread = await create_thread(
             user_id=auth.id, workspace_id=workspace.id, provider_id=provider.id
         )
@@ -322,6 +699,60 @@ async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
         payload["grants"][0]["resources"] = payload["inputs"]
         revision = WorkMandateRevision.model_validate(payload)
 
+        async def suggestion_review_route(_workspace):
+            return revision.model_routes[0]
+
+        with monkeypatch.context() as route:
+            route.setattr(
+                resident_assignment_execution,
+                "resolve_assignment_review_route",
+                suggestion_review_route,
+            )
+            latest = alerts[-1]
+            title = second_entry.title
+            second_entry.title = "Changed before Prepare"
+            await second_entry.save()
+            with pytest.raises(ResourceConflictError, match="task changed"):
+                await disposition(latest, action="prepare")
+            second_entry.title = title
+            await second_entry.save()
+            with pytest.raises(ResourceNotFoundError, match="Suggestion not found"):
+                await disposition(latest, member_auth.id, action="prepare")
+            assert await disposition(latest, action="accept") == {"accepted": True}
+            assert await disposition(latest, action="accept") == {"accepted": True}
+            assert (
+                await resident_assignment.get_resident_assignment_review(
+                    user_id=auth.id, workspace_id=workspace.id, entry_id=second_entry.id
+                )
+                is None
+            )
+            accepted = (await discover())["opportunities"][0]
+            assert accepted["entry_id"] == second_entry.id and accepted["accepted"]
+            stored_message = await postgres_raw_db.get("node", latest.id)
+            assert stored_message["context"]["provider_metadata"][
+                "assignment_suggestions"
+            ][0]["accepted"]
+
+            assert await disposition(latest, action="prepare") == {
+                "review_requested": True
+            }
+            assert await disposition(latest, action="prepare") == {
+                "review_requested": True
+            }
+            review_view_from_chat = (
+                await resident_assignment.get_resident_assignment_review(
+                    user_id=auth.id, workspace_id=workspace.id, entry_id=second_entry.id
+                )
+            )
+            assert review_view_from_chat.approval_status == "pending"
+            assert review_view_from_chat.status == "waiting_for_human"
+            assert review_view_from_chat.max_model_requests == 1
+            assert review_view_from_chat.preparation_thread_id is None
+            stored_message = await postgres_raw_db.get("node", latest.id)
+            assert stored_message["context"]["provider_metadata"][
+                "assignment_suggestions"
+            ][0]["review_requested"]
+
         async def propose_review(fingerprint=updated.fingerprint(), config=revision):
             return await resident_assignment.propose_resident_assignment_review(
                 workspace_id=workspace.id,
@@ -335,6 +766,7 @@ async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
         with pytest.raises(ResourceConflictError, match="task has changed"):
             await propose_review(snapshot.fingerprint())
         item, approval = await propose_review()
+        assert (await discover())["opportunities"] == []
         again, same = await propose_review()
         assert (item.id, approval.id) == (again.id, same.id)
         changed = revision.model_copy(
@@ -658,3 +1090,259 @@ async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
             before.body,
             before.record_revision,
         )
+
+
+async def test_reviewed_task_watch_only_posts_material_changes(
+    postgres_raw_db, monkeypatch
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.agentive.api.routines import patch_routine
+    from app.agentive.nodes import RoutineTask
+    from app.agentive.services import routine_task_watch
+    from app.agentive.services.routine_tasks import enqueue_routine_turn_work
+    from app.agentive.staging import create_staged_change
+    from app.agentive.tooling.invoke import invoke_route_in_process
+    from app.services import routine_task_scheduler
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.chat_threads import list_messages
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "22" * 32)
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, workspace, track, _ = await proposal()
+        profile = await ensure_track_attached_operational_model(track)
+        task_type = await EntryType.create(
+            track_id=track.id,
+            name="Task",
+            form_schema={
+                "fields": [],
+                "task_semantics": {"version": 1, "outcome": {"source": "title"}},
+            },
+        )
+        await profile.connect(task_type, edge=CONTAINS)
+        entry = await Entry.create(
+            track_id=track.id, title="First outcome", type_id=task_type.id
+        )
+        await track.connect(entry, edge=CONTAINS)
+        await entry.connect(task_type, edge=IS_OF_TYPE)
+        thread = await create_thread(
+            user_id=auth.id, workspace_id=workspace.id, provider_id="integral_native"
+        )
+        reset = current_scope_workspace_id.set(workspace.id)
+        try:
+            staged = await create_staged_change(
+                user_id=auth.id,
+                session_id=None,
+                kind="routine_task_create",
+                summary="Watch this task",
+                diff_human="Read-only task watch",
+                diff_machine={},
+                payload={
+                    "workspace_id": workspace.id,
+                    "thread_id": thread.id,
+                    "instruction": "Watch this task",
+                    "cron": "0 9 * * *",
+                    "timezone": "UTC",
+                    "delivery_mode": "task_watch",
+                    "watch_entry_id": entry.id,
+                    "max_runs": 2,
+                },
+            )
+        finally:
+            current_scope_workspace_id.reset(reset)
+        assert await RoutineTask.find({"user_id": auth.id}) == []
+        result = await staging_apply.bless_and_execute(
+            user_id=auth.id, token=staged.token
+        )
+        assert result.get("consumed"), result
+        (routine,) = await RoutineTask.find({"user_id": auth.id})
+
+        async def enqueue(slot):
+            return await enqueue_routine_turn_work(
+                routine_id=routine.id,
+                principal_id=auth.id,
+                workspace_id=workspace.id,
+                scheduled_for=f"2026-11-{slot:02d}T09:00:00+00:00",
+                thread_id=thread.id,
+            )
+
+        async def fire(slot, expected_status="succeeded"):
+            work = await enqueue(slot)
+            result = await process_one_due_item(
+                worker_id="task-watch-test", work_item_id=work.work_item_id
+            )
+            assert result is not None
+            assert result.status == expected_status, result.failure
+
+        await fire(1)
+        entry.body = "An unrelated body edit"
+        await entry.save()
+        await fire(2)
+        assert await list_messages(thread) == []
+        entry.title = "Changed outcome"
+        await entry.save()
+        work = await enqueue(3)
+
+        async def run_worker(mode, expected_exit, *, work_id=work.work_item_id):
+            return await _run_observation_worker(work_id, mode, expected_exit)
+
+        await run_worker("crash", 77)
+        stored = await postgres_raw_db.get("object", work.id)
+        assert stored["context"]["status"] == "running"
+        assert len(await list_messages(thread)) == 1
+        entry.title = "Second changed outcome"
+        await entry.save()
+        await postgres_raw_db.find_one_and_update(
+            "object",
+            {"id": work.id, "context.status": "running"},
+            {
+                "$set": {
+                    "context.lease_expires_at": (
+                        datetime.now(timezone.utc) - timedelta(seconds=1)
+                    ).isoformat()
+                }
+            },
+        )
+        recovered = await run_worker("recover", 0)
+        stored = await postgres_raw_db.get("object", work.id)
+        assert stored["context"]["status"] == "succeeded"
+        messages = await list_messages(thread)
+        assert len(messages) == 1
+        assert f"__OBSERVATION_MESSAGE__{messages[0].id}" in recovered.splitlines()
+        assert f"/tracks/{track.id}?entry={entry.id}" in messages[0].parts[0]["text"]
+        assert "Changed outcome" not in messages[0].parts[0]["text"]
+        due_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        await postgres_raw_db.find_one_and_update(
+            "node", {"id": routine.id}, {"$set": {"context.next_run_at": due_at}}
+        )
+        work_query = {
+            "entity": "WorkItem",
+            "context.input_payload.routine_id": routine.id,
+            "context.input_payload.scheduled_for": due_at,
+        }
+        save = RoutineTask.save
+
+        async def interrupt_handoff(task, *args, **kwargs):
+            if task.id == routine.id and task.watch_pending_work_id:
+                raise RuntimeError("injected task-watch handoff interruption")
+            return await save(task, *args, **kwargs)
+
+        with monkeypatch.context() as fault:
+            fault.setattr(RoutineTask, "save", interrupt_handoff)
+            assert await routine_task_scheduler.run_scheduler_pass() == 0
+        assert await postgres_raw_db.find("object", work_query) == []
+        stored_routine = await postgres_raw_db.get("node", routine.id)
+        assert stored_routine["context"]["next_run_at"] == due_at
+
+        passes = await asyncio.gather(
+            routine_task_scheduler.run_scheduler_pass(),
+            routine_task_scheduler.run_scheduler_pass(),
+        )
+        assert sorted(passes) == [0, 1]
+        rows = await postgres_raw_db.find("object", work_query)
+        (queued,) = rows
+        assert queued["context"]["status"] == "queued"
+        stored_routine = await postgres_raw_db.get("node", routine.id)
+        assert stored_routine["context"]["next_run_at"] == due_at
+        assert stored_routine["context"]["watch_pending_work_id"] == queued["id"]
+        assert len(await list_messages(thread)) == 1
+
+        await run_worker("queued", 0, work_id=queued["context"]["work_item_id"])
+        assert await routine_task_scheduler.run_scheduler_pass() == 0
+        assert await routine_task_scheduler.run_scheduler_pass() == 0
+        stored_routine = await postgres_raw_db.get("node", routine.id)
+        assert stored_routine["context"]["last_run_status"] == "success"
+        assert stored_routine["context"]["run_count"] == 1
+        assert not stored_routine["context"]["watch_pending_work_id"]
+        assert stored_routine["context"]["next_run_at"] > due_at
+        await fire(5)
+        assert len(await list_messages(thread)) == 2
+        entry.type_id = ""
+        await entry.save()
+        await fire(6, "failed")
+        assert len(await list_messages(thread)) == 2
+
+        entry.type_id = task_type.id
+        entry.title = "Changed during snooze"
+        await entry.save()
+        stale_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        await postgres_raw_db.find_one_and_update(
+            "node", {"id": routine.id}, {"$set": {"context.next_run_at": stale_at}}
+        )
+        assert await routine_task_scheduler.run_scheduler_pass() == 1
+        (stale,) = await postgres_raw_db.find(
+            "object",
+            {**work_query, "context.input_payload.scheduled_for": stale_at},
+        )
+        wake = (datetime.now(timezone.utc) + timedelta(days=2)).replace(
+            hour=22, minute=30, second=0, microsecond=0
+        )
+        wake_at = wake.isoformat()
+        delivery_at = (wake + timedelta(hours=8, minutes=30)).isoformat()
+
+        async def patch_watch(**body):
+            return await invoke_route_in_process(
+                patch_routine,
+                principal_id=auth.id,
+                scope=workspace.id,
+                routine_id=routine.id,
+                json_body=body,
+            )
+
+        snoozed = await patch_watch(snooze_until=wake_at)
+        assert snoozed["snoozed_until"] == snoozed["next_run_at"] == wake_at
+        assert await routine_task_scheduler.run_scheduler_pass() == 0
+        stale_result = await process_one_due_item(
+            worker_id="stale-watch", work_item_id=stale["context"]["work_item_id"]
+        )
+        assert stale_result is not None and stale_result.status == "cancelled"
+        assert len(await list_messages(thread)) == 2
+
+        resumed = await patch_watch(clear_snooze=True)
+        assert resumed["snoozed_until"] is None
+        assert datetime.fromisoformat(resumed["next_run_at"]) <= datetime.now(
+            timezone.utc
+        )
+        quiet_hours = {"start": "22:00", "end": "07:00"}
+        patched = await patch_watch(snooze_until=wake_at, quiet_hours=quiet_hours)
+        assert patched["quiet_hours"] == quiet_hours
+        monkeypatch.setattr(routine_task_scheduler, "utc_now_iso", lambda: wake_at)
+        monkeypatch.setattr(routine_task_watch, "utc_now", lambda: wake)
+        assert await routine_task_scheduler.run_scheduler_pass() == 1
+        (quiet_work,) = await postgres_raw_db.find(
+            "object", {**work_query, "context.input_payload.scheduled_for": wake_at}
+        )
+        result = await process_one_due_item(
+            worker_id="quiet-watch", work_item_id=quiet_work["context"]["work_item_id"]
+        )
+        assert result is not None and result.status == "succeeded", result
+        assert await routine_task_scheduler.run_scheduler_pass() == 0
+        routine_row = await postgres_raw_db.get("node", routine.id)
+        assert routine_row["context"]["snoozed_until"] is None
+        assert routine_row["context"]["watch_delivery_after"] == delivery_at
+        assert routine_row["context"]["next_run_at"] == delivery_at
+        assert routine_row["context"]["run_count"] == 1
+        assert len(await list_messages(thread)) == 2
+
+        entry.title = "Changed again during quiet hours"
+        await entry.save()
+        monkeypatch.setattr(routine_task_scheduler, "utc_now_iso", lambda: delivery_at)
+        monkeypatch.setattr(
+            routine_task_watch, "utc_now", lambda: datetime.fromisoformat(delivery_at)
+        )
+        assert await routine_task_scheduler.run_scheduler_pass() == 1
+        (allowed_work,) = await postgres_raw_db.find(
+            "object", {**work_query, "context.input_payload.scheduled_for": delivery_at}
+        )
+        result = await process_one_due_item(
+            worker_id="delivery-watch",
+            work_item_id=allowed_work["context"]["work_item_id"],
+        )
+        assert result is not None and result.status == "succeeded", result
+        assert await routine_task_scheduler.run_scheduler_pass() == 0
+        routine_row = await postgres_raw_db.get("node", routine.id)
+        assert routine_row["context"]["watch_delivery_after"] is None
+        assert routine_row["context"]["status"] == "completed"
+        assert routine_row["context"]["run_count"] == 2
+        assert len(await list_messages(thread)) == 3

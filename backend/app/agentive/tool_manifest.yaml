@@ -2693,6 +2693,15 @@ domains:
   P_scheduling:
     description: "User-issued chat routines — cron-based recurring or one-shot (run_at) replay of an instruction as an agent turn, posting into the thread it was created from. Distinct from AgentConfig.scheduled_runs (App-bundle-declared default schedules for App agents)."
     tools:
+      - name: integral_list_resident_opportunities
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Find up to three currently readable tasks you assigned to Integral in the active workspace that are ready for a first preparation review. This bounded search does not start work. If scan_complete is false, do not claim there is no other work."
+        http: "SERVICE (resident_opportunities.list_resident_opportunities)"
+        policy_action: routine_task.read
+        params: { cursor: { type: string, optional: true, desc: "Opaque next_cursor from the previous page of this same workspace search." } }
+        returns: { opportunities: list, scan_complete: bool, has_more_eligible: bool, next_cursor: string }
       - name: integral_schedule_task
         status: existing
         op_class: propose
@@ -2723,7 +2732,8 @@ domains:
         staging_kind: routine_task_create
         params:
           instruction: {type: string, required: true, desc: "For agent mode, the task to execute each run. For reminder mode, the exact user-reviewed message to deliver, without model interpretation."}
-          delivery_mode: {type: string, enum: [agent, reminder], optional: true, desc: "Use reminder for unconditional saved-text nudges (no model call per fire). Use agent for tasks requiring records, analysis, conditions or tools. Defaults agent for compatibility. Reminder mode forbids write_scope."}
+          delivery_mode: {type: string, enum: [agent, reminder, task_watch, assignment_digest], optional: true, desc: "Use task_watch for declared outcome, acceptance criteria, due date, dependencies, or assignment changes on a specific Entry. Other Entry fields do not trigger it. Use assignment_digest for a read-only digest of new review-ready tasks you assigned to Integral in the current workspace. Use reminder for saved text and agent for analysis or tools. Task watch, assignment digest and reminder forbid write_scope."}
+          watch_entry_id: {type: string, optional: true, desc: "Required only for task_watch. Exact Entry ID in the active workspace."}
           cron: {type: string, optional: true, desc: "5-field cron for recurring routines. Omit when using run_at."}
           run_at: {type: string, optional: true, desc: "ISO-8601 fire time for a one-shot. Include an offset for an absolute time; otherwise uses the chosen timezone. Omit when using cron. Defaults max_runs=1."}
           timezone: {type: string, optional: true, desc: "IANA timezone; defaults to the account time zone. Used for cron and run_at without an offset. Absolute run_at offsets take precedence."}
@@ -2734,7 +2744,7 @@ domains:
         status: existing
         op_class: read
         priority: P2
-        summary: "List the caller's own routines with next_run_at/last_run_status/write_scope. Use for 'show my routines' / 'what's scheduled'."
+        summary: "List the caller's own routines in the active workspace. Only in_current_conversation=true means a routine posts to this chat. Use for show my routines or what is scheduled."
         http: "SERVICE (routine_tasks.list_routine_tasks)"
         policy_action: routine_task.read
         params: {}
@@ -2837,11 +2847,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 135
-  existing_tools: 133    # status: existing
+  total_tools: 136
+  existing_tools: 134    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 60, propose: 74, execute: 1 }
-  by_priority: { P0: 17, P1: 47, P2: 71 }
+  by_op_class: { read: 61, propose: 74, execute: 1 }
+  by_priority: { P0: 17, P1: 47, P2: 72 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

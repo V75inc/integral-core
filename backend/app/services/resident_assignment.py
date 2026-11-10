@@ -282,6 +282,56 @@ async def _published_assignment_task(
     }
 
 
+async def read_declared_task(
+    user_id: str, workspace_id: str, entry_id: str
+) -> tuple[str, str] | None:
+    """Return the live track and material task fingerprint for an authorized watch."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.schemas.policy import Resource, Subject
+    from app.services.policy_engine import evaluate
+    from app.services.resource_location import DATA_APP_STATES, locate_resource
+
+    with isolated_permissions_cache():
+        if (
+            not workspace_id
+            or await can_access_workspace(user_id, workspace_id) == "none"
+        ):
+            return None
+        records: dict[str, dict] = {}
+        location = await locate_resource(
+            "entry", entry_id, allowed_app_states=DATA_APP_STATES, records_out=records
+        )
+        if location is None or location.workspace_id != workspace_id:
+            return None
+        decision = await evaluate(
+            subject=Subject(kind="human", id=user_id),
+            action="entry.read",
+            resource=Resource(
+                kind="entry", id=entry_id, scope=f"track:{location.track_id}"
+            ),
+            _dry_run=True,
+        )
+        if not decision.allowed:
+            return None
+        task = await _published_assignment_task(
+            entry_id,
+            location.track_id,
+            (records.get(entry_id) or {}).get("context") or {},
+        )
+        if task is None:
+            return None
+        assignment = await _load_assignment(entry_id, workspace_id)
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                [location.track_id, task, assignment.revision if assignment else 0],
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        return location.track_id, fingerprint
+
+
 async def get_resident_assignment(
     *, user_id: str, workspace_id: str, entry_id: str
 ) -> ResidentAssignmentView:

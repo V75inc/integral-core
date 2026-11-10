@@ -1,7 +1,7 @@
 ---
 name: integral-scheduling
 description: Schedule automatic updates and reports in this chat every minute, hour, day or week, including workspace entry counts and checks for the next few minutes. Creates, lists, pauses, resumes, edits and cancels recurring or one-shot routines. Use for periodic monitoring, scheduled or deferred agent work and fixed personal reminders. Live reports execute tools each run; saved reminders deliver literal text.
-allowed-tools: integral_schedule_task integral_list_routines integral_update_routine integral_cancel_routine integral_delete_routine integral_resolve_entry integral_query_entries integral_count_entries integral_count_workspace_entries integral_aggregate integral_get_digest integral_activity_digest
+allowed-tools: integral_list_resident_opportunities integral_schedule_task integral_list_routines integral_update_routine integral_cancel_routine integral_delete_routine integral_resolve_entry integral_query_entries integral_count_entries integral_count_workspace_entries integral_aggregate integral_get_digest integral_activity_digest
 ---
 
 # Integral scheduling — SOP
@@ -42,6 +42,36 @@ Before creating or updating a routine:
    cadence or guess `routine_id`.
 2. When the instruction implies writes, `integral_resolve_entry` /
    `integral_query_entries` to obtain real `write_scope` resource ids.
+
+## Find assigned work that needs attention
+
+When asked what Integral should pick up next, use
+`integral_list_resident_opportunities` in the active workspace. It returns
+current sponsored assignments eligible for a first preparation review.
+Link to the Entry and explain that the user can request preparation there.
+Use its `next_cursor` to continue a bounded search when more work is needed.
+An empty page with a cursor is not the end of the search.
+This read does not grant authority to prepare or execute.
+If the user asks for recurring suggestions, propose `delivery_mode="assignment_digest"`
+with their cadence, no Entry target, and no write scope. It resumes the workspace
+scan at the next scheduled check and posts only new eligible suggestions to this chat.
+
+## Watch a task for changes
+
+When the user asks to be told only when a particular task changes, resolve the
+exact Entry and propose `delivery_mode="task_watch"` with its `watch_entry_id`,
+the requested cadence, and no `write_scope`. This requires published task
+semantics and current read access. Approval records the current task state.
+Later checks stay quiet until the declared outcome, acceptance criteria, due
+date, dependencies, or assignment revision changes. Avoid promising alerts
+for body edits, arbitrary status fields, or other unmapped properties. The alert links to the Entry and runs without a model or Entry writes.
+If the target is ambiguous, ask which task before proposing the watch.
+The alert destination is the conversation that created the watch. An edit
+cannot move it. If the user asks for alerts in this chat and a watch already
+exists in another chat, leave it alone and propose a new watch in this chat.
+For a request about this chat, only a routine with
+`in_current_conversation=true` from `integral_list_routines` counts as an
+existing watch here. A matching name, Entry, or cadence is insufficient.
 
 ## Live reports versus saved reminder text
 

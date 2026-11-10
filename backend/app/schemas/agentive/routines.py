@@ -9,9 +9,26 @@ from __future__ import annotations
 
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+DURABLE_OBSERVATION_MODES = frozenset({"task_watch", "assignment_digest"})
 
 RoutineUpdateStatus = Literal["active", "paused"]
+
+
+class RoutineQuietHours(BaseModel):
+    """Daily interval in the routine timezone, inclusive start and exclusive end."""
+
+    model_config = {"extra": "forbid"}
+    start: str = Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    end: str = Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+
+    @model_validator(mode="after")
+    def require_distinct_endpoints(self) -> "RoutineQuietHours":
+        """A daily window must leave some time for delivery."""
+        if self.start == self.end:
+            raise ValueError("Quiet hours must start and end at different times")
+        return self
 
 
 class RoutineResponse(BaseModel):
@@ -19,7 +36,12 @@ class RoutineResponse(BaseModel):
 
     id: str
     instruction: str
-    delivery_mode: Literal["agent", "reminder"] = "agent"
+    watch_entry_id: str | None = None
+    snoozed_until: str | None = None
+    quiet_hours: RoutineQuietHours | None = None
+    delivery_mode: Literal["agent", "reminder", "task_watch", "assignment_digest"] = (
+        "agent"
+    )
     cron: str
     timezone: str
     status: str
@@ -62,6 +84,9 @@ class RoutineUpdateRequest(BaseModel):
     timezone: Optional[str] = None
     max_runs: Optional[int] = None
     clear_max_runs: bool = False
+    snooze_until: Optional[str] = Field(default=None, max_length=64)
+    clear_snooze: bool = False
+    quiet_hours: RoutineQuietHours | None = None
 
     model_config = {"extra": "forbid"}
 

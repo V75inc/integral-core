@@ -52,6 +52,23 @@ describe('plain-language approval request', () => {
     expect(screen.queryByText(/New routine:/)).not.toBeInTheDocument();
   });
 
+  it('shows the watched Entry and quiet behavior before approval', () => {
+    render(<ApprovalRequestContent staged={{
+      kind: 'routine_task_create',
+      summary: 'New routine: Watch this task',
+      diff_human: '',
+      diff_machine: {
+        op: 'routine_task_create',
+        instruction: 'Watch this task',
+        cron: '0 9 * * *',
+        delivery_mode: 'task_watch',
+        watch_entry_id: 'n.Entry.task',
+      },
+    }} />);
+    expect(screen.getByText(/Integral will check the watched task/)).toBeVisible();
+    expect(screen.getByText(/Watched Entry n.Entry.task.*only when the task changes/)).toBeVisible();
+  });
+
   it('keeps unattended write authority visible before a routine is approved', () => {
     render(<ApprovalRequestContent staged={{kind:'routine_task_create',summary:'New routine: Update records',diff_human:'Track scope',
       diff_machine:{op:'routine_task_create',instruction:'Update approved records.',cron:'0 9 * * *',delivery_mode:'agent',write_scope:[{resource_type:'track',resource_id:'n.Track.1'}]},

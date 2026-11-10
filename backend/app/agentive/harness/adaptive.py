@@ -166,10 +166,15 @@ def public_dialogue(
     for message in reversed(messages):
         if message.id == exclude_id or message.role not in {"user", "assistant"}:
             continue
+        metadata = getattr(message, "provider_metadata", None) or {}
+        interaction = metadata.get("interactPayload")
         if message.role == "assistant" and (
             not allow_assistant
-            or (getattr(message, "provider_metadata", None) or {}).get(
-                "resident_assignment_draft"
+            or metadata.get("resident_assignment_draft")
+            or metadata.get("origin") in ("proactive", "routine_task")
+            or (
+                isinstance(interaction, dict)
+                and interaction.get("origin") == "routine_task"
             )
         ):
             continue

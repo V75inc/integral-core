@@ -8,7 +8,7 @@ via MCP tools (``integral_list_routines`` / ``integral_update_routine`` /
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import Request
 from jvspatial.api import endpoint
@@ -83,7 +83,7 @@ async def get_routine(request: Request, routine_id: str) -> Dict[str, Any]:
     tags=["Agentive"],
 )
 async def patch_routine(request: Request, routine_id: str) -> Dict[str, Any]:
-    """Update an owned routine (instruction / cadence / pause / max_runs).
+    """Update an owned routine (instruction, cadence, pause, run limit or snooze).
 
     Body is parsed from ``request.json()`` (not a typed param) so jvspatial
     does not nest the payload under a ``body`` key in its ParameterModel —
@@ -114,6 +114,11 @@ async def patch_routine(request: Request, routine_id: str) -> Dict[str, Any]:
         timezone=body.timezone,
         max_runs=body.max_runs,
         clear_max_runs=body.clear_max_runs,
+        snooze_until=body.snooze_until,
+        clear_snooze=body.clear_snooze,
+        quiet_hours=body.quiet_hours,
+        clear_quiet_hours="quiet_hours" in body.model_fields_set
+        and body.quiet_hours is None,
     )
     # D-05 single emission path (mirrors staging_executors._x_routine_task_update).
     await emit_change_event(
@@ -123,7 +128,23 @@ async def patch_routine(request: Request, routine_id: str) -> Dict[str, Any]:
         resource_type="RoutineTask",
         resource_id=routine.id,
         before=None,
-        after={"id": routine.id, "status": routine.status, "cron": routine.cron},
+        after={
+            "id": routine.id,
+            "status": routine.status,
+            "cron": routine.cron,
+            **(
+                {
+                    "snoozed_until": routine.snoozed_until,
+                    "quiet_hours": (
+                        routine.quiet_hours.model_dump()
+                        if routine.quiet_hours
+                        else None
+                    ),
+                }
+                if routine.delivery_mode == "task_watch"
+                else {}
+            ),
+        },
         scope=f"workspace:{routine.workspace_id}",
     )
     return _to_response(serialize_routine(routine))
@@ -203,3 +224,37 @@ async def get_routine_activity(
     page_limit = max(1, min(int(limit or 40), 100))
     payload = await build_routine_activity(routine, limit=page_limit)
     return RoutineActivityResponse(**payload).model_dump()
+
+
+@endpoint(
+    "/agentive/routines/opportunities/{message_id}/{entry_id}/{action}",
+    methods=["POST"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def set_routine_opportunity_disposition(
+    request: Request,
+    message_id: str,
+    entry_id: str,
+    action: Literal["dismiss", "later", "prepare", "accept"],
+) -> Dict[str, bool | str]:
+    """Apply an owned assignment digest action to one suggestion."""
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.resident_opportunity_actions import (
+        set_resident_opportunity_disposition,
+    )
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    return await set_resident_opportunity_disposition(
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        message_id=message_id,
+        entry_id=entry_id,
+        action=action,
+    )

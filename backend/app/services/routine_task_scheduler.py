@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from app.agentive.nodes import RoutineTask
+from app.schemas.agentive.routines import DURABLE_OBSERVATION_MODES
 from app.utils.time import utc_now, utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -633,13 +634,114 @@ def _dispatch_batch(user_id: str, task_ids: List[str]) -> asyncio.Task:
     return task
 
 
+async def _reconcile_observation(
+    task: RoutineTask, *, now_iso: str
+) -> tuple[bool, str]:
+    """Keep a due slot discoverable until its durable work reaches a terminal state."""
+    from app.agentive.services.routine_mandate import routine_mandate_fingerprint
+    from app.agentive.services.routine_tasks import (
+        compute_next_run_at,
+        enqueue_routine_turn_work,
+    )
+    from app.agentive.services.work_items import _current_work_item
+    from app.schemas.agentive.work import TERMINAL_WORK_STATUSES, WorkError
+
+    assert task.next_run_at is not None
+    work = None
+    if task.watch_pending_work_id:
+        work = await _current_work_item(task.watch_pending_work_id)
+        if (
+            work is None
+            or work.kind != "routine_turn"
+            or work.origin != "scheduler"
+            or work.principal_id != task.user_id
+            or work.workspace_id != task.workspace_id
+            or work.thread_id != task.thread_id
+            or work.input_payload.get("routine_id") != task.id
+            or work.input_payload.get("task_watch_slot") != "v1"
+        ):
+            raise WorkError(
+                "work.policy_denied", "Task watch work binding is unavailable"
+            )
+        scheduled_for = work.input_payload.get("scheduled_for")
+        mandate = work.input_payload.get("routine_mandate_fingerprint")
+        if scheduled_for != task.next_run_at or mandate != routine_mandate_fingerprint(
+            task
+        ):
+            work = None  # The edited schedule supersedes the old fire.
+
+    async def enqueue_current_slot() -> None:
+        assert task.next_run_at is not None
+        work = await enqueue_routine_turn_work(
+            routine_id=task.id,
+            principal_id=task.user_id,
+            workspace_id=task.workspace_id,
+            thread_id=task.thread_id,
+            scheduled_for=task.next_run_at,
+            task_watch_slot=True,
+        )
+        task.watch_pending_work_id = work.id
+        await task.save()
+
+    if work is None:
+        await enqueue_current_slot()
+        return True, ""
+    if work.status not in TERMINAL_WORK_STATUSES:
+        return False, ""
+
+    # Use completion time so a later sweep can admit an already-due slot.
+    # At most one missed observation is admitted; it reads current evidence.
+    completed_at = max(task.next_run_at, min(work.updated_at or now_iso, now_iso))
+    task.watch_pending_work_id = ""
+    task.snoozed_until = None
+    task.last_run_at = completed_at
+    task.updated_at = now_iso
+    deferred = work.status == "succeeded" and bool(task.watch_delivery_after)
+    task.last_run_status = (
+        "skipped"
+        if deferred
+        else ("success" if work.status == "succeeded" else "error")
+    )
+    task.last_run_error = None
+    if work.status == "succeeded":
+        task.consecutive_failures = 0
+        if not deferred and task.max_runs is not None:
+            task.run_count += 1
+            if task.run_count >= task.max_runs:
+                task.status = "completed"
+    else:
+        task.consecutive_failures += 1
+        task.last_run_error = (work.failure or {}).get("message") or work.status
+        if task.consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+            task.status = "paused"
+
+    if task.status != "active":
+        task.next_run_at = None
+    elif task.cron.strip():
+        task.next_run_at = compute_next_run_at(
+            task.cron, task.timezone, base_iso=completed_at
+        )
+    elif work.status != "succeeded":
+        task.next_run_at = (
+            utc_now() + timedelta(seconds=_SKIP_RETRY_SECONDS)
+        ).isoformat()
+    else:
+        task.next_run_at = None
+    if deferred and task.status == "active" and task.watch_delivery_after:
+        if not task.next_run_at or task.watch_delivery_after < task.next_run_at:
+            task.next_run_at = task.watch_delivery_after
+    await task.save()
+    if task.status == "active" and task.next_run_at and task.next_run_at <= now_iso:
+        await enqueue_current_slot()
+        return True, task.status
+    return False, task.status
+
+
 async def run_scheduler_pass() -> int:
     """One sweep over due, active ``RoutineTask`` rows. Returns count dispatched.
 
-    Recomputes + persists ``next_run_at`` BEFORE dispatching (not after) so
-    a slow or stuck run is never double-picked on the next tick. Due
-    routines are grouped by owner and each group runs serially (one
-    ``asyncio.Task`` per user) under the global parallel-run bound.
+    Task watches hand off through the durable work queue and advance only
+    after settlement. Other routines dispatch in per-owner serial batches.
     """
     now_iso = utc_now_iso()
     try:
@@ -655,11 +757,19 @@ async def run_scheduler_pass() -> int:
     dispatched = 0
     by_user: Dict[str, List[str]] = {}
     for task in candidates:
+        watch_status = ""
         try:
             from app.agentive.services.routine_state import locked_routine
             from app.agentive.services.routine_tasks import compute_next_run_at
 
-            async with locked_routine(task.id) as current:
+            async with locked_routine(
+                task.id,
+                principal_id=(
+                    task.user_id
+                    if task.delivery_mode in DURABLE_OBSERVATION_MODES
+                    else None
+                ),
+            ) as current:
                 if (
                     current is None
                     or current.status != "active"
@@ -668,7 +778,12 @@ async def run_scheduler_pass() -> int:
                 ):
                     continue
                 task = current
-                if (task.cron or "").strip():
+                if task.delivery_mode in DURABLE_OBSERVATION_MODES:
+                    queued, watch_status = await _reconcile_observation(
+                        task, now_iso=now_iso
+                    )
+                    dispatched += int(queued)
+                elif (task.cron or "").strip():
                     # Recurring: advance next_run_at BEFORE dispatch so a slow
                     # run cannot be double-picked on the next tick.
                     task.next_run_at = compute_next_run_at(
@@ -678,13 +793,38 @@ async def run_scheduler_pass() -> int:
                     # One-shot (empty cron): clear next_run_at so this pass cannot
                     # re-pick mid-flight. Failure / skip paths may re-arm a retry.
                     task.next_run_at = None
-                await task.save()
+                if task.delivery_mode not in DURABLE_OBSERVATION_MODES:
+                    await task.save()
         except Exception:  # noqa: BLE001
             logger.warning(
                 "run_scheduler_pass: failed to recompute next_run_at for %s",
                 task.id,
                 exc_info=True,
             )
+            continue
+        if task.delivery_mode in DURABLE_OBSERVATION_MODES:
+            if watch_status:
+                action = (
+                    "routine_task.auto_paused"
+                    if watch_status == "paused"
+                    else "routine_task.run_completed"
+                )
+                await _emit_run_event(
+                    task, action=action, details={"status": task.last_run_status}
+                )
+                if watch_status == "paused":
+                    await _notify_auto_paused(
+                        task, reason=task.last_run_error or "Task watch failed"
+                    )
+                elif watch_status == "completed":
+                    await _emit_run_event(
+                        task,
+                        action="routine_task.completed",
+                        details={
+                            "run_count": task.run_count,
+                            "max_runs": task.max_runs,
+                        },
+                    )
             continue
         by_user.setdefault(task.user_id or "", []).append(task.id)
         dispatched += 1

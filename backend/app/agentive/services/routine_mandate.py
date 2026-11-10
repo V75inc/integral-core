@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any
 
+from app.schemas.agentive.routines import DURABLE_OBSERVATION_MODES
+
 _DEFAULTS: dict[str, Any] = {
     "user_id": "",
     "workspace_id": "",
@@ -32,6 +34,24 @@ def routine_mandate_fingerprint(routine: Any) -> str:
         )
         for key, default in _DEFAULTS.items()
     }
+    if fields["delivery_mode"] == "task_watch":
+        fields["watch_entry_id"] = (
+            routine.get("watch_entry_id", "")
+            if isinstance(routine, dict)
+            else routine.watch_entry_id
+        )
+    if fields["delivery_mode"] in DURABLE_OBSERVATION_MODES:
+        quiet_hours = (
+            routine.get("quiet_hours")
+            if isinstance(routine, dict)
+            else routine.quiet_hours
+        )
+        if quiet_hours is not None:
+            fields["quiet_hours"] = (
+                quiet_hours
+                if isinstance(quiet_hours, dict)
+                else quiet_hours.model_dump()
+            )
     fields["write_scope"] = sorted(
         fields["write_scope"] or [], key=lambda grant: json.dumps(grant, sort_keys=True)
     )

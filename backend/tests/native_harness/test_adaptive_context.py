@@ -299,9 +299,18 @@ async def test_light_turn_receives_trusted_resume_context(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operational_generation", [0, 2])
+@pytest.mark.parametrize(
+    ("operational_generation", "metadata"),
+    [
+        (0, {"resident_assignment_draft": True}),
+        (0, {"origin": "proactive", "message_type": "digest"}),
+        (0, {"origin": "routine_task", "delivery_mode": "reminder"}),
+        (0, {"interactPayload": {"origin": "routine_task"}}),
+        (2, {}),
+    ],
+)
 async def test_light_turn_does_not_reuse_unverified_assistant_text(
-    monkeypatch, operational_generation
+    monkeypatch, operational_generation, metadata
 ):
     from app.agentive.harness import adaptive
     from app.services.chat_threads import append_message
@@ -313,9 +322,7 @@ async def test_light_turn_does_not_reuse_unverified_assistant_text(
         thread=thread,
         role="assistant",
         parts=[{"type": "text", "text": "SOURCE_DERIVED_ASSISTANT_TEXT"}],
-        provider_metadata=(
-            {} if operational_generation else {"resident_assignment_draft": True}
-        ),
+        provider_metadata=metadata,
     )
     await append_message(
         thread=thread,

@@ -4357,6 +4357,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_param_map=_pick("attachment_id", "language", "max_chars"),
     ),
     # Routine tasks (P_scheduling) — user-issued recurring chat instructions.
+    "integral_list_resident_opportunities": ToolBinding(
+        service_ref=_h(
+            "app.services.resident_opportunities", "list_resident_opportunities"
+        ),
+        service_param_map=_pick("cursor"),
+    ),
     "integral_schedule_task": ToolBinding(stager=stage_schedule_task),
     "integral_list_routines": ToolBinding(
         service_ref=_h("app.agentive.services.routine_tasks", "list_routine_tasks"),
