@@ -118,12 +118,12 @@ export function DataTable<Row extends object = Record<string, unknown>>({
           <tbody>
             {shown.length === 0 ? (
               <tr><td colSpan={columns.length} className="px-4 py-6 text-center text-sm text-[var(--text-muted)]">{empty ?? 'Nothing to show.'}</td></tr>
-            ) : shown.map((row, index) => (
+            ) : shown.map(row => (
               <tr key={rowKey(row)} onClick={onRowClick ? () => onRowClick(row) : undefined} onKeyDown={onRowClick ? e => onKey(e, row) : undefined}
                 tabIndex={onRowClick ? 0 : undefined}
                 className={`border-b border-[var(--entry-table-divider)] last:border-b-0 ${onRowClick ? 'cursor-pointer hover:bg-[var(--entry-table-row-hover)] focus-visible:bg-[var(--entry-table-row-hover)] focus-visible:outline-none' : ''}`}>
                 {columns.map(c => (
-                  <td key={c.key} className={cellClass(c)} style={pinStyle(c, index % 2 ? 'var(--entry-table-row-alt)' : 'var(--panel)')}>
+                  <td key={c.key} className={cellClass(c)} style={pinStyle(c, 'var(--panel)')}>
                     {c.render ? c.render(row) : String((row as Record<string, unknown>)[c.key] ?? '')}
                   </td>
                 ))}
