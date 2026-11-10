@@ -64,6 +64,8 @@ export interface DataTableProps<Row = Record<string, unknown>> {
   sectionTotals?: boolean;
   /** Let people choose which columns show, with quick presets; `persistKey` remembers it in this browser. */
   columnPicker?: { presets?: DataTablePreset[]; persistKey?: string };
+  /** Narrowest the table is drawn before it scrolls sideways (CSS value). Default `600px`; use `0` for a narrow card. */
+  minWidth?: string;
   /** Let people pin a column to the right edge from its heading. */
   pinnable?: boolean;
   /** Shown above the table, left of the column button. */
@@ -90,7 +92,7 @@ function readPrefs(key?: string): { hidden: string[]; pins: string[] } | null {
 
 export function DataTable<Row extends object = Record<string, unknown>>({
   columns, rows, rowKey, caption, groups = [], defaultSort = null, pageSize, onRowClick, empty, maxHeight, density = 'comfortable',
-  rowTone, sectionBy, sectionTotals, columnPicker, pinnable, toolbar,
+  rowTone, sectionBy, sectionTotals, columnPicker, pinnable, toolbar, minWidth = '600px',
 }: DataTableProps<Row>) {
   const stored = useMemo(() => readPrefs(columnPicker?.persistKey), [columnPicker?.persistKey]);
   const [sort, setSort] = useState<DataTableSort | null>(defaultSort);
@@ -252,7 +254,7 @@ export function DataTable<Row extends object = Record<string, unknown>>({
       {toolbar || picker ? <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{toolbar}</div>{picker}</div> : null}
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--entry-table-border)] bg-[var(--panel)] shadow-[var(--shadow-card)]">
         <div ref={scroller} className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
-          <table className={`w-full min-w-[600px] text-[var(--text)] ${density === 'compact' ? 'text-[13px]' : 'text-sm'}`}>
+          <table className={`w-full text-[var(--text)] ${density === 'compact' ? 'text-[13px]' : 'text-sm'}`} style={{ minWidth }}>
             <caption className="sr-only">{caption}</caption>
             <thead>
               {hasGroups ? (

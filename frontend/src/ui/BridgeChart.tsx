@@ -3,6 +3,7 @@
  * bars to the left took from it (for example what changed net pay since the last run). Layer: Primitive.
  */
 import { shortNumber } from './LineChart';
+import { useChartWidth } from './useChartWidth';
 
 export interface BridgeStep { key: string; label: string; value: number }
 export interface BridgeChartProps {
@@ -17,12 +18,13 @@ export interface BridgeChartProps {
 }
 
 export function BridgeChart({ steps, ariaLabel, formatValue = v => Math.round(v).toLocaleString('en-US'), upLabel = 'Added', downLabel = 'Took away' }: BridgeChartProps) {
+  const { ref, width: W } = useChartWidth(340, 620, 620);
   if (!steps.length) return null;
-  const W = 620, rowH = 28, L = 196, R = 8, H = steps.length * rowH + 8;
+  const rowH = 28, L = W < 460 ? 150 : 196, R = 8, H = steps.length * rowH + 8;
   const big = Math.max(...steps.map(s => Math.abs(s.value)), 1);
   const mid = L + (W - L - R) / 2, half = (W - L - R) / 2 - 58;
   return (
-    <div className="flex flex-col gap-2">
+    <div ref={ref} className="flex flex-col gap-2">
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full text-[12px] text-[var(--text-muted)]" role="img" aria-label={ariaLabel}>
         <line x1={mid} x2={mid} y1={0} y2={H} stroke="var(--viz-grid)" strokeWidth="1" />
         {steps.map((s, i) => {

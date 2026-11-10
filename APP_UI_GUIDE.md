@@ -1,4 +1,4 @@
-<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 7aa2065278637729f672facea2c989ba2ec3d47804f1f0f3b3ee1e0f3273f7ce. Do not edit. -->
+<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 c42a65f3fae56b200cec7cf4aa2133a0421a1258fa41c5fcd0b94f3edb049250. Do not edit. -->
 
 # Integral Business App UI authoring — React SDK 1.2
 
@@ -43,7 +43,7 @@ must improve in Core rather than being copied independently into each App.
 | `AppActions` | Wrapping action layout with `align="start"`, `"end"` or `"between"`. Does not implement mutations. |
 | `AppSummary` | `title`, optional `description`, `rows` containing stable `key`, `label`, formatted `value`, optional `emphasis`. No calculation or currency policy. |
 | `AppNotice` | Shared loading/empty/information/error presentation; optional `title`, `action`, `tone="info|success|warn|danger"`. Warning/error notices announce alerts; other notices use status semantics. |
-| `DataTable` | Rows and columns for the App's own data. `columns` (`key`, `label`, `align="end"` for amounts, `sortable`, `pinned` (`start`/`end`) to keep a column in view, `width`, `group`, `emphasis="link"`, `render`, `total`), `rows`, `rowKey`, `caption`; optional `groups` (column group headings), `defaultSort`, `pageSize`, `onRowClick`, `empty`, `maxHeight`, `density="compact"`, `rowTone`, `sectionBy` with `sectionTotals`, `columnPicker` (presets, `persistKey`), `pinnable`, `toolbar`. Sorting, paging, grouped headings, section rows, totals, the column picker and number alignment are built in; do not draw tables by hand. |
+| `DataTable` | Rows and columns for the App's own data. `columns` (`key`, `label`, `align="end"` for amounts, `sortable`, `pinned` (`start`/`end`) to keep a column in view, `width`, `group`, `emphasis="link"`, `render`, `total`), `rows`, `rowKey`, `caption`; optional `groups` (column group headings), `defaultSort`, `pageSize`, `onRowClick`, `empty`, `maxHeight`, `density="compact"`, `rowTone`, `sectionBy` with `sectionTotals`, `columnPicker` (presets, `persistKey`), `pinnable`, `toolbar`, `minWidth` (`0` for a narrow card). Sorting, paging, grouped headings, section rows, totals, the column picker and number alignment are built in; do not draw tables by hand. |
 | `Stat` | One headline figure: `label`, `value`, optional `note`, `delta` (text with its arrow and sign), `emphasis`, `trend` (recent values drawn as a small line) and `trendLabel`. Lay tiles out with `AppGrid`. |
 | `LineChart` | One or more series over a short row of labelled points, oldest first: `labels`, `series` (`key`, `label`, `values`), `ariaLabel`; optional `tooltips`, `formatValue`. Coloured from Core's chart palette. |
 | `BridgeChart` | The reasons a figure moved, one bar each around a zero line: `steps` (`key`, `label`, signed `value`), `ariaLabel`; optional `formatValue`, `upLabel`, `downLabel`. |

@@ -3,6 +3,7 @@
  * Coloured from Core's chart palette; every point has a hover tip. Layer: Primitive.
  */
 import { useId } from 'react';
+import { useChartWidth } from './useChartWidth';
 
 export interface LineChartSeries { key: string; label: string; values: number[] }
 export interface LineChartProps {
@@ -26,7 +27,8 @@ export const shortNumber = (n: number) => {
 export function LineChart({ labels, series, tooltips, ariaLabel, formatValue = shortNumber }: LineChartProps) {
   const id = useId();
   const n = labels.length;
-  const W = 720, H = 220, L = 52, R = 70, T = 10, B = 26;
+  const { ref, width: W } = useChartWidth(360, 1100, 720);
+  const H = 220, L = 52, R = 70, T = 10, B = 26;
   if (n < 2 || series.length === 0) return null;
   const hi = Math.max(...series.flatMap(s => s.values)) * 1.08 || 1;
   const x = (i: number) => L + (i * (W - L - R)) / (n - 1);
@@ -42,7 +44,7 @@ export function LineChart({ labels, series, tooltips, ariaLabel, formatValue = s
   if (series.length === 2 && Math.abs(ends[0] - ends[1]) < 14) { const mid = (ends[0] + ends[1]) / 2; ends = ends[0] < ends[1] ? [mid - 7, mid + 7] : [mid + 7, mid - 7]; }
   const tip = (i: number) => tooltips?.[i] ?? `${labels[i]} · ${series.map(s => `${s.label} ${formatValue(s.values[i])}`).join(' · ')}`;
   return (
-    <div className="flex flex-col gap-2">
+    <div ref={ref} className="flex flex-col gap-2">
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full text-[11px] text-[var(--text-muted)]" role="img" aria-label={ariaLabel} aria-describedby={`${id}-legend`}>
         {ticks.map(v => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="var(--viz-grid)" strokeWidth="1" /><text x={L - 6} y={y(v) + 4} textAnchor="end" fill="currentColor">{formatValue(v)}</text></g>)}
         {labels.map((label, i) => ((n - 1 - i) % stride === 0 ? <text key={i} x={x(i)} y={H - 6} textAnchor={i === 0 && x(i) - L < 20 ? 'start' : 'middle'} fill="currentColor">{label}</text> : null))}

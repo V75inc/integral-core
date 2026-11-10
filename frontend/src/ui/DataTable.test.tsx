@@ -138,3 +138,13 @@ describe('DataTable sheet features', () => {
     expect(within(ok).getAllByRole('cell')[0].style.background).not.toContain('danger-bg');
   });
 });
+
+describe('DataTable width', () => {
+  it('keeps a 600px minimum unless the App asks for less', () => {
+    const cols: DataTableColumn<{ id: string; a: string }>[] = [{ key: 'a', label: 'A' }];
+    const { rerender } = render(<DataTable columns={cols} rows={[{ id: '1', a: 'x' }]} rowKey={r => r.id} caption="T" />);
+    expect(screen.getByRole('table').style.minWidth).toBe('600px');
+    rerender(<DataTable columns={cols} rows={[{ id: '1', a: 'x' }]} rowKey={r => r.id} caption="T" minWidth="0" />);
+    expect(['0', '0px']).toContain(screen.getByRole('table').style.minWidth);
+  });
+});
