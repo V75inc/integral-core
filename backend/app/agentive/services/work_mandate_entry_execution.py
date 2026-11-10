@@ -15,7 +15,7 @@ from app.agentive.services.work_mandates import (
 )
 from app.agentive.work_models import WorkItem
 from app.models.nodes import ChatThread
-from app.schemas.agentive.work import WorkError, WorkExecutionContext
+from app.schemas.agentive.work import WorkError, WorkExecutionContext, WorkStatus
 from app.schemas.agentive.work_mandate import WorkMandateRevision
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 from app.services.release_admission import release_admission
@@ -78,31 +78,55 @@ async def _has_dispatch_evidence(transaction: Any, work_item_id: str) -> bool:
     return bool(rows)
 
 
-async def expire_entry_read_mandate(item: WorkItem) -> WorkItem:
-    """Close expired work under its lease and retain any dispatch hold."""
+async def settle_entry_read_mandate_error(item: WorkItem, error: WorkError) -> WorkItem:
+    """Resolve cancellation and worker errors in the same order as publication."""
+    if error.code == "work.lease_lost":
+        raise error
     async with postgres_graph_transaction() as txn:
-        await txn.lock_record("object", item.id)
-        needs_reconciliation = await _has_dispatch_evidence(txn, item.work_item_id)
-        if needs_reconciliation:
+        row = await txn.lock_record("object", item.id)
+        cancelled = bool(((row or {}).get("context") or {}).get("cancel_requested_at"))
+        target: WorkStatus = "failed"
+        if cancelled or error.code == "work.cancelled":
+            target = "cancelled"
             failure = work_items.normalize_failure(
-                class_="permanent",
-                code="work.outcome_reconciliation_required",
-                message="Mandate expired after model dispatch was authorized",
+                class_="cancelled",
+                code="work.cancelled",
+                message="cancel requested",
                 retryable=False,
             )
+        elif error.code in {"work.deadline_exceeded", "work.mandate_expired"}:
+            if await _has_dispatch_evidence(txn, item.work_item_id):
+                failure = work_items.normalize_failure(
+                    class_="permanent",
+                    code="work.outcome_reconciliation_required",
+                    message="Mandate expired after model dispatch was authorized",
+                    retryable=False,
+                )
+            else:
+                target = "expired"
+                failure = work_items.normalize_failure(
+                    class_="deadline_exceeded",
+                    code="work.deadline_exceeded",
+                    message="Mandate execution deadline passed",
+                    retryable=False,
+                )
         else:
+            retryable = error.code.startswith("work.") and "transient" in error.code
+            if retryable:
+                # Admission grants exactly one attempt.
+                target = "dead_letter"
             failure = work_items.normalize_failure(
-                class_="deadline_exceeded",
-                code="work.deadline_exceeded",
-                message="Mandate execution deadline passed",
-                retryable=False,
+                class_="transient" if retryable else "permanent",
+                code=error.code,
+                message=error.message,
+                retryable=retryable,
             )
         return await work_items.transition_leased(
             item.work_item_id,
             lease_token=item.lease_token,
             lease_fence=int(item.lease_fence or 0),
             expected_status="running",
-            target="failed" if needs_reconciliation else "expired",
+            target=target,
             fields={"failure": failure},
             transaction=txn,
         )

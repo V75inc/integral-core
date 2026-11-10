@@ -26,7 +26,11 @@ from app.agentive.services.work_outbox import (
 )
 from app.agentive.work_budget_models import WorkBudgetReservation
 from app.agentive.work_models import WorkItem
-from app.schemas.agentive.work import WorkError, WorkExecutionContext
+from app.schemas.agentive.work import (
+    TERMINAL_WORK_STATUSES,
+    WorkError,
+    WorkExecutionContext,
+)
 from app.schemas.agentive.work_budget import (
     MandateReservationRequest,
     Money,
@@ -870,6 +874,7 @@ async def reconcile_mandate_dispatch(
     outcome: str,
     evidence_ref: str,
     dispatch_ref: str = "",
+    require_terminal_work: bool = False,
 ) -> WorkBudgetReservation:
     """Record uncertainty or release only a never-marked reservation.
 
@@ -924,6 +929,18 @@ async def reconcile_mandate_dispatch(
                 raise WorkError("work.idempotency_conflict")
             if record.status != "reserved" or record.dispatch_state != "not_started":
                 raise WorkError("work.outcome_reconciliation_required")
+            if require_terminal_work:
+                owner = root
+                if record.work_item_id != root.work_item_id:
+                    owner = await _lock_work_scope(
+                        graph.database,
+                        record.work_item_id,
+                        principal_id,
+                        workspace_id,
+                        thread_id,
+                    )
+                if owner.status not in TERMINAL_WORK_STATUSES:
+                    raise WorkError("work.reservation_owner_active")
             account = _ledger(root.plan)
             if account["reserved_units"] < record.upper_units:
                 raise WorkError("work.budget_invalid")

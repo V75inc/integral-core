@@ -378,6 +378,8 @@ async def test_typed_goal_closure_requires_exact_declared_source_and_value():
         pytest.skip("requires PostgreSQL evidence locks")
 
     from app.agentive.services.routine_task_watch import read_task_watch_snapshot
+    from app.agentive.tooling.bindings import _propose_principal
+    from app.agentive.tooling.stagers_filing import _stage_existing_entry
     from app.models.edges import IS_OF_TYPE
     from app.models.nodes import EntryType
     from app.services.app_graph import ensure_track_attached_operational_model
@@ -458,6 +460,25 @@ async def test_typed_goal_closure_requires_exact_declared_source_and_value():
     async def watch():
         return await read_task_watch_snapshot(user_id, workspace_id, goal.id, goal=True)
 
+    async def prepare(*, scope_id=workspace_id, **overrides):
+        principal_token = _propose_principal.set(user_id)
+        workspace_token = current_scope_workspace_id.set(scope_id)
+        try:
+            terms = {
+                key: value
+                for key, value in payload.items()
+                if key != "evidence_revisions"
+            }
+            return await _stage_existing_entry(
+                {**terms, **overrides}, mode="append", text=payload["text"]
+            )
+        finally:
+            current_scope_workspace_id.reset(workspace_token)
+            _propose_principal.reset(principal_token)
+
+    unavailable = await prepare()
+    assert unavailable["_no_stage"]
+    assert "meets every declared criterion" in unavailable["data"]["message"]
     initial = await watch()
     assert initial is not None and initial[1].startswith("goal:")
     source.body = "Unrelated body edit"
@@ -484,6 +505,32 @@ async def test_typed_goal_closure_requires_exact_declared_source_and_value():
     payload["evidence_revisions"][source.id] = source.record_revision
     ready = await watch()
     assert ready is not None and ready != initial
+    stale = await prepare(expected_record_revision=goal.record_revision + 1)
+    assert stale["_no_stage"]
+    stale_schema = await prepare(
+        expected_schema_revision=payload["expected_schema_revision"] + 1
+    )
+    assert stale_schema["_no_stage"]
+    assert "Track schema changed" in stale_schema["data"]["message"]
+    foreign_scope = await prepare(scope_id="n.Workspace.foreign")
+    assert foreign_scope["_no_stage"]
+    prepared = await prepare()
+    assert prepared["kind"] == "file_content"
+    assert prepared["payload"]["evidence_revisions"] == {
+        source.id: source.record_revision
+    }
+    assert (await Entry.find_one({"id": goal.id})).status == "active"
+    source.custom_fields["final_count"] = 1
+    source.record_revision += 1
+    await source.save()
+    refused = await apply_filing_facet(user_id, prepared["payload"])
+    assert refused["error_code"] == "record_revision_conflict"
+    assert (await Entry.find_one({"id": goal.id})).status == "active"
+    assert "Reviewed closure" not in (await Entry.find_one({"id": goal.id})).body
+
+    refreshed = await prepare()
+    payload = refreshed["payload"]
+    assert payload["evidence_revisions"] == {source.id: source.record_revision}
     assert (await apply_filing_facet(user_id, payload))["filed"] is True
     assert (await apply_filing_facet(user_id, payload))["retry"] is True
     fresh = await Entry.find_one({"id": goal.id})

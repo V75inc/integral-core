@@ -216,6 +216,7 @@ class RoutineTask(Node):
     )
     watch_entry_id: str = ""
     watch_fingerprint: str = ""
+    watch_prepare_closure: bool = False
     watch_pending_work_id: str = ""
     opportunity_cursor: Optional[str] = None
     opportunity_last_work_id: str = ""

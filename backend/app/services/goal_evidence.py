@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from dataclasses import dataclass
 
 from jvspatial.core.context import get_default_context
 
@@ -164,10 +165,19 @@ async def _read_goal_entry(
     return entry if entry and entry.status not in {"archived", "deleted"} else None
 
 
-async def read_goal_watch(
+@dataclass(frozen=True)
+class GoalEvidenceSnapshot:
+    track_id: str
+    fingerprint: str
+    next_step: str
+    goal_revision: int
+    closure_evidence: dict[str, int] | None
+
+
+async def read_goal_evidence(
     user_id: str, workspace_id: str, entry_id: str
-) -> tuple[str, str] | None:
-    """Fingerprint authorized material goal and evidence state without releasing values."""
+) -> GoalEvidenceSnapshot | None:
+    """Fingerprint a goal and suggest a next step without releasing evidence values."""
     with isolated_permissions_cache():
         if (
             not workspace_id
@@ -185,12 +195,14 @@ async def read_goal_watch(
 
         evidence: dict[str, tuple[Entry, dict]] = {}
         state = []
+        unmet = 0
         for criterion in semantics.criteria:
             source_id = await _linked_source(
                 goal, schema, criterion.evidence_relation_field_id
             )
             if source_id is None:
                 state.append((criterion.key, None, None))
+                unmet += 1
                 continue
             if source_id not in evidence:
                 source = await _read_goal_entry(user_id, workspace_id, source_id)
@@ -201,6 +213,8 @@ async def read_goal_watch(
             source, source_schema = evidence[source_id]
             value = _criterion_value(source, source_schema, criterion.predicate)
             state.append((criterion.key, source_id, value))
+            if not _criterion_met(value, criterion.predicate):
+                unmet += 1
         digest = hashlib.sha256(
             json.dumps(
                 [goal.track_id, goal.status, outcome, semantics.model_dump(), state],
@@ -208,4 +222,33 @@ async def read_goal_watch(
                 separators=(",", ":"),
             ).encode()
         ).hexdigest()
-        return goal.track_id, digest
+        if unmet:
+            total = len(semantics.criteria)
+            criterion_label = "criterion" if total == 1 else "criteria"
+            next_step = (
+                f"Evidence is still needed for {unmet} of {total} declared {criterion_label}. "
+                "Review the linked evidence before taking further action."
+            )
+        elif goal.status == "completed":
+            next_step = "The goal is complete and all declared criteria still pass."
+        elif goal.status == "active":
+            next_step = (
+                "All declared criteria now pass. If the outcome is ready to close, "
+                "ask Integral to prepare a closure review."
+            )
+        else:
+            next_step = "All declared criteria pass. Review the current goal status."
+        return GoalEvidenceSnapshot(
+            track_id=goal.track_id,
+            fingerprint=digest,
+            next_step=next_step,
+            goal_revision=goal.record_revision,
+            closure_evidence=(
+                {
+                    source_id: source.record_revision
+                    for source_id, (source, _) in evidence.items()
+                }
+                if not unmet and goal.status == "active"
+                else None
+            ),
+        )

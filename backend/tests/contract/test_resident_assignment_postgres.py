@@ -1104,15 +1104,16 @@ async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
 
 
 @pytest.mark.parametrize(
-    ("watch_goal", "crash_before_commit"),
+    ("watch_goal", "crash_before_commit", "prepare_closure"),
     [
-        pytest.param(False, False, id="task-post-commit"),
-        pytest.param(True, False, id="goal-post-commit"),
-        pytest.param(True, True, id="goal-pre-commit"),
+        pytest.param(False, False, False, id="task-post-commit"),
+        pytest.param(True, False, False, id="goal-read-only-post-commit"),
+        pytest.param(True, True, True, id="goal-preparation-pre-commit"),
+        pytest.param(True, False, True, id="goal-preparation-post-commit"),
     ],
 )
 async def test_reviewed_task_watch_only_posts_material_changes(
-    postgres_raw_db, monkeypatch, watch_goal, crash_before_commit
+    postgres_raw_db, monkeypatch, watch_goal, crash_before_commit, prepare_closure
 ):
     from datetime import datetime, timedelta, timezone
 
@@ -1127,6 +1128,8 @@ async def test_reviewed_task_watch_only_posts_material_changes(
     from app.services.chat_threads import list_messages
 
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "22" * 32)
+
+    from app.agentive import staging_store
 
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         auth, workspace, track, _ = await proposal()
@@ -1200,6 +1203,7 @@ async def test_reviewed_task_watch_only_posts_material_changes(
                     "delivery_mode": "task_watch",
                     "watch_entry_id": entry.id,
                     "watch_goal": watch_goal,
+                    "watch_prepare_closure": prepare_closure,
                     "max_runs": 2,
                 },
             )
@@ -1252,11 +1256,20 @@ async def test_reviewed_task_watch_only_posts_material_changes(
         stored = await postgres_raw_db.get("object", work.id)
         assert stored["context"]["status"] == "running"
         assert len(await list_messages(thread)) == (0 if crash_before_commit else 1)
+        reviews_before_recovery = [
+            change
+            for change in await staging_store.load_pending_for_user(auth.id)
+            if change.kind == "file_content"
+        ]
+        assert len(reviews_before_recovery) == int(
+            prepare_closure and not crash_before_commit
+        )
+        messages_before_recovery = await list_messages(thread)
         stored_routine = await postgres_raw_db.get("node", routine.id)
         assert (
             stored_routine["context"]["watch_fingerprint"] == routine.watch_fingerprint
         ) is crash_before_commit
-        if not crash_before_commit:
+        if not crash_before_commit and not prepare_closure:
             entry.title = "Second changed outcome"
             await entry.save()
         await postgres_raw_db.find_one_and_update(
@@ -1282,6 +1295,42 @@ async def test_reviewed_task_watch_only_posts_material_changes(
             f"watched {'goal' if watch_goal else 'task'}"
             in messages[0].parts[0]["text"]
         )
+        closure_reviews = [
+            change
+            for change in await staging_store.load_pending_for_user(auth.id)
+            if change.kind == "file_content"
+        ]
+        assert len(closure_reviews) == int(prepare_closure)
+        if watch_goal:
+            if prepare_closure:
+                assert (
+                    "A closure review is ready for your approval"
+                    in messages[0].parts[0]["text"]
+                )
+                (closure,) = closure_reviews
+                if not crash_before_commit:
+                    assert closure.token == reviews_before_recovery[0].token
+                    assert messages[0].id == messages_before_recovery[0].id
+                assert closure.state == "pending"
+                assert closure.payload["evidence_revisions"] == {
+                    source.id: source.record_revision
+                }
+                assert closure.session_id == thread.id
+                assert (await Entry.find_one({"id": entry.id})).status == "active"
+                approved = await staging_apply.bless_and_execute(
+                    user_id=auth.id, token=closure.token
+                )
+                assert approved.get("consumed"), approved
+                entry = await Entry.find_one({"id": entry.id})
+                assert entry.status == "completed"
+                assert entry.body.count("All published closure criteria") == 1
+            else:
+                assert (
+                    "ask Integral to prepare a closure review"
+                    in messages[0].parts[0]["text"]
+                )
+            source.custom_fields["count"] = -1
+            await source.save()
         if crash_before_commit:
             entry.title = "Second changed outcome"
             await entry.save()
@@ -1331,6 +1380,15 @@ async def test_reviewed_task_watch_only_posts_material_changes(
         assert stored_routine["context"]["next_run_at"] > due_at
         await fire(5)
         assert len(await list_messages(thread)) == 2
+        if watch_goal:
+            alerts = [
+                message.parts[0]["text"] for message in await list_messages(thread)
+            ]
+            assert any(
+                "Evidence is still needed for 1 of 1 declared criterion" in text
+                for text in alerts
+            )
+            assert all("=-1" not in text and source.id not in text for text in alerts)
         entry.type_id = ""
         await entry.save()
         await fire(6, "failed")

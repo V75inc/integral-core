@@ -52,6 +52,10 @@ it("approves and runs the exact displayed revision in its conversation", async (
   vi.mocked(aiChatApi.actOnMandateReview).mockImplementation(async (_, __, action) => {
     if (action === "approve") review.approval_status = "approved";
     if (action === "run") review.work_status = "queued";
+    if (action === "stop") {
+      review.work_status = "running";
+      review.cancel_requested = true;
+    }
   });
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -72,19 +76,44 @@ it("approves and runs the exact displayed revision in its conversation", async (
   expect(aiChatApi.actOnMandateReview).toHaveBeenNthCalledWith(1, "thread", "work", "approve", "exact-digest");
   expect(aiChatApi.actOnMandateReview).toHaveBeenNthCalledWith(2, "thread", "work", "run", "exact-digest");
 
-  review.work_status = "succeeded";
-  review.accounting = { status: "awaiting_receipt", reserved_usd: "0", charged_usd: null };
-  await act(() => client.invalidateQueries({
-    queryKey: ["chat-mandate-reviews", "workspace", "thread", "work"],
-  }));
-  expect(await screen.findByText(/Provider cost is unconfirmed/)).toBeTruthy();
-  expect(screen.queryByText("Provider cost USD 0")).toBeNull();
+  const stop = screen.getByRole("button", { name: "Stop" });
+  await waitFor(() => expect((stop as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(stop);
+  expect(await screen.findByText("Stop requested")).toBeTruthy();
+  expect(aiChatApi.actOnMandateReview).toHaveBeenNthCalledWith(3, "thread", "work", "stop", "exact-digest");
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
 
-  review.accounting = { status: "settled", reserved_usd: null, charged_usd: "0.04" };
-  await act(() => client.invalidateQueries({
-    queryKey: ["chat-mandate-reviews", "workspace", "thread", "work"],
-  }));
-  expect(await screen.findByText("Provider cost USD 0.04")).toBeTruthy();
+  vi.useFakeTimers();
+  try {
+    review.work_status = "cancelled";
+    review.accounting = { status: "awaiting_receipt", reserved_usd: "0", charged_usd: null };
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: ["chat-mandate-reviews", "workspace", "thread", "work"],
+      });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.getByText(/Provider cost is unconfirmed/)).toBeTruthy();
+    expect(screen.queryByText("Provider cost USD 0")).toBeNull();
+
+    const panel = screen.getByText("Mandate reviews (1)");
+    fireEvent.click(panel);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    const readsWhileClosed = vi.mocked(aiChatApi.getMandateReview).mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(aiChatApi.getMandateReview).toHaveBeenCalledTimes(readsWhileClosed);
+    fireEvent.click(panel);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+
+    review.accounting = { status: "settled", reserved_usd: null, charged_usd: "0.04" };
+    await act(async () => vi.advanceTimersByTimeAsync(30_001));
+    expect(screen.getByText("Provider cost USD 0.04")).toBeTruthy();
+    const reads = vi.mocked(aiChatApi.getMandateReview).mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(aiChatApi.getMandateReview).toHaveBeenCalledTimes(reads);
+  } finally {
+    vi.useRealTimers();
+  }
 
   review.work_status = "failed";
   review.requires_reconciliation = true;

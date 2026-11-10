@@ -7,6 +7,7 @@ Unknown or calculated costs retain the reserved hold for reconciliation.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from pydantic import ValidationError
 
@@ -20,11 +21,12 @@ from app.agentive.harness.model_observations import (
 from app.agentive.services.work_budgets import (
     _read_scoped_reservation,
     _transaction_database,
+    reconcile_mandate_dispatch,
     settle_mandate_budget,
 )
 from app.agentive.work_budget_models import WorkBudgetReservation
 from app.models.harness_records import HarnessModelRequestRecord
-from app.schemas.agentive.work import WorkError
+from app.schemas.agentive.work import TERMINAL_WORK_STATUSES, WorkError
 from app.schemas.agentive.work_budget import MandateReservationRequest
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,7 @@ logger = logging.getLogger(__name__)
 async def reconcile_retained_model_receipts(
     cursor: dict[str, str], *, limit: int = 20
 ) -> int:
-    """Retry accounting only, using durable provider evidence and a bounded scan."""
+    """Settle receipts or release terminal, undispatched holds in bounded pages."""
     from app.services.app_operations.transaction_scope import (
         graph_transaction_available,
     )
@@ -45,8 +47,16 @@ async def reconcile_retained_model_receipts(
     query = {
         "entity": "WorkBudgetReservation",
         "context.status": "reserved",
-        "context.dispatch_state": {"$in": ["intent", "unknown"]},
-        "context.model_dispatch_scope.run_id": {"$exists": True},
+        "$or": [
+            {
+                "context.dispatch_state": {"$in": ["intent", "unknown"]},
+                "context.model_dispatch_scope.run_id": {"$exists": True},
+            },
+            {
+                "context.dispatch_state": "not_started",
+                "context.request.model_route.model": {"$exists": True},
+            },
+        ],
     }
     after = cursor.get("after")
     if after:
@@ -56,17 +66,44 @@ async def reconcile_retained_model_receipts(
     for row in rows:
         data = row["context"]
         try:
-            await settle_mandate_model_receipt(
-                reservation_id=data["reservation_id"],
-                principal_id=data["principal_id"],
-                workspace_id=data["workspace_id"],
-                thread_id=data["thread_id"],
-            )
+            scope = {
+                "reservation_id": data["reservation_id"],
+                "principal_id": data["principal_id"],
+                "workspace_id": data["workspace_id"],
+                "thread_id": data["thread_id"],
+            }
+            if data["dispatch_state"] == "not_started":
+                # Skip active work without taking a write lock. The release
+                # path rechecks terminal status and dispatch state under locks.
+                row = await db.get("object", f"o.WorkItem.{data['work_item_id']}")
+                if (row or {}).get("context", {}).get(
+                    "status"
+                ) not in TERMINAL_WORK_STATUSES:
+                    continue
+                await reconcile_mandate_dispatch(
+                    **scope,
+                    outcome="not_dispatched",
+                    evidence_ref=f"terminal-before-dispatch:{data['work_item_id']}",
+                    require_terminal_work=True,
+                )
+            else:
+                await settle_mandate_model_receipt(**scope)
         except (KeyError, ValidationError):
             logger.warning("Retained model reservation has invalid accounting fields")
         except WorkError as exc:
-            if exc.code not in {"work.model_receipt_required", "work.cost_unavailable"}:
-                logger.warning("Retained model receipt could not settle: %s", exc.code)
+            expected = {"work.model_receipt_required", "work.cost_unavailable"}
+            if data.get("dispatch_state") == "not_started":
+                expected.update(
+                    {
+                        "work.reservation_owner_active",
+                        "work.outcome_reconciliation_required",
+                        "work.idempotency_conflict",
+                    }
+                )
+            if exc.code not in expected:
+                logger.warning(
+                    "Retained model reservation could not reconcile: %s", exc.code
+                )
         else:
             settled += 1
     if len(rows) == limit:
@@ -105,6 +142,7 @@ async def settle_mandate_model_receipt(
     scope = HarnessExecutionScope.model_validate(record.model_dispatch_scope)
     route = ModelRouteIdentity.model_validate(request.model_route.model_dump())
     observations = []
+    admission_time = datetime.fromisoformat(record.dispatched_at)
     try:
         for outcome in ("responded", "failed", "cancelled", "outcome_unknown"):
             receipt_id = _record_id(_scope_key(scope), record.dispatch_ref, outcome)
@@ -116,6 +154,11 @@ async def settle_mandate_model_receipt(
                 outcome=outcome,
                 expected_route=route,
             )
+            if (
+                observation.observed_at is None
+                or observation.observed_at < admission_time
+            ):
+                raise WorkError("work.model_receipt_invalid")
             observations.append((observation, receipt_id))
     except HarnessPersistenceError as exc:
         raise WorkError("work.model_receipt_invalid") from exc
@@ -126,6 +169,9 @@ async def settle_mandate_model_receipt(
     if len(observations) > 1 and (
         observations[-2][0].observed_at == terminal.observed_at
     ):
+        raise WorkError("work.outcome_reconciliation_required")
+    outcomes = {observation.outcome for observation, _ in observations}
+    if {"failed", "responded"} <= outcomes:
         raise WorkError("work.outcome_reconciliation_required")
     usage = terminal.usage
     if (

@@ -37,6 +37,7 @@ class RoutineResponse(BaseModel):
     id: str
     instruction: str
     watch_entry_id: str | None = None
+    watch_prepare_closure: bool = False
     snoozed_until: str | None = None
     quiet_hours: RoutineQuietHours | None = None
     delivery_mode: Literal["agent", "reminder", "task_watch", "assignment_digest"] = (

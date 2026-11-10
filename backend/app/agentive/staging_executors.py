@@ -1432,6 +1432,7 @@ async def _execute_routine_task_create(
         delivery_mode=payload.get("delivery_mode", "agent"),
         watch_entry_id=payload.get("watch_entry_id") or "",
         watch_goal=payload.get("watch_goal") is True,
+        watch_prepare_closure=payload.get("watch_prepare_closure") is True,
         source_staging_token=_active_staging_token(),
         cron=payload.get("cron") or "",
         timezone=payload.get("timezone"),

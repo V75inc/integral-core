@@ -245,8 +245,58 @@ async def _stage_existing_entry(
             message="text is required — it is the passage appended once.",
             filing_status="error",
         )
+    close_goal = a.get("close_goal") is True
+    evidence_input = a.get("evidence_revisions")
+    if close_goal and evidence_input is None and mode == "append":
+        from app.agentive.tooling.bindings import _bound_propose_principal
+        from app.models.nodes import Track
+        from app.schemas.policy import Resource, Subject
+        from app.services.agent_scope import current_scope_workspace_id
+        from app.services.filing_facet import live_filing_schema_revision
+        from app.services.goal_evidence import read_goal_evidence
+        from app.services.policy_engine import evaluate
+
+        principal_id = _bound_propose_principal()
+        workspace_id = current_scope_workspace_id.get() or ""
+        snapshot = await read_goal_evidence(principal_id, workspace_id, entry_id)
+        if snapshot is None or not snapshot.closure_evidence:
+            return _no_stage_candidates(
+                message="A closure review requires an open goal with readable evidence that meets every declared criterion.",
+                filing_status="error",
+            )
+        if a["expected_record_revision"] != snapshot.goal_revision:
+            return _no_stage_candidates(
+                message="The goal changed. Read the current Entry before preparing closure.",
+                filing_status="error",
+            )
+        decision = await evaluate(
+            subject=Subject(kind="human", id=principal_id),
+            action="entry.update",
+            resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
+            _dry_run=True,
+        )
+        if not decision.allowed:
+            return _no_stage_candidates(
+                message="You need permission to update this goal to prepare a closure review.",
+                filing_status="error",
+            )
+        entry = await Entry.find_one({"id": entry_id})
+        track = await Track.find_one({"id": snapshot.track_id})
+        if (
+            entry is None
+            or track is None
+            or entry.track_id != snapshot.track_id
+            or entry.record_revision != snapshot.goal_revision
+            or a["expected_schema_revision"]
+            != await live_filing_schema_revision(track, entry)
+        ):
+            return _no_stage_candidates(
+                message="The goal or Track schema changed. Read both again before preparing closure.",
+                filing_status="error",
+            )
+        evidence_input = snapshot.closure_evidence
     try:
-        evidence = filing_evidence_revisions(a.get("evidence_revisions"), entry_id)
+        evidence = filing_evidence_revisions(evidence_input, entry_id)
     except ValueError as exc:
         return _no_stage_candidates(message=str(exc), filing_status="error")
     entry = await Entry.get(entry_id)
@@ -275,7 +325,6 @@ async def _stage_existing_entry(
     }
     if evidence:
         payload["evidence_revisions"] = evidence
-    close_goal = a.get("close_goal") is True
     if close_goal:
         if (
             mode != "append"

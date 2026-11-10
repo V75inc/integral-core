@@ -556,17 +556,19 @@ async def schedule_retry(
     )
 
 
-async def cancel_work_item(work_item_id: str) -> WorkItem:
+async def cancel_work_item(work_item_id: str, *, transaction: Any = None) -> WorkItem:
     """Cancel queued/waiting immediately; request cancel for running work."""
     from app.agentive.services.work_outbox import (
         TOPIC_TRANSITIONED,
         cas_work_item_update,
     )
 
-    item = await WorkItem.get(_object_id(work_item_id))
+    item = await _current_work_item(work_item_id, database=transaction)
     if item is None:
         raise WorkError("work.not_found", f"work item {work_item_id} not found")
     if item.status in ("succeeded", "failed", "cancelled", "expired", "dead_letter"):
+        return item
+    if item.cancel_requested_at and item.status == "running":
         return item
     now = utc_now_iso()
     if item.status == "running":
@@ -575,6 +577,7 @@ async def cancel_work_item(work_item_id: str) -> WorkItem:
             expected={"status": "running", "lease_token": item.lease_token},
             updates={"cancel_requested_at": now},
             error_code="work.cas_conflict",
+            transaction=transaction,
         )
     if item.status not in (
         "queued",
@@ -606,6 +609,7 @@ async def cancel_work_item(work_item_id: str) -> WorkItem:
         outbox_payload={"from_status": item.status, "to_status": "cancelled"},
         bump_transition_seq=True,
         error_code="work.cas_conflict",
+        transaction=transaction,
     )
 
 

@@ -612,7 +612,10 @@ async def _resolve_owned_chat_work_item(
 )
 async def list_chat_mandate_reviews(request: Request, thread_id: str) -> Dict[str, Any]:
     """List recent general reviews for the owned conversation."""
-    from app.agentive.services.work_mandates import list_general_mandate_reviews
+    from app.agentive.services.work_mandates import (
+        entry_read_mandate_enabled,
+        list_general_mandate_reviews,
+    )
 
     user_id, _ = _resolve_principal(request)
     thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
@@ -621,7 +624,7 @@ async def list_chat_mandate_reviews(request: Request, thread_id: str) -> Dict[st
         raise ResourceNotFoundError(message="Mandate review conversation not found")
     return {
         "can_propose": bool(
-            settings.INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED
+            entry_read_mandate_enabled(workspace_id)
             and thread.provider_id == "integral_native"
             and not thread.archived
         ),
@@ -662,6 +665,7 @@ async def _propose_chat_mandate_review(
 ) -> Dict[str, Any]:
     from app.agentive.services.work_mandates import (
         build_entry_read_mandate_terms,
+        entry_read_mandate_enabled,
         propose_general_mandate_review,
     )
     from app.schemas.agentive.work import WorkError
@@ -674,7 +678,7 @@ async def _propose_chat_mandate_review(
     try:
         payload = await request.json()
         if entry_read:
-            if not settings.INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED:
+            if not entry_read_mandate_enabled(workspace_id):
                 raise ServiceUnavailableError(
                     message="Mandate execution is unavailable"
                 )
@@ -734,7 +738,10 @@ async def get_chat_mandate_review(
     request: Request, thread_id: str, work_item_id: str
 ) -> Dict[str, Any]:
     """Return the terms of a general mandate review owned by this conversation."""
-    from app.agentive.services.work_mandates import read_general_mandate_review
+    from app.agentive.services.work_mandates import (
+        entry_read_mandate_enabled,
+        read_general_mandate_review,
+    )
     from app.schemas.agentive.work import WorkError
 
     user_id, _ = _resolve_principal(request)
@@ -749,7 +756,7 @@ async def get_chat_mandate_review(
             workspace_id=workspace_id,
             thread_id=thread.id,
         )
-        review["execution_enabled"] = settings.INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED
+        review["execution_enabled"] = entry_read_mandate_enabled(workspace_id)
         return review
     except WorkError as exc:
         raise ResourceNotFoundError(message="Mandate review not found") from exc
@@ -798,15 +805,29 @@ async def run_chat_mandate_review(
     return await _decide_chat_mandate_review(request, thread_id, work_item_id, "run")
 
 
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/stop",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def stop_chat_mandate_review(
+    request: Request, thread_id: str, work_item_id: str
+) -> Dict[str, Any]:
+    """Stop an admitted mandate even when new execution is disabled."""
+    return await _decide_chat_mandate_review(request, thread_id, work_item_id, "stop")
+
+
 async def _decide_chat_mandate_review(
     request: Request,
     thread_id: str,
     work_item_id: str,
-    decision: Literal["approved", "rejected", "run"],
-) -> Dict[str, str]:
+    decision: Literal["approved", "rejected", "run", "stop"],
+) -> Dict[str, Any]:
     from app.agentive.services.work_mandates import (
         admit_entry_read_mandate,
         decide_general_mandate_review,
+        stop_entry_read_mandate,
     )
     from app.schemas.agentive.work import WorkError
 
@@ -828,13 +849,15 @@ async def _decide_chat_mandate_review(
     }
     try:
         if decision == "run":
-            if not settings.INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED:
-                raise ServiceUnavailableError(
-                    message="Mandate execution is unavailable"
-                )
             return await admit_entry_read_mandate(**scope)
+        if decision == "stop":
+            return await stop_entry_read_mandate(**scope)
         return await decide_general_mandate_review(**scope, decision=decision)
     except WorkError as exc:
+        if exc.code == "work.mandate_execution_disabled":
+            raise ServiceUnavailableError(
+                message="Mandate execution is unavailable"
+            ) from exc
         if exc.code in {
             "work.mandate_revision_conflict",
             "work.approval_decided",

@@ -148,6 +148,7 @@ async def create_routine_task(
     source_staging_token: str = "",
     watch_entry_id: str = "",
     watch_goal: bool = False,
+    watch_prepare_closure: bool = False,
 ) -> RoutineTask:
     """Create + graph-wire a new ``RoutineTask`` (I-GRAPH-01).
 
@@ -173,6 +174,8 @@ async def create_routine_task(
     validate_delivery_mode(delivery_mode, instruction, write_scope, watch_entry_id)
     if watch_goal and delivery_mode != "task_watch":
         raise BadRequestError(message="A goal watch requires task_watch delivery")
+    if watch_prepare_closure and not watch_goal:
+        raise BadRequestError(message="Closure preparation requires a typed goal watch")
     watch_fingerprint = ""
     if delivery_mode in DURABLE_OBSERVATION_MODES:
         from app.agentive.services.routine_task_watch import read_task_watch_snapshot
@@ -201,7 +204,7 @@ async def create_routine_task(
                 raise BadRequestError(
                     message="Watch requires a readable Entry with the selected published semantics"
                 )
-            _, watch_fingerprint = snapshot
+            _, watch_fingerprint, _ = snapshot
     if not thread_id:
         raise BadRequestError(message="thread_id is required")
 
@@ -248,6 +251,7 @@ async def create_routine_task(
         delivery_mode=delivery_mode,
         watch_entry_id=watch_entry_id,
         watch_fingerprint=watch_fingerprint,
+        watch_prepare_closure=watch_prepare_closure,
         source_staging_token=source_staging_token,
         cron=cron_s,
         timezone=timezone or "UTC",
@@ -297,6 +301,7 @@ def serialize_routine(r: RoutineTask) -> Dict[str, Any]:
         "instruction": r.instruction,
         "delivery_mode": r.delivery_mode,
         "watch_entry_id": r.watch_entry_id or None,
+        "watch_prepare_closure": r.watch_prepare_closure,
         "snoozed_until": r.snoozed_until,
         "quiet_hours": r.quiet_hours.model_dump() if r.quiet_hours else None,
         "cron": r.cron,

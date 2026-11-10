@@ -6,7 +6,7 @@ No provider request, real price or public mandate approval is exercised here.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -54,7 +54,7 @@ def scope_for(context):
     )
 
 
-async def marked_case(case, *, bound=True):
+async def marked_case(case, *, bound=True, observation_offset=timedelta()):
     root, parent, leaf, context, req, db = case
     scope = scope_for(context)
     physical_id = uuid4().hex
@@ -66,7 +66,7 @@ async def marked_case(case, *, bound=True):
         dispatch_ref=physical_id,
         model_scope=scope if bound else None,
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.fromisoformat(record.dispatched_at) + observation_offset
     route = req.model_route
     intent = PhysicalModelRequest(
         request_id=physical_id,
@@ -156,6 +156,38 @@ async def test_recovery_revisits_open_hold_and_settles_late_provider_receipt(
     assert saved["model_requests"] == 1
     assert await reconcile_retained_model_receipts({}) == 0
     assert (await ledger(db, root)) == saved
+
+
+async def test_recovery_releases_only_terminal_undispatched_model_hold(
+    leased_budget_child,
+):
+    root, _, leaf, context, req, db = leased_budget_child
+    record = await reserve_leased(leaf, context, req)
+    assert await reconcile_retained_model_receipts({}) == 0
+
+    requested = await work_items.cancel_work_item(leaf.work_item_id)
+    assert requested.status == "running"
+    assert await reconcile_retained_model_receipts({}) == 0
+    assert (await ledger(db, root))["reserved_units"] == record.upper_units
+
+    await work_items.transition_leased(
+        leaf.work_item_id,
+        lease_token=context.lease_token,
+        lease_fence=context.lease_fence,
+        expected_status="running",
+        target="cancelled",
+    )
+    await asyncio.gather(*(reconcile_retained_model_receipts({}) for _ in range(2)))
+    saved = (await db.get("object", record.id))["context"]
+    assert saved["status"] == "released"
+    assert saved["dispatch_state"] == "not_dispatched"
+    assert saved["receipt_ref"] == f"terminal-before-dispatch:{leaf.work_item_id}"
+    account = await ledger(db, root)
+    assert account["reserved_units"] == 0
+    assert account["charged_units"] == 0
+    assert account["model_requests"] == 1
+    assert await reconcile_retained_model_receipts({}) == 0
+    assert await ledger(db, root) == account
 
 
 @pytest.mark.parametrize(
@@ -257,6 +289,39 @@ async def test_unknown_outcome_order_preserves_reconciliation(
             else "work.cost_unavailable"
         )
         assert (await ledger(db, root))["reserved_units"] == 10000000
+
+
+async def test_receipt_observed_before_budget_dispatch_cannot_settle(
+    leased_budget_child,
+):
+    root, _, _, _, _, db = leased_budget_child
+    record, _, terminal = await marked_case(
+        leased_budget_child, observation_offset=timedelta(seconds=-1)
+    )
+    await persist_model_request_observation(terminal)
+
+    with pytest.raises(WorkError) as exc:
+        await settle_receipt(record)
+    assert exc.value.code == "work.model_receipt_invalid"
+    assert (await ledger(db, root))["reserved_units"] == record.upper_units
+    assert (await ledger(db, root))["charged_units"] == 0
+
+
+async def test_conflicting_failed_and_responded_receipts_preserve_hold(
+    leased_budget_child,
+):
+    root, _, _, _, _, db = leased_budget_child
+    record, intent, terminal = await marked_case(leased_budget_child)
+    await persist_model_request_observation(
+        intent.model_copy(update={"outcome": "failed"})
+    )
+    await persist_model_request_observation(terminal)
+
+    with pytest.raises(WorkError) as exc:
+        await settle_receipt(record)
+    assert exc.value.code == "work.outcome_reconciliation_required"
+    assert (await ledger(db, root))["reserved_units"] == record.upper_units
+    assert (await ledger(db, root))["charged_units"] == 0
 
 
 @pytest.mark.parametrize("cost", [Decimal("0"), Decimal("0.20")])

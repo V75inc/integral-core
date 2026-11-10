@@ -21,6 +21,7 @@ export interface ChatMandateReview {
   approval_status: string;
   review_digest: string;
   execution_enabled: boolean;
+  cancel_requested?: boolean;
   requires_reconciliation?: boolean;
   accounting?: {
     status: 'not_recorded' | 'unavailable' | 'awaiting_receipt' | 'reserved' | 'settled' | 'overrun' | 'released';
@@ -285,7 +286,7 @@ export const aiChatApi = {
   async actOnMandateReview(
     threadId: string,
     workItemId: string,
-    action: 'approve' | 'reject' | 'run',
+    action: 'approve' | 'reject' | 'run' | 'stop',
     reviewDigest: string,
   ) {
     await apiClient.post(

@@ -168,3 +168,19 @@ it('explains the read-only scope of a typed-goal watch', () => {
   expect(screen.getByText(/Integral will check the watched goal/)).toBeVisible();
   expect(screen.getByText(/It cannot edit or close the goal/)).toBeVisible();
 });
+
+
+it('discloses scheduled closure preparation and requires separate approval', () => {
+  render(<ApprovalRequestContent staged={{
+    kind: 'routine_task_create',
+    summary: 'New routine: Prepare a closure review',
+    diff_human: '',
+    diff_machine: {
+      op: 'routine_task_create', delivery_mode: 'task_watch', watch_goal: true,
+      watch_prepare_closure: true, watch_entry_id: 'n.Entry.goal',
+      cron: '0 9 * * *', timezone: 'UTC', write_scope: [],
+    },
+  }} />);
+  expect(screen.getByText(/this routine may prepare a closure review/)).toBeVisible();
+  expect(screen.getByText(/Closing the goal requires your approval/)).toBeVisible();
+});

@@ -21,6 +21,16 @@ from app.schemas.agentive.work_mandate import (
 )
 
 
+def entry_read_mandate_enabled(workspace_id: str) -> bool:
+    """Require an explicit deployment opt-in for this exact workspace."""
+    from app.config import settings
+
+    return (
+        settings.INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED
+        and workspace_id in settings.INTEGRAL_MANDATE_ENTRY_WORKSPACE_ALLOWLIST
+    )
+
+
 async def propose_work_mandate_review(
     *,
     revision: WorkMandateRevision,
@@ -569,6 +579,7 @@ async def read_general_mandate_review(
         "work_item_id": item.work_item_id,
         "work_status": item.status,
         "review_digest": item.plan_revision,
+        "cancel_requested": bool(item.cancel_requested_at),
         "requires_reconciliation": (item.failure or {}).get("code")
         == "work.outcome_reconciliation_required",
         "accounting": await _entry_mandate_accounting(item),
@@ -836,6 +847,8 @@ async def admit_entry_read_mandate(
     from app.services.release_admission import release_admission
     from app.utils.time import utc_now_iso
 
+    if not entry_read_mandate_enabled(workspace_id):
+        raise WorkError("work.mandate_execution_disabled")
     if not graph_transaction_available():
         raise WorkError("work.transaction_required")
     scope = {
@@ -891,6 +904,58 @@ async def admit_entry_read_mandate(
             transaction=txn,
         )
         return {"work_item_id": work_item_id, "work_status": current.status}
+
+
+async def stop_entry_read_mandate(
+    *,
+    work_item_id: str,
+    principal_id: str,
+    workspace_id: str,
+    thread_id: str,
+    review_digest: str,
+) -> dict[str, Any]:
+    """Request cancellation of the exact admitted review under the effect locks."""
+    from app.agentive.services.work_items import cancel_work_item
+    from app.agentive.services.work_outbox import OBJECT_COLLECTION
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+    from app.services.release_admission import release_admission
+
+    if not graph_transaction_available():
+        raise WorkError("work.transaction_required")
+    async with (
+        postgres_graph_transaction() as txn,
+        release_admission(principal_id, workspace_id),
+    ):
+        thread = await txn.lock_record("node", thread_id)
+        context = (thread or {}).get("context") or {}
+        if (
+            (thread or {}).get("entity") != "ChatThread"
+            or context.get("user_id") != principal_id
+            or context.get("workspace_id") != workspace_id
+            or context.get("provider_id") != "integral_native"
+            or context.get("archived")
+        ):
+            raise WorkError("work.mandate_scope_denied")
+        await txn.lock_record(OBJECT_COLLECTION, f"o.WorkItem.{work_item_id}")
+        current, _, _ = await _read_general_mandate_review(
+            work_item_id=work_item_id,
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+        )
+        if current.plan_revision != review_digest:
+            raise WorkError("work.mandate_revision_conflict")
+        if current.kind != "mandate_entry_read":
+            raise WorkError("work.mandate_admission_required")
+        stopped = await cancel_work_item(work_item_id, transaction=txn)
+        return {
+            "work_item_id": stopped.work_item_id,
+            "work_status": stopped.status,
+            "cancel_requested": bool(stopped.cancel_requested_at),
+        }
 
 
 async def _load_lineage_item(work_item_id: str) -> WorkItem:

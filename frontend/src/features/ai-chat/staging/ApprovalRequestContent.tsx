@@ -33,6 +33,7 @@ function RoutineRequest({ staged }: { staged: Review }) {
   const taskWatch = change.delivery_mode === 'task_watch';
   const assignmentDigest = change.delivery_mode === 'assignment_digest';
   const goalWatch = taskWatch && change.watch_goal === true;
+  const preparesClosure = goalWatch && change.watch_prepare_closure === true;
   const watchEntry = typeof change.watch_entry_id === 'string' ? change.watch_entry_id : '';
   const delivery = taskWatch
     ? goalWatch ? 'Integral will check the watched goal' : 'Integral will check the watched task'
@@ -49,7 +50,9 @@ function RoutineRequest({ staged }: { staged: Review }) {
     </Text> : null}
     {taskWatch && watchEntry ? <Text as="p" variant="body-sm">
       Watched Entry {watchEntry}. {goalWatch
-        ? 'This routine reports changes to the goal outcome, status, or linked criterion evidence. It cannot edit or close the goal.'
+        ? preparesClosure
+          ? 'When a changed goal meets every declared criterion, this routine may prepare a closure review. Closing the goal requires your approval.'
+          : 'This routine reports changes to the goal outcome, status, or linked criterion evidence. It cannot edit or close the goal.'
         : 'This routine posts only when the task changes and cannot edit the Entry. It checks the declared outcome, acceptance criteria, due date, dependencies, and assignment.'}
     </Text> : null}
     {assignmentDigest && <Text as="p" variant="body-sm">

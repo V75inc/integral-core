@@ -13,6 +13,7 @@ export function MandateReviews({
   threadId: string;
   workspaceId: string | null;
 }) {
+  const [open, setOpen] = useState(false);
   const listKey = ["chat-mandate-reviews", workspaceId, threadId];
   const reviews = useQuery({
     queryKey: listKey,
@@ -22,7 +23,7 @@ export function MandateReviews({
   const items = reviews.data.reviews;
 
   return (
-    <details className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] p-3">
+    <details onToggle={(event) => setOpen(event.currentTarget.open)} className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] p-3">
       <summary className="cursor-pointer">
         <Text as="span" variant="meta">Mandate reviews ({items.length})</Text>
       </summary>
@@ -36,6 +37,7 @@ export function MandateReviews({
               threadId={threadId}
               workItemId={review.work_item_id}
               listKey={listKey}
+              panelOpen={open}
               goal={review.goal}
             />
           </li>
@@ -154,11 +156,13 @@ function MandateReview({
   threadId,
   workItemId,
   listKey,
+  panelOpen,
   goal,
 }: {
   threadId: string;
   workItemId: string;
   listKey: (string | null)[];
+  panelOpen: boolean;
   goal: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -167,14 +171,17 @@ function MandateReview({
   const review = useQuery({
     queryKey: key,
     queryFn: () => aiChatApi.getMandateReview(threadId, workItemId),
-    enabled: open,
-    refetchInterval: (query) =>
-      open && ["queued", "running"].includes(query.state.data?.work_status ?? "")
-        ? 3000
-        : false,
+    enabled: open && panelOpen,
+    refetchInterval: ({ state }) => {
+      if (!open || !panelOpen) return false;
+      const data = state.data;
+      if (data?.work_status === "queued" || data?.work_status === "running") return 3_000;
+      const accounting = data?.accounting?.status;
+      return accounting === "reserved" || accounting === "awaiting_receipt" ? 30_000 : false;
+    },
   });
   const action = useMutation({
-    mutationFn: ({ name, digest }: { name: "approve" | "reject" | "run"; digest: string }) =>
+    mutationFn: ({ name, digest }: { name: "approve" | "reject" | "run" | "stop"; digest: string }) =>
       aiChatApi.actOnMandateReview(threadId, workItemId, name, digest),
     onSettled: async () => {
       await Promise.all([
@@ -189,6 +196,7 @@ function MandateReview({
   const ready = data?.entry_read_preflight === "current" && data.model_route_preflight === "current";
   const pending = data?.approval_status === "pending" && data.work_status === "waiting_for_human";
   const approved = data?.approval_status === "approved" && data.work_status === "waiting_for_human";
+  const stoppable = data?.work_status === "queued" || data?.work_status === "running";
 
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)} className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] p-2">
@@ -209,6 +217,9 @@ function MandateReview({
             <Text as="p" variant="meta">
               Revision {terms.revision} · {data.approval_status} · {approved ? "Awaiting execution" : data.work_status.replace(/_/g, " ")}
             </Text>
+            {stoppable && data.cancel_requested && (
+              <Text as="p" variant="meta">Stop requested</Text>
+            )}
           </div>
           {data.accounting?.status === "awaiting_receipt" && (
             <Text as="p" variant="meta">
@@ -263,6 +274,11 @@ function MandateReview({
             {approved && data.execution_enabled && (
               <button type="button" className="underline disabled:opacity-50" disabled={!ready || action.isPending} onClick={() => action.mutate({ name: "run", digest: data.review_digest })}>
                 <Text as="span" variant="meta">Run</Text>
+              </button>
+            )}
+            {stoppable && !data.cancel_requested && (
+              <button type="button" className="underline disabled:opacity-50" disabled={action.isPending} onClick={() => action.mutate({ name: "stop", digest: data.review_digest })}>
+                <Text as="span" variant="meta">Stop</Text>
               </button>
             )}
             {approved && !data.execution_enabled && <Text as="p" variant="meta">Execution is disabled on this deployment.</Text>}

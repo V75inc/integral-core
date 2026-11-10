@@ -65,6 +65,13 @@ or linked criterion values change. The alert does not state which value
 changed. Tell the user what the watch can report and leave its write scope
 empty. Keep the goal separate from the recurring check.
 
+If the user explicitly asks the routine to prepare a closure review when a
+changed goal becomes ready, also set `watch_prepare_closure` to true. The
+schedule approval must disclose that opt-in. Keep the write scope empty.
+The routine may prepare a pending review in Approvals with the exact current
+evidence revisions. The user still needs to approve that review before the
+goal closes. Leave this opt-in off for notification-only requests.
+
 ## Watch a task for changes
 
 When the user asks to be told only when a particular task changes, resolve the

@@ -1427,9 +1427,9 @@ async def _execute_claimed_work(
             )
         if kind == "mandate_entry_read":
             from app.agentive.services.work_mandate_entry_execution import (
-                expire_entry_read_mandate,
                 publish_entry_read_mandate,
                 run_entry_read_mandate,
+                settle_entry_read_mandate_error,
             )
 
             context = work_execution.build_work_execution_context(
@@ -1444,9 +1444,7 @@ async def _execute_claimed_work(
                 )
                 return await publish_entry_read_mandate(context, revision, result)
             except WorkError as exc:
-                if exc.code in {"work.deadline_exceeded", "work.mandate_expired"}:
-                    return await expire_entry_read_mandate(item)
-                raise
+                return await settle_entry_read_mandate_error(item, exc)
         if kind == "resident_assignment":
             from app.services.resident_assignment_execution import (
                 prepare_resident_assignment,

@@ -54,7 +54,11 @@ allowed-tools: integral_find_workspace_resources integral_list_tracks integral_g
   supporting Entry ID and its record revision in `evidence_revisions` so
   approval checks the same evidence. For an EntryType with published
   goal semantics, use append mode with append_field set to body and
-  close_goal set to true. Core checks the criteria and saves the completed
+  close_goal set to true. You can omit evidence_revisions for a typed goal
+  so Core reads the declared evidence and pins its current revisions when
+  every criterion passes. Use this when a goal watch suggests closure and
+  the user asks you to prepare the review. Core checks the criteria again on
+  approval and saves the completed
   status with the closure note. Use the declared evidence relations. If the current revisions are missing or
   the evidence cannot be bound, leave closure pending. Preserve unrelated content.
   Re-read before drafting a replacement for a stale proposal.

@@ -164,7 +164,8 @@ async def _write_receipt(
         await saver(_OBJECT_COLLECTION, document)
 
 
-async def _live_schema_revision(track: Optional[Track], entry: Entry) -> int:
+async def live_filing_schema_revision(track: Optional[Track], entry: Entry) -> int:
+    """Resolve the filing schema revision from the active Track profile."""
     if track is None:
         return int(getattr(entry, "schema_revision", 1) or 1)
     try:
@@ -463,7 +464,7 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             "record_revision_conflict",
             "Entry has changed since it was read",
         )
-    current_schema = await _live_schema_revision(track, entry)
+    current_schema = await live_filing_schema_revision(track, entry)
     if int(payload["expected_schema_revision"]) != current_schema:
         return _refused(
             "schema_revision_conflict",
@@ -582,7 +583,8 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             live_track = await Track.find_one({"id": fresh.track_id})
             if (
                 live_track is None
-                or await _live_schema_revision(live_track, fresh) != current_schema
+                or await live_filing_schema_revision(live_track, fresh)
+                != current_schema
             ):
                 return _refused(
                     "schema_revision_conflict",

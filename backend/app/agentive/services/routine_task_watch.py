@@ -42,16 +42,97 @@ def quiet_hours_end(
 
 async def read_task_watch_snapshot(
     user_id: str, workspace_id: str, entry_id: str, *, goal: bool = False
-) -> tuple[str, str] | None:
+) -> tuple[str, str, str] | None:
     """Keep a goal watch bound to goal semantics across subsequent checks."""
     if goal:
-        from app.services.goal_evidence import read_goal_watch
+        from app.services.goal_evidence import read_goal_evidence
 
-        snapshot = await read_goal_watch(user_id, workspace_id, entry_id)
-        return (snapshot[0], f"goal:{snapshot[1]}") if snapshot else None
+        snapshot = await read_goal_evidence(user_id, workspace_id, entry_id)
+        if snapshot is None:
+            return None
+        return snapshot.track_id, f"goal:{snapshot.fingerprint}", snapshot.next_step
     from app.services.resident_assignment import read_declared_task
 
-    return await read_declared_task(user_id, workspace_id, entry_id)
+    task = await read_declared_task(user_id, workspace_id, entry_id)
+    return (*task, "Open it to review the current details.") if task else None
+
+
+async def _prepare_goal_closure_review(
+    task: RoutineTask, context: WorkExecutionContext, fingerprint: str
+) -> bool:
+    """Save an approval-only draft under the observation's existing fence."""
+    from uuid import uuid4
+
+    from app.agentive.staging import StagedChange
+    from app.agentive.staging_store import persist_pending_in_transaction
+    from app.models.nodes import Entry, Track
+    from app.schemas.policy import Resource, Subject
+    from app.services.filing_facet import live_filing_schema_revision
+    from app.services.goal_evidence import read_goal_evidence
+    from app.services.policy_engine import evaluate
+
+    snapshot = await read_goal_evidence(
+        context.principal_id, context.workspace_id, task.watch_entry_id
+    )
+    if (
+        snapshot is None
+        or not snapshot.closure_evidence
+        or f"goal:{snapshot.fingerprint}" != fingerprint
+    ):
+        return False
+    decision = await evaluate(
+        subject=Subject(kind="human", id=context.principal_id),
+        action="entry.update",
+        resource=Resource(
+            kind="entry", id=task.watch_entry_id, scope=f"entry:{task.watch_entry_id}"
+        ),
+        _dry_run=True,
+    )
+    if not decision.allowed:
+        return False
+    entry = await Entry.find_one({"id": task.watch_entry_id})
+    track = await Track.find_one({"id": snapshot.track_id})
+    if (
+        entry is None
+        or track is None
+        or entry.status != "active"
+        or entry.track_id != snapshot.track_id
+        or entry.record_revision != snapshot.goal_revision
+    ):
+        return False
+    note = "All published closure criteria were met by the supporting Entry revisions bound to this review."
+    identity = f"goal-watch-closure:{context.work_item_id}"
+    payload = {
+        "mode": "append",
+        "append_field": "body",
+        "close_goal": True,
+        "entry_id": entry.id,
+        "track_id": track.id,
+        "expected_record_revision": snapshot.goal_revision,
+        "expected_schema_revision": await live_filing_schema_revision(track, entry),
+        "evidence_revisions": snapshot.closure_evidence,
+        "idempotency_key": identity,
+        "text": note,
+    }
+    now = utc_now()
+    await persist_pending_in_transaction(
+        StagedChange(
+            token=str(uuid4()),
+            user_id=context.principal_id,
+            session_id=context.thread_id,
+            workspace_id=context.workspace_id,
+            kind="file_content",
+            summary="Close the watched goal",
+            diff_human=note,
+            diff_machine={"op": "file_content", "filing_status": "resolved", **payload},
+            payload=payload,
+            created_at=now,
+            expires_at=now + timedelta(hours=24),
+            idempotency_key=identity,
+            execution_contract_version="durable-staging-v1",
+        )
+    )
+    return True
 
 
 async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -> None:
@@ -75,7 +156,14 @@ async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -
             if routine_row and routine_row.get("entity") == RoutineTask._entity_name()
             else None
         )
-        if fresh is None or fresh.delivery_mode != "task_watch" or fresh.write_scope:
+        if (
+            fresh is None
+            or fresh.delivery_mode != "task_watch"
+            or fresh.write_scope
+            or fresh.user_id != context.principal_id
+            or fresh.workspace_id != context.workspace_id
+            or fresh.thread_id != context.thread_id
+        ):
             raise WorkError("work.policy_denied", "Task watch is no longer available")
         try:
             async with release_admission(context.principal_id, context.workspace_id):
@@ -106,7 +194,7 @@ async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -
                     raise WorkError(
                         "work.policy_denied", "Watched task is no longer readable"
                     )
-                track_id, fingerprint = snapshot
+                track_id, fingerprint, next_step = snapshot
                 message_id = (
                     "n.ChatMessage."
                     + hashlib.sha256(
@@ -143,6 +231,15 @@ async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -
                         await fresh.save()
                     return
                 else:
+                    if (
+                        goal
+                        and fresh.watch_prepare_closure
+                        and fresh.source_staging_token
+                    ):
+                        if await _prepare_goal_closure_review(
+                            fresh, context, fingerprint
+                        ):
+                            next_step = "All declared criteria pass. A closure review is ready for your approval in [Approvals](/approvals)."
                     query = urlencode({"entry": fresh.watch_entry_id})
                     await append_message(
                         thread=thread,
@@ -152,7 +249,7 @@ async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -
                                 "type": "text",
                                 "text": (
                                     f"Your [watched {'goal' if goal else 'task'}](/tracks/{track_id}?{query}) changed. "
-                                    "Open it to review the current details."
+                                    f"{next_step}"
                                 ),
                             }
                         ],
