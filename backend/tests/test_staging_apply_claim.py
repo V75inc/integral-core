@@ -75,6 +75,46 @@ def _fake_executor(monkeypatch, *, result=None, delay: float = 0.0):
     return calls
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["wrong_user", "revoked"])
+async def test_invalid_staging_decision_never_requeues_linked_work(
+    monkeypatch, invalid
+):
+    """A token alone cannot decide work before the staging caller is admitted."""
+    sc = await _mint()
+    if invalid == "revoked":
+        await staging.revoke_token(user_id="u1", token=sc.token)
+    decisions = []
+
+    async def decide(**kwargs):
+        decisions.append(kwargs)
+
+    monkeypatch.setattr(staging_apply, "_maybe_decide_linked_work_approval", decide)
+    calls = _fake_executor(monkeypatch)
+    with pytest.raises(StagingError):
+        await staging_apply.bless_and_execute(
+            user_id="other" if invalid == "wrong_user" else "u1", token=sc.token
+        )
+    assert decisions == []
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_linked_approval_failure_does_not_apply_the_change(monkeypatch):
+    """A failed linked-work decision leaves the admitted card for retry."""
+    sc = await _mint()
+
+    async def decide(**_kwargs):
+        raise RuntimeError("linked decision unavailable")
+
+    monkeypatch.setattr(staging_apply, "_maybe_decide_linked_work_approval", decide)
+    calls = _fake_executor(monkeypatch)
+    with pytest.raises(RuntimeError, match="linked decision unavailable"):
+        await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+    assert (await get_token(sc.token)).state == "blessed"
+    assert calls == []
+
+
 # --- B3-lite: an in-flight claim -------------------------------------------
 
 
@@ -368,6 +408,7 @@ async def test_native_model_tool_approval_cannot_cross_workspace(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_resumed_design_receipt_is_saved_before_consumption(monkeypatch):
+    """Persist the design receipt before consuming its staged batch."""
     from app.services import chat_threads
 
     sc = await _mint(kind="batch")
@@ -397,6 +438,7 @@ async def test_resumed_design_receipt_is_saved_before_consumption(monkeypatch):
 async def test_completion_failure_blocks_retry_and_survives_reload(
     monkeypatch, failure_point
 ):
+    """Ambiguous completion remains blocked across proposal restoration."""
     from unittest.mock import AsyncMock
 
     from app.services import chat_threads
@@ -450,3 +492,54 @@ async def test_completion_failure_blocks_retry_and_survives_reload(
     with pytest.raises(StagingError) as exc:
         await staging_apply.execute_blessed_change(user_id="other", token=sc.token)
     assert exc.value.code == "wrong_user"
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["record_revision_conflict", "schema_revision_conflict"]
+)
+async def test_revision_conflict_is_recorded_for_approval_readback(monkeypatch, code):
+    sc = await _mint()
+    _fake_executor(
+        monkeypatch,
+        result={
+            "error": True,
+            "error_code": "RESOURCE_CONFLICT",
+            "status_code": 409,
+            "details": {"error_code": code},
+            "message": "The proposal is out of date",
+        },
+    )
+
+    result = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+
+    assert result["consumed"] is False
+    assert (await get_token(sc.token)).to_dict()["last_error"]["error_code"] == code
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"error_code": "goal_criteria_unmet"},
+        {"error_code": "conflict", "details": {"error_code": "goal_closure_required"}},
+    ],
+)
+async def test_goal_refusal_requires_a_new_proposal_after_reload(monkeypatch, failure):
+    from app.agentive import staging
+
+    sc = await _mint()
+    calls = _fake_executor(
+        monkeypatch,
+        result={"error": True, "message": "Reviewed closure required", **failure},
+    )
+    first = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+    assert first["consumed"] is False
+
+    staging._tokens.clear()
+    with pytest.raises(StagingError) as exc:
+        await staging_apply.execute_blessed_change(user_id="u1", token=sc.token)
+    assert exc.value.code == failure.get("details", failure)["error_code"]
+    assert len(calls) == 1

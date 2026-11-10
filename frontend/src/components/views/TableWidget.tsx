@@ -3,9 +3,11 @@ import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { Avatar, AvatarStackedMeta, MarkdownContent } from '../ui';
 import { MemberValue } from '../entries/members';
 import { RelationValue } from '../entries/relations';
+import { FileValue } from '../entries/FileValue';
 import type { ViewWidgetProps } from './types';
 import type { Entry, OperationalModelFieldSpec } from '../../types';
 import { formatRelativeTime } from '../../utils';
+import { findEntryTypeForEntry } from '../../utils/entryMetaFields';
 import { formatDateFieldDisplay } from '../../utils/dateFieldValue';
 import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
 import { humanizeEnumValue, humanizeFieldKey } from '../../utils/humanizeFieldKey';
@@ -31,10 +33,6 @@ type MemberFieldPaths = Set<string>;
  *  (SeamlessField's `resolveEnumOptionLabel`/`humanizeEnumValue`) instead
  *  of printing the raw snake/kebab-case value verbatim. */
 type SelectFieldTypes = Map<string, 'select' | 'multi_select'>;
-/** `custom_fields.<key>` (or bare `<key>`) -> 'date' | 'datetime', so the
- *  default cell renderer formats stored ISO values as "21 Oct 2026, 12:00 PM"
- *  instead of printing the raw timestamp. */
-type DateFieldTypes = Map<string, 'date' | 'datetime'>;
 
 const DEFAULT_COLUMNS: TableColumn[] = [
   { field: 'title', label: 'Title / Content', sortable: true },
@@ -83,7 +81,9 @@ function renderCellValue(
   relationByField: RelationByField,
   memberFieldPaths: MemberFieldPaths,
   selectFieldTypes: SelectFieldTypes,
-  dateFieldTypes: DateFieldTypes,
+  fileFieldPaths: Set<string>,
+  rowFields: OperationalModelFieldSpec[] | undefined,
+  interactiveFiles = true,
 ) {
   switch (column.field) {
     case 'title':
@@ -148,6 +148,9 @@ function renderCellValue(
         </span>
       );
     default: {
+      if (fileFieldPaths.has(column.field)) {
+        return <FileValue value={getFieldValue(entry, column.field, commentCounts)} interactive={interactiveFiles} />;
+      }
       if (memberFieldPaths.has(column.field)) {
         const raw = getFieldValue(entry, column.field, commentCounts);
         if (raw == null || raw === '') {
@@ -182,12 +185,17 @@ function renderCellValue(
       }
       const val = getFieldValue(entry, column.field, commentCounts);
       if (val === undefined || val === null) return <span className="text-[var(--text-muted)] text-xs">—</span>;
-      const dateType = dateFieldTypes.get(column.field);
-      if (dateType && typeof val === 'string') {
+      const customKey = column.field.startsWith('custom_fields.')
+        ? column.field.slice('custom_fields.'.length)
+        : PLATFORM_ENTRY_FIELD_KEYS.has(column.field) ? undefined : column.field;
+      const dateType = customKey === undefined
+        ? undefined
+        : rowFields?.find(field => field.key === customKey)?.type;
+      if ((dateType === 'date' || dateType === 'datetime') && typeof val === 'string') {
         const text = formatDateFieldDisplay(val, dateType, { compact: true });
         return (
           <span className="text-sm text-[var(--text)] whitespace-nowrap">
-            {text || '—'}
+            {text || val || '—'}
           </span>
         );
       }
@@ -221,6 +229,7 @@ function TableWidgetInner({
   entries,
   view,
   fields,
+  entryTypes,
   onEntryOpen,
   commentCounts
 }: ViewWidgetProps) {
@@ -261,17 +270,21 @@ function TableWidgetInner({
     return out;
   }, [fields]);
 
-  const dateFieldTypes = useMemo<DateFieldTypes>(() => {
-    const out: DateFieldTypes = new Map();
+  const fileFieldPaths = useMemo(() => {
+    const out = new Set<string>();
     for (const f of fields ?? []) {
-      const t = String(f.type || '').toLowerCase();
-      if (t === 'date' || t === 'datetime') {
-        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
-        out.set(`custom_fields.${f.key}`, t);
+      if (f.type === 'file' || f.type === 'files') {
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.add(f.key);
+        out.add(`custom_fields.${f.key}`);
       }
     }
     return out;
   }, [fields]);
+
+  const fieldsForRow = (entry: Entry) =>
+    entryTypes?.length
+      ? findEntryTypeForEntry(entryTypes, entry)?.form_schema?.fields
+      : fields;
 
   // A saved column only needs a field path. Resolve its display label from
   // current schema metadata rather than persisting a second copy of that name.
@@ -454,21 +467,24 @@ function TableWidgetInner({
             </tr>
           </thead>
           <tbody>
-            {sortedEntries.map((entry, i) => (
-              <tr
-                key={entry.id}
-                onClick={() => onEntryOpen(entry)}
-                className={`cursor-pointer border-b border-[var(--entry-table-divider)] last:border-b-0 hover:bg-[var(--entry-table-row-hover)] transition-colors ${
-                  i % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'
-                }`}
-              >
-                {visibleCols.map(col => (
-                  <td key={col.field} className="px-4 py-3">
-                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, dateFieldTypes)}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {sortedEntries.map((entry, i) => {
+              const rowFields = fieldsForRow(entry);
+              return (
+                <tr
+                  key={entry.id}
+                  onClick={() => onEntryOpen(entry)}
+                  className={`cursor-pointer border-b border-[var(--entry-table-divider)] last:border-b-0 hover:bg-[var(--entry-table-row-hover)] transition-colors ${
+                    i % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'
+                  }`}
+                >
+                  {visibleCols.map(col => (
+                    <td key={col.field} className="px-4 py-3">
+                      {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, fileFieldPaths, rowFields)}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -479,6 +495,7 @@ function TableWidgetInner({
           fields visible, full-width tap target. */}
       <ul className="divide-y divide-[var(--entry-table-divider)] md:hidden">
         {sortedEntries.map((entry, i) => {
+          const rowFields = fieldsForRow(entry);
           const [headCol, ...restCols] = visibleCols;
           return (
             <li key={entry.id} className={i % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'}>
@@ -489,7 +506,7 @@ function TableWidgetInner({
               >
                 {headCol ? (
                   <div className="min-w-0">
-                    {renderCellValue(entry, headCol, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, dateFieldTypes)}
+                    {renderCellValue(entry, headCol, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, fileFieldPaths, rowFields, false)}
                   </div>
                 ) : null}
                 {restCols.length > 0 ? (
@@ -498,7 +515,7 @@ function TableWidgetInner({
                       <FragmentRow
                         key={col.field}
                         label={col.label}
-                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, dateFieldTypes)}
+                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, fileFieldPaths, rowFields, false)}
                       />
                     ))}
                   </dl>

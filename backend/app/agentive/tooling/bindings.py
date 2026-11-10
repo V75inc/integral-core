@@ -1183,6 +1183,39 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
                 payload["fields"] = resolve_field_map(payload["fields"], catalog)
             except ValueError as exc:
                 raise ValueError(f"update_entry: {exc}") from exc
+        # Reject invalid file shapes before creating a review card. The
+        # canonical Entry validator still checks ownership, MIME and limits
+        # at apply time; this only gives the resident an actionable repair.
+        for entry_type in entry_types:
+            schema = getattr(entry_type, "form_schema", None) or {}
+            for field in schema.get("fields", []):
+                if not isinstance(field, dict):
+                    continue
+                key, kind = field.get("key"), field.get("type")
+                if key not in payload["fields"] or kind not in {"file", "files"}:
+                    continue
+                value = payload["fields"][key]
+                valid = (
+                    value is None
+                    or (kind == "file" and isinstance(value, str))
+                    or (
+                        kind == "files"
+                        and isinstance(value, list)
+                        and all(
+                            isinstance(item, str) and item.strip() for item in value
+                        )
+                    )
+                )
+                if not valid:
+                    shape = (
+                        "an attachment ID string"
+                        if kind == "file"
+                        else "a list of attachment ID strings"
+                    )
+                    raise ValueError(
+                        f"update_entry: field {key!r} expects {shape}, not file objects. "
+                        "Use an attachment already linked to this entry. Nothing was staged."
+                    )
 
     date_block = await date_left_in_title_block(
         track_id=str(current.get("track_id") or ""),
@@ -2457,6 +2490,9 @@ async def _stage_attach_file(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "entry_id", "sandbox_path")
     entry_id = args["entry_id"]
     path = args["sandbox_path"]
+    from app.services.attachment_agent import inspect_sandbox_file
+
+    reviewed = await inspect_sandbox_file(_bound_propose_principal(), path)
     current = await _sd.load_entry_record(entry_id)
     title_lbl = (
         _sd.entry_display_label(current, entry_id)
@@ -2466,15 +2502,22 @@ async def _stage_attach_file(args: Dict[str, Any]) -> Dict[str, Any]:
     payload = {
         "entry_id": entry_id,
         "sandbox_path": path,
+        "expected_sha256": reviewed["sha256"],
     }
     return {
         "kind": "attach_file",
         "summary": f"Attach sandbox file “{path}” to entry “{title_lbl}”",
         "diff_human": (
             f"**Attach sandbox file** *{path}*\n\n"
-            "Copies the sandbox path onto this entry on approval."
+            f"File size: {reviewed['size']} bytes.\n\n"
+            f"SHA-256: `{reviewed['sha256']}`\n\n"
+            "The file must still match this fingerprint when applied."
         ),
-        "diff_machine": {"op": "attach_file", **payload},
+        "diff_machine": {
+            "op": "attach_file",
+            **payload,
+            "file_preview": reviewed["preview"],
+        },
         "payload": payload,
     }
 
@@ -2482,6 +2525,8 @@ async def _stage_attach_file(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "entry_id", "attachment_id")
     principal = _propose_principal.get()
+    review = None
+    file_identity = {}
     if principal:
         from app.agentive.staging import pending_entry_creation
         from app.api.errors import BadRequestError
@@ -2490,25 +2535,31 @@ async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
             validate_chat_attachment_for_entry,
             validate_chat_attachment_source,
         )
+        from app.services.chat_attachment_review import (
+            inspect_chat_attachment_for_review,
+        )
         from app.services.chat_threads import get_thread_by_session
 
         session_id = _bound_propose_session_id()
+        thread = await get_thread_by_session(session_id) if session_id else None
+        if thread is None:
+            raise BadRequestError(message="A current conversation is required")
+        attachment, _, error = await validate_chat_attachment_source(
+            user_id=principal,
+            attachment_id=args["attachment_id"],
+            thread_id=thread.id,
+            workspace_id=active_workspace_id(),
+        )
+        if error:
+            raise BadRequestError(message=error["message"])
         pending = await pending_entry_creation(
             user_id=principal, session_id=session_id, reference=args["entry_id"]
         )
         if pending is not None:
-            thread = await get_thread_by_session(session_id) if session_id else None
-            if thread is None:
-                raise BadRequestError(message="A current conversation is required")
-            _, _, error = await validate_chat_attachment_source(
-                user_id=principal,
-                attachment_id=args["attachment_id"],
-                thread_id=thread.id,
-                workspace_id=active_workspace_id(),
-            )
             # No target exists yet. Commit resolves the validated backward
             # reference and repeats destination policy/workspace checks on
             # that real entry, inside the governed batch effect boundary.
+            pass
         else:
             _, _, error = await validate_chat_attachment_for_entry(
                 user_id=principal,
@@ -2517,9 +2568,26 @@ async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
             )
         if error:
             raise BadRequestError(message=error["message"])
+        _, _, source = await inspect_chat_attachment_for_review(
+            user_id=principal,
+            workspace_id=active_workspace_id(),
+            thread_id=thread.id,
+            attachment_id=attachment.id,
+        )
+        file_identity = {
+            "source_thread_id": thread.id,
+            "expected_sha256": source["content_hash"],
+            "expected_size": source["size"],
+        }
+        review = {
+            "thread_id": thread.id,
+            "attachment_id": attachment.id,
+            "filename": attachment.filename or "attachment",
+        }
     payload = {
         "entry_id": args["entry_id"],
         "attachment_id": args["attachment_id"],
+        **file_identity,
     }
     return {
         "kind": "attach_uploaded_file",
@@ -2527,7 +2595,11 @@ async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
             f"Attach uploaded file {args['attachment_id']} to entry {args['entry_id']}"
         ),
         "diff_human": "The existing uploaded file will be linked to this record; no duplicate file is created.",
-        "diff_machine": {"op": "attach_uploaded_file", **payload},
+        "diff_machine": {
+            "op": "attach_uploaded_file",
+            **payload,
+            **({"file_review": review} if review else {}),
+        },
         "payload": payload,
     }
 
@@ -4206,6 +4278,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_propose_design": ToolBinding(stager=None),
     # Session artifacts: same interception pattern as propose_design.
     "integral_upsert_artifact": ToolBinding(stager=None),
+    "integral_prepare_document_attachment": ToolBinding(stager=None),
     "integral_get_artifact": ToolBinding(
         service_ref=_h("app.agentive.artifacts", "get_artifact"),
         service_param_map=_pick("key"),
@@ -4284,6 +4357,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_param_map=_pick("attachment_id", "language", "max_chars"),
     ),
     # Routine tasks (P_scheduling) — user-issued recurring chat instructions.
+    "integral_list_resident_opportunities": ToolBinding(
+        service_ref=_h(
+            "app.services.resident_opportunities", "list_resident_opportunities"
+        ),
+        service_param_map=_pick("cursor"),
+    ),
     "integral_schedule_task": ToolBinding(stager=stage_schedule_task),
     "integral_list_routines": ToolBinding(
         service_ref=_h("app.agentive.services.routine_tasks", "list_routine_tasks"),

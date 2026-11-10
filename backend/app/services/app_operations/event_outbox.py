@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable
 
 from app.contracts.operations import OperationIdentity
+from app.contracts.task_semantics import RESIDENT_ASSIGNMENT_CHANGED
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 from app.utils.time import utc_now_iso
 
@@ -128,16 +129,15 @@ async def insert_entry_event(
     )
 
 
-async def insert_revision_event(
+def revision_event_fact_id(
     *,
-    transaction: Any,
     workspace_id: str,
     namespace: str,
     subject_id: str,
     revision: int,
-    event: Dict[str, Any],
+    action: str,
 ) -> str:
-    """Persist a namespaced lifecycle fact with its actual subject and revision."""
+    """Identify a lifecycle fact independently of delivery attempts."""
     if (
         not namespace
         or not workspace_id
@@ -151,12 +151,31 @@ async def insert_revision_event(
             namespace,
             workspace_id,
             subject_id,
-            event["action"],
+            action,
             revision,
         ],
         separators=(",", ":"),
     )
-    outbox_id = hashlib.sha256(identity.encode()).hexdigest()
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+async def insert_revision_event(
+    *,
+    transaction: Any,
+    workspace_id: str,
+    namespace: str,
+    subject_id: str,
+    revision: int,
+    event: Dict[str, Any],
+) -> str:
+    """Persist a namespaced lifecycle fact with its actual subject and revision."""
+    outbox_id = revision_event_fact_id(
+        workspace_id=workspace_id,
+        namespace=namespace,
+        subject_id=subject_id,
+        revision=revision,
+        action=event["action"],
+    )
     now = utc_now_iso()
     await transaction.insert_if_absent(
         _COLLECTION,
@@ -247,6 +266,17 @@ async def deliver_operation_event(
             await transaction.save(_COLLECTION, record)
             return True
         event = dict(context.get("event") or {})
+        if event.get("action") == RESIDENT_ASSIGNMENT_CHANGED:
+            from app.services.resident_assignment import (
+                record_resident_assignment_intake,
+            )
+
+            await record_resident_assignment_intake(
+                transaction=transaction,
+                fact_id=outbox_id,
+                workspace_id=str(context.get("workspace_id") or ""),
+                event=event,
+            )
         # Marking delivery is intentionally outside the graph-write command
         # transaction; this consumer runs only after its commit.
     from app.services.change_event import emit_change_event

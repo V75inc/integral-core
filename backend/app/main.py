@@ -703,6 +703,13 @@ async def _startup() -> None:
     if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
         return
 
+    if settings.INTEGRAL_BOUNDED_MODEL_POLICY_FILE:
+        from app.services.configured_model_evidence import (
+            register_configured_model_evidence,
+        )
+
+        register_configured_model_evidence(settings.INTEGRAL_BOUNDED_MODEL_POLICY_FILE)
+
     try:
         await _warm_native_model_runtime()
     except Exception:

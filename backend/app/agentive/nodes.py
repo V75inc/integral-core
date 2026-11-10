@@ -10,6 +10,7 @@ from jvspatial.core import Node
 from pydantic import Field
 
 from app.agentive.types import AgentType  # D-09: shared canonical Literal
+from app.schemas.agentive.routines import RoutineQuietHours
 
 
 class ChannelIdentity(Node):
@@ -210,7 +211,18 @@ class RoutineTask(Node):
     thread_id: str = ""  # ChatThread this routine posts into
     agent_id: str = ""  # sticky agent binding, mirrors ChatThread.agent_id
     instruction: str = ""  # agent instruction, or literal text for reminder mode
-    delivery_mode: Literal["agent", "reminder"] = "agent"
+    delivery_mode: Literal["agent", "reminder", "task_watch", "assignment_digest"] = (
+        "agent"
+    )
+    watch_entry_id: str = ""
+    watch_fingerprint: str = ""
+    watch_prepare_closure: bool = False
+    watch_pending_work_id: str = ""
+    opportunity_cursor: Optional[str] = None
+    opportunity_last_work_id: str = ""
+    snoozed_until: Optional[str] = None
+    quiet_hours: Optional[RoutineQuietHours] = None
+    watch_delivery_after: Optional[str] = None
     source_staging_token: str = ""  # server-only creation provenance
     cron: str = ""  # 5-field cron, computed by the agent from conversational phrasing
     timezone: str = "UTC"  # IANA tz

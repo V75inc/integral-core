@@ -85,21 +85,46 @@ async def _app_schedule_loop(*, idle_sleep: float = 60.0) -> None:
 
 
 async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
+    from app.agentive.services.work_model_receipts import (
+        reconcile_retained_model_receipts,
+    )
     from app.agentive.services.work_recovery import run_recovery_pass
     from app.services.app_operations.event_outbox import (
         deliver_pending_operation_events,
     )
+    from app.services.resident_assignment_execution import (
+        deliver_resident_assignment_approvals,
+    )
 
+    model_receipt_cursor: dict[str, str] = {}
     next_harness_retention = 0.0
+    next_draft_cleanup = 0.0
     while True:
         try:
             await run_recovery_pass(reclaim_worker_id="periodic-recovery")
             await deliver_pending_operation_events()
+            await deliver_resident_assignment_approvals()
             from app.services.email_delivery import purge_email_history
 
             await purge_email_history()
         except Exception:  # noqa: BLE001
             log.exception("work recovery loop failed")
+
+        try:
+            await reconcile_retained_model_receipts(model_receipt_cursor)
+        except Exception:  # noqa: BLE001
+            log.exception("Retained model receipt reconciliation failed")
+
+        if time.monotonic() >= next_draft_cleanup:
+            try:
+                from app.services.document_draft_cleanup import (
+                    reconcile_draft_blob_attempts,
+                )
+
+                await reconcile_draft_blob_attempts()
+            except Exception:  # noqa: BLE001
+                log.exception("Generated file cleanup pass failed")
+            next_draft_cleanup = time.monotonic() + 60
 
         if time.monotonic() >= next_harness_retention:
             try:
@@ -145,9 +170,13 @@ async def start_work_kernel_background(
         from app.services.app_operations.event_outbox import (
             deliver_pending_operation_events,
         )
+        from app.services.resident_assignment_execution import (
+            deliver_resident_assignment_approvals,
+        )
 
         await reconcile_missing_outbox_facts()
         await deliver_pending_operation_events()
+        await deliver_resident_assignment_approvals()
     except Exception:  # noqa: BLE001
         if not _is_dev_boot():
             raise

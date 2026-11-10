@@ -104,9 +104,9 @@ async def bless_and_execute(
     V1 accepts only one-time approval for this token. Session-wide approval
     is rejected before deciding linked work or dispatching any mutation.
 
-    When a durable ``WorkApproval`` is linked to ``token``, the decide unit
-    requeues the original WorkItem before the staging apply path continues.
-    Cards without a linked approval keep the legacy inline path.
+    On a transactional store, a linked ``WorkApproval`` is decided with the
+    consumed staging decision after application. Legacy stores retain the
+    earlier non-atomic linked-work path. Approval is not proof of application.
     """
     if autonomy != "single":
         raise StagingError(
@@ -114,15 +114,20 @@ async def bless_and_execute(
             "Integral V1 can approve only the specific proposed change. "
             "Session-wide auto-approval is not enabled.",
         )
-    await _maybe_decide_linked_work_approval(
-        token=token, user_id=user_id, decision="approved"
-    )
     sc = await bless_token(
         user_id=user_id,
         token=token,
         autonomy="single",
         decision_source=decision_source,
     )
+    from app.agentive import staging
+
+    if not staging._durable_decisions_available():
+        # Legacy stores cannot couple the consumed decision and work outbox.
+        # Blessing still admits the caller before deciding linked work.
+        await _maybe_decide_linked_work_approval(
+            token=token, user_id=user_id, decision="approved"
+        )
     return await execute_blessed_change(
         user_id=user_id,
         token=token,
@@ -438,24 +443,35 @@ async def execute_blessed_change(
         # A retry that lands clears any earlier explanation.
         await record_execute_outcome(token=token, error=None)
     else:
-        # The write is still owed: release the claim so a retry can run.
-        await release_execution_claim(token)
         # The token stays blessed and the write is still owed, so the reason
         # has to outlive this response — it is the only thing that lets a
         # surface which did not click say more than "approved, not applied".
-        await record_execute_outcome(
-            token=token,
-            error={
-                "message": _failure_message(result),
-                "error_code": result.get("error_code"),
-                "status_code": result.get("status_code"),
-                **(
-                    {"application_state": result["application_state"]}
-                    if result.get("application_state")
-                    else {}
-                ),
-            },
-        )
+        error_code = result.get("error_code")
+        details = result.get("details")
+        if isinstance(details, dict):
+            specific_error = details.get("error_code")
+            if specific_error in (
+                "record_revision_conflict",
+                "schema_revision_conflict",
+                "goal_closure_required",
+            ):
+                error_code = specific_error
+        try:
+            await record_execute_outcome(
+                token=token,
+                error={
+                    "message": _failure_message(result),
+                    "error_code": error_code,
+                    "status_code": result.get("status_code"),
+                    **(
+                        {"application_state": result["application_state"]}
+                        if result.get("application_state")
+                        else {}
+                    ),
+                },
+            )
+        finally:
+            await release_execution_claim(token)
 
     if operation_application is not None:
         # Refusal may race a current revocation; report the durable decision,

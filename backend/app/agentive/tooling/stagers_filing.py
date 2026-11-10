@@ -216,6 +216,7 @@ async def _stage_existing_entry(
 ) -> Dict[str, Any]:
     """Stage an update or append against one existing entry. One facet, one card."""
     from app.models.nodes import Entry
+    from app.services.filing_facet import filing_evidence_revisions
 
     entry_id = str(a.get("entry_id") or "").strip()
     if not entry_id:
@@ -244,6 +245,60 @@ async def _stage_existing_entry(
             message="text is required — it is the passage appended once.",
             filing_status="error",
         )
+    close_goal = a.get("close_goal") is True
+    evidence_input = a.get("evidence_revisions")
+    if close_goal and evidence_input is None and mode == "append":
+        from app.agentive.tooling.bindings import _bound_propose_principal
+        from app.models.nodes import Track
+        from app.schemas.policy import Resource, Subject
+        from app.services.agent_scope import current_scope_workspace_id
+        from app.services.filing_facet import live_filing_schema_revision
+        from app.services.goal_evidence import read_goal_evidence
+        from app.services.policy_engine import evaluate
+
+        principal_id = _bound_propose_principal()
+        workspace_id = current_scope_workspace_id.get() or ""
+        snapshot = await read_goal_evidence(principal_id, workspace_id, entry_id)
+        if snapshot is None or not snapshot.closure_evidence:
+            return _no_stage_candidates(
+                message="A closure review requires an open goal with readable evidence that meets every declared criterion.",
+                filing_status="error",
+            )
+        if a["expected_record_revision"] != snapshot.goal_revision:
+            return _no_stage_candidates(
+                message="The goal changed. Read the current Entry before preparing closure.",
+                filing_status="error",
+            )
+        decision = await evaluate(
+            subject=Subject(kind="human", id=principal_id),
+            action="entry.update",
+            resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
+            _dry_run=True,
+        )
+        if not decision.allowed:
+            return _no_stage_candidates(
+                message="You need permission to update this goal to prepare a closure review.",
+                filing_status="error",
+            )
+        entry = await Entry.find_one({"id": entry_id})
+        track = await Track.find_one({"id": snapshot.track_id})
+        if (
+            entry is None
+            or track is None
+            or entry.track_id != snapshot.track_id
+            or entry.record_revision != snapshot.goal_revision
+            or a["expected_schema_revision"]
+            != await live_filing_schema_revision(track, entry)
+        ):
+            return _no_stage_candidates(
+                message="The goal or Track schema changed. Read both again before preparing closure.",
+                filing_status="error",
+            )
+        evidence_input = snapshot.closure_evidence
+    try:
+        evidence = filing_evidence_revisions(evidence_input, entry_id)
+    except ValueError as exc:
+        return _no_stage_candidates(message=str(exc), filing_status="error")
     entry = await Entry.get(entry_id)
     if entry is None:
         return _no_stage_candidates(
@@ -268,7 +323,23 @@ async def _stage_existing_entry(
         "entry_type_key": a.get("entry_type_key") or a.get("type_hint"),
         "replace_body": bool(a.get("replace_body")),
     }
-    verb = "Append to" if mode == "append" else "Update"
+    if evidence:
+        payload["evidence_revisions"] = evidence
+    if close_goal:
+        if (
+            mode != "append"
+            or payload["append_field"] != "body"
+            or not evidence
+            or any(
+                payload.get(key) is not None for key in ("fields", "tags", "relations")
+            )
+        ):
+            return _no_stage_candidates(
+                message="Closing a goal requires a body note and its supporting Entry revisions.",
+                filing_status="error",
+            )
+        payload["close_goal"] = True
+    verb = "Close goal" if close_goal else "Append to" if mode == "append" else "Update"
     summary = f"{verb} “{entry.title or entry.id}”"
     lines = [f"**{verb}** *{entry.title or entry.id}*", ""]
     if fields:
@@ -276,6 +347,8 @@ async def _stage_existing_entry(
         lines.extend(_format_fields_for_diff(fields))
     if relations:
         lines.append(f"- **Links:** {len(relations)}")
+    if evidence:
+        lines.append(f"- **Supporting Entries checked at approval:** {len(evidence)}")
     if a.get("tags") is not None:
         lines.append(f"- **Tags:** {a.get('tags')}")
     if mode == "append":
@@ -330,6 +403,11 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     if mode in ("update", "append"):
         return await _stage_existing_entry(a, mode=mode, text=text)
 
+    if a.get("evidence_revisions") is not None or a.get("close_goal") is True:
+        return _no_stage_candidates(
+            message="Supporting evidence is available only for updates and appends.",
+            filing_status="error",
+        )
     title = str(a.get("title") or "")
     if is_cleanup_instruction(text) or is_cleanup_instruction(title):
         return _no_stage_candidates(

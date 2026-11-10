@@ -81,6 +81,7 @@ import {
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { WatchersControl } from './WatchersControl';
+import { ResidentAssignmentControl } from './ResidentAssignmentControl';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { CARD_PREVIEW_ATTACHMENT_FIELD } from '../../utils/entryMedia';
 import { findEntryTypeBySlug, sortFieldsByOrder } from '../../utils/entryMetaFields';
@@ -1616,6 +1617,9 @@ export function EntryDetail({
 
   const headerActions = (
     <div className="flex flex-wrap items-center gap-1.5">
+      {!isEditing && activeWorkspace?.id ? (
+        <ResidentAssignmentControl entryId={entry.id} workspaceId={activeWorkspace.id} />
+      ) : null}
       {canEdit ? (
         <Button
           variant="outline"

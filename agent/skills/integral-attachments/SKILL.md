@@ -1,7 +1,7 @@
 ---
 name: integral-attachments
 description: Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including “file this where it belongs”. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing.
-allowed-tools: integral_list_workspace_tools integral_call_workspace_tool integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_governed_query integral_describe_capabilities integral_list_apps integral_rank_destinations integral_list_tracks integral_get_track_schema integral_begin_batch integral_commit_batch integral_cancel_batch integral_create_entry
+allowed-tools: integral_list_workspace_tools integral_call_workspace_tool integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_governed_query integral_describe_capabilities integral_list_apps integral_rank_destinations integral_list_tracks integral_get_track_schema integral_begin_batch integral_commit_batch integral_cancel_batch integral_create_entry integral_update_entry
 ---
 
 # Integral attachments — SOP
@@ -33,6 +33,31 @@ that tool when the user asks to attach/file/post the chat-uploaded file into
 an entry — never just mention the filename in the entry body and claim it is
 attached; that is a lie the user can immediately disprove by opening the
 entry.
+
+### File fields are separate from Entry attachments
+
+Attaching a file puts it in the Entry's Attachments collection; it does not
+populate a `file` or `files` custom field. If the user's requested outcome or
+the approved App design calls for a particular file field, inspect the target
+track schema and the current Entry values. Once the attachment has actually
+been approved and applied, use the returned real attachment ID with
+`integral_update_entry` to stage that field separately. Under `updates.fields`,
+a `file` value is the ID **string** and a `files` value is a **list of ID
+strings**. Never use attachment objects, filenames, URLs, staged tokens, or
+invented IDs as field values. For example, `{"fields":{"document":["n.Attachment.example"]}}`
+is appropriate only for a schema-confirmed `files` field; a `file` field takes
+the string without the list. Preserve existing list members and respect the
+field's allowed types and maximum count. Do not overwrite a populated single
+file field without the user's instruction; ask if the intended field or
+replacement is ambiguous.
+
+The field validator requires the file to be attached to that Entry first.
+Do not claim the field is populated merely because its attachment proposal is
+pending, and do not stage an update using a still-unapplied attachment. After
+the attachment is applied, continue the original task with the field proposal
+if the run is still active; otherwise explain that the attachment is saved and
+the separate field update remains. Read back the field after approval. A
+rejected or failed attachment must not be followed by a field update.
 
 ## When to use this
 
@@ -230,16 +255,19 @@ filing of typed content (skill `integral-filing`), not analytics (skill
 List/read tools return immediately with no staged mutations.
 `integral_attach_uploaded_file_to_entry` is `op_class: propose` — calling it
 creates a staged change the user must approve before the edge is actually
-wired; say "attached" only after that tool call returns, and let the normal
-staged-card approval UI carry the rest (do not separately promise it's done
-before the card is approved).
+wired; say "attached" only after approval and a successful execution receipt.
+The staged-card UI carries the approval, not the filing itself.
 
 ## Limits
 
 `integral_attach_file` (sandbox-produced files, e.g. a claude-skill PDF) and
 `integral_attach_uploaded_file_to_entry` (a file the user dropped in this
 chat) are two different tools for two different sources — do not confuse
-them. A chat-uploaded file can only be filed once: if it's already attached
+them. The sandbox tool requires a configured sandbox and an existing file; it
+does not generate one. Its review card identifies the file size and SHA-256,
+and shows a bounded plain-text preview for supported text files; when a preview
+is partial or unavailable, the user must inspect the full file separately. If
+the file changes or the old approval lacks a fingerprint, review it again. A chat-uploaded file can only be filed once: if it's already attached
 to another entry, the tool returns `not_chat_owned` — say so, do not retry
 silently or claim it worked.
 

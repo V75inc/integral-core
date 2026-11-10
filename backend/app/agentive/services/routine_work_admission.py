@@ -7,6 +7,7 @@ from typing import Any
 from jvspatial.core.context import get_default_context
 
 from app.agentive.nodes import RoutineTask
+from app.schemas.agentive.routines import DURABLE_OBSERVATION_MODES
 from app.schemas.agentive.work import WorkError
 
 
@@ -27,7 +28,13 @@ def _check_current(item: Any, row: dict | None) -> None:
         raise WorkError("work.cancelled", "Routine is no longer active")
     from app.agentive.services.routine_mandate import routine_mandate_fingerprint
 
-    expected = (item.input_payload or {}).get("routine_mandate_fingerprint")
+    payload = item.input_payload or {}
+    if payload.get("task_watch_slot") == "v1" and (
+        fields.get("delivery_mode") not in DURABLE_OBSERVATION_MODES
+        or fields.get("next_run_at") != payload.get("scheduled_for")
+    ):
+        raise WorkError("work.cancelled", "Task watch schedule changed")
+    expected = payload.get("routine_mandate_fingerprint")
     if not isinstance(expected, str) or expected != routine_mandate_fingerprint(fields):
         raise WorkError(
             "work.policy_denied", "Routine mandate changed or requires reconciliation"

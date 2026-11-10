@@ -221,7 +221,12 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                         }
                         for r in targets
                     ]
-                return append_completion_links("Your setup is ready.", links)
+                message = (
+                    output
+                    if run_state.get("post_build_activity")
+                    else "Your setup is ready."
+                )
+                return append_completion_links(message, links)
 
             if not run_state.get("verification_succeeded"):
                 status = run_state.get("verification_status")
@@ -461,7 +466,9 @@ async def _resume_history(
         )
 
         dialogue = public_dialogue(
-            await recent_public_messages(thread), exclude_id=current_message_id
+            await recent_public_messages(thread),
+            exclude_id=current_message_id,
+            allow_assistant=False,
         )
         dialogue.append(
             build_integral_host_turn(
@@ -1607,7 +1614,25 @@ class PydanticAIProvider:
                     )
                     if current_role == "none" or current_role != workspace_role:
                         raise WorkError("work.permission_stale")
+                    if ctx.deferred_resume is not None:
+                        from app.agentive.harness.deferred_staging import (
+                            _project_applied_result,
+                        )
+
+                        await _project_applied_result(
+                            ctx.user_id,
+                            ctx.workspace_id,
+                            ctx.deferred_resume.effect.tool_name,
+                            ctx.deferred_resume.result,
+                        )
                     current_thread = await ChatThread.get(ctx.thread_id)
+                    if ctx.deferred_resume is not None and (
+                        current_thread is None
+                        or current_thread.archived
+                        or current_thread.active_work_item_id
+                        != work_execution_context.work_item_id
+                    ):
+                        raise WorkError("work.permission_stale")
                     current_profile = getattr(current_thread, "model_profile_id", "")
                     current_plan = await resolve_turn_routes(
                         workspace_id=ctx.workspace_id,
@@ -1662,7 +1687,6 @@ class PydanticAIProvider:
             with isolated_permissions_cache():
                 try:
                     await assert_model_image_access(scope, payload)
-
                 except WorkError as exc:
                     raise NativeModelRequestError("image_access_denied") from exc
 
@@ -1716,6 +1740,7 @@ class PydanticAIProvider:
             public_dialogue,
             recent_public_messages,
             requires_operational_path,
+            thread_has_operational_history,
         )
         from app.agentive.services.execution_runs import AgentRun
 
@@ -1860,7 +1885,12 @@ class PydanticAIProvider:
             async with routing_deadline:
                 result = await agent.run(
                     ctx.text,
-                    message_history=public_dialogue(messages, exclude_id=accepted_id),
+                    message_history=public_dialogue(
+                        messages,
+                        exclude_id=accepted_id,
+                        allow_assistant=not thread_has_operational_history(thread),
+                    ),
+                    instructions=ctx.system_context or None,
                     cancellation_token=self._active_tokens.get(ctx.thread_id),
                     # Native steering can open another model request after the
                     # first reply. Give that path the normal turn allowance.
@@ -2018,18 +2048,20 @@ class PydanticAIProvider:
         from app.agentive.harness.model_routing import may_escalate_light_failure
         from app.services.chat_latency import current_latency
 
+        light = None
         light_started = time.monotonic()
-        try:
-            light = await self._try_light_turn(
-                ctx, thread, workspace_role, work_execution_context
-            )
-        except Exception as exc:
-            timing = current_latency.get()
-            if not may_escalate_light_failure(
-                exc, timing.route_plan if timing else None
-            ):
-                raise
-            light = EscalatedTurn(input_tokens=0, output_tokens=0)
+        if ctx.deferred_resume is None:
+            try:
+                light = await self._try_light_turn(
+                    ctx, thread, workspace_role, work_execution_context
+                )
+            except Exception as exc:
+                timing = current_latency.get()
+                if not may_escalate_light_failure(
+                    exc, timing.route_plan if timing else None
+                ):
+                    raise
+                light = EscalatedTurn(input_tokens=0, output_tokens=0)
         timing = current_latency.get()
         if timing is not None and timing.roles:
             if timing.roles[-1]["role"] == "light":
@@ -2154,6 +2186,14 @@ class PydanticAIProvider:
             permission_revision=permission_revision,
             capability_version=capability_version,
         )
+        if ctx.deferred_resume is not None and (
+            work_execution_context is None
+            or ctx.deferred_resume.scope.model_copy(update={"run_id": scope.run_id})
+            != scope
+        ):
+            raise WorkError(
+                "work.permission_stale", "Deferred continuation scope changed"
+            )
         if work_execution_context is None:
             session = await ensure_harness_session(scope=scope, binding_id=_BINDING_ID)
         else:
@@ -2379,8 +2419,19 @@ class PydanticAIProvider:
                         },
                     },
                 )
+            from app.config import settings
+
+            native_deferred_approvals = bool(
+                settings.INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED
+                and ctx.accepts_steering
+                and work_execution_context is not None
+                and (ctx.extra_data or {}).get("origin")
+                in (None, "", "interactive_chat")
+            )
             run_state: dict[str, Any] = {
                 "scheduled_instruction": ctx.system_context or "",
+                "native_deferred_approvals": native_deferred_approvals,
+                "native_resume": ctx.deferred_resume is not None,
                 "turn_progress": TurnProgress(),
                 "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
                 "adaptive_tokens": (
@@ -2391,14 +2442,16 @@ class PydanticAIProvider:
                 "proposal_attempted": False,
                 "proposal_succeeded": False,
                 "approved_design_ready": bool(
-                    isinstance(design_marker, dict)
+                    ctx.deferred_resume is None
+                    and isinstance(design_marker, dict)
                     and design_marker.get("approved")
                     and not design_marker.get("build_receipt")
                 ),
                 "active_user_turn": active_user_turn,
                 "active_user_text": ctx.text,
                 "pending_design": bool(
-                    isinstance(design_marker, dict)
+                    ctx.deferred_resume is None
+                    and isinstance(design_marker, dict)
                     and design_marker.get("blueprint")
                     and not design_marker.get("build_receipt")
                     and isinstance(design_marker.get("proposed_at_user_turn"), int)
@@ -2407,6 +2460,18 @@ class PydanticAIProvider:
                 "scaffold_coverage_attempted": False,
                 "capability_search_completed": False,
             }
+            if ctx.deferred_resume is not None:
+                from app.services.completion_links import completion_links
+
+                refs = [{"kind": "entry", "id": ctx.deferred_resume.result["entry_id"]}]
+                run_state["completed_resource_refs"] = refs
+                run_state["completed_resource_links"] = await completion_links(
+                    {"resources": refs},
+                    kind="completed",
+                    arguments={},
+                    user_id=ctx.user_id,
+                    workspace_id=ctx.workspace_id,
+                )
             tools = await asyncio.to_thread(
                 build_brokered_tools,
                 scope=scope,
@@ -2453,6 +2518,7 @@ class PydanticAIProvider:
                     initial_skill=initial_skill,
                     turn_progress=run_state["turn_progress"],
                     accepts_steering=ctx.accepts_steering,
+                    accepts_deferred_approvals=native_deferred_approvals,
                     skill_directories=[Path(skill_temp.name)],
                     allowed_skill_names=allowed_skill_names,
                     work_execution_context=work_execution_context,
@@ -2469,7 +2535,10 @@ class PydanticAIProvider:
                     if ref.get("kind") == "entry"
                 }
                 return append_completion_links(
-                    output, run_state.get("completed_resource_links") or [], entry_ids
+                    output,
+                    run_state.get("completed_resource_links") or [],
+                    entry_ids,
+                    repair_destination_links=run_state.get("native_resume", False),
                 )
 
         except BaseException:
@@ -2477,74 +2546,117 @@ class PydanticAIProvider:
             raise
 
         try:
-            previous_run = None
-            recovery_message = None
-            if session.last_run_id:
-                previous_run = await AgentRun.find_one({"run_id": session.last_run_id})
-                if previous_run is not None and previous_run.status != "succeeded":
-                    recovery_message = await _load_recovery_user_message(
-                        previous_run, scope
+            if ctx.deferred_resume is not None:
+                history, run_state["deferred_tool_results"] = (
+                    ctx.deferred_resume.native_resume_input(
+                        accepted_text=ctx.text,
+                        result_links=run_state["completed_resource_links"],
                     )
-            current_message_id = (getattr(core_run, "metadata", {}) or {}).get(
-                "chat_message_id"
-            )
-            from app.services.chat_image_inputs import chat_image_prompt
-
-            run_state["user_prompt"] = await chat_image_prompt(
-                scope, current_message_id, ctx.text
-            )
-            history = await _resume_history(
-                scope,
-                session,
-                store,
-                recovery_message=recovery_message,
-                previous_run=previous_run,
-                thread=thread,
-                current_message_id=current_message_id,
-                allow_fresh_turn=bool(
-                    current_message_id
-                    and (ctx.text.strip() or isinstance(run_state["user_prompt"], list))
                 )
-                and (ctx.extra_data or {}).get("origin")
-                in (None, "", "interactive_chat"),
-                recovery_state=run_state,
-                scheduled_work_context=(
-                    work_execution_context
-                    if not ctx.text
-                    and (ctx.extra_data or {}).get("origin") == "routine_task"
-                    else None
-                ),
-            )
-            history = await _refresh_staged_history(
-                history, scope, conversation_id=ctx.thread_id
-            )
-            # Public conversation completed since the last operational
-            # checkpoint must remain visible after light turns. Those turns
-            # never mutate the operational restore pointer or its tool effects.
-            from app.agentive.harness.adaptive import (
-                public_dialogue,
-                recent_public_messages,
-            )
+                run_state["user_prompt"] = None
+            else:
+                previous_run = None
+                recovery_message = None
+                if session.last_run_id:
+                    previous_run = await AgentRun.find_one(
+                        {"run_id": session.last_run_id}
+                    )
+                    if previous_run is not None and previous_run.status != "succeeded":
+                        recovery_message = await _load_recovery_user_message(
+                            previous_run, scope
+                        )
+                current_message_id = (getattr(core_run, "metadata", {}) or {}).get(
+                    "chat_message_id"
+                )
+                from app.services.chat_image_inputs import chat_image_prompt
 
-            cutoff = str(getattr(previous_run, "finished_at", "") or "")
-            if history and session.last_run_id and previous_run is None:
-                previous_run = await AgentRun.find_one({"run_id": session.last_run_id})
+                run_state["user_prompt"] = await chat_image_prompt(
+                    scope, current_message_id, ctx.text
+                )
+                history = await _resume_history(
+                    scope,
+                    session,
+                    store,
+                    recovery_message=recovery_message,
+                    previous_run=previous_run,
+                    thread=thread,
+                    current_message_id=current_message_id,
+                    allow_fresh_turn=bool(
+                        current_message_id
+                        and (
+                            ctx.text.strip()
+                            or isinstance(run_state["user_prompt"], list)
+                        )
+                    )
+                    and (ctx.extra_data or {}).get("origin")
+                    in (None, "", "interactive_chat"),
+                    recovery_state=run_state,
+                    scheduled_work_context=(
+                        work_execution_context
+                        if not ctx.text
+                        and (ctx.extra_data or {}).get("origin") == "routine_task"
+                        else None
+                    ),
+                )
+                history = await _refresh_staged_history(
+                    history, scope, conversation_id=ctx.thread_id
+                )
+                from app.services.retrieval.history import retained_retrieval_is_current
+
+                if not await retained_retrieval_is_current(
+                    history,
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                ):
+                    if (
+                        not current_message_id
+                        or (ctx.extra_data or {}).get("origin")
+                        not in (None, "", "interactive_chat")
+                        or (
+                            previous_run is not None
+                            and previous_run.status != "succeeded"
+                        )
+                    ):
+                        raise ResourceConflictError(
+                            message="Prior retrieval evidence changed. Start a new turn to retrieve current sources.",
+                            details={"reason": "harness_retrieval_history_stale"},
+                        )
+                    # Public assistant messages may paraphrase the same passages.
+                    # Preserve the saved transcript, but start model context clean.
+                    history = []
+                    run_state["public_dialogue_restored"] = True
+
+                # Public conversation completed since the last operational
+                # checkpoint must remain visible after light turns. Those turns
+                # never mutate the operational restore pointer or its tool effects.
+                from app.agentive.harness.adaptive import (
+                    public_dialogue,
+                    recent_public_messages,
+                    thread_has_operational_history,
+                )
+
                 cutoff = str(getattr(previous_run, "finished_at", "") or "")
-            if (
-                not run_state.get("public_dialogue_restored")
-                and (cutoff or not history)
-                and (getattr(core_run, "metadata", {}) or {}).get("chat_message_id")
-            ):
-                public = await recent_public_messages(thread)
-                newer = [
-                    m for m in public if not cutoff or (m.created_at or "") > cutoff
-                ]
-                history.extend(
-                    public_dialogue(
-                        newer,
-                        exclude_id=(core_run.metadata or {}).get("chat_message_id"),
+                if history and session.last_run_id and previous_run is None:
+                    previous_run = await AgentRun.find_one(
+                        {"run_id": session.last_run_id}
                     )
-                )
+                    cutoff = str(getattr(previous_run, "finished_at", "") or "")
+                if (
+                    not run_state.get("public_dialogue_restored")
+                    and (cutoff or not history)
+                    and (getattr(core_run, "metadata", {}) or {}).get("chat_message_id")
+                ):
+                    public = await recent_public_messages(thread)
+                    newer = [
+                        m for m in public if not cutoff or (m.created_at or "") > cutoff
+                    ]
+                    history.extend(
+                        public_dialogue(
+                            newer,
+                            exclude_id=(core_run.metadata or {}).get("chat_message_id"),
+                            allow_assistant=not thread_has_operational_history(thread),
+                        )
+                    )
         except BaseException:
             skill_temp.cleanup()
             raise
@@ -2643,6 +2755,7 @@ class PydanticAIProvider:
             public_response = (
                 public_disclosure_response(ctx.text)
                 if ctx.text
+                and ctx.deferred_resume is None
                 and (ctx.extra_data or {}).get("origin")
                 in (None, "", "interactive_chat")
                 else None
@@ -2806,7 +2919,13 @@ class PydanticAIProvider:
             yield {"type": "_meta", "provider_session_id": scope.session_id}
             with _bind_integral_turn_context(ctx):
                 approval_instructions = None
-                if len(prepared) > 7:
+                if ctx.deferred_resume is not None:
+                    approval_instructions = (
+                        "Continue the accepted user request from the applied tool result. "
+                        "The approved action already happened. Do not propose or execute it again. "
+                        "Use current reads for other evidence and obtain review for any new write."
+                    )
+                elif len(prepared) > 7:
                     from app.agentive.harness.design_approval import (
                         pending_design_is_approved_for_reply,
                     )
@@ -2925,10 +3044,21 @@ class PydanticAIProvider:
                     if host_outcome
                     else event_history
                 )
+                from app.agentive.harness.pydantic_ai_compat import (
+                    AgentRunResultEvent,
+                    DeferredToolRequests,
+                )
+
+                deferred_requests = None
                 async with agent.run_stream_events(
                     # No synthetic empty human turn for host-only continuations.
                     # Current host instructions and scoped receipts carry the event.
                     run_state.get("user_prompt", ctx.text or None),
+                    **(
+                        {"deferred_tool_results": run_state["deferred_tool_results"]}
+                        if "deferred_tool_results" in run_state
+                        else {}
+                    ),
                     message_history=run_history,
                     conversation_id=scope.framework_conversation_id,
                     run_id=scope.framework_run_id,
@@ -2945,6 +3075,11 @@ class PydanticAIProvider:
                     async for event in stream:
                         if ctx.is_disconnected and await ctx.is_disconnected():
                             raise asyncio.CancelledError
+                        if isinstance(event, AgentRunResultEvent) and isinstance(
+                            event.result.output, DeferredToolRequests
+                        ):
+                            deferred_requests = event.result.output
+                            continue
                         for normalized in event_translator.translate(event):
                             # The durable model-request observations below are
                             # the authoritative per-call usage source. The
@@ -2974,6 +3109,23 @@ class PydanticAIProvider:
                                     mark_latency("heavyFirstTokenMs")
                                 continue
                             yield normalized
+
+                if deferred_requests is not None:
+                    if (
+                        not run_state.get("native_deferred_approvals")
+                        or work_execution_context is None
+                    ):
+                        raise WorkError(
+                            "work.non_replayable_effect",
+                            "Unexpected deferred tool result",
+                        )
+                    yield {
+                        "type": "_deferred-approval",
+                        "scope": scope,
+                        "store": store,
+                        "requests": deferred_requests,
+                    }
+                    return
 
                 settled_event = settled_text.settled_event()
                 if settled_event is not None:

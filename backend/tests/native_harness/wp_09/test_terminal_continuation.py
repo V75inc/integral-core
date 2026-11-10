@@ -151,8 +151,8 @@ async def test_new_user_turn_continues_without_replaying_uncertain_terminal_work
         allow_fresh_turn=True,
         recovery_state=recovery_state,
     )
-    assert history[0].parts[0].content == "Earlier reply"
-    assert len(history) == 2
+    assert "Earlier reply" not in str(history)
+    assert len(history) == 1
     assert "Do not replay prior tool calls" in history[-1].parts[0].content
     assert not any(
         isinstance(part, (ToolCallPart, ToolReturnPart))

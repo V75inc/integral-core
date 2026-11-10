@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.agentive.services import work_budgets, work_items, work_outbox
+from app.agentive.services import work_budgets, work_items, work_mandates, work_outbox
 from app.schemas.agentive.work import WorkError
 from app.schemas.agentive.work_budget import MandateReservationRequest
 from tests.test_work_mandate_contract import _propose_review, mandate_payload
@@ -21,7 +21,7 @@ async def approved_root(payload):
     payload["mandate_id"] = f"budget-{uuid4().hex}"
     root, approval = await _propose_review(payload)
     db = work_outbox._txn_database(work_outbox._active_database())
-    # Synthetic approved snapshot only; no public executable approval exists.
+    # Seed reviewed and admitted store state for accounting tests.
     await db.find_one_and_update(
         "object",
         {"id": approval.id},
@@ -34,6 +34,11 @@ async def approved_root(payload):
             }
         },
     )
+    await db.find_one_and_update(
+        "object", {"id": root.id}, {"$set": {"context.status": "queued"}}
+    )
+    root = await work_mandates._load_lineage_item(root.work_item_id)
+    await work_outbox._refresh_work_item_cache(root)
     return root, payload, db
 
 

@@ -1099,6 +1099,10 @@ def test_invalid_model_response_keeps_provider_and_usage_error_precedence():
 
     invalid = UnexpectedModelBehavior("private retry instructions")
     assert classify_integral_harness_exception(invalid) == "model_response_invalid"
+    exhausted = UnexpectedModelBehavior(
+        "Model token limit (provider default) exceeded before any response was generated. Increase the `max_tokens` model setting."
+    )
+    assert classify_integral_harness_exception(exhausted) == "model_output_limit"
     outer = RuntimeError("private wrapper")
     outer.__cause__ = invalid
     assert classify_integral_harness_exception(outer) == "model_response_invalid"

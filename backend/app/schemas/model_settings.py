@@ -19,7 +19,7 @@ class ModelGenerationSettings(BaseModel):
     top_p: float | None = Field(default=None, gt=0, le=1)
     verbosity: Literal["low", "medium", "high"] | None = None
     thinking_budget: int | None = Field(default=None, ge=1024, le=131071)
-    context_window: int | None = Field(default=None, ge=2048, le=131072)
+    context_window: int | None = Field(default=None, ge=2048)
     request_timeout: int | None = Field(default=None, ge=10, le=900)
     idle_timeout: int | None = Field(default=None, ge=5, le=180)
 

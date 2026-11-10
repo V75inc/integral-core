@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from app.agentive.services.work_items import authorized_work_item_effect
 from app.agentive.work_models import WorkItem
@@ -314,6 +314,29 @@ async def replay_work_item_chat_events(
         )
 
 
+def chat_approval_outcome(item: WorkItem) -> Literal["rejected", "expired"] | None:
+    """Expose only the two terminal approval decisions, never internal failure text."""
+    code = (item.failure or {}).get("code")
+    if item.status == "failed" and code == "work.approval_rejected":
+        return "rejected"
+    if item.status == "expired" and code == "work.approval_expired":
+        return "expired"
+    return None
+
+
+def chat_approval_error(outcome: Literal["rejected", "expired"]) -> dict[str, str]:
+    """Build the same public receipt for live delivery and transcript readback."""
+    return {
+        "type": "error",
+        "code": f"work.approval_{outcome}",
+        "message": (
+            "You rejected the proposed change."
+            if outcome == "rejected"
+            else "The proposed change expired before it was approved."
+        ),
+    }
+
+
 async def _read_chat_event_page(
     *,
     principal_id: str,
@@ -387,6 +410,7 @@ async def _read_chat_event_page(
         has_more=len(remaining) > limit,
         gap=gap,
         work_status=work_item.status,
+        approval_outcome=chat_approval_outcome(work_item),
     )
 
 

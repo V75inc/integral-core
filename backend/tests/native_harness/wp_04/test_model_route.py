@@ -243,6 +243,49 @@ async def test_local_ollama_context_size_is_configurable(monkeypatch) -> None:
     assert route.ollama_num_ctx == 12288
 
 
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("ollama_chat/deepseek-v4.1-flash:cloud", 1_000_000),
+        ("ollama/deepseek-v4.1-flash:1017-cloud", 1_000_000),
+        ("ollama/deepseek-v4.1-flash", 65_536),
+        ("ollama/unknown:cloud", 65_536),
+    ],
+)
+def test_proxied_ollama_cloud_uses_verified_model_capacity(
+    monkeypatch, model, expected
+):
+    """Cloud tags through the daemon must not inherit a local model default."""
+    from app.agentive.harness.model_route import resolve_deployment_model_route
+
+    monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", raising=False)
+    route = resolve_deployment_model_route(model)
+    assert route.ollama_num_ctx == expected
+    assert route.ollama_num_predict == (32768 if expected == 1_000_000 else 8192)
+    monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "32768")
+    assert resolve_deployment_model_route(model).ollama_num_ctx == 32768
+
+
+@pytest.mark.asyncio
+async def test_proxied_cloud_profile_context_leaves_room_for_input(monkeypatch):
+    """An explicit smaller profile context bounds the implicit output allowance."""
+
+    async def resolve(workspace_id: str, *, include_credential_identity=False):
+        return {
+            "model": "ollama/deepseek-v4.1-flash:cloud",
+            "api_key": None,
+            "generation_settings": {"context_window": 16384},
+        }
+
+    monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", raising=False)
+    monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT", raising=False)
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_native_model_override", resolve
+    )
+    route = await resolve_native_model_route(workspace_id="workspace", default_model="")
+    assert route.ollama_num_predict == 8192
+
+
 @pytest.mark.asyncio
 async def test_local_ollama_output_budget_is_configurable(monkeypatch) -> None:
     """The local generation limit is explicit and independently tunable."""

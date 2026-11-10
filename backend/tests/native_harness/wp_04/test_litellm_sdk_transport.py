@@ -193,6 +193,30 @@ def test_usage_preserves_explicit_provider_zero_cost(
     assert usage.cost_source == "provider_response"
 
 
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"cost": "unavailable"}, None),
+        ({"cost": True}, None),
+        ({"cost": "unavailable", "response_cost": "0.004"}, Decimal("0.004")),
+        ({"cost": "0.003", "response_cost": "0.004"}, None),
+        ({"cost": "0.0030", "response_cost": "0.003"}, Decimal("0.003")),
+    ],
+)
+def test_usage_rejects_malformed_or_conflicting_cost_without_losing_tokens(
+    fields: dict[str, Any], expected: Decimal | None
+) -> None:
+    usage = _usage(
+        {"usage": {"prompt_tokens": 10, "completion_tokens": 2, **fields}},
+        complete=True,
+    )
+    assert (usage.input_tokens, usage.output_tokens, usage.complete) == (10, 2, True)
+    assert usage.provider_cost_usd == expected
+    assert usage.cost_source == (
+        "unavailable" if expected is None else "provider_response"
+    )
+
+
 def test_usage_keeps_sdk_zero_without_claiming_an_unpriced_route_is_free(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -673,7 +697,16 @@ async def test_bridge_streams_deltas_and_final_usage_chunk() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_usage_merges_cost_from_wrapper_and_earlier_chunk() -> None:
+@pytest.mark.parametrize(
+    ("cost_fields", "expected_cost"),
+    [
+        ({"cost": 0.0031}, Decimal("0.0031")),
+        ({"cost": 0.0031, "response_cost": 0.004}, None),
+    ],
+)
+async def test_stream_usage_merges_cost_from_wrapper_and_earlier_chunk(
+    cost_fields: dict[str, float], expected_cost: Decimal | None
+) -> None:
     """Token counts and cost survive when LiteLLM exposes them separately."""
     observations = []
 
@@ -688,7 +721,7 @@ async def test_stream_usage_merges_cost_from_wrapper_and_earlier_chunk() -> None
                 yield {
                     "id": "provider-stream-cost",
                     "choices": [{"delta": {"content": "ok"}}],
-                    "usage": {"cost": 0.0031},
+                    "usage": cost_fields,
                 }
                 yield {
                     "id": "provider-stream-cost",
@@ -729,8 +762,11 @@ async def test_stream_usage_merges_cost_from_wrapper_and_earlier_chunk() -> None
     usage = observations[-1].usage
     assert usage.input_tokens == 20
     assert usage.output_tokens == 2
-    assert usage.provider_cost_usd == Decimal("0.0031")
-    assert usage.cost_source == "provider_response"
+    if expected_cost is None:
+        assert usage.cost_source != "provider_response"
+    else:
+        assert usage.provider_cost_usd == expected_cost
+        assert usage.cost_source == "provider_response"
     assert usage.complete is True
 
 

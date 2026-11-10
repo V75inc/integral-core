@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional, Tuple
@@ -54,6 +55,17 @@ def build_work_approval_document(
     created_at: str,
     definition_id: str = "",
     status: str = "pending",
+    framework_snapshot_id: str = "",
+    framework_tool_call_id: str = "",
+    framework_tool_name: str = "",
+    deferred_intent_fingerprint: str = "",
+    deferred_schema_fingerprint: str = "",
+    deferred_declaration_fingerprint: str = "",
+    deferred_thread_revision: str = "",
+    framework_session_id: str = "",
+    framework_permission_revision: str = "",
+    framework_capability_version: str = "",
+    deferred_workspace_role: str = "",
 ) -> Dict[str, Any]:
     return {
         "id": work_approval_object_id(work_approval_id),
@@ -68,6 +80,22 @@ def build_work_approval_document(
             "run_id": run_id,
             "run_step_id": run_step_id,
             "authority_digest": authority_digest,
+            "framework_snapshot_id": framework_snapshot_id,
+            "framework_tool_call_id": framework_tool_call_id,
+            "framework_tool_name": framework_tool_name,
+            "deferred_intent_fingerprint": deferred_intent_fingerprint,
+            "deferred_schema_fingerprint": deferred_schema_fingerprint,
+            "deferred_declaration_fingerprint": deferred_declaration_fingerprint,
+            "deferred_thread_revision": deferred_thread_revision,
+            "deferred_admission_revision": "",
+            "deferred_admission_attempt": 0,
+            "deferred_admission_fence": 0,
+            "deferred_admission_requests": [],
+            "deferred_steering_baseline_id": "",
+            "framework_session_id": framework_session_id,
+            "framework_permission_revision": framework_permission_revision,
+            "framework_capability_version": framework_capability_version,
+            "deferred_workspace_role": deferred_workspace_role,
             "decision": "",
             "decider_id": "",
             "expires_at": expires_at,
@@ -81,6 +109,40 @@ def build_work_approval_document(
 def _hydrate_approval(doc: Dict[str, Any]) -> WorkApproval:
     ctx = dict(doc.get("context") or {})
     return WorkApproval(id=doc["id"], **ctx)
+
+
+def _assert_same_approval_intent(
+    existing: Dict[str, Any], expected: Dict[str, Any]
+) -> None:
+    """A stable approval ID must never alias a different reviewed work slot."""
+    fields = (
+        "work_approval_id",
+        "work_item_id",
+        "definition_id",
+        "staging_token",
+        "policy_approval_id",
+        "run_id",
+        "run_step_id",
+        "authority_digest",
+        "framework_snapshot_id",
+        "framework_tool_call_id",
+        "framework_tool_name",
+        "deferred_intent_fingerprint",
+        "deferred_schema_fingerprint",
+        "deferred_declaration_fingerprint",
+        "deferred_thread_revision",
+        "framework_session_id",
+        "framework_permission_revision",
+        "framework_capability_version",
+        "deferred_workspace_role",
+        "expires_at",
+    )
+    if any(
+        (existing.get(field) or "") != (expected.get(field) or "") for field in fields
+    ):
+        raise WorkError(
+            "work.idempotency_conflict", "approval identity has different work intent"
+        )
 
 
 async def _refresh_work_approval_cache(approval: WorkApproval) -> None:
@@ -107,6 +169,185 @@ async def get_pending_by_staging_token(staging_token: str) -> Optional[WorkAppro
         {"context.staging_token": token, "context.status": "pending"}
     )
     return found[0] if found else None
+
+
+async def lock_linked_staging_work(
+    *, transaction: Any, staging_data: Dict[str, Any]
+) -> Optional[str]:
+    """Lock and admit any linked work using the current staging scope."""
+    token = str(staging_data.get("token") or "")
+    principal_id = str(staging_data.get("user_id") or "")
+    workspace_id = str(staging_data.get("workspace_id") or "")
+    origin = staging_data.get("origin_proof") or {}
+    requires_deferred_link = origin.get("requires_deferred_link") is True
+    links = await transaction.find(
+        OBJECT_COLLECTION,
+        {"entity": "WorkApproval", "context.staging_token": token},
+        limit=2,
+    )
+    if not links:
+        if requires_deferred_link:
+            raise WorkError(
+                "work.approval_not_ready",
+                "The conversation is still preparing this approval",
+            )
+        return None
+    if len(links) != 1:
+        raise WorkError("work.policy_denied", "staging approval linkage is ambiguous")
+    link = await transaction.find_one_and_update(
+        OBJECT_COLLECTION,
+        {"id": links[0]["id"], "entity": "WorkApproval"},
+        {"$set": {}},
+    )
+    if link is None:
+        raise WorkError("work.policy_denied", "staging approval linkage changed")
+    data = link.get("context") or {}
+    approval_id = str(data.get("work_approval_id") or "")
+    work_id = str(data.get("work_item_id") or "")
+    work = await transaction.find_one_and_update(
+        OBJECT_COLLECTION,
+        {"id": f"o.WorkItem.{work_id}", "entity": "WorkItem"},
+        {"$set": {}},
+    )
+    work_data = (work or {}).get("context") or {}
+    if (
+        not token
+        or not principal_id
+        or not workspace_id
+        or not approval_id
+        or not work_id
+        or link.get("id") != work_approval_object_id(approval_id)
+        or (work or {}).get("entity") != "WorkItem"
+        or work_data.get("principal_id") != principal_id
+        or work_data.get("workspace_id") != workspace_id
+        or (work_data.get("thread_id") or "") != (staging_data.get("session_id") or "")
+        or (data.get("run_id") or "") != (work_data.get("run_id") or "")
+    ):
+        raise WorkError("work.policy_denied", "staging approval linkage changed")
+    deferred_intent = str(data.get("deferred_intent_fingerprint") or "")
+    if requires_deferred_link and (
+        not deferred_intent
+        or not data.get("framework_snapshot_id")
+        or origin.get("work_item_id") != work_id
+        or origin.get("run_id") != data.get("run_id")
+        or origin.get("capability_key") != data.get("framework_tool_name")
+    ):
+        raise WorkError("work.policy_denied", "Deferred proposal linkage changed")
+    if deferred_intent:
+        from app.agentive import staging_store
+
+        if deferred_intent != staging_store.decision_intent_fingerprint(staging_data):
+            raise WorkError("work.policy_denied", "deferred proposal intent changed")
+    if data.get("status") == "approved":
+        # Compatibility with previously admitted linked work: it may already
+        # have been queued before this atomic completion path was deployed.
+        # Do not issue a second transition or claim the old ordering was safe.
+        if work_data.get("cancel_requested_at") or work_data.get("status") in {
+            "cancelled",
+            "expired",
+            "dead_letter",
+            "failed",
+        }:
+            raise WorkError("work.policy_denied", "linked work is no longer active")
+        return None
+    if (
+        data.get("status") != "pending"
+        or work_data.get("status") != "waiting_for_human"
+        or work_data.get("cancel_requested_at")
+    ):
+        raise WorkError("work.policy_denied", "staging approval linkage changed")
+    return approval_id
+
+
+async def complete_linked_staging_work(
+    *, transaction: Any, staging_data: Dict[str, Any]
+) -> None:
+    """Queue linked work atomically with its exact consumed staging decision."""
+    approval_id = await lock_linked_staging_work(
+        transaction=transaction, staging_data=staging_data
+    )
+    if approval_id is None:
+        return
+    # Canonical command receipts are sufficient to reconcile a worker retry
+    # without dispatching the original proposal again. Bind both the consumed
+    # intent and receipt while their decision and work transition are locked.
+    # Other effect families retain empty fields and require reconciliation.
+    from app.agentive import staging_store
+    from app.agentive.services.staging_execution import execution_record_id
+
+    token = staging_data["token"]
+    execution_id = execution_record_id(token)
+    execution = await transaction.get(OBJECT_COLLECTION, execution_id)
+    facts = (execution or {}).get("context") or {}
+    request_hash = hashlib.sha256(
+        json.dumps(
+            staging_data.get("payload"),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+    pending = await transaction.get(
+        OBJECT_COLLECTION, work_approval_object_id(approval_id)
+    )
+    deferred = ((pending or {}).get("context") or {}).get("deferred_intent_fingerprint")
+    if (
+        (execution or {}).get("entity") == "StagingExecutionRecord"
+        and facts.get("principal_id") == staging_data["user_id"]
+        and facts.get("workspace_id") == staging_data["workspace_id"]
+        and facts.get("kind") == staging_data["kind"]
+        and facts.get("request_hash") == request_hash
+        and facts.get("state") == "applied"
+        and facts.get("local_effect_state") == "applied"
+        and facts.get("result_ciphertext")
+        and facts.get("external_outcome") in {None, "not_dispatched", "returned"}
+    ):
+        result_fingerprint = ""
+        if deferred:
+            from app.agentive.services.capability_broker import _fingerprint
+            from app.services.credential_crypto import (
+                CIPHER_PREFIX_V1,
+                decrypt_secret_from_storage,
+            )
+
+            try:
+                if not str(facts["result_ciphertext"]).startswith(CIPHER_PREFIX_V1):
+                    raise ValueError("deferred result must be encrypted")
+                result = json.loads(
+                    decrypt_secret_from_storage(
+                        facts["result_ciphertext"], aad=execution_id
+                    )
+                )
+                if not isinstance(result, dict):
+                    raise ValueError("deferred result must be an object")
+                result_fingerprint = _fingerprint(result) or ""
+            except Exception as exc:
+                raise WorkError(
+                    "work.non_replayable_effect", "Deferred receipt is unavailable"
+                ) from exc
+        bound = await transaction.find_one_and_update(
+            OBJECT_COLLECTION,
+            {"id": work_approval_object_id(approval_id), "context.status": "pending"},
+            {
+                "$set": {
+                    "context.staging_intent_fingerprint": staging_store.decision_intent_fingerprint(
+                        staging_data
+                    ),
+                    "context.staging_execution_id": execution_id,
+                    "context.staging_request_hash": request_hash,
+                    "context.staging_result_fingerprint": result_fingerprint,
+                }
+            },
+        )
+        if bound is None:
+            raise WorkError("work.policy_denied", "Consumed approval binding changed")
+    elif deferred:
+        raise WorkError("work.non_replayable_effect", "Deferred receipt is unavailable")
+    await approve_work_approval(
+        work_approval_id=approval_id,
+        decider_id=staging_data["user_id"],
+        transaction=transaction,
+    )
 
 
 async def get_pending_by_work_item(work_item_id: str) -> Optional[WorkApproval]:
@@ -147,20 +388,11 @@ async def _persist_staged_projection(fields: Dict[str, Any]) -> None:
         token = str(fields.get("token") or "").strip()
         if not token:
             return
-        # Ensure work_approval_id rides on the projection.
         existing = await _find_record(token)
         if existing is not None:
-            for key, val in fields.items():
-                if hasattr(existing, key):
-                    setattr(existing, key, val)
-            # Stash authority link in payload when model lacks the field.
-            payload = dict(getattr(existing, "payload", None) or {})
-            if fields.get("work_approval_id"):
-                payload["work_approval_id"] = fields["work_approval_id"]
-            existing.payload = payload
-            if "state" not in fields or existing.state not in ("pending", "blessed"):
-                existing.state = existing.state or "pending"
-            await existing.save()
+            # The proposal is the reviewed source of truth. The WorkApproval
+            # already links by token; adding internal metadata or replaying
+            # stale projection fields here changes the reviewed intent.
             return
         create_fields = {
             k: v
@@ -188,10 +420,6 @@ async def _persist_staged_projection(fields: Dict[str, Any]) -> None:
                 "idempotency_key",
             }
         }
-        payload = dict(create_fields.get("payload") or {})
-        if fields.get("work_approval_id"):
-            payload["work_approval_id"] = fields["work_approval_id"]
-        create_fields["payload"] = payload
         create_fields.setdefault("state", "pending")
         create_fields.setdefault("token", token)
         if not create_fields.get("created_at"):
@@ -216,6 +444,17 @@ async def propose_work_approval_unit(
     expires_at: str = "",
     policy_approval_id: str = "",
     transaction: Any = None,
+    framework_snapshot_id: str = "",
+    framework_tool_call_id: str = "",
+    framework_tool_name: str = "",
+    deferred_intent_fingerprint: str = "",
+    deferred_schema_fingerprint: str = "",
+    deferred_declaration_fingerprint: str = "",
+    deferred_thread_revision: str = "",
+    framework_session_id: str = "",
+    framework_permission_revision: str = "",
+    framework_capability_version: str = "",
+    deferred_workspace_role: str = "",
 ) -> Tuple[WorkApproval, WorkItem]:
     """Atomic unit 3: WorkApproval + projection + running→waiting_for_human.
 
@@ -235,19 +474,6 @@ async def propose_work_approval_unit(
         policy_approval_id=policy_approval_id,
     )
     now = utc_now_iso()
-    existing = await get_work_approval(wa_id)
-    if existing is not None:
-        item = await WorkItem.get(f"o.WorkItem.{work_item_id}")
-        if item is None:
-            raise WorkError("work.not_found", f"work item {work_item_id} not found")
-        if existing.status == "pending" and item.status == "waiting_for_human":
-            return existing, item
-        if existing.status != "pending":
-            raise WorkError(
-                "work.approval_decided",
-                f"work approval already {existing.status}",
-            )
-
     work_item = await WorkItem.get(f"o.WorkItem.{work_item_id}")
     if work_item is None:
         raise WorkError("work.not_found", f"work item {work_item_id} not found")
@@ -261,9 +487,30 @@ async def propose_work_approval_unit(
         run_id=run_id or "",
         run_step_id=run_step_id or "",
         authority_digest=authority_digest,
+        framework_snapshot_id=framework_snapshot_id,
+        framework_tool_call_id=framework_tool_call_id,
+        framework_tool_name=framework_tool_name,
+        deferred_intent_fingerprint=deferred_intent_fingerprint,
+        deferred_schema_fingerprint=deferred_schema_fingerprint,
+        deferred_declaration_fingerprint=deferred_declaration_fingerprint,
+        deferred_thread_revision=deferred_thread_revision,
+        framework_session_id=framework_session_id,
+        framework_permission_revision=framework_permission_revision,
+        framework_capability_version=framework_capability_version,
+        deferred_workspace_role=deferred_workspace_role,
         expires_at=expires_at or "",
         created_at=now,
     )
+
+    existing = await get_work_approval(wa_id)
+    if existing is not None:
+        _assert_same_approval_intent(existing.model_dump(), doc["context"])
+        if existing.status == "pending" and work_item.status == "waiting_for_human":
+            return existing, work_item
+        if existing.status != "pending":
+            raise WorkError(
+                "work.approval_decided", f"work approval already {existing.status}"
+            )
 
     db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
@@ -306,11 +553,13 @@ async def _propose_dev(
 
     ctx = dict(doc["context"])
     approval, created = await WorkApproval.create_if_absent(id=doc["id"], **ctx)
-    if not created and approval.status != "pending":
-        raise WorkError(
-            "work.approval_decided",
-            f"work approval already {approval.status}",
-        )
+    if not created:
+        _assert_same_approval_intent(approval.model_dump(), ctx)
+        if approval.status != "pending":
+            raise WorkError(
+                "work.approval_decided",
+                f"work approval already {approval.status}",
+            )
     # Call unlocked CAS body — caller already holds `_dev_lock`.
     item = await _cas_dev(
         object_id=f"o.WorkItem.{work_item_id}",
@@ -362,16 +611,20 @@ async def _propose_postgres(
     bare_id = object_id.removeprefix("o.WorkItem.")
     try:
         inserted = await txn.insert_if_absent(OBJECT_COLLECTION, doc)
-        if not inserted:
-            existing_doc = await txn.get(OBJECT_COLLECTION, doc["id"])
+        if not inserted.created:
+            existing_doc = inserted.record or await txn.get(
+                OBJECT_COLLECTION, doc["id"]
+            )
             if existing_doc is None:
                 raise WorkError("work.cas_conflict", "approval insert raced")
             existing_ctx = dict(existing_doc.get("context") or {})
+            _assert_same_approval_intent(existing_ctx, doc["context"])
             if existing_ctx.get("status") != "pending":
                 raise WorkError(
                     "work.approval_decided",
                     f"work approval already {existing_ctx.get('status')}",
                 )
+            doc = existing_doc
         current = await txn.get(OBJECT_COLLECTION, object_id)
         if current is None:
             raise WorkError("work.not_found", f"work item {bare_id} not found")
@@ -481,6 +734,35 @@ async def decide_work_approval_unit(
             "work.approval_decided",
             f"work approval already {approval.status}",
         )
+
+    if decision == "approved" and approval.framework_snapshot_id:
+        from app.agentive.staging_store import _decision_record_id
+
+        if transaction is None:
+            raise WorkError(
+                "work.approval_required",
+                "Deferred approval requires an applied staging receipt",
+            )
+        current = await transaction.get(OBJECT_COLLECTION, approval.id)
+        proof = (current or {}).get("context") or {}
+        marker = await transaction.get(
+            OBJECT_COLLECTION, _decision_record_id(approval.staging_token)
+        )
+        consumed = (marker or {}).get("context") or {}
+        if (
+            not proof.get("staging_execution_id")
+            or not proof.get("staging_request_hash")
+            or not proof.get("staging_result_fingerprint")
+            or (marker or {}).get("entity") != "StagingDecisionRecord"
+            or consumed.get("state") != "consumed"
+            or consumed.get("user_id") != decider_id
+            or consumed.get("intent_fingerprint")
+            != approval.deferred_intent_fingerprint
+        ):
+            raise WorkError(
+                "work.approval_required",
+                "Deferred approval requires an applied staging receipt",
+            )
 
     now = utc_now_iso()
     if decision == "approved":
@@ -672,6 +954,43 @@ async def _decide_postgres(
         )
         if updated is None:
             raise WorkError("work.cas_conflict", "work item transition raced")
+        if (
+            decision != "approved"
+            and ctx.get("kind") == "chat_turn"
+            and approval.framework_snapshot_id
+        ):
+            # Parked chat runs retain their original execution identity. Close
+            # that exact run with the decision so no later worker can resume it.
+            runs = await txn.find(
+                OBJECT_COLLECTION,
+                {
+                    "entity": "AgentRun",
+                    "context.run_id": approval.run_id,
+                    "context.work_item_id": approval.work_item_id,
+                    "context.thread_id": ctx.get("thread_id"),
+                    "context.user_id": ctx.get("principal_id"),
+                    "context.workspace_id": ctx.get("workspace_id"),
+                    "context.provider_id": "integral_native",
+                },
+                limit=2,
+            )
+            if len(runs) != 1 or ctx.get("run_id") != approval.run_id:
+                raise WorkError(
+                    "work.non_replayable_effect", "Parked chat run is unavailable"
+                )
+            closed = await txn.find_one_and_update(
+                OBJECT_COLLECTION,
+                {"id": runs[0]["id"], "context.status": "running"},
+                {
+                    "$set": {
+                        "context.status": "failed",
+                        "context.finished_at": now,
+                        "context.error": failure,
+                    }
+                },
+            )
+            if closed is None:
+                raise WorkError("work.cas_conflict", "Parked chat run changed")
         oid = outbox_id_for(
             work_item_id=approval.work_item_id,
             topic=TOPIC_TRANSITIONED,

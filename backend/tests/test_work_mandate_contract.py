@@ -235,16 +235,20 @@ def approved_binding_fixture(monkeypatch):
         expires_at="2030-01-01T10:00:00Z",
     )
 
-    async def get_item(object_id):
-        assert object_id == item.id
+    async def load_item(work_item_id):
+        assert work_item_id == item.work_item_id
         return item
 
-    async def get_approval(approval_id):
+    async def load_approval(approval_id):
         assert approval_id == "approval-1"
         return approval
 
-    monkeypatch.setattr(WorkItem, "get", get_item)
-    monkeypatch.setattr(work_mandates, "get_work_approval", get_approval)
+    async def forbidden_cache_lookup(_):
+        pytest.fail("authority must read the durable work record")
+
+    monkeypatch.setattr(WorkItem, "get", forbidden_cache_lookup)
+    monkeypatch.setattr(work_mandates, "_load_lineage_item", load_item)
+    monkeypatch.setattr(work_mandates, "_load_lineage_approval", load_approval)
     return work_mandates, item, approval, revision
 
 
@@ -257,6 +261,18 @@ async def test_load_exact_approved_mandate_binding(monkeypatch) -> None:
     assert loaded == revision
     assert item.status == "queued"
     assert approval.status == "approved"
+
+
+@pytest.mark.asyncio
+async def test_approved_general_review_still_requires_admission(monkeypatch) -> None:
+    from app.schemas.agentive.work import WorkError
+
+    service, item, _, _ = approved_binding_fixture(monkeypatch)
+    item.status = "waiting_for_human"
+    with pytest.raises(WorkError, match="work.mandate_admission_required"):
+        await service.load_approved_work_mandate(
+            work_item_id="work-1", principal_id="user-1", workspace_id="workspace-1"
+        )
 
 
 @pytest.mark.asyncio
@@ -273,7 +289,7 @@ async def test_binding_scope_denial_precedes_approval_lookup(
     async def forbidden_lookup(_):
         pytest.fail("wrong scope must not read approval")
 
-    monkeypatch.setattr(service, "get_work_approval", forbidden_lookup)
+    monkeypatch.setattr(service, "_load_lineage_approval", forbidden_lookup)
     arguments = {
         "work_item_id": "work-1",
         "principal_id": "user-1",
@@ -986,6 +1002,17 @@ async def test_postgres_lineage_reads_persisted_root_controls_and_approval():
         plan_revision=root.plan_revision,
         plan={"mandate_root_work_item_id": root.work_item_id},
         deadline_at="2030-01-01T09:00:00Z",
+    )
+    with pytest.raises(WorkError, match="work.mandate_admission_required"):
+        await work_mandates.load_approved_mandate_lineage(
+            work_item_id=child.work_item_id,
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+        )
+    # Simulate the persisted admission transition to exercise lineage reads.
+    await db.find_one_and_update(
+        "object", {"id": root.id}, {"$set": {"context.status": "queued"}}
     )
     resolved, revision = await work_mandates.load_approved_mandate_lineage(
         work_item_id=child.work_item_id,

@@ -116,8 +116,17 @@ async def _call_endpoint(
             "message": f"No Integral user with id {user_id!r}",
         }
     request = _stub_request(user)
+    from app.agentive.staging import StagingError
+
     try:
         return await handler(request, **kwargs)
+    except StagingError as exc:
+        return {
+            "error": True,
+            "status_code": 409,
+            "error_code": exc.code,
+            "message": str(exc),
+        }
     except Exception as exc:  # noqa: BLE001
         if not getattr(exc, "status_code", None):
             logger.exception(
@@ -1020,6 +1029,7 @@ async def _x_attach_file(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any
         user_id=user_id,
         entry_id=payload["entry_id"],
         sandbox_path=payload["sandbox_path"],
+        expected_sha256=payload.get("expected_sha256", ""),
     )
 
 
@@ -1028,6 +1038,22 @@ async def _x_attach_uploaded_file(
 ) -> Dict[str, Any]:
     from app.services.attachment_agent import attach_uploaded_file_to_entry
 
+    if any(
+        key in payload
+        for key in ("source_thread_id", "expected_sha256", "expected_size")
+    ):
+        from app.services.agent_scope import active_workspace_id
+        from app.services.chat_attachment_review import file_reviewed_chat_attachment
+
+        return await file_reviewed_chat_attachment(
+            user_id=user_id,
+            workspace_id=active_workspace_id() or "",
+            thread_id=payload.get("source_thread_id", ""),
+            attachment_id=payload["attachment_id"],
+            entry_id=payload["entry_id"],
+            expected_sha256=payload.get("expected_sha256", ""),
+            expected_size=payload.get("expected_size"),
+        )
     return await attach_uploaded_file_to_entry(
         user_id=user_id,
         attachment_id=payload["attachment_id"],
@@ -1404,6 +1430,9 @@ async def _execute_routine_task_create(
         agent_id=payload.get("agent_id") or "",
         instruction=payload["instruction"],
         delivery_mode=payload.get("delivery_mode", "agent"),
+        watch_entry_id=payload.get("watch_entry_id") or "",
+        watch_goal=payload.get("watch_goal") is True,
+        watch_prepare_closure=payload.get("watch_prepare_closure") is True,
         source_staging_token=_active_staging_token(),
         cron=payload.get("cron") or "",
         timezone=payload.get("timezone"),

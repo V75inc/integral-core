@@ -92,7 +92,8 @@ import {
 } from '../utils';
 import {
   getDisallowedCustomFieldKeys,
-  getMissingRequiredFields
+  getMissingRequiredFields,
+  mergeEntryListRow,
 } from '../utils/entryMetaFields';
 import { useTrackPermissions } from '../utils/entryEditRights';
 import { entryPagePath } from '../utils/resourcePaths';
@@ -1087,30 +1088,14 @@ export function TrackDetailPage() {
     (u: Entry) => {
       patchEntriesCache(p => ({
         ...p,
-        // Merge rather than replace: a detail payload may omit list-only
-        // fields. The single-entry read can carry a display-name slug
-        // (``request``) while the list carries the canonical manifest key
-        // (``crm_request``); keep the list's key for that same-type variant
-        // so a type-scoped view does not drop the row. A genuine type change
-        // from the edit form still wins.
-        entries: p.entries.map(e => {
-          if (e.id !== u.id) return e;
-          const listType = String(e.type || '');
-          const detailType = String(u.type || '');
-          const sameTypeVariant =
-            !listType ||
-            !detailType ||
-            listType === detailType ||
-            listType.endsWith(`_${detailType}`);
-          return {
-            ...e,
-            ...u,
-            type: sameTypeVariant ? listType || detailType : detailType
-          };
-        })
+        entries: p.entries.map(entry =>
+          entry.id === u.id
+            ? mergeEntryListRow(entry, u, entryTypesQuery.data ?? [])
+            : entry
+        )
       }));
     },
-    [patchEntriesCache]
+    [entryTypesQuery.data, patchEntriesCache]
   );
 
   /** Persist an entry mutation owned by a view widget (Kanban drag,

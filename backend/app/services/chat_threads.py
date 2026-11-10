@@ -1612,9 +1612,27 @@ async def clear_pending_question_for_session(session_id: Optional[str]) -> None:
 
 async def delete_thread_messages(thread: ChatThread) -> int:
     """Hard-delete thread transcript and native Harness state."""
+    from app.agentive.harness.turn_input import thread_scope_key
+    from app.models.harness_records import HarnessProactiveDeliveryRecord
     from app.models.nodes import HarnessSession
 
-    if await HarnessSession.find({"thread_id": thread.id}):
+    # Legacy rows may predate workspace assignment; such rows cannot have a
+    # scoped proactive receipt, but should remain deletable.
+    scope_key = (
+        thread_scope_key(
+            principal_id=thread.user_id,
+            workspace_id=thread.workspace_id,
+            thread_id=thread.id,
+        )
+        if thread.user_id and thread.workspace_id and thread.id
+        else ""
+    )
+    # Legacy provider chats can have proactive receipts without ever creating
+    # a HarnessSession. Their receipts share the thread's deletion lifecycle.
+    if await HarnessSession.find({"thread_id": thread.id}) or (
+        scope_key
+        and await HarnessProactiveDeliveryRecord.find({"scope_key": scope_key})
+    ):
         from app.services.harness_sessions import (
             purge_harness_sessions_for_thread,
         )

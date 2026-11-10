@@ -114,6 +114,7 @@ def persisted_objects(monkeypatch: pytest.MonkeyPatch) -> dict[type, dict[str, o
                 and (
                     "context.state" not in query or row.state == query["context.state"]
                 )
+                and ("$or" not in query or row.save_sequence == -1)
             ]
             if sort:
                 for field, direction in reversed(sort):
@@ -135,6 +136,7 @@ def persisted_objects(monkeypatch: pytest.MonkeyPatch) -> dict[type, dict[str, o
                         "record_key": row.record_key,
                         "occurred_at": row.occurred_at,
                         "step_index": row.step_index,
+                        "save_sequence": row.save_sequence,
                         "state": row.state,
                         "payload_ciphertext": row.payload_ciphertext,
                     },
@@ -598,7 +600,7 @@ async def test_missing_message_inserts_stay_bounded(
 
 
 @pytest.mark.asyncio
-async def test_latest_snapshot_is_one_ordered_database_read(
+async def test_latest_native_snapshot_is_ordered_in_the_database(
     persisted_objects: dict[type, dict[str, object]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -617,7 +619,9 @@ async def test_latest_snapshot_is_one_ordered_database_read(
     monkeypatch.setattr(context.database, "find", recording_find)
     store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
     now = datetime.now(timezone.utc)
-    for step, state in ((1, "complete"), (4, "interrupted"), (2, "complete")):
+    for index, (step, state) in enumerate(
+        ((1, "complete"), (4, "interrupted"), (2, "complete"))
+    ):
         await store.save_snapshot(
             ContinuableSnapshot(
                 run_id="run-1",
@@ -626,18 +630,311 @@ async def test_latest_snapshot_is_one_ordered_database_read(
                 timestamp=now + timedelta(seconds=step),
                 messages=[ModelRequest(parts=[UserPromptPart(content=f"step-{step}")])],
                 state=state,
-                idempotency_key=f"snapshot-{step}",
+                idempotency_key=f"{index}:{step}:{state}",
             )
         )
     seen.clear()
     latest = await store.latest_snapshot(run_id="run-1")
     assert latest is not None and latest.step_index == 2
     assert seen[0]["limit"] == 1
-    assert seen[0]["sort"] == [
-        ("context.step_index", -1),
-        ("context.occurred_at", -1),
-    ]
-    assert seen[0]["query"]["context.state"] == "complete"
+    assert seen[1]["limit"] == 2
+    assert seen[1]["sort"] == [("context.save_sequence", -1)]
+    assert seen[1]["query"]["context.state"] == "complete"
     including = await store.latest_snapshot(run_id="run-1", include_interrupted=True)
-    assert including is not None and including.step_index == 4
+    assert including is not None and including.step_index == 2
     assert "context.state" not in seen[-1]["query"]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_save_time_wins_when_later_frontier_has_lower_step(
+    persisted_objects,
+):
+    """Deferred frontiers can be newer even when their graph step resets."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    now = datetime.now(timezone.utc)
+    for index, (step, state) in enumerate(((4, "complete"), (0, "interrupted"))):
+        await store.save_snapshot(
+            ContinuableSnapshot(
+                run_id="run-1",
+                conversation_id="session-1",
+                step_index=step,
+                timestamp=now + timedelta(seconds=index),
+                messages=[
+                    ModelRequest(parts=[UserPromptPart(content=f"saved-{index}")])
+                ],
+                state=state,
+                idempotency_key=f"snapshot-{index}",
+            )
+        )
+    latest = await store.latest_snapshot(run_id="run-1", include_interrupted=True)
+    assert latest is not None and latest.idempotency_key == "snapshot-1"
+    listed = await store.list_snapshots(run_id="run-1", include_interrupted=True)
+    assert [snapshot.idempotency_key for snapshot in listed] == [
+        "snapshot-0",
+        "snapshot-1",
+    ]
+    complete = await store.latest_snapshot(run_id="run-1")
+    assert complete is not None and complete.idempotency_key == "snapshot-0"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_native_snapshot_sequence_survives_clock_reversal(
+    persisted_objects, legacy
+):
+    """Native ordinals retain save order even if the clock moves backward."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    now = datetime.now(timezone.utc)
+    for index, (step, state) in enumerate(((4, "complete"), (0, "interrupted"))):
+        await store.save_snapshot(
+            ContinuableSnapshot(
+                run_id="run-1",
+                conversation_id="session-1",
+                step_index=step,
+                timestamp=now - timedelta(seconds=index),
+                messages=[
+                    ModelRequest(parts=[UserPromptPart(content=f"saved-{index}")])
+                ],
+                state=state,
+                idempotency_key=f"{index}:{step}:{state}",
+            )
+        )
+    if legacy:
+        for row in persisted_objects[HarnessSnapshotRecord].values():
+            row.save_sequence = -1
+    latest = await store.latest_snapshot(run_id="run-1", include_interrupted=True)
+    assert latest is not None and latest.idempotency_key == "1:0:interrupted"
+    listed = await store.list_snapshots(run_id="run-1", include_interrupted=True)
+    assert [snapshot.idempotency_key for snapshot in listed] == [
+        "0:4:complete",
+        "1:0:interrupted",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_native_snapshot_duplicate_ordinals_fail_closed(persisted_objects):
+    """Distinct keys cannot both claim the same native save ordinal."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    now = datetime.now(timezone.utc)
+    for index, state in enumerate(("complete", "interrupted")):
+        await store.save_snapshot(
+            ContinuableSnapshot(
+                run_id="run-1",
+                conversation_id="session-1",
+                step_index=index,
+                timestamp=now + timedelta(seconds=index),
+                messages=[
+                    ModelRequest(parts=[UserPromptPart(content=f"saved-{index}")])
+                ],
+                state=state,
+                idempotency_key=f"0:{index}:{state}",
+            )
+        )
+    with pytest.raises(HarnessPersistenceError, match="ambiguous"):
+        await store.latest_snapshot(run_id="run-1", include_interrupted=True)
+    with pytest.raises(HarnessPersistenceError, match="ambiguous"):
+        await store.list_snapshots(run_id="run-1", include_interrupted=True)
+
+
+@pytest.mark.asyncio
+async def test_mixed_native_and_unknown_legacy_order_fails_closed(persisted_objects):
+    """Unknown legacy keys cannot be ordered against native ordinal keys."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    now = datetime.now(timezone.utc)
+    for index, key in enumerate(("0:0:complete", "legacy-custom")):
+        await store.save_snapshot(
+            ContinuableSnapshot(
+                run_id="run-1",
+                conversation_id="session-1",
+                step_index=0,
+                timestamp=now + timedelta(seconds=index),
+                messages=[
+                    ModelRequest(parts=[UserPromptPart(content=f"saved-{index}")])
+                ],
+                idempotency_key=key,
+            )
+        )
+    with pytest.raises(HarnessPersistenceError, match="mixed checkpoint order"):
+        await store.latest_snapshot(run_id="run-1")
+
+
+@pytest.mark.asyncio
+async def test_snapshot_order_metadata_must_match_authenticated_key(persisted_objects):
+    """An altered sort index cannot make a different key appear authoritative."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    await store.save_snapshot(
+        ContinuableSnapshot(
+            run_id="run-1",
+            conversation_id="session-1",
+            step_index=0,
+            timestamp=datetime.now(timezone.utc),
+            messages=[ModelRequest(parts=[UserPromptPart(content="saved")])],
+            idempotency_key="0:0:complete",
+        )
+    )
+    row = next(iter(persisted_objects[HarnessSnapshotRecord].values()))
+    row.save_sequence = 99
+    with pytest.raises(HarnessPersistenceError, match="authenticated key"):
+        await store.latest_snapshot(run_id="run-1")
+
+
+@pytest.mark.asyncio
+async def test_equal_snapshot_timestamps_are_not_silently_ordered(persisted_objects):
+    """A tied save time cannot safely establish which snapshot was last."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    now = datetime.now(timezone.utc)
+    for index in range(2):
+        await store.save_snapshot(
+            ContinuableSnapshot(
+                run_id="run-1",
+                conversation_id="session-1",
+                step_index=index,
+                timestamp=now,
+                messages=[
+                    ModelRequest(parts=[UserPromptPart(content=f"saved-{index}")])
+                ],
+                idempotency_key=f"snapshot-{index}",
+            )
+        )
+    with pytest.raises(HarnessPersistenceError, match="ambiguous"):
+        await store.latest_snapshot(run_id="run-1")
+    with pytest.raises(HarnessPersistenceError, match="ambiguous"):
+        await store.list_snapshots(run_id="run-1")
+
+
+@pytest.mark.asyncio
+async def test_effect_completion_survives_backwards_clock(persisted_objects):
+    """The same call's terminal fact supersedes its start regardless of time."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    started = datetime.now(timezone.utc)
+    await store.record_tool_effect(
+        ToolEffectRecord(
+            run_id="run-1",
+            tool_call_id="call-1",
+            tool_name="write",
+            status="started",
+            started_at=started,
+        )
+    )
+    await store.record_tool_effect(
+        ToolEffectRecord(
+            run_id="run-1",
+            tool_call_id="call-1",
+            tool_name="write",
+            status="completed",
+            started_at=started,
+            ended_at=started - timedelta(seconds=1),
+        )
+    )
+    assert (
+        await store.get_tool_effect(run_id="run-1", tool_call_id="call-1")
+    ).status == "completed"
+    assert await store.list_unresolved_tool_effects(run_id="run-1") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict", ["outcome", "reused_call", "tool_name"])
+async def test_ambiguous_tool_effects_never_look_settled(
+    persisted_objects, monkeypatch, conflict
+):
+    """Contradictory outcomes or call identities require reconciliation."""
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    started = datetime.now(timezone.utc)
+    await store.record_tool_effect(
+        ToolEffectRecord(
+            run_id="run-1",
+            tool_call_id="call-1",
+            tool_name="write",
+            status="started",
+            started_at=started,
+        )
+    )
+    await store.record_tool_effect(
+        ToolEffectRecord(
+            run_id="run-1",
+            tool_call_id="call-1",
+            tool_name="write",
+            status="completed",
+            started_at=started,
+            ended_at=started + timedelta(seconds=1),
+        )
+    )
+    conflicting = ToolEffectRecord(
+        run_id="run-1",
+        tool_call_id="call-1",
+        tool_name="different" if conflict == "tool_name" else "write",
+        status="failed" if conflict == "outcome" else "started",
+        started_at=(
+            started + timedelta(seconds=2) if conflict == "reused_call" else started
+        ),
+        ended_at=started + timedelta(seconds=3) if conflict == "outcome" else None,
+    )
+    with pytest.raises(HarnessPersistenceError, match="transition is ambiguous"):
+        await store.record_tool_effect(conflicting)
+    assert (
+        await store.get_tool_effect(run_id="run-1", tool_call_id="call-1")
+    ).status == "completed"
+
+    # Old persisted data can already contain conflicts; readback must not
+    # treat one as authoritative merely because its timestamp sorts last.
+    async def simulated_legacy_prior(**_kwargs):
+        return ToolEffectRecord(
+            run_id=conflicting.run_id,
+            tool_call_id=conflicting.tool_call_id,
+            tool_name=conflicting.tool_name,
+            status="started",
+            started_at=conflicting.started_at,
+        )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "get_tool_effect", simulated_legacy_prior)
+        await store.record_tool_effect(conflicting)
+    with pytest.raises(HarnessPersistenceError):
+        await store.get_tool_effect(run_id="run-1", tool_call_id="call-1")
+    with pytest.raises(HarnessPersistenceError):
+        await store.list_unresolved_tool_effects(run_id="run-1")
+
+
+@pytest.mark.asyncio
+async def test_native_agent_reused_tool_call_id_does_not_run_second_effect(
+    persisted_objects,
+):
+    """Exercise the actual Harness hook, not just direct store transitions."""
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import (
+        ModelResponse,
+        TextPart,
+        ToolCallPart,
+        ToolReturnPart,
+    )
+    from pydantic_ai.models.function import FunctionModel
+    from pydantic_ai_harness.step_persistence import StepPersistence
+
+    executed = []
+
+    async def write(value: int) -> str:
+        executed.append(value)
+        return "saved"
+
+    def model(messages, _info):
+        count = sum(
+            isinstance(part, ToolReturnPart)
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+        )
+        if count >= 2:
+            return ModelResponse(parts=[TextPart("Finished")])
+        return ModelResponse(
+            parts=[ToolCallPart("write", {"value": count + 1}, "reused-call")]
+        )
+
+    store = JvSpatialStepStore(scope=_scope("workspace-a", "user-a"))
+    agent = Agent(
+        FunctionModel(model),
+        tools=[write],
+        capabilities=[StepPersistence(store=store, run_id="run-1")],
+    )
+    with pytest.raises(HarnessPersistenceError, match="transition is ambiguous"):
+        await agent.run("Write twice.")
+    assert executed == [1]
