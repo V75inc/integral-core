@@ -19,7 +19,7 @@ from app.agentive.services.work_execution import (
     effect_key,
 )
 from app.agentive.services.work_items import assert_work_item_execution_current
-from app.agentive.services.work_mandates import _load_lineage_item
+from app.agentive.services.work_mandates import is_mandate_work as _is_mandate_work
 from app.agentive.services.work_model_receipts import settle_mandate_model_receipt
 from app.agentive.services.work_prices import resolve_mandate_model_reservation_request
 from app.schemas.agentive.model_dispatch import ModelDispatchInput, ModelPayloadBounds
@@ -29,29 +29,6 @@ from app.schemas.agentive.work_price import ModelPriceRequest
 from app.services.host_hooks import get_model_bounds_resolver
 
 _BOUNDS_TIMEOUT_SECONDS = 10.0
-
-
-async def _is_mandate_work(work_item_id: str) -> bool:
-    """Identify durable review lineage, never infer approval from a chat context."""
-    seen = set()
-    for _ in range(32):
-        if work_item_id in seen:
-            raise WorkError("work.mandate_lineage_invalid")
-        seen.add(work_item_id)
-        item = await _load_lineage_item(work_item_id)
-        if item.origin == "mandate_review" or any(
-            key in item.plan
-            for key in (
-                "mandate_revision",
-                "mandate_approval_id",
-                "mandate_root_work_item_id",
-            )
-        ):
-            return True
-        if not item.parent_work_item_id:
-            return False
-        work_item_id = item.parent_work_item_id
-    raise WorkError("work.mandate_lineage_invalid")
 
 
 async def _resolve_bounds(dispatch: ModelDispatchInput) -> ModelPriceRequest:

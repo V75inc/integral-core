@@ -25,7 +25,10 @@ from app.agentive.harness.contracts import (
 )
 from app.agentive.harness.model_observations import persist_model_request_observation
 from app.agentive.services import work_budgets, work_items
-from app.agentive.services.work_model_receipts import settle_mandate_model_receipt
+from app.agentive.services.work_model_receipts import (
+    reconcile_retained_model_receipts,
+    settle_mandate_model_receipt,
+)
 from app.schemas.agentive.work import WorkError
 from tests.contract.test_work_budgets_postgres import (
     budget_root,
@@ -130,6 +133,29 @@ async def test_bound_receipt_settles_once_after_cancel_and_context_reload(
     assert saved["reserved_units"] == 0
     assert saved["charged_units"] == 4000000
     assert saved["model_requests"] == 1
+
+
+async def test_recovery_revisits_open_hold_and_settles_late_provider_receipt(
+    leased_budget_child,
+):
+    root, _, _, _, _, db = leased_budget_child
+    record, _, terminal = await marked_case(leased_budget_child)
+    cursor = {}
+    assert await reconcile_retained_model_receipts(cursor, limit=1) == 0
+    assert cursor == {"after": record.id}
+    assert (await ledger(db, root))["reserved_units"] == record.upper_units
+
+    await persist_model_request_observation(terminal)
+    # The end of the current page cycle clears its cursor.
+    assert await reconcile_retained_model_receipts(cursor, limit=1) == 0
+    assert cursor == {}
+    assert await reconcile_retained_model_receipts(cursor, limit=1) == 1
+    saved = await ledger(db, root)
+    assert saved["reserved_units"] == 0
+    assert saved["charged_units"] == 4000000
+    assert saved["model_requests"] == 1
+    assert await reconcile_retained_model_receipts({}) == 0
+    assert (await ledger(db, root)) == saved
 
 
 @pytest.mark.parametrize(

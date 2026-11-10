@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import json
 import logging
 from datetime import datetime, timedelta, timezone
-from functools import partial
 
 from jvspatial.core.context import get_default_context
 
-from app.agentive.harness.contracts import HarnessExecutionScope, ResolvedModelRoute
+from app.agentive.harness.contracts import ResolvedModelRoute
 from app.agentive.harness.model_route import resolve_native_model_route
-from app.agentive.harness.model_routing import conversation_turn_routes
+from app.agentive.harness.model_routing import (
+    conversation_turn_routes,
+    resolve_reviewed_conversation_route,
+)
 from app.agentive.services import work_items
 from app.agentive.services.work_mandates import (
     _load_lineage_item,
@@ -31,12 +31,6 @@ from app.services.app_operations.transaction_scope import (
     postgres_graph_transaction,
 )
 from app.services.chat_threads import append_message
-from app.services.host_hooks import (
-    assert_platform_quota,
-    get_model_bounds_resolver,
-    get_model_price_resolver,
-    record_usage_event,
-)
 from app.services.resident_assignment import (
     ASSIGNMENT_REVIEW_APPROVED,
     assert_assignment_model_authority,
@@ -69,33 +63,20 @@ async def resolve_assignment_review_route(workspace_id: str) -> MandateModelRout
 async def _resolve_assignment_route(
     revision: WorkMandateRevision,
 ) -> ResolvedModelRoute:
-    if get_model_bounds_resolver() is None or get_model_price_resolver() is None:
-        raise WorkError("work.assignment_model_unavailable")
     thread = await ChatThread.find_one({"id": revision.thread_id})
     if thread is None or thread.archived:
         raise WorkError("work.assignment_stale")
     try:
-        plan = await conversation_turn_routes(
+        return await resolve_reviewed_conversation_route(
             workspace_id=revision.workspace_id,
             profile_id=thread.model_profile_id,
             reasoning_efforts=thread.model_reasoning_efforts,
-            heavy_only=True,
-            resolver=resolve_native_model_route,
+            reviewed_routes=revision.model_routes,
         )
-    except ServiceUnavailableError as exc:
-        raise WorkError("work.assignment_model_unavailable") from exc
-    route = plan.heavy
-    expected = revision.model_routes[0]
-    if (route.provider, route.model, route.credential_source, route.credential_ref) != (
-        expected.provider,
-        expected.model,
-        expected.credential_source,
-        expected.credential_ref,
-    ):
-        raise WorkError("work.model_route_stale")
-    if route.credential_source == "platform":
-        await assert_platform_quota(revision.workspace_id)
-    return route
+    except WorkError as exc:
+        if exc.code == "work.mandate_model_unavailable":
+            raise WorkError("work.assignment_model_unavailable") from exc
+        raise
 
 
 async def enqueue_approved_resident_assignment(
@@ -123,8 +104,7 @@ async def enqueue_approved_resident_assignment(
             work_item_id=work_item_id,
             principal_id=item.principal_id,
             workspace_id=workspace_id,
-            fresh_approval=True,
-            allow_parked_assignment=True,
+            allow_parked_for_admission=True,
         )
         if revision.assignment_source is None or len(revision.model_routes) != 1:
             raise WorkError("work.mandate_invalid")
@@ -274,91 +254,32 @@ async def _generate_preparation(
     revision: WorkMandateRevision,
     task: ResidentAssignmentTaskSnapshot,
 ) -> str:
-    from app.agentive.harness.litellm_model import build_litellm_sdk_model
-    from app.agentive.harness.model_observations import (
-        persist_model_request_observation,
+    from app.agentive.services.work_mandate_inference import (
+        run_reviewed_mandate_inference,
     )
-    from app.agentive.harness.pydantic_ai_compat import Agent, UsageLimits
-    from app.agentive.services.work_model_admission import WorkModelAdmission
 
     route = await _resolve_assignment_route(revision)
-
-    async def authority() -> None:
-        if await _resolve_assignment_route(revision) != route:
-            raise WorkError("work.model_route_stale")
-
-    admission = WorkModelAdmission(
-        context=context,
-        assert_authority=authority,
-        observer=partial(
-            persist_model_request_observation, work_execution_context=context
-        ),
-    )
-
-    async def observe(observation):
-        await admission.observe(observation)
-        if observation.usage is not None:
-            await record_usage_event(
-                workspace_id=context.workspace_id,
-                user_id=context.principal_id,
-                run_id=context.run_id,
-                idempotency_key=observation.request_id,
-                source="platform" if route.credential_source == "platform" else "byok",
-                input_tokens=observation.usage.input_tokens,
-                output_tokens=observation.usage.output_tokens,
-                model_id=route.model,
-            )
-
-    scope = HarnessExecutionScope(
-        tenant_id=context.workspace_id,
-        workspace_id=context.workspace_id,
-        principal_id=context.principal_id,
-        thread_id=context.thread_id,
-        session_id=context.work_item_id,
-        run_id=context.run_id,
-        permission_revision=revision.review_digest(),
-        capability_version="resident-assignment-preparation-v1",
-    )
-    model = build_litellm_sdk_model(
-        route=route,
-        scope=scope,
-        observer=observe,
-        admission=admission,
-        timeout_seconds=60,
-        idle_timeout_seconds=30,
-        max_attempts=1,
-    )
     try:
-        agent = Agent(
-            model,
-            retries=0,
+        return await run_reviewed_mandate_inference(
+            context,
+            revision,
+            route=route,
+            resolve_route=lambda: _resolve_assignment_route(revision),
             instructions=(
                 "Prepare a private draft for the sponsor of this assigned task. "
                 "Use only the supplied task data. Identify missing information, "
                 "avoid unsupported claims, and never claim to have taken an action."
             ),
+            prompt={
+                "outcome": task.outcome,
+                "acceptance_criteria": task.acceptance_criteria,
+                "due_date": task.due_date,
+                "success_criteria": revision.success_criteria,
+                "stop_conditions": revision.stop_conditions,
+                "result_obligations": revision.result_obligations,
+            },
+            capability_version="resident-assignment-preparation-v1",
         )
-        remaining = (
-            revision.limits.deadline_at - datetime.now(timezone.utc)
-        ).total_seconds()
-        async with asyncio.timeout(min(60, max(0, remaining))):
-            result = await agent.run(
-                json.dumps(
-                    {
-                        "outcome": task.outcome,
-                        "acceptance_criteria": task.acceptance_criteria,
-                        "due_date": task.due_date,
-                        "success_criteria": revision.success_criteria,
-                        "stop_conditions": revision.stop_conditions,
-                        "result_obligations": revision.result_obligations,
-                    }
-                ),
-                model_settings={"max_tokens": 4096},
-                usage_limits=UsageLimits(
-                    request_limit=revision.limits.max_model_requests
-                ),
-            )
-        return result.output.strip()
     except TimeoutError as exc:
         raise WorkError("work.assignment_model_timeout") from exc
     except WorkError:
@@ -367,8 +288,6 @@ async def _generate_preparation(
         # Transport may already have been entered. Leave the ledger to
         # reconcile its receipt and never retry inference blindly.
         raise WorkError("work.assignment_model_failed") from exc
-    finally:
-        await model.client.close()
 
 
 async def prepare_resident_assignment(

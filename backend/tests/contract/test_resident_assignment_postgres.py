@@ -23,7 +23,7 @@ from app.contracts.task_semantics import (
     RESIDENT_ASSIGNMENT_CHANGED,
     RESIDENT_ASSIGNMENT_SETTINGS_CHANGED,
 )
-from app.models.edges import CONTAINS, IS_MEMBER_OF, IS_OF_TYPE
+from app.models.edges import CONTAINS, IS_MEMBER_OF, IS_OF_TYPE, REFERENCES
 from app.models.nodes import ChatMessage, Entry, EntryType, Workspace
 from app.schemas.agentive.work import WorkError
 from app.schemas.agentive.work_mandate import WorkMandateRevision
@@ -73,6 +73,17 @@ async def main():
         chat_providers.get_registry = lambda: {"integral_native": SimpleNamespace(id="integral_native")}
         resident_opportunities._RESULT_LIMIT = 1
     try:
+        if mode == "crash_before_commit":
+            from app.services import chat_threads
+            append_message = chat_threads.append_message
+
+            async def crash_after_append(*args, **kwargs):
+                await append_message(*args, **kwargs)
+                os._exit(78)
+
+            chat_threads.append_message = crash_after_append
+            await work_worker.process_one_due_item(worker_id="crashed-watch", work_item_id=work_id)
+            raise AssertionError("Observation did not append its alert")
         if mode == "crash":
             async def crash_after_commit(*args, **kwargs):
                 os._exit(77)
@@ -1092,8 +1103,16 @@ async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
         )
 
 
+@pytest.mark.parametrize(
+    ("watch_goal", "crash_before_commit"),
+    [
+        pytest.param(False, False, id="task-post-commit"),
+        pytest.param(True, False, id="goal-post-commit"),
+        pytest.param(True, True, id="goal-pre-commit"),
+    ],
+)
 async def test_reviewed_task_watch_only_posts_material_changes(
-    postgres_raw_db, monkeypatch
+    postgres_raw_db, monkeypatch, watch_goal, crash_before_commit
 ):
     from datetime import datetime, timedelta, timezone
 
@@ -1112,13 +1131,35 @@ async def test_reviewed_task_watch_only_posts_material_changes(
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         auth, workspace, track, _ = await proposal()
         profile = await ensure_track_attached_operational_model(track)
+        schema = {
+            "fields": [],
+            "task_semantics": {"version": 1, "outcome": {"source": "title"}},
+        }
+        if watch_goal:
+            schema["fields"] = [
+                {"id": "count", "key": "count", "type": "number"},
+                {
+                    "id": "evidence",
+                    "key": "evidence",
+                    "type": "relation",
+                    "relation": {"target": "entry"},
+                },
+            ]
+            schema["goal_semantics"] = {
+                "version": 1,
+                "outcome": {"source": "title"},
+                "criteria": [
+                    {
+                        "key": "confirmed-count",
+                        "evidence_relation_field_id": "evidence",
+                        "predicate": {"kind": "recorded_count", "field_id": "count"},
+                    }
+                ],
+            }
         task_type = await EntryType.create(
             track_id=track.id,
             name="Task",
-            form_schema={
-                "fields": [],
-                "task_semantics": {"version": 1, "outcome": {"source": "title"}},
-            },
+            form_schema=schema,
         )
         await profile.connect(task_type, edge=CONTAINS)
         entry = await Entry.create(
@@ -1126,6 +1167,18 @@ async def test_reviewed_task_watch_only_posts_material_changes(
         )
         await track.connect(entry, edge=CONTAINS)
         await entry.connect(task_type, edge=IS_OF_TYPE)
+        if watch_goal:
+            source = await Entry.create(
+                track_id=track.id,
+                title="Evidence",
+                type_id=task_type.id,
+                custom_fields={"count": 1},
+            )
+            await track.connect(source, edge=CONTAINS)
+            await source.connect(task_type, edge=IS_OF_TYPE)
+            entry.custom_fields["evidence"] = source.id
+            await entry.save()
+            await entry.connect(source, edge=REFERENCES, field_key="evidence")
         thread = await create_thread(
             user_id=auth.id, workspace_id=workspace.id, provider_id="integral_native"
         )
@@ -1146,6 +1199,7 @@ async def test_reviewed_task_watch_only_posts_material_changes(
                     "timezone": "UTC",
                     "delivery_mode": "task_watch",
                     "watch_entry_id": entry.id,
+                    "watch_goal": watch_goal,
                     "max_runs": 2,
                 },
             )
@@ -1180,19 +1234,31 @@ async def test_reviewed_task_watch_only_posts_material_changes(
         await entry.save()
         await fire(2)
         assert await list_messages(thread) == []
-        entry.title = "Changed outcome"
-        await entry.save()
+        if watch_goal:
+            source.custom_fields["count"] = 2
+            await source.save()
+        else:
+            entry.title = "Changed outcome"
+            await entry.save()
         work = await enqueue(3)
 
         async def run_worker(mode, expected_exit, *, work_id=work.work_item_id):
             return await _run_observation_worker(work_id, mode, expected_exit)
 
-        await run_worker("crash", 77)
+        if crash_before_commit:
+            await run_worker("crash_before_commit", 78)
+        else:
+            await run_worker("crash", 77)
         stored = await postgres_raw_db.get("object", work.id)
         assert stored["context"]["status"] == "running"
-        assert len(await list_messages(thread)) == 1
-        entry.title = "Second changed outcome"
-        await entry.save()
+        assert len(await list_messages(thread)) == (0 if crash_before_commit else 1)
+        stored_routine = await postgres_raw_db.get("node", routine.id)
+        assert (
+            stored_routine["context"]["watch_fingerprint"] == routine.watch_fingerprint
+        ) is crash_before_commit
+        if not crash_before_commit:
+            entry.title = "Second changed outcome"
+            await entry.save()
         await postgres_raw_db.find_one_and_update(
             "object",
             {"id": work.id, "context.status": "running"},
@@ -1212,6 +1278,13 @@ async def test_reviewed_task_watch_only_posts_material_changes(
         assert f"__OBSERVATION_MESSAGE__{messages[0].id}" in recovered.splitlines()
         assert f"/tracks/{track.id}?entry={entry.id}" in messages[0].parts[0]["text"]
         assert "Changed outcome" not in messages[0].parts[0]["text"]
+        assert (
+            f"watched {'goal' if watch_goal else 'task'}"
+            in messages[0].parts[0]["text"]
+        )
+        if crash_before_commit:
+            entry.title = "Second changed outcome"
+            await entry.save()
         due_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
         await postgres_raw_db.find_one_and_update(
             "node", {"id": routine.id}, {"$set": {"context.next_run_at": due_at}}

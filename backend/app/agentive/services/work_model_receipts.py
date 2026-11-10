@@ -6,6 +6,10 @@ Unknown or calculated costs retain the reserved hold for reconciliation.
 
 from __future__ import annotations
 
+import logging
+
+from pydantic import ValidationError
+
 from app.agentive.harness.contracts import HarnessExecutionScope, ModelRouteIdentity
 from app.agentive.harness.jvspatial_store import HarnessPersistenceError
 from app.agentive.harness.model_observations import (
@@ -22,6 +26,54 @@ from app.agentive.work_budget_models import WorkBudgetReservation
 from app.models.harness_records import HarnessModelRequestRecord
 from app.schemas.agentive.work import WorkError
 from app.schemas.agentive.work_budget import MandateReservationRequest
+
+logger = logging.getLogger(__name__)
+
+
+async def reconcile_retained_model_receipts(
+    cursor: dict[str, str], *, limit: int = 20
+) -> int:
+    """Retry accounting only, using durable provider evidence and a bounded scan."""
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    if not graph_transaction_available():
+        return 0
+    limit = max(1, min(limit, 100))
+    db = await _transaction_database()
+    query = {
+        "entity": "WorkBudgetReservation",
+        "context.status": "reserved",
+        "context.dispatch_state": {"$in": ["intent", "unknown"]},
+        "context.model_dispatch_scope.run_id": {"$exists": True},
+    }
+    after = cursor.get("after")
+    if after:
+        query["id"] = {"$gt": after}
+    rows = await db.find("object", query, sort=[("id", 1)], limit=limit)
+    settled = 0
+    for row in rows:
+        data = row["context"]
+        try:
+            await settle_mandate_model_receipt(
+                reservation_id=data["reservation_id"],
+                principal_id=data["principal_id"],
+                workspace_id=data["workspace_id"],
+                thread_id=data["thread_id"],
+            )
+        except (KeyError, ValidationError):
+            logger.warning("Retained model reservation has invalid accounting fields")
+        except WorkError as exc:
+            if exc.code not in {"work.model_receipt_required", "work.cost_unavailable"}:
+                logger.warning("Retained model receipt could not settle: %s", exc.code)
+        else:
+            settled += 1
+    if len(rows) == limit:
+        cursor["after"] = rows[-1]["id"]
+    else:
+        cursor.pop("after", None)
+    return settled
 
 
 async def settle_mandate_model_receipt(

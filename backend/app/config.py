@@ -132,6 +132,7 @@ class Settings(BaseSettings):
     # process-restart recovery.
     INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED: bool = True
     INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED: bool = False
+    INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED: bool = False
     # Independent conversations may progress concurrently; per-thread admission
     # and lease fencing still serialize effects within each turn.
     INTEGRAL_CHAT_WORKERS: int = Field(default=4, ge=1, le=16)

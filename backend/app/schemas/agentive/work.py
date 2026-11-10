@@ -27,6 +27,7 @@ WorkKind = Literal[
     "chat_title",
     "attachment_analysis",
     "resident_assignment",
+    "mandate_entry_read",
     "routine_turn",
     "approval_resume",
     "event_trigger",

@@ -56,6 +56,7 @@ HANDLED_KINDS = frozenset(
         "chat_title",
         "attachment_analysis",
         "resident_assignment",
+        "mandate_entry_read",
     }
 )
 
@@ -218,6 +219,13 @@ async def _handle_capability(
     from app.agentive.services.execution_runs import start_run
 
     await _recheck_principal_workspace(item)
+    from app.agentive.services.work_mandates import is_mandate_work
+
+    if await is_mandate_work(item):
+        raise WorkError(
+            "work.mandate_admission_required",
+            "Reviewed mandate work requires a dedicated capability admission path",
+        )
     payload = dict(item.input_payload or {})
     capability_key = str(payload.get("capability_key") or "").strip()
     if not capability_key:
@@ -1417,6 +1425,28 @@ async def _execute_claimed_work(
                 expected_status="running",
                 target="succeeded",
             )
+        if kind == "mandate_entry_read":
+            from app.agentive.services.work_mandate_entry_execution import (
+                expire_entry_read_mandate,
+                publish_entry_read_mandate,
+                run_entry_read_mandate,
+            )
+
+            context = work_execution.build_work_execution_context(
+                work_item=item, logical_step_key="mandate_entry_read:0"
+            )
+            try:
+                revision, result = await _with_supervised_heartbeat(
+                    item,
+                    worker_id=worker_id,
+                    lease_seconds=lease_seconds,
+                    body=lambda: run_entry_read_mandate(context),
+                )
+                return await publish_entry_read_mandate(context, revision, result)
+            except WorkError as exc:
+                if exc.code in {"work.deadline_exceeded", "work.mandate_expired"}:
+                    return await expire_entry_read_mandate(item)
+                raise
         if kind == "resident_assignment":
             from app.services.resident_assignment_execution import (
                 prepare_resident_assignment,

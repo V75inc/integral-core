@@ -41,6 +41,7 @@ export type ThreadSessionState = {
   streamError: string | null;
   abortController: AbortController | null;
   lastLoadedAt: number;
+  transcriptRevision?: string;
   activeWorkItemId?: string | null;
   followUps?: readonly FollowUp[];
   followUpsPaused?: boolean;

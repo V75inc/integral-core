@@ -171,6 +171,7 @@ def public_dialogue(
         if message.role == "assistant" and (
             not allow_assistant
             or metadata.get("resident_assignment_draft")
+            or metadata.get("mandate_entry_read_result")
             or metadata.get("origin") in ("proactive", "routine_task")
             or (
                 isinstance(interaction, dict)

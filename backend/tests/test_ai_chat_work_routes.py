@@ -57,6 +57,95 @@ def _install_work_item(
     monkeypatch.setattr(WorkItem, "get", classmethod(get_item))
 
 
+async def _run_mandate_recovery_worker(work_id, *, mode, expected_exit):
+    import asyncio
+    import os
+    import sys
+
+    from app.config import settings
+
+    script = """
+import asyncio, os, sys
+from jvspatial.core.context import GraphContext, set_default_context
+from jvspatial.db.factory import create_database
+from app.agentive.harness.contracts import ResolvedModelRoute
+from app.agentive.services import work_budgets, work_mandate_entry_execution
+from app.agentive.services import work_mandate_inference, work_recovery, work_worker
+from tests.contract.test_work_budgets_postgres import request as budget_request
+
+async def main():
+    db = create_database(db_type="postgres")
+    set_default_context(GraphContext(database=db))
+    work_id, mode = sys.argv[1:]
+
+    async def route(*, reviewed_routes, **_):
+        return ResolvedModelRoute(**reviewed_routes[0].model_dump())
+
+    async def infer(context, revision, **_):
+        if mode == "recover":
+            os._exit(79)
+        if mode == "claim":
+            os._exit(77)
+        request = budget_request(
+            revision.model_dump(mode="json"), effect=context.effect_key, cost="0.10"
+        )
+        held = await work_budgets.reserve_mandate_budget(
+            work_item_id=work_id,
+            principal_id=context.principal_id,
+            workspace_id=context.workspace_id,
+            thread_id=context.thread_id,
+            request=request,
+            execution_context=context,
+        )
+        marked = await work_budgets.mark_mandate_dispatch_intent(
+            reservation_id=held.reservation_id,
+            execution_context=context,
+            request_fingerprint=request.fingerprint(),
+            dispatch_ref="interrupted-provider-request",
+        )
+        assert marked.dispatch_state == "intent"
+        os._exit(77)
+
+    work_mandate_entry_execution.resolve_reviewed_conversation_route = route
+    work_mandate_inference.run_reviewed_mandate_inference = infer
+    try:
+        if mode in {"crash", "claim"}:
+            result = await work_worker.process_one_due_item(
+                worker_id="crashed-mandate", work_item_id=work_id
+            )
+            raise AssertionError(f"Mandate did not reach durable dispatch intent: {result}")
+        report = await work_recovery.run_recovery_pass(
+            reclaim_worker_id="replacement-mandate"
+        )
+        assert report.reclaimed == 1, report
+    finally:
+        await db.close()
+
+asyncio.run(main())
+"""
+    child = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        script,
+        work_id,
+        mode,
+        env={
+            **os.environ,
+            "EMBEDDING_STORE_DRIVER": "null",
+            "SECRET_KEY": settings.SECRET_KEY,
+        },
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(child.communicate(), timeout=60)
+    except TimeoutError:
+        child.kill()
+        await child.wait()
+        raise
+    assert child.returncode == expected_exit, (stdout.decode(), stderr.decode())
+
+
 pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
 
 
@@ -563,6 +652,523 @@ async def test_durable_message_rejects_unqualified_input_before_acceptance(
     )
     assert response.status_code == 400, response.text
     submit.assert_not_awaited()
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("past_deadline", "has_intent"),
+    [
+        pytest.param(False, True, id="intent-before-deadline"),
+        pytest.param(True, True, id="intent-after-deadline"),
+        pytest.param(True, False, id="no-intent-after-deadline"),
+    ],
+)
+async def test_owned_mandate_review_projects_verified_terms(
+    authenticated_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    past_deadline: bool,
+    has_intent: bool,
+):
+    import asyncio
+    from uuid import uuid4
+
+    from app.agentive.harness import model_routing
+    from app.agentive.harness.contracts import ResolvedModelRoute
+    from app.agentive.services.execution_runs import build_core_capability_snapshot
+    from app.agentive.services.work_approvals import work_approval_object_id
+    from app.agentive.services.work_outbox import _active_database, _is_postgres_txn_db
+    from app.models.nodes import ChatThread
+    from app.schemas.agentive.work_mandate import WorkMandateRevision
+    from app.services import host_hooks
+    from tests.test_work_mandate_contract import mandate_payload
+
+    db = _active_database()
+    if not _is_postgres_txn_db(db):
+        pytest.skip("Requires PostgreSQL")
+    workspace_id, thread_id = await _owned_native_thread(authenticated_client)
+    thread = await ChatThread.find_one({"id": thread_id})
+    assert thread is not None
+    headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+    track = await authenticated_client.post(
+        "/api/tracks", headers=headers, json={"title": "Mandate evidence"}
+    )
+    assert track.status_code == 200, track.text
+    entry = await authenticated_client.post(
+        "/api/entries",
+        headers=headers,
+        json={
+            "track_id": track.json()["track"]["id"],
+            "title": "Exact reviewed source",
+        },
+    )
+    assert entry.status_code == 200, entry.text
+    entry_id = entry.json()["entry"]["id"]
+    source = {"kind": "entry", "resource_id": entry_id}
+    payload = mandate_payload()
+    payload.update(
+        mandate_id=uuid4().hex,
+        principal_id=thread.user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        inputs=[source],
+        grants=[
+            {
+                "capability_key": "integral_resolve_entry",
+                "capability_version": build_core_capability_snapshot()[
+                    "manifest_version"
+                ],
+                "operation": "read",
+                "resources": [source],
+                "max_calls": 1,
+            }
+        ],
+    )
+    payload["model_routes"][0]["credential_source"] = "local"
+    revision = WorkMandateRevision.model_validate(payload)
+    route = ResolvedModelRoute(**revision.model_routes[0].model_dump())
+    monkeypatch.setattr(host_hooks, "get_model_bounds_resolver", lambda: object())
+    monkeypatch.setattr(host_hooks, "get_model_price_resolver", lambda: object())
+    monkeypatch.setattr(
+        model_routing,
+        "conversation_turn_routes",
+        AsyncMock(return_value=model_routing.TurnModelRoutes(route, route)),
+    )
+    await db.find_one_and_update(
+        "node", {"id": thread_id}, {"$set": {"context.provider_id": "integral_native"}}
+    )
+    terms = revision.model_dump(
+        mode="json",
+        exclude={
+            "schema_version",
+            "assignment_source",
+            "entry_source_revisions",
+            "principal_id",
+            "workspace_id",
+            "thread_id",
+        },
+    )
+    pinned_sources = [
+        {
+            "entry_id": entry_id,
+            "record_revision": entry.json()["entry"]["record_revision"],
+        }
+    ]
+    revision = WorkMandateRevision.model_validate(
+        {**payload, "entry_source_revisions": pinned_sources}
+    )
+    proposal_path = f"/api/chat/threads/{thread_id}/mandate-reviews"
+    spoofed = await authenticated_client.post(
+        proposal_path, headers=headers, json={**terms, "principal_id": "other"}
+    )
+    assert spoofed.status_code == 400, spoofed.text
+    proposals = await asyncio.gather(
+        *(
+            authenticated_client.post(proposal_path, headers=headers, json=terms)
+            for _ in range(2)
+        )
+    )
+    for proposal in proposals:
+        assert proposal.status_code == 200, proposal.text
+    assert proposals[0].json() == proposals[1].json()
+    changed = await authenticated_client.post(
+        proposal_path, headers=headers, json={**terms, "goal": "Changed goal"}
+    )
+    assert changed.status_code == 409, changed.text
+    work_item_id = proposals[0].json()["work_item_id"]
+    listed = await authenticated_client.get(proposal_path, headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["reviews"] == [
+        {
+            "work_item_id": work_item_id,
+            "goal": terms["goal"],
+            "work_status": "waiting_for_human",
+        }
+    ]
+    item = await WorkItem.find_one({"work_item_id": work_item_id})
+    assert item is not None
+    approval_id = work_approval_object_id(item.plan["mandate_approval_id"])
+    path = f"/api/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review"
+    response = await authenticated_client.get(path, headers=headers)
+    assert response.status_code == 200, response.text
+    review = response.json()
+    assert review["review_digest"] == revision.review_digest()
+    assert review["terms"]["entry_source_revisions"] == pinned_sources
+    assert review["approval_status"] == "pending"
+    assert review["entry_read_preflight"] == "current"
+    assert review["model_route_preflight"] == "current"
+    stale_capability = await authenticated_client.post(
+        proposal_path,
+        headers=headers,
+        json={
+            **terms,
+            "revision": 2,
+            "grants": [{**terms["grants"][0], "capability_version": "obsolete"}],
+        },
+    )
+    assert stale_capability.status_code == 200, stale_capability.text
+    assert stale_capability.json()["entry_read_preflight"] == "denied"
+    denied_review = stale_capability.json()
+    denied_path = (
+        f"/api/chat/threads/{thread_id}/work-items/{denied_review['work_item_id']}"
+        "/mandate-review/approve"
+    )
+    denied = await authenticated_client.post(
+        denied_path,
+        headers=headers,
+        json={"review_digest": denied_review["review_digest"]},
+    )
+    assert denied.status_code == 409, denied.text
+
+    edited = await authenticated_client.put(
+        f"/api/entries/{entry_id}", headers=headers, json={"title": "New evidence"}
+    )
+    assert edited.status_code == 200, edited.text
+    stale_evidence = await authenticated_client.post(
+        f"{path}/approve",
+        headers=headers,
+        json={"review_digest": review["review_digest"]},
+    )
+    assert stale_evidence.status_code == 409, stale_evidence.text
+    old_review = await authenticated_client.get(path, headers=headers)
+    assert old_review.json()["entry_read_preflight"] == "denied"
+    assert old_review.json()["terms"]["entry_source_revisions"] == pinned_sources
+
+    positive = await authenticated_client.post(
+        proposal_path, headers=headers, json={**terms, "revision": 3}
+    )
+    assert positive.status_code == 200, positive.text
+    positive_review = positive.json()
+    assert positive_review["terms"]["entry_source_revisions"] == [
+        {
+            "entry_id": entry_id,
+            "record_revision": edited.json()["entry"]["record_revision"],
+        }
+    ]
+    positive_id = positive_review["work_item_id"]
+    positive_path = (
+        f"/api/chat/threads/{thread_id}/work-items/{positive_id}/mandate-review"
+    )
+
+    async def approve():
+        return await authenticated_client.post(
+            f"{positive_path}/approve",
+            headers=headers,
+            json={"review_digest": positive_review["review_digest"]},
+        )
+
+    for approved in await asyncio.gather(approve(), approve()):
+        assert approved.status_code == 200, approved.text
+        assert approved.json() == {
+            "approval_status": "approved",
+            "work_status": "waiting_for_human",
+        }
+    approved_review = await authenticated_client.get(positive_path, headers=headers)
+    assert approved_review.json()["approval_status"] == "approved"
+    from app.agentive.services import work_items
+
+    assert (
+        await work_items.claim_due_candidate(
+            worker_id="must-stay-parked", work_item_id=positive_id, lease_seconds=30
+        )
+        is None
+    )
+    (approval_event,) = await db.find(
+        "object",
+        {
+            "entity": "WorkOutboxEntry",
+            "context.work_item_id": positive_id,
+            "context.topic": "work.mandate_review_approved",
+        },
+    )
+    assert (
+        approval_event["context"]["payload"]["review_digest"]
+        == positive_review["review_digest"]
+    )
+
+    from app.agentive.services import (
+        work_mandate_inference,
+        work_worker,
+    )
+    from app.config import settings
+
+    async def infer(context, reviewed, *, prompt, resolve_route, **_):
+        assert context.thread_id == thread_id
+        assert await resolve_route() == route
+        assert prompt["evidence"] == [
+            {
+                **reviewed.entry_source_revisions[0].model_dump(),
+                "title": "New evidence",
+                "body": "",
+            }
+        ]
+        return "Private reviewed answer"
+
+    monkeypatch.setattr(work_mandate_inference, "run_reviewed_mandate_inference", infer)
+
+    async def request_run(work_id, digest):
+        return await authenticated_client.post(
+            f"/api/chat/threads/{thread_id}/work-items/{work_id}/mandate-review/run",
+            headers=headers,
+            json={"review_digest": digest},
+        )
+
+    monkeypatch.setattr(settings, "INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED", False)
+    disabled = await request_run(positive_id, positive_review["review_digest"])
+    assert disabled.status_code == 503, disabled.text
+    monkeypatch.setattr(settings, "INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED", True)
+    form_terms = {
+        "mandate_id": uuid4().hex,
+        "goal": "Summarize the reviewed Entry",
+        "entry_ids": [entry_id, entry_id],
+        "deadline_at": terms["limits"]["deadline_at"],
+        "max_spend": "0.25",
+    }
+    from_form = await authenticated_client.post(
+        f"{proposal_path}/entry-read", headers=headers, json=form_terms
+    )
+    assert from_form.status_code == 200, from_form.text
+    form_review = from_form.json()
+    assert form_review["approval_status"] == "pending"
+    assert form_review["entry_read_preflight"] == "current"
+    assert form_review["terms"]["limits"]["max_model_requests"] == 1
+    assert form_review["terms"]["limits"]["max_tool_calls"] == 1
+    assert form_review["terms"]["limits"]["max_spend"] == "0.25"
+    assert "credential_ref" not in from_form.text
+    unapproved = await request_run(work_item_id, review["review_digest"])
+    assert unapproved.status_code == 409, unapproved.text
+    stale_run = await request_run(positive_id, "0" * 64)
+    assert stale_run.status_code == 409, stale_run.text
+
+    async def run_admitted(work_id, digest):
+        for admitted in await asyncio.gather(
+            request_run(work_id, digest), request_run(work_id, digest)
+        ):
+            assert admitted.status_code == 200, admitted.text
+            assert admitted.json() == {"work_item_id": work_id, "work_status": "queued"}
+        return await work_worker.process_one_due_item(
+            worker_id="reviewed-entry-worker", work_item_id=work_id
+        )
+
+    settled = await run_admitted(positive_id, positive_review["review_digest"])
+    assert settled is not None and settled.status == "succeeded", settled
+    assert len(settled.result_refs) == 1
+    transcript = await authenticated_client.get(
+        f"/api/chat/threads/{thread_id}", headers=headers
+    )
+    result = [
+        m for m in transcript.json()["messages"] if m["id"] in settled.result_refs
+    ]
+    assert result[0]["parts"] == [{"type": "text", "text": "Private reviewed answer"}]
+    assert result[0]["provider_metadata"]["mandate_entry_read_result"] is True
+
+    interrupted_id = form_review["work_item_id"]
+    interrupted_path = (
+        f"/api/chat/threads/{thread_id}/work-items/{interrupted_id}/mandate-review"
+    )
+    approved_interruption = await authenticated_client.post(
+        f"{interrupted_path}/approve",
+        headers=headers,
+        json={"review_digest": form_review["review_digest"]},
+    )
+    assert approved_interruption.status_code == 200, approved_interruption.text
+    queued_interruption = await request_run(
+        interrupted_id, form_review["review_digest"]
+    )
+    assert queued_interruption.status_code == 200, queued_interruption.text
+    await _run_mandate_recovery_worker(
+        interrupted_id, mode="crash" if has_intent else "claim", expected_exit=77
+    )
+    holds = await db.find(
+        "object",
+        {
+            "entity": "WorkBudgetReservation",
+            "context.root_work_item_id": interrupted_id,
+        },
+    )
+    assert len(holds) == int(has_intent)
+    if has_intent:
+        assert holds[0]["context"]["dispatch_state"] == "intent"
+    past = "2000-01-01T00:00:00+00:00"
+    expiry = {"context.lease_expires_at": past}
+    if past_deadline:
+        expiry["context.deadline_at"] = past
+    running = await db.find_one_and_update(
+        "object",
+        {"id": f"o.WorkItem.{interrupted_id}", "context.status": "running"},
+        {"$set": expiry},
+    )
+    assert running is not None
+    await _run_mandate_recovery_worker(interrupted_id, mode="recover", expected_exit=0)
+    reconciled = await authenticated_client.get(interrupted_path, headers=headers)
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json()["requires_reconciliation"] is has_intent
+    assert reconciled.json()["work_status"] == ("failed" if has_intent else "expired")
+    accounting = reconciled.json()["accounting"]
+    if has_intent:
+        assert accounting == {
+            "status": "awaiting_receipt",
+            "reserved_usd": "0.1",
+            "charged_usd": None,
+        }
+    else:
+        assert accounting == {"status": "not_recorded"}
+    recovered = (await db.get("object", f"o.WorkItem.{interrupted_id}"))["context"]
+    assert recovered["attempt"] == running["context"]["attempt"] == 1
+    assert recovered["lease_fence"] == running["context"]["lease_fence"] + 1
+    assert not recovered["result_refs"]
+    if has_intent:
+        retained = (await db.get("object", holds[0]["id"]))["context"]
+        assert (
+            retained["status"] == "reserved" and retained["dispatch_state"] == "intent"
+        )
+
+    changed_during_run = await authenticated_client.post(
+        proposal_path, headers=headers, json={**terms, "revision": 4}
+    )
+    assert changed_during_run.status_code == 200, changed_during_run.text
+    changing_review = changed_during_run.json()
+    changing_id = changing_review["work_item_id"]
+    response = await authenticated_client.post(
+        f"/api/chat/threads/{thread_id}/work-items/{changing_id}/mandate-review/approve",
+        headers=headers,
+        json={"review_digest": changing_review["review_digest"]},
+    )
+    assert response.status_code == 200, response.text
+
+    async def infer_with_changed_source(*args, **kwargs):
+        answer = await infer(*args, **kwargs)
+        changed_entry = await authenticated_client.put(
+            f"/api/entries/{entry_id}",
+            headers=headers,
+            json={"title": "Changed during inference"},
+        )
+        assert changed_entry.status_code == 200, changed_entry.text
+        return answer
+
+    monkeypatch.setattr(
+        work_mandate_inference,
+        "run_reviewed_mandate_inference",
+        infer_with_changed_source,
+    )
+    refused = await run_admitted(changing_id, changing_review["review_digest"])
+    assert refused is not None and refused.status == "failed", refused
+    assert refused.failure["code"] == "work.mandate_grants_unavailable"
+    assert not refused.result_refs
+
+    deleted = await authenticated_client.delete(
+        f"/api/entries/{entry_id}", headers=headers
+    )
+    assert deleted.status_code == 200, deleted.text
+    unavailable_proposal = await authenticated_client.post(
+        f"{proposal_path}/entry-read",
+        headers=headers,
+        json={**form_terms, "mandate_id": uuid4().hex},
+    )
+    assert unavailable_proposal.status_code == 409, unavailable_proposal.text
+    unavailable = await authenticated_client.get(path, headers=headers)
+    assert unavailable.status_code == 200, unavailable.text
+    assert unavailable.json()["entry_read_preflight"] == "denied"
+    assert review["work_status"] == "waiting_for_human"
+    assert review["terms"]["goal"] == revision.goal
+    assert "credential_ref" not in response.text
+
+    other_thread = await authenticated_client.post(
+        "/api/chat/threads",
+        headers=headers,
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
+    )
+    assert other_thread.status_code == 200, other_thread.text
+    wrong_thread = await authenticated_client.get(
+        path.replace(thread_id, other_thread.json()["id"]), headers=headers
+    )
+    assert wrong_thread.status_code == 404
+
+    await db.find_one_and_update(
+        "object",
+        {"id": approval_id},
+        {"$set": {"context.authority_digest": "wrong"}},
+    )
+    tampered = await authenticated_client.get(path, headers=headers)
+    assert tampered.status_code == 404
+
+    await db.find_one_and_update(
+        "object",
+        {"id": approval_id},
+        {"$set": {"context.authority_digest": revision.review_digest()}},
+    )
+    reject_path = f"{path}/reject"
+    stale = await authenticated_client.post(
+        reject_path, headers=headers, json={"review_digest": "0" * 64}
+    )
+    assert stale.status_code == 409, stale.text
+    still_pending = await authenticated_client.get(path, headers=headers)
+    assert still_pending.json()["approval_status"] == "pending"
+
+    async def reject():
+        return await authenticated_client.post(
+            reject_path,
+            headers=headers,
+            json={"review_digest": revision.review_digest()},
+        )
+
+    for rejected in await asyncio.gather(reject(), reject()):
+        assert rejected.status_code == 200, rejected.text
+        assert rejected.json() == {
+            "approval_status": "rejected",
+            "work_status": "failed",
+        }
+    stored = await authenticated_client.get(path, headers=headers)
+    assert stored.json()["approval_status"] == "rejected"
+    row = await db.get("object", item.id)
+    assert row["context"]["failure"]["code"] == "work.approval_rejected"
+    assert row["context"]["transition_seq"] == 1
+    (event,) = await db.find(
+        "object",
+        {
+            "entity": "WorkOutboxEntry",
+            "context.work_item_id": item.work_item_id,
+            "context.topic": "work.transitioned",
+        },
+    )
+    assert event["context"]["payload"]["decision"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_conditional_thread_read_returns_only_changed_transcript(
+    authenticated_client: AsyncClient,
+):
+    from app.services.chat_threads import append_message, get_thread
+
+    workspace_id, thread_id = await _owned_native_thread(authenticated_client)
+    path = f"/api/chat/threads/{thread_id}"
+    headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+    initial = await authenticated_client.get(path, headers=headers)
+    assert initial.status_code == 200, initial.text
+    params = {"known_revision": initial.json()["updated_at"]}
+    unchanged = await authenticated_client.get(path, headers=headers, params=params)
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json() == {"unchanged": True}
+
+    thread = await get_thread(thread_id)
+    saved = await append_message(
+        thread=thread, role="assistant", parts=[{"type": "text", "text": "Watch alert"}]
+    )
+    changed = await authenticated_client.get(path, headers=headers, params=params)
+    assert changed.status_code == 200, changed.text
+    assert [message["id"] for message in changed.json()["messages"]] == [saved.id]
+    assert changed.json()["updated_at"] != params["known_revision"]
+
+    other = await authenticated_client.post("/api/workspaces", json={"name": "Other"})
+    assert other.status_code == 200, other.text
+    other_id = other.json()["workspace"]["id"]
+    mismatch = await authenticated_client.get(
+        path,
+        headers={"X-Integral-Scope": f"ws:{other_id}"},
+        params={"known_revision": changed.json()["updated_at"]},
+    )
+    assert mismatch.status_code == 409, mismatch.text
 
 
 @pytest.mark.asyncio

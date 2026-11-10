@@ -1257,51 +1257,94 @@ export function useAIChatRuntime(
   // server-side with no live SSE connection to this tab, so its messages
   // only reach an already-open thread via this same fetch, triggered by the
   // WS push rather than a mount/switch.
-  const loadInFlightRef = useRef<Set<string>>(new Set());
+  const loadInFlightRef = useRef(new Map<string, { workspace: string | null; refresh: boolean }>());
   /** `ok` applied; `skip` deferred (do not stamp loaded); `error` fetch failed. */
   const loadThread = useCallback(
-    async (threadId: string): Promise<"ok" | "skip" | "error"> => {
-      // The lazy-load effect and the post-stream cold reload can both ask
-      // for the same thread; the second fetch would replace the first's
-      // merged transcript with a plain one.
-      if (loadInFlightRef.current.has(threadId)) return "skip";
-      loadInFlightRef.current.add(threadId);
+    async (
+      threadId: string,
+      invalidate = false,
+      knownRevision?: string,
+    ): Promise<"ok" | "skip" | "error"> => {
+      const workspace = workspaceIdRef.current;
+      const pending = loadInFlightRef.current.get(threadId);
+      if (pending?.workspace === workspace) {
+        // A push can describe a commit newer than the in-flight snapshot.
+        pending.refresh ||= invalidate;
+        return "skip";
+      }
+      const load = { workspace, refresh: false };
+      loadInFlightRef.current.set(threadId, load);
       try {
-        const t = await aiChatApi.getThread(threadId);
-        if (activeThreadIdRef.current !== threadId && !(threadId in peekSessions())) {
-          return "skip";
-        }
-        // Do not overwrite a cache that started streaming while we fetched.
-        if (peekStreamingThreadIds().includes(threadId)) return "skip";
-        // Durable host receipts drive continuation and audit, but are not
-        // conversation bubbles (including after a reload or reconnect).
-        const server = t.messages
-          .filter(message => message.role !== "system")
-          .map(persistedToMessage);
-        updateSession(threadId, (session) => ({
-          ...session,
-          // A cache that was never loaded may hold messages drafted by a send
-          // that raced this fetch; keep them rather than hide the history OR
-          // the draft.
-          messages:
-            session.lastLoadedAt === 0
-              ? mergeColdTranscript(server, session.messages)
-              : server,
-          lastLoadedAt: Date.now(),
-          activeWorkItemId: t.provider_id === "integral_native"
-            ? t.active_work_item_id ?? t.parked_work_item_id ?? null
-            : null,
-        }));
-        return "ok";
-      } catch (err) {
-        console.error("AI chat: failed to load thread", err);
-        return "error";
+        let result: "ok" | "error";
+        do {
+          load.refresh = false;
+          try {
+            const t = knownRevision === undefined
+              ? await aiChatApi.getThread(threadId)
+              : await aiChatApi.getThreadIfChanged(threadId, knownRevision);
+            knownRevision = undefined;
+            if (!t) {
+              result = "ok";
+              continue;
+            }
+            if (workspaceIdRef.current !== workspace || loadInFlightRef.current.get(threadId) !== load) {
+              return "skip";
+            }
+            if (activeThreadIdRef.current !== threadId && !(threadId in peekSessions())) {
+              return "skip";
+            }
+            // Do not overwrite a cache that started streaming while we fetched.
+            if (peekStreamingThreadIds().includes(threadId)) return "skip";
+            // Durable host receipts drive continuation and audit, but are not
+            // conversation bubbles (including after a reload or reconnect).
+            const server = t.messages
+              .filter(message => message.role !== "system")
+              .map(persistedToMessage);
+            updateSession(threadId, (session) => ({
+              ...session,
+              // A cache that was never loaded may hold messages drafted by a send
+              // that raced this fetch; keep them rather than hide the history OR
+              // the draft.
+              messages:
+                session.lastLoadedAt === 0
+                  ? mergeColdTranscript(server, session.messages)
+                  : server,
+              lastLoadedAt: Date.now(),
+              transcriptRevision: t.updated_at,
+              activeWorkItemId: t.provider_id === "integral_native"
+                ? t.active_work_item_id ?? t.parked_work_item_id ?? null
+                : null,
+            }));
+            result = "ok";
+          } catch (err) {
+            knownRevision = undefined;
+            console.error("AI chat: failed to load thread", err);
+            result = "error";
+          }
+        } while (load.refresh && workspaceIdRef.current === workspace);
+        return result;
       } finally {
-        loadInFlightRef.current.delete(threadId);
+        if (loadInFlightRef.current.get(threadId) === load) {
+          loadInFlightRef.current.delete(threadId);
+        }
       }
     },
     [updateSession],
   );
+
+  // A worker on another process can commit an alert without reaching this
+  // tab's WebSocket. Probe only the visible thread and only fetch changes.
+  useEffect(() => {
+    if (!provider.serverPersisted || !activeThreadId || activeThreadId.startsWith("local-")) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible" ||
+          activeThreadIdRef.current !== activeThreadId ||
+          peekStreamingThreadIds().includes(activeThreadId)) return;
+      const revision = peekSessions()[activeThreadId]?.transcriptRevision;
+      if (revision) void loadThread(activeThreadId, false, revision);
+    }, 20_000);
+    return () => window.clearInterval(timer);
+  }, [activeThreadId, provider.serverPersisted, loadThread]);
 
   // Render the cached transcript immediately, but revalidate on selection:
   // a persisted background message can arrive while no surface is listening.
@@ -1397,11 +1440,10 @@ export function useAIChatRuntime(
         markRemoteTurnFinished(threadId, detail.turn_id ?? null);
       }
       if (isOurs) return;
-      // Refetch only threads this tab has actually cached. One that was
-      // never opened here has nothing to refresh — it loads fresh on first
-      // open — and the badge above already recorded that it was busy.
-      if (!(threadId in peekSessions())) return;
-      void loadThread(threadId);
+      // Refresh the visible thread even during its first load. Other threads
+      // only need refreshing if this tab has already cached them.
+      if (activeThreadIdRef.current !== threadId && !(threadId in peekSessions())) return;
+      void loadThread(threadId, true);
     };
     window.addEventListener("integral:thread-stream-update", handler);
     // A completed background turn can arrive while the socket is down.
@@ -1410,7 +1452,7 @@ export function useAIChatRuntime(
     const onReconnect = () => {
       const threadId = activeThreadIdRef.current;
       if (threadId && !threadId.startsWith("local-") && !peekStreamingThreadIds().includes(threadId)) {
-        void loadThread(threadId);
+        void loadThread(threadId, true);
       }
     };
     const onVisible = () => {

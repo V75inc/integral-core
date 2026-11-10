@@ -104,20 +104,11 @@ class MandateAssignmentSource(MandateContract):
     resident_provider_id: CanonicalKey
 
 
-class WorkMandateRevision(MandateContract):
-    """Complete reviewed intent for one revision of a generic work mandate.
+class ProposeMandateReviewRequest(MandateContract):
+    """Requested terms. The host supplies all conversation authority."""
 
-    A digest binds the human review to these values; it does not prove approval.
-    Callers must not accept principal, scope or approval authority from a model.
-    """
-
-    schema_version: Literal[1] = 1
-    assignment_source: MandateAssignmentSource | None = None
     mandate_id: CanonicalKey
     revision: int = Field(ge=1)
-    principal_id: CanonicalKey
-    workspace_id: CanonicalKey
-    thread_id: CanonicalKey
     goal: ReviewText
     inputs: tuple[MandateResource, ...] = Field(max_length=100)
     grants: tuple[MandateCapabilityGrant, ...] = Field(max_length=100)
@@ -131,6 +122,34 @@ class WorkMandateRevision(MandateContract):
     result_obligations: tuple[ReviewText, ...] = Field(min_length=1, max_length=20)
     unknown_outcome_policy: Literal["reconcile_before_retry"] = "reconcile_before_retry"
     max_attempts: int = Field(default=1, ge=1, le=10)
+
+
+class ProposeEntryReadMandateRequest(MandateContract):
+    mandate_id: CanonicalKey
+    goal: ReviewText
+    entry_ids: tuple[CanonicalKey, ...] = Field(min_length=1, max_length=12)
+    deadline_at: datetime
+    max_spend: Decimal = Field(
+        ge=0, allow_inf_nan=False, max_digits=18, decimal_places=8
+    )
+
+
+class MandateEntrySourceRevision(MandateContract):
+    entry_id: CanonicalKey
+    record_revision: int = Field(ge=1)
+
+
+class WorkMandateRevision(ProposeMandateReviewRequest):
+    """Immutable reviewed terms bound to authenticated conversation scope."""
+
+    schema_version: Literal[1] = 1
+    assignment_source: MandateAssignmentSource | None = None
+    entry_source_revisions: tuple[MandateEntrySourceRevision, ...] = Field(
+        default=(), max_length=100
+    )
+    principal_id: CanonicalKey
+    workspace_id: CanonicalKey
+    thread_id: CanonicalKey
 
     @model_validator(mode="after")
     def _coherent_scope(self) -> "WorkMandateRevision":
@@ -175,6 +194,8 @@ class WorkMandateRevision(MandateContract):
         if self.assignment_source is None:
             # Preserve existing review digests and stored snapshots.
             payload.pop("assignment_source")
+        if not self.entry_source_revisions:
+            payload.pop("entry_source_revisions")
         # Normalize equivalent monetary/time representations before hashing.
         spend = self.limits.max_spend
         monetary_text = format(spend, "f")
@@ -196,3 +217,7 @@ class WorkMandateRevision(MandateContract):
             allow_nan=False,
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+
+class DecideMandateReviewRequest(MandateContract):
+    review_digest: str = Field(pattern=r"^[a-f0-9]{64}$")

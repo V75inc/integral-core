@@ -1,4 +1,5 @@
 import type { SteeringReceipt } from "../providers/types";
+import { MandateReviews } from "./MandateReviews";
 import { ChatFollowUps } from "./ChatFollowUps";
 import { DocumentDraftCard, extractDocumentDrafts } from "./DocumentDrafts";
 import { RoutineRunLink } from './RoutineRunLink';
@@ -109,7 +110,8 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
-  const { activeProviderId } = useChatActivity();
+  const { activeProviderId, activeThreadId } = useChatActivity();
+  const { scope: mandateScope } = useScope();
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
   // region or a dismissed popover moves focus off it and typing then went
@@ -183,6 +185,9 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
             <ThreadPrimitive.Messages>
               {() => <ThreadMessage />}
             </ThreadPrimitive.Messages>
+            {activeProviderId === "integral_native" && activeThreadId && !activeThreadId.startsWith("local-") && (
+              <MandateReviews threadId={activeThreadId} workspaceId={mandateScope?.workspaceId ?? null} />
+            )}
             <ActivityStrip />
           </div>
 
