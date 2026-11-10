@@ -1105,10 +1105,14 @@ export function AppDetailPage() {
           initialSection={hasConfigurableSettings ? 'settings' : 'access'}
           onClose={() => setShowAppSettingsModal(false)}
           onOpenPage={page => {
-            const target = tracks.find(t => t.title === page.track) ?? allTracks.find(t => t.title === page.track);
-            if (!target) return;
-            setShowAppSettingsModal(false);
-            navigate(`/tracks/${target.id}`);
+            // A settings page lives on a track that is kept out of the track list, so ask for hidden tracks too.
+            void (async () => {
+              const hidden = await tracksApi.list({ skipEntryCounts: true, include_nav_hidden: true }).catch(() => [] as Track[]);
+              const target = tracks.find(t => t.title === page.track) ?? (hidden as Track[]).find(t => t.title === page.track);
+              if (!target) return;
+              setShowAppSettingsModal(false);
+              navigate(`/tracks/${target.id}`);
+            })();
           }}
           onSaved={() => {
             void queryClient.invalidateQueries({ queryKey: ['app-home-query', appId] });
