@@ -706,7 +706,9 @@ def _normalize_readonly_if(key: str, raw: Any) -> Dict[str, Any]:
         )
     mode = modes[0]
     if mode in ("in", "not_in") and not isinstance(cond[mode], list):
-        raise BadRequestError(message=f"Field '{key}' readonly_if {mode} must be a list")
+        raise BadRequestError(
+            message=f"Field '{key}' readonly_if {mode} must be a list"
+        )
     return {"field": ref, mode: cond[mode]}
 
 
@@ -3741,6 +3743,9 @@ def _parse_manifest_requires_apps(
       - ``key`` (str, required) — App package name to depend on
       - ``min_version`` (str, default ``"0.0.0"``)
       - ``optional`` (bool, default False) — soft vs hard dependency
+      - ``read`` (bool, default False) — the App's screens (queries and read
+        operations) may read this App's records, read-only, in the same
+        workspace and under the viewer's own permissions
       - ``reason`` (str, free-form explanation for the install UX)
 
     Actual install-time resolution (hard-dep blocks install, soft-dep
@@ -3775,6 +3780,7 @@ def _parse_manifest_requires_apps(
                 "key": key,
                 "min_version": str(ed.get("min_version") or "0.0.0"),
                 "optional": bool(ed.get("optional", False)),
+                "read": ed.get("read", False) is True,
                 "reason": str(ed.get("reason") or ""),
             }
         )

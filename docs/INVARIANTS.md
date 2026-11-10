@@ -570,6 +570,21 @@ targets leave the source fields, revision and relation edges unchanged. Existing
 invalid links are not silently removed by this check; historical repair and
 cross-worker revocation qualification remain separate gates.
 
+### I-APP-06 — Declared read-only cross-App reads
+
+An App's screens (queries and read operations) read only their own App. An App
+may opt in per dependency with `requires_apps: [{key, read: true}]`;
+`OperationContext.for_app(key)` then returns a read-only context bound to that
+required App. The declaration must be in the declaring App's active definition,
+the target must be an active install in the same workspace (I-APP-05) and not
+the declaring App, and `read` must be exactly `true`. Reads through the bound
+context use the target App's own scope and the viewer's own roles, exactly as
+the target's own screens would; nothing is written through it, and agent and
+connector actors are refused. Declaring a dependency without `read: true`
+grants nothing. Generic reads, governed queries, retrieval and the frame
+protocol stay bound to the declaring App. Verification:
+`tests/test_declared_app_reads.py`.
+
 ### I-CRUD-01 — Service-layer canonical mutations
 
 Routes delegate persisted writes to named services; direct graph creation/connection in API modules is forbidden. Internal operations use the appropriate shared writer, not a second mutation implementation. Staged-index guards and behavior tests enforce this boundary.

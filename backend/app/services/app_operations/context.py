@@ -48,6 +48,7 @@ class OperationContext(ToolContext):
             "get_app_settings",
             "read_entry_file",
             "document_render",
+            "for_app",
         }
         typed_effects = {
             "enqueue_workspace_transactional_email",
@@ -107,6 +108,37 @@ class OperationContext(ToolContext):
 
             return guarded_read
         return value
+
+    async def for_app(self, app_key: str) -> "OperationContext":
+        """A read-only context bound to a required App this App declared ``read: true``.
+
+        ``requires_apps: [{key: human-resources, read: true}]`` in the manifest is the
+        only way to obtain one. Every read made through the returned context runs
+        under the target App's own scope and the viewer's own roles, exactly as if
+        a screen of that App made it; nothing can be written through it. Humans
+        only: agent and connector actors are refused. Raises when the App is not
+        declared, not installed and active in this workspace, or ambiguous.
+        """
+        import copy
+
+        from app.api.errors import InsufficientPermissionsError
+        from app.services.declared_app_reads import resolve_declared_read_app
+
+        denied = InsufficientPermissionsError(
+            message="That App is not declared for reads by this App"
+        )
+        if self.actor_kind != "human" or not str(self.app_id or "").strip():
+            raise denied
+        target_id = await resolve_declared_read_app(
+            self.workspace_id, self.app_id, app_key
+        )
+        if not target_id:
+            raise denied
+        bound = copy.copy(self)
+        bound.app_id = target_id
+        bound.read_only = True
+        bound.deferred_change_events = None
+        return bound
 
     async def emit_audit(self, action: str, details: Dict[str, Any]) -> None:
         """Preserve original actor provenance and defer audit with command effects."""

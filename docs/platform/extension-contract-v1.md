@@ -83,6 +83,11 @@ App authors should:
   manifest/resource keys over display titles. Where a facade only supports
   titles, retain the explicit App boundary and fail on unresolved or ambiguous
   selection; never clear scope or search another App as a fallback.
+- To read a required App's records from a query or read operation, declare
+  `requires_apps: [{key: <app>, read: true}]` and call `ctx.for_app("<app>")`
+  (I-APP-06). The returned context is read-only and bound to that App; it is the
+  only supported cross-App read. Handle the refusal when the App is not
+  installed or not declared.
 - Apply supported structured filters before hydrating records. Compute exact
   totals and domain rules deterministically from authoritative records; semantic
   top-k results cannot establish an exhaustive total or prove absence. Use

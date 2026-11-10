@@ -90,12 +90,16 @@ def wired(monkeypatch):
     async def locate(*a, **k):
         return object()
 
+    async def locate_many(kind, ids, **k):
+        return {i: object() for i in ids}
+
     class Ctx:
         database = db
 
     monkeypatch.setattr(ad, "_record", record)
     monkeypatch.setattr(ad, "_edges", edges)
     monkeypatch.setattr(ad, "locate_resource", locate)
+    monkeypatch.setattr(ad, "locate_resources", locate_many)
     monkeypatch.setattr(ad, "get_default_context", lambda: Ctx)
     monkeypatch.delenv("INTEGRAL_DEFINITION_VERIFY_TTL_SECONDS", raising=False)
     ad.invalidate_verified_definitions()
