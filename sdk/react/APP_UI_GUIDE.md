@@ -50,7 +50,7 @@ must improve in Core rather than being copied independently into each App.
 | `Badge` | A short coloured state label: `tone="neutral|success|warn|danger|info"` and the text. Meaning must also be in the text, not colour alone. |
 
 Use `Button`, `Input`, `Select`, `Textarea`, `DateInput`, `AsyncCombobox`, `Text`,
-`Surface`, `Stack`, `Inline`, and `Modal` for controls and lower-level composition.
+`Surface`, `Stack`, `Inline`, and `Modal` (choose `size`: `form` by default, `confirm` for a short question, `wide` for a table; Core sets width and padding) for controls and lower-level composition.
 Keep native buttons/inputs/labels and styled heading implementations inside Core.
 Structural HTML such as a namespaced scrolling div or disclosure is allowed.
 Do not pass color, typography, border, padding or radius utilities in className.

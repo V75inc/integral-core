@@ -1,4 +1,4 @@
-<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 b9f1ffc1b9ea43243616f1a5119d9112605162e16cd05ed1f7d370454541c617. Do not edit. -->
+<!-- Generated Integral App UI guide; SDK 1.2.0; SHA-256 0c01aece8a20815be548a7fc64e0feb50314709f74672f02e420d98190a98fba. Do not edit. -->
 
 # Integral Business App UI authoring — React SDK 1.2
 
@@ -52,7 +52,7 @@ must improve in Core rather than being copied independently into each App.
 | `Badge` | A short coloured state label: `tone="neutral|success|warn|danger|info"` and the text. Meaning must also be in the text, not colour alone. |
 
 Use `Button`, `Input`, `Select`, `Textarea`, `DateInput`, `AsyncCombobox`, `Text`,
-`Surface`, `Stack`, `Inline`, and `Modal` for controls and lower-level composition.
+`Surface`, `Stack`, `Inline`, and `Modal` (choose `size`: `form` by default, `confirm` for a short question, `wide` for a table; Core sets width and padding) for controls and lower-level composition.
 Keep native buttons/inputs/labels and styled heading implementations inside Core.
 Structural HTML such as a namespaced scrolling div or disclosure is allowed.
 Do not pass color, typography, border, padding or radius utilities in className.
