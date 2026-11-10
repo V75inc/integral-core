@@ -238,16 +238,36 @@ def collapse_completion_links(links: list[dict[str, str]]) -> list[dict[str, str
 
 
 def append_completion_links(
-    output: str, links: list[dict[str, str]], affected_entry_ids: set[str] | None = None
+    output: str,
+    links: list[dict[str, str]],
+    affected_entry_ids: set[str] | None = None,
+    *,
+    repair_destination_links: bool = False,
 ) -> str:
     """Keep model prose and add any missing canonical destinations once."""
     redirects = {
         link["source_url"]: link["url"] for link in links if link.get("source_url")
     }
 
+    destinations: dict[str, set[str]] = {}
+    entry_routes: dict[str, str] = {}
+    if repair_destination_links:
+        for link in links:
+            if link.get("kind") == "entry" and link.get("id") and link.get("url"):
+                entry_routes[link["id"]] = link["url"]
+            for label, url in (
+                (link.get("label"), link.get("url")),
+                (link.get("parent_label"), link.get("parent_url")),
+            ):
+                if label and url:
+                    destinations.setdefault(label.casefold(), set()).add(url)
+
     def normalize(match):
         label, url = match.group(1), match.group(2)
-        parsed = urlsplit(url)
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return label
         entry_id = parse_qs(parsed.query).get("entry", [""])[0]
         if parsed.path.startswith("/entries/"):
             entry_id = unquote(parsed.path.removeprefix("/entries/"))
@@ -257,9 +277,15 @@ def append_completion_links(
             and entry_id in affected_entry_ids
         ):
             return label
+        matched = destinations.get(label.strip().casefold(), set())
+        if entry_id in entry_routes:
+            url = entry_routes[entry_id]
+        elif len(matched) == 1:
+            url = next(iter(matched))
         return f"[{label}]({redirects.get(url, url)})"
 
-    output = re.sub(r"\[([^\]]+)\]\((/[^)\s]+)\)", normalize, output)
+    url_pattern = r"(?:https?://|/)[^)\s]+" if repair_destination_links else r"/[^)\s]+"
+    output = re.sub(rf"\[([^\]]+)\]\(({url_pattern})\)", normalize, output)
     missing = []
     for link in links:
         url = link.get("url", "")

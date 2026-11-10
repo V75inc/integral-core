@@ -13,7 +13,20 @@ from app.services.document_draft_access import (
     load_document_draft_snapshot,
     require_current_document_draft,
 )
-from app.services.document_drafts import render_document_draft
+from app.services.document_drafts import document_draft_filename, render_document_draft
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("Filing Continuation Proof", "Filing Continuation Proof.docx"),
+        ("Résumé.DOCX", "Resume.docx"),
+        ("../Report\r\nNext", "Report_Next.docx"),
+        ("..", "Document.docx"),
+    ],
+)
+def test_document_draft_filename(title, expected):
+    assert document_draft_filename(title, "docx") == expected
 
 
 def test_draft_receipt_is_bounded_and_survives_public_projection():
@@ -831,7 +844,7 @@ asyncio.run(run())
     assert proposal["diff_machine"]["file_review"] == {
         "thread_id": thread.id,
         "attachment_id": ids[0],
-        "filename": "draft.md",
+        "filename": "Report.md",
     }
     assert (await database.get("node", ids[0]))["context"]["owner_kind"] == "chat"
 
@@ -917,7 +930,7 @@ from jvspatial.db import get_database_manager
 from jvspatial.db.factory import create_database
 from app.services.document_draft_access import load_document_draft_snapshot
 from app.services.document_draft_preparation import claim_draft_preparation, stage_draft_preparation_blob
-from app.services.document_drafts import render_document_draft
+from app.services.document_drafts import document_draft_filename, render_document_draft
 
 async def run():
     database = create_database(db_type="postgres")

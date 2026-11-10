@@ -1282,7 +1282,9 @@ export function useAIChatRuntime(
               ? mergeColdTranscript(server, session.messages)
               : server,
           lastLoadedAt: Date.now(),
-          activeWorkItemId: t.provider_id === "integral_native" ? t.active_work_item_id ?? null : null,
+          activeWorkItemId: t.provider_id === "integral_native"
+            ? t.active_work_item_id ?? t.parked_work_item_id ?? null
+            : null,
         }));
         return "ok";
       } catch (err) {

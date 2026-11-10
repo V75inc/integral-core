@@ -672,6 +672,17 @@ def _normalize_search_index(raw):
         raise BadRequestError(message="Invalid search_index declaration") from exc
 
 
+def _normalize_task_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.contracts.task_semantics import validate_task_semantics
+
+    try:
+        return validate_task_semantics(raw, fields).model_dump(exclude_none=True)
+    except ValueError as exc:
+        raise BadRequestError(
+            message=f"Invalid task_semantics declaration: {exc}"
+        ) from exc
+
+
 def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     name = str(spec.get("name") or "").strip()
     key = str(spec.get("key") or _slug(name)).strip()
@@ -753,6 +764,15 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         **(
             {"search_index": _normalize_search_index(spec["search_index"])}
             if "search_index" in spec
+            else {}
+        ),
+        **(
+            {
+                "task_semantics": _normalize_task_semantics(
+                    spec["task_semantics"], fields
+                )
+            }
+            if "task_semantics" in spec
             else {}
         ),
         # Opt-in: a multi-step create flow (region_system's create_wizard
@@ -4518,6 +4538,8 @@ def normalize_entry_type_form_schema(
     }
     if "search_index" in raw:
         out["search_index"] = _normalize_search_index(raw["search_index"])
+    if "task_semantics" in raw:
+        out["task_semantics"] = _normalize_task_semantics(raw["task_semantics"], fields)
     if "graph_context" in raw:
         from app.schemas.graph_context import validate_entry_graph_context
 

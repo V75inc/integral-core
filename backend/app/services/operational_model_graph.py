@@ -947,6 +947,7 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
             }
             for chrome_key in (
                 "search_index",
+                "task_semantics",
                 "ui_contributions",
                 "related_views",
                 "open_as_page",

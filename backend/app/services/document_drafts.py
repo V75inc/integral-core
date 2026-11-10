@@ -18,6 +18,17 @@ from app.services.document_render import extension_for, mime_for, render_documen
 _FORMATS = frozenset({"markdown", "docx", "pdf", "pptx"})
 
 
+def document_draft_filename(title: str, extension: str) -> str:
+    """Return a download-safe name for an already validated render format."""
+    suffix = f".{extension}"
+    title = title.strip()
+    if title.lower().endswith(suffix):
+        title = title[: -len(suffix)]
+    normalized = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    stem = re.sub(r"[^A-Za-z0-9 ._-]+", "_", normalized)[:100].strip(" ._-")
+    return f"{stem or 'Document'}{suffix}"
+
+
 def _stable_office_archive(content: bytes) -> bytes:
     """Remove ZIP entry timestamps without altering Office package contents."""
     target = io.BytesIO()

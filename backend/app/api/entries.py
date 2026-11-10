@@ -8,6 +8,7 @@ from fastapi import Request
 from jvspatial.api import endpoint
 
 from app.api.errors import (
+    BadRequestError,
     InsufficientPermissionsError,
     MissingAuthenticationError,
     ResourceNotFoundError,
@@ -26,6 +27,11 @@ from app.models.edges import (
 )
 from app.models.nodes import Entry, EntryType, Track
 from app.schemas.policy import Resource, Subject
+from app.schemas.resident_assignment import (
+    ResidentAssignmentRequest,
+    ResidentAssignmentResponse,
+    ResidentAssignmentView,
+)
 from app.services import notification_router
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
@@ -541,6 +547,61 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     if track_id:
         entry_data["action_url"] = entry_path(entry_id, track_id)
     return {"entry": entry_data}
+
+
+@endpoint(
+    "/entries/{entry_id}/resident-assignment",
+    methods=["GET"],
+    auth=True,
+    tags=["Entries"],
+)
+async def read_resident_assignment(
+    request: Request, entry_id: str
+) -> ResidentAssignmentView:
+    """Read resident assignment at the caller's current Entry scope."""
+    from app.services.resident_assignment import get_resident_assignment
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    return await get_resident_assignment(
+        user_id=user_id, workspace_id=workspace_id, entry_id=entry_id
+    )
+
+
+@endpoint(
+    "/entries/{entry_id}/resident-assignment",
+    methods=["PUT"],
+    auth=True,
+    tags=["Entries"],
+)
+async def update_resident_assignment(
+    request: Request, entry_id: str
+) -> ResidentAssignmentResponse:
+    """Assign or withdraw the workspace resident at the observed revision."""
+    from pydantic import ValidationError
+
+    from app.services.resident_assignment import set_resident_assignment
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    try:
+        assignment = ResidentAssignmentRequest.model_validate(await request.json())
+    except (ValueError, ValidationError) as exc:
+        raise BadRequestError(message="Invalid resident assignment request") from exc
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    return await set_resident_assignment(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        entry_id=entry_id,
+        request=assignment,
+    )
 
 
 @endpoint("/entries/{entry_id}", methods=["PUT"], auth=True, tags=["Entries"])

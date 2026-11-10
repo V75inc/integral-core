@@ -32,6 +32,7 @@ export interface AIChatThread {
    */
   provider_session_id?: string | null;
   active_work_item_id?: string | null;
+  parked_work_item_id?: string | null;
   title: string;
   archived: boolean;
   created_at?: string;
@@ -92,12 +93,16 @@ export const aiChatApi = {
     return data;
   },
 
-  async downloadDocumentDraft(threadId: string, key: string, version: number): Promise<Blob> {
+  async downloadDocumentDraft(threadId: string, key: string, version: number): Promise<{ blob: Blob; filename?: string }> {
     const response = await apiClient.get(
       `/chat/threads/${encodeURIComponent(threadId)}/artifacts/${encodeURIComponent(key)}/download`,
       { params: { version }, responseType: 'blob' },
     );
-    return response.data as Blob;
+    const disposition = response.headers["content-disposition"];
+    const filename = typeof disposition === "string"
+      ? /filename="([A-Za-z0-9 ._-]+)"/.exec(disposition)?.[1]
+      : undefined;
+    return { blob: response.data as Blob, filename };
   },
 
   async queueFollowUp(threadId: string, input: ChatFollowUpInput) {

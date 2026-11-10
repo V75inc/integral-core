@@ -42,7 +42,35 @@ async function normalizeEntriesWithTypes(raw: any[]): Promise<Entry[]> {
   );
 }
 
+export type ResidentAssignmentState = 'assigned' | 'withdrawn';
+
+export interface ResidentAssignmentView {
+  state: ResidentAssignmentState;
+  revision: number;
+  can_assign: boolean;
+  can_withdraw: boolean;
+  readiness?: 'paused' | 'needs_reassignment' | 'needs_task_setup' | 'awaiting_execution_policy' | null;
+}
+
 export const entriesApi = {
+  async getResidentAssignment(entryId: string, workspaceId: string): Promise<ResidentAssignmentView> {
+    const { data } = await apiClient.get(`/entries/${encodeURIComponent(entryId)}/resident-assignment`, {
+      headers: { 'X-Integral-Scope': `ws:${workspaceId}` },
+    });
+    return data;
+  },
+
+  async setResidentAssignment(
+    entryId: string, workspaceId: string, state: ResidentAssignmentState, revision: number,
+  ): Promise<Pick<ResidentAssignmentView, 'state' | 'revision'>> {
+    const { data } = await apiClient.put(
+      `/entries/${encodeURIComponent(entryId)}/resident-assignment`,
+      { state, expected_assignment_revision: revision },
+      { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } },
+    );
+    return data;
+  },
+
   list: async (params?: Record<string, unknown>) => {
     const { data } = await apiClient.get('/entries', { params });
     const inner = unwrapApiDataEnvelope(data);

@@ -437,6 +437,27 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             assert (await postgres_raw_db.get("node", thread))["context"][
                 "active_work_item_id"
             ] == ""
+            from app.services.chat_turn_streaming import find_parked_chat_stream_id
+
+            stream_scope = dict(
+                principal_id=auth.id,
+                workspace_id=workspace.id,
+                thread_id=thread,
+                thread_revision=approval.deferred_thread_revision,
+            )
+            assert await find_parked_chat_stream_id(**stream_scope) == item.work_item_id
+            assert (
+                await find_parked_chat_stream_id(
+                    **{**stream_scope, "thread_revision": "superseded"}
+                )
+                is None
+            )
+            assert (
+                await find_parked_chat_stream_id(
+                    **{**stream_scope, "principal_id": "o.User.foreign"}
+                )
+                is None
+            )
             if intervention == "worker_reject":
                 from app.agentive.services.approval_decisions import decide_staged_write
 
@@ -482,6 +503,44 @@ async def test_native_deferred_frontier_with_real_broker_approval(
                     "object", {"entity": "AgentRun", "context.run_id": context.run_id}
                 )
                 assert runs[0]["context"]["error"]["code"] == "work.approval_rejected"
+
+                from app.services.chat_turn_events import replay_work_item_chat_events
+
+                replay = await replay_work_item_chat_events(
+                    principal_id=auth.id,
+                    workspace_id=workspace.id,
+                    thread_id=thread,
+                    work_item_id=item.work_item_id,
+                )
+                assert replay.approval_outcome == "rejected"
+
+                from app.services.chat_threads import list_messages, message_to_dict
+                from app.services.chat_turn_transcript import (
+                    project_chat_approval_receipts,
+                )
+
+                saved = [message_to_dict(m) for m in await list_messages(thread_node)]
+                projected = await project_chat_approval_receipts(
+                    thread=thread_node, messages=saved
+                )
+                assert len(projected) == len(saved) + 1
+                receipt = projected[1]
+                assert receipt["parent_id"] == saved[0]["id"]
+                assert receipt["parts"] == [
+                    {
+                        "type": "error",
+                        "code": "work.approval_rejected",
+                        "message": "You rejected the proposed change.",
+                    }
+                ]
+                assert (
+                    await project_chat_approval_receipts(
+                        thread=thread_node, messages=projected
+                    )
+                    == projected
+                )
+                assert len(await list_messages(thread_node)) == len(saved)
+
                 assert not await Entry.find({"track_id": track.id})
                 return
 
@@ -795,6 +854,15 @@ async def test_native_deferred_frontier_with_real_broker_approval(
             assert (
                 runs[0]["context"]["error"]["code"] == f"work.approval_{intervention}"
             )
+            from app.services.chat_threads import list_messages, message_to_dict
+            from app.services.chat_turn_transcript import project_chat_approval_receipts
+
+            saved = [message_to_dict(m) for m in await list_messages(thread_node)]
+            projected = await project_chat_approval_receipts(
+                thread=thread_node, messages=saved
+            )
+            assert len(projected) == len(saved) + 1
+            assert projected[1]["parts"][0]["code"] == f"work.approval_{intervention}"
             assert not await Entry.find({"track_id": track.id})
             return
         entered, release = asyncio.Event(), asyncio.Event()

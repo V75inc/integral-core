@@ -418,9 +418,13 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       (s.message.metadata?.custom as { statusLabel?: string } | undefined)
         ?.statusLabel,
   );
-  const setupNeeded = useAuiState((s) => isModelSetupFailure(
-    (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
-  ));
+  const errorCode = useAuiState(
+    (s) => (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
+  );
+  const setupNeeded = isModelSetupFailure(errorCode);
+  const approvalStatus = errorCode === "work.approval_rejected"
+    ? "Approval rejected"
+    : errorCode === "work.approval_expired" ? "Approval expired" : undefined;
   const modelLabel = useMessageModelLabel();
   const turnMetrics = useMessageTurnMetrics();
   const toolCount = useAuiState(
@@ -449,11 +453,11 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     hasAnswerText,
   );
   const done = [
-    setupNeeded ? "Setup needed" : interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",
+    approvalStatus ?? (setupNeeded ? "Setup needed" : interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished"),
     toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}` : "",
     modelLabel,
     turnMetrics,
-    toolFailed ? "a step failed" : "",
+    toolFailed && !approvalStatus ? "a step failed" : "",
   ]
     .filter(Boolean)
     .join(" · ");

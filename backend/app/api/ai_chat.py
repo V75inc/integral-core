@@ -1024,15 +1024,51 @@ async def create_thread(
     return chat_store.thread_to_dict(thread, message_count=0)
 
 
+async def _chat_continuation_workspace(request: Request, thread: Any) -> str | None:
+    if thread.provider_id != "integral_native" or not thread.workspace_id:
+        return None
+    try:
+        return await _resolve_turn_workspace(request, thread.user_id, thread)
+    except (InsufficientPermissionsError, ResourceConflictError):
+        return None
+
+
 @endpoint("/chat/threads/{thread_id}", methods=["GET"], auth=True, tags=["AI Chat"])
 async def get_thread(request: Request, thread_id: str) -> Dict[str, Any]:
     """Return one thread + full transcript for the caller."""
+    from app.services.chat_turn_streaming import find_parked_chat_stream_id
+    from app.services.chat_turn_transcript import project_chat_approval_receipts
+
     user_id, _ = _resolve_principal(request)
-    thread = await _resolve_owned_thread(thread_id, user_id)
-    messages = await chat_store.list_messages(thread)
+    thread = await _resolve_owned_thread(
+        thread_id, user_id, fresh=settings.INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED
+    )
+    workspace_id = await _chat_continuation_workspace(request, thread)
+    parked_work_item_id = None
+    if (
+        workspace_id
+        and settings.INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED
+        and not thread.archived
+        and not thread.active_work_item_id
+        and thread.updated_at
+    ):
+        parked_work_item_id = await find_parked_chat_stream_id(
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            thread_revision=thread.updated_at,
+        )
+    messages = [
+        chat_store.message_to_dict(m) for m in await chat_store.list_messages(thread)
+    ]
+    if workspace_id:
+        messages = await project_chat_approval_receipts(
+            thread=thread, messages=messages
+        )
     return {
         **chat_store.thread_to_dict(thread, message_count=len(messages)),
-        "messages": [chat_store.message_to_dict(m) for m in messages],
+        **({"parked_work_item_id": parked_work_item_id} if parked_work_item_id else {}),
+        "messages": messages,
     }
 
 
@@ -1251,7 +1287,10 @@ async def download_document_draft(
         load_document_draft_snapshot,
         require_current_document_draft,
     )
-    from app.services.document_drafts import render_document_draft
+    from app.services.document_drafts import (
+        document_draft_filename,
+        render_document_draft,
+    )
     from app.services.release_admission import release_admission
 
     user_id, _ = _resolve_principal(request)
@@ -1280,11 +1319,12 @@ async def download_document_draft(
     # ensure that the exact revision/content did not change while rendering.
     async with release_admission(user_id, workspace_id):
         await require_current_document_draft(draft)
+        filename = document_draft_filename(draft.title, rendered.extension)
         return StreamingResponse(
             iter([rendered.content]),
             media_type=rendered.mime_type,
             headers={
-                "Content-Disposition": f'attachment; filename="draft.{rendered.extension}"',
+                "Content-Disposition": f'attachment; filename="{filename}"',
                 "X-Content-Type-Options": "nosniff",
                 "Cache-Control": "private, no-store",
             },

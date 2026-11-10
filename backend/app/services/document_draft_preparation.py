@@ -329,6 +329,7 @@ async def publish_staged_draft(
     from app.services.app_operations.event_outbox import insert_revision_event
     from app.services.attachment_scanner import get_attachment_scanner
     from app.services.attachment_storage import get_attachment_storage_service
+    from app.services.document_drafts import document_draft_filename
     from app.services.document_render import extension_for, mime_for
     from app.utils.time import utc_now_iso
 
@@ -339,10 +340,12 @@ async def publish_staged_draft(
         raise ResourceNotFoundError(message="Document preparation attempt not found")
     await require_current_document_draft(snapshot)
     storage = get_attachment_storage_service()
-    filename = f"draft.{extension_for(snapshot.format)}"
+    extension = extension_for(snapshot.format)
+    storage_filename = f"draft.{extension}"
+    filename = document_draft_filename(snapshot.title, extension)
     mime_type = mime_for(snapshot.format)
     storage_key = storage.build_storage_key(
-        f"draft-preparation/{snapshot.thread_id}", match.group(1), filename
+        f"draft-preparation/{snapshot.thread_id}", match.group(1), storage_filename
     )
     attempt_identity = {
         "preparation_id": claim.record_id,
@@ -368,7 +371,7 @@ async def publish_staged_draft(
     ):
         raise ResourceConflictError(message="Prepared document bytes changed.")
     verdict = await get_attachment_scanner().scan(
-        content=content, mime_type=mime_type, filename=filename
+        content=content, mime_type=mime_type, filename=storage_filename
     )
     if verdict.status not in {"clean", "skipped"}:
         raise ResourceConflictError(

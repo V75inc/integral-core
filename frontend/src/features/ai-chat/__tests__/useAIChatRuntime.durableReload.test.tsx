@@ -88,10 +88,11 @@ describe("owned durable work after reload", () => {
     await waitFor(() => expect(result.current.runtime.thread.getState().messages.map(message => message.id))
       .toEqual(["accepted-user", "saved-assistant"]));
   });
-  it("attaches once without another user message and reloads the canonical result", async () => {
+  it.each(["active_work_item_id", "parked_work_item_id"] as const)(
+    "reattaches via %s without sending another user message", async (workItemField) => {
     vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
     vi.mocked(aiChatApi.getThread)
-      .mockResolvedValueOnce({...thread, active_work_item_id: "chat-turn:owned", messages: [user]})
+      .mockResolvedValueOnce({...thread, [workItemField]: "chat-turn:owned", messages: [user]})
       .mockResolvedValue({...thread, active_work_item_id: null, messages: [user, assistant]});
     const stream = vi.fn(async function* (_ctx: Parameters<ChatProvider["streamTurn"]>[0]): AsyncIterable<NormalizedEvent> {
       yield {type: "navigation", path: "/tracks/n.Track.collection", thread_id: "t1", workspace_id: "ws1"};

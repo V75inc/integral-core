@@ -81,6 +81,7 @@ import {
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { WatchersControl } from './WatchersControl';
+import { ResidentAssignmentControl } from './ResidentAssignmentControl';
 import {
   planSprintTaskMembershipSync,
   shouldClearTaskSprintLink,
@@ -1704,6 +1705,9 @@ export function EntryDetail({
 
   const headerActions = (
     <div className="flex flex-wrap items-center gap-1.5">
+      {!isEditing && activeWorkspace?.id ? (
+        <ResidentAssignmentControl entryId={entry.id} workspaceId={activeWorkspace.id} />
+      ) : null}
       {canEdit ? (
         <Button
           variant="outline"

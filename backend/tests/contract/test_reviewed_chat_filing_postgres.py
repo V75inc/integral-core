@@ -275,6 +275,8 @@ async def test_approved_file_refuses_changed_bytes_and_source_then_applies_once(
         assert staged["payload"]["expected_size"] == len(content)
         entry_before = await postgres_raw_db.get("node", entry_id)
         file_before = await postgres_raw_db.get("node", attachment_id)
+        assert file_before["context"]["filename"] == "Report.md"
+        assert file_before["context"]["storage_key"].endswith("/draft.md")
 
         original_read = storage.read_attachment
         monkeypatch.setattr(
@@ -328,9 +330,9 @@ async def test_approved_file_refuses_changed_bytes_and_source_then_applies_once(
                 "attachment_ids"
             ]
         )
-        assert (await postgres_raw_db.get("node", attachment_id))["context"][
-            "owner_kind"
-        ] == "entry"
+        filed = (await postgres_raw_db.get("node", attachment_id))["context"]
+        assert filed["owner_kind"] == "entry"
+        assert filed["filename"] == "Report.md"
         edges = await postgres_raw_db.find(
             "edge",
             {

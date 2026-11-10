@@ -208,6 +208,8 @@ def _short_operational_model_name(name: Optional[str], description: str) -> str:
 
 _ALLOWED_MANIFEST_FIELD_KEYS = frozenset(
     {
+        "id",
+        "field_id",
         "key",
         "name",
         "type",
@@ -298,6 +300,11 @@ def _build_manifest_entry_types(
                 "icon": (et.get("icon") or "document"),
                 "fields": fields,
                 "required_tag_groups": et.get("required_tag_groups") or [],
+                **(
+                    {"task_semantics": et["task_semantics"]}
+                    if "task_semantics" in et
+                    else {}
+                ),
             }
         )
     # All-empty input degrades to the starter shape.
@@ -525,7 +532,11 @@ async def apply_entry_types_to_track(
                 "fields": normalized_fields,
                 "base_fields": et.get("base_fields"),
                 **(
-                    {"search_index": et["search_index"]} if "search_index" in et else {}
+                    {
+                        key: et[key]
+                        for key in ("search_index", "task_semantics")
+                        if key in et
+                    }
                 ),
             }
         )

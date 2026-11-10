@@ -62,7 +62,7 @@ class DeferredAppliedOutcome:
     settlement_summary: str = field(repr=False)
 
     def native_resume_input(
-        self, *, accepted_text: str
+        self, *, accepted_text: str, result_links: list[dict[str, str]] | None = None
     ) -> tuple[list[ModelRequest | ModelResponse], DeferredToolResults]:
         """Build a native continuation from the re-admitted user text and result.
 
@@ -83,7 +83,12 @@ class DeferredAppliedOutcome:
                 ]
             )
         )
-        return history, DeferredToolResults(calls={self.tool_call_id: self.result})
+        result = (
+            {**self.result, "result_links": result_links}
+            if result_links
+            else self.result
+        )
+        return history, DeferredToolResults(calls={self.tool_call_id: result})
 
 
 async def _resume_evidence(

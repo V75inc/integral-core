@@ -21,7 +21,7 @@ describe('document drafts', () => {
   });
 
   it('downloads the exact version through the authenticated API', async () => {
-    vi.mocked(aiChatApi.downloadDocumentDraft).mockResolvedValue(new Blob(['draft']));
+    vi.mocked(aiChatApi.downloadDocumentDraft).mockResolvedValue({ blob: new Blob(['draft']), filename: 'Named report.docx' });
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft');
     const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
@@ -30,6 +30,7 @@ describe('document drafts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Download draft' }));
     await waitFor(() => expect(click).toHaveBeenCalledOnce());
     expect(aiChatApi.downloadDocumentDraft).toHaveBeenCalledWith('n.ChatThread.example', 'report', 1);
+    expect(click.mock.instances[0]).toEqual(expect.objectContaining({ download: 'Named report.docx' }));
     expect(create).toHaveBeenCalledOnce();
     expect(revoke).toHaveBeenCalledWith('blob:draft');
   });

@@ -4,9 +4,22 @@ Conditionally registered when AGENTIVE_ENABLED=True.
 Extends the core graph with agent-specific relationships.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from jvspatial.core import Edge
+
+
+class ResidentAssignment(Edge):
+    """Entry → its rooted Workspace's resident execution slot."""
+
+    state: Literal["assigned", "withdrawn"] = "assigned"
+    revision: int = 1
+    resident_provider_id: str = ""
+    sponsor_principal_id: str = ""
+    changed_by_principal_id: str = ""
+    assigned_at: str = ""
+    changed_at: str = ""
+    bidirectional: bool = False
 
 
 class HasChannelIdentity(Edge):

@@ -2425,6 +2425,7 @@ class PydanticAIProvider:
             run_state: dict[str, Any] = {
                 "scheduled_instruction": ctx.system_context or "",
                 "native_deferred_approvals": native_deferred_approvals,
+                "native_resume": ctx.deferred_resume is not None,
                 "turn_progress": TurnProgress(),
                 "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
                 "adaptive_tokens": (
@@ -2453,6 +2454,18 @@ class PydanticAIProvider:
                 "scaffold_coverage_attempted": False,
                 "capability_search_completed": False,
             }
+            if ctx.deferred_resume is not None:
+                from app.services.completion_links import completion_links
+
+                refs = [{"kind": "entry", "id": ctx.deferred_resume.result["entry_id"]}]
+                run_state["completed_resource_refs"] = refs
+                run_state["completed_resource_links"] = await completion_links(
+                    {"resources": refs},
+                    kind="completed",
+                    arguments={},
+                    user_id=ctx.user_id,
+                    workspace_id=ctx.workspace_id,
+                )
             tools = await asyncio.to_thread(
                 build_brokered_tools,
                 scope=scope,
@@ -2516,7 +2529,10 @@ class PydanticAIProvider:
                     if ref.get("kind") == "entry"
                 }
                 return append_completion_links(
-                    output, run_state.get("completed_resource_links") or [], entry_ids
+                    output,
+                    run_state.get("completed_resource_links") or [],
+                    entry_ids,
+                    repair_destination_links=run_state.get("native_resume", False),
                 )
 
         except BaseException:
@@ -2526,7 +2542,10 @@ class PydanticAIProvider:
         try:
             if ctx.deferred_resume is not None:
                 history, run_state["deferred_tool_results"] = (
-                    ctx.deferred_resume.native_resume_input(accepted_text=ctx.text)
+                    ctx.deferred_resume.native_resume_input(
+                        accepted_text=ctx.text,
+                        result_links=run_state["completed_resource_links"],
+                    )
                 )
                 run_state["user_prompt"] = None
             else:

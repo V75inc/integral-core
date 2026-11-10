@@ -731,3 +731,85 @@ def test_standalone_track_extension_reference_defers_app_catalogue_check():
     ]
     canonical = compile_canonical_manifest(manifest=manifest)
     assert canonical["track"]["views"][0]["extension_view_key"] == "external_panel"
+
+
+def _task_manifest(semantics):
+    raw = deepcopy(V2_TRACK_MANIFEST_BASE)
+    raw["track"]["entry_types"] = [
+        {
+            "name": "Work request",
+            "fields": [
+                {"id": "task-outcome", "key": "result_needed", "type": "text"},
+                {"id": "review-by", "key": "review_by", "type": "date"},
+                {
+                    "id": "blocks",
+                    "key": "blocks",
+                    "type": "relation",
+                    "relation": {"target": "entry", "many": True},
+                },
+            ],
+            "task_semantics": semantics,
+        }
+    ]
+    return raw
+
+
+def test_task_semantics_survives_compile_and_materialization_after_key_rename():
+    from app.services.operational_model_merge import _form_schema_from_entry_type_spec
+
+    semantics = {
+        "version": 1,
+        "outcome": {"source": "field", "field_id": "task-outcome"},
+        "due_date_field_id": "review-by",
+        "dependencies_field_id": "blocks",
+    }
+    raw = _task_manifest(semantics)
+    raw["track"]["entry_types"][0]["fields"][0]["key"] = "desired_result"
+    compiled = compile_canonical_manifest(manifest=raw)
+    spec = compiled["track"]["entry_types"][0]
+    assert spec["task_semantics"] == semantics
+    materialized = _form_schema_from_entry_type_spec(spec)
+    assert materialized["task_semantics"] == semantics
+    assert materialized["fields"][0]["key"] == "desired_result"
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"version": True},
+        {"version": 2},
+        {"outcome": {"source": "field", "field_id": "result_needed"}},
+        {"outcome": {"source": "field", "field_id": "review-by"}},
+        {"due_date_field_id": "task-outcome"},
+        {"dependencies_field_id": "review-by"},
+        {"execution_principal": "system"},
+    ],
+)
+def test_task_semantics_rejects_ambiguous_fields_and_execution_grants(patch):
+    raw = _task_manifest({"version": 1, "outcome": {"source": "title"}, **patch})
+    with pytest.raises(BadRequestError, match="task_semantics"):
+        compile_canonical_manifest(manifest=raw)
+
+
+def test_task_semantics_refuses_ambiguous_field_identity():
+    raw = _task_manifest(
+        {"version": 1, "outcome": {"source": "field", "field_id": "task-outcome"}}
+    )
+    raw["track"]["entry_types"][0]["fields"].append(
+        {"id": "task-outcome", "key": "second_outcome", "type": "text"}
+    )
+    with pytest.raises(BadRequestError, match="task_semantics"):
+        compile_canonical_manifest(manifest=raw)
+
+
+def test_task_dependencies_cannot_target_tracks():
+    raw = _task_manifest(
+        {
+            "version": 1,
+            "outcome": {"source": "title"},
+            "dependencies_field_id": "blocks",
+        }
+    )
+    raw["track"]["entry_types"][0]["fields"][2]["relation"]["target"] = "track"
+    with pytest.raises(BadRequestError, match="dependencies must reference an Entry"):
+        compile_canonical_manifest(manifest=raw)

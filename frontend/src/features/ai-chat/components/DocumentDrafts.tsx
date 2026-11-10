@@ -55,14 +55,14 @@ export function DocumentDraftCard({ draft }: { draft: DocumentDraft }) {
     setBusy(true);
     setError('');
     try {
-      const blob = await aiChatApi.downloadDocumentDraft(draft.threadId, draft.key, draft.version);
+      const { blob, filename } = await aiChatApi.downloadDocumentDraft(draft.threadId, draft.key, draft.version);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       // Control characters are intentionally excluded from download filenames.
       // eslint-disable-next-line no-control-regex
       const base = draft.title.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 100) || 'Document';
-      link.download = `${base}.${draft.format === 'markdown' ? 'md' : draft.format}`;
+      link.download = filename ?? `${base}.${draft.format === 'markdown' ? 'md' : draft.format}`;
       link.click();
       URL.revokeObjectURL(url);
     } catch {
