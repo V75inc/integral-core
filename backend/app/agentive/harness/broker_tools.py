@@ -261,7 +261,9 @@ def _make_handler(
                     return ToolReturn(
                         result,
                         metadata={
-                            RETRIEVAL_EVIDENCE: retrieval_result_evidence(result)
+                            RETRIEVAL_EVIDENCE: retrieval_result_evidence(
+                                result, tool_name=capability_name
+                            )
                         },
                     )
             if capability_op_class != "read" and effective_op_class == "read":

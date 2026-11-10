@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS, REFERENCES
@@ -277,3 +279,214 @@ async def test_tag_failure_rolls_back_the_link():
     assert fresh.record_revision == 1
     linked = await fresh.nodes(edge=[REFERENCES], direction="out", node=["Entry"])
     assert linked == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("same_request", [False, True])
+async def test_parallel_approved_appends_serialize_at_the_entry_revision(
+    monkeypatch, same_request
+):
+    if not graph_transaction_available():
+        pytest.skip("requires PostgreSQL row locks")
+
+    from app.services import filing_facet
+
+    world = await _world()
+    entry = world["ada"]
+    preflight = filing_facet._resolve_relations
+    both_ready = asyncio.Barrier(2)
+
+    async def meet_after_revision_check(*args):
+        result = await preflight(*args)
+        await both_ready.wait()
+        return result
+
+    monkeypatch.setattr(filing_facet, "_resolve_relations", meet_after_revision_check)
+
+    async def append(text):
+        return await apply_filing_facet(
+            world["user"].id,
+            _base(
+                entry,
+                mode="append",
+                append_field="body",
+                text=text,
+                idempotency_key=text,
+            ),
+        )
+
+    second_text = "closure one" if same_request else "closure two"
+    first, second = await asyncio.wait_for(
+        asyncio.gather(append("closure one"), append(second_text)), timeout=15
+    )
+    if same_request:
+        assert first["filed"] and second["filed"]
+        assert sum(bool(result.get("retry")) for result in (first, second)) == 1
+    else:
+        assert sum(result["filed"] for result in (first, second)) == 1
+        assert {first.get("error_code"), second.get("error_code")} == {
+            None,
+            "record_revision_conflict",
+        }
+    fresh = await Entry.find_one({"id": entry.id})
+    assert fresh.record_revision == entry.record_revision + 1
+    assert (
+        sum((fresh.body or "").count(text) for text in ("closure one", "closure two"))
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_reviewed_append_checks_supporting_entry_at_application():
+    from app.agentive.tooling.stagers_filing import _stage_existing_entry
+
+    world = await _world()
+    goal, source = world["ada"], world["invoice"]
+    payload = _base(
+        goal,
+        mode="append",
+        append_field="body",
+        text="Goal achieved",
+        evidence_revisions={source.id: source.record_revision},
+        idempotency_key="goal-closure",
+    )
+    staged = await _stage_existing_entry(payload, mode="append", text=payload["text"])
+    assert staged["payload"]["evidence_revisions"] == payload["evidence_revisions"]
+    source.record_revision += 1
+    await source.save()
+    denied = await apply_filing_facet(world["user"].id, staged["payload"])
+    fresh = await Entry.find_one({"id": goal.id})
+    assert fresh.record_revision == goal.record_revision
+    if not graph_transaction_available():
+        assert denied["error_code"] == "transaction_unavailable"
+        return
+    assert denied["error_code"] == "record_revision_conflict"
+
+    refreshed = {**payload, "evidence_revisions": {source.id: source.record_revision}}
+    result = await apply_filing_facet(world["user"].id, refreshed)
+    assert result["filed"] is True, result
+    source.record_revision += 1
+    await source.save()
+    replay = await apply_filing_facet(world["user"].id, refreshed)
+    assert replay["retry"] is True
+    assert (await Entry.find_one({"id": goal.id})).body.count("Goal achieved") == 1
+
+
+@pytest.mark.asyncio
+async def test_typed_goal_closure_requires_exact_declared_source_and_value():
+    if not graph_transaction_available():
+        pytest.skip("requires PostgreSQL evidence locks")
+
+    from app.agentive.services.routine_task_watch import read_task_watch_snapshot
+    from app.models.edges import IS_OF_TYPE
+    from app.models.nodes import EntryType
+    from app.services.app_graph import ensure_track_attached_operational_model
+
+    world = await _world()
+    goal, source = world["ada"], world["invoice"]
+
+    async def publish_type(entry, schema):
+        track = await Track.find_one({"id": entry.track_id})
+        profile = await ensure_track_attached_operational_model(track)
+        entry_type = await EntryType.create(
+            track_id=track.id, name="Fixture type", form_schema=schema
+        )
+        await profile.connect(entry_type, edge=CONTAINS)
+        entry.type_id = entry_type.id
+        await entry.save()
+        await entry.connect(entry_type, edge=IS_OF_TYPE)
+
+    await publish_type(
+        goal,
+        {
+            "fields": [
+                {
+                    "id": "approval-source",
+                    "key": "approval_record",
+                    "type": "relation",
+                    "relation": {"target": "entry"},
+                }
+            ],
+            "goal_semantics": {
+                "version": 1,
+                "outcome": {"source": "title"},
+                "criteria": [
+                    {
+                        "key": "approval",
+                        "evidence_relation_field_id": "approval-source",
+                        "predicate": {
+                            "kind": "equals",
+                            "field_id": "approval",
+                            "value": True,
+                        },
+                    },
+                    {
+                        "key": "count",
+                        "evidence_relation_field_id": "approval-source",
+                        "predicate": {"kind": "recorded_count", "field_id": "count"},
+                    },
+                ],
+            },
+        },
+    )
+    await publish_type(
+        source,
+        {
+            "fields": [
+                {"id": "approval", "key": "renamed_approval", "type": "boolean"},
+                {"id": "count", "key": "final_count", "type": "number"},
+            ]
+        },
+    )
+    goal.custom_fields["approval_record"] = source.id
+    await goal.save()
+    source.custom_fields.update(renamed_approval="true", final_count=0)
+    await source.save()
+    await goal.connect(source, edge=REFERENCES, field_key="approval_record")
+    payload = _base(
+        goal,
+        mode="append",
+        append_field="body",
+        text="Reviewed closure",
+        close_goal=True,
+        evidence_revisions={source.id: source.record_revision},
+        idempotency_key="typed-goal-closure",
+    )
+    user_id = world["user"].id
+    workspace_id = world["workspace"].id
+
+    async def watch():
+        return await read_task_watch_snapshot(user_id, workspace_id, goal.id, goal=True)
+
+    initial = await watch()
+    assert initial is not None and initial[1].startswith("goal:")
+    source.body = "Unrelated body edit"
+    source.record_revision += 1
+    await source.save()
+    assert await watch() == initial
+    payload["evidence_revisions"][source.id] = source.record_revision
+
+    assert (await apply_filing_facet(user_id, payload))[
+        "error_code"
+    ] == "goal_criteria_unmet"
+    assert (await Entry.find_one({"id": goal.id})).status == "active"
+
+    source.custom_fields.update(renamed_approval=True, final_count=-1)
+    source.record_revision += 1
+    await source.save()
+    payload["evidence_revisions"][source.id] = source.record_revision
+    assert (await apply_filing_facet(user_id, payload))[
+        "error_code"
+    ] == "goal_criteria_unmet"
+    source.custom_fields["final_count"] = 0
+    source.record_revision += 1
+    await source.save()
+    payload["evidence_revisions"][source.id] = source.record_revision
+    ready = await watch()
+    assert ready is not None and ready != initial
+    assert (await apply_filing_facet(user_id, payload))["filed"] is True
+    assert (await apply_filing_facet(user_id, payload))["retry"] is True
+    fresh = await Entry.find_one({"id": goal.id})
+    assert fresh.status == "completed"
+    assert await watch() != ready
+    assert fresh.body.count("Reviewed closure") == 1

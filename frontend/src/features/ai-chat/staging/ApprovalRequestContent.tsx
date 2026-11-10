@@ -1,3 +1,4 @@
+import { RelationValue } from '../../../components/entries/relations/RelationValue';
 import { MarkdownContent } from '../../../components/ui/MarkdownContent';
 import { Text } from '../../../ui';
 import { describeCron } from '../../../utils/scheduleCron';
@@ -12,7 +13,7 @@ export function approvalRequestSentence(summary: string): string {
   const clean = summary.trim().replace(/^File content as /, 'Save ');
   if (!clean) return 'Integral would like to make a change. Review the details before approving.';
   if (clean.startsWith('New routine:')) return 'This will schedule an automatic update in this chat.';
-  const verb = /^(Create|Update|Delete|Remove|Add|Move|Attach|Detach|Set|Install|Uninstall|Publish|Revise|Revoke|Send|Run|Import|Export|Provision|Archive|Restore|Apply|Change|Save|Schedule|Cancel|File|Rename|Link|Unlink|Merge|Split)\b/.exec(clean);
+  const verb = /^(Create|Update|Delete|Remove|Add|Move|Attach|Detach|Set|Install|Uninstall|Publish|Revise|Revoke|Send|Run|Import|Export|Provision|Archive|Restore|Close|Apply|Change|Save|Schedule|Cancel|File|Rename|Link|Unlink|Merge|Split)\b/.exec(clean);
   if (!verb) return clean;
   const action = verb[0].toLowerCase() + clean.slice(verb[0].length);
   return `This will ${action}${/[.!?]$/.test(action) ? '' : '.'}`;
@@ -31,9 +32,10 @@ function RoutineRequest({ staged }: { staged: Review }) {
     : ' It will continue until you pause or stop it.';
   const taskWatch = change.delivery_mode === 'task_watch';
   const assignmentDigest = change.delivery_mode === 'assignment_digest';
+  const goalWatch = taskWatch && change.watch_goal === true;
   const watchEntry = typeof change.watch_entry_id === 'string' ? change.watch_entry_id : '';
   const delivery = taskWatch
-    ? 'Integral will check the watched task'
+    ? goalWatch ? 'Integral will check the watched goal' : 'Integral will check the watched task'
     : assignmentDigest
       ? 'Integral will check for assignments ready for review'
       : change.delivery_mode === 'reminder'
@@ -46,7 +48,9 @@ function RoutineRequest({ staged }: { staged: Review }) {
       {delivery} {cadence.charAt(0).toLowerCase() + cadence.slice(1)}.{limit}
     </Text> : null}
     {taskWatch && watchEntry ? <Text as="p" variant="body-sm">
-      Watched Entry {watchEntry}. This routine posts only when the task changes and cannot edit the Entry. It checks the declared outcome, acceptance criteria, due date, dependencies, and assignment.
+      Watched Entry {watchEntry}. {goalWatch
+        ? 'This routine reports changes to the goal outcome, status, or linked criterion evidence. It cannot edit or close the goal.'
+        : 'This routine posts only when the task changes and cannot edit the Entry. It checks the declared outcome, acceptance criteria, due date, dependencies, and assignment.'}
     </Text> : null}
     {assignmentDigest && <Text as="p" variant="body-sm">
       Integral will post up to three new suggestions from assignments you sponsored in this workspace. It cannot prepare or edit tasks from this routine.
@@ -123,6 +127,28 @@ function ReviewChatFile({ file }: { file: ChatFileReview }) {
   </div>;
 }
 
+function GoalClosureEvidence({ staged, onNavigate }: { staged: Review; onNavigate?: () => void }) {
+  const change = staged.diff_machine;
+  if (staged.kind !== 'file_content' || change.op !== staged.kind || change.close_goal !== true) return null;
+  const evidence = change.evidence_revisions;
+  const rows = evidence && typeof evidence === 'object' && !Array.isArray(evidence)
+    ? Object.entries(evidence).filter(([id, revision]) =>
+      /^n\.Entry\.[\w-]+$/.test(id)
+      && typeof revision === 'number' && Number.isSafeInteger(revision) && revision > 0)
+    : [];
+  return <div className="flex flex-col gap-2">
+    <Text as="p" variant="body-sm">
+      Approval marks the goal completed and adds the closure note only if every published criterion passes against the reviewed Entry revisions.
+    </Text>
+    {rows.length > 0 && <ul aria-label="Supporting Entry revisions" className="space-y-1">
+      {rows.map(([id, revision]) => <li key={id} className="flex flex-wrap items-center gap-2">
+        <RelationValue value={id} relation={{ target: 'entry' }} onNavigate={onNavigate} />
+        <Text as="span" variant="body-sm" tone="muted">Revision {String(revision)}</Text>
+      </li>)}
+    </ul>}
+  </div>;
+}
+
 /** Shared by chat and Inbox: one prose request, followed by inspectable evidence. */
 export function ApprovalRequestContent({ staged, onNavigate }: {
   staged: Review;
@@ -143,6 +169,7 @@ export function ApprovalRequestContent({ staged, onNavigate }: {
       {approvalRequestSentence(staged.summary)}
     </Text>
     <RoutineRequest staged={staged} />
+    <GoalClosureEvidence staged={staged} onNavigate={onNavigate} />
     <FilePreview staged={staged} />
     {chatFileReviews(staged).map((file, index) => <ReviewChatFile key={`${file.attachmentId}-${index}`} file={file} />)}
     {description ? <Text as="p" variant="body-sm" tone="muted" className="whitespace-pre-wrap break-words">{description}</Text> : null}

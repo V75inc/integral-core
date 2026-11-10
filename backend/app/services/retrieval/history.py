@@ -16,11 +16,17 @@ from app.models.nodes import Entry
 from app.schemas.policy import Resource, Subject
 from app.schemas.retrieve import RetrievedEntry
 from app.services.policy_engine import evaluate
-from app.services.resource_location import DATA_APP_STATES, locate_resource
+from app.services.resource_location import (
+    DATA_APP_STATES,
+    ResourceLocation,
+    locate_resource,
+)
 from app.services.retrieval.indexing import index_document
 from app.services.workspace_permissions import can_access_workspace
 
-RETRIEVAL_TOOLS = frozenset({"integral_query", "integral_search_cross_track"})
+RETRIEVAL_TOOLS = frozenset(
+    {"integral_query", "integral_search_cross_track", "integral_resolve_entry"}
+)
 RETRIEVAL_EVIDENCE = "integral_retrieval_evidence_v1"
 _MAX_RETAINED_ENTRIES = 32
 _MAX_RETAINED_PASSAGES = 128
@@ -44,16 +50,32 @@ class EntryEvidence(BaseModel):
     track_id: str = Field(min_length=1, max_length=255)
     revision: int = Field(ge=1, strict=True)
     title_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
-    passages: tuple[PassageEvidence, ...] = Field(
-        min_length=1, max_length=_MAX_RETAINED_PASSAGES
-    )
+    passages: tuple[PassageEvidence, ...] = Field(max_length=_MAX_RETAINED_PASSAGES)
 
 
 _EVIDENCE = TypeAdapter(list[EntryEvidence])
 
 
-def retrieval_result_evidence(content: Any) -> list[dict] | None:
+def retrieval_result_evidence(
+    content: Any, *, tool_name: str | None = None
+) -> list[dict] | None:
     """Bind clearable results to canonical offsets without retaining source text."""
+    if tool_name == "integral_resolve_entry":
+        entry = content.get("entry") if isinstance(content, dict) else None
+        if not isinstance(entry, dict):
+            return None
+        try:
+            row = EntryEvidence(
+                entry_id=entry.get("id"),
+                track_id=entry.get("track_id"),
+                revision=entry.get("record_revision"),
+                passages=(),
+            )
+        except ValidationError:
+            return None
+        # Rich detail can include projections outside the Entry revision.
+        # The stamp protects active requests but cannot prove durable reuse.
+        return [row.model_dump(mode="json")]
     results = content.get("results") if isinstance(content, dict) else None
     if not isinstance(results, list) or len(results) > _MAX_RETAINED_ENTRIES:
         return None
@@ -114,7 +136,9 @@ def retained_retrieval_evidence(
                     continue
                 metadata = part.metadata if isinstance(part.metadata, dict) else {}
                 if isinstance(part.content, dict):
-                    raw = retrieval_result_evidence(part.content)
+                    raw = retrieval_result_evidence(
+                        part.content, tool_name=part.tool_name
+                    )
                     if (
                         RETRIEVAL_EVIDENCE in metadata
                         and raw != metadata[RETRIEVAL_EVIDENCE]
@@ -134,6 +158,8 @@ def retained_retrieval_evidence(
             except ValidationError:
                 return None
             for row in batch:
+                if not row.passages and not allow_unproven_tool_results:
+                    return None
                 if row not in rows:
                     rows[row] = None
                     count += len(row.passages)
@@ -174,9 +200,9 @@ async def _evidence_is_current(
     subject = Subject(kind="human", id=principal_id)
     graph = get_default_context()
     documents: dict[str, dict] = {}
+    live_entries: dict[str, tuple[Entry, ResourceLocation]] = {}
     for row in rows:
-        document = documents.get(row.entry_id)
-        if document is None:
+        if row.entry_id not in live_entries:
             records: dict[str, dict] = {}
             location = await locate_resource(
                 "entry",
@@ -201,7 +227,20 @@ async def _evidence_is_current(
             if not decision.allowed:
                 return False
             entry = await graph._deserialize_entity(Entry, record)
-            document = await index_document(entry, location=location) if entry else None
+            if entry is None:
+                return False
+            live_entries[row.entry_id] = (entry, location)
+        entry, location = live_entries[row.entry_id]
+        if not row.passages:
+            if (
+                location.track_id != row.track_id
+                or entry.record_revision != row.revision
+            ):
+                return False
+            continue
+        document = documents.get(row.entry_id)
+        if document is None:
+            document = await index_document(entry, location=location)
             if not document:
                 return False
             documents[row.entry_id] = document

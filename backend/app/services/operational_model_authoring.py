@@ -301,9 +301,11 @@ def _build_manifest_entry_types(
                 "fields": fields,
                 "required_tag_groups": et.get("required_tag_groups") or [],
                 **(
-                    {"task_semantics": et["task_semantics"]}
-                    if "task_semantics" in et
-                    else {}
+                    {
+                        key: et[key]
+                        for key in ("task_semantics", "goal_semantics")
+                        if key in et
+                    }
                 ),
             }
         )
@@ -534,7 +536,7 @@ async def apply_entry_types_to_track(
                 **(
                     {
                         key: et[key]
-                        for key in ("search_index", "task_semantics")
+                        for key in ("search_index", "task_semantics", "goal_semantics")
                         if key in et
                     }
                 ),

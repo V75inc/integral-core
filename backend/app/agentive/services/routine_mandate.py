@@ -40,6 +40,13 @@ def routine_mandate_fingerprint(routine: Any) -> str:
             if isinstance(routine, dict)
             else routine.watch_entry_id
         )
+        fingerprint = (
+            routine.get("watch_fingerprint", "")
+            if isinstance(routine, dict)
+            else routine.watch_fingerprint
+        )
+        if fingerprint.startswith("goal:"):
+            fields["watch_goal"] = True
     if fields["delivery_mode"] in DURABLE_OBSERVATION_MODES:
         quiet_hours = (
             routine.get("quiet_hours")

@@ -1303,9 +1303,13 @@ export function useAIChatRuntime(
     [updateSession],
   );
 
-  // Lazy-load transcript when switching to a thread without a warm cache.
+  // Render the cached transcript immediately, but revalidate on selection:
+  // a persisted background message can arrive while no surface is listening.
+  const lastTranscriptSelection = useRef<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    const selectionChanged = lastTranscriptSelection.current !== activeThreadId;
+    lastTranscriptSelection.current = activeThreadId;
     if (!activeThreadId || !provider.serverPersisted) {
       return () => {
         cancelled = true;
@@ -1317,14 +1321,14 @@ export function useAIChatRuntime(
         cancelled = true;
       };
     }
-    // Skip fetch when this thread is streaming or already cached.
+    // The local stream owns its transcript while it is running.
     if (streamingThreadIds.includes(activeThreadId)) {
       return () => {
         cancelled = true;
       };
     }
     const cached = peekSessions()[activeThreadId];
-    if (cached && cached.lastLoadedAt > 0) {
+    if (cached && cached.lastLoadedAt > 0 && !selectionChanged) {
       return () => {
         cancelled = true;
       };
@@ -1333,7 +1337,7 @@ export function useAIChatRuntime(
       // `skip` = deferred (streaming / in-flight) — must NOT stamp loaded, or a
       // later server-only apply drops the cold-send draft and a post-stream
       // reload never runs.
-      if (cancelled || result !== "error") return;
+      if (cancelled || result !== "error" || cached?.lastLoadedAt) return;
       // On the initial-load path (unlike push-refresh) a failed fetch must
       // still resolve the cache so we don't retry-loop on every render.
       if (activeThreadIdRef.current === activeThreadId) {
@@ -1405,10 +1409,17 @@ export function useAIChatRuntime(
     // locally streaming turn; loadThread performs the normal merge guards.
     const onReconnect = () => {
       const threadId = activeThreadIdRef.current;
-      if (threadId && !threadId.startsWith("local-")) void loadThread(threadId);
+      if (threadId && !threadId.startsWith("local-") && !peekStreamingThreadIds().includes(threadId)) {
+        void loadThread(threadId);
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") onReconnect();
     };
     window.addEventListener("integral:agent-events-reconnected", onReconnect);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("integral:thread-stream-update", handler);
       window.removeEventListener("integral:agent-events-reconnected", onReconnect);
     };

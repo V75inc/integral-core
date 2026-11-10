@@ -56,6 +56,15 @@ If the user asks for recurring suggestions, propose `delivery_mode="assignment_d
 with their cadence, no Entry target, and no write scope. It resumes the workspace
 scan at the next scheduled check and posts only new eligible suggestions to this chat.
 
+## Watch a typed goal for changes
+
+For a published goal, use the same read-only `task_watch` delivery mode
+with `watch_goal` set to true and the exact goal Entry in `watch_entry_id`.
+The alert links to the goal when its outcome, status, published criteria,
+or linked criterion values change. The alert does not state which value
+changed. Tell the user what the watch can report and leave its write scope
+empty. Keep the goal separate from the recurring check.
+
 ## Watch a task for changes
 
 When the user asks to be told only when a particular task changes, resolve the

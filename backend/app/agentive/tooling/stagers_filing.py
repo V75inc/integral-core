@@ -216,6 +216,7 @@ async def _stage_existing_entry(
 ) -> Dict[str, Any]:
     """Stage an update or append against one existing entry. One facet, one card."""
     from app.models.nodes import Entry
+    from app.services.filing_facet import filing_evidence_revisions
 
     entry_id = str(a.get("entry_id") or "").strip()
     if not entry_id:
@@ -244,6 +245,10 @@ async def _stage_existing_entry(
             message="text is required — it is the passage appended once.",
             filing_status="error",
         )
+    try:
+        evidence = filing_evidence_revisions(a.get("evidence_revisions"), entry_id)
+    except ValueError as exc:
+        return _no_stage_candidates(message=str(exc), filing_status="error")
     entry = await Entry.get(entry_id)
     if entry is None:
         return _no_stage_candidates(
@@ -268,7 +273,24 @@ async def _stage_existing_entry(
         "entry_type_key": a.get("entry_type_key") or a.get("type_hint"),
         "replace_body": bool(a.get("replace_body")),
     }
-    verb = "Append to" if mode == "append" else "Update"
+    if evidence:
+        payload["evidence_revisions"] = evidence
+    close_goal = a.get("close_goal") is True
+    if close_goal:
+        if (
+            mode != "append"
+            or payload["append_field"] != "body"
+            or not evidence
+            or any(
+                payload.get(key) is not None for key in ("fields", "tags", "relations")
+            )
+        ):
+            return _no_stage_candidates(
+                message="Closing a goal requires a body note and its supporting Entry revisions.",
+                filing_status="error",
+            )
+        payload["close_goal"] = True
+    verb = "Close goal" if close_goal else "Append to" if mode == "append" else "Update"
     summary = f"{verb} “{entry.title or entry.id}”"
     lines = [f"**{verb}** *{entry.title or entry.id}*", ""]
     if fields:
@@ -276,6 +298,8 @@ async def _stage_existing_entry(
         lines.extend(_format_fields_for_diff(fields))
     if relations:
         lines.append(f"- **Links:** {len(relations)}")
+    if evidence:
+        lines.append(f"- **Supporting Entries checked at approval:** {len(evidence)}")
     if a.get("tags") is not None:
         lines.append(f"- **Tags:** {a.get('tags')}")
     if mode == "append":
@@ -330,6 +354,11 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     if mode in ("update", "append"):
         return await _stage_existing_entry(a, mode=mode, text=text)
 
+    if a.get("evidence_revisions") is not None or a.get("close_goal") is True:
+        return _no_stage_candidates(
+            message="Supporting evidence is available only for updates and appends.",
+            filing_status="error",
+        )
     title = str(a.get("title") or "")
     if is_cleanup_instruction(text) or is_cleanup_instruction(title):
         return _no_stage_candidates(

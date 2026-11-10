@@ -1003,6 +1003,8 @@ class IntegralToolResultCompaction(ClearToolResults):
             for key in ("id", "title", "track_id", "action_url", "url")
             if isinstance(entry.get(key), str)
         }
+        if type(entry.get("record_revision")) is int:
+            identity["record_revision"] = entry["record_revision"]
         return replace(
             part,
             content={
@@ -1213,14 +1215,37 @@ class IntegralToolResultCompaction(ClearToolResults):
             schema_bytes += size
         # Small current-task facts share one byte/count budget across all read
         # transports. Per-call classification still protects mixed effects.
+        from app.services.retrieval.history import RETRIEVAL_EVIDENCE
+
         retained_facts: set[tuple[int, int]] = set()
+        seen_entries: set[str] = set()
         fact_bytes = 0
         for key in reversed(active_reads):
-            size = len(
-                json.dumps(messages[key[0]].parts[key[1]].content, default=str).encode(
-                    "utf-8"
+            part = messages[key[0]].parts[key[1]]
+            if key in identities:
+                # Full detail is useful only within the current task and with
+                # a live-checkable receipt. Do not spend the fact budget on
+                # repeated reads or evidence preceding a possible write.
+                proof = (
+                    part.metadata.get(RETRIEVAL_EVIDENCE)
+                    if isinstance(part.metadata, dict)
+                    else None
                 )
-            )
+                entry = (
+                    part.content.get("entry")
+                    if isinstance(part.content, dict)
+                    else None
+                )
+                entry_id = entry.get("id") if isinstance(entry, dict) else None
+                if (
+                    key <= last_effect
+                    or not proof
+                    or not isinstance(entry_id, str)
+                    or entry_id in seen_entries
+                ):
+                    continue
+                seen_entries.add(entry_id)
+            size = len(json.dumps(part.content, default=str).encode("utf-8"))
             if size > 4096 or fact_bytes + size > self.active_fact_bytes:
                 continue
             if len(retained_facts) >= self.active_fact_pairs:
@@ -1257,6 +1282,8 @@ class IntegralToolResultCompaction(ClearToolResults):
                         part = self._batch_identity_preview(part)
                     elif key in batch_identities:
                         part = replace(part, content=self.placeholder)
+                    elif key in retained_facts and key in identities:
+                        pass
                     elif key in retained_identities and key not in recent:
                         part = self._identity_preview(part)
                     elif key in retained_facts:

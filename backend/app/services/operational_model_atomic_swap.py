@@ -497,7 +497,7 @@ async def _sync_entry_type_form_schemas(
             "base_fields": dict(spec.get("base_fields") or {}),
             "required_tag_groups": list(spec.get("required_tag_groups") or []),
         }
-        for metadata_key in ("search_index", "task_semantics"):
+        for metadata_key in ("search_index", "task_semantics", "goal_semantics"):
             if metadata_key in spec:
                 new_form_schema[metadata_key] = spec[metadata_key]
         if et.form_schema != new_form_schema:

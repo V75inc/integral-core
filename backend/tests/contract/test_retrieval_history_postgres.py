@@ -21,10 +21,12 @@ from app.agentive.harness.contracts import HarnessExecutionScope, ResolvedModelR
 from app.agentive.harness.litellm_model import build_litellm_sdk_model
 from app.agentive.harness.model_errors import NativeModelRequestError
 from app.agentive.harness.pydantic_ai_compat import (
+    IntegralToolResultCompaction,
     build_integral_history_compaction,
     build_integral_working_context,
     classify_integral_harness_exception,
 )
+from app.api.entries import get_entry
 from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF
 from app.models.nodes import Entry
 from app.services.permissions import get_user_node
@@ -36,6 +38,7 @@ from app.services.retrieval.history import (
 )
 from app.services.retrieval.indexing import index_document
 from tests.contract.test_staging_command_apply_postgres import proposal
+from tests.test_model_api_authority import request_for
 
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
@@ -345,3 +348,67 @@ async def test_physical_retry_rechecks_retrieval_access(
             (2, "dispatch_intent"),
             (2, "failed"),
         ]
+
+
+async def test_entry_detail_is_live_checked_and_excluded_from_restored_history(
+    postgres_raw_db,
+):
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        _, workspace, track, _ = await proposal()
+        auth, _, _, _ = await proposal()
+        user = await get_user_node(auth.id)
+        await user.connect(workspace, edge=IS_MEMBER_OF, role="guest")
+        entry = await Entry.create(track_id=track.id, title="Handover note")
+        await track.connect(entry, edge=CONTAINS)
+        await user.connect(entry, edge=COLLABORATES_ON, role="viewer")
+
+        tool_name = "integral_resolve_entry"
+        result = await get_entry(request_for(user.id, workspace.id), entry.id)
+        proof = retrieval_result_evidence(result, tool_name=tool_name)
+        assert proof is not None
+        histories = [
+            [
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name,
+                            content,
+                            "detail",
+                            metadata={RETRIEVAL_EVIDENCE: proof},
+                        )
+                    ]
+                )
+            ]
+            for content in (result, "Cleared result")
+        ]
+        detail = histories[0][0].parts[0]
+        preview = IntegralToolResultCompaction(max_tokens=1)._identity_preview(detail)
+        assert preview.content["identity_preview"] is True
+        histories.append([ModelRequest(parts=[preview])])
+        # A pre-upgrade checkpoint has no private receipt, but the tool
+        # identity alone is enough to keep its derived content out of restore.
+        histories.append(
+            [ModelRequest(parts=[ToolReturnPart(tool_name, result, "old")])]
+        )
+
+        async def is_current(history, *, active=False):
+            return await retained_retrieval_is_current(
+                history,
+                principal_id=user.id,
+                workspace_id=workspace.id,
+                allow_unproven_tool_results=active,
+            )
+
+        for history in histories:
+            assert await is_current(history, active=True)
+            assert not await is_current(history)
+        entry.record_revision += 1
+        await entry.save()
+        for history in histories:
+            assert not await is_current(history, active=True)
+
+        refreshed = await get_entry(request_for(user.id, workspace.id), entry.id)
+        history = [ModelRequest(parts=[ToolReturnPart(tool_name, refreshed, "fresh")])]
+        assert await is_current(history, active=True)
+        await user.disconnect(entry, edge_type=COLLABORATES_ON)
+        assert not await is_current(history, active=True)

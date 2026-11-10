@@ -133,3 +133,38 @@ describe('file approval preview', () => {
     expect(screen.getByText(/content preview is not available/)).toBeVisible();
   });
 });
+
+it('shows the completion transition and bound evidence revisions for a typed goal', () => {
+  render(<ApprovalRequestContent staged={{
+    kind: 'file_content',
+    summary: 'Close goal “Rehearsal readiness”',
+    diff_human: 'Narrated source revision 99',
+    diff_machine: {
+      op: 'file_content',
+      mode: 'append',
+      close_goal: true,
+      evidence_revisions: { 'n.Entry.checklist': 5, 'n.Entry.handover': 7, 'n.Entry.invalid': '9' },
+    },
+  }} />);
+  expect(screen.getByText('This will close goal “Rehearsal readiness”.')).toBeVisible();
+  expect(screen.getByText(/only if every published criterion passes/)).toBeVisible();
+  const evidence = screen.getByRole('list', { name: 'Supporting Entry revisions' });
+  expect(evidence).toHaveTextContent('n.Entry.checklistRevision 5');
+  expect(evidence).toHaveTextContent('n.Entry.handoverRevision 7');
+  expect(evidence).not.toHaveTextContent('Revision 99');
+  expect(evidence).not.toHaveTextContent('n.Entry.invalid');
+});
+
+it('explains the read-only scope of a typed-goal watch', () => {
+  render(<ApprovalRequestContent staged={{
+    kind: 'routine_task_create',
+    summary: 'New routine: Observe the goal',
+    diff_human: '',
+    diff_machine: {
+      op: 'routine_task_create', delivery_mode: 'task_watch', watch_goal: true,
+      watch_entry_id: 'n.Entry.goal', cron: '0 9 * * *', timezone: 'UTC',
+    },
+  }} />);
+  expect(screen.getByText(/Integral will check the watched goal/)).toBeVisible();
+  expect(screen.getByText(/It cannot edit or close the goal/)).toBeVisible();
+});

@@ -88,6 +88,44 @@ describe("owned durable work after reload", () => {
     await waitFor(() => expect(result.current.runtime.thread.getState().messages.map(message => message.id))
       .toEqual(["accepted-user", "saved-assistant"]));
   });
+  it("revalidates a warm conversation when it is opened again", async () => {
+    const other = {...thread, id: "t2", title: "Other conversation"};
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread, other]);
+    vi.mocked(aiChatApi.getThread).mockImplementation(async id =>
+      id === "t1" ? {...thread, messages: [user]} : {...other, messages: []},
+    );
+    const {result} = renderHook(() => useAIChatRuntime(nativeProvider(async function* () {}), {initialThreadId: "t1"}));
+    await waitFor(() => expect(result.current.composerReady).toBe(true));
+    act(() => result.current.switchToThread("t2"));
+    await waitFor(() => expect(aiChatApi.getThread).toHaveBeenCalledWith("t2"));
+
+    vi.mocked(aiChatApi.getThread).mockImplementation(async id =>
+      id === "t1" ? {...thread, messages: [user, assistant]} : {...other, messages: []},
+    );
+    act(() => result.current.switchToThread("t1"));
+    await waitFor(() => expect(result.current.runtime.thread.getState().messages.map(message => message.id))
+      .toEqual(["accepted-user", "saved-assistant"]));
+  });
+
+  it("reconciles missed background messages when the tab becomes visible", async () => {
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
+    vi.mocked(aiChatApi.getThread).mockResolvedValue({...thread, messages: [user]});
+    const {result} = renderHook(() => useAIChatRuntime(nativeProvider(async function* () {}), {initialThreadId: "t1"}));
+    await waitFor(() => expect(result.current.composerReady).toBe(true));
+    vi.mocked(aiChatApi.getThread).mockResolvedValue({...thread, messages: [user, assistant]});
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      expect(aiChatApi.getThread).toHaveBeenCalledTimes(1);
+      visibility.mockReturnValue("visible");
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(() => expect(result.current.runtime.thread.getState().messages.map(message => message.id))
+        .toEqual(["accepted-user", "saved-assistant"]));
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
   it.each(["active_work_item_id", "parked_work_item_id"] as const)(
     "reattaches via %s without sending another user message", async (workItemField) => {
     vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);

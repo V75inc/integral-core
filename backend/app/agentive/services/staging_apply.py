@@ -443,24 +443,35 @@ async def execute_blessed_change(
         # A retry that lands clears any earlier explanation.
         await record_execute_outcome(token=token, error=None)
     else:
-        # The write is still owed: release the claim so a retry can run.
-        await release_execution_claim(token)
         # The token stays blessed and the write is still owed, so the reason
         # has to outlive this response — it is the only thing that lets a
         # surface which did not click say more than "approved, not applied".
-        await record_execute_outcome(
-            token=token,
-            error={
-                "message": _failure_message(result),
-                "error_code": result.get("error_code"),
-                "status_code": result.get("status_code"),
-                **(
-                    {"application_state": result["application_state"]}
-                    if result.get("application_state")
-                    else {}
-                ),
-            },
-        )
+        error_code = result.get("error_code")
+        details = result.get("details")
+        if isinstance(details, dict):
+            specific_error = details.get("error_code")
+            if specific_error in (
+                "record_revision_conflict",
+                "schema_revision_conflict",
+                "goal_closure_required",
+            ):
+                error_code = specific_error
+        try:
+            await record_execute_outcome(
+                token=token,
+                error={
+                    "message": _failure_message(result),
+                    "error_code": error_code,
+                    "status_code": result.get("status_code"),
+                    **(
+                        {"application_state": result["application_state"]}
+                        if result.get("application_state")
+                        else {}
+                    ),
+                },
+            )
+        finally:
+            await release_execution_claim(token)
 
     if operation_application is not None:
         # Refusal may race a current revocation; report the durable decision,

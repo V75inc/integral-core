@@ -1482,7 +1482,8 @@ async def claim_execution(*, user_id: str, token: str) -> StagedChange:
     manual click) both ran the write. The second caller now gets
     ``already_executing``. The claim is cleared by ``consume_token`` on
     success and by :func:`release_execution_claim` when the executor refuses
-    (the token stays blessed with ``last_error`` and can be retried).
+    (the token stays blessed with ``last_error``). Some failures require a
+    fresh proposal instead of retrying the same inputs.
     """
     async with _lock:
         sc = await _get_or_load_locked(token)
@@ -1501,6 +1502,12 @@ async def claim_execution(*, user_id: str, token: str) -> StagedChange:
             raise StagingError(
                 "already_executing",
                 "This approved change is already being applied",
+            )
+        prior_code = (sc.last_error or {}).get("error_code")
+        if prior_code in ("goal_criteria_unmet", "goal_closure_required"):
+            raise StagingError(
+                prior_code,
+                "Review the current goal evidence and request a fresh closure proposal.",
             )
         sc.executing = True
         sc.execute_started_at = _now()

@@ -394,7 +394,8 @@ domains:
           changes. Each entry type carries both `name` (display label, e.g. "Pay run")
           and `key` (its manifest identifier, e.g. "pay_run") — pass EITHER as
           type_hint/entry_type to integral_create_entry / integral_file_content, `key`
-          is the more stable of the two. This describes the track's SHAPE, not its
+          is the more stable of the two. Use track.schema_revision for a revision-bound
+          Entry write. This describes the track's SHAPE, not its
           contents. For installed Apps, discover their read tools with
           integral_list_workspace_tools(app_id=..., read_only=true) and invoke the
           returned key through integral_call_workspace_tool. Generic integral_query_entries
@@ -1245,6 +1246,8 @@ domains:
           expected_record_revision: {type: integer, optional: true, desc: "Entry.record_revision from the read. Required for update and append. A mismatch conflicts and writes nothing."}
           expected_schema_revision: {type: integer, optional: true, desc: "Live schema revision from the track profile. Required for update and append."}
           append_field: {type: string, optional: true, desc: "Field key, or body, that receives text exactly once when mode is append."}
+          close_goal: {type: boolean, optional: true, desc: "For a published typed goal, append a body closure note and set its status to completed after Core verifies every criterion against the bound evidence revisions. Do not include other edits."}
+          evidence_revisions: {type: object, optional: true, additionalProperties: {type: integer}, desc: "For update or append, one to eight supporting Entry IDs mapped to their current record revisions. Approval refuses if the sources change or become unreadable."}
           relations: {type: array, optional: true, items: {type: object}, desc: "Links to existing entries: {field_key, target_entry_id}. Applied with the field patch in the same facet."}
           idempotency_key: {type: string, optional: true, desc: "Retries of the same payload and revisions return the first result and do not append again. A different payload with the same key conflicts."}
           entry_type_key: {type: string, optional: true, desc: "Entry type key used for protected-field checks on update and append when the entry has no type."}
@@ -2734,6 +2737,7 @@ domains:
           instruction: {type: string, required: true, desc: "For agent mode, the task to execute each run. For reminder mode, the exact user-reviewed message to deliver, without model interpretation."}
           delivery_mode: {type: string, enum: [agent, reminder, task_watch, assignment_digest], optional: true, desc: "Use task_watch for declared outcome, acceptance criteria, due date, dependencies, or assignment changes on a specific Entry. Other Entry fields do not trigger it. Use assignment_digest for a read-only digest of new review-ready tasks you assigned to Integral in the current workspace. Use reminder for saved text and agent for analysis or tools. Task watch, assignment digest and reminder forbid write_scope."}
           watch_entry_id: {type: string, optional: true, desc: "Required only for task_watch. Exact Entry ID in the active workspace."}
+          watch_goal: {type: boolean, optional: true, desc: "Use with task_watch to monitor a published typed goal, its status, and its linked criterion evidence. Read-only."}
           cron: {type: string, optional: true, desc: "5-field cron for recurring routines. Omit when using run_at."}
           run_at: {type: string, optional: true, desc: "ISO-8601 fire time for a one-shot. Include an offset for an absolute time; otherwise uses the chosen timezone. Omit when using cron. Defaults max_runs=1."}
           timezone: {type: string, optional: true, desc: "IANA timezone; defaults to the account time zone. Used for cron and run_at without an offset. Absolute run_at offsets take precedence."}

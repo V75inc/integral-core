@@ -492,3 +492,54 @@ async def test_completion_failure_blocks_retry_and_survives_reload(
     with pytest.raises(StagingError) as exc:
         await staging_apply.execute_blessed_change(user_id="other", token=sc.token)
     assert exc.value.code == "wrong_user"
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["record_revision_conflict", "schema_revision_conflict"]
+)
+async def test_revision_conflict_is_recorded_for_approval_readback(monkeypatch, code):
+    sc = await _mint()
+    _fake_executor(
+        monkeypatch,
+        result={
+            "error": True,
+            "error_code": "RESOURCE_CONFLICT",
+            "status_code": 409,
+            "details": {"error_code": code},
+            "message": "The proposal is out of date",
+        },
+    )
+
+    result = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+
+    assert result["consumed"] is False
+    assert (await get_token(sc.token)).to_dict()["last_error"]["error_code"] == code
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"error_code": "goal_criteria_unmet"},
+        {"error_code": "conflict", "details": {"error_code": "goal_closure_required"}},
+    ],
+)
+async def test_goal_refusal_requires_a_new_proposal_after_reload(monkeypatch, failure):
+    from app.agentive import staging
+
+    sc = await _mint()
+    calls = _fake_executor(
+        monkeypatch,
+        result={"error": True, "message": "Reviewed closure required", **failure},
+    )
+    first = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+    assert first["consumed"] is False
+
+    staging._tokens.clear()
+    with pytest.raises(StagingError) as exc:
+        await staging_apply.execute_blessed_change(user_id="u1", token=sc.token)
+    assert exc.value.code == failure.get("details", failure)["error_code"]
+    assert len(calls) == 1

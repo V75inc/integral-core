@@ -477,16 +477,23 @@
         "integral_get_page_context",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_query",
         "integral_query_entries",
-        "integral_rank_destinations"
+        "integral_rank_destinations",
+        "integral_resolve_entry",
+        "integral_search_cross_track",
+        "integral_update_entry"
       ],
       "body_tools": [
         "integral_file_content",
         "integral_find_workspace_resources",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_query",
         "integral_query_entries",
-        "integral_rank_destinations"
+        "integral_rank_destinations",
+        "integral_resolve_entry",
+        "integral_search_cross_track"
       ],
       "delegates_to": [
         "integral-attachments",
@@ -495,9 +502,32 @@
         "integral-models",
         "integral-workspace"
       ],
-      "intent": "Files user-typed unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.",
+      "intent": "Files user-typed unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape. Also handles remembering, retrieving and correcting shared App notes. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.",
       "name": "integral-filing",
       "source": "agent/skills/integral-filing/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_call_workspace_tool",
+        "integral_create_entry",
+        "integral_file_content",
+        "integral_find_workspace_resources",
+        "integral_get_track_schema",
+        "integral_link_entries",
+        "integral_list_tracks",
+        "integral_list_workspace_tools",
+        "integral_query",
+        "integral_query_entries",
+        "integral_resolve_entry"
+      ],
+      "body_tools": [
+        "integral_file_content"
+      ],
+      "delegates_to": [],
+      "intent": "Set, advance, review, or close a standing workspace goal with an owner, measurable outcome, and evidence. Use for requests to track an outcome across multiple tasks, assess whether a milestone meets its criteria, or revisit a blocked or recurring goal. Use integral-entries for a single record change and integral-scheduling for cadence.",
+      "name": "integral-goals",
+      "source": "agent/skills/integral-goals/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -1094,7 +1124,7 @@
       "propose": 72,
       "read": 61
     },
-    "core_skills": 18,
+    "core_skills": 19,
     "tools": 136
   },
   "diagnostics": {
@@ -1240,6 +1270,7 @@
         "integral-dashboards",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-model",
         "integral-organize",
@@ -1331,6 +1362,7 @@
         "integral-dashboards",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-indexing",
         "integral-insights",
         "integral-model",
@@ -1360,6 +1392,7 @@
         "integral-attachments",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-indexing",
         "integral-insights",
         "integral-model",
@@ -1624,6 +1657,8 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
+        "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-organize",
         "integral-review"
@@ -1667,6 +1702,7 @@
         "integral-attachments",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-organize",
         "integral-review",
@@ -1692,6 +1728,8 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-scheduling",
         "integral-workspace"
@@ -1751,6 +1789,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
+        "integral-filing",
         "integral-insights"
       ],
       "status": "existing"
@@ -1898,6 +1937,7 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-goals",
         "integral-onboard",
         "integral-scaffold"
       ],
@@ -1938,7 +1978,8 @@
       "op_class": "propose",
       "policy_action": "entry.create",
       "skills": [
-        "integral-filing"
+        "integral-filing",
+        "integral-goals"
       ],
       "status": "existing"
     },
@@ -1959,6 +2000,7 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-filing",
         "integral-organize",
         "integral-scaffold"
       ],
@@ -2288,6 +2330,7 @@
       "policy_action": "entry.update",
       "skills": [
         "integral-entries",
+        "integral-goals",
         "integral-model"
       ],
       "status": "existing"
@@ -2508,6 +2551,7 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-goals",
         "integral-insights",
         "integral-workspace"
       ],
@@ -2530,6 +2574,7 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-goals",
         "integral-insights",
         "integral-workspace"
       ],

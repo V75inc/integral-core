@@ -62,6 +62,9 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import validate_delivery_mode
 
     watch_entry_id = (src.get("watch_entry_id") or "").strip()
+    watch_goal = src.get("watch_goal") is True
+    if watch_goal and delivery_mode != "task_watch":
+        raise ValueError("schedule_task: a goal watch requires task_watch delivery")
     validate_delivery_mode(delivery_mode, instruction, write_scope, watch_entry_id)
 
     if not instruction:
@@ -137,17 +140,19 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         "max_runs": max_runs,
     }
     if watch_entry_id:
-        from app.services.resident_assignment import read_declared_task
+        from app.agentive.services.routine_task_watch import read_task_watch_snapshot
 
         if payload[
             "workspace_id"
-        ] != thread.workspace_id or not await read_declared_task(
-            principal_id, thread.workspace_id, watch_entry_id
+        ] != thread.workspace_id or not await read_task_watch_snapshot(
+            principal_id, thread.workspace_id, watch_entry_id, goal=watch_goal
         ):
             raise ValueError(
-                "schedule_task: choose a readable Entry with published task semantics in this workspace"
+                "schedule_task: choose a readable Entry with the selected published semantics in this workspace"
             )
         payload["watch_entry_id"] = watch_entry_id
+        if watch_goal:
+            payload["watch_goal"] = True
     if run_at:
         payload["run_at"] = run_at
 
@@ -179,9 +184,11 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         )
     if watch_entry_id:
         diff_lines[3] = (
-            "Delivery: read-only task changes, with no model call or unchanged updates"
+            f"Delivery: read-only {'goal and criterion evidence' if watch_goal else 'task'} changes, with no model call or unchanged updates"
         )
-        diff_lines.insert(4, f"Watched Entry: {watch_entry_id}")
+        diff_lines.insert(
+            4, f"Watched {'goal' if watch_goal else 'Entry'}: {watch_entry_id}"
+        )
     return {
         "kind": "routine_task_create",
         "summary": summary,

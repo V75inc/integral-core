@@ -813,3 +813,60 @@ def test_task_dependencies_cannot_target_tracks():
     raw["track"]["entry_types"][0]["fields"][2]["relation"]["target"] = "track"
     with pytest.raises(BadRequestError, match="dependencies must reference an Entry"):
         compile_canonical_manifest(manifest=raw)
+
+
+def _goal_manifest():
+    raw = _task_manifest({})
+    spec = raw["track"]["entry_types"][0]
+    spec.pop("task_semantics")
+    spec["fields"][2]["relation"]["many"] = False
+    spec["goal_semantics"] = {
+        "version": 1,
+        "outcome": {"source": "field", "field_id": "task-outcome"},
+        "criteria": [
+            {
+                "key": "approval",
+                "evidence_relation_field_id": "blocks",
+                "predicate": {"kind": "equals", "field_id": "approved", "value": True},
+            },
+            {
+                "key": "count",
+                "evidence_relation_field_id": "blocks",
+                "predicate": {"kind": "recorded_count", "field_id": "final-count"},
+            },
+        ],
+    }
+    return raw, spec
+
+
+def test_goal_semantics_round_trips_after_field_key_rename():
+    from app.services.operational_model_merge import _form_schema_from_entry_type_spec
+
+    raw, spec = _goal_manifest()
+    spec["fields"][0]["key"] = "desired_result"
+    spec["fields"][2]["key"] = "supporting_record"
+    compiled = compile_canonical_manifest(manifest=raw)["track"]["entry_types"][0]
+    assert compiled["goal_semantics"] == spec["goal_semantics"]
+    form = _form_schema_from_entry_type_spec(compiled)
+    assert form["goal_semantics"] == spec["goal_semantics"]
+    assert form["fields"][2]["key"] == "supporting_record"
+
+
+@pytest.mark.parametrize(
+    "mutation", ["many", "duplicate", "authority", "version", "predicate"]
+)
+def test_goal_semantics_refuses_invalid_or_authority_bearing_declarations(mutation):
+    raw, spec = _goal_manifest()
+    semantics = spec["goal_semantics"]
+    if mutation == "many":
+        spec["fields"][2]["relation"]["many"] = True
+    elif mutation == "duplicate":
+        semantics["criteria"][1]["key"] = semantics["criteria"][0]["key"]
+    elif mutation == "authority":
+        semantics["execution_principal"] = "system"
+    elif mutation == "version":
+        semantics["version"] = True
+    else:
+        semantics["criteria"][0]["predicate"]["value"] = ["approved"]
+    with pytest.raises(BadRequestError, match="goal_semantics"):
+        compile_canonical_manifest(manifest=raw)

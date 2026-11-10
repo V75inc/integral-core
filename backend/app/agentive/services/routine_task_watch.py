@@ -40,6 +40,20 @@ def quiet_hours_end(
     raise WorkError("work.policy_denied", "Could not resolve the end of quiet hours")
 
 
+async def read_task_watch_snapshot(
+    user_id: str, workspace_id: str, entry_id: str, *, goal: bool = False
+) -> tuple[str, str] | None:
+    """Keep a goal watch bound to goal semantics across subsequent checks."""
+    if goal:
+        from app.services.goal_evidence import read_goal_watch
+
+        snapshot = await read_goal_watch(user_id, workspace_id, entry_id)
+        return (snapshot[0], f"goal:{snapshot[1]}") if snapshot else None
+    from app.services.resident_assignment import read_declared_task
+
+    return await read_declared_task(user_id, workspace_id, entry_id)
+
+
 async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -> None:
     """Advance the baseline and publish a private alert in the same fenced write."""
     from app.agentive.services.work_items import authorized_work_item_effect
@@ -52,7 +66,6 @@ async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -
     from app.services.chat_thread_events import notify_thread_message
     from app.services.chat_threads import append_message
     from app.services.release_admission import release_admission
-    from app.services.resident_assignment import read_declared_task
 
     async with authorized_work_item_effect(context) as graph:
         transaction = current_graph_transaction_database()
@@ -82,8 +95,12 @@ async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -
                     raise WorkError(
                         "work.policy_denied", "Task watch destination changed"
                     )
-                snapshot = await read_declared_task(
-                    context.principal_id, context.workspace_id, fresh.watch_entry_id
+                goal = fresh.watch_fingerprint.startswith("goal:")
+                snapshot = await read_task_watch_snapshot(
+                    context.principal_id,
+                    context.workspace_id,
+                    fresh.watch_entry_id,
+                    goal=goal,
                 )
                 if snapshot is None:
                     raise WorkError(
@@ -134,7 +151,7 @@ async def deliver_task_watch(task: RoutineTask, context: WorkExecutionContext) -
                             {
                                 "type": "text",
                                 "text": (
-                                    f"Your [watched task](/tracks/{track_id}?{query}) changed. "
+                                    f"Your [watched {'goal' if goal else 'task'}](/tracks/{track_id}?{query}) changed. "
                                     "Open it to review the current details."
                                 ),
                             }

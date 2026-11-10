@@ -147,6 +147,7 @@ async def create_routine_task(
     delivery_mode: str = "agent",
     source_staging_token: str = "",
     watch_entry_id: str = "",
+    watch_goal: bool = False,
 ) -> RoutineTask:
     """Create + graph-wire a new ``RoutineTask`` (I-GRAPH-01).
 
@@ -170,13 +171,15 @@ async def create_routine_task(
     if not instruction or not instruction.strip():
         raise BadRequestError(message="instruction is required")
     validate_delivery_mode(delivery_mode, instruction, write_scope, watch_entry_id)
+    if watch_goal and delivery_mode != "task_watch":
+        raise BadRequestError(message="A goal watch requires task_watch delivery")
     watch_fingerprint = ""
     if delivery_mode in DURABLE_OBSERVATION_MODES:
+        from app.agentive.services.routine_task_watch import read_task_watch_snapshot
         from app.services.app_operations.transaction_scope import (
             graph_transaction_available,
         )
         from app.services.chat_proactive_bridge import find_thread_by_provider_session
-        from app.services.resident_assignment import read_declared_task
 
         thread = await find_thread_by_provider_session(
             user_id=user_id, workspace_id=workspace_id, provider_session_id=thread_id
@@ -191,10 +194,12 @@ async def create_routine_task(
                 message="Observation requires a reviewed native chat binding"
             )
         if delivery_mode == "task_watch":
-            snapshot = await read_declared_task(user_id, workspace_id, watch_entry_id)
+            snapshot = await read_task_watch_snapshot(
+                user_id, workspace_id, watch_entry_id, goal=watch_goal
+            )
             if snapshot is None:
                 raise BadRequestError(
-                    message="Task watch requires a readable Entry with published task semantics"
+                    message="Watch requires a readable Entry with the selected published semantics"
                 )
             _, watch_fingerprint = snapshot
     if not thread_id:

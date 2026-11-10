@@ -683,6 +683,17 @@ def _normalize_task_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[st
         ) from exc
 
 
+def _normalize_goal_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.contracts.goal_semantics import validate_goal_semantics
+
+    try:
+        return validate_goal_semantics(raw, fields).model_dump()
+    except ValueError as exc:
+        raise BadRequestError(
+            message=f"Invalid goal_semantics declaration: {exc}"
+        ) from exc
+
+
 def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     name = str(spec.get("name") or "").strip()
     key = str(spec.get("key") or _slug(name)).strip()
@@ -773,6 +784,15 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 )
             }
             if "task_semantics" in spec
+            else {}
+        ),
+        **(
+            {
+                "goal_semantics": _normalize_goal_semantics(
+                    spec["goal_semantics"], fields
+                )
+            }
+            if "goal_semantics" in spec
             else {}
         ),
         # Opt-in: a multi-step create flow (region_system's create_wizard
@@ -4540,6 +4560,8 @@ def normalize_entry_type_form_schema(
         out["search_index"] = _normalize_search_index(raw["search_index"])
     if "task_semantics" in raw:
         out["task_semantics"] = _normalize_task_semantics(raw["task_semantics"], fields)
+    if "goal_semantics" in raw:
+        out["goal_semantics"] = _normalize_goal_semantics(raw["goal_semantics"], fields)
     if "graph_context" in raw:
         from app.schemas.graph_context import validate_entry_graph_context
 
