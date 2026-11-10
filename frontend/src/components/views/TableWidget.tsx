@@ -3,6 +3,7 @@ import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { Avatar, AvatarStackedMeta, MarkdownContent } from '../ui';
 import { MemberValue } from '../entries/members';
 import { RelationValue } from '../entries/relations';
+import { FileValue } from '../entries/FileValue';
 import type { ViewWidgetProps } from './types';
 import type { Entry, OperationalModelFieldSpec } from '../../types';
 import { formatRelativeTime } from '../../utils';
@@ -78,6 +79,8 @@ function renderCellValue(
   relationByField: RelationByField,
   memberFieldPaths: MemberFieldPaths,
   selectFieldTypes: SelectFieldTypes,
+  fileFieldPaths: Set<string>,
+  interactiveFiles = true,
 ) {
   switch (column.field) {
     case 'title':
@@ -142,6 +145,9 @@ function renderCellValue(
         </span>
       );
     default: {
+      if (fileFieldPaths.has(column.field)) {
+        return <FileValue value={getFieldValue(entry, column.field, commentCounts)} interactive={interactiveFiles} />;
+      }
       if (memberFieldPaths.has(column.field)) {
         const raw = getFieldValue(entry, column.field, commentCounts);
         if (raw == null || raw === '') {
@@ -241,6 +247,17 @@ function TableWidgetInner({
       if (t === 'select' || t === 'multi_select') {
         if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
         out.set(`custom_fields.${f.key}`, t);
+      }
+    }
+    return out;
+  }, [fields]);
+
+  const fileFieldPaths = useMemo(() => {
+    const out = new Set<string>();
+    for (const f of fields ?? []) {
+      if (f.type === 'file' || f.type === 'files') {
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.add(f.key);
+        out.add(`custom_fields.${f.key}`);
       }
     }
     return out;
@@ -437,7 +454,7 @@ function TableWidgetInner({
               >
                 {visibleCols.map(col => (
                   <td key={col.field} className="px-4 py-3">
-                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, fileFieldPaths)}
                   </td>
                 ))}
               </tr>
@@ -462,7 +479,7 @@ function TableWidgetInner({
               >
                 {headCol ? (
                   <div className="min-w-0">
-                    {renderCellValue(entry, headCol, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                    {renderCellValue(entry, headCol, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, fileFieldPaths, false)}
                   </div>
                 ) : null}
                 {restCols.length > 0 ? (
@@ -471,7 +488,7 @@ function TableWidgetInner({
                       <FragmentRow
                         key={col.field}
                         label={col.label}
-                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, fileFieldPaths, false)}
                       />
                     ))}
                   </dl>

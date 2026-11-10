@@ -299,6 +299,20 @@ async def transition_staged_decision(
                     "approval_unavailable", "Proposal could not be decoded"
                 )
             return sc
+        if (
+            target == "blessed"
+            and (data.get("origin_proof") or {}).get("requires_deferred_link") is True
+        ):
+            from app.agentive.services.work_approvals import lock_linked_staging_work
+            from app.schemas.agentive.work import WorkError
+
+            try:
+                await lock_linked_staging_work(transaction=database, staging_data=data)
+            except WorkError as exc:
+                raise StagingError(
+                    "approval_not_ready",
+                    "This conversation is still preparing the approval. Try again shortly.",
+                ) from exc
         if target == "consumed" and state != "blessed":
             raise StagingError("not_blessed", "Token has not been approved by the user")
         if target == "revoked":
@@ -400,6 +414,62 @@ async def _write_locked_decision(database, *, row, data, updates, expires):
                 raise StagingError(
                     "approval_identity_conflict", "Terminal decision proof conflicts"
                 )
+    if (
+        target in {"revoked", "expired"}
+        and (data.get("origin_proof") or {}).get("requires_deferred_link") is True
+    ):
+        from app.agentive.services.work_approvals import (
+            decide_work_approval_unit,
+            lock_linked_staging_work,
+        )
+        from app.schemas.agentive.work import TERMINAL_WORK_STATUSES, WorkError
+
+        pending = await database.find(
+            "object",
+            {
+                "entity": "WorkApproval",
+                "context.staging_token": token,
+                "context.status": "pending",
+            },
+            limit=2,
+        )
+        if pending:
+            origin = data["origin_proof"]
+            work = await database.get("object", f"o.WorkItem.{origin['work_item_id']}")
+            # A cancellation or deadline may have already stopped the work.
+            # Allow the staging card to close in that case as well.
+            work_state = ((work or {}).get("context") or {}).get("status")
+            if work_state not in TERMINAL_WORK_STATUSES:
+                try:
+                    approval_id = await lock_linked_staging_work(
+                        transaction=database, staging_data=data
+                    )
+                    if approval_id is None:
+                        raise WorkError(
+                            "work.policy_denied", "Deferred approval changed"
+                        )
+                    await decide_work_approval_unit(
+                        work_approval_id=approval_id,
+                        decision="rejected" if target == "revoked" else "expired",
+                        decider_id=user_id if target == "revoked" else "",
+                        transaction=database,
+                    )
+                except WorkError as exc:
+                    raise StagingError(
+                        "approval_unavailable", "Linked work requires reconciliation"
+                    ) from exc
+    if target == "consumed":
+        from app.agentive.services.work_approvals import complete_linked_staging_work
+        from app.schemas.agentive.work import WorkError
+
+        # The work transition and its outbox must commit with consumption, so
+        # no worker can observe a successful decision before this point.
+        try:
+            await complete_linked_staging_work(transaction=database, staging_data=data)
+        except WorkError as exc:
+            raise StagingError(
+                "approval_unavailable", "Linked work requires reconciliation"
+            ) from exc
     sc = staging_store._record_to_sc(
         staging_store.StagedChangeRecord(id=row["id"], **updated["context"])
     )

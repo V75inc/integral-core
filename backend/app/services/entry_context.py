@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.contracts.information import schema_revision_from_profile_version
 from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import REFERENCES, Anchors
 from app.models.nodes import App, Attachment, Entry, Tag, Track
@@ -326,9 +327,12 @@ async def attach_operational_model_defaults_to_track_data(
     track_data: Dict[str, Any],
     track: Track,
 ) -> Dict[str, Any]:
-    """Set ``operational_model_defaults`` from the resolved runtime tier (manifest)."""
+    """Project runtime defaults and the current Entry write schema revision."""
     try:
-        _, tier, _ = await resolve_track_runtime_profile(track)
+        profile, tier, _ = await resolve_track_runtime_profile(track)
+        track_data["schema_revision"] = schema_revision_from_profile_version(
+            getattr(profile, "version_number", None)
+        )
         raw = tier.get("defaults") if isinstance(tier, dict) else None
         defaults = raw if isinstance(raw, dict) else {}
         out: Dict[str, Any] = {}

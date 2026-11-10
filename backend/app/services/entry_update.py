@@ -16,6 +16,7 @@ from app.api.errors import (
     ResourceConflictError,
     ResourceNotFoundError,
 )
+from app.contracts.goal_semantics import GOAL_COMPLETED_STATUS
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
@@ -200,6 +201,21 @@ async def update_entry_in_track(
                     message="Entry type does not belong to this track"
                 )
             type_changed = entry_type.id != old_type.id
+            requested_status = status if status is not None else entry.status
+            if (
+                requested_status == GOAL_COMPLETED_STATUS
+                and (entry.status != GOAL_COMPLETED_STATUS or type_changed)
+                and any(
+                    "goal_semantics" in (candidate.form_schema or {})
+                    or "goal_semantics" in resolve_entry_type_spec(candidate, tier)
+                    for candidate in (old_type, entry_type)
+                )
+            ):
+                raise ResourceConflictError(
+                    message="Complete this goal through a reviewed closure with its supporting evidence.",
+                    details={"error_code": "goal_closure_required"},
+                )
+
             before = await entry.export(flat=True)
             for value, label in (
                 (title, "title"),

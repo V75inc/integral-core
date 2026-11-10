@@ -461,3 +461,75 @@ class TestEntriesCRUD:
         )
         assert upd.status_code == 200
         assert upd.json()["entry"].get("comment_count") == 3
+
+    async def test_typed_goal_cannot_be_completed_through_generic_entry_update(
+        self, authenticated_client: AsyncClient, test_user
+    ):
+        from app.models.edges import CONTAINS
+        from app.models.nodes import EntryType
+
+        client = authenticated_client
+        track_id = await self._create_track(client)
+        track = await Track.get(track_id)
+        profile = await get_track_attached_operational_model(track)
+        goal_type = await EntryType.create(
+            track_id=track_id,
+            name="Reviewed outcome",
+            form_schema={
+                "fields": [
+                    {
+                        "id": "evidence",
+                        "key": "evidence",
+                        "type": "relation",
+                        "relation": {"target": "entry"},
+                    }
+                ],
+                "goal_semantics": {
+                    "version": 1,
+                    "outcome": {"source": "title"},
+                    "criteria": [
+                        {
+                            "key": "approval",
+                            "evidence_relation_field_id": "evidence",
+                            "predicate": {
+                                "kind": "equals",
+                                "field_id": "approved",
+                                "value": True,
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        await profile.connect(goal_type, edge=CONTAINS)
+
+        async def create(title, **fields):
+            response = await client.post(
+                "/api/entries", json={"track_id": track_id, "title": title, **fields}
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["entry"]
+
+        plain = await create("Ordinary Entry")
+        goal = await create("Typed goal", type_id=goal_type.id)
+        assert goal["type_id"] == goal_type.id
+        goal_url = f"/api/entries/{goal['id']}"
+        for patch in (
+            {"status": "completed"},
+            {"status": "completed", "type_id": plain["type_id"]},
+        ):
+            response = await client.put(goal_url, json=patch)
+            assert response.status_code == 409, response.text
+            assert response.json()["details"]["error_code"] == "goal_closure_required"
+        assert (await client.get(goal_url)).json()["entry"]["status"] == "active"
+
+        plain_url = f"/api/entries/{plain['id']}"
+        assert (
+            await client.put(plain_url, json={"status": "completed"})
+        ).status_code == 200
+        retype = await client.put(plain_url, json={"type_id": goal_type.id})
+        assert retype.status_code == 409, retype.text
+        assert retype.json()["details"]["error_code"] == "goal_closure_required"
+        assert (
+            await client.put(goal_url, json={"title": "Updated goal"})
+        ).status_code == 200

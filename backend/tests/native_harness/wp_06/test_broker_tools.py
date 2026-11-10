@@ -1721,7 +1721,11 @@ async def test_saved_build_exposes_its_verifier_without_reloading_scaffold(
         "app.agentive.services.capability_broker.invoke_declared_capability", invoke
     )
     state = {"approved_design_ready": True}
-    names = {"integral_build_approved_design", "integral_verify_build"}
+    names = {
+        "integral_build_approved_design",
+        "integral_verify_build",
+        "integral_list_tracks",
+    }
     tools = build_brokered_tools(
         scope=_scope(),
         skill_library=tmp_path,
@@ -1780,6 +1784,11 @@ async def test_saved_build_exposes_its_verifier_without_reloading_scaffold(
         "integral_verify_build",
     ]
     assert state["verification_succeeded"] is True
+    assert not state["turn_progress"].should_finalize
+    await by_name["integral_list_tracks"].function_schema.call(
+        {}, SimpleNamespace(tool_call_id="post-build", active_capability_ids=set())
+    )
+    assert state["post_build_activity"] is True
     assert all(c["principal_id"] == scope.principal_id for c in calls)
     assert all(c["workspace_id"] == scope.workspace_id for c in calls)
     assert calls[1]["arguments"]["execution_receipt_id"] == "xr.current"

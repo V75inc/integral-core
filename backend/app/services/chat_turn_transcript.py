@@ -12,7 +12,11 @@ from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
 from app.schemas.agentive.work import WorkError, WorkExecutionContext
 from app.services.chat_threads import append_message
-from app.services.chat_turn_events import normalize_public_event
+from app.services.chat_turn_events import (
+    chat_approval_error,
+    chat_approval_outcome,
+    normalize_public_event,
+)
 
 _PART_FIELDS = {
     "text": frozenset({"type", "text"}),
@@ -38,6 +42,57 @@ def _canonical_json(value: Any) -> str:
 def _message_id(work_item_id: str) -> str:
     digest = hashlib.sha256(f"{work_item_id}\0assistant-result".encode()).hexdigest()
     return f"n.ChatMessage.{digest}"
+
+
+async def project_chat_approval_receipts(
+    *, thread: ChatThread, messages: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Read terminal decisions beside their accepted input without editing the thread."""
+    inputs = {message["id"] for message in messages if message["role"] == "user"}
+    if not inputs:
+        return messages
+    existing = {message["id"] for message in messages}
+    items = await WorkItem.find(
+        {
+            "kind": "chat_turn",
+            "principal_id": thread.user_id,
+            "workspace_id": thread.workspace_id,
+            "thread_id": thread.id,
+            "context.input_payload.accepted_message_id": {"$in": sorted(inputs)},
+            "context.failure.code": {
+                "$in": ["work.approval_rejected", "work.approval_expired"]
+            },
+        }
+    )
+    receipts: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        outcome = chat_approval_outcome(item)
+        parent_id = (item.input_payload or {}).get("accepted_message_id")
+        receipt_id = _message_id(item.work_item_id)
+        if (
+            not outcome
+            or not isinstance(parent_id, str)
+            or parent_id not in inputs
+            or receipt_id in existing
+            or item.id != f"o.WorkItem.{item.work_item_id}"
+        ):
+            continue
+        receipts.setdefault(parent_id, []).append(
+            {
+                "id": receipt_id,
+                "thread_id": thread.id,
+                "role": "assistant",
+                "parts": [chat_approval_error(outcome)],
+                "parent_id": parent_id,
+                "provider_metadata": {},
+                "created_at": item.updated_at,
+            }
+        )
+    return [
+        part
+        for message in messages
+        for part in (message, *receipts.get(message["id"], ()))
+    ]
 
 
 async def load_work_item_assistant_result(
@@ -192,7 +247,9 @@ def fold_chat_transcript(
     Reuse the event store's projection so new public usage fields survive
     both live replay and a subsequent transcript reload.
     """
-    from app.services.chat_turn_events import normalize_public_event
+    from app.services.chat_turn_events import (
+        normalize_public_event,
+    )
 
     text = ""
     parts: list[dict[str, Any]] = []

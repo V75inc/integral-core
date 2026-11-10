@@ -8,12 +8,14 @@ from typing import Any
 from app.models.harness_records import (
     HarnessCheckpointManifestRecord,
     HarnessEventRecord,
+    HarnessFollowUpInbox,
     HarnessMessageRecord,
     HarnessModelRequestRecord,
     HarnessPlanState,
     HarnessRunRecord,
     HarnessSnapshotRecord,
     HarnessSteeringInbox,
+    HarnessSteeringResumeBaseline,
     HarnessToolEffectRecord,
     HarnessTurnInputRecord,
 )
@@ -37,8 +39,10 @@ _MAX_CAS_ATTEMPTS = 12
 _RECORD_TYPES: tuple[type[Any], ...] = (
     HarnessRunRecord,
     HarnessEventRecord,
+    HarnessFollowUpInbox,
     HarnessSnapshotRecord,
     HarnessSteeringInbox,
+    HarnessSteeringResumeBaseline,
     HarnessMessageRecord,
     HarnessCheckpointManifestRecord,
     HarnessToolEffectRecord,
@@ -111,7 +115,12 @@ async def rewrap_harness_session_records(*, scope_key: str) -> dict[str, int]:
         records = await record_type.find({"scope_key": scope_key})
         for record in records:
             seen += 1
-            if record_type in (HarnessPlanState, HarnessSteeringInbox):
+            if record_type in (
+                HarnessPlanState,
+                HarnessSteeringInbox,
+                HarnessSteeringResumeBaseline,
+                HarnessFollowUpInbox,
+            ):
                 changed = await _rewrap_mutable_payload(record.id, scope_key=scope_key)
                 if changed:
                     rewrapped += 1

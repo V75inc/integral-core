@@ -17,6 +17,7 @@ import {
   type ExternalStoreThreadListAdapter,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
+import type { AssignmentSuggestion } from "../../api/routines";
 import { aiChatApi, type AIChatThread, type AIChatPersistedMessage } from "../../api/aiChat";
 import { useScope } from "../../context/ScopeContext";
 import { useAuthOptional } from "../../context/AuthContext";
@@ -54,6 +55,7 @@ import {
 import {
   MAX_CONCURRENT_STREAMS,
   THREAD_ALREADY_RESPONDING,
+  type FollowUp,
   type ThreadSessionState,
 } from "./threadSessionRegistry";
 import {
@@ -572,6 +574,8 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
           interact_payload?: Record<string, unknown>;
           origin?: string;
           routine_id?: string;
+          delivery_mode?: string;
+          assignment_suggestions?: AssignmentSuggestion[];
           finalContent?: string;
           finalPayload?: Record<string, unknown>;
           error?: { code?: string; message?: string } | null;
@@ -658,6 +662,9 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
                 : undefined),
               ...(pmSteps.length > 0 ? { steps: pmSteps } : undefined),
               ...(pmInteract ? { interactPayload: pmInteract } : undefined),
+              ...(pm?.delivery_mode === "assignment_digest" && Array.isArray(pm.assignment_suggestions)
+                ? { assignmentSuggestions: pm.assignment_suggestions }
+                : undefined),
               ...(pmFinalContent
                 ? { finalContent: pmFinalContent }
                 : undefined),
@@ -1250,53 +1257,102 @@ export function useAIChatRuntime(
   // server-side with no live SSE connection to this tab, so its messages
   // only reach an already-open thread via this same fetch, triggered by the
   // WS push rather than a mount/switch.
-  const loadInFlightRef = useRef<Set<string>>(new Set());
+  const loadInFlightRef = useRef(new Map<string, { workspace: string | null; refresh: boolean }>());
   /** `ok` applied; `skip` deferred (do not stamp loaded); `error` fetch failed. */
   const loadThread = useCallback(
-    async (threadId: string): Promise<"ok" | "skip" | "error"> => {
-      // The lazy-load effect and the post-stream cold reload can both ask
-      // for the same thread; the second fetch would replace the first's
-      // merged transcript with a plain one.
-      if (loadInFlightRef.current.has(threadId)) return "skip";
-      loadInFlightRef.current.add(threadId);
+    async (
+      threadId: string,
+      invalidate = false,
+      knownRevision?: string,
+    ): Promise<"ok" | "skip" | "error"> => {
+      const workspace = workspaceIdRef.current;
+      const pending = loadInFlightRef.current.get(threadId);
+      if (pending?.workspace === workspace) {
+        // A push can describe a commit newer than the in-flight snapshot.
+        pending.refresh ||= invalidate;
+        return "skip";
+      }
+      const load = { workspace, refresh: false };
+      loadInFlightRef.current.set(threadId, load);
       try {
-        const t = await aiChatApi.getThread(threadId);
-        if (activeThreadIdRef.current !== threadId && !(threadId in peekSessions())) {
-          return "skip";
-        }
-        // Do not overwrite a cache that started streaming while we fetched.
-        if (peekStreamingThreadIds().includes(threadId)) return "skip";
-        // Durable host receipts drive continuation and audit, but are not
-        // conversation bubbles (including after a reload or reconnect).
-        const server = t.messages
-          .filter(message => message.role !== "system")
-          .map(persistedToMessage);
-        updateSession(threadId, (session) => ({
-          ...session,
-          // A cache that was never loaded may hold messages drafted by a send
-          // that raced this fetch; keep them rather than hide the history OR
-          // the draft.
-          messages:
-            session.lastLoadedAt === 0
-              ? mergeColdTranscript(server, session.messages)
-              : server,
-          lastLoadedAt: Date.now(),
-          activeWorkItemId: t.provider_id === "integral_native" ? t.active_work_item_id ?? null : null,
-        }));
-        return "ok";
-      } catch (err) {
-        console.error("AI chat: failed to load thread", err);
-        return "error";
+        let result: "ok" | "error";
+        do {
+          load.refresh = false;
+          try {
+            const t = knownRevision === undefined
+              ? await aiChatApi.getThread(threadId)
+              : await aiChatApi.getThreadIfChanged(threadId, knownRevision);
+            knownRevision = undefined;
+            if (!t) {
+              result = "ok";
+              continue;
+            }
+            if (workspaceIdRef.current !== workspace || loadInFlightRef.current.get(threadId) !== load) {
+              return "skip";
+            }
+            if (activeThreadIdRef.current !== threadId && !(threadId in peekSessions())) {
+              return "skip";
+            }
+            // Do not overwrite a cache that started streaming while we fetched.
+            if (peekStreamingThreadIds().includes(threadId)) return "skip";
+            // Durable host receipts drive continuation and audit, but are not
+            // conversation bubbles (including after a reload or reconnect).
+            const server = t.messages
+              .filter(message => message.role !== "system")
+              .map(persistedToMessage);
+            updateSession(threadId, (session) => ({
+              ...session,
+              // A cache that was never loaded may hold messages drafted by a send
+              // that raced this fetch; keep them rather than hide the history OR
+              // the draft.
+              messages:
+                session.lastLoadedAt === 0
+                  ? mergeColdTranscript(server, session.messages)
+                  : server,
+              lastLoadedAt: Date.now(),
+              transcriptRevision: t.updated_at,
+              activeWorkItemId: t.provider_id === "integral_native"
+                ? t.active_work_item_id ?? t.parked_work_item_id ?? null
+                : null,
+            }));
+            result = "ok";
+          } catch (err) {
+            knownRevision = undefined;
+            console.error("AI chat: failed to load thread", err);
+            result = "error";
+          }
+        } while (load.refresh && workspaceIdRef.current === workspace);
+        return result;
       } finally {
-        loadInFlightRef.current.delete(threadId);
+        if (loadInFlightRef.current.get(threadId) === load) {
+          loadInFlightRef.current.delete(threadId);
+        }
       }
     },
     [updateSession],
   );
 
-  // Lazy-load transcript when switching to a thread without a warm cache.
+  // A worker on another process can commit an alert without reaching this
+  // tab's WebSocket. Probe only the visible thread and only fetch changes.
+  useEffect(() => {
+    if (!provider.serverPersisted || !activeThreadId || activeThreadId.startsWith("local-")) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible" ||
+          activeThreadIdRef.current !== activeThreadId ||
+          peekStreamingThreadIds().includes(activeThreadId)) return;
+      const revision = peekSessions()[activeThreadId]?.transcriptRevision;
+      if (revision) void loadThread(activeThreadId, false, revision);
+    }, 20_000);
+    return () => window.clearInterval(timer);
+  }, [activeThreadId, provider.serverPersisted, loadThread]);
+
+  // Render the cached transcript immediately, but revalidate on selection:
+  // a persisted background message can arrive while no surface is listening.
+  const lastTranscriptSelection = useRef<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    const selectionChanged = lastTranscriptSelection.current !== activeThreadId;
+    lastTranscriptSelection.current = activeThreadId;
     if (!activeThreadId || !provider.serverPersisted) {
       return () => {
         cancelled = true;
@@ -1308,14 +1364,14 @@ export function useAIChatRuntime(
         cancelled = true;
       };
     }
-    // Skip fetch when this thread is streaming or already cached.
+    // The local stream owns its transcript while it is running.
     if (streamingThreadIds.includes(activeThreadId)) {
       return () => {
         cancelled = true;
       };
     }
     const cached = peekSessions()[activeThreadId];
-    if (cached && cached.lastLoadedAt > 0) {
+    if (cached && cached.lastLoadedAt > 0 && !selectionChanged) {
       return () => {
         cancelled = true;
       };
@@ -1324,7 +1380,7 @@ export function useAIChatRuntime(
       // `skip` = deferred (streaming / in-flight) — must NOT stamp loaded, or a
       // later server-only apply drops the cold-send draft and a post-stream
       // reload never runs.
-      if (cancelled || result !== "error") return;
+      if (cancelled || result !== "error" || cached?.lastLoadedAt) return;
       // On the initial-load path (unlike push-refresh) a failed fetch must
       // still resolve the cache so we don't retry-loop on every render.
       if (activeThreadIdRef.current === activeThreadId) {
@@ -1379,14 +1435,15 @@ export function useAIChatRuntime(
         return;
       }
 
-      if (detail.status !== "completed") return;
-      markRemoteTurnFinished(threadId, detail.turn_id ?? null);
+      if (detail.status !== "completed" && detail.status !== "message") return;
+      if (detail.status === "completed") {
+        markRemoteTurnFinished(threadId, detail.turn_id ?? null);
+      }
       if (isOurs) return;
-      // Refetch only threads this tab has actually cached. One that was
-      // never opened here has nothing to refresh — it loads fresh on first
-      // open — and the badge above already recorded that it was busy.
-      if (!(threadId in peekSessions())) return;
-      void loadThread(threadId);
+      // Refresh the visible thread even during its first load. Other threads
+      // only need refreshing if this tab has already cached them.
+      if (activeThreadIdRef.current !== threadId && !(threadId in peekSessions())) return;
+      void loadThread(threadId, true);
     };
     window.addEventListener("integral:thread-stream-update", handler);
     // A completed background turn can arrive while the socket is down.
@@ -1394,10 +1451,17 @@ export function useAIChatRuntime(
     // locally streaming turn; loadThread performs the normal merge guards.
     const onReconnect = () => {
       const threadId = activeThreadIdRef.current;
-      if (threadId && !threadId.startsWith("local-")) void loadThread(threadId);
+      if (threadId && !threadId.startsWith("local-") && !peekStreamingThreadIds().includes(threadId)) {
+        void loadThread(threadId, true);
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") onReconnect();
     };
     window.addEventListener("integral:agent-events-reconnected", onReconnect);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("integral:thread-stream-update", handler);
       window.removeEventListener("integral:agent-events-reconnected", onReconnect);
     };
@@ -1535,7 +1599,7 @@ export function useAIChatRuntime(
           if (controller.signal.aborted) break;
           if (ev.type === "steering-delivered") {
             const text = ev.text ?? peekSessions()[threadId]?.followUps?.find(
-              (item) => item.id === ev.correction_id,
+              (item) => (item.correctionId ?? item.id) === ev.correction_id,
             )?.text;
             if (text) {
               draft.steering = [...(draft.steering ?? []), { correction_id: ev.correction_id, text }];
@@ -1543,7 +1607,7 @@ export function useAIChatRuntime(
             }
             updateSession(threadId, (session) => ({
               ...session,
-              followUps: session.followUps?.filter((item) => item.id !== ev.correction_id),
+              followUps: session.followUps?.filter((item) => (item.correctionId ?? item.id) !== ev.correction_id),
             }));
             continue;
           }
@@ -1840,26 +1904,106 @@ export function useAIChatRuntime(
     ],
   );
 
-  const queueFollowUp = useCallback((text: string, refs: ChatEntityRef[]) => {
+  const followUpRevision = useRef(0);
+  const pendingQueueRequest = useRef<{ key: string; id: string; workItemId: string } | null>(null);
+
+  const refreshFollowUps = useCallback(async (threadId: string) => {
+    const revision = followUpRevision.current;
+    const { items: pending, paused } = await aiChatApi.listFollowUps(threadId);
+    if (revision !== followUpRevision.current || activeThreadIdRef.current !== threadId) return;
+    const previous = peekSessions()[threadId]?.followUps ?? [];
+    const known = new Map(previous.map((item) => [item.id, item]));
+    const next: FollowUp[] = pending.map((item) => known.get(item.client_request_id) ?? {
+      id: item.client_request_id,
+      text: item.text,
+      refs: item.entity_refs,
+      state: "queued",
+    });
+    const localStream = peekStreamingThreadIds().includes(threadId);
+    next.push(...previous.filter((item) => (item.state !== "queued" || localStream) && !pending.some(
+      (queued) => queued.client_request_id === item.id,
+    )));
+    if (next.length !== previous.length || next.some((item, index) => item !== previous[index]) ||
+        Boolean(peekSessions()[threadId]?.followUpsPaused) !== paused) {
+      updateSession(threadId, { followUps: next, followUpsPaused: paused });
+    }
+    if (previous.some((item) => item.state === "queued" && !next.includes(item))) {
+      void loadThread(threadId);
+    }
+  }, [loadThread, updateSession]);
+
+  const queueFollowUp = useCallback(async (text: string, refs: ChatEntityRef[]) => {
     const threadId = activeThreadIdRef.current;
     if (!threadId || provider.id !== "integral_native") return false;
     const session = peekSessions()[threadId];
-    if (!session?.streaming || session.cancellation) return false;
-    const id = randomUUID();
-    updateSession(threadId, (session) => ({
-      ...session,
-      followUps: [...(session.followUps ?? []), { id, text, refs, state: "queued" }],
-    }));
-    return true;
-  }, [provider.id, updateSession]);
+    const key = JSON.stringify([threadId, text, refs]);
+    if (session?.cancellation || (!session?.streaming && pendingQueueRequest.current?.key !== key)) return false;
+    const prior = pendingQueueRequest.current?.key === key ? pendingQueueRequest.current : null;
+    const workItemId = prior?.workItemId ?? session?.steeringWorkItemId;
+    if (!workItemId) {
+      updateSession(threadId, { streamError: "Wait for the reply to start, then try again." });
+      return false;
+    }
+    const id = prior?.id ?? randomUUID();
+    pendingQueueRequest.current = { key, id, workItemId };
+    try {
+      const receipt = await aiChatApi.queueFollowUp(threadId, {
+        client_request_id: id,
+        after_work_item_id: workItemId,
+        text,
+        entity_refs: refs,
+      });
+      followUpRevision.current++;
+      pendingQueueRequest.current = null;
+      if (receipt.status === "queued") {
+        updateSession(threadId, (current) => ({
+          ...current,
+          followUps: (current.followUps ?? []).some((item) => item.id === id)
+            ? current.followUps
+            : [...(current.followUps ?? []), { id, text, refs, state: "queued" }],
+        }));
+      } else {
+        void loadThread(threadId);
+      }
+      return true;
+    } catch {
+      updateSession(threadId, {
+        streamError: "Couldn’t confirm the follow-up. Send again to retry.",
+      });
+      return false;
+    }
+  }, [loadThread, provider.id, updateSession]);
 
-  const removeFollowUp = useCallback((id: string) => {
+  const removeFollowUp = useCallback(async (id: string) => {
     const threadId = activeThreadIdRef.current;
     if (!threadId) return;
-    updateSession(threadId, (session) => ({
-      ...session,
-      followUps: session.followUps?.filter((item) => item.id !== id || item.state === "sending"),
-    }));
+    const item = peekSessions()[threadId]?.followUps?.find((entry) => entry.id === id);
+    if (!item || item.state === "sending") return;
+    try {
+      if (item.state === "queued") await aiChatApi.dismissFollowUp(threadId, id);
+      followUpRevision.current++;
+      updateSession(threadId, (session) => ({
+        ...session,
+        followUps: session.followUps?.filter((entry) => entry.id !== id),
+      }));
+    } catch {
+      await refreshFollowUps(threadId).catch(() => {});
+      updateSession(threadId, {
+        streamError: "Couldn’t remove the follow-up. It may have already started.",
+      });
+    }
+  }, [refreshFollowUps, updateSession]);
+
+  const resumeFollowUps = useCallback(async () => {
+    const threadId = activeThreadIdRef.current;
+    if (!threadId) return;
+    try {
+      await aiChatApi.resumeFollowUps(threadId);
+      followUpRevision.current++;
+      updateSession(threadId, { followUpsPaused: false });
+    } catch {
+      updateSession(threadId, { streamError: "Couldn’t resume the follow-up queue. Try again." });
+    }
   }, [updateSession]);
 
   const steerFollowUp = useCallback(async (id: string) => {
@@ -1872,49 +2016,53 @@ export function useAIChatRuntime(
         (item.state !== "queued" && item.state !== "unconfirmed") ||
         (item.workItemId && item.workItemId !== workItemId)) return;
 
-    const updateReceipt = (state: "sending" | "accepted" | "unconfirmed" | "queued") => {
+    const updateReceipt = (state: FollowUp["state"], correctionId?: string) => {
+      followUpRevision.current++;
       updateSession(threadId, (current) => ({
         ...current,
         followUps: current.followUps?.map((entry) => entry.id === id
-          ? { ...entry, state, workItemId: state === "queued" ? undefined : workItemId } : entry),
+          ? { ...entry, state, correctionId, workItemId: state === "queued" ? undefined : workItemId } : entry),
       }));
     };
 
-    updateReceipt("sending");
+    // Delivery may arrive on the stream before the acceptance response.
+    updateReceipt("sending", `queued-follow-up:${id}`);
     try {
-      await apiClient.post(`/work-items/${encodeURIComponent(workItemId)}/steering`, {
-        client_request_id: id,
-        text: item.text,
+      const { data } = await apiClient.post<{ correction_id: string }>(
+        `/work-items/${encodeURIComponent(workItemId)}/steering`,
+        { client_request_id: id, text: item.text, from_follow_up_queue: true },
+      );
+      const delivered = peekSessions()[threadId]?.messages.some((message) => {
+        const steering = message.metadata?.custom?.steering;
+        return Array.isArray(steering) && steering.some(
+          (entry) => entry.correction_id === data.correction_id,
+        );
       });
-      updateReceipt("accepted");
+      if (delivered) {
+        updateSession(threadId, (current) => ({
+          ...current, followUps: current.followUps?.filter((entry) => entry.id !== id),
+        }));
+      } else {
+        updateReceipt("accepted", data.correction_id);
+      }
     } catch (error) {
-      // A lost response can hide an accepted correction. Keep its request ID
-      // for retry and wait for delivery rather than submitting it twice.
       const status = (error as { response?: { status?: number } })?.response?.status;
       updateReceipt(item.state === "queued" && status === 409 ? "queued" : "unconfirmed");
     }
   }, [updateSession]);
 
+  const hasPendingFollowUps = Boolean(sessions[activeThreadId ?? ""]?.followUps?.some(
+    (item) => item.state === "queued",
+  ));
   useEffect(() => {
-    if (provider.id !== "integral_native" || !activeThreadId || !composerReady || admissionError(activeThreadId)) return;
-    const session = peekSessions()[activeThreadId];
-    if (!session || session.followUps?.some((item) => item.state === "sending")) return;
-    const next = session.followUps?.find((item) => item.state === "queued");
-    if (!next) return;
-
-    const userMessage: ThreadMessageLike = {
-      id: nextId("u"),
-      role: "user",
-      content: [{ type: "text", text: next.text }],
-      ...(next.refs.length ? { metadata: { custom: { entityRefs: next.refs } } } : {}),
-    };
-    const priorMessages = [...session.messages, userMessage];
-    updateSession(activeThreadId, {
-      messages: priorMessages,
-      followUps: session.followUps?.filter((item) => item.id !== next.id),
-    });
-    void streamAssistantTurn(activeThreadId, next.text, priorMessages, next.refs);
-  }, [activeThreadId, admissionError, composerReady, nextId, provider.id, remoteTurns, sessions, streamingThreadIds, streamAssistantTurn, updateSession]);
+    if (provider.id !== "integral_native" || !activeThreadId || !selectionScopeReady ||
+        activeThreadId.startsWith("local-")) return;
+    const refresh = () => void refreshFollowUps(activeThreadId).catch(() => {});
+    refresh();
+    if (!hasPendingFollowUps) return;
+    const timer = window.setInterval(refresh, 1500);
+    return () => window.clearInterval(timer);
+  }, [activeThreadId, hasPendingFollowUps, provider.id, refreshFollowUps, selectionScopeReady]);
 
   const onEdit = useCallback(
     async (message: AppendMessage) => {
@@ -2213,6 +2361,8 @@ export function useAIChatRuntime(
       isThreadStreaming,
       appendAssistantNote,
       followUps: activeSession?.followUps,
+      followUpsPaused: activeSession?.followUpsPaused,
+      resumeFollowUps,
       queueFollowUp,
       removeFollowUp,
       steerFollowUp,
@@ -2239,6 +2389,8 @@ export function useAIChatRuntime(
       isThreadStreaming,
       appendAssistantNote,
       activeSession?.followUps,
+      activeSession?.followUpsPaused,
+      resumeFollowUps,
       queueFollowUp,
       removeFollowUp,
       steerFollowUp,

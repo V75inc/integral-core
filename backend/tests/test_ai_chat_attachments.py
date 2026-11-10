@@ -77,7 +77,7 @@ async def test_send_message_with_attachment_builds_context_note(
     thread = await chat_store.get_thread(thread_id)
     upload = _make_upload(b"hello world", "notes.txt", "text/plain")
     result = await _persist_uploaded_chat_file(
-        thread=thread, user_id=test_user.id, file=upload
+        thread=thread, user_id=test_user.user_id, file=upload
     )
     attachment_id = result["attachment"]["id"]
 

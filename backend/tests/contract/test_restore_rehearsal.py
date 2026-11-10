@@ -69,6 +69,9 @@ def test_backup_restore_drill_round_trip():
         pytest.skip("backup/restore scripts missing")
 
     env = _pg_env()
+    env["POSTGRES_HOST"] = os.getenv(
+        "INTEGRAL_RESTORE_CLIENT_HOST", env["POSTGRES_HOST"]
+    )
     with tempfile.TemporaryDirectory() as tmp:
         env["BACKUP_DIR"] = tmp
         backup = subprocess.run(
@@ -80,6 +83,8 @@ def test_backup_restore_drill_round_trip():
             timeout=180,
         )
         if backup.returncode != 0:
+            if os.getenv("INTEGRAL_TEST_RESTORE") == "1":
+                pytest.fail(backup.stderr or backup.stdout)
             pytest.skip(
                 f"postgres not reachable for backup drill: {backup.stderr or backup.stdout}"
             )

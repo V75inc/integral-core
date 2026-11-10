@@ -522,12 +522,15 @@ def _fill_text_frame(
             # A sub-section inside a slide: a bold accent line, not a bullet.
             n = 0
             para.space_before = Pt(10)
-            head = para.add_run()
-            head.text = b.text
-            head.font.size = Pt(size + 2)
-            head.font.bold = True
-            head.font.name = theme.heading_font
-            head.font.color.rgb = _pptx_color(color if light else theme.accent_mid)
+            for r in b.runs:
+                head = para.add_run()
+                head.text = r.text
+                head.font.size = Pt(size + 2)
+                head.font.bold = True
+                head.font.name = theme.heading_font
+                head.font.color.rgb = _pptx_color(color if light else theme.accent_mid)
+                if r.url:
+                    head.hyperlink.address = r.url
             continue
         if b.kind == "bullet":
             prefix = "•  "
@@ -550,6 +553,8 @@ def _fill_text_frame(
             run.font.italic = r.italic or (b.kind == "quote") or None
             run.font.name = "Consolas" if r.code else theme.body_font
             run.font.color.rgb = _pptx_color(color)
+            if r.url:
+                run.hyperlink.address = r.url
 
 
 def _pptx_table(slide, rows, theme: Theme, left, top, width) -> None:
@@ -564,13 +569,18 @@ def _pptx_table(slide, rows, theme: Theme, left, top, width) -> None:
         for ci in range(cols):
             cell = table.cell(ri, ci)
             runs = row[ci] if ci < len(row) else [Run("")]
-            cell.text = "".join(r.text for r in runs)
+            cell.text_frame.clear()
             para = cell.text_frame.paragraphs[0]
-            for run in para.runs:
+            for source in runs:
+                run = para.add_run()
+                run.text = source.text
                 run.font.size = Pt(14)
                 run.font.name = theme.body_font
-                run.font.bold = ri == 0 or None
+                run.font.bold = ri == 0 or source.bold or None
+                run.font.italic = source.italic or None
                 run.font.color.rgb = _pptx_color("FFFFFF" if ri == 0 else theme.text)
+                if source.url:
+                    run.hyperlink.address = source.url
             cell.fill.solid()
             cell.fill.fore_color.rgb = _pptx_color(
                 theme.accent if ri == 0 else (theme.band if ri % 2 == 0 else "FFFFFF")
@@ -600,6 +610,16 @@ def _render_pptx(
         for k, v in rows:
             blocks.append(Block("bullet", [Run(f"{k}: ", bold=True), Run(v)]))
     intro, slides = split_into_slides(blocks)
+    # The title subtitle is intended for a short introduction. Longer bodies,
+    # tables and heading-free documents need a content slide so their data is
+    # not silently truncated or flattened into a subtitle.
+    if intro and (
+        not slides
+        or len(plain_text(intro)) > 300
+        or any(b.kind == "table" for b in intro)
+    ):
+        slides.insert(0, ("Overview", intro))
+        intro = []
 
     from_template = bool(template)
     prs = Presentation(io.BytesIO(template)) if template else Presentation()
@@ -615,7 +635,6 @@ def _render_pptx(
     # --- title slide
     s = prs.slides.add_slide(layout(0))
     s.shapes.title.text = title or "Untitled"
-    subtitle = plain_text(intro)[:300]
     if not from_template:
         _slide_rect(s, 0, 0, sw, sh, theme.accent, to_back=True)
         _slide_rect(s, Inches(0.8), Inches(3.75), Inches(1.4), Inches(0.08), "FFFFFF")
@@ -636,7 +655,8 @@ def _render_pptx(
                 r.font.color.rgb = _pptx_color("FFFFFF")
     if len(s.placeholders) > 1:
         ph = s.placeholders[1]
-        ph.text = subtitle
+        ph.text_frame.clear()
+        _fill_text_frame(ph.text_frame, intro, theme, 20, light=not from_template)
         if not from_template:
             ph.left, ph.top, ph.width, ph.height = (
                 Inches(0.8),
@@ -662,6 +682,20 @@ def _render_pptx(
                 tf = body_ph.text_frame
                 tf.clear()
                 _fill_text_frame(tf, text_blocks, theme, 20)
+            # Tables cannot be represented by a text placeholder. Give each
+            # its own template slide rather than silently omitting it.
+            for tb in tables:
+                table_slide = prs.slides.add_slide(layout(5))
+                if table_slide.shapes.title is not None:
+                    table_slide.shapes.title.text = heading or "Section"
+                _pptx_table(
+                    table_slide,
+                    tb.rows,
+                    theme,
+                    Inches(0.8),
+                    Inches(1.8),
+                    sw - Inches(1.6),
+                )
             continue
         _slide_rect(s, 0, 0, Inches(0.25), sh, theme.accent)
         t = s.shapes.title
@@ -723,7 +757,7 @@ def _mix_hex(accent: str) -> str:
 
 def _pdf_markup(runs: Sequence[Run], theme: Theme) -> str:
     """Runs as reportlab paragraph markup (text escaped, emphasis as tags)."""
-    from xml.sax.saxutils import escape
+    from xml.sax.saxutils import escape, quoteattr
 
     out: List[str] = []
     for r in runs:
@@ -735,7 +769,7 @@ def _pdf_markup(runs: Sequence[Run], theme: Theme) -> str:
         if r.italic:
             piece = f"<i>{piece}</i>"
         if r.url:
-            piece = f'<a href="{escape(r.url)}" color="#{theme.accent_mid}"><u>{piece}</u></a>'
+            piece = f'<a href={quoteattr(r.url)} color="#{theme.accent_mid}"><u>{piece}</u></a>'
         out.append(piece)
     return "".join(out)
 
@@ -966,6 +1000,7 @@ def _render_pdf(
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
+        invariant=1,
         pagesize=LETTER,
         leftMargin=0.9 * inch,
         rightMargin=0.9 * inch,

@@ -12,7 +12,10 @@ from app.services.model_provider_endpoints import (
     OLLAMA_CLOUD_API_BASE,
     normalize_custom_base_url,
 )
-from app.services.model_settings import DEFAULT_OLLAMA_CONTEXT_WINDOW
+from app.services.model_settings import (
+    DEFAULT_OLLAMA_CONTEXT_WINDOW,
+    known_ollama_proxied_cloud_context,
+)
 
 
 async def resolve_native_model_route(
@@ -41,30 +44,35 @@ def _provider_for_model(model: str) -> str:
     return provider
 
 
-def _local_ollama_num_ctx() -> int:
+def _local_ollama_num_ctx(model_name: str = "") -> int:
     """Return a usable per-request local Ollama context window."""
     # A single standards-compliant Integral skill can itself be several
     # thousand tokens. 16k leaves too little room for that skill, broker tool
     # schemas, and provider framing on real scaffold turns. Keep this scoped to
     # the Ollama route; hosted OpenAI-compatible routes manage context at the
     # provider.
-    raw = os.getenv(
-        "INTEGRAL_NATIVE_OLLAMA_NUM_CTX", str(DEFAULT_OLLAMA_CONTEXT_WINDOW)
-    ).strip()
+    cloud_context = known_ollama_proxied_cloud_context(model_name)
+    default = cloud_context or DEFAULT_OLLAMA_CONTEXT_WINDOW
+    configured = os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX")
+    if configured is None:
+        return default
+    raw = configured.strip()
     try:
         value = int(raw)
     except ValueError as exc:
         raise ValueError("INTEGRAL_NATIVE_OLLAMA_NUM_CTX must be an integer") from exc
-    if not 512 <= value <= 131072:
+    maximum = cloud_context or 131072
+    if not 512 <= value <= maximum:
         raise ValueError(
-            "INTEGRAL_NATIVE_OLLAMA_NUM_CTX must be between 512 and 131072"
+            f"INTEGRAL_NATIVE_OLLAMA_NUM_CTX must be between 512 and {maximum}"
         )
     return value
 
 
-def _local_ollama_num_predict() -> int:
+def _local_ollama_num_predict(model_name: str = "") -> int:
     """Return a useful local Ollama output budget, above LiteLLM's fallback."""
-    raw = os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT", "8192").strip()
+    default = "32768" if known_ollama_proxied_cloud_context(model_name) else "8192"
+    raw = os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT", default).strip()
     try:
         value = int(raw)
     except ValueError as exc:
@@ -78,10 +86,17 @@ def _local_ollama_num_predict() -> int:
     return value
 
 
-def _local_ollama_generation_settings() -> tuple[int, int]:
+def _local_ollama_generation_settings(model_name: str = "") -> tuple[int, int]:
     """Keep prompt/context capacity separate from the requested output budget."""
-    num_ctx = _local_ollama_num_ctx()
-    num_predict = _local_ollama_num_predict()
+    num_ctx = _local_ollama_num_ctx(model_name)
+    num_predict = _local_ollama_num_predict(model_name)
+    if (
+        known_ollama_proxied_cloud_context(model_name)
+        and os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT") is None
+    ):
+        # An explicit smaller context still leaves useful room for a prompt;
+        # an explicitly configured output limit remains authoritative.
+        num_predict = min(num_predict, num_ctx // 2)
     if num_ctx < num_predict + 1024:
         raise ValueError(
             "INTEGRAL_NATIVE_OLLAMA_NUM_CTX must exceed "
@@ -169,7 +184,9 @@ async def _resolve_native_model_route(
             os.getenv("OLLAMA_API_BASE", "http://localhost:11434").strip()
             or "http://localhost:11434"
         ).rstrip("/")
-        ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
+        ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings(
+            model_name
+        )
         ollama_think = _local_ollama_think_setting()
         ollama_clear_thinking = _local_ollama_clear_thinking()
     else:
@@ -187,13 +204,23 @@ async def _resolve_native_model_route(
             raw_base = override.get("api_base")
             if raw_base is not None:
                 api_base = normalize_custom_base_url(str(raw_base))
+    generation_settings = override.get("generation_settings") or {}
+    configured_context = generation_settings.get("context_window")
+    if (
+        local_route
+        and known_ollama_proxied_cloud_context(model.split("/", 1)[1])
+        and isinstance(configured_context, int)
+        and "max_tokens" not in generation_settings
+        and os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT") is None
+    ):
+        ollama_num_predict = min(ollama_num_predict, configured_context // 2)
     return ResolvedModelRoute(
         provider=resolved_provider,
         model=model,
         api_base=api_base,
         api_key=api_key if api_key else None,
         keyless_endpoint=override.get("keyless_endpoint") is True,
-        generation_settings=override.get("generation_settings") or {},
+        generation_settings=generation_settings,
         ollama_num_ctx=ollama_num_ctx,
         ollama_num_predict=ollama_num_predict,
         ollama_think=ollama_think,
@@ -248,7 +275,9 @@ def resolve_deployment_model_route(default_model: str) -> ResolvedModelRoute:
             os.getenv("OLLAMA_API_BASE", "http://localhost:11434").strip()
             or "http://localhost:11434"
         ).rstrip("/")
-        ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
+        ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings(
+            default_model.split("/", 1)[1]
+        )
         ollama_think = _local_ollama_think_setting()
         ollama_clear_thinking = _local_ollama_clear_thinking()
     elif provider != "ollama":

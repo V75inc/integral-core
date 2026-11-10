@@ -120,6 +120,45 @@ def route(model, **settings):
 
 
 @pytest.mark.asyncio
+async def test_reviewed_route_requires_live_credential_and_accounting(monkeypatch):
+    from app.schemas.agentive.work import WorkError
+    from app.schemas.agentive.work_mandate import MandateModelRoute
+    from app.services import host_hooks
+
+    heavy = route("heavy").model_copy(update={"credential_ref": "reviewed"})
+    resolver = AsyncMock(return_value=model_routing.TurnModelRoutes(heavy, heavy))
+    monkeypatch.setattr(model_routing, "conversation_turn_routes", resolver)
+    monkeypatch.setattr(host_hooks, "get_model_bounds_resolver", lambda: object())
+    monkeypatch.setattr(host_hooks, "get_model_price_resolver", lambda: object())
+    expected = MandateModelRoute(
+        provider=heavy.provider,
+        model=heavy.model,
+        credential_source=heavy.credential_source,
+        credential_ref="reviewed",
+    )
+
+    async def resolve():
+        return await model_routing.resolve_reviewed_conversation_route(
+            workspace_id="workspace",
+            profile_id="profile",
+            reasoning_efforts={"heavy": "high"},
+            reviewed_routes=(expected,),
+        )
+
+    assert await resolve() is heavy
+    assert resolver.await_args.kwargs["profile_id"] == "profile"
+    assert resolver.await_args.kwargs["heavy_only"] is True
+    rotated = heavy.model_copy(update={"credential_ref": "rotated"})
+    resolver.return_value = model_routing.TurnModelRoutes(rotated, rotated)
+    with pytest.raises(WorkError, match="work.model_route_stale"):
+        await resolve()
+    monkeypatch.setattr(host_hooks, "get_model_price_resolver", lambda: None)
+    with pytest.raises(WorkError, match="work.mandate_model_unavailable"):
+        await resolve()
+    assert resolver.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_role_resolution_keeps_one_owner_and_fixed_profile_uses_one_model(
     monkeypatch,
 ):

@@ -33,6 +33,8 @@ def _digest(value: Any) -> str:
 
 def editable_operations(sc: StagedChange) -> list[tuple[int, dict[str, Any]]]:
     """Only canonical Entry writes with an already existing, fixed destination."""
+    if "resident_assignment" in sc.entry_edit_fences:
+        return []
     if sc.kind == "batch":
         from app.agentive.services.staging_command_batch import supports_canonical_batch
 
@@ -582,7 +584,15 @@ async def revise_entry_proposal(
 
 async def validate_entry_edit_fence(decision: dict, index: int) -> None:
     """Inside the canonical effect transaction, refuse schema changes since review."""
-    fence = (decision.get("entry_edit_fences") or {}).get(str(index))
+    fences = decision.get("entry_edit_fences") or {}
+    assignment = fences.get("resident_assignment")
+    if assignment is not None:
+        from app.services.resident_assignment_placement import (
+            validate_assignment_placement,
+        )
+
+        await validate_assignment_placement(decision, assignment)
+    fence = fences.get(str(index))
     if not fence:
         return
     from app.models.nodes import EntryType, Track

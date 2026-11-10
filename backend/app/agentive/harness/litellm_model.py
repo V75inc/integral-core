@@ -16,9 +16,10 @@ import logging
 from builtins import anext
 from collections import defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -199,9 +200,20 @@ def _cost_value(value: Any) -> Decimal | None:
         return None
     try:
         cost = Decimal(str(value))
-    except (TypeError, ValueError):
+    except (InvalidOperation, TypeError, ValueError):
         return None
     return cost if cost.is_finite() and cost >= 0 else None
+
+
+_COST_FIELDS = ("cost", "response_cost")
+
+
+def _cost_fields(payload: dict[str, Any]) -> dict[str, Decimal]:
+    return {
+        key: cost
+        for key in _COST_FIELDS
+        if (cost := _cost_value(payload.get(key))) is not None
+    }
 
 
 def _reported_cost(
@@ -212,15 +224,12 @@ def _reported_cost(
     hidden = hidden if isinstance(hidden, dict) else {}
     raw_usage = payload.get("usage")
     raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
-    usage_cost = raw_usage.get("cost", raw_usage.get("response_cost"))
-    provider_cost = _cost_value(usage_cost)
-    if provider_cost is not None:
-        return provider_cost, "provider_response"
-
-    for key in ("response_cost", "cost"):
-        direct_cost = _cost_value(payload.get(key))
-        if direct_cost is not None:
-            return direct_cost, "provider_response"
+    for source in (raw_usage, payload):
+        amounts = set(_cost_fields(source).values())
+        if len(amounts) > 1:
+            return None, "unavailable"
+        if amounts:
+            return amounts.pop(), "provider_response"
     headers = hidden.get("additional_headers")
     if isinstance(headers, dict):
         header_cost = _cost_value(headers.get("llm_provider-x-litellm-response-cost"))
@@ -367,8 +376,8 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         self._finish = finish
         self._last: Any | None = None
         self._usage: dict[str, Any] = {}
-        self._reported_usage_cost: Any = None
-        self._reported_direct_cost: Any = None
+        self._reported_usage_cost: dict[str, Decimal] = {}
+        self._reported_direct_cost: dict[str, Decimal] = {}
         self._hidden_params: dict[str, Any] = {}
         self._hidden_cost: Any = None
         self._additional_headers: dict[str, Any] = {}
@@ -384,15 +393,19 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         except (TypeError, ValueError):
             payload = {}
         if isinstance(payload, dict):
-            for key in ("cost", "response_cost"):
-                if _cost_value(payload.get(key)) is not None:
-                    self._reported_direct_cost = payload[key]
+            self._reported_direct_cost = (
+                _cost_fields(payload) or self._reported_direct_cost
+            )
             usage = payload.get("usage")
             if isinstance(usage, dict):
-                self._usage.update(usage)
-                for key in ("cost", "response_cost"):
-                    if _cost_value(usage.get(key)) is not None:
-                        self._reported_usage_cost = usage[key]
+                self._usage.update(
+                    (key, value)
+                    for key, value in usage.items()
+                    if key not in _COST_FIELDS
+                )
+                self._reported_usage_cost = (
+                    _cost_fields(usage) or self._reported_usage_cost
+                )
             request_id = payload.get("id")
             if request_id:
                 self._provider_request_id = request_id
@@ -422,12 +435,10 @@ class _LiteLLMStream(httpx.AsyncByteStream):
             if isinstance(last_payload, dict):
                 payload.update(last_payload)
         payload["id"] = self._provider_request_id or payload.get("id")
-        merged_usage = dict(self._usage)
-        if self._reported_usage_cost is not None:
-            merged_usage["cost"] = self._reported_usage_cost
-        payload["usage"] = merged_usage
-        if self._reported_direct_cost is not None:
-            payload["response_cost"] = self._reported_direct_cost
+        payload["usage"] = {**self._usage, **self._reported_usage_cost}
+        for key in _COST_FIELDS:
+            payload.pop(key, None)
+        payload.update(self._reported_direct_cost)
 
         hidden = dict(self._hidden_params)
         if self._hidden_cost is not None:
@@ -834,25 +845,28 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 # conservatively for the separate no-dispatch recovery path.
                 await readiness()
 
-            if self._request_validator is not None:
-                try:
+            try:
+                if self._request_validator is not None:
                     await self._request_validator(body)
-                except BaseException as exc:
-                    # The SDK was never entered. Settle the dispatch intent as
-                    # a known refusal so revoked uploads cannot leave an
-                    # unknown request that blocks durable chat continuation.
-                    await self._observe(
-                        request_id=request_id,
-                        request_context=request_context,
-                        attempt=attempt,
-                        started_at=started_at,
-                        outcome=(
-                            "cancelled"
-                            if isinstance(exc, asyncio.CancelledError)
-                            else "failed"
-                        ),
-                    )
-                    raise
+                from app.services.retrieval.history import (
+                    assert_bound_model_retrieval_current,
+                )
+
+                await assert_bound_model_retrieval_current(self._scope)
+            except BaseException as exc:
+                # No SDK call was made. Settle the intent as a known refusal.
+                await self._observe(
+                    request_id=request_id,
+                    request_context=request_context,
+                    attempt=attempt,
+                    started_at=started_at,
+                    outcome=(
+                        "cancelled"
+                        if isinstance(exc, asyncio.CancelledError)
+                        else "failed"
+                    ),
+                )
+                raise
 
             try:
                 deadline = asyncio.get_running_loop().time() + self._timeout_seconds
@@ -1099,6 +1113,40 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         )
 
 
+class RetrievalAwareOpenAIChatModel(OpenAIChatModel):
+    """Bind native message evidence before the SDK projects messages to HTTP."""
+
+    def __init__(
+        self, *args: Any, retrieval_scope: HarnessExecutionScope, **kwargs: Any
+    ):
+        super().__init__(*args, **kwargs)
+        self._retrieval_scope = retrieval_scope
+
+    async def request(self, messages, model_settings, model_request_parameters):
+        from app.services.retrieval.history import bind_model_request_retrieval
+
+        with bind_model_request_retrieval(
+            self._retrieval_scope, messages, allow_unproven_tool_results=True
+        ):
+            return await super().request(
+                messages, model_settings, model_request_parameters
+            )
+
+    @asynccontextmanager
+    async def request_stream(
+        self, messages, model_settings, model_request_parameters, run_context=None
+    ):
+        from app.services.retrieval.history import bind_model_request_retrieval
+
+        with bind_model_request_retrieval(
+            self._retrieval_scope, messages, allow_unproven_tool_results=True
+        ):
+            async with super().request_stream(
+                messages, model_settings, model_request_parameters, run_context
+            ) as response:
+                yield response
+
+
 def build_litellm_sdk_model(
     *,
     route: ResolvedModelRoute,
@@ -1168,4 +1216,6 @@ def build_litellm_sdk_model(
         and context_window > 0
         else None
     )
-    return OpenAIChatModel(route.model, provider=provider, profile=profile)
+    return RetrievalAwareOpenAIChatModel(
+        route.model, provider=provider, profile=profile, retrieval_scope=scope
+    )

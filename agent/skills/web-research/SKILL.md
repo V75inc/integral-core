@@ -1,7 +1,7 @@
 ---
 name: web-research
 description: Searches current public web sources and reads selected pages when an answer depends on external or time-sensitive information. Use for market, competitor, product, technical, and jurisdiction research; do not use for private workspace records.
-allowed-tools: mcp__serper_web_search__search_web mcp__serper_web_search__fetch_web_page web_search__search web_fetch__fetch
+allowed-tools: mcp__serper_web_search__search_web mcp__serper_web_search__fetch_web_page
 ---
 
 # Public web research
@@ -34,21 +34,27 @@ the tool returned it successfully.
 1. Turn the request into a focused, non-sensitive query. Include the requested
    country or market when it materially changes the result.
 2. If the Serper Web Search Connector is available, call
-   `mcp__serper_web_search__search_web`; otherwise call the resident
-   `web_search__search` service. For a normal research request,
-   use no more than three targeted searches and request no more than five
-   results per search. Search only further when the first results leave a
-   material evidence gap.
-   If the Connector errors or reports that it is not configured, try the
-   resident service when available; if neither works, disclose that web search
-   is unavailable.
+   `mcp__serper_web_search__search_web`. For a normal research request,
+   start with a focused mode: roughly three targeted searches with up to five
+   results each. For broad, multi-market, comparative or explicitly deep
+   research, use an extended mode: plan the evidence needed, search iteratively
+   and inspect enough distinct primary sources to cover it. Treat these as
+   starting budgets, not claims of completeness or hard limits; use additional
+   searches when needed within the run's available budget and explain any
+   material coverage gaps.
+   If the connector is unavailable or reports an error, disclose that current
+   web research is unavailable. Explain that the Serper Web Search connector
+   can be installed and configured under Settings → Connectors, or a workspace
+   administrator can help set it up. Offer supplied-source or offline
+   preparation as a fallback.
 3. Select the most relevant sources. Prefer official, primary, and dated
    sources for factual or consequential claims. Do not assume search rank means
    authority.
-4. Call `mcp__serper_web_search__fetch_web_page` when available, otherwise
-   `web_fetch__fetch`, on up to three selected public pages to verify the
-   claim against page content. A successful verification requires substantive
-   page text relevant to that claim; a returned URL or page title alone is not
+4. Call `mcp__serper_web_search__fetch_web_page` on selected public pages to
+   verify each claim against page content. Start with a few high-value pages in
+   focused mode; inspect more in extended mode when the question requires it.
+   A successful verification requires substantive page text relevant to that
+   claim; a returned URL or page title alone is not
    a successful fetch. If fetching fails or content is empty, truncated, or
    incomplete, say so and do not replace it with an unsupported summary. A
    search result or snippet is a lead, not a verified source: do not use it to

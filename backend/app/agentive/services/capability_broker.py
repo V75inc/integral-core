@@ -217,6 +217,56 @@ async def _call_adapter(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
     from app.agentive.services.work_execution import assert_effect_boundary_allowed
     from app.agentive.services.work_items import authorized_work_item_effect
 
+    if inv.capability_key == "integral_prepare_document_attachment":
+        # This operation has its own claim-fenced, recoverable storage phases.
+        # Bind the trusted work lease to each short graph boundary rather than
+        # keeping a database transaction open across rendering and blob I/O.
+        from app.services.document_draft_preparation import (
+            bind_preparation_work_context,
+        )
+
+        async with authorized_work_item_effect(context):
+            await assert_effect_boundary_allowed(context)
+        with bind_preparation_work_context(context):
+            return await dispatch_capability(inv, cap)
+
+    if inv.capability_key == "integral_attach_uploaded_file_to_entry":
+        from app.api.errors import ResourceNotFoundError
+        from app.services.chat_attachment_review import (
+            bind_preinspected_attachment,
+            inspect_chat_attachment_for_review,
+        )
+        from app.services.chat_threads import get_thread_by_session
+
+        async with authorized_work_item_effect(context):
+            await assert_effect_boundary_allowed(context)
+        thread = await get_thread_by_session(inv.session_id or "")
+        if (
+            thread is None
+            or thread.id != context.thread_id
+            or context.principal_id != inv.principal_id
+            or context.workspace_id != inv.workspace_id
+        ):
+            raise ResourceNotFoundError(message="Conversation not found")
+        scope = {
+            "user_id": inv.principal_id,
+            "workspace_id": inv.workspace_id,
+            "thread_id": thread.id,
+            "attachment_id": str(inv.arguments.get("attachment_id") or ""),
+        }
+        inspected = await inspect_chat_attachment_for_review(**scope)
+        with bind_preinspected_attachment(scope, inspected):
+            async with authorized_work_item_effect(context):
+                item = await assert_effect_boundary_allowed(context)
+                proof = origin_for(
+                    context,
+                    inv.capability_key,
+                    str(item.input_payload.get("routine_mandate_fingerprint") or ""),
+                )
+                with bind_proposal_origin(proof):
+                    data = await dispatch_capability(inv, cap)
+                return await apply_routine_proposal(inv, data, proof)
+
     async with authorized_work_item_effect(context):
         item = await assert_effect_boundary_allowed(context)
         proof = origin_for(
@@ -435,6 +485,7 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
         )
         if (
             inv.capability_key == "integral_query_spec"
+            or inv.capability_key == "integral_prepare_document_attachment"
             or isinstance(cap.get("query_template"), dict)
             or replay_from_durable_operation_receipt
         ) and str(step.status) == "succeeded":

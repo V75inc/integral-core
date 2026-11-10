@@ -16,7 +16,11 @@ called as ``await fn(user_id=<principal_id>, ...)``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import os
+import re
+import stat
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -354,10 +358,83 @@ def _validate_sandbox_relative_path(path: str) -> str:
     return raw
 
 
+def _read_sandbox_file(user_id: str, sandbox_path: str) -> bytes:
+    """Read a bounded caller-owned file without following path symlinks.
+
+    The configured root is trusted, but every component below it is untrusted.
+    Open directories relative to already-open descriptors so renames or symlink
+    swaps cannot redirect a file read outside the caller's slice.
+    """
+    rel = _validate_sandbox_relative_path(sandbox_path)
+    if not user_id or user_id in {".", ".."} or "/" in user_id or "\\" in user_id:
+        raise ValueError("Invalid sandbox owner")
+    root = (os.environ.get("INTEGRAL_SANDBOX_ROOT") or "").strip()
+    if not root:
+        raise ValueError("Sandbox file bridge is not configured")
+    parts = [user_id, *Path(rel).parts]
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Invalid sandbox path")
+    descriptors = []
+    try:
+        fd = os.open(Path(root).resolve(strict=True), os.O_RDONLY | os.O_DIRECTORY)
+        descriptors.append(fd)
+        for part in parts[:-1]:
+            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            descriptors.append(fd)
+        file_fd = os.open(
+            parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd
+        )
+        descriptors.append(file_fd)
+        info = os.fstat(file_fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("Sandbox source is not a regular file")
+        maximum = settings.ATTACHMENT_MAX_UPLOAD_BYTES
+        if info.st_size > maximum:
+            raise ValueError("Sandbox file exceeds the attachment size limit")
+        with os.fdopen(os.dup(file_fd), "rb") as source:
+            content = source.read(maximum + 1)
+        if len(content) > maximum:
+            raise ValueError("Sandbox file exceeds the attachment size limit")
+        return content
+    except OSError as exc:
+        raise ValueError(
+            "Sandbox file is unavailable or cannot be safely read"
+        ) from exc
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+async def inspect_sandbox_file(user_id: str, sandbox_path: str) -> Dict[str, Any]:
+    """Identify the exact bytes and prepare a bounded plain-text preview."""
+    content = await asyncio.to_thread(_read_sandbox_file, user_id, sandbox_path)
+    result: Dict[str, Any] = {
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "size": len(content),
+        "preview": {"available": False},
+    }
+    if Path(sandbox_path).suffix.lower() in {".txt", ".md", ".csv", ".tsv", ".json"}:
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            return result
+        # Treat control-rich content as binary, not a safe text preview.
+        if any(ord(ch) < 32 and ch not in "\n\r\t" for ch in text):
+            return result
+        max_chars = 12_000
+        result["preview"] = {
+            "available": True,
+            "text": text[:max_chars],
+            "complete": len(text) <= max_chars,
+        }
+    return result
+
+
 async def attach_sandbox_file_to_entry(
     user_id: str,
     entry_id: str,
     sandbox_path: str,
+    expected_sha256: str = "",
 ) -> Dict[str, Any]:
     """Attach a sandbox-produced file to an entry.
 
@@ -393,33 +470,27 @@ async def attach_sandbox_file_to_entry(
             "message": "You do not have permission to add attachments to this entry",
         }
 
-    root = (os.environ.get("INTEGRAL_SANDBOX_ROOT") or "").strip()
-    if not root:
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256 or ""):
         return {
             "error": True,
-            "error_code": "sandbox_unavailable",
-            "message": (
-                "Sandbox file bridge is not configured (INTEGRAL_SANDBOX_ROOT unset)"
-            ),
+            "error_code": "file_review_required",
+            "message": "Review the file again before attaching it.",
         }
-
-    abs_path = (Path(root) / user_id / rel).resolve()
-    sandbox_root = (Path(root) / user_id).resolve()
-    if sandbox_root not in abs_path.parents and abs_path != sandbox_root:
+    try:
+        content = await asyncio.to_thread(_read_sandbox_file, user_id, rel)
+    except ValueError as exc:
         return {
             "error": True,
-            "error_code": "sandbox_path_escape",
-            "message": "sandbox_path escapes the caller sandbox slice",
+            "error_code": "sandbox_file_unavailable",
+            "message": str(exc),
         }
-    if not abs_path.is_file():
+    if not hmac.compare_digest(hashlib.sha256(content).hexdigest(), expected_sha256):
         return {
             "error": True,
-            "error_code": "sandbox_file_missing",
-            "message": f"Sandbox file not found: {rel}",
+            "error_code": "sandbox_file_changed",
+            "message": "The file changed after review. Review it again before attaching it.",
         }
-
-    content = await asyncio.to_thread(abs_path.read_bytes)
-    filename = abs_path.name
+    filename = Path(rel).name
     from app.services.attachment_upload_shared import fallback_mime_from_filename
 
     mime_type = fallback_mime_from_filename(filename) or "application/octet-stream"

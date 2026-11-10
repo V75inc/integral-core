@@ -61,7 +61,16 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
     delivery_mode = src.get("delivery_mode", "agent")
     from app.agentive.services.routine_tasks import validate_delivery_mode
 
-    validate_delivery_mode(delivery_mode, instruction, write_scope)
+    watch_entry_id = (src.get("watch_entry_id") or "").strip()
+    watch_goal = src.get("watch_goal") is True
+    watch_prepare_closure = src.get("watch_prepare_closure") is True
+    if watch_prepare_closure and not watch_goal:
+        raise ValueError(
+            "schedule_task: closure preparation requires a typed goal watch"
+        )
+    if watch_goal and delivery_mode != "task_watch":
+        raise ValueError("schedule_task: a goal watch requires task_watch delivery")
+    validate_delivery_mode(delivery_mode, instruction, write_scope, watch_entry_id)
 
     if not instruction:
         raise ValueError("schedule_task: instruction is required")
@@ -135,6 +144,22 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         "workspace_id": active_workspace_id() or thread.workspace_id or "",
         "max_runs": max_runs,
     }
+    if watch_entry_id:
+        from app.agentive.services.routine_task_watch import read_task_watch_snapshot
+
+        if payload[
+            "workspace_id"
+        ] != thread.workspace_id or not await read_task_watch_snapshot(
+            principal_id, thread.workspace_id, watch_entry_id, goal=watch_goal
+        ):
+            raise ValueError(
+                "schedule_task: choose a readable Entry with the selected published semantics in this workspace"
+            )
+        payload["watch_entry_id"] = watch_entry_id
+        if watch_goal:
+            payload["watch_goal"] = True
+        if watch_prepare_closure:
+            payload["watch_prepare_closure"] = True
     if run_at:
         payload["run_at"] = run_at
 
@@ -160,6 +185,21 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         f"Stops: {stop_desc}",
     ]
 
+    if delivery_mode == "assignment_digest":
+        diff_lines[3] = (
+            "Delivery: new review-ready assignments you sponsored in this workspace, with no model call or Entry writes"
+        )
+    if watch_entry_id:
+        diff_lines[3] = (
+            f"Delivery: read-only {'goal and criterion evidence' if watch_goal else 'task'} changes, with no model call or unchanged updates"
+        )
+        diff_lines.insert(
+            4, f"Watched {'goal' if watch_goal else 'Entry'}: {watch_entry_id}"
+        )
+    if watch_prepare_closure:
+        diff_lines[3] = (
+            "Delivery: goal changes and a pending closure review when all criteria pass. Approval is required before closing the goal."
+        )
     return {
         "kind": "routine_task_create",
         "summary": summary,
