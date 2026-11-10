@@ -1105,7 +1105,7 @@ export function AppDetailPage() {
           initialSection={hasConfigurableSettings ? 'settings' : 'access'}
           onClose={() => setShowAppSettingsModal(false)}
           onOpenPage={page => {
-            const target = tracks.find(t => t.title === page.track);
+            const target = tracks.find(t => t.title === page.track) ?? allTracks.find(t => t.title === page.track);
             if (!target) return;
             setShowAppSettingsModal(false);
             navigate(`/tracks/${target.id}`);
