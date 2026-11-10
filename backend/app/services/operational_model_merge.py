@@ -1466,6 +1466,14 @@ async def refresh_app_track_template_materialization(
     await merge_library_manifest_into_operational_model(
         shim, template_cp, track=None, for_space=False
     )
+    # Tracks already spawned from this template follow its list visibility too (an update reaches old records).
+    desired_nav = bool(template_spec.get("nav_visible", True))
+    for spawned in await app_node.nodes(edge=["CONTAINS"], node=["Track"]):
+        if str(getattr(spawned, "template_id", "") or "") == template_key and bool(
+            getattr(spawned, "nav_visible", True)
+        ) != desired_nav:
+            spawned.nav_visible = desired_nav
+            await spawned.save()
     return template_cp
 
 

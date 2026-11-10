@@ -1372,6 +1372,8 @@ def _normalize_track_template_spec(
             "key": key,
             "name": name,
             "description": str(td.get("description") or "").strip(),
+            # A track spawned from this template stays out of the App's track list when this is false.
+            "nav_visible": bool(td.get("nav_visible", True)),
             "entry_types": [
                 _normalize_entry_type_spec(
                     _as_dict(e, where=f"{where}[{key!r}].entry_types[]")
