@@ -70,11 +70,15 @@ export function ExtensionViewWidget(props: ViewWidgetProps) {
   const identity = JSON.stringify([appId, viewKey, workspaceId]);
   const componentKey = String(props.view.config?.component_key || '');
   const lifecycle = useContributionLifecycle();
+  // A related view on a record's page has no form lifecycle: its record arrives as the first entry (or in the
+  // bindings), the same sources the iframe host reads.
+  const entryId = String(bindings.entryId || lifecycle?.entryId || props.entries?.[0]?.id || '').trim();
+  const trackId = String(props.track?.id || bindings.trackId || lifecycle?.trackId || props.view.track_id || '').trim();
   const legacy = <ExtensionViewSession key={identity} {...props} appId={appId} viewKey={viewKey} workspaceId={workspaceId} />;
   if (!componentKey) return legacy;
   return <AppReactComponentHost key={identity} appId={appId} componentKey={componentKey}
     placement={lifecycle?.placement || 'track'} lifecycle={lifecycle || undefined}
-    context={{entryId: lifecycle?.entryId, trackId: props.track?.id || lifecycle?.trackId || props.view.track_id}}
+    context={{entryId: entryId || undefined, trackId: trackId || undefined}}
     props={(props.view.config?.component_props as Record<string, unknown>) || {}} fallback={legacy} />;
 }
 

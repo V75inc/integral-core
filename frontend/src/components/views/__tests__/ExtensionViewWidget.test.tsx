@@ -36,6 +36,14 @@ vi.mock('../../extensions/AppExtensionViewHost', () => ({
   ),
 }));
 
+vi.mock('../../extensions/AppReactComponentHost', () => ({
+  AppReactComponentHost: (props: { appId: string; componentKey: string; placement: string; context?: { entryId?: string; trackId?: string } }) => (
+    <div data-testid="react-host" data-entry={props.context?.entryId || ''} data-track={props.context?.trackId || ''} data-placement={props.placement}>
+      {props.appId}:{props.componentKey}
+    </div>
+  ),
+}));
+
 import { ExtensionViewWidget } from '../ExtensionViewWidget';
 import {
   ContributionLifecycleContext,
@@ -181,4 +189,21 @@ describe('ExtensionViewWidget', () => {
     expect(screen.queryByText('Extension view unavailable')).not.toBeInTheDocument();
   });
 
+});
+
+describe('ExtensionViewWidget React component on a record page', () => {
+  it('gives a related view its record and track, as the iframe host does', async () => {
+    const view = {
+      id: 'v2', type: 'extension_view', track_id: 'track-9', name: 'Pay run',
+      config: { extension_view_key: 'pay_run_workflow', component_key: 'pay_run_dashboard', __bindings: { appId: 'app-payroll' } },
+    } as unknown as SavedView;
+    wrap(
+      <ExtensionViewWidget view={view} entries={[{ id: 'entry-run-1' } as never]} track={undefined as never} onEntryOpen={() => {}} />,
+    );
+    const host = await screen.findByTestId('react-host');
+    expect(host.getAttribute('data-entry')).toBe('entry-run-1');
+    expect(host.getAttribute('data-track')).toBe('track-9');
+    expect(host.getAttribute('data-placement')).toBe('track');
+    expect(host.textContent).toBe('app-payroll:pay_run_dashboard');
+  });
 });
