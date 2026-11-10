@@ -1104,6 +1104,12 @@ export function AppDetailPage() {
           functionAccessWorkspaceId={hasFunctionSettings ? app.workspace_id : undefined}
           initialSection={hasConfigurableSettings ? 'settings' : 'access'}
           onClose={() => setShowAppSettingsModal(false)}
+          onOpenPage={page => {
+            const target = tracks.find(t => t.title === page.track);
+            if (!target) return;
+            setShowAppSettingsModal(false);
+            navigate(`/tracks/${target.id}`);
+          }}
           onSaved={() => {
             void queryClient.invalidateQueries({ queryKey: ['app-home-query', appId] });
             void queryClient.invalidateQueries({ queryKey: ['app-home-data', appId] });

@@ -55,3 +55,14 @@ it('opens directly to function access when it is the only applicable settings se
   expect(screen.queryByRole('tab', {name:'Settings'})).toBeNull();
   expect(screen.queryByRole('button', {name:'Save settings'})).toBeNull();
 });
+
+it('lists the App\'s declared settings pages and opens one on request', async () => {
+  const open = vi.fn();
+  mocks.get.mockResolvedValue({ ...configured, settings_schema: { ...configured.settings_schema, 'ui:pages': [{ label: 'Pay rules', description: 'Rates and tables', track: 'Rules' }, { nolabel: true }] } });
+  show({ onOpenPage: open });
+  await screen.findByLabelText('Record prefix');
+  expect(screen.getByText('Rates and tables')).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  expect(open).toHaveBeenCalledWith({ label: 'Pay rules', description: 'Rates and tables', track: 'Rules' });
+});

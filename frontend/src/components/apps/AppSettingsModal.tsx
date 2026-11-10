@@ -37,12 +37,26 @@ function seedDefaultsFromSchema(
   return seeded;
 }
 
+/** A settings page an App declares beside its fields (``ui:pages`` in its settings schema), such as reference tables. */
+export type AppSettingsPage = { label: string; description?: string; track: string };
+
+function settingsPages(schema: Record<string, unknown> | null): AppSettingsPage[] {
+  const raw = schema?.['ui:pages'];
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap(item => {
+    const page = item as Partial<AppSettingsPage> | null;
+    return page && typeof page.label === 'string' && typeof page.track === 'string' ? [{ label: page.label, description: typeof page.description === 'string' ? page.description : undefined, track: page.track }] : [];
+  });
+}
+
 export interface AppSettingsModalProps {
   open: boolean;
   appId: string;
   appName: string;
   onClose(): void;
   onSaved?(): void;
+  /** Opens one of the App's declared settings pages (the host resolves it and navigates). */
+  onOpenPage?(page: AppSettingsPage): void;
   initialSection?: 'settings' | 'access';
   /** Only supplied for a workspace owner; server checks remain authoritative. */
   functionAccessWorkspaceId?: string;
@@ -54,6 +68,7 @@ export function AppSettingsModal({
   appName,
   onClose,
   onSaved,
+  onOpenPage,
   functionAccessWorkspaceId,
   initialSection = 'settings',
 }: AppSettingsModalProps) {
@@ -68,6 +83,7 @@ export function AppSettingsModal({
   const [loadError, setLoadError] = useState(false);
   const [retry, setRetry] = useState(0);
   const hasFields = Boolean(schema && Object.keys(schema.properties || {}).length);
+  const pages = settingsPages(schema);
   const dirty = JSON.stringify(value) !== JSON.stringify(initialValue);
 
   useEffect(() => {
@@ -138,6 +154,16 @@ export function AppSettingsModal({
             disabled={saving}
           />
         ) : null}
+        {pages.length > 0 && onOpenPage ? <section aria-label="More settings" className="mt-6 space-y-3 border-t border-[var(--panel-border)] pt-5">
+          <Text variant="heading-sm" as="h3">More settings</Text>
+          {pages.map(page => <div key={page.track + page.label} className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Text variant="body" weight="semibold" as="p">{page.label}</Text>
+              {page.description ? <Text variant="body-sm" tone="muted" as="p">{page.description}</Text> : null}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => onOpenPage(page)}>Open</Button>
+          </div>)}
+        </section> : null}
         {loadError && <div className="space-y-3">
           <Text as="p" tone="muted">App settings are unavailable.</Text>
           <Button variant="secondary" onClick={() => setRetry(count => count + 1)}>Retry settings</Button>
