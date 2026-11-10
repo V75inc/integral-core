@@ -21,6 +21,10 @@ export type AppQueryOptions = AppReadOptions & {enabled?: boolean};
 export type LookupOption = {id: string; label: string; description?: string; disabled?: boolean; [key: string]: unknown};
 export type LookupPage = {items: LookupOption[]; next_cursor?: string | null};
 export type AsyncComboboxProps = {id?: string; required?: boolean; 'aria-describedby'?: string; label: string; value: string; selectedLabel?: string; loadPage: (query: string, cursor: string | null, signal: AbortSignal) => Promise<LookupPage>; onChange: (option: LookupOption) => void; disabled?: boolean; placeholder?: string; invalid?: boolean; onCreate?: () => void; createLabel?: string};
+export type DataTableColumn<Row = Json> = {key: string; label: ReactNode; align?: 'start' | 'end'; sortable?: boolean; sortValue?: (row: Row) => string | number | null | undefined; pinned?: boolean; width?: string; render?: (row: Row) => ReactNode; total?: ReactNode};
+export type DataTableProps<Row = Json> = {columns: DataTableColumn<Row>[]; rows: Row[]; rowKey: (row: Row) => string; caption: string; defaultSort?: {key: string; direction: 'asc' | 'desc'} | null; pageSize?: number; onRowClick?: (row: Row) => void; empty?: ReactNode; maxHeight?: string};
+export type TabsProps = {options: {value: string; label: ReactNode; count?: number | null}[]; value: string; onChange: (value: string) => void; ariaLabel?: string};
+export type BadgeProps = {tone?: 'neutral' | 'success' | 'warn' | 'danger' | 'info'; children: ReactNode};
 export type DateInputProps = {required?: boolean; invalid?: boolean; 'aria-describedby'?: string; value: string; onChange: (value: string) => void; mode?: 'date' | 'datetime'; disabled?: boolean; placeholder?: string; 'aria-label'?: string; id?: string};
 export interface ContributionLifecycle {
   mode: 'create' | 'edit' | 'detail';
@@ -128,6 +132,9 @@ export interface UIPrimitives {
 
   EntryRegion?: ComponentType<EntryRegionProps>;
   AsyncCombobox?: ComponentType<AsyncComboboxProps>;
+  DataTable?: ComponentType<DataTableProps<any>>;
+  Tabs?: ComponentType<TabsProps>;
+  Badge?: ComponentType<BadgeProps>;
   DateInput?: ComponentType<DateInputProps>;
   Button: ComponentType<any>; Input: ComponentType<any>; Select: ComponentType<any>;
   Textarea: ComponentType<any>; Text: ComponentType<any>; Surface: ComponentType<any>;
@@ -159,6 +166,10 @@ export const Select = refPrimitive<SelectProps, HTMLSelectElement>('Select');
 export const Textarea = refPrimitive<TextareaProps, HTMLTextAreaElement>('Textarea');
 export const EntryRegion = primitive<EntryRegionProps>('EntryRegion');
 export const AsyncCombobox = primitive<AsyncComboboxProps>('AsyncCombobox');
+const DataTableBase = primitive<DataTableProps<any>>('DataTable');
+export function DataTable<Row extends object = Json>(props: DataTableProps<Row>) { return <DataTableBase {...(props as DataTableProps<any>)} />; }
+export const Tabs = primitive<TabsProps>('Tabs');
+export const Badge = primitive<BadgeProps>('Badge');
 export const DateInput = primitive<DateInputProps>('DateInput');
 export const Text = primitive<TextProps>('Text');
 export const Surface = primitive<SurfaceProps>('Surface');

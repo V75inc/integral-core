@@ -41,6 +41,9 @@ must improve in Core rather than being copied independently into each App.
 | `AppActions` | Wrapping action layout with `align="start"`, `"end"` or `"between"`. Does not implement mutations. |
 | `AppSummary` | `title`, optional `description`, `rows` containing stable `key`, `label`, formatted `value`, optional `emphasis`. No calculation or currency policy. |
 | `AppNotice` | Shared loading/empty/information/error presentation; optional `title`, `action`, `tone="info|success|warn|danger"`. Warning/error notices announce alerts; other notices use status semantics. |
+| `DataTable` | Rows and columns for the App's own data. `columns` (`key`, `label`, `align="end"` for amounts, `sortable`, `pinned` for a leading column kept in view, `width`, `render`, `total`), `rows`, `rowKey`, `caption`; optional `defaultSort`, `pageSize`, `onRowClick`, `empty`, `maxHeight`. Sorting, paging, the totals row and number alignment are built in; do not draw tables by hand. |
+| `Tabs` | A short strip that switches the section below it: `options` (`value`, `label`, `count`), `value`, `onChange`, `ariaLabel`. |
+| `Badge` | A short coloured state label: `tone="neutral|success|warn|danger|info"` and the text. Meaning must also be in the text, not colour alone. |
 
 Use `Button`, `Input`, `Select`, `Textarea`, `DateInput`, `AsyncCombobox`, `Text`,
 `Surface`, `Stack`, `Inline`, and `Modal` for controls and lower-level composition.

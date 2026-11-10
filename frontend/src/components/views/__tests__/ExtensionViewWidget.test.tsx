@@ -198,7 +198,7 @@ describe('ExtensionViewWidget React component on a record page', () => {
       config: { extension_view_key: 'pay_run_workflow', component_key: 'pay_run_dashboard', __bindings: { appId: 'app-payroll' } },
     } as unknown as SavedView;
     wrap(
-      <ExtensionViewWidget view={view} entries={[{ id: 'entry-run-1' } as never]} track={undefined as never} onEntryOpen={() => {}} />,
+      <ExtensionViewWidget view={view} entries={[{ id: 'entry-run-1' } as never]} track={undefined as never} isLoading={false} onEntryOpen={() => {}} />,
     );
     const host = await screen.findByTestId('react-host');
     expect(host.getAttribute('data-entry')).toBe('entry-run-1');

@@ -12,6 +12,13 @@
  * See `.planning/ui-templating/adr-frontend-layering.md` for layer rules.
  */
 
+export { DataTable } from './DataTable';
+export type { DataTableProps, DataTableColumn, DataTableSort } from './DataTable';
+export { Tabs } from './Tabs';
+export type { TabsProps } from './Tabs';
+export { StatusBadge } from './StatusBadge';
+export type { StatusBadgeTone } from './StatusBadge';
+
 export { Text } from './Text';
 export type { TextProps, TextVariant, TextTone, TextWeight } from './Text';
 
