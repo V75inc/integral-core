@@ -1934,7 +1934,8 @@ export function EntryFormExpandedView({
 }: EntryFormExpandedViewProps) {
   // The server's answer to "would this save?", from the same rules a real save runs.
   const writeCheck = useEntryWriteCheck({
-    enabled: !hideActions && (_mode === 'create' || Boolean(initialEntry?.id)),
+    // An App-owned form (e.g. a pay record editor) shapes its values when Save is pressed: no live check there.
+    enabled: !hideActions && !ownsForm && (_mode === 'create' || Boolean(initialEntry?.id)),
     trackId: checkTrackId,
     typeId: checkTypeId,
     entryId: _mode === 'edit' ? initialEntry?.id : undefined,

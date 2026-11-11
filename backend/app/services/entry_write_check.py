@@ -70,6 +70,13 @@ async def check_entry_write(
     proposed = dict(custom_fields or {})
     fields = {**(getattr(entry, "custom_fields", None) or {}), **proposed} if entry else proposed
     _model, runtime_tier, _ = await resolve_track_runtime_profile(track)
+    # Required fields are the form's own job (it marks them, and the real save enforces them); a form that is
+    # still being filled in, or an App editor that sets values only when Save is pressed, must not be blocked
+    # for them here. This check is for the rules a form can't see: the App's save rules and other checks.
+    for spec in (entry_type.form_schema or {}).get("fields") or []:
+        key = str(spec.get("key") or "")
+        if key and spec.get("required") and fields.get(key) in (None, "", []):
+            fields.setdefault(key, None)
     try:
         validated, _relations = await validate_and_materialize_entry_custom_fields(
             track=track,
@@ -95,6 +102,8 @@ async def check_entry_write(
             dry_run=True,
         )
     except BadRequestError as exc:
+        if "is required" in str(exc.message):
+            return {"ok": True}
         details = getattr(exc, "details", None) or {}
         return _refused(str(exc.message), str(details.get("field") or "") if isinstance(details, dict) else "")
     except ValueError as exc:
