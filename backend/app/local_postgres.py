@@ -105,6 +105,7 @@ def require_password(binaries: Path, uri: str) -> None:
 
 
 def quoted_socket_dir(find_socket_dir, pgdata, runtime_path, socket_dirs: ExitStack):
+    """Return a shell-quoted path to a private PostgreSQL socket directory."""
     # pgserver 0.1.4 leaves -k unquoted inside pg_ctl's -o string.
     try:
         directory = find_socket_dir(pgdata, runtime_path)
@@ -123,6 +124,7 @@ def quoted_socket_dir(find_socket_dir, pgdata, runtime_path, socket_dirs: ExitSt
 
 
 def run_database(socket_dirs: ExitStack) -> None:
+    """Keep temporary socket directories alive for the database process."""
     import pgserver
 
     if os.name != "nt":
