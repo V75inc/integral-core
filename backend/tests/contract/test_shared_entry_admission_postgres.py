@@ -435,3 +435,123 @@ async def test_exact_row_locks_preserve_entry_discriminator_checks(
         and current.tags == []
         and current.attachment_ids == []
     )
+
+
+async def test_a_persons_creates_overlap_when_shared_admission_is_enabled(monkeypatch):
+    """Two creates by the same person reach persistence together (before: one waited for the other)."""
+    from app.config import settings
+
+    user, workspace, first = await _entry("shared-admission-create@example.com")
+    database = get_default_context().database
+    monkeypatch.setattr(settings, "ENTRY_SHARED_ADMISSION_ENABLED", True)
+    both = asyncio.Event()
+    admitted = set()
+    original = Entry.create
+
+    async def barrier(**values):
+        admitted.add(values["title"])
+        if len(admitted) == 2:
+            both.set()
+        await asyncio.wait_for(both.wait(), 5)
+        return await original(**values)
+
+    monkeypatch.setattr(Entry, "create", barrier)
+
+    async def create(title):
+        async with scoped_default_context_async(GraphContext(database=database)):
+            return await create_entry_in_track(
+                track=await Track.get(first.track_id),
+                user_id=user,
+                workspace_id=workspace,
+                title=title,
+            )
+
+    entries = await asyncio.gather(create("Shared one"), create("Shared two"))
+    assert {e.title for e in entries} == {"Shared one", "Shared two"}
+
+
+async def test_creates_stay_serialized_while_shared_admission_is_off(monkeypatch):
+    """The default: the second create cannot reach persistence until the first has finished."""
+    from app.config import settings
+
+    user, workspace, first = await _entry("exclusive-admission-create@example.com")
+    database = get_default_context().database
+    monkeypatch.setattr(settings, "ENTRY_SHARED_ADMISSION_ENABLED", False)
+    inside = []
+    original = Entry.create
+
+    async def observe(**values):
+        inside.append(values["title"])
+        await asyncio.sleep(0.3)
+        concurrent = len(inside)
+        saved = await original(**values)
+        observe.max_inside = max(
+            getattr(observe, "max_inside", 0), concurrent - len(observe.done)
+        )
+        observe.done.append(values["title"])
+        return saved
+
+    observe.done = []
+    monkeypatch.setattr(Entry, "create", observe)
+
+    async def create(title):
+        async with scoped_default_context_async(GraphContext(database=database)):
+            return await create_entry_in_track(
+                track=await Track.get(first.track_id),
+                user_id=user,
+                workspace_id=workspace,
+                title=title,
+            )
+
+    await asyncio.gather(create("Serial one"), create("Serial two"))
+    assert observe.max_inside == 1
+
+
+async def test_membership_removal_waits_for_creates_in_flight_then_blocks_later_ones(
+    monkeypatch,
+):
+    """Shared admission still fences access changes: the removal waits for the write, and later writes fail."""
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.api.errors import InsufficientPermissionsError
+    from app.config import settings
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.nodes import Workspace
+    from tests.contract.test_release_admission_postgres import remove_membership
+
+    user, workspace_id, first = await _entry("shared-admission-fence@example.com")
+    database = get_default_context().database
+    monkeypatch.setattr(settings, "ENTRY_SHARED_ADMISSION_ENABLED", True)
+    workspace = await Workspace.find_one({"id": workspace_id})
+    auth = await AuthUser.get(user)
+    inside, release = asyncio.Event(), asyncio.Event()
+    original = Entry.create
+
+    async def hold(**values):
+        inside.set()
+        await asyncio.wait_for(release.wait(), 5)
+        return await original(**values)
+
+    monkeypatch.setattr(Entry, "create", hold)
+
+    async def create(title):
+        async with scoped_default_context_async(GraphContext(database=database)):
+            return await create_entry_in_track(
+                track=await Track.get(first.track_id),
+                user_id=user,
+                workspace_id=workspace_id,
+                title=title,
+            )
+
+    writing = asyncio.create_task(create("In flight"))
+    await asyncio.wait_for(inside.wait(), 5)
+    revoking = asyncio.create_task(remove_membership(auth, workspace))
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(asyncio.shield(revoking), 0.3)  # the removal waits
+    release.set()
+    saved = await writing
+    assert saved.title == "In flight"  # the write that started first completes
+    await asyncio.wait_for(revoking, 5)  # then the removal lands
+    monkeypatch.setattr(Entry, "create", original)
+    with pytest.raises((InsufficientPermissionsError, AuthorizationUnavailableError)):
+        await create("After removal")

@@ -287,6 +287,11 @@ class Settings(BaseSettings):
     DB_OPERATION_LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING"] = "INFO"
     ENTRY_COUNT_PROJECTION_TRACK_ID: str = ""
     ENTRY_SHARED_CREATE_ENABLED: bool = False
+    # Admit a person's creates and field updates of records under a SHARED lock on their account and on the workspace's
+    # authorization record, instead of an exclusive one. Exclusive admission serialises every write by that person
+    # (a pay run is hundreds of them). Anything that changes who may do what still takes the exclusive lock and so
+    # still waits for writes in flight. Off by default.
+    ENTRY_SHARED_ADMISSION_ENABLED: bool = False
     DB_LOGGING_ENABLED: bool = Field(
         default=True,
         validation_alias="JVSPATIAL_DB_LOGGING_ENABLED",
