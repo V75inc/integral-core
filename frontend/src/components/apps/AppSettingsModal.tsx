@@ -15,6 +15,19 @@ import { appsApi } from '../../api/apps';
 import { errorMessageFromAxios } from '../../api/helpers';
 import { useToast } from '../../context/ToastContext';
 
+/**
+ * Fields an App marks ``ui:setup_only`` are asked once, in the install form, and kept out of this dialog (the App has
+ * its own screen for changing them later). The install form shows every field.
+ */
+function withoutSetupOnlyFields(schema: Record<string, unknown>): Record<string, unknown> {
+  const properties = (schema?.properties || {}) as Record<string, Record<string, unknown>>;
+  const hidden = Object.keys(properties).filter(key => properties[key]?.['ui:setup_only'] === true);
+  if (!hidden.length) return schema;
+  const kept = Object.fromEntries(Object.entries(properties).filter(([key]) => !hidden.includes(key)));
+  const required = ((schema.required as string[] | undefined) || []).filter(key => !hidden.includes(key));
+  return { ...schema, properties: kept, required };
+}
+
 function seedDefaultsFromSchema(
   schema: Record<string, unknown>
 ): Record<string, unknown> {
@@ -96,7 +109,7 @@ export function AppSettingsModal({
       .getAppSettings(appId)
       .then(res => {
         if (cancelled) return;
-        const nextSchema = res.settings_schema || {};
+        const nextSchema = withoutSetupOnlyFields(res.settings_schema || {});
         setSchema(nextSchema);
         const loaded = { ...seedDefaultsFromSchema(nextSchema), ...(res.settings || {}) };
         setValue(loaded);
