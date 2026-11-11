@@ -220,10 +220,13 @@ async def test_startup_eager_load_invokes_load_model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_startup_skips_load_when_flag_off(monkeypatch):
+@pytest.mark.parametrize(
+    "profile,eager", [("server", "0"), ("desktop_single_user", "1")]
+)
+async def test_startup_skips_optional_model(monkeypatch, profile, eager):
     from app.services.retrieval import embedding_model as em
 
-    monkeypatch.setenv("EMBEDDING_MODEL_EAGER_LOAD", "0")
+    monkeypatch.setenv("EMBEDDING_MODEL_EAGER_LOAD", eager)
     calls = {"count": 0}
 
     def _fake_load():
@@ -234,6 +237,7 @@ async def test_startup_skips_load_when_flag_off(monkeypatch):
 
     from app import main as app_main
 
+    monkeypatch.setattr(app_main.settings, "INTEGRAL_DEPLOYMENT_PROFILE", profile)
     await app_main._warm_embedding_model()
     assert calls["count"] == 0
 

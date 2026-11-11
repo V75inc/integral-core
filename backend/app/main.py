@@ -418,6 +418,9 @@ async def _warm_embedding_model() -> None:
     surface the same error there.
     """
 
+    # Local workspaces must reach readiness without optional network assets.
+    if settings.INTEGRAL_DEPLOYMENT_PROFILE == "desktop_single_user":
+        return
     if os.environ.get("EMBEDDING_MODEL_EAGER_LOAD", "1") != "1":
         return
     try:
