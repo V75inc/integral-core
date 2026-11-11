@@ -321,17 +321,33 @@ async def _async_value(value):
 
 def test_track_template_can_keep_its_tracks_out_of_the_app_track_list():
     """A track spawned per record (a pay run's register) can be declared hidden from the App's list; the default is visible."""
+
     def compile_with(extra):
         manifest = {
             "operational_model_schema_version": 2,
             "scope": "app",
             "package": {"slug": "test", "name": "Test", "version": "1.0.0"},
             "app": {
-                "tracks": [{"key": "main", "name": "Main", "entry_types": [{"key": "note", "name": "Note", "fields": []}]}],
-                "track_templates": [{"key": "lines", "name": "Lines", "entry_types": [{"key": "line", "name": "Line", "fields": []}], **extra}],
+                "tracks": [
+                    {
+                        "key": "main",
+                        "name": "Main",
+                        "entry_types": [{"key": "note", "name": "Note", "fields": []}],
+                    }
+                ],
+                "track_templates": [
+                    {
+                        "key": "lines",
+                        "name": "Lines",
+                        "entry_types": [{"key": "line", "name": "Line", "fields": []}],
+                        **extra,
+                    }
+                ],
             },
         }
-        return compile_canonical_manifest(manifest=manifest, scope_hint="app")["app"]["track_templates"][0]
+        return compile_canonical_manifest(manifest=manifest, scope_hint="app")["app"][
+            "track_templates"
+        ][0]
 
     assert compile_with({})["nav_visible"] is True
     assert compile_with({"nav_visible": False})["nav_visible"] is False
