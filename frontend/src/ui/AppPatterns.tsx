@@ -24,10 +24,13 @@ export function AppSection({title, description, actions, children, variant = 'pa
     </Stack>{actions ? <AppActions>{actions}</AppActions> : null}</Inline> : null}{children}</Stack>
   </Surface>;
 }
-const columns = {1: 'grid-cols-1', 2: 'grid-cols-1 md:grid-cols-2', 3: 'grid-cols-1 md:grid-cols-3'};
+const columns = {1: 'grid-cols-1', 2: 'grid-cols-1 md:grid-cols-2', 3: 'grid-cols-1 md:grid-cols-3', 4: 'grid-cols-[repeat(auto-fit,minmax(max(11rem,calc(25%_-_1rem)),1fr))]'};
+// fit="container": columns follow the room the grid has (a page beside the assistant is narrower than the window), not the window width.
+// Each column is at least a readable width and at least its share of the row, so the row fills and wraps cleanly.
+const containerColumns = {1: 'grid-cols-1', 2: 'grid-cols-[repeat(auto-fit,minmax(max(20rem,calc(50%_-_1rem)),1fr))]', 3: 'grid-cols-[repeat(auto-fit,minmax(max(14rem,calc(33.333%_-_1rem)),1fr))]', 4: 'grid-cols-[repeat(auto-fit,minmax(max(11rem,calc(25%_-_1rem)),1fr))]'};
 const gaps = {none: 'gap-0', xs: 'gap-1', sm: 'gap-2', md: 'gap-3', lg: 'gap-4', xl: 'gap-5', '2xl': 'gap-6'};
-export function AppGrid({children, columns: count = 2, gap = 'lg', className, ...rest}: AppGridProps) {
-  return <div {...rest} className={['grid min-w-0 items-start', columns[count], gaps[gap], className].filter(Boolean).join(' ')}>{children}</div>;
+export function AppGrid({children, columns: count = 2, gap = 'lg', fit, className, ...rest}: AppGridProps) {
+  return <div {...rest} className={['grid min-w-0 items-start', (fit === 'container' ? containerColumns : columns)[count], gaps[gap], className].filter(Boolean).join(' ')}>{children}</div>;
 }
 export function AppField({id, fieldKey, label, required, help, error, children}: AppFieldProps) {
   const generated = useId();

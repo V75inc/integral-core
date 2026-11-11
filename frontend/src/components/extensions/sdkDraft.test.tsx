@@ -18,3 +18,12 @@ it('uses host draft metadata and does not dispatch or subscribe while disabled',
   test.rerender({enabled: false});
   expect(subscribe).toHaveBeenCalledTimes(1);
 });
+it('keeps the data on screen while the same query refreshes', async () => {
+  let n = 0; const query = vi.fn(async () => ({n: ++n}));
+  const api = {principalId: 'user', workspaceId: 'ws', appId: 'app', componentKey: 'review', query, lifecycle: {mode: 'detail', customFields: {}, fields: [], fieldErrors: {}}} as unknown as AppUI;
+  const test = renderHook(() => useAppQuery('review', {entry_id: 'e1'}), {wrapper: ({children}) => <AppUIProvider value={api}>{children}</AppUIProvider>});
+  await waitFor(() => expect(test.result.current.data).toEqual({n: 1}));
+  act(() => test.result.current.refetch());
+  expect(test.result.current.data).toEqual({n: 1});
+  await waitFor(() => expect(test.result.current.data).toEqual({n: 2}));
+});

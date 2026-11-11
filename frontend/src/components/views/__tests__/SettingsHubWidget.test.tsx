@@ -15,8 +15,8 @@ vi.mock('../../../api', async importOriginal => {
 });
 
 vi.mock('../ExtensionViewWidget', () => ({
-  ExtensionViewWidget: (props: { view: { config?: { extension_view_key?: string } } }) => (
-    <div data-testid="app-screen">{props.view.config?.extension_view_key}</div>
+  ExtensionViewWidget: (props: { view: { config?: { extension_view_key?: string; component_key?: string } } }) => (
+    <div data-testid="app-screen" data-component={props.view.config?.component_key || ''}>{props.view.config?.extension_view_key}</div>
   ),
 }));
 
@@ -284,6 +284,15 @@ describe('SettingsHubWidget split layout', () => {
     expect((await screen.findByTestId('app-screen')).textContent).toBe('setup_checklist');
     fireEvent.click(screen.getByRole('button', { name: /Statutory rates/ }));
     expect(screen.getByTestId('app-screen').textContent).toBe('pay_rules');
+  });
+
+  it('passes a section\'s React component to the screen, with its iframe view as the fallback', async () => {
+    mockEntriesList.mockResolvedValue([]);
+    const withComponent = [{ key: 'start', title: 'Start here', group: 'Get started', extension_view_key: 'setup_checklist', component_key: 'setup_react' }];
+    renderHub(<SettingsHubWidget {...baseProps} view={splitView(withComponent)} onEntryCreate={async () => undefined} />);
+    const screenEl = await screen.findByTestId('app-screen');
+    expect(screenEl.textContent).toBe('setup_checklist');
+    expect(screenEl.getAttribute('data-component')).toBe('setup_react');
   });
 
   it('marks the open section for assistive technology', async () => {

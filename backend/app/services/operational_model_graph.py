@@ -416,6 +416,8 @@ async def materialize_anchor_track(
         template_id=template_key,
         workspace_id=source_ws,
         attached_operational_model_id=template_cp.id,
+        # One of these exists per record (a pay run, a filing): a template can keep them out of the App's track list.
+        nav_visible=bool(template_spec.get("nav_visible", True)),
         created_at=now,
         updated_at=now,
     )

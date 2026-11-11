@@ -21,6 +21,14 @@ export type AppQueryOptions = AppReadOptions & {enabled?: boolean};
 export type LookupOption = {id: string; label: string; description?: string; disabled?: boolean; [key: string]: unknown};
 export type LookupPage = {items: LookupOption[]; next_cursor?: string | null};
 export type AsyncComboboxProps = {id?: string; required?: boolean; 'aria-describedby'?: string; label: string; value: string; selectedLabel?: string; loadPage: (query: string, cursor: string | null, signal: AbortSignal) => Promise<LookupPage>; onChange: (option: LookupOption) => void; disabled?: boolean; placeholder?: string; invalid?: boolean; onCreate?: () => void; createLabel?: string};
+export type DataTableColumn<Row = Json> = {key: string; label: ReactNode; align?: 'start' | 'end'; sortable?: boolean; sortValue?: (row: Row) => string | number | null | undefined; pinned?: boolean | 'start' | 'end'; width?: string; group?: string; emphasis?: 'link'; render?: (row: Row) => ReactNode; total?: ReactNode | ((rows: Row[]) => ReactNode)};
+export type DataTableProps<Row = Json> = {columns: DataTableColumn<Row>[]; rows: Row[]; rowKey: (row: Row) => string; caption: string; groups?: {key: string; label: string}[]; defaultSort?: {key: string; direction: 'asc' | 'desc'} | null; pageSize?: number; onRowClick?: (row: Row) => void; empty?: ReactNode; maxHeight?: string; density?: 'comfortable' | 'compact'; rowTone?: (row: Row) => 'danger' | 'warn' | undefined; sectionBy?: (row: Row) => string | undefined; sectionTotals?: boolean; columnPicker?: {presets?: {label: string; keys: string[]}[]; persistKey?: string}; pinnable?: boolean; toolbar?: ReactNode; minWidth?: string};
+export type LineChartProps = {labels: string[]; series: {key: string; label: string; values: number[]}[]; tooltips?: string[]; ariaLabel: string; formatValue?: (value: number) => string};
+export type BridgeChartProps = {steps: {key: string; label: string; value: number}[]; ariaLabel: string; formatValue?: (value: number) => string; upLabel?: string; downLabel?: string};
+export type ProgressProps = {value?: number; ariaLabel: string};
+export type StatProps = {label: ReactNode; value: ReactNode; note?: ReactNode; delta?: ReactNode; emphasis?: boolean; trend?: number[]; trendLabel?: string};
+export type TabsProps = {options: {value: string; label: ReactNode; count?: number | null}[]; value: string; onChange: (value: string) => void; ariaLabel?: string};
+export type BadgeProps = {tone?: 'neutral' | 'success' | 'warn' | 'danger' | 'info'; children: ReactNode};
 export type DateInputProps = {required?: boolean; invalid?: boolean; 'aria-describedby'?: string; value: string; onChange: (value: string) => void; mode?: 'date' | 'datetime'; disabled?: boolean; placeholder?: string; 'aria-label'?: string; id?: string};
 export interface ContributionLifecycle {
   mode: 'create' | 'edit' | 'detail';
@@ -70,7 +78,8 @@ export function useAppQuery(key: string, input: Json = {}, options: AppQueryOpti
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
-    setState({signature, source: api.query, loading: true});
+    // Keep what is on screen while the same query refreshes; only a different query starts empty.
+    setState(previous => previous.signature === signature && previous.source === api.query ? {...previous, loading: true} : {signature, source: api.query, loading: true});
     api.query(key, input, controller.signal, {staleTime}).then(
       data => { if (!controller.signal.aborted) setState({signature, source: api.query, data, loading: false}); },
       error => { if (!controller.signal.aborted) setState({signature, source: api.query, error, loading: false}); },
@@ -110,10 +119,10 @@ export type ButtonProps = ComponentProps<'button'> & {variant?: 'primary' | 'sec
 export type InputProps = Omit<ComponentProps<'input'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
 export type SelectProps = Omit<ComponentProps<'select'>, 'size'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
 export type TextareaProps = ComponentProps<'textarea'> & {size?: 'sm' | 'md' | 'lg'; invalid?: boolean};
-export type TextProps = HTMLAttributes<HTMLElement> & {as?: ElementType; variant?: 'display-lg' | 'display-md' | 'display-sm' | 'heading-lg' | 'heading-md' | 'heading-sm' | 'body-lg' | 'body' | 'body-sm' | 'subtitle' | 'meta' | 'mono' | 'label'; weight?: 'normal' | 'medium' | 'semibold' | 'bold'; tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'info' | 'success' | 'warn' | 'danger' | 'ai' | 'inherit'};
+export type TextProps = HTMLAttributes<HTMLElement> & {as?: ElementType; variant?: 'display-lg' | 'display-md' | 'display-sm' | 'heading-lg' | 'heading-md' | 'heading-sm' | 'body-lg' | 'body' | 'body-sm' | 'subtitle' | 'meta' | 'mono' | 'label'; weight?: 'normal' | 'medium' | 'semibold' | 'bold'; align?: 'start' | 'center' | 'end'; numeric?: boolean; tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'info' | 'success' | 'warn' | 'danger' | 'ai' | 'inherit'};
 export type SurfaceProps = HTMLAttributes<HTMLDivElement> & {tone?: 'panel' | 'panel-2' | 'transparent'; border?: 'default' | 'subtle' | 'entry-table' | 'transparent' | 'none'; radius?: 'card' | 'input' | 'pill' | 'none'; as?: ElementType; elevation?: 'flat' | 'sm' | 'card' | 'pop'; padding?: 'none' | 'xs' | 'sm' | 'md' | 'lg'};
-export type LayoutProps = HTMLAttributes<HTMLDivElement> & {gap?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'; align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline'};
-export type ModalProps = {open: boolean; onClose: () => void; title?: ReactNode; children?: ReactNode; width?: string; variant?: 'default' | 'compact'};
+export type LayoutProps = HTMLAttributes<HTMLDivElement> & {gap?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'; align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline'; justify?: 'start' | 'center' | 'end' | 'between' | 'around'; wrap?: boolean};
+export type ModalProps = {open: boolean; onClose: () => void; title?: ReactNode; children?: ReactNode; /** `form` (default) suits most dialogs, `confirm` a short question, `wide` a table or preview. Core sets the width and the padding. */ size?: 'confirm' | 'form' | 'wide'; /** @deprecated Ignored; use `size`. */ width?: string; variant?: 'default' | 'compact'};
 
 /** Components are supplied by the host; these declarations are the public UI surface. */
 export interface UIPrimitives {
@@ -128,6 +137,13 @@ export interface UIPrimitives {
 
   EntryRegion?: ComponentType<EntryRegionProps>;
   AsyncCombobox?: ComponentType<AsyncComboboxProps>;
+  DataTable?: ComponentType<DataTableProps<any>>;
+  Stat?: ComponentType<StatProps>;
+  Progress?: ComponentType<ProgressProps>;
+  LineChart?: ComponentType<LineChartProps>;
+  BridgeChart?: ComponentType<BridgeChartProps>;
+  Tabs?: ComponentType<TabsProps>;
+  Badge?: ComponentType<BadgeProps>;
   DateInput?: ComponentType<DateInputProps>;
   Button: ComponentType<any>; Input: ComponentType<any>; Select: ComponentType<any>;
   Textarea: ComponentType<any>; Text: ComponentType<any>; Surface: ComponentType<any>;
@@ -159,6 +175,14 @@ export const Select = refPrimitive<SelectProps, HTMLSelectElement>('Select');
 export const Textarea = refPrimitive<TextareaProps, HTMLTextAreaElement>('Textarea');
 export const EntryRegion = primitive<EntryRegionProps>('EntryRegion');
 export const AsyncCombobox = primitive<AsyncComboboxProps>('AsyncCombobox');
+const DataTableBase = primitive<DataTableProps<any>>('DataTable');
+export function DataTable<Row extends object = Json>(props: DataTableProps<Row>) { return <DataTableBase {...(props as DataTableProps<any>)} />; }
+export const Stat = primitive<StatProps>('Stat');
+export const Progress = primitive<ProgressProps>('Progress');
+export const LineChart = primitive<LineChartProps>('LineChart');
+export const BridgeChart = primitive<BridgeChartProps>('BridgeChart');
+export const Tabs = primitive<TabsProps>('Tabs');
+export const Badge = primitive<BadgeProps>('Badge');
 export const DateInput = primitive<DateInputProps>('DateInput');
 export const Text = primitive<TextProps>('Text');
 export const Surface = primitive<SurfaceProps>('Surface');

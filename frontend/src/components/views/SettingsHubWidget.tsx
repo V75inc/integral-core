@@ -28,6 +28,9 @@ type SettingSection = {
   single?: boolean;
   /** Show this App screen (an extension view) in the detail pane instead of a record list. */
   extension_view_key?: string;
+  /** A reviewed React component of the App to show instead; the extension view above is its fallback. */
+  component_key?: string;
+  component_props?: Record<string, unknown>;
   /** Heading the section is listed under in the left list. Consecutive sections with one group share it. */
   group?: string;
 };
@@ -286,7 +289,7 @@ export function SettingsHubWidget(props: ViewWidgetProps) {
                       key={section.key}
                       active={activeSection?.section.key === section.key}
                       label={section.title}
-                      done={section.extension_view_key ? undefined : sectionRows.length > 0}
+                      done={section.extension_view_key || section.component_key ? undefined : sectionRows.length > 0}
                       count={sectionRows.length}
                       split={split}
                       onClick={() => setActiveSectionKey(section.key)}
@@ -298,7 +301,7 @@ export function SettingsHubWidget(props: ViewWidgetProps) {
           })}
         </nav>
 
-        {activeSection && activeSection.section.extension_view_key ? (
+        {activeSection && (activeSection.section.extension_view_key || activeSection.section.component_key) ? (
           <section aria-label={activeSection.section.title} className="min-w-0">
             <ExtensionViewWidget
               {...props}
@@ -306,7 +309,12 @@ export function SettingsHubWidget(props: ViewWidgetProps) {
               view={{
                 ...view,
                 type: 'extension_view',
-                config: { ...(view.config || {}), extension_view_key: activeSection.section.extension_view_key },
+                config: {
+                  ...(view.config || {}),
+                  extension_view_key: activeSection.section.extension_view_key,
+                  component_key: activeSection.section.component_key,
+                  component_props: activeSection.section.component_props,
+                },
               } as typeof view}
             />
           </section>

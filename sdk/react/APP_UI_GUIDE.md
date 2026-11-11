@@ -36,17 +36,26 @@ must improve in Core rather than being copied independently into each App.
 | `AppPage` | Content root with consistent vertical rhythm; does not create navigation, a modal or a Save action. Accepts HTML attributes and layout-only `className`. |
 | `AppHeader` | `title`, optional `description`, `eyebrow`, `meta`, `actions`; shared title hierarchy and wrapping. |
 | `AppSection` | `title`, `description`, `actions`, children; `variant="panel"` or `"plain"`. Sections remain in the App's chosen order. |
-| `AppGrid` | `columns={1|2|3}`, `gap` presets; collapses to one column below Core's medium breakpoint. Preserve logical DOM/tab order. |
+| `AppGrid` | `columns={1|2|3|4}`, `gap` presets; collapses to one column below Core's medium breakpoint (four columns fit the room the grid has). `fit="container"` makes any column count follow the grid's own width instead, for a page beside the assistant. Preserve logical DOM/tab order. |
 | `AppField` | `label`, optional `id`, `fieldKey`, `required`, `help`, `error`; render-function child receives control bindings. |
 | `AppActions` | Wrapping action layout with `align="start"`, `"end"` or `"between"`. Does not implement mutations. |
 | `AppSummary` | `title`, optional `description`, `rows` containing stable `key`, `label`, formatted `value`, optional `emphasis`. No calculation or currency policy. |
 | `AppNotice` | Shared loading/empty/information/error presentation; optional `title`, `action`, `tone="info|success|warn|danger"`. Warning/error notices announce alerts; other notices use status semantics. |
+| `DataTable` | Rows and columns for the App's own data. `columns` (`key`, `label`, `align="end"` for amounts, `sortable`, `pinned` (`start`/`end`) to keep a column in view, `width`, `group`, `emphasis="link"`, `render`, `total`), `rows`, `rowKey`, `caption`; optional `groups` (column group headings), `defaultSort`, `pageSize`, `onRowClick`, `empty`, `maxHeight`, `density="compact"`, `rowTone`, `sectionBy` with `sectionTotals`, `columnPicker` (presets, `persistKey`), `pinnable`, `toolbar`, `minWidth` (`0` for a narrow card). Sorting, paging, grouped headings, section rows, totals, the column picker and number alignment are built in; do not draw tables by hand. |
+| `Stat` | One headline figure: `label`, `value`, optional `note`, `delta` (text with its arrow and sign), `emphasis`, `trend` (recent values drawn as a small line) and `trendLabel`. Lay tiles out with `AppGrid`. |
+| `Progress` | A bar for work under way: `value` (percent, 0 to 100) with `ariaLabel`; leave `value` out when the amount is not known and the bar slides. It fills smoothly and respects reduced motion. |
+| `LineChart` | One or more series over a short row of labelled points, oldest first: `labels`, `series` (`key`, `label`, `values`), `ariaLabel`; optional `tooltips`, `formatValue`. Coloured from Core's chart palette. |
+| `BridgeChart` | The reasons a figure moved, one bar each around a zero line: `steps` (`key`, `label`, signed `value`), `ariaLabel`; optional `formatValue`, `upLabel`, `downLabel`. |
+| `Tabs` | A short strip that switches the section below it: `options` (`value`, `label`, `count`), `value`, `onChange`, `ariaLabel`. |
+| `Badge` | A short coloured state label: `tone="neutral|success|warn|danger|info"` and the text. Meaning must also be in the text, not colour alone. |
 
 Use `Button`, `Input`, `Select`, `Textarea`, `DateInput`, `AsyncCombobox`, `Text`,
-`Surface`, `Stack`, `Inline`, and `Modal` for controls and lower-level composition.
+`Surface`, `Stack`, `Inline`, and `Modal` (choose `size`: `form` by default, `confirm` for a short question, `wide` for a table; Core sets width and padding) for controls and lower-level composition.
 Keep native buttons/inputs/labels and styled heading implementations inside Core.
 Structural HTML such as a namespaced scrolling div or disclosure is allowed.
 Do not pass color, typography, border, padding or radius utilities in className.
+`Text` takes `variant`, `tone`, `weight`, `align` (`end` for amounts) and `numeric` (equal-width digits).
+`Stack` and `Inline` take `gap`, `align`, and for `Inline` also `justify` and `wrap`.
 
 `AppField` provides `id`, `required`, `invalid`, `aria-invalid` and
 `aria-describedby`. Spread these onto the control; the visible label and both

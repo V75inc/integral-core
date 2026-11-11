@@ -671,10 +671,61 @@ async def _validate_relation_values(
     target_track_types = {str(x) for x in relation.get("target_track_types") or []}
     allow_cross_track = relation_allows_cross_track(relation)
     validated = []
+
+    async def _require_target_read(target_id: str, target_track_id: str) -> None:
+        if viewer_subject is None or not enforce_target_read:
+            return
+        from app.services.policy_engine import evaluate
+
+        decision = await evaluate(
+            subject=viewer_subject,
+            action="entry.read",
+            resource=Resource(
+                kind="entry", id=target_id, scope=f"track:{target_track_id}"
+            ),
+        )
+        from app.services.install_seed_authority import may_read_install_seed_relation
+
+        if not decision.allowed and not await may_read_install_seed_relation(
+            decision,
+            viewer_subject,
+            source_track_id=source_track.id,
+            target_kind="entry",
+            target_id=target_id,
+        ):
+            raise BadRequestError(
+                message=f"Relation field '{field_key}' requires target read access"
+            )
+
+    # Inside one App job the same target is validated for every record it writes (a pay run links each line to its
+    # employee and pay record). What is remembered is only the structural answer (the target sits in this
+    # workspace, in the Track and App the relation allows, of an allowed type), for a few seconds and only until a
+    # definition or location change, exactly as the job's other facts. Ordinary requests never reuse it, and the
+    # live read-permission check below runs every time.
+    from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
+
+    fingerprint = (
+        source_track.id,
+        viewer_subject is not None,
+        str(relation.get("target_app") or ""),
+        bool(allow_cross_track),
+        tuple(sorted(target_entry_types)),
+        tuple(sorted(target_track_types)),
+    )
     # Within this one validation the source Track and each distinct target Track resolve to the
     # same App every time; ask once per Track, not once per relation value.
     track_apps: dict[str, Any] = {}
     for rid in raw_ids:
+        fact_key = ("relation_target", rid, *map(str, fingerprint))
+        remembered = app_job_fact_get(fact_key)
+        if remembered is not None:
+            remembered_track_id, remembered_app_id = remembered
+            if resolved_target_apps is not None and remembered_app_id:
+                resolved_target_apps[rid] = remembered_app_id
+            await _require_target_read(rid, remembered_track_id)
+            validated.append(rid)
+            continue
+        found_app_id = ""
         target = await Entry.get(rid)
         if not target:
             raise BadRequestError(
@@ -719,36 +770,14 @@ async def _validate_relation_values(
                     relation_spec=relation,
                     target_entry_id=target.id,
                 )
+                found_app_id = str(app_id or "")
                 if resolved_target_apps is not None:
                     resolved_target_apps[target.id] = app_id
             elif source_app and target_app and source_app.id != target_app.id:
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' requires a declared target App"
                 )
-            if viewer_subject is not None and enforce_target_read:
-                from app.services.policy_engine import evaluate
-
-                decision = await evaluate(
-                    subject=viewer_subject,
-                    action="entry.read",
-                    resource=Resource(
-                        kind="entry", id=target.id, scope=f"track:{target.track_id}"
-                    ),
-                )
-                from app.services.install_seed_authority import (
-                    may_read_install_seed_relation,
-                )
-
-                if not decision.allowed and not await may_read_install_seed_relation(
-                    decision,
-                    viewer_subject,
-                    source_track_id=source_track.id,
-                    target_kind="entry",
-                    target_id=target.id,
-                ):
-                    raise BadRequestError(
-                        message=f"Relation field '{field_key}' requires target read access"
-                    )
+            await _require_target_read(target.id, target.track_id)
         if target_entry_types:
             target_et = await EntryType.get(target.type_id) if target.type_id else None
             # Relation declarations can come from either an Operational Model
@@ -778,6 +807,7 @@ async def _validate_relation_values(
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' target track type is not allowed"
                 )
+        app_job_fact_put(fact_key, (target.track_id, found_app_id))
         validated.append(rid)
     return validated
 

@@ -102,6 +102,8 @@
   --entry-table-header: #eeeff2;
   --entry-table-row-alt: #f8f8fa;
   --entry-table-row-hover: #eef0f4;
+  /* Chart palette for App charts (LineChart, BridgeChart). */
+  --viz-1: #2a78d6; --viz-2: #eb6834; --viz-up: #2a78d6; --viz-down: #e34948; --viz-total: #8a8984; --viz-grid: #ececea;
   --collection-border: #e0e1e5;
   --collection-divider: #e8e9ec;
 
@@ -294,6 +296,7 @@
   --entry-table-header: #323232;
   --entry-table-row-alt: #272727;
   --entry-table-row-hover: #363636;
+  --viz-1: #3987e5; --viz-2: #d95926; --viz-up: #3987e5; --viz-down: #e66767; --viz-total: #8f8e88; --viz-grid: #2e2e2c;
   --collection-border: #424242;
   --collection-divider: #393939;
 
@@ -1595,4 +1598,14 @@
   background: color-mix(in srgb, var(--bg) 30%, transparent);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
+}
+
+/* Progress (App UI SDK): smooth fill, a moving sheen while work is under way, a sliding bar when the amount is unknown. */
+.integral-progress-fill { transition: width 0.45s ease; }
+.integral-progress-unknown { width: 35%; }
+@media (prefers-reduced-motion: no-preference) {
+  .integral-progress-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent); animation: integral-progress-sheen 1.4s ease-in-out infinite; }
+  .integral-progress-unknown { animation: integral-progress-slide 1.3s ease-in-out infinite; }
+  @keyframes integral-progress-sheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes integral-progress-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 }

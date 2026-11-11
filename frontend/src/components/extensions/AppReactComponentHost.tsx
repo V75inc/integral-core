@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
 import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmContext';
-import { Input, Select, Textarea, Text, Surface, Stack, Inline } from '../../ui';
+import { BridgeChart, DataTable, LineChart, Progress, Stat, Tabs, StatusBadge, Input, Select, Textarea, Text, Surface, Stack, Inline } from '../../ui';
 import { Button, Skeleton } from '../ui';
 import { Modal } from '../ui/Modal';
 import {AsyncCombobox} from './AsyncCombobox';
@@ -29,6 +29,14 @@ export function supportsSDKRange(range: string) {
   return Boolean(requested && Number(requested[1]) === major && (minor > Number(requested[2]) || (minor === Number(requested[2]) && patch >= Number(requested[3]))));
 }
 function DateInput(props: import('@integral/sdk-react').DateInputProps) {return <DatePicker {...props} mode={props.mode || 'date'} variant="field" />;}
+/** The dialog Apps get: Core's own width tokens by name and Core's standard body padding, so an App never sizes or pads a dialog itself. */
+const APP_DIALOG_WIDTH = {confirm: 'max-w-dialog-confirm', form: 'max-w-dialog-form', wide: 'max-w-dialog-wide'} as const;
+function AppModalBase({size, width: _ignored, children, ...rest}: {size?: keyof typeof APP_DIALOG_WIDTH; width?: string; children?: ReactNode} & Record<string, unknown>) {
+  return <Modal {...(rest as object)} open={Boolean(rest.open)} onClose={rest.onClose as () => void} width={APP_DIALOG_WIDTH[size || 'form']} variant={size === 'confirm' ? 'compact' : 'default'}><Modal.Body>{children}</Modal.Body></Modal>;
+}
+
+const AppModal = Object.assign(AppModalBase, {Body: Modal.Body, Footer: Modal.Footer});
+
 class Boundary extends Component<{children: ReactNode; onError: () => void}, {failed: boolean}> {
   state = {failed: false};
   static getDerivedStateFromError() { return {failed: true}; }
@@ -216,7 +224,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
         setLoaded(null); setFailure(false); setReload(value => value + 1);
       }
     }}>Reload view</Button></div> : null}
-    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{...AppPatterns, Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput}}>
+    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{...AppPatterns, DataTable, Stat, Progress, LineChart, BridgeChart, Tabs, Badge: StatusBadge, Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal: AppModal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput}}>
       <AppUIProvider value={{...api, context, lifecycle: composedLifecycle}}><EntryRegionHostContext.Provider value={composedLifecycle || null}><Loaded {...effectiveProps} /></EntryRegionHostContext.Provider></AppUIProvider>
     </UIPrimitivesProvider></Boundary>
   </>;

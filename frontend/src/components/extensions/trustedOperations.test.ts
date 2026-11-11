@@ -44,4 +44,12 @@ describe('trusted UI commands', () => {
     await expect(invokeTrustedOperation(['u'], 'save', {}, dispatch, () => true)).rejects.toThrow('completed earlier');
     expect(sessionStorage.length).toBe(0);
   });
+  it('works on a page without SubtleCrypto (plain HTTP) and keeps the same key for the same action', async () => {
+    vi.stubGlobal('crypto', {getRandomValues: (a: Uint8Array) => a.fill(7)});
+    const dispatch = vi.fn().mockRejectedValueOnce(new AxiosError('Network failed')).mockResolvedValue(success);
+    const run = () => invokeTrustedOperation(['u','ws','a','component'], 'save', {amount: 12}, dispatch, () => true);
+    await expect(run()).rejects.toMatchObject({outcome: 'unconfirmed'});
+    await run();
+    expect(dispatch.mock.calls[0][1]).toBe(dispatch.mock.calls[1][1]);
+  });
 });
