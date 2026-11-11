@@ -64,3 +64,19 @@ it('shows an App\'s declared settings pages inside the dialog, above its plain o
   expect(screen.getByText('Options')).toBeInTheDocument();
   expect(screen.getByLabelText('Record prefix')).toBeInTheDocument();
 });
+it('keeps setup-only fields out of the dialog and does not require them to save', async () => {
+  mocks.get.mockResolvedValue({
+    settings_schema: {
+      type: 'object',
+      required: ['tin', 'prefix'],
+      properties: {
+        tin: { type: 'string', title: 'GRA TIN', 'ui:setup_only': true },
+        prefix: { type: 'string', title: 'Record prefix', default: 'REC' },
+      },
+    },
+    settings: { prefix: 'REC' },
+  });
+  show();
+  expect(await screen.findByLabelText('Record prefix')).toHaveValue('REC');
+  expect(screen.queryByLabelText('GRA TIN')).toBeNull();
+});
