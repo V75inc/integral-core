@@ -97,11 +97,15 @@ async def run_entry_before_write_hooks(
     track_id: str = "",
     entry_id: str = "",
     write_actor: Optional[str] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Dispatch bundle hooks that validate or adjust fields before persistence.
 
     Bindings match on ``phase: before_write`` in their ``match`` block.
     Returns merged ``custom_fields`` (tools may return an updated dict).
+
+    ``dry_run`` (a form asking whether a save would pass): hooks receive
+    ``dry_run: true`` and a read-only context, so they check without writing.
     """
     from app.services.hooks.registry import (
         ToolContext,
@@ -125,6 +129,7 @@ async def run_entry_before_write_hooks(
         "custom_fields": merged_fields,
         "phase": "before_write",
         "hook_point": hook_point,
+        **({"dry_run": True} if dry_run else {}),
     }
 
     tools = get_workspace_tools(workspace_id)
@@ -132,6 +137,7 @@ async def run_entry_before_write_hooks(
         user_id=actor_id,
         workspace_id=workspace_id,
         scope=f"entry:{entry_id}" if entry_id else f"entry_type:{entry_type_id}",
+        read_only=bool(dry_run),
     )
 
     bindings = find_matching_bindings(workspace_id, hook_point, payload)

@@ -462,6 +462,9 @@ export interface CreateWizardStep {
 
 export interface CreateWizardPeriodOption {
   label: string;
+  /** Listed but not selectable (e.g. a period that already has a record). */
+  unavailable?: boolean;
+  reason?: string;
   [fieldKey: string]: unknown;
 }
 

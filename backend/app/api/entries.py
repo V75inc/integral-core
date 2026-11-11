@@ -389,6 +389,32 @@ async def list_entries(
     return response
 
 
+@endpoint("/entries/check", methods=["POST"], auth=True, tags=["Entries"])
+async def check_entry(
+    request: Request,
+    track_id: str = "",
+    type_id: str = "",
+    entry_id: str = "",
+    title: str = "",
+    custom_fields: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Would this create (no ``entry_id``) or update save? Runs the save's validation and App
+    rules without writing: ``{"ok": true}`` or ``{"ok": false, "message", "field"?}``."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    from app.services.entry_write_check import check_entry_write
+
+    return await check_entry_write(
+        user_id=user_id,
+        track_id=track_id,
+        type_id=type_id,
+        entry_id=entry_id,
+        title=title,
+        custom_fields=custom_fields,
+    )
+
+
 @endpoint("/entries", methods=["POST"], auth=True, tags=["Entries"])
 async def create_entry(
     request: Request,

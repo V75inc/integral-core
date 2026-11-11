@@ -977,7 +977,7 @@ def register(
             config_schema={
                 "periods_tool": {
                     "type": "string",
-                    "description": "Workspace tool returning {periods: [{label, ...field values...}]}.",
+                    "description": "Workspace tool returning {periods: [{label, ...field values..., unavailable?, reason?}]}; unavailable periods are listed but can't be picked.",
                 },
                 "fields": {
                     "type": "array",

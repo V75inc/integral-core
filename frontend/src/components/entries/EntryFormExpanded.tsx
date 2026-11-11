@@ -119,6 +119,8 @@ import {
 import { entryPath } from '../../utils/resourcePaths';
 import type { ToastAction } from '../../context/ToastContext';
 import { isVisible as conditionHolds } from '../views/regionConditions';
+import { useEntryWriteCheck } from '../../hooks/useEntryWriteCheck';
+import { Text } from '../../ui';
 const EMPTY_FIELDS: OperationalModelFieldSpec[] = [];
 
 /** Inline ``[]`` from parents must not be used as a hook dependency; reuse this for empty lists. */
@@ -209,6 +211,9 @@ export interface UseEntryExpandedFormOptions {
 
 export interface EntryExpandedFormModel {
   entryTypeKey?: string;
+  /** Track and entry type the form saves into (for the server's "would this save?" check). */
+  checkTrackId?: string;
+  checkTypeId?: string;
   entryTypes: EntryTypeNode[];
   loading: boolean;
   needsTrackPicker: boolean;
@@ -1755,6 +1760,8 @@ export function useEntryExpandedForm(
   };
 
   return {
+    checkTrackId: activeTrackId,
+    checkTypeId: selectedTypeId,
     entryTypes,
     loading,
     needsTrackPicker,
@@ -1920,7 +1927,20 @@ export function EntryFormExpandedView({
   dynamicFields: _dynamicFields,
   mode: _mode = 'create',
   workflowEnumLabels: _workflowEnumLabels,
+  checkTrackId,
+  checkTypeId,
+  fieldValues,
+  initialEntry,
 }: EntryFormExpandedViewProps) {
+  // The server's answer to "would this save?", from the same rules a real save runs.
+  const writeCheck = useEntryWriteCheck({
+    enabled: !hideActions && (_mode === 'create' || Boolean(initialEntry?.id)),
+    trackId: checkTrackId,
+    typeId: checkTypeId,
+    entryId: _mode === 'edit' ? initialEntry?.id : undefined,
+    title,
+    customFields: fieldValues,
+  });
   const dynamicFieldsCount = composerRows.filter(r => r.kind === 'field').length;
   const isWiki = layout === 'wiki';
   const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -2249,11 +2269,18 @@ export function EntryFormExpandedView({
                 Cancel
               </Button>
             ) : null}
+            {!writeCheck.ok && writeCheck.message ? (
+              <Text as="p" variant="body-sm" tone="danger" role="alert" className="sm:mr-auto">
+                {writeCheck.message}
+              </Text>
+            ) : null}
             <Button
               variant={isWiki ? 'secondary' : 'primary'}
               size="sm"
               loading={loading}
               icon={primaryIcon}
+              disabled={!writeCheck.ok && !writeCheck.pending}
+              title={!writeCheck.ok && writeCheck.message ? writeCheck.message : undefined}
               onClick={() => void onPrimary()}
               className="w-full sm:w-auto"
             >
