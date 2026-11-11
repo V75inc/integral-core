@@ -6,6 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc60 — 2026-11-11
+
+- Keep App Home widgets evenly sized on wide layouts and stack them on narrow layouts.
+- Wait for text extraction when a file is uploaded and immediately sent in chat.
+- Link answers that use an Entry attachment directly to the source file.
+- Match the browser favicon to Integral’s selected theme.
+
 ## 0.1.1rc58 — 2026-11-10
 
 - Reduce redundant protected reads for eligible shared Entry creates.
