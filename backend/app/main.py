@@ -675,6 +675,14 @@ async def _ensure_model_indexes() -> None:
 async def _startup() -> None:
     """Configure logging and optional DB logging at server startup."""
     app.state.desktop_ready = False
+    if not _running_under_pytest() and _effective_worker_count() > 1:
+        # Each worker process otherwise keeps its own in-memory entity cache, so a record written by one
+        # worker (an action button, an App job) is read stale by the others: pages kept the old status and a
+        # tool's follow-up save was refused as a conflict. With several workers, read records from the database.
+        from jvspatial.cache.memory import MemoryCache
+        from jvspatial.core.context import get_default_context
+
+        get_default_context()._cache = MemoryCache(max_size=0)
     # Database-only recovery does not boot this module. Every API boot checks
     # the independently supplied managed restore marker before starting tasks.
     marker_path = os.environ.get("INTEGRAL_RECOVERY_MARKER")
