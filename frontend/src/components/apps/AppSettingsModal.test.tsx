@@ -77,6 +77,6 @@ it('keeps setup-only fields out of the dialog and does not require them to save'
     settings: { prefix: 'REC' },
   });
   show();
-  expect(await screen.findByLabelText('Record prefix')).toHaveValue('REC');
-  expect(screen.queryByLabelText('GRA TIN')).toBeNull();
+  expect(await screen.findByLabelText(/Record prefix/)).toHaveValue('REC');
+  expect(screen.queryByLabelText(/GRA TIN/)).toBeNull();
 });
