@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -103,8 +104,25 @@ def require_password(binaries: Path, uri: str) -> None:
         )
 
 
-def main() -> None:
-    """Run a private database until terminated, or create a logical dump."""
+def quoted_socket_dir(find_socket_dir, pgdata, runtime_path, socket_dirs: ExitStack):
+    # pgserver 0.1.4 leaves -k unquoted inside pg_ctl's -o string.
+    try:
+        directory = find_socket_dir(pgdata, runtime_path)
+    except RuntimeError as error:
+        if str(error) != "Could not find a suitable socket path":
+            raise
+        # Both candidates can exceed sockaddr_un's limit on macOS. Use an
+        # atomic private directory under a short path, independent of TMPDIR.
+        directory = Path(
+            socket_dirs.enter_context(
+                tempfile.TemporaryDirectory(prefix="int-pg-", dir="/tmp")
+            )
+        )
+    directory.chmod(0o700)
+    return shlex.quote(str(directory))
+
+
+def run_database(socket_dirs: ExitStack) -> None:
     import pgserver
 
     if os.name != "nt":
@@ -112,15 +130,12 @@ def main() -> None:
 
         original_socket_dir = postgres_server.find_suitable_socket_dir
 
-        def quoted_socket_dir(pgdata, runtime_path):
-            # pgserver 0.1.4 leaves -k unquoted inside pg_ctl's -o string.
-            # Adapt only this isolated helper, so normal macOS paths containing
-            # spaces work. The parent prohibits its root-only Path.chmod branch.
-            directory = original_socket_dir(pgdata, runtime_path)
-            directory.chmod(0o700)
-            return shlex.quote(str(directory))
+        def find_private_socket_dir(pgdata, runtime_path):
+            return quoted_socket_dir(
+                original_socket_dir, pgdata, runtime_path, socket_dirs
+            )
 
-        postgres_server.find_suitable_socket_dir = quoted_socket_dir
+        postgres_server.find_suitable_socket_dir = find_private_socket_dir
 
     binaries = Path(pgserver.__file__).parent / "pginstall" / "bin"
     root = Path(sys.argv[1]).resolve()
@@ -210,6 +225,12 @@ def main() -> None:
     finally:
         server.cleanup()
         (root / "database.json").unlink(missing_ok=True)
+
+
+def main() -> None:
+    """Run a private database until terminated, or create a logical dump."""
+    with ExitStack() as socket_dirs:
+        run_database(socket_dirs)
 
 
 if __name__ == "__main__":

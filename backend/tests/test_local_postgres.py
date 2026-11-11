@@ -1,11 +1,30 @@
-"""Windows database bootstrap authenticates before its first TCP listener."""
+"""Managed PostgreSQL startup and authentication."""
 
+import os
+import shlex
+import socket
+import stat
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from app import local_postgres as postgres
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix socket fallback")
+def test_long_database_paths_use_a_private_short_socket_directory(tmp_path):
+    def too_long(*_args):
+        raise RuntimeError("Could not find a suitable socket path")
+
+    with ExitStack() as socket_dirs:
+        quoted = postgres.quoted_socket_dir(too_long, tmp_path, tmp_path, socket_dirs)
+        directory = Path(shlex.split(quoted)[0])
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+        with socket.socket(socket.AF_UNIX) as listener:
+            listener.bind(str(directory / ".s.PGSQL.5432"))
+    assert not directory.exists()
 
 
 def test_initialization_installs_scram_without_password_in_argv(tmp_path, monkeypatch):
