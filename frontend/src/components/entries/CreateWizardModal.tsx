@@ -5,6 +5,7 @@ import { Select, Surface, Text } from '../../ui';
 import { SeamlessField } from './SeamlessField';
 import { entriesApi, tracksApi } from '../../api';
 import { toolsApi } from '../../api/tools';
+import { errorMessageFromAxios } from '../../api/helpers';
 import { useToast } from '../../context/ToastContext';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 import type {
@@ -427,8 +428,9 @@ export function CreateWizardModal({
       showToast(`${entryType.name} created`, 'success');
       onCreated(created);
       onClose();
-    } catch {
-      showToast('Failed to create — please try again', 'error');
+    } catch (err) {
+      // Say why when the App refused the record (for example, people missing details a pay run needs).
+      showToast(errorMessageFromAxios(err, 'Failed to create — please try again'), 'error');
     } finally {
       setSubmitting(false);
     }
