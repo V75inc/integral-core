@@ -12,7 +12,7 @@ import logging
 import re
 import threading
 from contextvars import ContextVar
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import jsonschema
 from pydantic import ValidationError
@@ -4843,15 +4843,13 @@ def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 # Built once from the process-cached library specs. Opening a track used to
 # reparse every package for each view that lacked entry-type keys.
-_SEEDED_VIEW_INDEX: Optional[Dict[str, Dict[str, Any]]] = None
-_SEEDED_VIEW_INDEX_TOKEN: Optional[int] = None
+_SEEDED_VIEW_INDEX: Optional[Tuple[Sequence[Any], Dict[str, Dict[str, Any]]]] = None
 
 
 def reset_seeded_library_view_index() -> None:
     """Drop the view-key index. Tests reset this with the library spec cache."""
-    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
+    global _SEEDED_VIEW_INDEX
     _SEEDED_VIEW_INDEX = None
-    _SEEDED_VIEW_INDEX_TOKEN = None
 
 
 def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
@@ -4861,15 +4859,29 @@ def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
     ``load_library_operational_models_with_issues_cached``; this only walks
     the already-parsed manifests.
     """
-    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
     from app.services.operational_model_library_sync import (
         load_library_operational_models_with_issues_cached,
     )
 
     specs, _issues = load_library_operational_models_with_issues_cached()
-    token = id(specs)
-    if _SEEDED_VIEW_INDEX is not None and _SEEDED_VIEW_INDEX_TOKEN == token:
-        return _SEEDED_VIEW_INDEX
+    return _seeded_library_view_index(specs)
+
+
+async def load_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
+    """Share the current off-loop library validation with overlapping callers."""
+    from app.services.operational_model_library_sync import load_library_snapshot
+
+    _, specs, _issues = await load_library_snapshot()
+    return _seeded_library_view_index(specs)
+
+
+def _seeded_library_view_index(
+    specs: Sequence[Any],
+) -> Dict[str, Dict[str, Any]]:
+    global _SEEDED_VIEW_INDEX
+    cached = _SEEDED_VIEW_INDEX
+    if cached is not None and cached[0] is specs:
+        return cached[1]
 
     index: Dict[str, Dict[str, Any]] = {}
 
@@ -4901,8 +4913,7 @@ def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
                 if isinstance(track_spec, dict):
                     _remember(track_spec)
 
-    _SEEDED_VIEW_INDEX = index
-    _SEEDED_VIEW_INDEX_TOKEN = token
+    _SEEDED_VIEW_INDEX = (specs, index)
     return index
 
 

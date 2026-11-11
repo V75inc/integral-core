@@ -50,6 +50,7 @@ from app.services.entry_context import (
     attach_backlinks,
     attach_track_and_space,
     prefetch_attachments_for_entries,
+    prefetch_entry_tag_edges,
     prefetch_tags_for_entries,
     prefetch_tracks_and_spaces_for_entries,
 )
@@ -296,6 +297,7 @@ async def enrich_entry_page_for_response(
     await attach_author_exports(entry_datas)
 
     tag_lookup = await prefetch_tags_for_entries(page_entries, entry_datas)
+    edge_tags = await prefetch_entry_tag_edges(page_entries, entry_datas)
     comment_counts = await prefetch_comment_counts(page_entries)
     attachment_lookup = await prefetch_attachments_for_entries(page_entries)
 
@@ -325,6 +327,7 @@ async def enrich_entry_page_for_response(
                 use_prefetched_track_app=True,
                 tag_lookup=tag_lookup,
                 attachment_lookup=attachment_lookup,
+                prefetched_edge_tags=edge_tags.get(e.id),
             )
         else:
             await attach_track_and_space(
@@ -332,6 +335,7 @@ async def enrich_entry_page_for_response(
                 e,
                 tag_lookup=tag_lookup,
                 attachment_lookup=attachment_lookup,
+                prefetched_edge_tags=edge_tags.get(e.id),
             )
         apply_prefetched_comment_count(ed, e, comment_counts)
         et_id = getattr(e, "type_id", "") or ""

@@ -56,8 +56,7 @@ def _tag_payload_with_name(tag: Tag, data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-async def _entry_tag_id_list(entry: Entry, entry_data: Dict[str, Any]) -> List[str]:
-    """Tag ids from the Entry field, else from ``Entry → Tag`` ``TAGGED_WITH`` edges."""
+def _stored_entry_tag_ids(entry: Entry, entry_data: Dict[str, Any]) -> List[str]:
     raw: List[Any] = list(getattr(entry, "tags", None) or entry_data.get("tags") or [])
     out: List[str] = []
     seen: set[str] = set()
@@ -66,8 +65,14 @@ async def _entry_tag_id_list(entry: Entry, entry_data: Dict[str, Any]) -> List[s
         if tid and tid not in seen:
             seen.add(tid)
             out.append(tid)
-    if out:
-        return out
+    return out
+
+
+async def _entry_tag_id_list(entry: Entry, entry_data: Dict[str, Any]) -> List[str]:
+    """Tag ids from the Entry field, else from the TAGGED_WITH edges."""
+    stored = _stored_entry_tag_ids(entry, entry_data)
+    if stored:
+        return stored
     try:
         tags = await entry.nodes(edge=["TAGGED_WITH"], direction="out", node=["Tag"])
         return [t.id for t in tags if getattr(t, "id", None)]
@@ -222,13 +227,50 @@ async def prefetch_tags_for_entries(
     return await batch_get_by_ids(Tag, list(all_ids))
 
 
+async def prefetch_entry_tag_edges(
+    entries: List[Entry], entry_datas: List[Dict[str, Any]]
+) -> Dict[str, List[Tag]]:
+    """Batch the legacy edge fallback for admitted entries with no stored tag IDs."""
+    missing = [
+        entry
+        for entry, data in zip(entries, entry_datas)
+        if not _stored_entry_tag_ids(entry, data)
+    ]
+    if not missing:
+        return {}
+    try:
+        context = await missing[0].get_context()
+        neighbours = await context.nodes_bulk(
+            [entry.id for entry in missing],
+            edge=["TAGGED_WITH"],
+            node=["Tag"],
+            direction="out",
+        )
+        return {
+            entry.id: [
+                tag for tag in neighbours.get(entry.id, []) if isinstance(tag, Tag)
+            ]
+            for entry in missing
+        }
+    except Exception:
+        # An unavailable batch retains the established per-entry fallback.
+        return {}
+
+
 async def attach_entry_tags(
     entry_data: Dict[str, Any],
     entry: Entry,
     *,
     tag_lookup: Optional[Dict[str, Tag]] = None,
+    prefetched_edge_tags: Optional[List[Tag]] = None,
 ) -> Dict[str, Any]:
     """Replace ``tags`` id list with ``Tag`` exports including a correct ``name``."""
+    if prefetched_edge_tags is not None:
+        entry_data["tags"] = [
+            _tag_payload_with_name(tag, await export_node(tag))
+            for tag in {tag.id: tag for tag in prefetched_edge_tags}.values()
+        ]
+        return entry_data
     tag_ids = await _entry_tag_id_list(entry, entry_data)
     if not tag_ids:
         entry_data["tags"] = []
@@ -406,6 +448,7 @@ async def attach_track_and_space(
     use_prefetched_track_app: bool = False,
     tag_lookup: Optional[Dict[str, Tag]] = None,
     attachment_lookup: Optional[Dict[str, List[Attachment]]] = None,
+    prefetched_edge_tags: Optional[List[Tag]] = None,
 ) -> Dict[str, Any]:
     """Mutates ``entry_data`` with ``track`` and optional parent ``app`` exports."""
     navigation = entry._read_parent_navigation
@@ -461,7 +504,12 @@ async def attach_track_and_space(
         except Exception:
             pass
 
-    await attach_entry_tags(entry_data, entry, tag_lookup=tag_lookup)
+    await attach_entry_tags(
+        entry_data,
+        entry,
+        tag_lookup=tag_lookup,
+        prefetched_edge_tags=prefetched_edge_tags,
+    )
     await attach_entry_attachments(
         entry_data, entry, attachment_lookup=attachment_lookup
     )

@@ -57,7 +57,7 @@ from app.services.operational_model_compile import (
     _as_dict,
     _as_list,
     _slug,
-    warm_seeded_library_view_index,
+    load_seeded_library_view_index,
 )
 from app.services.operational_model_graph import (
     _resolve_or_create_template_operational_model,
@@ -65,13 +65,13 @@ from app.services.operational_model_graph import (
 
 
 async def _warm_seeded_view_index_off_loop() -> Dict[str, Dict[str, Any]]:
-    """Parse seeded view specs on a worker thread, once per process.
+    """Resolve seeded view specs from the shared, current library snapshot.
 
     A failure leaves the attached manifest as the only source. The old
     per-view scan swallowed the same errors and continued.
     """
     try:
-        return await asyncio.to_thread(warm_seeded_library_view_index)
+        return await load_seeded_library_view_index()
     except Exception:
         logger.warning(
             "seeded library view index unavailable; view entry-type "
