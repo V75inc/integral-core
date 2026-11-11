@@ -7,15 +7,15 @@ user's ``ChatMessage``, and passes file-handling guidance through the signed
 host context so it is not presented as user-authored text.
 """
 
+import asyncio
+import hashlib
 from typing import Any, Dict
 from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
 
-from app.api.attachments import _persist_uploaded_chat_file
 from app.schemas.api.ai_chat import SendMessageRequest
-from app.services import chat_threads as chat_store
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -64,7 +64,7 @@ pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
 
 @pytest.mark.asyncio
 async def test_send_message_with_attachment_builds_context_note(
-    authenticated_client: AsyncClient, test_user
+    authenticated_client: AsyncClient,
 ):
     workspace_id = await _create_workspace(authenticated_client)
     create = await authenticated_client.post(
@@ -74,12 +74,13 @@ async def test_send_message_with_attachment_builds_context_note(
     )
     thread_id = create.json()["id"]
 
-    thread = await chat_store.get_thread(thread_id)
-    upload = _make_upload(b"hello world", "notes.txt", "text/plain")
-    result = await _persist_uploaded_chat_file(
-        thread=thread, user_id=test_user.user_id, file=upload
+    upload = await authenticated_client.post(
+        f"/api/chat/threads/{thread_id}/attachments",
+        headers=_scope_headers(workspace_id),
+        files={"file": ("notes.txt", b"hello world", "text/plain")},
     )
-    attachment_id = result["attachment"]["id"]
+    assert upload.status_code == 200, upload.text
+    attachment_id = upload.json()["attachment"]["id"]
 
     seen: Dict[str, Any] = {}
 
@@ -125,8 +126,85 @@ async def test_send_message_with_attachment_builds_context_note(
 
 
 @pytest.mark.asyncio
+async def test_turn_binds_uploaded_file_after_extraction(
+    authenticated_client: AsyncClient, test_user, monkeypatch
+):
+    from app.schemas.agentive.work import WorkError
+    from app.services.attachment_agent import get_attachment_text
+    from app.services.attachment_metadata import get_metadata_extraction_service
+    from app.services.chat_threads import get_thread, resolve_message_attachments
+    from app.services.chat_turn_attachments import (
+        assert_chat_attachment_bindings,
+        prepare_chat_attachment_bindings,
+    )
+    from app.services.document_drafts import render_document_draft
+
+    service = get_metadata_extraction_service()
+    run_extraction = service._run_extraction
+    extract_now = service.extract_now
+    allow_extraction = asyncio.Event()
+
+    async def delayed_extraction(attachment_id):
+        await allow_extraction.wait()
+        return await run_extraction(attachment_id)
+
+    async def join_extraction(attachment_id):
+        allow_extraction.set()
+        return await extract_now(attachment_id)
+
+    monkeypatch.setattr(service, "_run_extraction", delayed_extraction)
+    monkeypatch.setattr(service, "extract_now", join_extraction)
+    workspace_id = await _create_workspace(authenticated_client)
+    headers = _scope_headers(workspace_id)
+    create = await authenticated_client.post(
+        "/api/chat/threads",
+        headers=headers,
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
+    )
+    assert create.status_code == 200, create.text
+    thread_id = create.json()["id"]
+    note = "The sample dock opens at 07:40."
+    pdf = render_document_draft(title="Dock hours", body=note, format="pdf")
+    upload = await authenticated_client.post(
+        f"/api/chat/threads/{thread_id}/attachments",
+        headers=headers,
+        files={"file": ("dock-hours.pdf", pdf.content, "application/pdf")},
+    )
+    assert upload.status_code == 200, upload.text
+    record = upload.json()["attachment"]
+    assert record["metadata_status"] == "pending"
+    thread = await get_thread(thread_id)
+    parts, _ = await resolve_message_attachments(thread, [record["id"]])
+
+    try:
+        bindings = await prepare_chat_attachment_bindings(
+            thread=thread, principal_id=test_user.user_id, parts=parts
+        )
+    finally:
+        if not allow_extraction.is_set():
+            await join_extraction(record["id"])
+    result = await get_attachment_text(test_user.user_id, record["id"])
+    assert note in result["text"]
+    assert (
+        bindings[0]["extracted_text_digest"]
+        == hashlib.sha256(result["text"].encode()).hexdigest()
+    )
+    await assert_chat_attachment_bindings(
+        thread=thread, principal_id=test_user.user_id, parts=parts, expected=bindings
+    )
+    bindings[0]["extracted_text_digest"] = "0" * 64
+    with pytest.raises(WorkError, match="accepted chat attachment changed"):
+        await assert_chat_attachment_bindings(
+            thread=thread,
+            principal_id=test_user.user_id,
+            parts=parts,
+            expected=bindings,
+        )
+
+
+@pytest.mark.asyncio
 async def test_send_message_drops_attachment_id_not_owned_by_thread(
-    authenticated_client: AsyncClient, test_user
+    authenticated_client: AsyncClient,
 ):
     """An id that isn't attached to this thread is silently ignored, not a 400."""
     workspace_id = await _create_workspace(authenticated_client)
@@ -158,16 +236,3 @@ async def test_send_message_drops_attachment_id_not_owned_by_thread(
 
     assert seen["text"] == "hi"
     assert "doesnotexist" not in seen["system_context"]
-
-
-def _make_upload(content: bytes, filename: str, content_type: str):
-    import io
-
-    from starlette.datastructures import Headers
-    from starlette.datastructures import UploadFile as StarletteUploadFile
-
-    return StarletteUploadFile(
-        file=io.BytesIO(content),
-        filename=filename,
-        headers=Headers({"content-type": content_type}),
-    )

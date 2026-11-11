@@ -3221,7 +3221,7 @@ async def _start_user_turn(
             ChatTurnSubmissionRequest,
             WorkError,
         )
-        from app.services.chat_turn_attachments import capture_chat_attachment_bindings
+        from app.services.chat_turn_attachments import prepare_chat_attachment_bindings
         from app.services.chat_turn_host_controls import capture_chat_host_control
         from app.services.chat_turn_submissions import submit_chat_turn
 
@@ -3239,12 +3239,14 @@ async def _start_user_turn(
             user_parts = [{"type": "text", "text": "Approval outcome received."}]
 
         try:
-            attachment_bindings = await capture_chat_attachment_bindings(
+            attachment_bindings = await prepare_chat_attachment_bindings(
                 thread=thread,
                 principal_id=user_id,
                 parts=user_parts,
             )
         except WorkError as exc:
+            if exc.code == "work.attachment_processing":
+                raise BadRequestError(message=exc.message) from exc
             raise BadRequestError(
                 message="A requested chat attachment is unavailable"
             ) from exc
