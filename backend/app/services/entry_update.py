@@ -44,9 +44,11 @@ from app.services.operational_model_runtime import (
     validate_tags_apply_to_entry_type,
     validate_taxonomy_constraints,
 )
+from app.services.perf_trace import perf_traced
 from app.utils.time import utc_now_iso
 
 
+@perf_traced("save.update")
 async def update_entry_in_track(
     *,
     entry_id: str,
@@ -478,28 +480,6 @@ async def update_entry_in_track(
     # A returned entity must not keep an owned, now-committed transaction.
     # When joining an outer transaction, this is that same active context.
     await entry.set_context(caller_context)
-    if change_event_sink is None:
-        if outbox_id and graph is not caller_context:
-            from app.middleware.permissions_cache import defer_job_event
-            from app.services.app_operations.event_outbox import (
-                deliver_operation_event,
-                flush_deferred_job_events,
-            )
-
-            waiting = defer_job_event(outbox_id)
-            if waiting is not None:
-                if waiting >= 100:
-                    await flush_deferred_job_events()
-                return entry
-            # Delivery failure leaves a durable pending fact for the sweep.
-            try:
-                await deliver_operation_event(outbox_id=outbox_id)
-            except Exception:
-                import logging
-
-                logging.getLogger(__name__).exception(
-                    "Entry change event awaits recovery"
-                )
-        elif not outbox_id:
-            await emit_change_event(**event)
+    if change_event_sink is None and not outbox_id:
+        await emit_change_event(**event)
     return entry

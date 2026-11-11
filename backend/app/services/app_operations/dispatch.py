@@ -245,6 +245,7 @@ def operation_declaration_fingerprint(spec: Dict[str, Any], app: Any = None) -> 
     ).hexdigest()
 
 
+@perf_traced("save.authorization")
 async def _prepare_app_operation(
     *,
     user_id: str,
@@ -407,6 +408,7 @@ async def prepare_app_operation(
 
 
 @ordinary_authority_call
+@perf_traced("save.operation")
 async def invoke_app_operation(
     *,
     user_id: str,
@@ -761,10 +763,6 @@ async def invoke_app_operation(
                 details={"error_code": "operation_idempotency_required"},
             )
         from app.contracts.operations import OperationIdentity
-        from app.services.app_operations.event_outbox import (
-            deliver_operation_event,
-            event_outbox_id,
-        )
         from app.services.app_operations.execution_receipts import (
             OperationReceiptConflict,
             OperationReceiptIncomplete,
@@ -818,16 +816,7 @@ async def invoke_app_operation(
             raise OperationReceiptRecoveryError() from exc
         except OperationTransactionUnavailable as exc:
             raise OperationTransactionUnavailableError() from exc
-        if not execution.replayed:
-            for sequence, _event in enumerate(ctx.deferred_change_events or []):
-                from app.services.approved_effect import (
-                    defer_approved_operation_delivery,
-                )
-
-                outbox_id = event_outbox_id(identity, sequence)
-                if not await defer_approved_operation_delivery(outbox_id):
-                    await deliver_operation_event(outbox_id=outbox_id)
-        else:
+        if execution.replayed:
             await authorize_replayed_result(
                 execution.result,
                 user_id=user_id,

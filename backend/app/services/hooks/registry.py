@@ -267,20 +267,32 @@ class ToolContext:
 
     async def get_entry(self, entry_id: str):
         """Fetch an Entry node by id (scoped to caller's workspace access)."""
+        if not self.workspace_id or not isinstance(entry_id, str) or not entry_id:
+            return None
+        from jvspatial.core.context import get_default_context
+
         from app.middleware.permissions_cache import isolated_permissions_cache
         from app.models.nodes import Entry
-        from app.services.permissions import resolve_role
+        from app.services.entry_access_projection import admit_records, hydrate_records
+        from app.services.resource_location import ACTIVE_APP_STATES
+        from app.services.workspace_governance import ordinary_authority_only
 
-        with isolated_permissions_cache():
-            if not await self._resource_in_scope("entry", entry_id):
-                return None
-            ent = await Entry.find_one({"id": entry_id})
-            if (
-                ent is None
-                or await resolve_role(self.user_id, "entry", entry_id) is None
-            ):
-                return None
-            return ent
+        # Admit the selected current row through the same authority proof as
+        # bulk reads. A separate location walk followed by scalar role
+        # resolution repeats the complete ancestry traversal on every hook read.
+        with ordinary_authority_only(), isolated_permissions_cache():
+            rows = await get_default_context().database.find(
+                "node", {"id": entry_id, "entity": Entry._entity_name()}, limit=2
+            )
+            admitted = await admit_records(
+                self.user_id,
+                rows,
+                workspace_id=self.workspace_id,
+                app_id=str(getattr(self, "app_id", "") or "") or None,
+                allowed_app_states=ACTIVE_APP_STATES,
+            )
+            entries = await hydrate_records(admitted)
+            return entries[0] if entries else None
 
     async def get(self, object_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Fetch a serialized object by ObjectRef-shaped dict (ToolContext v2)."""
@@ -395,6 +407,51 @@ class ToolContext:
             ):
                 scoped.extend(await hydrate_records(records))
         return scoped
+
+    async def find_entry_values(
+        self, query: Dict[str, Any], fields: List[str]
+    ) -> List[dict]:
+        """Exact authorized scalar projections without hydrating full entries."""
+        import re
+
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.entry_access_projection import iter_records
+        from app.services.resource_location import ACTIVE_APP_STATES
+        from app.services.workspace_governance import ordinary_authority_only
+
+        if not self.workspace_id:
+            raise ValueError("A workspace context is required")
+        if (
+            not isinstance(fields, list)
+            or not fields
+            or len(fields) > 20
+            or any(
+                not isinstance(field, str)
+                or field == "id"
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,127}", field)
+                for field in fields
+            )
+        ):
+            raise ValueError("Select one to twenty App custom fields")
+        values = []
+        with ordinary_authority_only(), isolated_permissions_cache():
+            async for records in iter_records(
+                self.user_id,
+                query,
+                workspace_id=self.workspace_id,
+                app_id=str(getattr(self, "app_id", "") or "") or None,
+                allowed_app_states=ACTIVE_APP_STATES,
+                projection=["context.custom_fields." + field for field in fields],
+            ):
+                for row in records:
+                    custom = row.get("context", {}).get("custom_fields") or {}
+                    values.append(
+                        {
+                            "id": row["id"],
+                            **{field: custom.get(field) for field in fields},
+                        }
+                    )
+        return values
 
     def track_write_scope(self, track_id: str):
         """Fence this App's collection checks until the surrounding command commits.

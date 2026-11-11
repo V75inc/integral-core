@@ -333,7 +333,7 @@ Use `type: member` to refer to an account. Materialize HAS_MEMBER_REF and valida
 
 ## Events, audit, and review
 
-All change emission uses `emit_change_event`; no direct competing logger writes. Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types.
+All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types.
 
 ### I-APPROVAL-01 — Reviewed re-entry is narrowly guarded
 

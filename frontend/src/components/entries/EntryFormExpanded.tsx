@@ -25,6 +25,23 @@ import {
 } from '../forms/formFeedback';
 import { AppSelect, Skeleton } from '../ui';
 
+import { beginInteraction, finishInteraction } from "../../lib/performance";
+import { getActiveScopeHeader } from '../../api/client';
+import { getSessionGeneration } from '../../api/session';
+
+const pendingFieldPreviews = new Map<string, Promise<Record<string, any> | undefined>>();
+async function previewField(appId: string | undefined, tool: string, input: Record<string, unknown>) {
+  const key = JSON.stringify([getSessionGeneration(), getActiveScopeHeader(), appId, tool, input]);
+  const existing = pendingFieldPreviews.get(key);
+  if (existing) return existing;
+  const pending = (async () => appId
+    ? requireOperationOutput(await extensionsApi.invokeOperation(appId, tool, input)).output
+    : (await toolsApi.call(tool, input)).output)();
+  pendingFieldPreviews.set(key, pending);
+  try { return await pending; }
+  finally { if (pendingFieldPreviews.get(key) === pending) pendingFieldPreviews.delete(key); }
+}
+
 const WikiRichTextEditor = lazy(() =>
   import('../views/wiki/WikiRichTextEditor').then(m => ({
     default: m.WikiRichTextEditor
@@ -745,9 +762,7 @@ export function useEntryExpandedForm(
             ? (field.validation.preview_default_input as Record<string, unknown>)
             : {};
         try {
-          const output = appId
-            ? requireOperationOutput(await extensionsApi.invokeOperation(appId, tool, input)).output
-            : (await toolsApi.call(tool, input)).output;
+          const output = await previewField(appId, tool, input);
           if (cancelled) return;
           if (output?.auto_generate !== true) continue;
           locked.add(field.key);
@@ -1327,6 +1342,7 @@ export function useEntryExpandedForm(
       }
     }
 
+    const saveInteraction = beginInteraction();
     setLoading(true);
     try {
       const firstUrlInBody = bodyEnabled ? extractFirstUrl(body) : '';
@@ -1542,6 +1558,7 @@ export function useEntryExpandedForm(
       showToast(errorMessageFromAxios(e, 'Failed to create entry'), 'error');
       highlightServerProblems(e);
     } finally {
+      finishInteraction(saveInteraction, "entry.save");
       setLoading(false);
     }
   };
@@ -1571,6 +1588,7 @@ export function useEntryExpandedForm(
       }
     }
 
+    const saveInteraction = beginInteraction();
     setLoading(true);
     try {
       if (pendingFiles.some(imageExceedsUploadLimit)) throw new ImageUploadSizeError();
@@ -1722,6 +1740,7 @@ export function useEntryExpandedForm(
       highlightServerProblems(e);
       throw e;
     } finally {
+      finishInteraction(saveInteraction, "entry.save");
       setLoading(false);
     }
   };

@@ -275,3 +275,7 @@ public signed webhooks, queue behavior and the explicit legacy migration are
 specified in [workspace email](../platform/workspace-email.md). Configure a real
 platform provider for account recovery; console delivery is DEBUG-only. Run the
 migration before upgrading existing Business Email Log configuration surfaces.
+
+## Independent event delivery
+
+Deploy the same Core artifact as `integral worker events` beside the API. Configure the same prime/logging PostgreSQL stores and monitor heartbeat, pending age and dead letters. See [the event-worker contract](../backend/event-worker.md); audit/feed visibility is eventual after record saves.

@@ -400,7 +400,33 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="API origin to proxy /api and /ws to (default: from the distro, else :4000)",
     )
+    worker = sub.add_parser("worker", help="Run an independent Core worker")
+    worker.add_argument("kind", choices=["events"])
+    worker_modes = worker.add_mutually_exclusive_group()
+    worker_modes.add_argument("--once", action="store_true")
+    worker_modes.add_argument("--status", action="store_true")
+    worker_modes.add_argument(
+        "--check",
+        action="store_true",
+        help="Exit nonzero if event delivery is unhealthy",
+    )
+    worker_modes.add_argument("--replay", help="Replay one dead-letter event fact ID")
     args = parser.parse_args(argv)
+    if args.cmd == "worker":
+        import asyncio
+
+        from app.services.event_worker import main as worker_main
+
+        result = asyncio.run(
+            worker_main(
+                once=args.once,
+                show_status=args.status or args.check,
+                replay_id=args.replay,
+            )
+        )
+        if result is not None:
+            print(json.dumps(result, default=str))
+        return 1 if args.check and not result["healthy"] else 0
     if args.cmd == "export-web":
         from app.web.server import web_static_dir
 

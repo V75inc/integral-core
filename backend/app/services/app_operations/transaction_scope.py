@@ -24,7 +24,10 @@ from jvspatial.db import get_prime_database
 from app.middleware.permissions_cache import reset_permissions_cache
 
 _logger = logging.getLogger(__name__)
-_write_lock_timings = os.getenv("INTEGRAL_WRITE_LOCK_TIMINGS") == "1"
+_write_lock_timings = (
+    os.getenv("INTEGRAL_WRITE_LOCK_TIMINGS") == "1"
+    or os.getenv("INTEGRAL_PERF_TRACE") == "1"
+)
 
 
 class OperationTransactionUnavailable(RuntimeError):

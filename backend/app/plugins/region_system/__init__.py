@@ -693,6 +693,14 @@ def register(
                         "(receives parent_entry_id + lines[])."
                     ),
                 },
+                "persist_line_id_field": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,127}$",
+                    "description": (
+                        "Optional input field for existing child IDs in tool-mode lines. "
+                        "Omit to preserve the tool's existing line schema."
+                    ),
+                },
                 "require_at_least_one": {
                     "type": "boolean",
                     "description": "Compose validate fails when no lines.",

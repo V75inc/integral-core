@@ -14,6 +14,8 @@ import re as _re
 from contextvars import ContextVar
 from typing import Any, Dict, Optional
 
+from app.services.perf_trace import perf_traced
+
 logger = logging.getLogger(__name__)
 
 _active_save_hooks: ContextVar[frozenset[tuple[object, str, str, str]]] = ContextVar(
@@ -157,6 +159,7 @@ async def run_entry_before_write_hooks(
     return merged_fields
 
 
+@perf_traced("save.business_hooks")
 async def run_entry_save_hooks(
     *,
     entry,
@@ -262,6 +265,7 @@ async def run_entry_save_hooks(
             _active_save_hooks.reset(token)
 
 
+@perf_traced("save.validation")
 async def run_entry_validation_hooks(
     *, workspace_id: str, actor_id: str, payload: dict
 ) -> None:

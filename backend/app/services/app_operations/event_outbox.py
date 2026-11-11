@@ -9,14 +9,19 @@ outbox id as their stable correlation key when deduplication matters.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 from typing import Any, Dict, Iterable
 
 from app.contracts.operations import OperationIdentity
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
+from app.services.perf_trace import perf_traced
+from app.services.performance import capture_trace_context
 from app.utils.time import utc_now_iso
 
 _COLLECTION = "object"
@@ -24,6 +29,17 @@ _ENTITY = "OperationEventOutbox"
 _LEASE_SECONDS = 60
 _MAX_DELIVERY_ATTEMPTS = 5
 logger = logging.getLogger(__name__)
+
+
+def capture_event(event: dict) -> dict:
+    """Capture provenance before request-local bindings disappear."""
+    from app.services.mutation_provenance import provenance_details
+
+    captured = dict(event)
+    details = {**provenance_details(), **dict(event.get("details") or {})}
+    if details:
+        captured["details"] = details
+    return captured
 
 
 def event_outbox_id(identity: OperationIdentity, sequence: int) -> str:
@@ -88,7 +104,8 @@ def build_event_outbox_document(
             "app_id": identity.app_id,
             "operation_key": identity.operation_key,
             "status": "pending",
-            "event": dict(event),
+            "event": capture_event(event),
+            "traceparent": capture_trace_context(),
             "attempt": 0,
             "created_at": now,
             "updated_at": now,
@@ -96,6 +113,7 @@ def build_event_outbox_document(
     }
 
 
+@perf_traced("save.event_enqueue")
 async def insert_operation_events(
     *, transaction: Any, identity: OperationIdentity, events: Iterable[Dict[str, Any]]
 ) -> None:
@@ -128,6 +146,7 @@ async def insert_entry_event(
     )
 
 
+@perf_traced("save.event_enqueue")
 async def insert_revision_event(
     *,
     transaction: Any,
@@ -169,7 +188,8 @@ async def insert_revision_event(
                 "app_id": "",
                 "operation_key": event["action"],
                 "status": "pending",
-                "event": dict(event),
+                "event": capture_event(event),
+                "traceparent": capture_trace_context(),
                 "attempt": 0,
                 "created_at": now,
                 "updated_at": now,
@@ -179,244 +199,233 @@ async def insert_revision_event(
     return outbox_id
 
 
+@perf_traced("event.delivery")
 async def deliver_operation_event(
     *, outbox_id: str, database: Any | None = None
 ) -> bool:
-    """Emit one committed fact through the normal ChangeEvent path.
-
-    The status transition is deliberately after emission.  A process crash in
-    that interval can duplicate a log row, but can never lose the event.
-    """
+    """Worker-only, fenced delivery. Audit persistence is independently idempotent."""
     object_id = event_outbox_object_id(outbox_id)
-    lease_until = (
-        datetime.now(timezone.utc) + timedelta(seconds=_LEASE_SECONDS)
-    ).isoformat()
+    owner = uuid.uuid4().hex
+    now = utc_now_iso()
     async with postgres_graph_transaction(database) as transaction:
         record = await transaction.get(_COLLECTION, object_id)
         if record is None:
             return False
         context = dict(record.get("context") or {})
-        observed = context.get("provider_result")
-        status = str(context.get("status") or "unknown")
-        if status in {"unknown", "in_flight"} and not isinstance(observed, dict):
-            return False
-        if (
-            status == "delivering"
-            and str(context.get("lease_until") or "") > utc_now_iso()
+        status = context.get("status")
+        if status in {"unknown", "in_flight"} and isinstance(
+            context.get("provider_result"), dict
         ):
+            observed = await transaction.find_one_and_update(
+                _COLLECTION,
+                {"id": object_id, "context.status": status},
+                {"$set": {"context.status": "delivered", "context.updated_at": now}},
+            )
+            return observed is not None
+        if status not in {"pending", "delivering"}:
             return False
-        if status not in {"pending", "delivering", "unknown", "in_flight"}:
+        if status == "delivering" and context.get("lease_until", "") > now:
             return False
-        attempts = int(context.get("attempt") or 0)
-        if attempts >= _MAX_DELIVERY_ATTEMPTS:
-            context.update({"status": "dead_letter", "updated_at": utc_now_iso()})
-            record["context"] = context
-            await transaction.save(_COLLECTION, record)
+        if context.get("next_attempt_at", "") > now:
             return False
-        # Atomically claim pending work. The row lock is retained through the
-        # transaction commit, so overlapping sweep workers cannot both emit.
-        claim_query = {"id": object_id, "context.status": status}
+        attempt = int(context.get("attempt") or 0) + 1
+        if attempt > _MAX_DELIVERY_ATTEMPTS:
+            await transaction.find_one_and_update(
+                _COLLECTION,
+                {"id": object_id},
+                {"$set": {"context.status": "dead_letter", "context.updated_at": now}},
+            )
+            return False
+        query = {"id": object_id, "context.status": status}
         if status == "delivering":
-            claim_query["context.lease_until"] = {"$lte": utc_now_iso()}
+            query["context.lease_until"] = {"$lte": now}
         claimed = await transaction.find_one_and_update(
             _COLLECTION,
-            claim_query,
+            query,
             {
                 "$set": {
                     "context.status": "delivering",
-                    "context.lease_until": lease_until,
-                    "context.attempt": attempts + 1,
-                    "context.updated_at": utc_now_iso(),
+                    "context.lease_owner": owner,
+                    "context.lease_until": (
+                        datetime.now(timezone.utc) + timedelta(seconds=_LEASE_SECONDS)
+                    ).isoformat(),
+                    "context.attempt": attempt,
+                    "context.updated_at": now,
                 }
             },
         )
         if claimed is None:
             return False
-        decision = reconcile_external_outcome(
-            status=status,
-            correlation_id=str(context.get("outbox_id") or outbox_id),
-            observed_result=observed if isinstance(observed, dict) else None,
-        )
-        if decision["action"] == "skip":
-            return False
-        if decision["action"] == "reconcile":
-            return False
-        if decision["action"] == "apply_observed":
-            context.update({"status": "delivered", "updated_at": utc_now_iso()})
-            record["context"] = context
-            await transaction.save(_COLLECTION, record)
-            return True
-        event = dict(context.get("event") or {})
-        # Marking delivery is intentionally outside the graph-write command
-        # transaction; this consumer runs only after its commit.
-    from app.services.change_event import emit_change_event
+    fence = {
+        "id": object_id,
+        "context.status": "delivering",
+        "context.lease_owner": owner,
+    }
 
-    details = dict(event.get("details") or {})
-    details["event_fact_id"] = outbox_id
-    event["details"] = details
+    async def renew():
+        while True:
+            await asyncio.sleep(_LEASE_SECONDS / 3)
+            async with postgres_graph_transaction(database) as transaction:
+                renewed = await transaction.find_one_and_update(
+                    _COLLECTION,
+                    fence,
+                    {
+                        "$set": {
+                            "context.lease_until": (
+                                datetime.now(timezone.utc)
+                                + timedelta(seconds=_LEASE_SECONDS)
+                            ).isoformat()
+                        }
+                    },
+                )
+                if renewed is None:
+                    raise RuntimeError("Event delivery lease lost")
+
+    async def persist():
+        from app.services.change_event import emit_change_event
+
+        event = dict(context.get("event") or {})
+        details = dict(event.get("details") or {})
+        details["event_fact_id"] = outbox_id
+        event["details"] = details
+        event["_occurred_at"] = context.get("occurred_at") or context.get("created_at")
+        workspace_id = context.get("workspace_id")
+        if workspace_id and workspace_id != "unattributed":
+            event["_workspace_id"] = workspace_id
+        from app.services.performance import phase, worker_trace
+
+        with worker_trace(context.get("traceparent")), phase("event.persist"):
+            return await emit_change_event(**event, _persist_only=True)
+
+    started = perf_counter()
+    delivery = asyncio.create_task(persist())
+    renewal = asyncio.create_task(renew())
     try:
-        await emit_change_event(**event)
+        done, _ = await asyncio.wait(
+            {delivery, renewal}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if renewal in done:
+            await renewal
+        await delivery
+        async with postgres_graph_transaction(database) as transaction:
+            result = await transaction.find_one_and_update(
+                _COLLECTION,
+                fence,
+                {
+                    "$set": {
+                        "context.status": "delivered",
+                        "context.updated_at": utc_now_iso(),
+                        "context.audit_completed_at": utc_now_iso(),
+                        "context.delivery_ms": round(
+                            (perf_counter() - started) * 1000, 3
+                        ),
+                    }
+                },
+            )
+        return result is not None
     except Exception as exc:
         async with postgres_graph_transaction(database) as transaction:
-            record = await transaction.get(_COLLECTION, object_id)
-            if record is not None:
-                context = dict(record.get("context") or {})
-                context.update(
-                    {
-                        "status": (
-                            "pending"
-                            if int(context.get("attempt") or 0) < _MAX_DELIVERY_ATTEMPTS
-                            else "dead_letter"
+            await transaction.find_one_and_update(
+                _COLLECTION,
+                fence,
+                {
+                    "$set": {
+                        "context.status": (
+                            "dead_letter"
+                            if attempt >= _MAX_DELIVERY_ATTEMPTS
+                            else "pending"
                         ),
-                        "last_error": str(exc)[:500],
-                        "updated_at": utc_now_iso(),
+                        "context.last_error_type": type(exc).__name__,
+                        "context.next_attempt_at": (
+                            datetime.now(timezone.utc)
+                            + timedelta(seconds=min(60, 2**attempt))
+                        ).isoformat(),
+                        "context.updated_at": utc_now_iso(),
                     }
-                )
-                record["context"] = context
-                await transaction.save(_COLLECTION, record)
+                },
+            )
         raise
-    async with postgres_graph_transaction(database) as transaction:
-        record = await transaction.get(_COLLECTION, object_id)
-        if record is None:
-            return False
-        context = dict(record.get("context") or {})
-        if context.get("status") == "delivered":
-            return False
-        context.update({"status": "delivered", "updated_at": utc_now_iso()})
-        context.pop("lease_until", None)
-        record["context"] = context
-        await transaction.save(_COLLECTION, record)
+    finally:
+        for task in (delivery, renewal):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(delivery, renewal, return_exceptions=True)
+
+
+async def capture_transaction_event(event: dict) -> bool:
+    """Capture direct emissions made inside a graph write before its commit."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.entry_write_scope import is_postgres_entry_transaction
+
+    graph = get_default_context()
+    # Refusals are forensic facts independent of a rejected transaction.
+    # They retain the existing separate logging-store persistence path.
+    if event.get("action") == "policy.deny":
+        return False
+    if not is_postgres_entry_transaction(graph.database):
+        return False
+    from app.services.event_history import event_workspace_id
+
+    scope = event.get("scope") or ""
+    workspace_id = await event_workspace_id(scope)
+    # Scope is descriptive here, never mutation authority. The original actor
+    # and snapshot survive deletion; read-time authorization remains canonical.
+    await insert_revision_event(
+        transaction=graph.database,
+        workspace_id=workspace_id or "unattributed",
+        namespace="event-" + uuid.uuid4().hex,
+        subject_id=event.get("resource_id") or uuid.uuid4().hex,
+        revision=0,
+        event=event,
+    )
     return True
+
+
+async def request_event_delivery(*, outbox_id: str, **kwargs) -> bool:
+    """Compatibility handoff: the committed fact is already queued for the worker."""
+    return False
+
+
+async def request_event_deliveries(outbox_ids, **kwargs) -> int:
+    """Committed batches need no API-side delivery or additional queue writes."""
+    return 0
 
 
 _BATCH_SIZE = 100
 
 
-async def _bulk_update(transaction: Any, sql_template: str, *args: Any) -> list:
-    """Run one SQL statement on the transaction's own connection (``{table}`` is the object table)."""
-    concrete = transaction
-    seen: set[int] = set()
-    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
-        seen.add(id(concrete))
-        concrete = concrete.inner
-    from jvspatial.db.postgres import _safe_collection
-
-    table = (
-        f"{_safe_collection(concrete._db.schema_name)}.{_safe_collection(_COLLECTION)}"
-    )
-    async with concrete._operation_lock:
-        concrete._ensure_active()
-        return await concrete._connection.fetch(sql_template.format(table=table), *args)
-
-
-async def deliver_operation_events(
-    outbox_ids: Iterable[str], *, database: Any | None = None
-) -> int:
-    """Deliver fresh pending facts in batches: one claim and one mark statement per batch.
-
-    Same contract as ``deliver_operation_event`` (claim, emit through the normal ChangeEvent
-    path, then mark delivered; a crash between emit and mark can duplicate a log row, never lose
-    the event). Only never-attempted pending facts take this path. Anything else was already
-    handled, or is being handled, by the writer or the recovery sweep, and is left to it.
-    """
-    from app.services.change_event import emit_change_event
-
-    ids = list(dict.fromkeys(str(i) for i in outbox_ids if i))
+async def deliver_operation_events(outbox_ids: Iterable[str], *, database=None) -> int:
+    """Bounded worker batch; isolate poison facts and preserve per-event fencing."""
     delivered = 0
-    for offset in range(0, len(ids), _BATCH_SIZE):
-        chunk = ids[offset : offset + _BATCH_SIZE]
-        object_ids = [event_outbox_object_id(i) for i in chunk]
-        lease_until = (
-            datetime.now(timezone.utc) + timedelta(seconds=_LEASE_SECONDS)
-        ).isoformat()
-        async with postgres_graph_transaction(database) as transaction:
-            rows = await _bulk_update(
-                transaction,
-                """UPDATE {table} SET updated_at = NOW(),
-                       data = jsonb_set(data, '{{context}}', (data->'context') || $2::jsonb)
-                   WHERE id = ANY($1::text[]) AND entity = $3
-                     AND data #>> '{{context,status}}' = 'pending'
-                     AND data #>> '{{context,attempt}}' = '0'
-                   RETURNING id, data #>> '{{context,outbox_id}}' AS outbox_id,
-                             (data #> '{{context,event}}')::text AS event""",
-                object_ids,
-                json.dumps(
-                    {
-                        "status": "delivering",
-                        "lease_until": lease_until,
-                        "attempt": 1,
-                        "updated_at": utc_now_iso(),
-                    }
-                ),
-                _ENTITY,
+    for outbox_id in list(dict.fromkeys(outbox_ids))[:_BATCH_SIZE]:
+        try:
+            delivered += await deliver_operation_event(
+                outbox_id=outbox_id, database=database
             )
-        emitted: list[str] = []
-        for row in rows:
-            outbox_id = str(row["outbox_id"])
-            event = dict(json.loads(row["event"]) if row["event"] else {})
-            details = dict(event.get("details") or {})
-            details["event_fact_id"] = outbox_id
-            event["details"] = details
-            try:
-                await emit_change_event(**event)
-                emitted.append(row["id"])
-            except Exception as exc:  # noqa: BLE001 - leave a durable pending fact
-                logger.warning(
-                    "Batched event delivery failed for %s: %s", outbox_id, exc
-                )
-                async with postgres_graph_transaction(database) as transaction:
-                    await _bulk_update(
-                        transaction,
-                        """UPDATE {table} SET updated_at = NOW(),
-                               data = jsonb_set(data, '{{context}}', (data->'context') || $2::jsonb)
-                           WHERE id = $1 RETURNING id""",
-                        row["id"],
-                        json.dumps(
-                            {
-                                "status": "pending",
-                                "last_error": str(exc)[:500],
-                                "updated_at": utc_now_iso(),
-                            }
-                        ),
-                    )
-        if emitted:
-            async with postgres_graph_transaction(database) as transaction:
-                await _bulk_update(
-                    transaction,
-                    """UPDATE {table} SET updated_at = NOW(),
-                           data = jsonb_set(data, '{{context}}',
-                                            ((data->'context') - 'lease_until') || $2::jsonb)
-                       WHERE id = ANY($1::text[]) RETURNING id""",
-                    emitted,
-                    json.dumps({"status": "delivered", "updated_at": utc_now_iso()}),
-                )
-            delivered += len(emitted)
+        except Exception:
+            logger.warning(
+                "Event delivery failed; durable retry retained", exc_info=False
+            )
     return delivered
 
 
 async def flush_deferred_job_events() -> int:
-    """Deliver, in batches, the event facts an App job deferred. Never raises."""
+    """Forget request-local hints; facts are already committed for the worker."""
     from app.middleware.permissions_cache import take_deferred_job_events
 
-    pending = take_deferred_job_events()
-    if not pending:
-        return 0
-    try:
-        return await deliver_operation_events(pending)
-    except Exception:
-        logger.exception("Deferred job events await recovery")
-        return 0
+    take_deferred_job_events()
+    return 0
 
 
 async def deliver_pending_operation_events(
     *, database: Any | None = None, min_age_seconds: float = 0.0
 ) -> int:
-    """Best-effort recovery sweep for committed operation event facts.
+    """Deliver one bounded page of due committed facts in the independent worker.
 
-    ``min_age_seconds`` leaves alone facts created more recently than that. The writer delivers its
-    own event right after its commit, and a periodic sweep that claims the same fresh rows waits on
-    the writer's row lock (and makes the writer wait on the sweep's); the sweep exists to recover
-    facts a crash left behind, which are old by the time it looks.
+    The optional minimum age remains compatible with older maintenance callers;
+    normal delivery includes fresh facts. Active leases and backoff are filtered
+    before the limit so they cannot starve ready records.
     """
     from jvspatial.db import get_prime_database
 
@@ -427,12 +436,32 @@ async def deliver_pending_operation_events(
         "entity": _ENTITY,
         "context.status": {"$in": ["pending", "delivering"]},
     }
+    now = utc_now_iso()
+    query["$and"] = [
+        {
+            "$or": [
+                {"context.next_attempt_at": {"$exists": False}},
+                {"context.next_attempt_at": {"$lte": now}},
+            ]
+        },
+        {
+            "$or": [
+                {"context.status": "pending"},
+                {"context.lease_until": {"$lte": now}},
+            ]
+        },
+    ]
     if min_age_seconds > 0:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(seconds=min_age_seconds)
         ).isoformat()
         query["context.created_at"] = {"$lte": cutoff}
-    records = await db.find(_COLLECTION, query)
+    records = await db.find(
+        _COLLECTION,
+        query,
+        limit=_BATCH_SIZE,
+        sort=[("context.updated_at", 1), ("id", 1)],
+    )
     delivered = 0
     for record in records:
         ctx = dict(record.get("context") or {})
@@ -445,12 +474,6 @@ async def deliver_pending_operation_events(
             logger.exception(
                 "operation event delivery failed (id=%s)", ctx.get("outbox_id")
             )
-    from app.services.entry_cleanup_outbox import deliver_pending_cleanup
-
-    await deliver_pending_cleanup(database=db)
-    from app.services.bundle_cleanup_outbox import deliver_bundle_cleanup
-
-    await deliver_bundle_cleanup(database=db)
     return delivered
 
 
@@ -463,3 +486,12 @@ __all__ = [
     "insert_operation_events",
     "reconcile_external_outcome",
 ]
+
+
+async def deliver_pending_cleanup_events() -> None:
+    """Cleanup retains API recovery ownership independently of audit delivery."""
+    from app.services.bundle_cleanup_outbox import deliver_bundle_cleanup
+    from app.services.entry_cleanup_outbox import deliver_pending_cleanup
+
+    await deliver_pending_cleanup()
+    await deliver_bundle_cleanup()

@@ -1,5 +1,5 @@
 import {StrictMode, useState} from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invokeOperation = vi.fn();
@@ -202,4 +202,28 @@ it('resolves selected tax IDs through a declared read without zeroing totals whi
   await import('@testing-library/react').then(({act}) => act(async () => {complete({output: {items: [{id: 'beyond-page', label: 'VAT14', rate_percent: 14}]}});}));
   await waitFor(() => expect(screen.getByRole('combobox', {name: 'Tax code'})).toHaveValue('VAT14'));
   expect((await handle.requestValidate()).ok).toBe(true);
+});
+
+
+it.each([true, false])('retains returned line IDs while opting into the tool input schema: %s', async optIn => {
+  let handle: ContributionLifecycleHandle | undefined;
+  invokeOperation.mockReset();
+  invokeOperation.mockResolvedValue({output: {line_ids: ['saved-line']}});
+  render(
+    <ContributionLifecycleContext.Provider value={{
+      mode: 'create', placement: 'entry_compose', appId: 'app1', customFields: {},
+      register: next => {handle = next; return () => {};},
+    }}>
+      <EditableRelatedLinesWidget {...lineView({
+        persist_mode: 'tool', persist_tool: 'persist_records',
+        ...(optIn ? {persist_line_id_field: 'entry_id'} : {}),
+        defaults: {description: 'Synthetic row', quantity: 1, unit_price: 10},
+      })} />
+    </ContributionLifecycleContext.Provider>,
+  );
+  await waitFor(() => expect(handle).toBeDefined());
+  await act(async () => {expect((await handle!.requestSubmit('parent-1')).ok).toBe(true);});
+  expect(invokeOperation.mock.calls[invokeOperation.mock.calls.length - 1]?.[2].lines[0].entry_id).toBeUndefined();
+  await act(async () => {expect((await handle!.requestSubmit('parent-1')).ok).toBe(true);});
+  expect(invokeOperation.mock.calls[invokeOperation.mock.calls.length - 1]?.[2].lines[0].entry_id).toBe(optIn ? 'saved-line' : undefined);
 });

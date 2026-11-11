@@ -23,6 +23,7 @@ and passed to this registry; WS subscribers and consumer hooks both receive it.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Awaitable, Callable, Dict, List
@@ -43,6 +44,76 @@ logger = logging.getLogger(__name__)
 
 # user_id -> list of active WebSocket connections.
 _subscriptions: Dict[str, List[WebSocket]] = {}
+_queues: dict[int, asyncio.Queue] = {}
+_senders: dict[int, asyncio.Task] = {}
+
+
+def queue_change_event(event: ChangeEventEnvelope) -> None:
+    """Queue without waiting for any client. Overflow disconnects for catch-up."""
+    if not is_change_event_enabled():
+        return
+    for user_id, sockets in list(_subscriptions.items()):
+        for ws in list(sockets):
+            queue = _queues.get(id(ws))
+            if queue is not None:
+                try:
+                    queue.put_nowait(event)
+                    if id(ws) not in _senders:
+                        _senders[id(ws)] = asyncio.create_task(
+                            _send_queue(user_id, ws, queue)
+                        )
+                except asyncio.QueueFull:
+                    _queues.pop(id(ws), None)
+                    task = _senders.get(id(ws))
+                    if task is not None:
+                        task.cancel()
+                    asyncio.create_task(_disconnect_subscription(user_id, ws))
+
+
+async def _disconnect_subscription(user_id: str, ws: WebSocket) -> None:
+    try:
+        await asyncio.wait_for(ws.close(code=1013), timeout=1)
+    except Exception:
+        pass
+    await unregister_subscription(user_id, ws)
+
+
+async def _send_queue(user_id: str, ws: WebSocket, queue: asyncio.Queue) -> None:
+    try:
+        while True:
+            event = await queue.get()
+            with isolated_permissions_cache():
+                payload = await asyncio.wait_for(
+                    prepare_event_payload(
+                        user_id,
+                        event,
+                        action="event_feed.subscribe",
+                        evaluate=policy_evaluate,
+                    ),
+                    timeout=2,
+                )
+            if payload is not None:
+                await asyncio.wait_for(
+                    ws.send_text(
+                        json.dumps(
+                            {
+                                "type": "change_event",
+                                "payload": payload,
+                                "timestamp": utc_now_iso(),
+                            }
+                        )
+                    ),
+                    timeout=2,
+                )
+    except (Exception, asyncio.CancelledError):
+        pass
+    finally:
+        try:
+            await asyncio.wait_for(ws.close(code=1013), timeout=1)
+        except Exception:
+            pass
+        await unregister_subscription(user_id, ws)
+
 
 # In-process consumer hooks. Bypass the per-message D-07 permission filter —
 # they are server-internal code, not subscribers.
@@ -58,7 +129,13 @@ def register_consumer_hook(
     server-internal code, not subscribers. The consumer is responsible for any
     access checks it performs.
     """
-    _consumer_hooks.append(callback)
+    if callback not in _consumer_hooks:
+        _consumer_hooks.append(callback)
+
+
+def registered_consumer_hooks():
+    """Worker discovery only; live socket relays never execute these hooks."""
+    return tuple(_consumer_hooks)
 
 
 def reset_consumer_hooks() -> None:
@@ -69,6 +146,8 @@ def reset_consumer_hooks() -> None:
 async def register_subscription(user_id: str, websocket: WebSocket) -> None:
     """Register a new subscriber connection for the given user."""
     _subscriptions.setdefault(user_id, []).append(websocket)
+    queue = asyncio.Queue(maxsize=100)
+    _queues[id(websocket)] = queue
     logger.info(
         "event subscription registered: user=%s active=%d",
         user_id,
@@ -78,6 +157,11 @@ async def register_subscription(user_id: str, websocket: WebSocket) -> None:
 
 async def unregister_subscription(user_id: str, websocket: WebSocket) -> None:
     """Remove a subscriber connection."""
+    _queues.pop(id(websocket), None)
+    sender = _senders.pop(id(websocket), None)
+    if sender is not None and sender is not asyncio.current_task():
+        sender.cancel()
+        await asyncio.gather(sender, return_exceptions=True)
     if user_id in _subscriptions and websocket in _subscriptions[user_id]:
         _subscriptions[user_id].remove(websocket)
         if not _subscriptions[user_id]:

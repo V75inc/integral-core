@@ -40,6 +40,7 @@ from app.services.operational_model_runtime import (
     validate_tags_apply_to_entry_type,
     validate_taxonomy_constraints,
 )
+from app.services.perf_trace import perf_traced
 from app.services.permissions import get_user_node
 from app.utils.time import utc_now_iso
 
@@ -472,6 +473,7 @@ async def _create_entry_in_track(
     return entry
 
 
+@perf_traced("save.create")
 async def create_entry_in_track(
     *,
     track: Track,
@@ -644,29 +646,13 @@ async def create_entry_in_track(
     # command returns. Its owned transaction has released the connection; a
     # nested command must instead retain the caller's still-active context.
     await entry.set_context(caller_context)
-    if outbox_id and graph is not caller_context:
-        from app.middleware.permissions_cache import defer_job_event
-        from app.services.app_operations.event_outbox import (
-            deliver_operation_event,
-            flush_deferred_job_events,
-        )
-
-        # Inside an App job, hold the committed fact and deliver in batches (the fact is
-        # durable and pending, so a crash leaves it for the recovery sweep).
-        waiting = defer_job_event(outbox_id)
-        if waiting is not None:
-            if waiting >= 100:
-                await flush_deferred_job_events()
-            return entry
-        try:
-            await deliver_operation_event(outbox_id=outbox_id)
-        except Exception:
-            logger.exception("Entry change event awaits recovery")
-    elif events and not outbox_id:
+    # The command's durable fact is delivered by the independent worker.
+    if events and not outbox_id:
         await emit_change_event(**events[0])
     return entry
 
 
+@perf_traced("save.create_batch")
 async def create_entries_in_track(
     *,
     track: Track,
@@ -833,26 +819,7 @@ async def create_entries_in_track(
                 )
     for entry in created:
         await entry.set_context(caller_context)
-    if outbox_ids and graph is not caller_context:
-        from app.middleware.permissions_cache import defer_job_event
-        from app.services.app_operations.event_outbox import (
-            deliver_operation_events,
-            flush_deferred_job_events,
-        )
-
-        waiting = None
-        for outbox_id in outbox_ids:
-            waiting = defer_job_event(outbox_id)
-            if waiting is None:
-                break
-        if waiting is None:
-            try:
-                await deliver_operation_events(outbox_ids)
-            except Exception:
-                logger.exception("Entry change events await recovery")
-        elif waiting >= 100:
-            await flush_deferred_job_events()
-    elif events_all and not outbox_ids:
+    if events_all and not outbox_ids:
         for event in events_all:
             await emit_change_event(**event)
     return created

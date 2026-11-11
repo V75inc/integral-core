@@ -229,6 +229,9 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
   const persistMode = String(config.persist_mode || 'tool').toLowerCase();
   const persistTool =
     typeof config.persist_tool === 'string' ? config.persist_tool : undefined;
+  const persistLineIdField = typeof config.persist_line_id_field === 'string' &&
+    /^[a-zA-Z][a-zA-Z0-9_]{0,127}$/.test(config.persist_line_id_field)
+    ? config.persist_line_id_field : undefined;
   const configuredDocumentKind =
     typeof config.document_kind === 'string'
       ? config.document_kind.trim().toLowerCase()
@@ -624,6 +627,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           }
           const raw: Record<string, unknown> = {
             ...fields,
+            ...(persistLineIdField && line.entry_id ? {[persistLineIdField]: line.entry_id} : {}),
             quantity: quantityField ? Number(fields[quantityField]) || 0 : undefined,
             unit_price: rateField ? Number(fields[rateField]) || 0 : undefined,
             line_amount: amount,
@@ -694,6 +698,15 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                 ok: false,
                 error: String(output.message || output.error_code || 'Persist failed'),
               };
+            }
+            const savedIds = output?.line_ids;
+            if (Array.isArray(savedIds) && savedIds.length === current.length &&
+                savedIds.every(id => typeof id === 'string' && id.length > 0)) {
+              const idsByLocalRow = new Map(current.map((line, index) => [line.local_id, savedIds[index] as string]));
+              setLines(latest => latest.map(line => {
+                const savedId = idsByLocalRow.get(line.local_id);
+                return savedId ? { ...line, entry_id: savedId } : line;
+              }));
             }
             return { ok: true, value: output };
           }
@@ -773,6 +786,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     childTrackType,
     persistMode,
     persistTool,
+    persistLineIdField,
     lookupError, querySources, taxColumn, ratePercentByCodeId,
     configuredDocumentKind,
     hostEntryTypeKey,

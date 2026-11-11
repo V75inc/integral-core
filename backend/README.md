@@ -171,3 +171,7 @@ execution latency; qualify it on the deployment workload. Set
 Explicit DSN `options` or `plan_cache_mode` take precedence, including options
 unrelated to planning. Transaction-pooler mode keeps its existing driver behavior
 and receives no additional session startup option.
+
+## Event worker
+
+Run `integral worker events` beside the API to deliver durable audit facts. See [the worker contract](../docs/backend/event-worker.md) for configuration, recovery and performance qualification.

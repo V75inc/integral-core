@@ -1028,6 +1028,12 @@ async def _startup() -> None:
             "work_kernel: startup skipped in DEBUG: %s", _exc
         )
 
+    from app.services.event_relay import event_relay_loop
+
+    _background_tasks.append(
+        asyncio.create_task(event_relay_loop(), name="event-relay")
+    )
+
     app.state.desktop_ready = True
 
 

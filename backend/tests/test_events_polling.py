@@ -42,6 +42,11 @@ async def test_events_polling_empty_cursor_returns_events_from_start(
         )
         assert resp.status_code in (200, 201), resp.text
 
+    from app.services.app_operations.event_outbox import (
+        deliver_pending_operation_events,
+    )
+
+    await deliver_pending_operation_events()
     resp = await authenticated_client.get(f"/api/events?scope=track:{track_id}")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -72,6 +77,11 @@ async def test_events_polling_cursor_round_trip(
         )
         assert resp.status_code in (200, 201), resp.text
 
+    from app.services.app_operations.event_outbox import (
+        deliver_pending_operation_events,
+    )
+
+    await deliver_pending_operation_events()
     page1 = await authenticated_client.get(
         f"/api/events?scope=track:{track_id}&limit=3"
     )
@@ -205,6 +215,11 @@ async def test_events_polling_scope_filter(
         "/api/entries", json={"track_id": track_id, "title": "in-scope"}
     )
 
+    from app.services.app_operations.event_outbox import (
+        deliver_pending_operation_events,
+    )
+
+    await deliver_pending_operation_events()
     resp = await authenticated_client.get(f"/api/events?scope=track:{track_id}")
     assert resp.status_code == 200
     body = resp.json()
@@ -268,7 +283,7 @@ async def test_consumer_hook_dispatch_on_broadcast(monkeypatch):
         from app.schemas.policy import Decision as _Decision
         from app.services.change_event import emit_change_event
 
-        async def always_allow(*args, **kwargs):
+        async def always_allow(*args: object, **kwargs: object):
             return _Decision(allowed=True, reason="test_bypass")
 
         # Permission filter pass-through so the WS branch (none registered) is
@@ -279,7 +294,7 @@ async def test_consumer_hook_dispatch_on_broadcast(monkeypatch):
             "app.services.event_subscription_registry.policy_evaluate", always_allow
         )
 
-        await emit_change_event(
+        envelope = await emit_change_event(
             actor_kind="human",
             actor_id="u-hook",
             action="entry.create",
@@ -289,7 +304,9 @@ async def test_consumer_hook_dispatch_on_broadcast(monkeypatch):
             after={"id": "e-hook"},
             scope="track:T-hook",
         )
-        # Allow any event-loop scheduled tasks to drain.
+        assert received == []  # Persistence no longer executes consumers inline.
+        await esr.broadcast_change_event(envelope)
+        # The explicit compatibility broadcaster still dispatches hooks.
         await asyncio.sleep(0)
         assert len(received) == 1
         ev = received[0]

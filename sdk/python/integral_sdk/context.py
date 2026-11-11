@@ -133,6 +133,10 @@ class OperationContext(Protocol):
 
     async def find_entries(self, query: dict) -> list: ...
 
+    async def find_entry_values(self, query: dict, fields: List[str]) -> List[dict]:
+        """Exact workspace projections, restricted to the App when context-bound."""
+        ...
+
     async def get(self, object_ref: dict) -> Any:
         """Read an authorized entry or retained native tool source observation.
 

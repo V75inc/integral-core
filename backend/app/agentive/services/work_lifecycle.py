@@ -15,8 +15,6 @@ log = logging.getLogger(__name__)
 # recheck of all history runs once per hour (the boot-time pass also does one).
 _RECENT_RECONCILE_WINDOW_SECONDS = 15 * 60
 _FULL_RECONCILE_SECONDS = 60 * 60
-# The periodic sweep leaves operation events younger than this to the writer that created them.
-_RECOVERY_MIN_EVENT_AGE_SECONDS = 0.0  # no measurable gain from delaying the sweep
 
 
 class WorkKernelBootError(RuntimeError):
@@ -75,6 +73,7 @@ async def assert_work_kernel_store_posture() -> None:
 
 
 async def run_startup_recovery() -> Any:
+    """Reconcile durable work before starting API-side execution loops."""
     from app.agentive.services.work_recovery import run_recovery_pass
 
     return await run_recovery_pass(reclaim_worker_id="startup-recovery")
@@ -95,7 +94,7 @@ async def _app_schedule_loop(*, idle_sleep: float = 60.0) -> None:
 async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
     from app.agentive.services.work_recovery import run_recovery_pass
     from app.services.app_operations.event_outbox import (
-        deliver_pending_operation_events,
+        deliver_pending_cleanup_events,
     )
 
     next_harness_retention = 0.0
@@ -116,9 +115,7 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
             await run_recovery_pass(
                 reclaim_worker_id="periodic-recovery", reconcile_updated_since=since
             )
-            await deliver_pending_operation_events(
-                min_age_seconds=_RECOVERY_MIN_EVENT_AGE_SECONDS
-            )
+            await deliver_pending_cleanup_events()
             from app.services.email_delivery import purge_email_history
 
             await purge_email_history()
@@ -167,11 +164,11 @@ async def start_work_kernel_background(
     try:
         from app.agentive.services.work_outbox import reconcile_missing_outbox_facts
         from app.services.app_operations.event_outbox import (
-            deliver_pending_operation_events,
+            deliver_pending_cleanup_events,
         )
 
         await reconcile_missing_outbox_facts()
-        await deliver_pending_operation_events()
+        await deliver_pending_cleanup_events()
     except Exception:  # noqa: BLE001
         if not _is_dev_boot():
             raise
@@ -193,7 +190,7 @@ async def start_work_kernel_background(
             raise
         log.warning("work kernel startup recovery failed", exc_info=True)
 
-    from app.agentive.services import work_events, work_worker
+    from app.agentive.services import work_worker
 
     background_tasks.append(
         asyncio.create_task(
@@ -230,15 +227,6 @@ async def start_work_kernel_background(
     background_tasks.append(
         asyncio.create_task(_app_schedule_loop(), name="app-schedules")
     )
-    background_tasks.append(
-        asyncio.create_task(
-            work_events.event_consumer_loop(), name="work-event-consumer"
-        )
-    )
-    try:
-        work_events.register_wake_hint()
-    except Exception:  # noqa: BLE001
-        log.debug("work event wake hint registration failed", exc_info=True)
 
 
 __all__ = [
