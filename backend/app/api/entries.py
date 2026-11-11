@@ -531,6 +531,12 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    # Always the saved record: each API worker keeps its own in-memory entity cache, so after a write handled
+    # by another worker (an action button, a background job) this worker's copy is stale and the page would
+    # show the old status until restart. A record page asks for one record, so one database read is cheap.
+    from jvspatial.core.context import get_default_context
+
+    await get_default_context()._evict_from_cache(entry_id)
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { flushSync } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { entryPath } from '../../utils/resourcePaths';
 import { Maximize2, Minimize2, Plus, Send } from 'lucide-react';
 import { Button, LINE_ICON_STROKE } from '../ui';
 import { Modal } from '../ui/Modal';
@@ -186,6 +187,7 @@ export function EntryComposer({
   onCreated
 }: EntryComposerProps) {
   const tracksList = tracks === undefined ? EMPTY_TRACKS : tracks;
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [composeSeed, setComposeSeed] = useState<EntryComposeSeed>({});
@@ -365,6 +367,10 @@ export function EntryComposer({
           onCreated={entry => {
             onCreated?.(entry);
             setWizardOpen(false);
+            // A record that opens as its own page (a pay run, an invoice) is where the person works next.
+            if (wizardEntryType.form_schema?.open_as_page && entry?.id) {
+              navigate(entryPath(entry.id, entry.track_id || track.id));
+            }
           }}
         />
       ) : null}

@@ -367,21 +367,22 @@ export function CreateWizardModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, step, stepIndex, checklistCacheKey]);
 
-  if (!open || !config || steps.length === 0) return null;
-
-  const isLastStep = stepIndex === steps.length - 1;
   // The server's answer to "would this create succeed?", from the same rules the real create runs
   // (field validation and the App's before-save rules). Shown on the period step and the last step, where
   // it keeps Next/Create disabled; the create itself is still checked on the server.
-  const checkHere = isLastStep || step?.kind === 'period_picker';
+  const checkHere = stepIndex === steps.length - 1 || step?.kind === 'period_picker';
   const writeCheck = useEntryWriteCheck({
-    enabled: open && checkHere,
+    enabled: Boolean(open && config) && checkHere,
     trackId: track.id,
     typeId: entryType.id,
     title: String(formValues.title || ''),
     customFields: formValues,
   });
   const blockedByCheck = checkHere && !writeCheck.ok && !writeCheck.pending;
+
+  if (!open || !config || steps.length === 0) return null;
+
+  const isLastStep = stepIndex === steps.length - 1;
   const checkedCount = checklistRows.filter(r => r.checked).length;
   // A required entry_checklist step with nothing checked must block
   // progressing past it — most concretely, a filtered candidate list that
@@ -682,7 +683,7 @@ export function CreateWizardModal({
           <Button
             size="sm"
             loading={submitting}
-            disabled={blockedByRequiredChecklist || blockedByCheck || writeCheck.pending}
+            disabled={blockedByRequiredChecklist || blockedByCheck}
             onClick={handleSubmit}
           >
             Create
