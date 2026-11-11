@@ -725,7 +725,8 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                     raise RuntimeErrorDetail("Private PostgreSQL failed to start")
                 time.sleep(0.2)
             dsn = read_json(home / "database.json")["dsn"]
-            if config.get("deployment_profile") == "desktop_single_user":
+            desktop = config.get("deployment_profile") == "desktop_single_user"
+            if desktop:
                 deadline = time.monotonic() + 150
             env = _environment(home, config, dsn, api_port, web_port, apps)
             child([sys.executable, "-m", "app.main"], "api", env)
@@ -743,12 +744,7 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                     try:
                         with urllib.request.urlopen(
                             state["api_url"]
-                            + (
-                                "/api/meta/deployment/ready"
-                                if config.get("deployment_profile")
-                                == "desktop_single_user"
-                                else "/health"
-                            ),
+                            + ("/api/meta/deployment/ready" if desktop else "/health"),
                             timeout=1,
                         ) as response:
                             healthy = response.status == 200
@@ -759,7 +755,10 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                         pass
                     if time.monotonic() > deadline:
                         raise RuntimeErrorDetail("API readiness timed out")
-                time.sleep(0.3)
+                    # Do not exhaust the API’s anonymous request budget while it starts.
+                    time.sleep(1.5 if desktop else 0.3)
+                else:
+                    time.sleep(0.3)
         except Exception as exc:
             state["error"] = (
                 str(exc)
