@@ -1174,6 +1174,33 @@ async def _resolve_current_role(
     return role
 
 
+async def _inherited_role(
+    user: User, resource_type: str, resource_id: str
+) -> Optional[str]:
+    """The role a parent (a Track for an Entry, an App for a Track) passes down, for this user.
+
+    Inside an App job (a pay run) every record the job writes under one Track asks for the same Track role; deriving it
+    again for each record (Track, App, workspace) was most of the cost of a record's permission check. The answer is
+    reused for at most _APP_JOB_FACT_TTL seconds and only until the next access change, as the job's other role facts
+    are. Outside a job scope this is a plain lookup, so ordinary requests still read current facts.
+    """
+    from app.middleware.permissions_cache import (
+        app_job_fact_active,
+        app_job_fact_get,
+        app_job_fact_put,
+    )
+
+    if not app_job_fact_active():
+        return await _resolve_role_for_user(user, resource_type, resource_id)
+    key = ("inherited_role", user.id, resource_type, resource_id)
+    hit = app_job_fact_get(key)
+    if hit is not None:
+        return hit[0]
+    role = await _resolve_role_for_user(user, resource_type, resource_id)
+    app_job_fact_put(key, (role,))
+    return role
+
+
 async def _resolve_role_for_user(
     user: User, resource_type: str, resource_id: str
 ) -> Optional[str]:
@@ -1350,7 +1377,7 @@ async def _resolve_role_for_user(
         # inherit entry access. Org staff do not reach private inventory
         # through the implicit staff role.
         if not skip_cascade:
-            inherited = await _resolve_role_for_user(user, parent[0], parent[1])
+            inherited = await _inherited_role(user, parent[0], parent[1])
             if inherited is not None:
                 candidates.append(_cap_inherited_role(inherited))
 
