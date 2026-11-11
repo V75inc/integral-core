@@ -579,6 +579,13 @@ def _make_handler(
                 # the proposal and its requirement for a linked approval.
                 raise CallDeferred()
         model_result = _resource_links_for_model(result.for_model())
+        if capability_name == "integral_get_attachment_text" and result.ok:
+            source_url = model_result.get("source_url")
+            if source_url:
+                call_state.setdefault("attachment_source_links", {})[source_url] = {
+                    "url": source_url,
+                    "label": model_result.get("filename") or "Open source file",
+                }
         executed = model_result.get("execute_result")
         if (
             not isinstance(executed, dict)

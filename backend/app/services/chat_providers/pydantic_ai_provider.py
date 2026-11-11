@@ -2534,11 +2534,15 @@ class PydanticAIProvider:
                     for ref in run_state.get("completed_resource_refs", [])
                     if ref.get("kind") == "entry"
                 }
-                return append_completion_links(
+                output = append_completion_links(
                     output,
                     run_state.get("completed_resource_links") or [],
                     entry_ids,
                     repair_destination_links=run_state.get("native_resume", False),
+                )
+                return append_completion_links(
+                    output,
+                    list(run_state.get("attachment_source_links", {}).values()),
                 )
 
         except BaseException:

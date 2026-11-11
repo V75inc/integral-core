@@ -2153,6 +2153,8 @@ async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
     )
     item = SimpleNamespace(kind="chat_turn")
     invocations = []
+    source_url = "/entries/n.Entry.report?attachment=n.Attachment.pdf"
+    run_state = {"capability_search_completed": True}
 
     @asynccontextmanager
     async def authorized(context):
@@ -2161,7 +2163,14 @@ async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
 
     async def invoke(**kwargs):
         invocations.append(kwargs)
-        return CapabilityResult(ok=True, data={"text": "accepted file"})
+        return CapabilityResult(
+            ok=True,
+            data={
+                "text": "accepted file",
+                "filename": "report.pdf",
+                "source_url": source_url,
+            },
+        )
 
     guard = AsyncMock(side_effect=WorkError("work.policy_denied", "attachment changed"))
     monkeypatch.setattr(
@@ -2193,18 +2202,22 @@ async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
                 },
             }
         ],
-        run_state={"capability_search_completed": True},
+        run_state=run_state,
     )
     tool = next(tool for tool in tools if tool.name == "integral_get_attachment_text")
     ctx = SimpleNamespace(tool_call_id="file-call", active_capability_ids=set())
     with pytest.raises(WorkError, match="attachment changed"):
         await tool.function_schema.call({"attachment_id": "file-1"}, ctx)
     assert invocations == []
+    assert "attachment_source_links" not in run_state
     guard.assert_awaited_once_with(item=item)
     guard.side_effect = None
     result = await tool.function_schema.call({"attachment_id": "file-1"}, ctx)
     assert result["text"] == "accepted file"
     assert len(invocations) == 1
+    assert run_state["attachment_source_links"] == {
+        source_url: {"url": source_url, "label": "report.pdf"}
+    }
 
 
 @pytest.mark.asyncio

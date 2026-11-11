@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from typing import Any
 
 from app.models.edges import HAS_ATTACHMENT
 from app.models.nodes import Attachment, ChatThread
 from app.schemas.agentive.work import WorkError
+from app.services.attachment_metadata import get_metadata_extraction_service
 
 _FILE_FIELDS = {"type", "attachment_id", "filename", "mime_type", "size"}
 _BINDING_FIELDS = {
@@ -20,6 +22,45 @@ _BINDING_FIELDS = {
     "uploaded_by",
     "owner_kind",
 }
+_PENDING_METADATA = {"pending", "processing"}
+
+
+async def prepare_chat_attachment_bindings(
+    *,
+    thread: ChatThread,
+    principal_id: str,
+    parts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Finish extracting new uploads before signing the turn's text digest."""
+    pending: set[str] = set()
+    bindings = await capture_chat_attachment_bindings(
+        thread=thread, principal_id=principal_id, parts=parts, pending=pending
+    )
+    if not pending:
+        return bindings
+
+    service = get_metadata_extraction_service()
+    try:
+        async with asyncio.timeout(30):
+            for attachment_id in pending:
+                # The shared extraction continues even if this request times out.
+                service.schedule_extraction(attachment_id)
+            await asyncio.gather(
+                *(service.extract_now(attachment_id) for attachment_id in pending)
+            )
+    except TimeoutError as exc:
+        raise WorkError(
+            "work.attachment_processing",
+            "Your file is still being prepared. Try sending your message again shortly.",
+        ) from exc
+    except Exception as exc:
+        raise WorkError(
+            "work.attachment_processing",
+            "Your file could not be prepared. Try attaching it again.",
+        ) from exc
+    return await capture_chat_attachment_bindings(
+        thread=thread, principal_id=principal_id, parts=parts
+    )
 
 
 async def capture_chat_attachment_bindings(
@@ -27,6 +68,7 @@ async def capture_chat_attachment_bindings(
     thread: ChatThread,
     principal_id: str,
     parts: list[dict[str, Any]],
+    pending: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Bind exact canonical file parts to current uploaded thread artifacts."""
     bindings = []
@@ -36,7 +78,11 @@ async def capture_chat_attachment_bindings(
             continue
         if set(part) != _FILE_FIELDS:
             raise WorkError("work.policy_denied", "chat file part is invalid")
-        attachment = await Attachment.get(str(part.get("attachment_id") or ""))
+        # Extraction writes derived fields directly. A cached node can still
+        # contain the empty text that was present when the upload completed.
+        attachment = await Attachment.find_one(
+            {"id": str(part.get("attachment_id") or "")}
+        )
         if (
             thread.user_id != principal_id
             or attachment is None
@@ -62,6 +108,8 @@ async def capture_chat_attachment_bindings(
             raise WorkError(
                 "work.policy_denied", "chat attachment presentation changed"
             )
+        if pending is not None and attachment.metadata_status in _PENDING_METADATA:
+            pending.add(attachment.id)
         binding = {
             key: getattr(attachment, "id" if key == "attachment_id" else key)
             for key in _BINDING_FIELDS
