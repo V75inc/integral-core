@@ -6,6 +6,14 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc58 — 2026-11-10
+
+- Reduce redundant protected reads for eligible shared Entry creates.
+- Improve Entry Detail type resolution and date display in table views.
+- Share library validation across overlapping view requests and batch tag lookups on Entry pages.
+- Fall back to portable title pagination when native title sorting is unavailable.
+- Pin the published jvspatial 0.2.9 release.
+
 ## 0.1.1rc57 — 2026-11-09
 
 - Reduce repeated authorization work in Track Detail and recheck current Track and collaborator-directory access before returning the response.

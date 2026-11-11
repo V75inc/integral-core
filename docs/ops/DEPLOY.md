@@ -226,7 +226,7 @@ For a failed upgrade, inspect the schema and effect state before reverting an im
 
 ## jvspatial compatibility release gate
 
-Current metadata pins `jvspatial==0.2.8` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
+Current metadata pins `jvspatial==0.2.9` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
 
 jvspatial 0.2.4 keeps shallow node deletion within the selected node and its incident edges. Qualify App deletion with nested comments and linked content through both the manual dialog and chat approval. Verify atomic graph cleanup and execution receipts, retained shared resources, rollback on failure, and refusal of malformed discussion graphs.
 

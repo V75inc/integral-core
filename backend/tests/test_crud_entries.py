@@ -3,7 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
-from app.models.nodes import Track
+from app.models.edges import TAGGED_WITH
+from app.models.nodes import Entry, Tag, Track
 from app.services.app_graph import get_track_attached_operational_model
 
 
@@ -326,6 +327,68 @@ class TestEntriesCRUD:
             for t in tags_out
         ]
         assert tag_id in tag_refs
+
+    async def test_title_page_preserves_stored_and_edge_only_tags(
+        self, authenticated_client: AsyncClient, test_user
+    ):
+        track_id = await self._create_track(authenticated_client)
+        stored_id = await self._create_tag(authenticated_client, track_id, "stored")
+        edge_id = await self._create_tag(authenticated_client, track_id, "edge-only")
+        edge_tag = await Tag.get(edge_id)
+
+        for title, tags in [
+            ("A legacy entry", []),
+            ("B explicitly tagged", [stored_id]),
+            ("C untagged", []),
+        ]:
+            created = await authenticated_client.post(
+                "/api/entries",
+                json={"track_id": track_id, "title": title, "tags": tags},
+            )
+            assert created.status_code == 200, created.text
+            if title != "C untagged":
+                entry = await Entry.get(created.json()["entry"]["id"])
+                await entry.connect(edge_tag, edge=TAGGED_WITH)
+
+        view = await authenticated_client.post(
+            f"/api/tracks/{track_id}/views",
+            json={
+                "name": "Title order",
+                "type": "feed",
+                "config": {"sort": [{"field": "title", "direction": "asc"}]},
+            },
+        )
+        assert view.status_code in (200, 201), view.text
+        data = view.json()
+        path = f"/api/tracks/{track_id}/entries"
+        params = {
+            "view_id": data.get("view", data)["id"],
+            "include_total": "false",
+            "limit": 2,
+        }
+        response = await authenticated_client.get(path, params=params)
+        assert response.status_code == 200, response.text
+        first = response.json()
+        assert first["has_more"] is True
+        response = await authenticated_client.get(
+            path, params={**params, "cursor": first["next_cursor"]}
+        )
+        assert response.status_code == 200, response.text
+        last = response.json()
+        assert last["has_more"] is False
+        entries = first["entries"] + last["entries"]
+        assert [entry["title"] for entry in entries] == [
+            "A legacy entry",
+            "B explicitly tagged",
+            "C untagged",
+        ]
+        assert {
+            entry["title"]: [tag["id"] for tag in entry["tags"]] for entry in entries
+        } == {
+            "A legacy entry": [edge_id],
+            "B explicitly tagged": [stored_id],
+            "C untagged": [],
+        }
 
     async def test_add_remove_tag_on_entry(
         self, authenticated_client: AsyncClient, test_user
