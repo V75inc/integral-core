@@ -220,6 +220,8 @@ function LegacyField(props: SeamlessFieldProps) {
     memberFormUpload,
   } = props;
   const v = value;
+  // A label set on the field itself, then any a caller supplies (a board's own column names win).
+  const labels = { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) };
   if (field.type === 'boolean') {
     return (
       <label className="flex items-center gap-2 pl-3 text-sm text-[var(--text)]">
@@ -237,7 +239,7 @@ function LegacyField(props: SeamlessFieldProps) {
     const enumStrings = (field.enum ?? []) as string[];
     const opts = enumStrings.map(opt => ({
       value: opt,
-      label: resolveEnumOptionLabel(opt, enumLabels),
+      label: resolveEnumOptionLabel(opt, labels),
     }));
     return (
       <>
@@ -276,7 +278,7 @@ function LegacyField(props: SeamlessFieldProps) {
                     onChange(next);
                   }}
                 />
-                {resolveEnumOptionLabel(opt, enumLabels)}
+                {resolveEnumOptionLabel(opt, labels)}
               </label>
             ))
           )}
@@ -477,7 +479,7 @@ function SeamlessSelectInner({
   const enumStrings = (field.enum ?? []) as string[];
   const opts = enumStrings.map(opt => ({
     value: opt,
-    label: resolveEnumOptionLabel(opt, enumLabels),
+    label: resolveEnumOptionLabel(opt, { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) }),
   }));
   const hasValue = hasMeaningfulValue(value, field.type);
   const [hovered, setHovered] = useState(false);
@@ -579,7 +581,7 @@ function SeamlessMultiSelectInner({
                   }
                 `}
               >
-                {resolveEnumOptionLabel(opt, enumLabels)}
+                {resolveEnumOptionLabel(opt, { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) })}
               </button>
             );
           })}

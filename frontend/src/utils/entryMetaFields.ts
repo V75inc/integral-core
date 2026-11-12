@@ -134,9 +134,10 @@ function formatDateLike(raw: string, withTime: boolean): string {
 export function formatCustomFieldValue(
   field: OperationalModelFieldSpec,
   value: unknown,
-  enumLabels?: Record<string, string>
+  givenLabels?: Record<string, string>
 ): string {
   const t = String(field.type || 'text').toLowerCase();
+  const enumLabels = { ...(field.enum_labels ?? {}), ...(givenLabels ?? {}) };
 
   if (t === 'select') {
     if (value === null || value === undefined || value === '') return '';

@@ -247,6 +247,9 @@ export interface OperationalModelFieldSpec {
   /** Enumerated allowed values. Element type depends on ``type`` — string for
    *  ``select``/``multi_select``, number for numeric enums, etc. */
   enum?: unknown[];
+  /** How a choice is shown when its stored value is not the wording people use (``biweekly`` shown as
+   *  ``Fortnightly``). Display only: the stored value is what is saved, filtered and compared. */
+  enum_labels?: Record<string, string>;
   widget?: string;
   placeholder?: string;
   help?: string;

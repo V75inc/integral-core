@@ -15,6 +15,7 @@ export interface ColumnFilterSpec {
   field: string;
   kind: Kind;
   options: string[];
+  labels?: Record<string, string>;
 }
 
 /** The stored path the server filters a column on. */
@@ -32,7 +33,7 @@ export function columnFilterSpec(
   const path = columnPath(col.field, fields);
   if (spec) {
     if (['text', 'number', 'date', 'datetime', 'select', 'boolean'].includes(spec.type)) {
-      return { field: path, kind: spec.type as Kind, options: spec.type === 'select' ? (spec.enum ?? []).map(String) : [] };
+      return { field: path, kind: spec.type as Kind, options: spec.type === 'select' ? (spec.enum ?? []).map(String) : [], labels: spec.enum_labels };
     }
     return null;
   }
@@ -141,7 +142,7 @@ function renderControl(
         <select aria-label={`Filter ${label}`} className={`${control} min-w-[5rem]`} value={str(filterValue(filters, field, 'eq'))}
           onClick={e => e.stopPropagation()} onChange={e => set(field, 'eq', e.target.value)}>
           <option value="">All</option>
-          {spec.options.map(o => <option key={o} value={o}>{humanizeEnumValue(o)}</option>)}
+          {spec.options.map(o => <option key={o} value={o}>{spec.labels?.[o] ?? humanizeEnumValue(o)}</option>)}
         </select>
       );
     case 'boolean': {

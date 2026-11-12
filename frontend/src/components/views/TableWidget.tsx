@@ -32,6 +32,7 @@ type MemberFieldPaths = Set<string>;
  *  (SeamlessField's `resolveEnumOptionLabel`/`humanizeEnumValue`) instead
  *  of printing the raw snake/kebab-case value verbatim. */
 type SelectFieldTypes = Map<string, 'select' | 'multi_select' | 'date' | 'datetime'>;
+type EnumLabelsByField = Map<string, Record<string, string>>;
 
 const DEFAULT_COLUMNS: TableColumn[] = [
   { field: 'title', label: 'Title / Content', sortable: true },
@@ -80,6 +81,7 @@ function renderCellValue(
   relationByField: RelationByField,
   memberFieldPaths: MemberFieldPaths,
   selectFieldTypes: SelectFieldTypes,
+  enumLabelsByField: EnumLabelsByField = new Map(),
 ) {
   switch (column.field) {
     case 'title':
@@ -184,7 +186,7 @@ function renderCellValue(
         if (val.length === 0) return <span className="text-[var(--text-muted)] text-xs">—</span>;
         return (
           <span className="text-sm text-[var(--text)]">
-            {val.map(v => humanizeEnumValue(String(v))).join(', ')}
+            {val.map(v => enumLabelsByField.get(column.field)?.[String(v)] ?? humanizeEnumValue(String(v))).join(', ')}
           </span>
         );
       }
@@ -201,7 +203,7 @@ function renderCellValue(
         if (shown) return <span className="text-sm text-[var(--text)] whitespace-nowrap">{shown}</span>;
       }
       if (selectType === 'select' && typeof val === 'string') {
-        return <span className="text-sm text-[var(--text)]">{humanizeEnumValue(val)}</span>;
+        return <span className="text-sm text-[var(--text)]">{enumLabelsByField.get(column.field)?.[val] ?? humanizeEnumValue(val)}</span>;
       }
       return <span className="text-sm text-[var(--text)]">{String(val)}</span>;
     }
@@ -249,6 +251,18 @@ function TableWidgetInner({
       if (t === 'select' || t === 'multi_select' || t === 'date' || t === 'datetime') {
         if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
         out.set(`custom_fields.${f.key}`, t);
+      }
+    }
+    return out;
+  }, [fields]);
+
+  // Labels a select field gives its choices, by the column key that reads it.
+  const enumLabelsByField = useMemo<EnumLabelsByField>(() => {
+    const out: EnumLabelsByField = new Map();
+    for (const f of fields ?? []) {
+      if (f.enum_labels && Object.keys(f.enum_labels).length) {
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, f.enum_labels);
+        out.set(`custom_fields.${f.key}`, f.enum_labels);
       }
     }
     return out;
@@ -454,7 +468,7 @@ function TableWidgetInner({
               >
                 {visibleCols.map(col => (
                   <td key={col.field} className="px-4 py-3">
-                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, enumLabelsByField)}
                   </td>
                 ))}
               </tr>
@@ -488,7 +502,7 @@ function TableWidgetInner({
                       <FragmentRow
                         key={col.field}
                         label={col.label}
-                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes)}
+                        value={renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, enumLabelsByField)}
                       />
                     ))}
                   </dl>

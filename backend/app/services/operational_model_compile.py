@@ -446,6 +446,16 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "index": bool(field.get("index", False)),
     }
+    # How a choice is shown when its stored value is not the wording people use (``biweekly`` shown as
+    # ``Fortnightly``). Display only: the stored value, filters and rules keep using the value. Added only when
+    # given, so every existing definition compiles to exactly what it did before.
+    enum_labels = _as_dict(field.get("enum_labels"), where=f"field '{key}' enum_labels")
+    if enum_labels:
+        out["enum_labels"] = {
+            str(value): str(label).strip()
+            for value, label in enum_labels.items()
+            if str(label).strip()
+        }
     # Prefill from the parent App's settings at compose/create time
     # (e.g. Finance ``currency`` ← ``default_currency``). Empty string omitted.
     default_from_setting = str(field.get("default_from_setting") or "").strip()
