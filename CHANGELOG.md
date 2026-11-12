@@ -6,6 +6,10 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc62 — 2026-11-12
+
+- Prepare the next Integral Core release candidate.
+
 ## 0.1.1rc61 — 2026-11-11
 
 - Start desktop workspaces without warming or downloading the optional search model. Load it when a search or indexing operation needs it.
