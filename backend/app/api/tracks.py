@@ -826,11 +826,21 @@ async def get_track_facets(
             parsed = json.loads(dashboard_filters)
         except (TypeError, ValueError) as exc:
             raise BadRequestError(message="Invalid filter") from exc
-        if not isinstance(parsed, list) or len(parsed) > 8 or any(not isinstance(i, dict) for i in parsed):
+        if (
+            not isinstance(parsed, list)
+            or len(parsed) > 8
+            or any(not isinstance(i, dict) for i in parsed)
+        ):
             raise BadRequestError(message="Invalid filter")
     view_node = await ViewNode.get(view_id) if view_id else None
     return await facet_values(
-        user_id, track_id, field, filters=parsed, view_node=view_node, q=q or "", limit=limit
+        user_id,
+        track_id,
+        field,
+        filters=parsed,
+        view_node=view_node,
+        q=q or "",
+        limit=limit,
     )
 
 

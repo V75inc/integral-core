@@ -253,6 +253,10 @@ def _tool_error_from_exception(exc: Exception) -> ToolResult:
         )
     from app.agentive.connectors.mcp_proxy import McpProxyError
     from app.agentive.staging import StagingBlockedError
+    from app.schemas.agentive.work import WorkError
+
+    if isinstance(exc, WorkError):
+        return ToolResult(is_error=True, error_code=exc.code, message=exc.message)
 
     if isinstance(exc, McpProxyError):
         return ToolResult(
@@ -409,6 +413,36 @@ async def dispatch_tool(
     op_class = "unknown"
     result: Optional[ToolResult] = None
     try:
+        if name in {
+            "integral_upsert_artifact",
+            "integral_prepare_document_attachment",
+            "integral_get_artifact",
+            "integral_list_artifacts",
+        } and (not scope or not session_id):
+            return ToolResult(
+                is_error=True,
+                error_code="scope_required",
+                message="Session artifacts require a bound workspace and conversation.",
+            )
+        if name in {
+            "integral_upsert_artifact",
+            "integral_prepare_document_attachment",
+            "integral_get_artifact",
+            "integral_list_artifacts",
+        }:
+            # This gate runs before session-level prompt/design lookups: those
+            # lookups can themselves expose text from the referenced chat.
+            from app.agentive.artifacts import _resolve_artifact_thread
+
+            thread = await _resolve_artifact_thread(
+                user_id=principal_id, session_id=session_id, workspace_id=scope
+            )
+            if thread is None:
+                return ToolResult(
+                    is_error=True,
+                    error_code="session_unavailable",
+                    message="Conversation is unavailable in the current workspace.",
+                )
         if skill_tools_required:
             from app.agentive.tooling.skill_allowlist import (
                 SkillToolAllowlistError,
@@ -483,7 +517,18 @@ async def dispatch_tool(
                 from app.services.chat_threads import get_thread_by_session
 
                 prior = ""
-                thread = await get_thread_by_session(session_id)
+                if name in {
+                    "integral_upsert_artifact",
+                    "integral_prepare_document_attachment",
+                    "integral_get_artifact",
+                    "integral_list_artifacts",
+                }:
+                    # Do not copy prior design text from a separately resolved
+                    # session into an artifact-tool refusal. The authorized
+                    # draft can be read after the design gate clears.
+                    thread = None
+                else:
+                    thread = await get_thread_by_session(session_id)
                 if thread is not None:
                     marker = getattr(thread, "design_proposed", None) or {}
                     if isinstance(marker, dict):
@@ -1207,6 +1252,29 @@ async def _dispatch_propose(
         from app.services.chat_threads import record_design_proposed
 
         _args = dict(args or {})
+        unexpected = set(_args) - set(spec.params)
+        if unexpected:
+            from app.schemas.design_blueprint import DesignBlueprint
+
+            misplaced = sorted(unexpected.intersection(DesignBlueprint.model_fields))
+            detail = (
+                " Move these design sections inside `blueprint`, unchanged: "
+                + ", ".join(misplaced)
+                + "."
+                if misplaced
+                else " Use only the declared top-level tool arguments."
+            )
+            return ToolResult(
+                is_error=True,
+                error_code="invalid_arguments",
+                message=(
+                    "Unexpected top-level design arguments. The design is NOT recorded."
+                    + detail
+                    + " Keep all intended design content and unresolved questions; "
+                    "do not drop open_decisions or infer answers. Correct the nesting "
+                    "and call integral_propose_design again."
+                ),
+            )
         if not isinstance(_args.get("blueprint"), dict):
             return ToolResult(
                 is_error=True,
@@ -1270,10 +1338,50 @@ async def _dispatch_propose(
         }
         if result.get("prior_proposal"):
             data["prior_proposal"] = result["prior_proposal"]
-        for key in ("blueprint_revision", "blueprint_digest", "blueprint_diff"):
+        for key in (
+            "blueprint_revision",
+            "blueprint_digest",
+            "blueprint_diff",
+            "decision_required",
+            "coverage",
+        ):
             if key in result:
                 data[key] = result[key]
         return ToolResult(data=data)
+
+    if spec.name == "integral_prepare_document_attachment":
+        from app.agentive.artifacts import _resolve_artifact_thread
+        from app.api.errors import BadRequestError, ResourceNotFoundError
+        from app.services.document_draft_access import load_document_draft_snapshot
+        from app.services.document_draft_preparation import prepare_document_draft
+
+        version = args.get("version")
+        if type(version) is not int or version < 1:
+            raise BadRequestError(
+                message="A current document draft version is required."
+            )
+        thread = await _resolve_artifact_thread(
+            user_id=principal_id, session_id=session_id, workspace_id=scope
+        )
+        if thread is None:
+            raise ResourceNotFoundError(message="Conversation not found")
+        snapshot = await load_document_draft_snapshot(
+            user_id=principal_id,
+            workspace_id=scope,
+            thread_id=thread.id,
+            key=str(args.get("key") or ""),
+            version=version,
+        )
+        attachment_id = await prepare_document_draft(snapshot)
+        return ToolResult(
+            data={
+                "ok": True,
+                "attachment_id": attachment_id,
+                "key": snapshot.key,
+                "version": snapshot.version,
+                "message": "Private file prepared. Filing it requires a separate approval.",
+            }
+        )
 
     if spec.name in {
         "integral_upsert_artifact",
@@ -1287,8 +1395,10 @@ async def _dispatch_propose(
             out = await artifact_svc.upsert_artifact(
                 user_id=principal_id,
                 session_id=session_id,
+                workspace_id=scope,
                 key=str(_args.get("key") or ""),
                 kind=str(_args.get("kind") or ""),
+                expected_version=_args.get("expected_version"),
                 title=str(_args.get("title") or ""),
                 body=str(_args.get("body") or ""),
                 metadata=(
@@ -1415,6 +1525,7 @@ async def _dispatch_propose(
     )
     if (
         not native_design_thread
+        and spec.name != "integral_file_uploaded_document"
         and session_id is not None
         and not is_batch_open(principal_id, session_id)
         and await design_proposed_pending(session_id)
@@ -1430,6 +1541,14 @@ async def _dispatch_propose(
     # staged op is ACCUMULATED rather than minting its own token. One bless at
     # ``integral_commit_batch`` then applies the whole workflow. The op carries
     # only stager output (no identity/scope — PC-1/PC-2 preserved).
+    if spec.name == "integral_file_uploaded_document" and is_batch_open(
+        principal_id, session_id
+    ):
+        return ToolResult(
+            is_error=True,
+            error_code="open_batch_conflict",
+            message="Finish or cancel the existing batch before filing this document.",
+        )
     if session_id is not None and is_batch_open(principal_id, session_id):
         # Greenfield scaffold: refuse orphan tracks (no app) even inside a batch —
         # they would bless as "App: (no app)" and break {{app.id}} wiring.
@@ -1549,7 +1668,10 @@ async def _dispatch_propose(
         interaction_id=interaction_id,
     )
     data = enrich_filing_tool_result(spec.name, sc.to_dict())
-    if session_id is not None:
+    if (
+        session_id is not None
+        and (sc.origin_proof or {}).get("requires_deferred_link") is not True
+    ):
         from app.services.prompt_queue import enqueue_staged_write
 
         await enqueue_staged_write(

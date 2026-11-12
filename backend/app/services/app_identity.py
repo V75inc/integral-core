@@ -5,7 +5,6 @@ import re
 from typing import Optional
 
 from app.api.errors import BadRequestError
-
 from app.services.manifest_icons import MANIFEST_ICON_KEYS
 
 # The same fixed list manifests use, so an App's icon can be picked from it in settings or named by its package.

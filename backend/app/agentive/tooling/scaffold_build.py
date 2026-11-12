@@ -1216,6 +1216,28 @@ async def build_approved_design(
     approval; every operation still goes through the published tool dispatcher
     and the existing batch executor applies each operation under policy.
     """
+    thread = await get_thread_by_session(session_id) if session_id else None
+    if thread is not None:
+        if getattr(thread, "user_id", None) != principal_id:
+            return _invalid(
+                "design_owner_mismatch", "The design belongs to another user."
+            )
+        if getattr(thread, "workspace_id", None) not in (None, scope):
+            return _invalid(
+                "design_scope_mismatch", "The design is outside this workspace."
+            )
+        marker = getattr(thread, "design_proposed", None) or {}
+        if not marker.get("partial_build") and not marker.get("build_receipt"):
+            from app.services.design_blueprint import (
+                design_decision_reply,
+                open_design_questions,
+            )
+
+            questions = open_design_questions(marker.get("blueprint") or {})
+            if questions:
+                return _invalid(
+                    "design_decision_required", design_decision_reply(questions)
+                )
     if not session_id or not await design_chat_affirmed_for_build(session_id):
         pending = await get_thread_by_session(session_id) if session_id else None
         if getattr(pending, "design_proposed", None):

@@ -67,6 +67,16 @@ _FLATTENED_PREFIXES = (
 )
 logger = logging.getLogger(__name__)
 
+# The pinned framework emits a RetryPromptPart for redundant activation, not
+# a structured error code. Recognize only its complete fixed message on that
+# tool's retry event. This changes presentation, never retry/effect state; an
+# unfamiliar future framework message falls back to the ordinary diagnostic.
+_ALREADY_ACTIVE_CAPABILITY = re.compile(
+    r"Capability '[A-Za-z0-9_.:-]{1,200}' is already active\. "
+    r"Use its existing instructions and any tools it provides; "
+    r"do not call `load_capability` for it again\."
+)
+
 
 def _candidate_json(text: str) -> dict[str, Any] | None:
     """Decode an object, repairing only known flattened object text."""
@@ -395,13 +405,21 @@ def translate_event(event: Any) -> Iterator[dict[str, Any]]:
             failed = isinstance(part, RetryPromptPart) or (
                 isinstance(content, dict) and content.get("error") is True
             )
-            diagnostic = (
-                tool_diagnostic(
-                    content.get("error_code") if isinstance(content, dict) else None
-                )
-                if failed
-                else None
+            diagnostic_code = (
+                content.get("error_code") if isinstance(content, dict) else None
             )
+            # This code is reserved for framework retry events, not arbitrary
+            # connector/Core return dictionaries claiming duplicate activation.
+            if diagnostic_code == "capability_already_active":
+                diagnostic_code = None
+            if (
+                isinstance(part, RetryPromptPart)
+                and name == "load_capability"
+                and isinstance(content, str)
+                and _ALREADY_ACTIVE_CAPABILITY.fullmatch(content)
+            ):
+                diagnostic_code = "capability_already_active"
+            diagnostic = tool_diagnostic(diagnostic_code) if failed else None
             yield {
                 "type": "tool-call",
                 "toolCallId": call_id,

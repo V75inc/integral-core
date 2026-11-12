@@ -18,7 +18,17 @@ _ATTACHMENT_URL_TTL_SECONDS = 3600
 
 def is_visible_to_user(attachment: Attachment) -> bool:
     """Whether an attachment should appear in user-facing list/get routes."""
-    return getattr(attachment, "scan_status", "") != SCAN_STATUS_BLOCKED
+    status = getattr(attachment, "scan_status", "")
+    if status == SCAN_STATUS_BLOCKED:
+        return False
+    # Chat upload records are rooted before storage and scanning complete so
+    # a crash cannot leave a detached Node. They are not ready for release.
+    if getattr(attachment, "owner_kind", "entry") == "chat" and status in {
+        "pending",
+        "quota_rejected",
+    }:
+        return False
+    return True
 
 
 def _token_secret() -> bytes:

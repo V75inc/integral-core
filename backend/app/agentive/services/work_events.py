@@ -57,6 +57,14 @@ def declaration_matches(
     resource_type: str,
     scope: str = "",
 ) -> bool:
+    from app.contracts.task_semantics import (
+        RESIDENT_ASSIGNMENT_CHANGED,
+        RESIDENT_ASSIGNMENT_SETTINGS_CHANGED,
+    )
+
+    # The dedicated assignment admission path must verify sponsor and policy.
+    if action in {RESIDENT_ASSIGNMENT_CHANGED, RESIDENT_ASSIGNMENT_SETTINGS_CHANGED}:
+        return False
     if (decl.action or "") and decl.action != action:
         return False
     if (decl.resource_type or "") and decl.resource_type != resource_type:

@@ -115,7 +115,7 @@ class ResolvedModelRoute(BaseModel):
     api_key: SecretStr | None = None
     keyless_endpoint: bool = Field(default=False, exclude=True)
     generation_settings: dict[str, Any] = Field(default_factory=dict)
-    ollama_num_ctx: int | None = Field(default=None, ge=512, le=131072)
+    ollama_num_ctx: int | None = Field(default=None, ge=512, le=1_000_000)
     ollama_num_predict: int | None = Field(default=None, ge=1, le=131072)
     ollama_think: str | bool | None = None
     ollama_clear_thinking: bool | None = None

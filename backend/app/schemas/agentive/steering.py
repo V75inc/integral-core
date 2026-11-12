@@ -8,3 +8,4 @@ class SteeringCorrectionRequest(BaseModel):
 
     client_request_id: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=8000)
+    from_follow_up_queue: bool = False

@@ -360,7 +360,15 @@ async def apply_staged_command_once(
         for binding in get_workspace_hooks(identity["workspace_id"], point)
     )
     if external:
-        await mark_staging_external_dispatch(claim)
+        try:
+            await mark_staging_external_dispatch(
+                claim,
+                approval_token=batch_step.token if batch_step else sc.token,
+                approval_claim=batch_step.parent if batch_step else claim,
+            )
+        except BaseException:
+            await release_unapplied_staging_claim(claim)
+            raise
     bound = None
     try:
         async with bind_staging_command_execution(

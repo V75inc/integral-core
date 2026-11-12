@@ -20,6 +20,20 @@ from app.services.chat_turn_transcript import (
 log = logging.getLogger(__name__)
 
 
+def _submitted_file_parts(worker_input, deferred_resume) -> tuple[dict[str, Any], ...]:
+    """Project only verified accepted user files, not metadata or resumed effects."""
+    if (
+        worker_input.execution_context.host_control is not None
+        or deferred_resume is not None
+    ):
+        return ()
+    return tuple(
+        dict(part)
+        for part in worker_input.message.parts or []
+        if part.get("type") == "file"
+    )
+
+
 async def _pending_write_references(
     *, principal_id: str, workspace_id: str, session_id: Optional[str]
 ) -> dict[str, str]:
@@ -55,6 +69,8 @@ HANDLED_KINDS = frozenset(
         "chat_turn",
         "chat_title",
         "attachment_analysis",
+        "resident_assignment",
+        "mandate_entry_read",
     }
 )
 
@@ -217,6 +233,13 @@ async def _handle_capability(
     from app.agentive.services.execution_runs import start_run
 
     await _recheck_principal_workspace(item)
+    from app.agentive.services.work_mandates import is_mandate_work
+
+    if await is_mandate_work(item):
+        raise WorkError(
+            "work.mandate_admission_required",
+            "Reviewed mandate work requires a dedicated capability admission path",
+        )
     payload = dict(item.input_payload or {})
     capability_key = str(payload.get("capability_key") or "").strip()
     if not capability_key:
@@ -226,6 +249,11 @@ async def _handle_capability(
     ctx = work_execution.build_work_execution_context(
         work_item=item, logical_step_key=logical
     )
+    from app.agentive.services.work_approval_recovery import recover_staged_capability
+
+    recovered = await recover_staged_capability(item, ctx)
+    if recovered is not None:
+        return recovered
     run = await start_run(
         thread_id=item.thread_id or "",
         user_id=item.principal_id,
@@ -463,6 +491,8 @@ async def _execute_chat_turn(
     from datetime import datetime, timezone
     from time import monotonic
 
+    from jvspatial.core.context import get_default_context
+
     from app.agentive.services.execution_runs import AgentRun, start_run
     from app.agentive.services.work_items import authorized_work_item_effect
     from app.services.chat_providers import ChatTurnContext, get_registry
@@ -531,7 +561,10 @@ async def _execute_chat_turn(
             cursor = page.next_after_sequence
 
     async def _terminalize_pre_stream_failure(
-        failure: dict[str, str], *, status: ChatTerminalStatus = "failed"
+        failure: dict[str, str],
+        *,
+        status: ChatTerminalStatus = "failed",
+        parked_run_id: str = "",
     ) -> WorkItem:
         if status == "cancelled":
             return await terminalize_chat_turn(ctx, status="cancelled", failure=failure)
@@ -551,6 +584,7 @@ async def _execute_chat_turn(
             status=status,
             failure=failure,
             result_fingerprint=ctx.effect_key,
+            parked_run_id=parked_run_id,
         )
 
     async def _reconcile_committed_result() -> WorkItem | None:
@@ -606,6 +640,7 @@ async def _execute_chat_turn(
                 status=status,
                 failure=failure,
                 result_fingerprint=ctx.effect_key,
+                parked_run_id=item.run_id if deferred else "",
             )
 
         parts, metadata = _native_chat_transcript(events, error=failure)
@@ -617,9 +652,37 @@ async def _execute_chat_turn(
             status=status,
             failure=failure,
             result_fingerprint=ctx.effect_key,
+            parked_run_id=item.run_id if deferred else "",
         )
 
+    deferred = []
+    deferred_resume = None
+    if item.run_id and item.run_id != ctx.run_id:
+        deferred = await get_default_context().database.find(
+            "object",
+            {
+                "entity": "WorkApproval",
+                "context.work_item_id": item.work_item_id,
+                "context.run_id": item.run_id,
+                "context.status": "approved",
+                "context.framework_snapshot_id": {"$exists": True, "$ne": ""},
+            },
+            limit=1,
+        )
     try:
+        if deferred:
+            from app.agentive.harness.deferred_staging import (
+                admit_deferred_chat_resume,
+                current_core_deferred_schema,
+            )
+
+            reconciled = await _reconcile_committed_result()
+            if reconciled is not None:
+                return reconciled
+            tool = (deferred[0].get("context") or {}).get("framework_tool_name", "")
+            deferred_resume = await admit_deferred_chat_resume(
+                context=ctx, input_schema=current_core_deferred_schema(tool)
+            )
         worker_input = await load_claimed_chat_turn_input(item)
     except WorkError as exc:
         if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
@@ -629,7 +692,8 @@ async def _execute_chat_turn(
                 {"code": exc.code, "message": exc.message}, status="cancelled"
             )
         return await _terminalize_pre_stream_failure(
-            {"code": exc.code, "message": exc.message}
+            {"code": exc.code, "message": exc.message},
+            parked_run_id=item.run_id if deferred else "",
         )
     except Exception as exc:  # noqa: BLE001
         code, message = classify_turn_exception(exc)
@@ -695,10 +759,14 @@ async def _execute_chat_turn(
             extra_data["staging_outcome_continuation"] = True
         # Durable input intentionally excludes bearer-like staging tokens.
         # Reconstruct the decision tool's scoped authority after claiming work.
-        extra_data["pending_approval_tokens"] = await _pending_write_references(
-            principal_id=ctx.principal_id,
-            workspace_id=ctx.workspace_id,
-            session_id=ctx.thread_id,
+        extra_data["pending_approval_tokens"] = (
+            {}
+            if deferred_resume is not None
+            else await _pending_write_references(
+                principal_id=ctx.principal_id,
+                workspace_id=ctx.workspace_id,
+                session_id=ctx.thread_id,
+            )
         )
         extra_data.update(
             {
@@ -715,13 +783,17 @@ async def _execute_chat_turn(
             text=worker_input.text,
             thread_id=ctx.thread_id,
             session_id=worker_input.thread.provider_session_id,
-            system_context=execution.system_context or None,
+            system_context=(
+                None if deferred_resume else execution.system_context or None
+            ),
             focused_track_id=execution.focused_track_id,
             focused_space_id=execution.focused_space_id,
             focused_view_id=execution.focused_view_id,
             workspace_id=ctx.workspace_id,
             extra_data=extra_data,
+            submitted_file_parts=_submitted_file_parts(worker_input, deferred_resume),
             accepts_steering=execution.host_control is None,
+            deferred_resume=deferred_resume,
         )
     except WorkError as exc:
         if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
@@ -731,7 +803,8 @@ async def _execute_chat_turn(
                 {"code": exc.code, "message": exc.message}, status="cancelled"
             )
         return await _terminalize_pre_stream_failure(
-            {"code": exc.code, "message": exc.message}
+            {"code": exc.code, "message": exc.message},
+            parked_run_id=item.run_id if deferred else "",
         )
     except Exception as exc:  # noqa: BLE001
         code, message = classify_turn_exception(exc, provider=provider)
@@ -739,7 +812,7 @@ async def _execute_chat_turn(
     event_ordinal = 0
     saw_message_finish = False
 
-    async def _body() -> None:
+    async def _body() -> dict[str, Any] | None:
         nonlocal event_ordinal, saw_message_finish
         await work_execution.assert_effect_boundary_allowed(ctx)
         # Cancellation can arrive while persisting a yielded event, with the
@@ -750,6 +823,8 @@ async def _execute_chat_turn(
             cast(AsyncGenerator[dict[str, Any], None], provider.stream_turn(turn))
         ) as stream:
             async for event in stream:
+                if event.get("type") == "_deferred-approval":
+                    return event
                 if event.get("type") == "message-finish":
                     timing = dict(event.get("timing") or {})
                     if queue_ms is not None:
@@ -787,16 +862,47 @@ async def _execute_chat_turn(
                 event_ordinal += 1
                 if event_type == "message-finish":
                     saw_message_finish = True
+        return None
 
     failure: dict[str, str] | None = None
     status: ChatTerminalStatus = "succeeded"
     try:
-        await asyncio.wait_for(
+        frontier = await asyncio.wait_for(
             _with_supervised_heartbeat(
                 item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
             ),
             timeout=_chat_turn_timeout_seconds(item),
         )
+        if frontier is not None:
+            from app.agentive.harness.deferred_staging import (
+                current_core_deferred_schema,
+                park_deferred_staged_work,
+            )
+
+            requests = frontier["requests"]
+            if saw_message_finish or len(requests.calls) != 1 or requests.approvals:
+                raise WorkError(
+                    "work.non_replayable_effect",
+                    "Deferred calls require reconciliation",
+                )
+            call = requests.calls[0]
+            approval, parked = await park_deferred_staged_work(
+                scope=frontier["scope"],
+                context=ctx,
+                store=frontier["store"],
+                requests=requests,
+                tool_call_id=call.tool_call_id,
+                input_schema=current_core_deferred_schema(call.tool_name),
+            )
+            try:
+                from app.agentive.staging import _push_created_event, get_token
+
+                staged = await get_token(approval.staging_token)
+                if staged is not None and staged.state == "pending":
+                    await _push_created_event(staged)
+            except Exception:  # noqa: BLE001 — the inbox can reload the committed card
+                log.debug("Deferred approval notification unavailable", exc_info=True)
+            return parked
     except asyncio.TimeoutError:
         status = "failed"
         failure = {
@@ -874,6 +980,7 @@ async def _execute_chat_turn(
             status=status,
             failure=failure,
             result_fingerprint=ctx.effect_key,
+            parked_run_id=item.run_id if deferred else "",
         )
     except WorkError as exc:
         if exc.code != "work.cancelled":
@@ -1353,6 +1460,44 @@ async def _execute_claimed_work(
                 expected_status="running",
                 target="succeeded",
             )
+        if kind == "mandate_entry_read":
+            from app.agentive.services.work_mandate_entry_execution import (
+                publish_entry_read_mandate,
+                run_entry_read_mandate,
+                settle_entry_read_mandate_error,
+            )
+
+            context = work_execution.build_work_execution_context(
+                work_item=item, logical_step_key="mandate_entry_read:0"
+            )
+            try:
+                revision, result = await _with_supervised_heartbeat(
+                    item,
+                    worker_id=worker_id,
+                    lease_seconds=lease_seconds,
+                    body=lambda: run_entry_read_mandate(context),
+                )
+                return await publish_entry_read_mandate(context, revision, result)
+            except WorkError as exc:
+                return await settle_entry_read_mandate_error(item, exc)
+        if kind == "resident_assignment":
+            from app.services.resident_assignment_execution import (
+                prepare_resident_assignment,
+                publish_resident_assignment_preparation,
+            )
+
+            context = work_execution.build_work_execution_context(
+                work_item=item, logical_step_key="resident_assignment:0"
+            )
+            revision, result = await _with_supervised_heartbeat(
+                item,
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                body=lambda: prepare_resident_assignment(context),
+            )
+            return await publish_resident_assignment_preparation(
+                context, revision, result
+            )
         if kind == "attachment_analysis":
             from app.services.attachment_metadata.analysis import (
                 run_attachment_analysis,
@@ -1446,6 +1591,7 @@ async def process_one_due_item(
     kinds: Optional[frozenset[str]] = None,
     exclude_kinds: Optional[frozenset[str]] = None,
     claim_cursor: Optional[dict[str, str]] = None,
+    follow_up_cursor: Optional[dict[str, str]] = None,
 ) -> Optional[WorkItem]:
     """Claim one due item (optional id, optionally limited by kind) and execute it."""
     claimed = await work_items.claim_due_candidate(
@@ -1456,6 +1602,18 @@ async def process_one_due_item(
         exclude_kinds=exclude_kinds,
         claim_cursor=claim_cursor,
     )
+    if claimed is None and work_item_id is None and follow_up_cursor is not None:
+        from app.services.chat_followups import promote_next_chat_follow_up
+
+        receipt = await promote_next_chat_follow_up(follow_up_cursor)
+        if receipt is not None:
+            claimed = await work_items.claim_due_candidate(
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                work_item_id=receipt.work_item_id,
+                kinds=kinds,
+                exclude_kinds=exclude_kinds,
+            )
     if claimed is None:
         return None
     _maybe_crash("after_enqueue")
@@ -1476,6 +1634,9 @@ async def worker_loop(
     """Background poll loop. Stops when ``stop_event`` is set."""
     stop = stop_event or asyncio.Event()
     claim_cursor: dict[str, str] = {}
+    follow_up_cursor: dict[str, str] | None = (
+        {} if kinds == frozenset({"chat_turn"}) else None
+    )
     while not stop.is_set():
         try:
             result = await process_one_due_item(
@@ -1484,6 +1645,7 @@ async def worker_loop(
                 kinds=kinds,
                 exclude_kinds=exclude_kinds,
                 claim_cursor=claim_cursor,
+                follow_up_cursor=follow_up_cursor,
             )
             if result is None:
                 try:

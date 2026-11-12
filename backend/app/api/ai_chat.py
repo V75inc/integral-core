@@ -36,11 +36,11 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from jvspatial.api import endpoint
 
 from app.agentive.services.approval_intent import looks_like_bless
@@ -64,6 +64,16 @@ from app.api.errors import (
 )
 from app.api.utils import resolve_principal_id
 from app.config import settings
+from app.schemas.agentive.chat_followups import (
+    ChatFollowUpReceipt,
+    ChatFollowUpRequest,
+    FollowUpRequestId,
+)
+from app.schemas.agentive.work_mandate import (
+    DecideMandateReviewRequest,
+    ProposeEntryReadMandateRequest,
+    ProposeMandateReviewRequest,
+)
 from app.schemas.api.ai_chat import PageContext
 from app.schemas.chat_entity_refs import EntityRef
 from app.services import chat_threads as chat_store
@@ -595,6 +605,288 @@ async def _resolve_owned_chat_work_item(
 
 
 @endpoint(
+    "/chat/threads/{thread_id}/mandate-reviews",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def list_chat_mandate_reviews(request: Request, thread_id: str) -> Dict[str, Any]:
+    """List recent general reviews for the owned conversation."""
+    from app.agentive.services.work_mandates import (
+        entry_read_mandate_enabled,
+        list_general_mandate_reviews,
+    )
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Mandate review conversation not found")
+    return {
+        "can_propose": bool(
+            entry_read_mandate_enabled(workspace_id)
+            and thread.provider_id == "integral_native"
+            and not thread.archived
+        ),
+        "reviews": await list_general_mandate_reviews(
+            principal_id=user_id, workspace_id=workspace_id, thread_id=thread.id
+        ),
+    }
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/mandate-reviews",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def propose_chat_mandate_review(
+    request: Request, thread_id: str
+) -> Dict[str, Any]:
+    """Save requested terms as a pending review in the owned native conversation."""
+    return await _propose_chat_mandate_review(request, thread_id, entry_read=False)
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/mandate-reviews/entry-read",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def propose_chat_entry_read_mandate(
+    request: Request, thread_id: str
+) -> Dict[str, Any]:
+    """Build a read-only review from selected Entries and user limits."""
+    return await _propose_chat_mandate_review(request, thread_id, entry_read=True)
+
+
+async def _propose_chat_mandate_review(
+    request: Request, thread_id: str, *, entry_read: bool
+) -> Dict[str, Any]:
+    from app.agentive.services.work_mandates import (
+        build_entry_read_mandate_terms,
+        entry_read_mandate_enabled,
+        propose_general_mandate_review,
+    )
+    from app.schemas.agentive.work import WorkError
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Mandate review conversation not found")
+    try:
+        payload = await request.json()
+        if entry_read:
+            if not entry_read_mandate_enabled(workspace_id):
+                raise ServiceUnavailableError(
+                    message="Mandate execution is unavailable"
+                )
+            if thread.archived or thread.provider_id != "integral_native":
+                raise ResourceNotFoundError(
+                    message="Mandate review conversation not found"
+                )
+            terms = await build_entry_read_mandate_terms(
+                ProposeEntryReadMandateRequest.model_validate(payload),
+                workspace_id=workspace_id,
+                thread=thread,
+            )
+        else:
+            terms = ProposeMandateReviewRequest.model_validate(payload)
+        return await propose_general_mandate_review(
+            terms=terms,
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            require_current_entries=entry_read,
+        )
+    except ValueError:
+        raise BadRequestError(message="Invalid mandate review terms") from None
+    except WorkError as exc:
+        if exc.code == "work.mandate_model_unavailable":
+            raise ServiceUnavailableError(
+                message="The conversation model route is unavailable"
+            ) from exc
+        if exc.code == "work.mandate_grants_unavailable":
+            raise ResourceConflictError(
+                message="One or more selected Entries are unavailable"
+            ) from exc
+        if exc.code == "work.idempotency_conflict":
+            raise ResourceConflictError(
+                message="Mandate revision already exists"
+            ) from exc
+        if exc.code in {"work.mandate_invalid", "work.mandate_expired"}:
+            raise BadRequestError(
+                message="Invalid or expired mandate review terms"
+            ) from exc
+        if exc.code == "work.transaction_required":
+            raise ServiceUnavailableError(
+                message="Mandate review proposals are unavailable"
+            ) from exc
+        raise ResourceNotFoundError(
+            message="Mandate review conversation not found"
+        ) from exc
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def get_chat_mandate_review(
+    request: Request, thread_id: str, work_item_id: str
+) -> Dict[str, Any]:
+    """Return the terms of a general mandate review owned by this conversation."""
+    from app.agentive.services.work_mandates import (
+        entry_read_mandate_enabled,
+        read_general_mandate_review,
+    )
+    from app.schemas.agentive.work import WorkError
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Mandate review not found")
+    try:
+        review = await read_general_mandate_review(
+            work_item_id=work_item_id,
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+        )
+        review["execution_enabled"] = entry_read_mandate_enabled(workspace_id)
+        return review
+    except WorkError as exc:
+        raise ResourceNotFoundError(message="Mandate review not found") from exc
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/reject",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def reject_chat_mandate_review(
+    request: Request, thread_id: str, work_item_id: str
+) -> Dict[str, str]:
+    """Reject the reviewed revision and close its parked work."""
+    return await _decide_chat_mandate_review(
+        request, thread_id, work_item_id, "rejected"
+    )
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/approve",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def approve_chat_mandate_review(
+    request: Request, thread_id: str, work_item_id: str
+) -> Dict[str, str]:
+    """Record approval of the exact revision for separate execution admission."""
+    return await _decide_chat_mandate_review(
+        request, thread_id, work_item_id, "approved"
+    )
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/run",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def run_chat_mandate_review(
+    request: Request, thread_id: str, work_item_id: str
+) -> Dict[str, str]:
+    """Request dedicated execution of an already approved revision."""
+    return await _decide_chat_mandate_review(request, thread_id, work_item_id, "run")
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/stop",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def stop_chat_mandate_review(
+    request: Request, thread_id: str, work_item_id: str
+) -> Dict[str, Any]:
+    """Stop an admitted mandate even when new execution is disabled."""
+    return await _decide_chat_mandate_review(request, thread_id, work_item_id, "stop")
+
+
+async def _decide_chat_mandate_review(
+    request: Request,
+    thread_id: str,
+    work_item_id: str,
+    decision: Literal["approved", "rejected", "run", "stop"],
+) -> Dict[str, Any]:
+    from app.agentive.services.work_mandates import (
+        admit_entry_read_mandate,
+        decide_general_mandate_review,
+        stop_entry_read_mandate,
+    )
+    from app.schemas.agentive.work import WorkError
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Mandate review not found")
+    try:
+        body = DecideMandateReviewRequest.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError(message="Invalid mandate review digest") from None
+    scope = {
+        "work_item_id": work_item_id,
+        "principal_id": user_id,
+        "workspace_id": workspace_id,
+        "thread_id": thread.id,
+        "review_digest": body.review_digest,
+    }
+    try:
+        if decision == "run":
+            return await admit_entry_read_mandate(**scope)
+        if decision == "stop":
+            return await stop_entry_read_mandate(**scope)
+        return await decide_general_mandate_review(**scope, decision=decision)
+    except WorkError as exc:
+        if exc.code == "work.mandate_execution_disabled":
+            raise ServiceUnavailableError(
+                message="Mandate execution is unavailable"
+            ) from exc
+        if exc.code in {
+            "work.mandate_revision_conflict",
+            "work.approval_decided",
+            "work.mandate_admission_required",
+            "work.mandate_inactive",
+        }:
+            raise ResourceConflictError(message="Mandate review has changed") from exc
+        if exc.code == "work.mandate_approval_required":
+            raise ResourceConflictError(
+                message="Mandate review approval is required"
+            ) from exc
+        if exc.code == "work.mandate_expired":
+            raise ResourceConflictError(message="Mandate review has expired") from exc
+        if exc.code == "work.mandate_grants_unavailable":
+            raise ResourceConflictError(
+                message="Mandate grants are no longer available"
+            ) from exc
+        if exc.code == "work.mandate_model_unavailable":
+            raise ResourceConflictError(
+                message="Mandate model route is no longer available"
+            ) from exc
+        if exc.code == "work.transaction_required":
+            raise ServiceUnavailableError(
+                message="Mandate review decisions are unavailable"
+            ) from exc
+        raise ResourceNotFoundError(message="Mandate review not found") from exc
+
+
+@endpoint(
     "/chat/threads/{thread_id}/work-items/{work_item_id}/events",
     methods=["GET"],
     auth=True,
@@ -1019,15 +1311,63 @@ async def create_thread(
     return chat_store.thread_to_dict(thread, message_count=0)
 
 
+async def _chat_continuation_workspace(request: Request, thread: Any) -> str | None:
+    if thread.provider_id != "integral_native" or not thread.workspace_id:
+        return None
+    try:
+        return await _resolve_turn_workspace(request, thread.user_id, thread)
+    except (InsufficientPermissionsError, ResourceConflictError):
+        return None
+
+
 @endpoint("/chat/threads/{thread_id}", methods=["GET"], auth=True, tags=["AI Chat"])
-async def get_thread(request: Request, thread_id: str) -> Dict[str, Any]:
+async def get_thread(
+    request: Request, thread_id: str, known_revision: Optional[str] = None
+) -> Dict[str, Any]:
     """Return one thread + full transcript for the caller."""
+    from app.services.chat_turn_streaming import find_parked_chat_stream_id
+    from app.services.chat_turn_transcript import project_chat_approval_receipts
+
     user_id, _ = _resolve_principal(request)
-    thread = await _resolve_owned_thread(thread_id, user_id)
-    messages = await chat_store.list_messages(thread)
+    thread = await _resolve_owned_thread(
+        thread_id,
+        user_id,
+        fresh=known_revision is not None
+        or settings.INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED,
+    )
+    if known_revision is not None:
+        workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+        if not workspace_id:
+            raise ResourceNotFoundError(message="Thread not found")
+        if known_revision and known_revision == thread.updated_at:
+            return {"unchanged": True}
+    else:
+        workspace_id = await _chat_continuation_workspace(request, thread)
+    parked_work_item_id = None
+    if (
+        workspace_id
+        and settings.INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED
+        and not thread.archived
+        and not thread.active_work_item_id
+        and thread.updated_at
+    ):
+        parked_work_item_id = await find_parked_chat_stream_id(
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            thread_revision=thread.updated_at,
+        )
+    messages = [
+        chat_store.message_to_dict(m) for m in await chat_store.list_messages(thread)
+    ]
+    if workspace_id:
+        messages = await project_chat_approval_receipts(
+            thread=thread, messages=messages
+        )
     return {
         **chat_store.thread_to_dict(thread, message_count=len(messages)),
-        "messages": [chat_store.message_to_dict(m) for m in messages],
+        **({"parked_work_item_id": parked_work_item_id} if parked_work_item_id else {}),
+        "messages": messages,
     }
 
 
@@ -1060,6 +1400,234 @@ async def thread_activity(request: Request, thread_id: str) -> Dict[str, Any]:
         "work_item_id": work_item_id if running_work else None,
         "turn_id": handle.turn_id if handle else None,
     }
+
+
+async def _follow_up_scope(request: Request, thread_id: str) -> dict[str, str]:
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id or thread.provider_id != "integral_native" or thread.archived:
+        raise ResourceNotFoundError(message="Native chat thread not found")
+    if not settings.INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED:
+        raise ServiceUnavailableError(message="Durable chat follow-ups are unavailable")
+    return {
+        "principal_id": user_id,
+        "workspace_id": workspace_id,
+        "thread_id": thread.id,
+    }
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups", methods=["GET"], auth=True, tags=["AI Chat"]
+)
+async def get_thread_follow_ups(request: Request, thread_id: str) -> dict[str, Any]:
+    """List pending follow-ups for the owned thread."""
+    from app.services.chat_followups import chat_follow_ups_paused, list_chat_follow_ups
+
+    scope = await _follow_up_scope(request, thread_id)
+    items = await list_chat_follow_ups(**scope)
+    return {
+        "items": [item.model_dump(mode="json") for item in items],
+        "paused": await chat_follow_ups_paused(**scope),
+    }
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def post_thread_follow_up(request: Request, thread_id: str) -> dict[str, Any]:
+    """Accept a follow-up for the owned thread."""
+    from app.services.chat_followups import accept_chat_follow_up
+
+    scope = await _follow_up_scope(request, thread_id)
+    try:
+        follow_up = ChatFollowUpRequest.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError(message="Invalid queued follow-up") from None
+    if not follow_up.after_work_item_id:
+        raise BadRequestError(message="The active conversation turn is required")
+    status = await accept_chat_follow_up(**scope, request=follow_up)
+    return ChatFollowUpReceipt(
+        client_request_id=follow_up.client_request_id, status=status
+    ).model_dump(mode="json")
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups/resume",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def resume_thread_follow_ups(request: Request, thread_id: str) -> dict[str, str]:
+    """Resume follow-ups after reviewing an interrupted turn."""
+    from app.services.chat_followups import resume_chat_follow_ups
+
+    await resume_chat_follow_ups(**await _follow_up_scope(request, thread_id))
+    return {"status": "queued"}
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/follow-ups/{client_request_id}",
+    methods=["DELETE"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def delete_thread_follow_up(
+    request: Request, thread_id: str, client_request_id: FollowUpRequestId
+) -> dict[str, Any]:
+    """Dismiss one pending follow-up."""
+    from app.services.chat_followups import dismiss_chat_follow_up
+
+    await dismiss_chat_follow_up(
+        **await _follow_up_scope(request, thread_id),
+        client_request_id=client_request_id,
+    )
+    return ChatFollowUpReceipt(
+        client_request_id=client_request_id, status="dismissed"
+    ).model_dump(mode="json")
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/attachments/{attachment_id}/review",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def review_chat_attachment(
+    request: Request, thread_id: str, attachment_id: str, expected_sha256: str = ""
+) -> StreamingResponse:
+    """Download the exact still-private chat file for a pending review."""
+    from app.services.chat_attachment_review import read_chat_attachment_for_review
+
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise BadRequestError(message="A reviewed file fingerprint is required.")
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Chat attachment not found")
+    blob, mime_type = await read_chat_attachment_for_review(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        attachment_id=attachment_id,
+    )
+    if hashlib.sha256(blob).hexdigest() != expected_sha256:
+        raise ResourceConflictError(
+            message="The approved file changed. Review it again."
+        )
+    return StreamingResponse(
+        iter([blob]),
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": "attachment",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/artifacts/{key}/preview",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def preview_document_draft(
+    request: Request, thread_id: str, key: str, version: int = 0
+) -> JSONResponse:
+    """Return the exact private draft source only to its current owner."""
+    from app.schemas.agentive.document_draft import DocumentDraftPreview
+    from app.services.document_draft_access import load_document_draft_snapshot
+    from app.services.release_admission import release_admission
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id or thread.provider_id != "integral_native":
+        raise ResourceNotFoundError(message="Document draft not found")
+    async with release_admission(user_id, workspace_id):
+        draft = await load_document_draft_snapshot(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            key=key,
+            version=version,
+        )
+        preview = DocumentDraftPreview(
+            title=draft.title,
+            body=draft.body,
+            format=draft.format,
+            version=draft.version,
+        )
+        return JSONResponse(
+            content=preview.model_dump(),
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/artifacts/{key}/download",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def download_document_draft(
+    request: Request, thread_id: str, key: str, version: int = 0
+) -> StreamingResponse:
+    """Render the exact current private draft for its authorized owner."""
+    from app.services.document_draft_access import (
+        load_document_draft_snapshot,
+        require_current_document_draft,
+    )
+    from app.services.document_drafts import (
+        document_draft_filename,
+        render_document_draft,
+    )
+    from app.services.release_admission import release_admission
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id or thread.provider_id != "integral_native":
+        raise ResourceNotFoundError(message="Document draft not found")
+    draft = await load_document_draft_snapshot(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        key=key,
+        version=version,
+    )
+    try:
+        rendered = await asyncio.to_thread(
+            render_document_draft,
+            title=draft.title,
+            body=draft.body,
+            format=draft.format,
+        )
+    except (ValueError, ImportError) as exc:
+        raise BadRequestError(message="This draft could not be rendered.") from exc
+
+    # Rendering runs outside the authority lock. Admit the release again and
+    # ensure that the exact revision/content did not change while rendering.
+    async with release_admission(user_id, workspace_id):
+        await require_current_document_draft(draft)
+        filename = document_draft_filename(draft.title, rendered.extension)
+        return StreamingResponse(
+            iter([rendered.content]),
+            media_type=rendered.mime_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "private, no-store",
+            },
+        )
 
 
 @endpoint("/chat/threads/{thread_id}", methods=["PATCH"], auth=True, tags=["AI Chat"])
@@ -2187,11 +2755,10 @@ async def send_message(
     if native_design_approval:
         # Native approval is interpreted inside the claimed, metered run.
         # No lexical gate or legacy harness light-model inference before admission.
-        prior_design_body = (
-            str(design_marker.get("proposal") or "")
-            if isinstance(design_marker, dict)
-            else ""
-        )
+        # A successful receipt settles the old proposal. Reinjecting its
+        # "nothing built / confirm" text as pending misroutes subsequent
+        # record-filing requests back into scaffolding.
+        prior_design_body = chat_store.native_pending_design_context(design_marker)
     else:
         prior_design_body = await chat_store.pending_design_context_for_utterance(
             marker=design_marker if isinstance(design_marker, dict) else None,
@@ -2653,7 +3220,7 @@ async def _start_user_turn(
             ChatTurnSubmissionRequest,
             WorkError,
         )
-        from app.services.chat_turn_attachments import capture_chat_attachment_bindings
+        from app.services.chat_turn_attachments import prepare_chat_attachment_bindings
         from app.services.chat_turn_host_controls import capture_chat_host_control
         from app.services.chat_turn_submissions import submit_chat_turn
 
@@ -2671,12 +3238,14 @@ async def _start_user_turn(
             user_parts = [{"type": "text", "text": "Approval outcome received."}]
 
         try:
-            attachment_bindings = await capture_chat_attachment_bindings(
+            attachment_bindings = await prepare_chat_attachment_bindings(
                 thread=thread,
                 principal_id=user_id,
                 parts=user_parts,
             )
         except WorkError as exc:
+            if exc.code == "work.attachment_processing":
+                raise BadRequestError(message=exc.message) from exc
             raise BadRequestError(
                 message="A requested chat attachment is unavailable"
             ) from exc

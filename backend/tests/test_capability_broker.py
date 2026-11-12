@@ -740,3 +740,32 @@ async def test_connector_receipt_binds_actual_operation_class(
     assert not changed.ok
     assert changed.error_code == "capability.idempotency_conflict"
     assert run_store["adapter_calls"] == ["mcp__c__ping"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_name", ["ResourceNotFoundError", "ResourceConflictError"]
+)
+async def test_host_preflight_preserves_safe_api_error(
+    run_store, monkeypatch, error_name
+):
+    from app.api import errors
+
+    run_store["runs"]["run-1"] = _run()
+    error = getattr(errors, error_name)(
+        message="Chat attachment unavailable for review"
+    )
+
+    async def rejected_preflight(inv, cap):
+        raise error
+
+    monkeypatch.setattr(broker, "_call_adapter", rejected_preflight)
+    result = await broker.invoke(
+        _inv(capability_key="integral_create_entry", op_class="propose")
+    )
+    assert not result.ok
+    assert result.error_code == error.error_code
+    assert result.message == error.message
+    assert result.receipt.status == "failed"
+    assert run_store["steps"][0].adapter_error_code == error.error_code
+    assert result.next_tool == ""

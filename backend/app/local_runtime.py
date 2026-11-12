@@ -23,6 +23,7 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+from collections.abc import Callable
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -290,6 +291,11 @@ def free_port(preferred: int) -> int:
         except OSError:
             pass
     with socket.socket() as sock:
+        # A just-stopped Core leaves accepted connections in TIME_WAIT on its
+        # port. uvicorn binds with SO_REUSEADDR, so mirror that here; otherwise
+        # this probe refuses the familiar port and startup drifts to a random
+        # one. A live listener is still rejected by the connect() probe above.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", preferred))
         except OSError:
@@ -304,9 +310,12 @@ def start(
     port: int | None = None,
     open_browser: bool = True,
     apps: Path | None = None,
-    timeout: float = 180,
+    timeout: float | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Start once and wait for actual readiness, or attach to the same instance."""
+    if timeout is None:
+        timeout = 330 if profile == "desktop_single_user" else 180
     initialize(home, profile=profile)
     _require_recovery_review(home)
     _operator_settings(home)
@@ -338,6 +347,8 @@ def start(
                     "This installation is running with different App paths. Stop it before changing --apps."
                 )
             if current["state"] == "stopped":
+                if on_progress:
+                    on_progress("database")
                 from app.web.server import web_static_dir
 
                 if web_static_dir() is None:
@@ -398,12 +409,21 @@ def start(
                         ),
                     )
             deadline = time.monotonic() + timeout
+            api_reported = False
             while time.monotonic() < deadline:
                 current = status(home)
                 if current["state"] == "ready":
                     if open_browser:
                         webbrowser.open(current["web_url"])
                     return {**current, "started": launched}
+                if (
+                    on_progress
+                    and not api_reported
+                    and current["state"] == "starting"
+                    and (home / "database.json").exists()
+                ):
+                    on_progress("workspace")
+                    api_reported = True
                 error = read_json(home / "runtime.json").get("error")
                 if error:
                     raise RuntimeErrorDetail(
@@ -564,6 +584,9 @@ def _environment(
     """Isolate managed settings from checkout/distro dotenv files and test flags."""
     env = _system_environment()
     env.update(_operator_settings(home))
+    if os.name == "nt" and config.get("deployment_profile") == "desktop_single_user":
+        # Windows uses a legacy code page for redirected Python streams.
+        env.setdefault("PYTHONIOENCODING", "utf-8")
     package_path = apps or config.get("apps_path") or str(home / "integral-apps")
     core_only = (
         not apps and config.get("deployment_profile", "server") != "desktop_single_user"
@@ -705,6 +728,9 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                     raise RuntimeErrorDetail("Private PostgreSQL failed to start")
                 time.sleep(0.2)
             dsn = read_json(home / "database.json")["dsn"]
+            desktop = config.get("deployment_profile") == "desktop_single_user"
+            if desktop:
+                deadline = time.monotonic() + 150
             env = _environment(home, config, dsn, api_port, web_port, apps)
             child([sys.executable, "-m", "app.main"], "api", env)
             child(
@@ -721,12 +747,7 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                     try:
                         with urllib.request.urlopen(
                             state["api_url"]
-                            + (
-                                "/api/meta/deployment/ready"
-                                if config.get("deployment_profile")
-                                == "desktop_single_user"
-                                else "/health"
-                            ),
+                            + ("/api/meta/deployment/ready" if desktop else "/health"),
                             timeout=1,
                         ) as response:
                             healthy = response.status == 200
@@ -737,7 +758,10 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                         pass
                     if time.monotonic() > deadline:
                         raise RuntimeErrorDetail("API readiness timed out")
-                time.sleep(0.3)
+                    # Do not exhaust the API’s anonymous request budget while it starts.
+                    time.sleep(1.5 if desktop else 0.3)
+                else:
+                    time.sleep(0.3)
         except Exception as exc:
             state["error"] = (
                 str(exc)

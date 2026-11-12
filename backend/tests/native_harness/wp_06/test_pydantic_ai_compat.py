@@ -459,7 +459,10 @@ def test_application_code_uses_integral_adapter_for_pydantic_imports() -> None:
 
 def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     """Loaded skills remain explicit without depending on repeated loads."""
-    instructions = build_integral_run_instructions("Integral resident agent.")
+    instructions = build_integral_run_instructions(
+        "Integral resident agent.",
+        workflow_skill_ids=frozenset({"integral-scaffold", "integral-model"}),
+    )
 
     base = instructions(
         SimpleNamespace(
@@ -485,6 +488,7 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     assert "already loaded" in active
     assert "integral-model, integral-scaffold" in active
     assert "Do not call load_capability for them again." in active
+    assert "only when it serves the latest request" in active
 
 
 def test_run_instructions_use_server_utc_date_and_refresh_for_new_invocations(
@@ -528,12 +532,14 @@ def test_run_instructions_surface_current_core_outcomes_over_old_proposal_text()
                     "call",
                 )
             ]
-        )
+        ),
+        ModelRequest(parts=[UserPromptPart("Can you look up Avia Lindie online?")]),
     ]
     result = instructions(
         SimpleNamespace(active_capability_ids=set(), messages=history)
     )
     assert "proposal-a: consumed" in result
+    assert "when the current request concerns that change" in result
     assert "None of these changes is awaiting approval" in result
     assert "Untrusted document" not in result
 
@@ -1099,6 +1105,10 @@ def test_invalid_model_response_keeps_provider_and_usage_error_precedence():
 
     invalid = UnexpectedModelBehavior("private retry instructions")
     assert classify_integral_harness_exception(invalid) == "model_response_invalid"
+    exhausted = UnexpectedModelBehavior(
+        "Model token limit (provider default) exceeded before any response was generated. Increase the `max_tokens` model setting."
+    )
+    assert classify_integral_harness_exception(exhausted) == "model_output_limit"
     outer = RuntimeError("private wrapper")
     outer.__cause__ = invalid
     assert classify_integral_harness_exception(outer) == "model_response_invalid"
@@ -1214,3 +1224,32 @@ async def test_tiered_direct_compaction_does_not_resummarize_unchanged_history(
         [*first, ModelRequest(parts=[UserPromptPart("Another task")])], ctx
     )
     assert len(calls) == 2
+
+
+def test_run_instructions_hide_internal_and_unselected_capability_ids() -> None:
+    internal = {"<durable_steering:e94dd7>", "step_persistence", "tool_search"}
+    ctx = SimpleNamespace(
+        active_capability_ids=internal | {"integral-attachments", "other-workflow"}
+    )
+    render = build_integral_run_instructions(
+        "Resident", workflow_skill_ids=frozenset({"integral-attachments", "not-loaded"})
+    )
+    output = render(ctx)
+    assert "integral-attachments" in output
+    for name in internal | {"other-workflow", "not-loaded"}:
+        assert name not in output
+    # No selected workflow means there is no workflow-state advertisement.
+    assert "already loaded" not in build_integral_run_instructions("Resident")(ctx)
+    assert ctx.active_capability_ids == internal | {
+        "integral-attachments",
+        "other-workflow",
+    }
+
+
+def test_restored_dialogue_boundary_does_not_promote_old_requests() -> None:
+    ctx = SimpleNamespace(active_capability_ids=set())
+    output = build_integral_run_instructions("Resident")(ctx)
+    assert "historical context, not a backlog to execute" in output
+    assert "latest user message defines the current task" in output
+    assert "retain compatible constraints" in output
+    assert "normal approval and permission requirements still apply" in output

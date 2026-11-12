@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from app.config import settings
+from app.config import embedding_model_warmup_enabled, settings
 from app.logging_config import configure_db_operation_logging
 
 # Apply before database bootstrap, so startup queries are quiet too. The
@@ -407,7 +407,7 @@ async def _warm_native_model_runtime() -> None:
 async def _warm_embedding_model() -> None:
     """RET-02 — eagerly warm the ONNX embedding singleton at boot.
 
-    Gated on ``EMBEDDING_MODEL_EAGER_LOAD`` (default ``"1"``) AND on the
+    Server-only, gated on ``EMBEDDING_MODEL_EAGER_LOAD`` (default ``"1"``) and the
     deployment actually having a vector store (Wave 2 of the
     SaaS-deployment plan): when ``semantic_retrieval_available()`` is
     False the ``null`` driver is active, so loading the model would burn
@@ -418,7 +418,7 @@ async def _warm_embedding_model() -> None:
     surface the same error there.
     """
 
-    if os.environ.get("EMBEDDING_MODEL_EAGER_LOAD", "1") != "1":
+    if not embedding_model_warmup_enabled():
         return
     try:
         from app.services.retrieval import semantic_retrieval_available
@@ -710,6 +710,13 @@ async def _startup() -> None:
 
     if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
         return
+
+    if settings.INTEGRAL_BOUNDED_MODEL_POLICY_FILE:
+        from app.services.configured_model_evidence import (
+            register_configured_model_evidence,
+        )
+
+        register_configured_model_evidence(settings.INTEGRAL_BOUNDED_MODEL_POLICY_FILE)
 
     try:
         await _warm_native_model_runtime()

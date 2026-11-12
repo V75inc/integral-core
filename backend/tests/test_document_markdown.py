@@ -231,3 +231,97 @@ def test_pptx_subheadings_stay_inside_their_slide():
         sh.text_frame.text for sh in prs.slides[1].shapes if sh.has_text_frame
     )
     assert "Scope" in texts and "Timeline" in texts
+
+
+def test_pptx_preserves_source_links_in_text_and_tables():
+    from pptx import Presentation
+
+    body = (
+        "# Evidence\n\n"
+        "See [the source](https://example.com/report).\n\n"
+        "| Metric | Source |\n|---|---|\n"
+        "| Capacity | [Dataset](https://example.com/data) |"
+    )
+    prs = Presentation(io.BytesIO(render_document("Research", body, "pptx")))
+    slide = prs.slides[1]
+    links = [
+        run.hyperlink.address
+        for shape in slide.shapes
+        if shape.has_text_frame
+        for para in shape.text_frame.paragraphs
+        for run in para.runs
+        if run.hyperlink.address
+    ]
+    table = next(shape.table for shape in slide.shapes if shape.has_table)
+    table_links = [
+        run.hyperlink.address
+        for row in table.rows
+        for cell in row.cells
+        for para in cell.text_frame.paragraphs
+        for run in para.runs
+        if run.hyperlink.address
+    ]
+    assert links == ["https://example.com/report"]
+    assert table_links == ["https://example.com/data"]
+
+
+def test_template_pptx_keeps_research_tables_and_links():
+    from pptx import Presentation
+
+    template = io.BytesIO()
+    Presentation().save(template)
+    body = (
+        "# Evidence\n\nSummary.\n\n"
+        "| Metric | Source |\n|---|---|\n"
+        "| Capacity | [Dataset](https://example.com/data) |"
+    )
+    prs = Presentation(
+        io.BytesIO(
+            render_document("Research", body, "pptx", template=template.getvalue())
+        )
+    )
+    tables = [
+        shape.table for slide in prs.slides for shape in slide.shapes if shape.has_table
+    ]
+    assert len(tables) == 1
+    assert tables[0].cell(1, 0).text == "Capacity"
+    assert tables[0].cell(1, 1).text_frame.paragraphs[0].runs[0].hyperlink.address == (
+        "https://example.com/data"
+    )
+
+
+def test_heading_free_pptx_preserves_intro_content_and_sources():
+    from pptx import Presentation
+
+    body = (
+        "First [source](https://example.com/one). "
+        + "Evidence. " * 60
+        + "Final detail."
+    )
+    prs = Presentation(io.BytesIO(render_document("Research", body, "pptx")))
+    assert len(prs.slides) == 2
+    runs = [
+        run
+        for shape in prs.slides[1].shapes
+        if shape.has_text_frame
+        for para in shape.text_frame.paragraphs
+        for run in para.runs
+    ]
+    assert "Final detail." in "".join(run.text for run in runs)
+    assert any(run.hyperlink.address == "https://example.com/one" for run in runs)
+
+
+def test_short_pptx_intro_preserves_source_link():
+    from pptx import Presentation
+
+    body = "See [source](https://example.com/intro).\n\n# Evidence\n\nA fact."
+    prs = Presentation(io.BytesIO(render_document("Research", body, "pptx")))
+    links = [
+        run.hyperlink.address
+        for shape in prs.slides[0].shapes
+        if shape.has_text_frame
+        for para in shape.text_frame.paragraphs
+        for run in para.runs
+        if run.hyperlink.address
+    ]
+    assert links == ["https://example.com/intro"]

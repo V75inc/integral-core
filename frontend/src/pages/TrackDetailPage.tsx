@@ -97,7 +97,8 @@ import {
 } from '../utils';
 import {
   getDisallowedCustomFieldKeys,
-  getMissingRequiredFields
+  getMissingRequiredFields,
+  mergeEntryListRow,
 } from '../utils/entryMetaFields';
 import { useTrackPermissions } from '../utils/entryEditRights';
 import { entryPagePath } from '../utils/resourcePaths';
@@ -1174,10 +1175,14 @@ export function TrackDetailPage() {
     (u: Entry) => {
       patchEntriesCache(p => ({
         ...p,
-        entries: p.entries.map(e => (e.id === u.id ? u : e))
+        entries: p.entries.map(entry =>
+          entry.id === u.id
+            ? mergeEntryListRow(entry, u, entryTypesQuery.data ?? [])
+            : entry
+        )
       }));
     },
-    [patchEntriesCache]
+    [entryTypesQuery.data, patchEntriesCache]
   );
 
   /** Persist an entry mutation owned by a view widget (Kanban drag,

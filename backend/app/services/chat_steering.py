@@ -23,6 +23,7 @@ from app.services.app_operations.transaction_scope import (
     graph_transaction_available,
     postgres_graph_transaction,
 )
+from app.services.chat_followups import convert_chat_follow_up_to_steering
 from app.services.credential_crypto import (
     decrypt_secret_from_storage,
     encrypt_secret_for_storage,
@@ -30,6 +31,7 @@ from app.services.credential_crypto import (
 from app.services.workspace_permissions import can_access_workspace
 
 MAX_CORRECTIONS = 16
+_QUEUED_CORRECTION_PREFIX = "queued-follow-up:"
 
 
 def _inbox_id(work_item_id: str) -> str:
@@ -75,6 +77,10 @@ async def accept_steering_correction(
         previous_ciphertext = inbox["context"]["payload_ciphertext"] if inbox else ""
         corrections = _decode(inbox_id, previous_ciphertext) if inbox else {}
         correction_id = request.client_request_id
+        if request.from_follow_up_queue:
+            correction_id = f"{_QUEUED_CORRECTION_PREFIX}{correction_id}"
+        elif correction_id.startswith(_QUEUED_CORRECTION_PREFIX):
+            raise ResourceConflictError(message="Steering request ID is reserved")
         if correction_id in corrections:
             if corrections[correction_id] != request.text:
                 raise ResourceConflictError(message="Steering request ID already used")
@@ -94,6 +100,15 @@ async def accept_steering_correction(
                 )
             if len(corrections) >= MAX_CORRECTIONS:
                 raise ResourceConflictError(message="Chat turn steering limit reached")
+            if request.from_follow_up_queue:
+                await convert_chat_follow_up_to_steering(
+                    transaction=transaction,
+                    principal_id=principal_id,
+                    workspace_id=thread.workspace_id,
+                    thread_id=thread.id,
+                    client_request_id=request.client_request_id,
+                    text=request.text,
+                )
             corrections[correction_id] = request.text
             ciphertext = encrypt_secret_for_storage(
                 json.dumps(corrections), aad=inbox_id

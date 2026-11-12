@@ -36,6 +36,13 @@ _OLLAMA_CLOUD_CONTEXT = dict.fromkeys(
 )
 
 
+def known_ollama_proxied_cloud_context(model: str) -> int | None:
+    """Return verified capacity only for an explicitly cloud-tagged model."""
+    if not (model.endswith(":cloud") or model.endswith("-cloud")):
+        return None
+    return _OLLAMA_CLOUD_CONTEXT.get(model)
+
+
 # Explicit tool contracts verified with Ollama /api/show and the publisher pages:
 # https://ollama.com/library/deepseek-v4.1-flash
 # https://ollama.com/library/gpt-oss:120b-cloud
@@ -57,6 +64,28 @@ def _gateway_reasoning_catalog() -> dict[str, Any]:
     return json.loads(
         files("app.services").joinpath("model_reasoning_catalog.json").read_text()
     )["models"]
+
+
+def mandatory_adaptive_thinking(provider: str, model: str) -> bool:
+    """Use the pinned publisher contract, including native Anthropic aliases.
+
+    Opus 5.5's migration contract requires adaptive thinking and forbids legacy
+    budgets or disabling it. Gateway metadata applies to the same native model.
+    https://platform.claude.com/docs/en/models/opus-5-5/migration-guide
+    """
+    model = model.removeprefix(f"{provider}/")
+    if provider == "openrouter":
+        return model.startswith("anthropic/") and bool(
+            _gateway_reasoning_catalog().get(model, {}).get("mandatory")
+        )
+    if provider == "anthropic":
+        return any(
+            key.removeprefix("anthropic/").replace(".", "-") == model
+            and contract.get("mandatory")
+            for key, contract in _gateway_reasoning_catalog().items()
+            if key.startswith("anthropic/")
+        )
+    return False
 
 
 @lru_cache(maxsize=256)
@@ -168,6 +197,10 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         if gateway.get("mandatory"):
             efforts = [level for level in efforts if level != "none"]
         reasoning = True
+    mandatory_adaptive = mandatory_adaptive_thinking(provider, model)
+    if mandatory_adaptive:
+        efforts = [level for level in efforts if level not in {"none", "minimal"}]
+        reasoning = True
     return {
         "reasoning_efforts": efforts,
         "thinking_enabled": provider in {"ollama", "ollama_local"}
@@ -177,7 +210,8 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         "temperature": "temperature" in parameters and not reasoning,
         "top_p": "top_p" in parameters and not reasoning,
         "verbosity": "verbosity" in parameters,
-        "thinking_budget": (
+        "thinking_budget": not mandatory_adaptive
+        and (
             gateway.get("supports_max_tokens") is True
             if gateway is not None
             else (
@@ -194,7 +228,13 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         or (known and info.get("supports_reasoning") is not None),
         "output_limit": info.get("max_output_tokens"),
         "native_context": (
-            _OLLAMA_CLOUD_CONTEXT.get(model) if provider == "ollama" else None
+            _OLLAMA_CLOUD_CONTEXT.get(model)
+            if provider == "ollama"
+            else (
+                known_ollama_proxied_cloud_context(model)
+                if provider == "ollama_local"
+                else None
+            )
         )
         or (info.get("max_input_tokens") if known else None),
         "tool_calling": (
@@ -246,11 +286,20 @@ def validate_model_settings(
     if provider == "ollama_local" and any(
         k in settings for k in ("max_tokens", "context_window")
     ):
+        verified_cloud_context = known_ollama_proxied_cloud_context(model)
+        if (
+            verified_cloud_context
+            and settings.get("context_window", 0) > verified_cloud_context
+        ):
+            raise ValueError(
+                f"Context cannot exceed this model's {verified_cloud_context} tokens"
+            )
         context = settings.get(
             "context_window",
             int(
                 os.getenv(
-                    "INTEGRAL_NATIVE_OLLAMA_NUM_CTX", str(DEFAULT_OLLAMA_CONTEXT_WINDOW)
+                    "INTEGRAL_NATIVE_OLLAMA_NUM_CTX",
+                    str(verified_cloud_context or DEFAULT_OLLAMA_CONTEXT_WINDOW),
                 )
             ),
         )

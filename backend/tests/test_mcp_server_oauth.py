@@ -439,7 +439,11 @@ async def test_mcp_tools_list_authenticated(
     # 128 -> 129: read-only native App Home preview.
     # 129 -> 130: content-free workspace inventory under the current read audience.
     # 130 -> 131: bounded, permission-checked Entry label resolution.
-    assert len(tools) == 132, len(tools)
+    # 132 -> 133: conversation-bound generated document preparation.
+    # 133 -> 134: sponsor-scoped resident assignment discovery.
+    # 134 -> 135: explicit-source compound uploaded-document filing.
+    assert len(tools) == 135, len(tools)
+    assert any(tool["name"] == "integral_list_resident_opportunities" for tool in tools)
     assert any(tool["name"] == "integral_find_workspace_resources" for tool in tools)
     assert any(tool["name"] == "integral_resolve_entry_labels" for tool in tools)
     assert any(tool["name"] == "integral_open_view" for tool in tools)

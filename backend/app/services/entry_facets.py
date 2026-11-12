@@ -70,7 +70,9 @@ async def facet_values(
     counts: Counter = Counter()
     scanned = 0
     truncated = False
-    async for records in iter_records(user_id, query, track_id=track_id, projection=[path]):
+    async for records in iter_records(
+        user_id, query, track_id=track_id, projection=[path]
+    ):
         for row in records:
             raw = _value_of(row, path)
             for item in raw if isinstance(raw, list) else [raw]:
@@ -86,7 +88,10 @@ async def facet_values(
     if needle:
         ordered = [kv for kv in ordered if needle in str(kv[0]).lower()]
     return {
-        "values": [{"value": value, "count": count} for value, count in ordered[: max(1, min(limit, 200))]],
+        "values": [
+            {"value": value, "count": count}
+            for value, count in ordered[: max(1, min(limit, 200))]
+        ],
         "truncated": truncated,
         "distinct": len(counts),
     }

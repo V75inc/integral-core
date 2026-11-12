@@ -102,6 +102,37 @@ async def test_capability_requires_principal_and_workspace() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("inherited", [False, True], ids=["root", "inherited"])
+async def test_mandate_work_cannot_dispatch_through_ordinary_capability_handler(
+    monkeypatch, inherited
+) -> None:
+    from app.agentive.services import capability_broker, work_mandates
+
+    root = WorkItem(work_item_id="review-root", origin="mandate_review")
+    item = WorkItem(
+        work_item_id="capability",
+        origin="http" if inherited else "mandate_review",
+        kind="capability",
+        principal_id="owner",
+        workspace_id="workspace",
+        parent_work_item_id=root.work_item_id if inherited else "",
+        input_payload={"capability_key": "integral_list_entries"},
+    )
+    read_parent = AsyncMock(return_value=root)
+    dispatch = AsyncMock()
+    monkeypatch.setattr(work_worker, "_recheck_principal_workspace", AsyncMock())
+    monkeypatch.setattr(work_mandates, "_load_lineage_item", read_parent)
+    monkeypatch.setattr(capability_broker, "invoke_declared_capability", dispatch)
+    with pytest.raises(WorkError, match="work.mandate_admission_required"):
+        await work_worker._handle_capability(item, worker_id="test", lease_seconds=30)
+    dispatch.assert_not_awaited()
+    if inherited:
+        read_parent.assert_awaited_once_with(root.work_item_id)
+    else:
+        read_parent.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_routine_turn_runs_test_handler_under_lease() -> None:
     seen = {"n": 0}
 

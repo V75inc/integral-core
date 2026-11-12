@@ -40,6 +40,8 @@ class HarnessSnapshotRecord(Object):
     record_key: str = attribute(default="", indexed=True)
     occurred_at: str = attribute(default="", indexed=True)
     step_index: int = 0
+    # -1 marks legacy or non-native keys whose ordering needs reconciliation.
+    save_sequence: int = -1
     state: str = attribute(default="complete", indexed=True)
     payload_ciphertext: str = ""
 
@@ -78,6 +80,33 @@ class HarnessToolEffectRecord(Object):
     occurred_at: str = attribute(default="", indexed=True)
     status: str = attribute(default="started", indexed=True)
     payload_ciphertext: str = ""
+
+
+class HarnessDraftPreparationRecord(Object):
+    """Scalar-keyed receipt for a private, revision-bound generated file."""
+
+    principal_id: str = ""
+    workspace_id: str = ""
+    thread_id: str = ""
+    source_digest: str = ""
+    binary_digest: str = ""
+    binary_size: int = 0
+    state: str = "pending"
+    attachment_id: str = ""
+
+
+class HarnessDraftBlobAttempt(Object):
+    """Private storage attempt recorded before external blob I/O."""
+
+    preparation_id: str = attribute(default="", indexed=True)
+    workspace_id: str = ""
+    thread_id: str = ""
+    claim_digest: str = ""
+    storage_key: str = ""
+    created_at: str = ""
+    state: str = "reserved"
+    attachment_id: str = ""
+    next_cleanup_at: float = 0.0
 
 
 class HarnessPlanState(Object):
@@ -158,3 +187,38 @@ class HarnessSteeringInbox(Object):
     expires_at: str = attribute(default="", indexed=True)
 
     payload_ciphertext: str = ""
+
+
+class HarnessSteeringResumeBaseline(Object):
+    """Encrypted pre-dispatch correction baseline for one approved work slot."""
+
+    scope_key: str = attribute(default="", indexed=True)
+    work_item_id: str = attribute(default="", indexed=True)
+    approval_id: str = ""
+    expires_at: str = attribute(default="", indexed=True)
+    payload_ciphertext: str = ""
+
+
+class HarnessFollowUpInbox(Object):
+    """Encrypted pending follow-ups and disposition receipts for a chat thread."""
+
+    disposition: str = ""
+    thread_id: str = ""
+    has_pending: bool = attribute(default=False, indexed=True)
+    paused: bool = False
+    resumed_after_interruption: bool = False
+    scope_key: str = attribute(default="", indexed=True)
+    expires_at: str = attribute(default="", indexed=True)
+    payload_ciphertext: str = ""
+
+
+class HarnessProactiveDeliveryRecord(Object):
+    """Scoped idempotency receipt committed with one proactive ChatMessage."""
+
+    scope_key: str = attribute(default="", indexed=True)
+    principal_id: str = ""
+    workspace_id: str = ""
+    thread_id: str = ""
+    message_id: str = ""
+    intent_digest: str = ""
+    created_at: str = ""

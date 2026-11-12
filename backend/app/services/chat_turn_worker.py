@@ -29,6 +29,7 @@ async def terminalize_chat_turn(
     failure: dict[str, Any] | None = None,
     result_fingerprint: str = "",
     receipt_refs: list[str] | None = None,
+    parked_run_id: str = "",
 ) -> WorkItem:
     """Finish a claimed chat turn and release admission in one transaction.
 
@@ -121,23 +122,29 @@ async def terminalize_chat_turn(
         from app.agentive.services.execution_runs import AgentRun
         from app.utils.time import utc_now_iso
 
-        runs = await AgentRun.find({"run_id": context.run_id})
-        if len(runs) > 1:
-            raise WorkError("work.idempotency_conflict", "chat run ID is not unique")
-        run = runs[0] if runs else None
-        if run is not None:
-            if (
-                run.work_item_id != item.work_item_id
-                or run.thread_id != context.thread_id
-                or run.user_id != context.principal_id
-                or run.workspace_id != context.workspace_id
-            ):
-                raise WorkError("work.policy_denied", "chat run scope mismatch")
-            if run.status not in {"succeeded", "failed", "cancelled"}:
-                run.status = status
-                run.finished_at = utc_now_iso()
-                run.error = transitioned.failure if status != "succeeded" else None
-                await run.save()
+        if parked_run_id and parked_run_id != item.run_id:
+            raise WorkError("work.policy_denied", "parked chat run scope mismatch")
+        for run_id in dict.fromkeys(filter(None, (context.run_id, parked_run_id))):
+            runs = await AgentRun.find({"run_id": run_id})
+            if len(runs) > 1:
+                raise WorkError(
+                    "work.idempotency_conflict", "chat run ID is not unique"
+                )
+            run = runs[0] if runs else None
+            if run is not None:
+                if (
+                    run.work_item_id != item.work_item_id
+                    or run.thread_id != context.thread_id
+                    or run.user_id != context.principal_id
+                    or run.workspace_id != context.workspace_id
+                    or (parked_run_id and run.provider_id != "integral_native")
+                ):
+                    raise WorkError("work.policy_denied", "chat run scope mismatch")
+                if run.status not in {"succeeded", "failed", "cancelled"}:
+                    run.status = status
+                    run.finished_at = utc_now_iso()
+                    run.error = transitioned.failure if status != "succeeded" else None
+                    await run.save()
         if status == "succeeded" and thread is not None:
             from app.services.chat_titles import enqueue_conversation_title
 

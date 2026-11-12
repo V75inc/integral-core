@@ -32,6 +32,9 @@ ownership:
   - intent_class: reusable_or_periodic_workspace_review
     owner_skill: integral-review
     boundary: Produce a consolidated review deliverable; scheduling is owned separately.
+  - intent_class: standing_goal_definition_progress_or_completion
+    owner_skill: integral-goals
+    boundary: Track and verify an outcome across tasks while keeping execution authority and cadence separate.
   - intent_class: scheduled_deferred_or_repeating_agent_work
     owner_skill: integral-scheduling
     boundary: Create or manage when the agent should run; do not own the review content.

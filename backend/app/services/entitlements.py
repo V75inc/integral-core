@@ -311,7 +311,9 @@ async def require_installed_app_entitlement(app_node) -> Optional[Entitlement]:
         canonical = await asyncio.to_thread(
             compile_canonical_manifest, manifest=attached.manifest or {}
         )
-    return await _require_package_entitlement(app_node, dict(canonical.get("package") or {}))
+    return await _require_package_entitlement(
+        app_node, dict(canonical.get("package") or {})
+    )
 
 
 # deviation: process-local memo of each definition revision's package block — the gate otherwise re-reads and decodes
@@ -330,7 +332,9 @@ def _remember_package_meta(definition_id: str, package: Dict[str, Any]) -> None:
         _PACKAGE_META_BY_DEFINITION.popitem(last=False)
 
 
-async def _require_package_entitlement(app_node, package_meta: Dict[str, Any]) -> Optional[Entitlement]:
+async def _require_package_entitlement(
+    app_node, package_meta: Dict[str, Any]
+) -> Optional[Entitlement]:
     # Compiled definitions omit the library slug. Installation provenance is
     # the durable package identity, just as it is at the initial install gate.
     package_meta["slug"] = str(

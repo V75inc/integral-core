@@ -239,3 +239,25 @@ async def test_schedule_links_withhold_pending_results_and_read_outages(monkeypa
     read.assert_not_awaited()
     assert await completion_links({"id": "routine-1"}, **arguments) == []
     read.assert_awaited_once()
+
+
+def test_deferred_completion_repairs_known_destination_and_preserves_research_link():
+    link = {
+        "kind": "entry",
+        "id": "n.Entry.saved",
+        "label": "Filed report",
+        "url": "/tracks/n.Track.saved?entry=n.Entry.saved",
+        "parent_label": "Restart Qualification",
+        "parent_url": "/tracks/n.Track.saved",
+    }
+    result = append_completion_links(
+        "Filed in [Restart Qualification](https://integral.example). "
+        "[Open it](/entries/n.Entry.saved). [Reference](https://example.org/source).",
+        [link],
+        repair_destination_links=True,
+    )
+    assert "[Restart Qualification](/tracks/n.Track.saved)" in result
+    assert "[Open it](/tracks/n.Track.saved?entry=n.Entry.saved)" in result
+    assert "[Reference](https://example.org/source)" in result
+    assert "https://integral.example" not in result
+    assert result.count(link["url"]) == 1

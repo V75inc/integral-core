@@ -19,6 +19,7 @@ from time import perf_counter
 from typing import Any, Dict, Iterable
 
 from app.contracts.operations import OperationIdentity
+from app.contracts.task_semantics import RESIDENT_ASSIGNMENT_CHANGED
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 from app.services.perf_trace import perf_traced
 from app.services.performance import capture_trace_context
@@ -146,17 +147,15 @@ async def insert_entry_event(
     )
 
 
-@perf_traced("save.event_enqueue")
-async def insert_revision_event(
+def revision_event_fact_id(
     *,
-    transaction: Any,
     workspace_id: str,
     namespace: str,
     subject_id: str,
     revision: int,
-    event: Dict[str, Any],
+    action: str,
 ) -> str:
-    """Persist a namespaced lifecycle fact with its actual subject and revision."""
+    """Identify a lifecycle fact independently of delivery attempts."""
     if (
         not namespace
         or not workspace_id
@@ -170,12 +169,32 @@ async def insert_revision_event(
             namespace,
             workspace_id,
             subject_id,
-            event["action"],
+            action,
             revision,
         ],
         separators=(",", ":"),
     )
-    outbox_id = hashlib.sha256(identity.encode()).hexdigest()
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+@perf_traced("save.event_enqueue")
+async def insert_revision_event(
+    *,
+    transaction: Any,
+    workspace_id: str,
+    namespace: str,
+    subject_id: str,
+    revision: int,
+    event: Dict[str, Any],
+) -> str:
+    """Persist a namespaced lifecycle fact with its actual subject and revision."""
+    outbox_id = revision_event_fact_id(
+        workspace_id=workspace_id,
+        namespace=namespace,
+        subject_id=subject_id,
+        revision=revision,
+        action=event["action"],
+    )
     now = utc_now_iso()
     await transaction.insert_if_absent(
         _COLLECTION,
@@ -256,6 +275,20 @@ async def deliver_operation_event(
         )
         if claimed is None:
             return False
+        claimed_event = dict(context.get("event") or {})
+        if claimed_event.get("action") == RESIDENT_ASSIGNMENT_CHANGED:
+            # The resident-assignment intake commits with the claim, so it is recorded once even if
+            # the audit write below is retried.
+            from app.services.resident_assignment import (
+                record_resident_assignment_intake,
+            )
+
+            await record_resident_assignment_intake(
+                transaction=transaction,
+                fact_id=outbox_id,
+                workspace_id=str(context.get("workspace_id") or ""),
+                event=claimed_event,
+            )
     fence = {
         "id": object_id,
         "context.status": "delivering",

@@ -246,7 +246,9 @@ async def fetch_accessible_entries_page(
             sort = _view_sort_to_db_sort(cfg.get("sort") or [])
 
     if order_by:
-        sort = _view_sort_to_db_sort([{"field": f, "direction": "desc" if d < 0 else "asc"} for f, d in order_by])
+        sort = _view_sort_to_db_sort(
+            [{"field": f, "direction": "desc" if d < 0 else "asc"} for f, d in order_by]
+        )
     return await select_page(
         user_id,
         query,

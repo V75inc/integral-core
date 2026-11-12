@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
@@ -16,6 +17,7 @@ from app.agentive.harness.capability_search import (
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.effect_reconciliation import BUILD_PRE_EFFECT_ERRORS
 from app.agentive.harness.pydantic_ai_compat import (
+    CallDeferred,
     ModelRetry,
     RunContext,
     Tool,
@@ -61,6 +63,8 @@ _REQUIRED_SKILLS_BY_TOOL = {
     "integral_build_approved_design": "integral-scaffold",
     "integral_verify_build": "integral-scaffold",
 }
+_VALIDATION_RETRY_TOOLS = frozenset({"integral_create_entry", "integral_schedule_task"})
+_VALIDATION_RETRY_ERRORS = frozenset({"invalid_arguments", "missing_argument"})
 
 
 def _resource_links_for_model(
@@ -193,6 +197,12 @@ def _make_handler(
     call_state.setdefault("turn_progress", TurnProgress())
     build_attempted = False
     build_validation_failures = 0
+    guard_validation = (
+        capability_source == "core"
+        and capability_op_class == "propose"
+        and capability_name in _VALIDATION_RETRY_TOOLS
+    )
+    rejected_arguments: set[str] = set()
 
     async def effective_operation(arguments: dict[str, Any]) -> str:
         effective_op_class = capability_op_class
@@ -248,6 +258,22 @@ def _make_handler(
                 result,
                 is_read=effective_op_class == "read",
             )
+            if effective_op_class == "read":
+                from app.services.retrieval.history import (
+                    RETRIEVAL_EVIDENCE,
+                    RETRIEVAL_TOOLS,
+                    retrieval_result_evidence,
+                )
+
+                if capability_name in RETRIEVAL_TOOLS:
+                    return ToolReturn(
+                        result,
+                        metadata={
+                            RETRIEVAL_EVIDENCE: retrieval_result_evidence(
+                                result, tool_name=capability_name
+                            )
+                        },
+                    )
             if capability_op_class != "read" and effective_op_class == "read":
                 # Framework metadata is checkpointed, never sourced from model
                 # arguments or an App payload. Classify calls, not tool names.
@@ -260,7 +286,29 @@ def _make_handler(
         """Invoke the declared capability with server-bound identity."""
 
         nonlocal build_attempted, build_validation_failures
+        if capability_name == "integral_build_approved_design":
+            # Clarification completion is exclusively pre-build. Even an
+            # unknown/denied outcome must not be hidden by a later question.
+            call_state["scaffold_build_attempted"] = True
+        if call_state.get("scaffold_pending_clarification") and capability_name in {
+            "integral_propose_design",
+            "integral_check_design_coverage",
+            "integral_build_approved_design",
+        }:
+            # A question queued earlier in the same model response is a real
+            # pause, not permission to guess its answer and continue building.
+            return {
+                "error": True,
+                "error_code": "clarification_pending",
+                "message": "Ask the queued question and wait for the user's answer.",
+                "retryable": False,
+            }
         call_state["attempted"] += 1
+        if effective_op_class != "read" and capability_name != "integral_ask_user":
+            # A question only queues clarification, not a new workspace write.
+            # A prior pre-effect refusal is not evidence about a new write.
+            # Clear before admission/dispatch, including exceptions or denials.
+            call_state.pop("build_plan_repair_pending", None)
         arguments = normalize_tool_arguments(arguments, input_schema)
         if no_workspace_writes and effective_op_class != "read":
             return {
@@ -364,9 +412,49 @@ def _make_handler(
                     "The skills declaring this tool are: "
                     + ", ".join(sorted(workflow_skills))
                     + ". Choose the one that fits the user's request."
+                    + (
+                        " The loaded attachment workflow uses "
+                        "integral_file_uploaded_document with an explicit source "
+                        "and create/update/attach mode. If content is already saved, "
+                        "use attach; do not rewrite it. Load integral-entries only "
+                        "for a separate requested record edit or deliberate broader "
+                        "composition, not to omit a requested source attachment."
+                        if "integral-attachments" in ctx.active_capability_ids
+                        and capability_name
+                        in {
+                            "integral_create_entry",
+                            "integral_update_entry",
+                            "integral_file_content",
+                        }
+                        else ""
+                    )
                 ),
                 "retryable": False,
             }
+        if guard_validation:
+            # These Core proposal tools run sequentially. Remember only
+            # fingerprints of rejected inputs for the current model run.
+            argument_fingerprint = hashlib.sha256(
+                json.dumps(arguments, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            if (
+                argument_fingerprint in rejected_arguments
+                or len(rejected_arguments) >= 2
+            ):
+                can_correct = len(rejected_arguments) < 2
+                return {
+                    "error": True,
+                    "error_code": "invalid_arguments",
+                    "message": (
+                        "These arguments were already rejected. Use the previous "
+                        "validation detail to correct the failing input before retrying."
+                        if can_correct
+                        else "Validation correction attempts are exhausted for this "
+                        "tool in this turn. Explain the remaining problem and report "
+                        "only changes with a confirmed proposal or application receipt."
+                    ),
+                    "retryable": can_correct,
+                }
         # Pydantic AI owns execution and accounting. The progress observer sees
         # the outcome only after this live authorization/dispatch path; it must
         # never replace a read or effect with a cached earlier result.
@@ -374,6 +462,7 @@ def _make_handler(
             if not call_state.get("approved_design_ready"):
                 if call_state.get("pending_design"):
                     from app.agentive.harness.design_approval import (
+                        DesignDecisionRequired,
                         authorize_pending_design_build,
                     )
 
@@ -386,6 +475,15 @@ def _make_handler(
                                 work_context=work_execution_context,
                             )
                         )
+                    except DesignDecisionRequired as exc:
+                        call_state["design_decision_required"] = str(exc)
+                        call_state["approved_design_ready"] = False
+                        return {
+                            "error": True,
+                            "error_code": "design_decision_required",
+                            "message": str(exc),
+                            "retryable": False,
+                        }
                     except Exception:
                         return {
                             "error": True,
@@ -420,6 +518,18 @@ def _make_handler(
             else None
         )
 
+        defer_approval = (
+            call_state.get("native_deferred_approvals")
+            and tool_work_context is not None
+            and capability_source == "core"
+            and capability_op_class == "propose"
+            and capability_name
+            in {
+                "integral_create_entry",
+                "integral_attach_uploaded_file_to_entry",
+            }
+        )
+
         async def dispatch() -> Any:
             connector_id = None
             if capability_source == "connector":
@@ -442,27 +552,46 @@ def _make_handler(
                         message="Connector tool is unavailable in this scope.",
                     )
                 connector_id = str(connector.id)
-            return await invoke_declared(
-                principal_id=scope.principal_id,
-                workspace_id=scope.workspace_id,
-                capability_key=capability_name,
-                origin="chat",
-                source=capability_source,
-                connector_id=connector_id,
-                op_class=capability_op_class,
-                arguments=arguments,
-                run_id=scope.run_id,
-                work_execution_context=tool_work_context,
-                idempotency_key=_idempotency_key(
-                    scope.run_id, ctx.tool_call_id, capability_name
-                ),
-                session_id=conversation_id or scope.session_id,
-                skill_tools_required=(
-                    list(skill_allowlist) if skill_allowlist else None
-                ),
-            )
+            from app.agentive.services.proposal_origin import bind_deferred_proposal
 
-        if work_execution_context is None:
+            with (
+                bind_deferred_proposal(tool_work_context)
+                if defer_approval and tool_work_context is not None
+                else nullcontext()
+            ):
+                return await invoke_declared(
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                    capability_key=capability_name,
+                    origin="chat",
+                    source=capability_source,
+                    connector_id=connector_id,
+                    op_class=capability_op_class,
+                    arguments=arguments,
+                    run_id=scope.run_id,
+                    work_execution_context=tool_work_context,
+                    idempotency_key=_idempotency_key(
+                        scope.run_id, ctx.tool_call_id, capability_name
+                    ),
+                    session_id=conversation_id or scope.session_id,
+                    skill_tools_required=(
+                        list(skill_allowlist) if skill_allowlist else None
+                    ),
+                )
+
+        if work_execution_context is None or (
+            capability_source == "core"
+            and capability_op_class == "propose"
+            and capability_name
+            in {
+                "integral_prepare_document_attachment",
+                "integral_attach_uploaded_file_to_entry",
+                "integral_file_uploaded_document",
+            }
+        ):
+            # The broker delegates this specific recoverable multi-stage
+            # operation to short worker-fenced graph transactions. Its blob
+            # I/O must not inherit the generic outer effect transaction.
             result = await dispatch()
         else:
             from app.agentive.services.capability_adapters import AdapterError
@@ -509,7 +638,57 @@ def _make_handler(
                     op_class=capability_op_class,
                     arguments=arguments,
                 )
+        if (
+            defer_approval
+            and result.ok
+            and result.receipt is not None
+            and result.receipt.status == "waiting_for_human"
+        ):
+            from app.agentive.staging import get_token
+
+            token = result.data.get("token") if isinstance(result.data, dict) else ""
+            staged = await get_token(token) if token else None
+            proof = (staged.origin_proof or {}) if staged is not None else {}
+            if (
+                proof.get("requires_deferred_link") is True
+                and tool_work_context is not None
+                and proof.get("work_item_id") == tool_work_context.work_item_id
+                and proof.get("run_id") == tool_work_context.run_id
+                and proof.get("effect_key") == tool_work_context.effect_key
+            ):
+                # StepPersistence captures the frontier after the broker commits
+                # the proposal and its requirement for a linked approval.
+                raise CallDeferred()
         model_result = _resource_links_for_model(result.for_model())
+        if guard_validation:
+            if result.ok:
+                rejected_arguments.clear()
+            elif result.error_code in _VALIDATION_RETRY_ERRORS:
+                rejected_arguments.add(argument_fingerprint)
+                can_correct = len(rejected_arguments) < 2
+                model_result["retryable"] = can_correct
+                model_result.pop("next_tool", None)
+                # Keep Core's existing model-facing detail. Public chat stores
+                # only the stable error code and its fixed diagnostic text.
+                model_result["message"] = (
+                    f"{result.message} This attempt did not stage a proposal. "
+                    + (
+                        "Correct the failing input against the current tool and "
+                        "target schema before retrying once. Ask for any required "
+                        "information you cannot infer from verified context."
+                        if can_correct
+                        else "Stop retrying this tool in this turn. Explain the "
+                        "remaining problem and distinguish proposals awaiting "
+                        "approval from changes that were applied."
+                    )
+                )
+        if capability_name == "integral_get_attachment_text" and result.ok:
+            source_url = model_result.get("source_url")
+            if source_url:
+                call_state.setdefault("attachment_source_links", {})[source_url] = {
+                    "url": source_url,
+                    "label": model_result.get("filename") or "Open source file",
+                }
         executed = model_result.get("execute_result")
         if (
             not isinstance(executed, dict)
@@ -573,6 +752,14 @@ def _make_handler(
                     "id": result.receipt.step_id,
                     "session_id": scope.session_id,
                 }
+        if (
+            capability_source == "core"
+            and capability_name == "integral_build_approved_design"
+            and not result.ok
+            and result.error_code == "design_decision_required"
+        ):
+            call_state["design_decision_required"] = result.message
+            call_state["approved_design_ready"] = False
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
             if result.ok:
@@ -580,7 +767,11 @@ def _make_handler(
                 # subsequent actions as if its original proposal were pending.
                 call_state["pending_design"] = False
                 call_state["approved_design_ready"] = False
-            if not result.ok and result.error_code in BUILD_PRE_EFFECT_ERRORS:
+            if (
+                capability_source == "core"
+                and not result.ok
+                and result.error_code in BUILD_PRE_EFFECT_ERRORS
+            ):
                 build_validation_failures += 1
                 if (
                     build_validation_failures >= 3
@@ -611,6 +802,7 @@ def _make_handler(
                 # design again. Applied, partial, authorization and unknown
                 # outcomes stay one-shot.
                 build_attempted = False
+                call_state["build_plan_repair_pending"] = result.message
                 raise ModelRetry(
                     result.message
                     + " Correct the generated operation plan to match the saved, "
@@ -619,6 +811,11 @@ def _make_handler(
                     "built without a material change, present only that specific "
                     "change and ask for approval of the change."
                 )
+        if (
+            call_state.get("verification_succeeded")
+            and capability_name != "integral_verify_build"
+        ):
+            call_state["post_build_activity"] = True
         if capability_name == "integral_verify_build":
             call_state["verification_status"] = model_result.get("status")
             call_state["verification_succeeded"] = bool(
@@ -631,18 +828,49 @@ def _make_handler(
                 call_state.get("build_succeeded")
                 and call_state["verification_succeeded"]
             ):
-                # This workflow has reached its declared readback boundary.
-                # Reserve one tool-free closing answer instead of reopening
-                # batches or rediscovering capabilities after a completed build.
-                call_state["turn_progress"].reason = (
-                    "The approved setup has been applied and verified. Report "
-                    "the result using its verified resource links; do not build again."
-                )
+                # The setup is settled, but the user's original request may
+                # also include work to perform in it. Keep the one-build guard
+                # while allowing the resident to continue through normal
+                # capability and approval checks.
                 call_state["verified_build_resources"] = (
                     model_result.get("resources") or []
                 )
+        if (
+            capability_source == "core"
+            and capability_name == "integral_ask_user"
+            and result.ok
+            and model_result.get("_kind") == "user_question"
+            and model_result.get("state") == "pending"
+            and model_result.get("queue_open") is True
+            and model_result.get("question_id")
+            and isinstance(model_result.get("question"), str)
+            and model_result["question"].strip()
+            and (
+                call_state.get("proposal_attempted")
+                or call_state.get("scaffold_coverage_attempted")
+            )
+            and not call_state.get("proposal_succeeded")
+            and not call_state.get("scaffold_build_attempted")
+            and not call_state.get("build_succeeded")
+            and not call_state.get("build_plan_repair_pending")
+            and not call_state.get("build_validation_failure")
+        ):
+            # Only the successful Core queue result establishes a clarification
+            # boundary. Reuse the existing public prepare/model-request hooks
+            # for tool-free finalization; never infer a pause from model prose.
+            call_state["scaffold_pending_clarification"] = {
+                key: model_result.get(key) for key in ("question", "options")
+            }
+            call_state["turn_progress"].reason = (
+                "A clarification is queued. Ask it and wait for the user's answer."
+            )
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
+            call_state.pop("design_decision_required", None)
+            if model_result.get("decision_required"):
+                call_state["design_decision_required"] = model_result[
+                    "decision_required"
+                ]
             call_state["approved_design_ready"] = bool(model_result.get("approved"))
             proposal_text = model_result.get("proposal")
             if isinstance(proposal_text, str) and proposal_text.strip():

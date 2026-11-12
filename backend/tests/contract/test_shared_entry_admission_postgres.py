@@ -67,10 +67,21 @@ async def test_independent_metadata_updates_enter_together(monkeypatch):
 async def test_standalone_entry_creates_overlap_under_shared_admission(monkeypatch):
     """Two creates by the same actor can reach persistence together."""
     from app.config import settings
+    from app.services import app_invariant_guards
 
     user, workspace, first = await _entry("parallel-create@example.com")
     database = get_default_context().database
     monkeypatch.setattr(settings, "ENTRY_SHARED_CREATE_ENABLED", True)
+    protected_state_reads = []
+    read_protected_state = app_invariant_guards._read_canonical_protected_state
+
+    async def observe_protected_state(workspace_id, track_id, entry_id):
+        protected_state_reads.append((workspace_id, track_id, entry_id))
+        return await read_protected_state(workspace_id, track_id, entry_id)
+
+    monkeypatch.setattr(
+        app_invariant_guards, "_read_canonical_protected_state", observe_protected_state
+    )
     both = asyncio.Event()
     admitted = set()
     original = Entry.create
@@ -96,6 +107,7 @@ async def test_standalone_entry_creates_overlap_under_shared_admission(monkeypat
     entries = await asyncio.gather(create("Concurrent one"), create("Concurrent two"))
     assert {entry.title for entry in entries} == {"Concurrent one", "Concurrent two"}
     assert len({entry.id for entry in entries}) == 2
+    assert protected_state_reads == [(workspace, first.track_id, "")] * 2
 
 
 async def test_app_track_create_retries_under_exclusive_admission(monkeypatch):

@@ -167,7 +167,11 @@ def _unavailable_on_source_error(function):
     async def guarded(*args: Any, **kwargs: Any) -> Any:
         try:
             return await function(*args, **kwargs)
-        except (AuthorizationUnavailableError, BadRequestError):
+        except (
+            AuthorizationUnavailableError,
+            BadRequestError,
+            _BinaryTitleUnavailable,
+        ):
             raise
         except Exception as exc:
             raise AuthorizationUnavailableError() from exc

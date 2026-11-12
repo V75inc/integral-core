@@ -943,3 +943,24 @@ def test_scaffold_home_compiles_layout_and_compact_paragraphs(layout, section):
         ("text", "Open the orders Track."),
         ("text", "Review the due dates."),
     ]
+
+
+@pytest.mark.parametrize(
+    "name", ["integral_propose_design", "integral_check_design_coverage"]
+)
+def test_design_tool_envelope_rejects_misnested_sections(name):
+    import jsonschema
+
+    from app.agentive.tooling.catalogue import _build_input_schema
+    from app.agentive.tooling.manifest import load_manifest
+
+    schema = _build_input_schema(load_manifest()[name])
+    jsonschema.Draft202012Validator.check_schema(schema)
+    assert schema["additionalProperties"] is False
+    args = {"blueprint": _blueprint()}
+    if name == "integral_propose_design":
+        args.update(summary="Projects", proposal="Projects app design")
+    jsonschema.validate(args, schema)
+    args["open_decisions"] = [{"id": "q.filing", "question": "Automatic filing?"}]
+    with pytest.raises(jsonschema.ValidationError, match="Additional properties"):
+        jsonschema.validate(args, schema)

@@ -50,6 +50,15 @@ from app.services.attachment_scanner import (
 from app.services.attachment_scanner import reset_for_testing as reset_scanner
 from app.services.attachment_storage import get_attachment_storage_service
 
+
+@pytest.fixture(autouse=True)
+def isolated_metadata_extractor():
+    """Do not leak deterministic extractor doubles into later worker tests."""
+    reset_for_testing()
+    yield
+    reset_for_testing()
+
+
 # ---------------------------------------------------------------------------
 # Node shape
 # ---------------------------------------------------------------------------

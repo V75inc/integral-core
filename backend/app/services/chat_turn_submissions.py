@@ -48,16 +48,18 @@ def _submission_identity(
     workspace_id: str,
     thread_id: str,
     client_request_id: str,
+    from_follow_up_queue: bool = False,
 ) -> tuple[str, str]:
     """Return stable scoped WorkItem key and Node id without exposing the key."""
-    digest = _canonical_digest(
-        {
-            "principal_id": principal_id,
-            "workspace_id": workspace_id,
-            "thread_id": thread_id,
-            "client_request_id": client_request_id,
-        }
-    )
+    scope = {
+        "principal_id": principal_id,
+        "workspace_id": workspace_id,
+        "thread_id": thread_id,
+        "client_request_id": client_request_id,
+    }
+    if from_follow_up_queue:
+        scope["source"] = "follow_up_queue"
+    digest = _canonical_digest(scope)
     return f"chat-turn:{digest}", f"n.ChatMessage.{digest}"
 
 
@@ -234,6 +236,7 @@ async def submit_chat_turn(
         workspace_id=request.workspace_id,
         thread_id=request.thread_id,
         client_request_id=request.client_request_id,
+        from_follow_up_queue=request.from_follow_up_queue,
     )
     fingerprint = _request_fingerprint(request)
     deadline_at = (
@@ -402,6 +405,11 @@ async def submit_chat_turn(
             workspace_id=request.workspace_id,
             work_item=work_item,
         )
+
+        if request.from_follow_up_queue:
+            from app.services.chat_followups import consume_chat_follow_up
+
+            await consume_chat_follow_up(transaction=transaction, submission=request)
 
         # Apply ordinary first-turn presentation only after admission succeeds,
         # in the same acceptance transaction. Receipt retries return above.

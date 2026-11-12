@@ -39,6 +39,7 @@ from app.api.errors import (
     MissingAuthenticationError,
 )
 from app.api.utils import resolve_principal_id
+from app.config import embedding_model_warmup_enabled
 from app.schemas.policy import Resource, Subject
 from app.schemas.retrieval_config import RetrievalConfigResponse
 from app.services.policy_engine import evaluate as policy_evaluate
@@ -157,9 +158,7 @@ async def get_retrieval_config(request: Request) -> RetrievalConfigResponse:
             )
 
     return RetrievalConfigResponse(
-        embedding_model_eager_load=(
-            os.environ.get("EMBEDDING_MODEL_EAGER_LOAD", "1") == "1"
-        ),
+        embedding_model_eager_load=embedding_model_warmup_enabled(),
         retrieve_k_default=int(os.environ.get("RETRIEVE_K_DEFAULT", "150")),
         retrieve_top_n_default=int(os.environ.get("RETRIEVE_TOP_N_DEFAULT", "20")),
         embedding_store_backend=backend,

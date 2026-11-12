@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterator,
     Awaitable,
@@ -32,6 +33,9 @@ from typing import (
     TypedDict,
     runtime_checkable,
 )
+
+if TYPE_CHECKING:
+    from app.agentive.harness.deferred_staging import DeferredAppliedOutcome
 
 
 class AgentDescriptor(TypedDict, total=False):
@@ -123,8 +127,14 @@ class ChatTurnContext:
     field. Reserved for future composer affordances (focused entry id,
     selected tool override, etc.)."""
 
+    submitted_file_parts: tuple[Dict[str, Any], ...] = ()
+    """Host-verified current file parts, populated by the durable worker only."""
+
     accepts_steering: bool = False
     """Set only by the durable interactive worker."""
+
+    deferred_resume: Optional[DeferredAppliedOutcome] = field(default=None, repr=False)
+    """Server-owned continuation admitted by the durable worker."""
 
     start_time: Optional[float] = None
     """``time.monotonic()`` snapshot taken when the request entered the

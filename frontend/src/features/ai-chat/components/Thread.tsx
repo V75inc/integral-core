@@ -1,6 +1,10 @@
 import type { SteeringReceipt } from "../providers/types";
+import { MandateReviews } from "./MandateReviews";
 import { ChatFollowUps } from "./ChatFollowUps";
+import { DocumentDraftCard, extractDocumentDrafts } from "./DocumentDrafts";
 import { RoutineRunLink } from './RoutineRunLink';
+import { AssignmentDigestSuggestions } from './AssignmentDigestSuggestions';
+import type { AssignmentSuggestion } from '../../../api/routines';
 import { CollapsibleUserMessage } from './CollapsibleUserMessage';
 import { ConversationModelPicker } from './ConversationModelPicker';
 import { ExpandableChatError } from "./ExpandableChatError";
@@ -106,7 +110,8 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
-  const { activeProviderId } = useChatActivity();
+  const { activeProviderId, activeThreadId } = useChatActivity();
+  const { scope: mandateScope } = useScope();
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
   // region or a dismissed popover moves focus off it and typing then went
@@ -180,6 +185,9 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
             <ThreadPrimitive.Messages>
               {() => <ThreadMessage />}
             </ThreadPrimitive.Messages>
+            {activeProviderId === "integral_native" && activeThreadId && !activeThreadId.startsWith("local-") && (
+              <MandateReviews threadId={activeThreadId} workspaceId={mandateScope?.workspaceId ?? null} />
+            )}
             <ActivityStrip />
           </div>
 
@@ -417,9 +425,13 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       (s.message.metadata?.custom as { statusLabel?: string } | undefined)
         ?.statusLabel,
   );
-  const setupNeeded = useAuiState((s) => isModelSetupFailure(
-    (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
-  ));
+  const errorCode = useAuiState(
+    (s) => (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
+  );
+  const setupNeeded = isModelSetupFailure(errorCode);
+  const approvalStatus = errorCode === "work.approval_rejected"
+    ? "Approval rejected"
+    : errorCode === "work.approval_expired" ? "Approval expired" : undefined;
   const modelLabel = useMessageModelLabel();
   const turnMetrics = useMessageTurnMetrics();
   const toolCount = useAuiState(
@@ -448,11 +460,11 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     hasAnswerText,
   );
   const done = [
-    setupNeeded ? "Setup needed" : interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",
+    approvalStatus ?? (setupNeeded ? "Setup needed" : interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished"),
     toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}` : "",
     modelLabel,
     turnMetrics,
-    toolFailed ? "a step failed" : "",
+    toolFailed && !approvalStatus ? "a step failed" : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -516,6 +528,10 @@ function RoutineRunBadge() {
 }
 
 function AssistantMessage() {
+  const messageId = useAuiState((s) => s.message.id);
+  const assignmentSuggestions = useAuiState((s) =>
+    s.message.metadata?.custom?.assignmentSuggestions as AssignmentSuggestion[] | undefined,
+  );
   const steering = useAuiState((s) =>
     s.message.metadata?.custom?.steering as SteeringReceipt[] | undefined,
   );
@@ -640,7 +656,9 @@ function AssistantMessage() {
             ))}
           </ul>
         ) : null}
-        {renderParts(false)}
+        {assignmentSuggestions?.length
+          ? <AssignmentDigestSuggestions messageId={messageId} suggestions={assignmentSuggestions} />
+          : renderParts(false)}
         {isCancelled && (
           <div role="status" className="my-2 flex items-center gap-2 text-xs text-[var(--text-muted)]">
             <StopCircleIcon aria-hidden="true" className="size-3.5 shrink-0" />
@@ -651,6 +669,7 @@ function AssistantMessage() {
             staged writes. Inline attachment lists stay as transcript
             artifacts when already in message parts. */}
         <InlineAttachmentLists />
+        <InlineDocumentDrafts />
         <MessageError />
         <WorkTrail>{renderParts(true)}</WorkTrail>
       </div>
@@ -750,6 +769,15 @@ function InlineAttachmentLists() {
       ))}
     </div>
   );
+}
+
+function InlineDocumentDrafts() {
+  const content = useAuiState((s) => s.message.content);
+  const parts = useAuiState((s) => s.message.parts);
+  const drafts = useMemo(() => extractDocumentDrafts(content, parts), [content, parts]);
+  if (!drafts.length) return null;
+  return <div>{drafts.map((draft) => <DocumentDraftCard
+    key={`${draft.threadId}:${draft.key}:${draft.version}`} draft={draft} />)}</div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -993,17 +1021,19 @@ function entityRefsFromMetadata(
 
 /** assistant-ui's default `File` part component renders nothing — show the
  *  filename so a sent file attachment isn't invisible in the transcript. */
-function SentFileChip({ filename }: { filename?: string }) {
+export function SentFileChip({ filename }: { filename?: string }) {
   return (
     <span
       className="
-        mb-1 inline-flex items-center gap-1.5 rounded-[var(--radius-input)]
+        mb-1 inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[var(--radius-input)]
         border border-[var(--border-subtle)] bg-[var(--panel-2)]
         px-2 py-1 text-xs text-[var(--text)]
       "
     >
-      <PaperclipIcon size={12} />
-      <span className="truncate">{filename || "Attached file"}</span>
+      <PaperclipIcon size={12} className="shrink-0" aria-hidden />
+      <span className="min-w-0 truncate" title={filename || "Attached file"}>
+        {filename || "Attached file"}
+      </span>
     </span>
   );
 }
@@ -1094,9 +1124,9 @@ function UserMessageParts() {
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 max-w-full flex-col gap-1.5">
       {fileParts.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex min-w-0 max-w-full flex-wrap gap-1.5">
           {fileParts.map((f, i) => (
             <SentFileChip key={`file-${i}`} filename={f.filename} />
           ))}

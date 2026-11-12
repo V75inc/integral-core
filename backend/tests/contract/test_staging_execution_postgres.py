@@ -30,6 +30,31 @@ def identity():
     )
 
 
+async def approved_identity():
+    """Use an actual approved decision for external-dispatch admission."""
+    from app.agentive import staging
+    from app.services.agent_scope import current_scope_workspace_id
+
+    original = identity()
+    original["principal_id"] += uuid.uuid4().hex
+    original["workspace_id"] += uuid.uuid4().hex
+    reset = current_scope_workspace_id.set(original["workspace_id"])
+    try:
+        sc = await staging.create_staged_change(
+            user_id=original["principal_id"],
+            session_id=None,
+            kind=original["kind"],
+            summary="Approved test command",
+            diff_human="Approved test command",
+            diff_machine=original["payload"],
+            payload=original["payload"],
+        )
+    finally:
+        current_scope_workspace_id.reset(reset)
+    await staging.bless_token(user_id=original["principal_id"], token=sc.token)
+    return {**original, "token": sc.token}
+
+
 async def test_independent_claims_have_one_owner(postgres_raw_db):
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         intent = identity()
@@ -277,15 +302,19 @@ async def test_expired_undispatched_claim_can_be_replaced_but_old_worker_is_fenc
     postgres_raw_db,
 ):
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
-        intent = identity()
+        intent = await approved_identity()
         old = await claim_staging_execution(**intent, lease_seconds=0.01)
         await asyncio.sleep(0.03)
         current = await claim_staging_execution(**intent)
         assert current.fence == old.fence + 1
         with pytest.raises(StagingError) as exc:
-            await mark_staging_external_dispatch(old)
+            await mark_staging_external_dispatch(
+                old, approval_token=intent["token"], approval_claim=old
+            )
         assert exc.value.code == "execution_claim_lost"
-        await mark_staging_external_dispatch(current)
+        await mark_staging_external_dispatch(
+            current, approval_token=intent["token"], approval_claim=current
+        )
 
 
 async def test_external_dispatch_intent_is_never_reclaimed_on_expiry(
@@ -297,9 +326,11 @@ async def test_external_dispatch_intent_is_never_reclaimed_on_expiry(
     now = staging_execution._now()
     monkeypatch.setattr(staging_execution, "_now", lambda: now)
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
-        intent = identity()
+        intent = await approved_identity()
         claim = await claim_staging_execution(**intent, lease_seconds=30)
-        await mark_staging_external_dispatch(claim)
+        await mark_staging_external_dispatch(
+            claim, approval_token=intent["token"], approval_claim=claim
+        )
         now += timedelta(seconds=31)
         with pytest.raises(StagingError) as exc:
             await claim_staging_execution(**intent)

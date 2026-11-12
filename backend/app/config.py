@@ -142,6 +142,9 @@ class Settings(BaseSettings):
     # setting this false is an explicit legacy-mode opt-out and gives up
     # process-restart recovery.
     INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED: bool = True
+    INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED: bool = False
+    INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED: bool = False
+    INTEGRAL_MANDATE_ENTRY_WORKSPACE_ALLOWLIST: tuple[str, ...] = ()
     # Independent conversations may progress concurrently; per-thread admission
     # and lease fencing still serialize effects within each turn.
     INTEGRAL_CHAT_WORKERS: int = Field(default=4, ge=1, le=16)
@@ -570,6 +573,7 @@ class Settings(BaseSettings):
     # Module path imported after the Core API so a host process can register
     # routes/hooks. Open-source Core leaves this empty.
     INTEGRAL_HOST_EXTENSION_MODULE: str = ""
+    INTEGRAL_BOUNDED_MODEL_POLICY_FILE: str = ""
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with
@@ -624,3 +628,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def embedding_model_warmup_enabled() -> bool:
+    """Optional encoder warmup is a server policy, never a desktop startup task."""
+    return (
+        settings.INTEGRAL_DEPLOYMENT_PROFILE != "desktop_single_user"
+        and os.environ.get("EMBEDDING_MODEL_EAGER_LOAD", "1") == "1"
+    )

@@ -63,6 +63,7 @@ async def test_concurrent_library_reads_share_executor_work_and_survive_cancel(
 async def test_many_views_read_fallback_once_off_loop_and_write_in_owner_task(
     monkeypatch, method
 ):
+    from app.services import operational_model_library_sync as source
     from app.services import operational_model_runtime as runtime
 
     owner_thread = threading.get_ident()
@@ -90,26 +91,68 @@ async def test_many_views_read_fallback_once_off_loop_and_write_in_owner_task(
     async def profile(track):
         return None, {}, None
 
-    def seed_index():
+    def snapshot():
         assert threading.get_ident() != owner_thread
         reads.append(True)
-        return {
-            runtime._slug(f"view-{n}"): {
-                "entry_types": ["record"],
-                "default_entry_type": "record",
-            }
-            for n in range(40)
-        }
+        return (
+            "source",
+            [
+                SimpleNamespace(
+                    manifest={
+                        "scope": "track",
+                        "track": {
+                            "views": [
+                                {
+                                    "key": f"view-{n}",
+                                    "entry_types": ["record"],
+                                    "default_entry_type": "record",
+                                }
+                                for n in range(40)
+                            ]
+                        },
+                    }
+                )
+            ],
+            [],
+        )
 
     monkeypatch.setattr(runtime, "resolve_track_runtime_profile", profile)
-    monkeypatch.setattr(runtime, "warm_seeded_library_view_index", seed_index)
-    # Track opens reuse a seed index for a short window; start without one so
-    # each case proves its own single off-loop read.
-    monkeypatch.setattr(runtime, "_seed_index_cache", None)
+    monkeypatch.setattr(source, "_load_library_snapshot", snapshot)
     await getattr(runtime, method)(SimpleNamespace(), views)
     assert reads == [True]
     assert len(writes) == 40
     assert all(v.entry_type_keys == ["record"] for v in views)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_legacy_view_lookups_share_source_scan(monkeypatch):
+    """Overlapping legacy view lookups share validation; later lookups recheck."""
+    from app.services import operational_model_library_sync as source
+    from app.services import operational_model_runtime as runtime
+
+    started = threading.Event()
+    release = threading.Event()
+    scans = []
+
+    def snapshot():
+        scans.append(True)
+        started.set()
+        assert release.wait(5)
+        return "source", [], []
+
+    monkeypatch.setattr(source, "_load_library_snapshot", snapshot)
+    tasks = [
+        asyncio.create_task(runtime._warm_seeded_view_index_off_loop())
+        for _ in range(20)
+    ]
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+    finally:
+        release.set()
+    assert await asyncio.gather(*tasks) == [{}] * len(tasks)
+    assert scans == [True]
+    await runtime._warm_seeded_view_index_off_loop()
+    assert scans == [True, True]
 
 
 @pytest.mark.asyncio

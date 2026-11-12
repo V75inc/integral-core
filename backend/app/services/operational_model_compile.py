@@ -12,7 +12,7 @@ import logging
 import re
 import threading
 from contextvars import ContextVar
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import jsonschema
 from pydantic import ValidationError
@@ -803,6 +803,28 @@ def _track_icon_part(spec: Dict[str, Any], where: str) -> Dict[str, str]:
     return {"icon": icon} if icon else {}
 
 
+def _normalize_task_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.contracts.task_semantics import validate_task_semantics
+
+    try:
+        return validate_task_semantics(raw, fields).model_dump(exclude_none=True)
+    except ValueError as exc:
+        raise BadRequestError(
+            message=f"Invalid task_semantics declaration: {exc}"
+        ) from exc
+
+
+def _normalize_goal_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.contracts.goal_semantics import validate_goal_semantics
+
+    try:
+        return validate_goal_semantics(raw, fields).model_dump()
+    except ValueError as exc:
+        raise BadRequestError(
+            message=f"Invalid goal_semantics declaration: {exc}"
+        ) from exc
+
+
 def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     name = str(spec.get("name") or "").strip()
     key = str(spec.get("key") or _slug(name)).strip()
@@ -884,6 +906,24 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         **(
             {"search_index": _normalize_search_index(spec["search_index"])}
             if "search_index" in spec
+            else {}
+        ),
+        **(
+            {
+                "task_semantics": _normalize_task_semantics(
+                    spec["task_semantics"], fields
+                )
+            }
+            if "task_semantics" in spec
+            else {}
+        ),
+        **(
+            {
+                "goal_semantics": _normalize_goal_semantics(
+                    spec["goal_semantics"], fields
+                )
+            }
+            if "goal_semantics" in spec
             else {}
         ),
         # Opt-in: a multi-step create flow (region_system's create_wizard
@@ -4719,6 +4759,10 @@ def normalize_entry_type_form_schema(
     }
     if "search_index" in raw:
         out["search_index"] = _normalize_search_index(raw["search_index"])
+    if "task_semantics" in raw:
+        out["task_semantics"] = _normalize_task_semantics(raw["task_semantics"], fields)
+    if "goal_semantics" in raw:
+        out["goal_semantics"] = _normalize_goal_semantics(raw["goal_semantics"], fields)
     if "graph_context" in raw:
         from app.schemas.graph_context import validate_entry_graph_context
 
@@ -5053,15 +5097,13 @@ def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 # Built once from the process-cached library specs. Opening a track used to
 # reparse every package for each view that lacked entry-type keys.
-_SEEDED_VIEW_INDEX: Optional[Dict[str, Dict[str, Any]]] = None
-_SEEDED_VIEW_INDEX_TOKEN: Optional[int] = None
+_SEEDED_VIEW_INDEX: Optional[Tuple[Sequence[Any], Dict[str, Dict[str, Any]]]] = None
 
 
 def reset_seeded_library_view_index() -> None:
     """Drop the view-key index. Tests reset this with the library spec cache."""
-    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
+    global _SEEDED_VIEW_INDEX
     _SEEDED_VIEW_INDEX = None
-    _SEEDED_VIEW_INDEX_TOKEN = None
 
 
 def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
@@ -5071,15 +5113,29 @@ def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
     ``load_library_operational_models_with_issues_cached``; this only walks
     the already-parsed manifests.
     """
-    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
     from app.services.operational_model_library_sync import (
         load_library_operational_models_with_issues_cached,
     )
 
     specs, _issues = load_library_operational_models_with_issues_cached()
-    token = id(specs)
-    if _SEEDED_VIEW_INDEX is not None and _SEEDED_VIEW_INDEX_TOKEN == token:
-        return _SEEDED_VIEW_INDEX
+    return _seeded_library_view_index(specs)
+
+
+async def load_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
+    """Share the current off-loop library validation with overlapping callers."""
+    from app.services.operational_model_library_sync import load_library_snapshot
+
+    _, specs, _issues = await load_library_snapshot()
+    return _seeded_library_view_index(specs)
+
+
+def _seeded_library_view_index(
+    specs: Sequence[Any],
+) -> Dict[str, Dict[str, Any]]:
+    global _SEEDED_VIEW_INDEX
+    cached = _SEEDED_VIEW_INDEX
+    if cached is not None and cached[0] is specs:
+        return cached[1]
 
     index: Dict[str, Dict[str, Any]] = {}
 
@@ -5111,8 +5167,7 @@ def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
                 if isinstance(track_spec, dict):
                     _remember(track_spec)
 
-    _SEEDED_VIEW_INDEX = index
-    _SEEDED_VIEW_INDEX_TOKEN = token
+    _SEEDED_VIEW_INDEX = (specs, index)
     return index
 
 

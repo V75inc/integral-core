@@ -270,19 +270,26 @@
   "core_skills": [
     {
       "allowed_tools": [
+        "integral_attach_uploaded_file_to_entry",
+        "integral_begin_batch",
+        "integral_commit_batch",
         "integral_get_artifact",
         "integral_list_artifacts",
+        "integral_prepare_document_attachment",
         "integral_upsert_artifact"
       ],
       "body_tools": [
+        "integral_attach_uploaded_file_to_entry",
         "integral_get_artifact",
         "integral_list_artifacts",
+        "integral_prepare_document_attachment",
         "integral_upsert_artifact"
       ],
       "delegates_to": [
+        "integral-attachments",
         "integral-scaffold"
       ],
-      "intent": "Maintains session working artifacts \u2014 upsert, get, and list harness-agnostic blueprints, checklists, and notes keyed on the conversation for multi-turn fidelity without Integral UI cards.",
+      "intent": "Maintains session working artifacts and creates downloadable private document drafts in Markdown, DOCX, PDF or PowerPoint from conversation content. Use for writing and revising requested files; use filing and attachment workflows for approved placement in an App or Track.",
       "name": "integral-artifacts",
       "source": "agent/skills/integral-artifacts/SKILL.md",
       "unresolved_refs": []
@@ -292,12 +299,10 @@
         "integral_attach_file",
         "integral_attach_uploaded_file_to_entry",
         "integral_attach_uploaded_image_to_entry",
-        "integral_begin_batch",
         "integral_call_workspace_tool",
         "integral_cancel_batch",
-        "integral_commit_batch",
-        "integral_create_entry",
         "integral_describe_capabilities",
+        "integral_file_uploaded_document",
         "integral_get_attachment_text",
         "integral_get_track_schema",
         "integral_governed_query",
@@ -315,12 +320,10 @@
       "body_tools": [
         "integral_attach_file",
         "integral_attach_uploaded_file_to_entry",
-        "integral_begin_batch",
         "integral_call_workspace_tool",
         "integral_cancel_batch",
-        "integral_commit_batch",
-        "integral_create_entry",
         "integral_describe_capabilities",
+        "integral_file_uploaded_document",
         "integral_get_attachment_text",
         "integral_get_track_schema",
         "integral_governed_query",
@@ -338,8 +341,7 @@
       "delegates_to": [
         "integral-entries",
         "integral-filing",
-        "integral-insights",
-        "integral-scaffold"
+        "integral-insights"
       ],
       "intent": "Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including \u201cfile this where it belongs\u201d. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing.",
       "name": "integral-attachments",
@@ -464,20 +466,29 @@
     {
       "allowed_tools": [
         "integral_file_content",
+        "integral_file_uploaded_document",
         "integral_find_workspace_resources",
         "integral_get_page_context",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_query",
         "integral_query_entries",
-        "integral_rank_destinations"
+        "integral_rank_destinations",
+        "integral_resolve_entry",
+        "integral_search_cross_track",
+        "integral_update_entry"
       ],
       "body_tools": [
         "integral_file_content",
+        "integral_file_uploaded_document",
         "integral_find_workspace_resources",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_query",
         "integral_query_entries",
-        "integral_rank_destinations"
+        "integral_rank_destinations",
+        "integral_resolve_entry",
+        "integral_search_cross_track"
       ],
       "delegates_to": [
         "integral-attachments",
@@ -486,9 +497,32 @@
         "integral-models",
         "integral-workspace"
       ],
-      "intent": "Files user-typed unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.",
+      "intent": "Files user-typed unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape. Also handles remembering, retrieving and correcting shared App notes. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.",
       "name": "integral-filing",
       "source": "agent/skills/integral-filing/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_call_workspace_tool",
+        "integral_create_entry",
+        "integral_file_content",
+        "integral_find_workspace_resources",
+        "integral_get_track_schema",
+        "integral_link_entries",
+        "integral_list_tracks",
+        "integral_list_workspace_tools",
+        "integral_query",
+        "integral_query_entries",
+        "integral_resolve_entry"
+      ],
+      "body_tools": [
+        "integral_file_content"
+      ],
+      "delegates_to": [],
+      "intent": "Set, advance, review, or close a standing workspace goal with an owner, measurable outcome, and evidence. Use for requests to track an outcome across multiple tasks, assess whether a milestone meets its criteria, or revisit a blocked or recurring goal. Use integral-entries for a single record change and integral-scheduling for cadence.",
+      "name": "integral-goals",
+      "source": "agent/skills/integral-goals/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -869,6 +903,7 @@
       "allowed_tools": [
         "integral_apply_model_to_track",
         "integral_ask_user",
+        "integral_attach_uploaded_file_to_entry",
         "integral_author_model",
         "integral_author_skill",
         "integral_begin_batch",
@@ -889,10 +924,12 @@
         "integral_get_track_schema",
         "integral_list_apps",
         "integral_list_artifacts",
+        "integral_list_attachments",
         "integral_list_models",
         "integral_list_routines",
         "integral_list_tracks",
         "integral_list_views",
+        "integral_prepare_document_attachment",
         "integral_propose_design",
         "integral_query_entries",
         "integral_read_app_home",
@@ -901,6 +938,7 @@
         "integral_schedule_task",
         "integral_suggest_dashboard",
         "integral_update_app",
+        "integral_update_entry",
         "integral_verify_build",
         "integral_whoami"
       ],
@@ -937,6 +975,8 @@
         "integral_verify_build"
       ],
       "delegates_to": [
+        "integral-artifacts",
+        "integral-attachments",
         "integral-entries",
         "integral-model",
         "integral-models",
@@ -956,6 +996,7 @@
         "integral_count_workspace_entries",
         "integral_delete_routine",
         "integral_get_digest",
+        "integral_list_resident_opportunities",
         "integral_list_routines",
         "integral_query_entries",
         "integral_resolve_entry",
@@ -968,6 +1009,7 @@
         "integral_cancel_routine",
         "integral_count_workspace_entries",
         "integral_get_digest",
+        "integral_list_resident_opportunities",
         "integral_list_routines",
         "integral_query_entries",
         "integral_resolve_entry",
@@ -1070,15 +1112,15 @@
     }
   ],
   "counts": {
-    "advertised": 132,
+    "advertised": 135,
     "apps": 6,
     "by_op_class": {
       "execute": 1,
-      "propose": 71,
-      "read": 60
+      "propose": 73,
+      "read": 61
     },
-    "core_skills": 18,
-    "tools": 134
+    "core_skills": 19,
+    "tools": 137
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1223,6 +1265,7 @@
         "integral-dashboards",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-model",
         "integral-organize",
@@ -1314,6 +1357,7 @@
         "integral-dashboards",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-indexing",
         "integral-insights",
         "integral-model",
@@ -1343,6 +1387,7 @@
         "integral-attachments",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-indexing",
         "integral-insights",
         "integral-model",
@@ -1607,6 +1652,8 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
+        "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-organize",
         "integral-review"
@@ -1650,6 +1697,7 @@
         "integral-attachments",
         "integral-entries",
         "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-organize",
         "integral-review",
@@ -1675,6 +1723,8 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-filing",
+        "integral-goals",
         "integral-insights",
         "integral-scheduling",
         "integral-workspace"
@@ -1734,6 +1784,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
+        "integral-filing",
         "integral-insights"
       ],
       "status": "existing"
@@ -1879,8 +1930,8 @@
       "op_class": "propose",
       "policy_action": "entry.create",
       "skills": [
-        "integral-attachments",
         "integral-entries",
+        "integral-goals",
         "integral-onboard",
         "integral-scaffold"
       ],
@@ -1921,7 +1972,8 @@
       "op_class": "propose",
       "policy_action": "entry.create",
       "skills": [
-        "integral-filing"
+        "integral-filing",
+        "integral-goals"
       ],
       "status": "existing"
     },
@@ -1941,7 +1993,9 @@
       "policy_action": "entry.update",
       "skills": [
         "integral-entries",
-        "integral-organize"
+        "integral-filing",
+        "integral-organize",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2031,6 +2085,26 @@
       },
       "domain": "C_entry_lifecycle",
       "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_prepare_document_attachment",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral-artifacts",
+        "integral-scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
       "mcp_min_scope": "integral:read",
       "name": "integral_get_artifact",
       "op_class": "read",
@@ -2095,7 +2169,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral-attachments",
+        "integral-artifacts",
         "integral-entries",
         "integral-model",
         "integral-models",
@@ -2139,7 +2213,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral-attachments",
+        "integral-artifacts",
         "integral-entries",
         "integral-model",
         "integral-models",
@@ -2247,6 +2321,7 @@
       "policy_action": "entry.update",
       "skills": [
         "integral-entries",
+        "integral-goals",
         "integral-model"
       ],
       "status": "existing"
@@ -2467,6 +2542,7 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-goals",
         "integral-insights",
         "integral-workspace"
       ],
@@ -2489,6 +2565,7 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-goals",
         "integral-insights",
         "integral-workspace"
       ],
@@ -3370,7 +3447,8 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral-attachments"
+        "integral-attachments",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -3474,6 +3552,26 @@
       "dispatch": {
         "seam": "stager",
         "targets": [
+          "app.agentive.tooling.stagers_document_filing.stage_file_uploaded_document"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_file_uploaded_document",
+      "op_class": "propose",
+      "policy_action": "attachment.create",
+      "skills": [
+        "integral-attachments",
+        "integral-filing"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
           "app.agentive.tooling.bindings._stage_attach_uploaded_file"
         ]
       },
@@ -3484,7 +3582,9 @@
       "op_class": "propose",
       "policy_action": "attachment.create",
       "skills": [
-        "integral-attachments"
+        "integral-artifacts",
+        "integral-attachments",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -3637,6 +3737,25 @@
       "policy_action": "entry.read",
       "skills": [
         "integral-review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.resident_opportunities.list_resident_opportunities"
+        ]
+      },
+      "domain": "P_scheduling",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_resident_opportunities",
+      "op_class": "read",
+      "policy_action": "routine_task.read",
+      "skills": [
+        "integral-scheduling"
       ],
       "status": "existing"
     },

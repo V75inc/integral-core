@@ -44,9 +44,10 @@ def test_ws_rejects_missing_token():
     from app.main import app
 
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
-        "/api/events"
-    ) as ws:
+    with (
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect("/api/events") as ws,
+    ):
         ws.receive_text()
     assert exc_info.value.code == 4001
 
@@ -60,9 +61,10 @@ def test_ws_rejects_invalid_token():
     from app.main import app
 
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
-        "/api/events?token=not-a-real-jwt"
-    ) as ws:
+    with (
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect("/api/events?token=not-a-real-jwt") as ws,
+    ):
         ws.receive_text()
     assert exc_info.value.code == 4001
 

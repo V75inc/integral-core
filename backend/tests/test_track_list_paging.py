@@ -14,7 +14,9 @@ def test_sort_is_a_field_or_minus_field():
     assert _parse_sort_param("-custom_fields.gross") == [("custom_fields.gross", -1)]
 
 
-@pytest.mark.parametrize("bad", ["custom_fields.gross; drop", "-", "1abc", "a b", "x" * 200, "$where"])
+@pytest.mark.parametrize(
+    "bad", ["custom_fields.gross; drop", "-", "1abc", "a b", "x" * 200, "$where"]
+)
 def test_a_malformed_sort_is_refused(bad):
     with pytest.raises(BadRequestError):
         _parse_sort_param(bad)
@@ -25,7 +27,9 @@ def test_facet_fields_are_plain_field_names(ok):
     assert _PATH.match(ok)
 
 
-@pytest.mark.parametrize("bad", ["", "context.id", "custom_fields.", "a.b.c", "x;y", "$ne", "../x"])
+@pytest.mark.parametrize(
+    "bad", ["", "context.id", "custom_fields.", "a.b.c", "x;y", "$ne", "../x"]
+)
 def test_other_field_paths_are_not_accepted(bad):
     assert not _PATH.match(bad)
 

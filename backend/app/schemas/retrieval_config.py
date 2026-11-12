@@ -27,9 +27,9 @@ class RetrievalConfigResponse(BaseModel):
     graceful-fallback state (Wave 2 of the SaaS-deployment plan).
 
     Fields:
-        embedding_model_eager_load: True when the embedding model is
-            warmed at process startup (env ``EMBEDDING_MODEL_EAGER_LOAD``,
-            default ``"1"`` → True).
+        embedding_model_eager_load: Startup warmup policy. Always false on
+            desktop; controlled by ``EMBEDDING_MODEL_EAGER_LOAD`` (default
+            ``"1"``) on servers with a semantic store.
         retrieve_k_default: Default ``k`` over-fetch count for hybrid
             retrieval (env ``RETRIEVE_K_DEFAULT``, default ``150``).
         retrieve_top_n_default: Default ``top_n`` truncation for retrieval

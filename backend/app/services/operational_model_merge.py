@@ -131,14 +131,16 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["create_wizard"] = spec.get("create_wizard")
         if "singleton" not in merged and spec.get("singleton") is not None:
             merged["singleton"] = bool(spec.get("singleton"))
-        if "search_index" in spec:
-            merged["search_index"] = spec["search_index"]
+        for key in ("search_index", "task_semantics", "goal_semantics"):
+            if key in spec:
+                merged[key] = spec[key]
         if spec.get("key") and "_manifest_entry_type_key" not in merged:
             merged["_manifest_entry_type_key"] = str(spec.get("key") or "")
         return normalize_entry_type_form_schema(merged)
     out: Dict[str, Any] = {"fields": list(spec.get("fields") or [])}
-    if "search_index" in spec:
-        out["search_index"] = spec["search_index"]
+    for key in ("search_index", "task_semantics", "goal_semantics"):
+        if key in spec:
+            out[key] = spec[key]
     if spec.get("key"):
         out["_manifest_entry_type_key"] = str(spec.get("key") or "")
     if spec.get("base_fields") is not None:
@@ -1486,9 +1488,8 @@ async def refresh_app_track_template_materialization(
     template_icon = str(template_spec.get("icon") or "")
     if template_icon:
         for spawned in await app_node.nodes(edge=["CONTAINS"], node=["Track"]):
-            if (
-                str(getattr(spawned, "template_id", "") or "") == template_key
-                and not (getattr(spawned, "icon", "") or "")
+            if str(getattr(spawned, "template_id", "") or "") == template_key and not (
+                getattr(spawned, "icon", "") or ""
             ):
                 spawned.icon = template_icon
                 await spawned.save()

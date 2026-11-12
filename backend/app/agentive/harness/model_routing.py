@@ -8,7 +8,9 @@ import os
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from app.agentive.harness.contracts import ResolvedModelRoute
 from app.config import settings
+from app.schemas.agentive.work_mandate import MandateModelRoute
 from app.services.model_credential_resolver import (
     _credential_funds_byok,
     _workspace_owner_credential,
@@ -149,6 +151,9 @@ async def _resolve_turn_routes(
         default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
         **({"profile_id": profile_id} if profile_id else {}),
     )
+    from app.services.model_harness_policy import require_heavy_model
+
+    require_heavy_model(heavy.provider, heavy.model)
     source = getattr(heavy, "credential_source", None)
     owner_record = (
         await _workspace_owner_credential(workspace_id)
@@ -301,6 +306,52 @@ async def conversation_turn_routes(
             )
         ),
     )
+
+
+async def resolve_reviewed_conversation_route(
+    *,
+    workspace_id: str,
+    profile_id: str | None,
+    reasoning_efforts: dict[str, str],
+    reviewed_routes: tuple[MandateModelRoute, ...],
+) -> ResolvedModelRoute:
+    """Resolve current Core routing and require an exact reviewed attribution."""
+    from app.agentive.harness.model_route import resolve_native_model_route
+    from app.api.errors import ServiceUnavailableError
+    from app.schemas.agentive.work import WorkError
+    from app.services.host_hooks import (
+        assert_platform_quota,
+        get_model_bounds_resolver,
+        get_model_price_resolver,
+    )
+
+    if get_model_bounds_resolver() is None or get_model_price_resolver() is None:
+        raise WorkError("work.mandate_model_unavailable")
+    try:
+        plan = await conversation_turn_routes(
+            workspace_id=workspace_id,
+            profile_id=profile_id,
+            reasoning_efforts=reasoning_efforts,
+            heavy_only=True,
+            resolver=resolve_native_model_route,
+        )
+    except ServiceUnavailableError as exc:
+        raise WorkError("work.mandate_model_unavailable") from exc
+    route = plan.heavy
+    if (
+        not route.credential_ref
+        or MandateModelRoute(
+            provider=route.provider,
+            model=route.model,
+            credential_source=route.credential_source,
+            credential_ref=route.credential_ref,
+        )
+        not in reviewed_routes
+    ):
+        raise WorkError("work.model_route_stale")
+    if route.credential_source == "platform":
+        await assert_platform_quota(workspace_id)
+    return route
 
 
 def may_escalate_light_failure(

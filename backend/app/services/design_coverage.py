@@ -203,12 +203,15 @@ async def check_design_coverage(user_id: str, blueprint: Any) -> Dict[str, Any]:
     classes = {row["class"] for row in items}
     if UNSUPPORTED in classes:
         status = "unsupported"
+    elif canonical["open_decisions"]:
+        status = "needs_decision"
     elif REQUIRES_TRUSTED_PACKAGE in classes:
         status = "needs_trusted_package"
     else:
         status = "buildable"
     return {
         "status": status,
+        "open_decisions": canonical["open_decisions"],
         "unsupported": [r for r in items if r["class"] == UNSUPPORTED],
         "requires_trusted_package": [
             r for r in items if r["class"] == REQUIRES_TRUSTED_PACKAGE

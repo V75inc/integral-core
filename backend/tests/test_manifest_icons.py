@@ -10,7 +10,11 @@ from app.services.manifest_icons import MANIFEST_ICON_KEYS, normalize_manifest_i
 from app.services.operational_model_compile import compile_canonical_manifest
 
 FRONTEND_LIST = (
-    Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib" / "manifestLucideIcon.ts"
+    Path(__file__).resolve().parents[2]
+    / "frontend"
+    / "src"
+    / "lib"
+    / "manifestLucideIcon.ts"
 )
 
 
@@ -52,7 +56,9 @@ def test_a_name_outside_the_list_is_refused_and_the_message_lists_valid_ones():
         compile_canonical_manifest(manifest=_manifest(track_icon="not-an-icon"))
     assert "not-an-icon" in err.value.message and "banknote" in err.value.message
     with pytest.raises(BadRequestError):
-        compile_canonical_manifest(manifest=_manifest(app_icon="https://example.com/x.png"))
+        compile_canonical_manifest(
+            manifest=_manifest(app_icon="https://example.com/x.png")
+        )
 
 
 def test_names_are_normalised():

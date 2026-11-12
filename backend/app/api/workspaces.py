@@ -38,6 +38,7 @@ from app.schemas.avatar import (
     AvatarValidationError,
     AvatarVariant,
 )
+from app.schemas.resident_assignment import ResidentAssignmentSettings
 from app.schemas.workspace_membership import WorkspaceMembershipInput
 from app.schemas.workspace_provisioning import WorkspaceProvisioningSummary
 from app.services.app_graph import catalog_workspace
@@ -467,6 +468,52 @@ async def create_workspace(
     if provisioning is not None:
         response["provisioning"] = provisioning
     return response
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/resident-assignment-settings",
+    methods=["GET"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def read_resident_assignment_settings(
+    request: Request, workspace_id: str
+) -> ResidentAssignmentSettings:
+    """Read the workspace's resident assignment opt-in."""
+    from app.services.resident_assignment import get_resident_assignment_settings
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    return await get_resident_assignment_settings(
+        user_id=user_id, workspace_id=workspace_id
+    )
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/resident-assignment-settings",
+    methods=["PUT"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def update_resident_assignment_settings(
+    request: Request, workspace_id: str
+) -> ResidentAssignmentSettings:
+    """Enable or disable workspace resident assignment intake."""
+    from pydantic import ValidationError
+
+    from app.services.resident_assignment import set_resident_assignment_settings
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    try:
+        settings = ResidentAssignmentSettings.model_validate(await request.json())
+    except (ValueError, ValidationError) as exc:
+        raise BadRequestError(message="Invalid resident assignment request") from exc
+    return await set_resident_assignment_settings(
+        user_id=user_id, workspace_id=workspace_id, settings=settings
+    )
 
 
 @endpoint(

@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import datetime, timedelta, timezone
@@ -708,6 +709,7 @@ async def create_staged_change(
     ttl_seconds: int = _DEFAULT_TTL_SECONDS,
     interaction_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
+    entry_edit_fences: Optional[Dict[str, Any]] = None,
 ) -> StagedChange:
     """Mint a new staged change.
 
@@ -768,6 +770,7 @@ async def create_staged_change(
         idempotency_key=idem,
         execution_contract_version="durable-staging-v1",
         origin_proof=current_proposal_origin(user_id, minted_workspace_id),
+        entry_edit_fences=deepcopy(entry_edit_fences or {}),
     )
 
     async with _lock:
@@ -826,7 +829,8 @@ async def create_staged_change(
     # When/if agent runtime ships SPEC §7.3 and the chat stream carries
     # tool results, the inbox path remains useful as a fallback /
     # cross-tab notifier.
-    await _push_created_event(sc)
+    if (sc.origin_proof or {}).get("requires_deferred_link") is not True:
+        await _push_created_event(sc)
     return sc
 
 
@@ -1478,7 +1482,8 @@ async def claim_execution(*, user_id: str, token: str) -> StagedChange:
     manual click) both ran the write. The second caller now gets
     ``already_executing``. The claim is cleared by ``consume_token`` on
     success and by :func:`release_execution_claim` when the executor refuses
-    (the token stays blessed with ``last_error`` and can be retried).
+    (the token stays blessed with ``last_error``). Some failures require a
+    fresh proposal instead of retrying the same inputs.
     """
     async with _lock:
         sc = await _get_or_load_locked(token)
@@ -1497,6 +1502,12 @@ async def claim_execution(*, user_id: str, token: str) -> StagedChange:
             raise StagingError(
                 "already_executing",
                 "This approved change is already being applied",
+            )
+        prior_code = (sc.last_error or {}).get("error_code")
+        if prior_code in ("goal_criteria_unmet", "goal_closure_required"):
+            raise StagingError(
+                prior_code,
+                "Review the current goal evidence and request a fresh closure proposal.",
             )
         sc.executing = True
         sc.execute_started_at = _now()
@@ -1824,6 +1835,46 @@ async def get_pending_for_user(user_id: str) -> List[StagedChange]:
         # Native rows are authoritative, including terminal transitions made
         # by another worker. Do not merge stale cache-only approvals into them.
         items = await staging_store.load_pending_for_user(user_id)
+        deferred = [
+            item
+            for item in items
+            if (item.origin_proof or {}).get("requires_deferred_link") is True
+        ]
+        if deferred:
+            from jvspatial.core.context import get_default_context
+
+            links = await get_default_context().database.find(
+                "object",
+                {
+                    "entity": "WorkApproval",
+                    "context.staging_token": {"$in": [item.token for item in deferred]},
+                    "context.status": "pending",
+                    "context.framework_snapshot_id": {"$exists": True, "$ne": ""},
+                },
+            )
+            ready = {
+                (
+                    fields.get("staging_token"),
+                    fields.get("work_item_id"),
+                    fields.get("run_id"),
+                    fields.get("framework_tool_name"),
+                )
+                for row in links
+                if (fields := row.get("context"))
+            }
+            items = [
+                item
+                for item in items
+                if (proof := item.origin_proof or {}).get("requires_deferred_link")
+                is not True
+                or (
+                    item.token,
+                    proof.get("work_item_id"),
+                    proof.get("run_id"),
+                    proof.get("capability_key"),
+                )
+                in ready
+            ]
         current = [await _cache_durable_decision(item) for item in items]
         return sorted(current, key=lambda item: item.created_at, reverse=True)
     async with _lock:
