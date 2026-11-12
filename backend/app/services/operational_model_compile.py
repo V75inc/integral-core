@@ -456,6 +456,11 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             for value, label in enum_labels.items()
             if str(label).strip()
         }
+    # Required when a record is created, not when an existing one is saved: marked in the form and refused on create,
+    # while records saved before the field was required stay valid and editable. Added only when given, so every
+    # existing definition compiles exactly as before.
+    if bool(field.get("required_on_create", False)):
+        out["required_on_create"] = True
     # Prefill from the parent App's settings at compose/create time
     # (e.g. Finance ``currency`` ← ``default_currency``). Empty string omitted.
     default_from_setting = str(field.get("default_from_setting") or "").strip()
@@ -735,6 +740,8 @@ def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
         "placeholder": str(title_raw.get("placeholder") or ""),
         "help": str(title_raw.get("help") or ""),
     }
+    if bool(title_raw.get("required", False)):
+        title_out["required"] = True
     if "order" in title_raw and title_raw.get("order") is not None:
         try:
             title_out["order"] = int(title_raw["order"])
@@ -749,6 +756,8 @@ def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
         "placeholder": str(body_raw.get("placeholder") or ""),
         "help": str(body_raw.get("help") or ""),
     }
+    if bool(body_raw.get("required", False)):
+        body_out["required"] = True
     if "order" in body_raw and body_raw.get("order") is not None:
         try:
             body_out["order"] = int(body_raw["order"])

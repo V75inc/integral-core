@@ -846,6 +846,10 @@ async def validate_and_materialize_entry_custom_fields(
     """
     spec = resolve_entry_type_spec(entry_type, runtime_tier)
     fields = _as_list(spec.get("fields"), where="entry_type.fields")
+    # A type can require its title (its name) on a new record: the form marks it and a create without one is refused.
+    title_base = _as_dict((spec.get("base_fields") or {}).get("title"), where="entry_type.base_fields.title")
+    if entry is None and bool(title_base.get("required")) and not str(source_entry_title or "").strip():
+        raise BadRequestError(message=f"{str(title_base.get('label') or 'Title')} is required")
     incoming = dict(custom_fields or {})
     out = {
         k: v
@@ -877,7 +881,8 @@ async def validate_and_materialize_entry_custom_fields(
         composite = fd.get("composite") if isinstance(fd, dict) else None
         if isinstance(composite, dict) and composite.get("base"):
             ftype = str(composite.get("base") or ftype)
-        required = bool(fd.get("required", False))
+        # ``required_on_create`` applies to a new record only (no ``entry`` yet): old records are not held to it.
+        required = bool(fd.get("required", False)) or (entry is None and bool(fd.get("required_on_create", False)))
         value = incoming.get(key, _resolve_field_default(fd.get("default")))
         validation = _as_dict(
             fd.get("validation") or {}, where=f"field '{key}' validation"

@@ -211,6 +211,8 @@ export interface OperationalModelFieldSpec {
   name: string;
   type: string;
   required?: boolean;
+  /** Required on a new record only: marked and refused on create, while records saved before it stay valid. */
+  required_on_create?: boolean;
   readonly?: boolean;
   /** Read-only while this condition holds on the record's current values (same shape
    *  as visible_if): ``{field, equals | in | not_in}``. */
@@ -329,6 +331,8 @@ export interface EntryTypeBodyBaseField {
   label?: string;
   placeholder?: string;
   help?: string;
+  /** The record cannot be created without it: marked in the form and refused on create. */
+  required?: boolean;
   /** Sort key vs. custom fields (default 1000). Lower renders earlier. */
   order?: number;
 }

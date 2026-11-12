@@ -3,6 +3,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Select, Surface, Text } from '../../ui';
 import { useEntryWriteCheck } from '../../hooks/useEntryWriteCheck';
+import { WriteCheckNotice } from './WriteCheckNotice';
 import { SeamlessField } from './SeamlessField';
 import { entriesApi, tracksApi } from '../../api';
 import { toolsApi } from '../../api/tools';
@@ -662,11 +663,9 @@ export function CreateWizardModal({
           </Surface>
         )}
         {checkHere && !writeCheck.ok && writeCheck.message ? (
-          <Surface tone="panel-2" radius="input" padding="sm" className="mt-3">
-            <Text as="p" variant="body-sm" tone="danger" role="alert">
-              {writeCheck.message}
-            </Text>
-          </Surface>
+          <div className="mt-3">
+            <WriteCheckNotice message={writeCheck.message} />
+          </div>
         ) : null}
       </Modal.Body>
 
