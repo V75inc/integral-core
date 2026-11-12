@@ -681,6 +681,18 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
     return {"message": "Track deleted successfully", "deleted_track_id": track_id}
 
 
+def _parse_sort_param(raw: Optional[str]) -> Optional[list]:
+    """``field`` or ``-field`` into the stored sort the list is ordered by; nothing when not given."""
+    import re
+
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if not re.fullmatch(r"-?[A-Za-z][A-Za-z0-9_.]{0,127}", text):
+        raise BadRequestError(message="Invalid sort")
+    return [(text.lstrip("-"), -1 if text.startswith("-") else 1)]
+
+
 @endpoint("/tracks/{track_id}/entries", methods=["GET"], auth=True, tags=["Tracks"])
 async def get_track_entries(
     request: Request,
@@ -693,8 +705,13 @@ async def get_track_entries(
     entry_ids: Optional[str] = None,
     include_total: bool = True,
     count_only: bool = False,
+    offset: int = 0,
+    sort: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get entries in a track, filtered by the user's visibility access.
+
+    ``offset`` pages by position (page number x ``limit``) and replaces the cursor; ``sort`` orders the whole
+    list before it is paged, as ``field`` or ``-field`` (``title``, ``updated_at``, ``custom_fields.<key>``).
 
     When ``view_id`` is provided, applies that view's entry-type constraint
     (``View.entry_type_keys``) so view tabs hide entries of unrelated types.
@@ -762,6 +779,8 @@ async def get_track_entries(
         include_total=include_total,
         count_only=count_only,
         entry_ids=selected_entry_ids(entry_ids),
+        offset=max(0, int(offset or 0)),
+        order_by=_parse_sort_param(sort),
     )
     if count_only:
         return {"total": response["total"]}
@@ -769,6 +788,60 @@ async def get_track_entries(
     response["entries"] = enriched
     response["track_id"] = track_id
     return response
+
+
+@endpoint("/tracks/{track_id}/facets", methods=["GET"], auth=True, tags=["Tracks"])
+async def get_track_facets(
+    request: Request,
+    track_id: str,
+    field: str,
+    q: Optional[str] = None,
+    limit: int = 50,
+    view_id: Optional[str] = None,
+    dashboard_filters: Optional[str] = None,
+) -> Dict[str, Any]:
+    """The values one field holds across the entries the caller can read, with counts: what a filter menu lists.
+
+    ``dashboard_filters`` are the other active filters (as on the entries list), so each count is how many
+    entries would remain. Bounded: ``truncated`` says a very large list was only partly counted.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="track.read",
+        resource=Resource(kind="track", id=track_id, scope=f"track:{track_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    from app.models.nodes import View as ViewNode
+    from app.services.entry_facets import facet_values
+
+    parsed = None
+    if dashboard_filters:
+        import json
+
+        try:
+            parsed = json.loads(dashboard_filters)
+        except (TypeError, ValueError) as exc:
+            raise BadRequestError(message="Invalid filter") from exc
+        if (
+            not isinstance(parsed, list)
+            or len(parsed) > 8
+            or any(not isinstance(i, dict) for i in parsed)
+        ):
+            raise BadRequestError(message="Invalid filter")
+    view_node = await ViewNode.get(view_id) if view_id else None
+    return await facet_values(
+        user_id,
+        track_id,
+        field,
+        filters=parsed,
+        view_node=view_node,
+        q=q or "",
+        limit=limit,
+    )
 
 
 @endpoint(

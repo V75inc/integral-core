@@ -474,3 +474,40 @@ async def test_attachment_stage_accepts_valid_backward_target_without_writes(
         bindings._propose_session_id.reset(session)
         current_scope_workspace_id.reset(workspace)
         staging._reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_filed_file_can_be_uploaded_and_filed_again_as_a_new_source(monkeypatch):
+    """A retained chat edge never makes an Entry-owned file a reusable draft."""
+    from app.services import attachment_agent
+
+    monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
+    thread, first_id = await _seed_chat_attachment("o.User.filing-owner")
+    first_entry = await _seed_entry()
+    result = await attach_uploaded_file_to_entry(
+        user_id="o.User.filing-owner", attachment_id=first_id, entry_id=first_entry.id
+    )
+    assert not result.get("error")
+    second_upload = await _persist_uploaded_chat_file(
+        thread=thread,
+        user_id="o.User.filing-owner",
+        file=_make_upload(b"quarterly numbers", "report.csv", "text/csv"),
+    )
+    second_id = second_upload["attachment"]["id"]
+    assert second_id != first_id
+    assert second_upload["attachment"]["owner_kind"] == "chat"
+    track = await Track.get(first_entry.track_id)
+    entry_type = await EntryType.get(first_entry.type_id)
+    second_entry = await Entry.create(
+        title="Second report", track_id=track.id, type_id=entry_type.id
+    )
+    await track.connect(second_entry, edge=CONTAINS)
+    await second_entry.connect(entry_type, edge=IS_OF_TYPE)
+    result = await attach_uploaded_file_to_entry(
+        user_id="o.User.filing-owner", attachment_id=second_id, entry_id=second_entry.id
+    )
+    assert not result.get("error")
+    assert (await Attachment.get(first_id)).owner_kind == "entry"
+    assert (await Attachment.get(second_id)).owner_kind == "entry"
+    assert (await Entry.get(first_entry.id)).attachment_ids == [first_id]
+    assert (await Entry.get(second_entry.id)).attachment_ids == [second_id]

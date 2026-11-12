@@ -19,6 +19,7 @@ from pydantic_ai import (
     Agent,
     AgentRunResultEvent,
     BinaryContent,
+    CallDeferred,
     CancellationToken,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -62,8 +63,11 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.litellm import LiteLLMProvider
-from pydantic_ai.workspaces import LocalWorkspaceBackend
+from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
+from pydantic_ai.workspaces import FileEntry, WorkspaceReadOnlyError, WorkspaceRef
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.compaction import (
     ClearToolResults,
@@ -87,6 +91,7 @@ from pydantic_ai_harness.step_persistence import (
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 from pydantic_graph import End
 
+from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.pydantic_context import (
     IntegralContextAdmission,
     IntegralContextLifecycle,
@@ -668,6 +673,8 @@ def build_integral_json_schema_tool(
 def build_integral_run_instructions(
     base_instructions: str,
     turn_progress: TurnProgress | None = None,
+    *,
+    workflow_skill_ids: frozenset[str] = frozenset(),
 ) -> Callable[[RunContext[Any]], str]:
     """Add current framework-owned capability state to each model request.
 
@@ -682,9 +689,19 @@ def build_integral_run_instructions(
     run_started_at = datetime.now(timezone.utc)
 
     def instructions(ctx: RunContext[Any]) -> str:
-        active_ids = sorted(ctx.active_capability_ids)
+        # Framework infrastructure capabilities are not loadable workflows.
+        # Advertising their generated IDs invites invalid load_capability calls.
+        active_ids = sorted(workflow_skill_ids.intersection(ctx.active_capability_ids))
         blocks = [
             base_instructions,
+            "Restored conversation boundary: earlier user requests in retained or "
+            "restored dialogue are historical context, not a backlog to execute. "
+            "The latest user message defines the current task and supersedes "
+            "conflicting earlier requests. Use history to resolve references and "
+            "retain compatible constraints, not to revive an older requested "
+            "mutation. A tool result or an earlier assistant plan does not "
+            "authorize work beyond the current request. All normal approval "
+            "and permission requirements still apply.",
             "Integral conversation style: write for everyday people. Explain what "
             "happened, what is finished or still needs approval, and one useful "
             "next step. Say 'I couldn't finish' rather than describing tool calls, "
@@ -772,8 +789,9 @@ def build_integral_run_instructions(
             blocks.append(
                 "Integral turn budget: this is the final available response. "
                 "Do not call tools or promise further work in this turn. Give a "
-                "concise handoff grounded only in observed receipts: what was "
-                "verified, what is pending approval, and what remains unresolved. "
+                "concise answer or handoff for the current request only. "
+                "Report verified results, pending approvals, and unresolved work "
+                "only when they concern that request. "
                 "A staged proposal is not an applied change. Do not claim success "
                 "without readback. Invite the user to continue in this chat; "
                 "never instruct them to restart or repeat already applied work."
@@ -786,9 +804,9 @@ def build_integral_run_instructions(
         if active_ids:
             blocks.append(
                 "Integral runtime state: these capabilities are already loaded and "
-                f"their instructions are active: {', '.join(active_ids)}. Do not call "
-                "load_capability for them again. Continue the current workflow using "
-                "the loaded instructions and their tools."
+                f"their instructions are available: {', '.join(active_ids)}. Do not call "
+                "load_capability for them again. Apply a loaded workflow only "
+                "when it serves the latest request or the current host continuation."
             )
         outcomes = {}
         for message in getattr(ctx, "messages", ()):
@@ -809,11 +827,12 @@ def build_integral_run_instructions(
                 "Current Core approval outcomes (authoritative, superseding old "
                 "proposal text and skill instructions to wait): "
                 + "; ".join(f"{token}: {state}" for token, state in outcomes.items())
-                + ". Consumed changes have already been applied: read back their "
-                "saved records and report the result. Revoked changes were rejected: "
-                "acknowledge that they were not applied. Expired changes cannot be "
-                "applied. None of these changes is awaiting approval. Do not replay "
-                "them or ask for approval again."
+                + ". Consumed changes have already been applied, revoked changes "
+                "were rejected, and expired changes cannot be applied. Read back "
+                "and report an outcome when the current request concerns that change "
+                "or the current host event asks for confirmation of its outcome. "
+                "None of these changes is awaiting approval. Do not replay them "
+                "or ask for approval again."
             )
         return "\n\n".join(blocks)
 
@@ -1000,6 +1019,8 @@ class IntegralToolResultCompaction(ClearToolResults):
             for key in ("id", "title", "track_id", "action_url", "url")
             if isinstance(entry.get(key), str)
         }
+        if type(entry.get("record_revision")) is int:
+            identity["record_revision"] = entry["record_revision"]
         return replace(
             part,
             content={
@@ -1210,14 +1231,37 @@ class IntegralToolResultCompaction(ClearToolResults):
             schema_bytes += size
         # Small current-task facts share one byte/count budget across all read
         # transports. Per-call classification still protects mixed effects.
+        from app.services.retrieval.history import RETRIEVAL_EVIDENCE
+
         retained_facts: set[tuple[int, int]] = set()
+        seen_entries: set[str] = set()
         fact_bytes = 0
         for key in reversed(active_reads):
-            size = len(
-                json.dumps(messages[key[0]].parts[key[1]].content, default=str).encode(
-                    "utf-8"
+            part = messages[key[0]].parts[key[1]]
+            if key in identities:
+                # Full detail is useful only within the current task and with
+                # a live-checkable receipt. Do not spend the fact budget on
+                # repeated reads or evidence preceding a possible write.
+                proof = (
+                    part.metadata.get(RETRIEVAL_EVIDENCE)
+                    if isinstance(part.metadata, dict)
+                    else None
                 )
-            )
+                entry = (
+                    part.content.get("entry")
+                    if isinstance(part.content, dict)
+                    else None
+                )
+                entry_id = entry.get("id") if isinstance(entry, dict) else None
+                if (
+                    key <= last_effect
+                    or not proof
+                    or not isinstance(entry_id, str)
+                    or entry_id in seen_entries
+                ):
+                    continue
+                seen_entries.add(entry_id)
+            size = len(json.dumps(part.content, default=str).encode("utf-8"))
             if size > 4096 or fact_bytes + size > self.active_fact_bytes:
                 continue
             if len(retained_facts) >= self.active_fact_pairs:
@@ -1254,6 +1298,8 @@ class IntegralToolResultCompaction(ClearToolResults):
                         part = self._batch_identity_preview(part)
                     elif key in batch_identities:
                         part = replace(part, content=self.placeholder)
+                    elif key in retained_facts and key in identities:
+                        pass
                     elif key in retained_identities and key not in recent:
                         part = self._identity_preview(part)
                     elif key in retained_facts:
@@ -1434,6 +1480,7 @@ class IntegralHistorySummary(SummarizingCompaction):
     current registration and the broker remain the authorization boundary.
     """
 
+    retrieval_scope: HarnessExecutionScope | None = None
     max_history_bytes: int = 96_000
     _compacted_history_digest: str | None = None
 
@@ -1489,6 +1536,12 @@ class IntegralHistorySummary(SummarizingCompaction):
             <= self.max_history_bytes
         ):
             return messages
+        from app.services.retrieval.history import (
+            RETRIEVAL_EVIDENCE,
+            retained_retrieval_evidence,
+        )
+
+        retrieval_evidence = retained_retrieval_evidence(history)
         # A summary request must not resend large completed-turn tool payloads.
         # Durable scoped checkpoints keep the full evidence searchable.
         history = await ClearToolResults(
@@ -1537,7 +1590,19 @@ class IntegralHistorySummary(SummarizingCompaction):
                 else self
             )
         )
-        compacted = await SummarizingCompaction.compact(summarizer, history, ctx)
+        if self.retrieval_scope is not None:
+            from app.services.retrieval.history import (
+                assert_bound_model_retrieval_current,
+                bind_model_request_retrieval,
+            )
+
+            with bind_model_request_retrieval(self.retrieval_scope, history):
+                await assert_bound_model_retrieval_current(self.retrieval_scope)
+                compacted = await SummarizingCompaction.compact(
+                    summarizer, history, ctx
+                )
+        else:
+            compacted = await SummarizingCompaction.compact(summarizer, history, ctx)
         # Native message-count cutoffs can retain a retry after summarizing its
         # original call. Remove only that settled historical validation pair's
         # orphan feedback; never synthesize a result or alter an open effect.
@@ -1604,14 +1669,29 @@ class IntegralHistorySummary(SummarizingCompaction):
             )
         # A summary is a leading system request; attach state after it and
         # before the retained current task. No execution is replayed.
-        retained_history = [compacted[0], *evidence, *compacted[1:]]
+        summary = compacted[0]
+        if retrieval_evidence is None or retrieval_evidence:
+            summary = replace(
+                summary,
+                metadata={
+                    **(summary.metadata or {}),
+                    RETRIEVAL_EVIDENCE: (
+                        [row.model_dump(mode="json") for row in retrieval_evidence]
+                        if retrieval_evidence is not None
+                        else None
+                    ),
+                },
+            )
+        retained_history = [summary, *evidence, *compacted[1:]]
         self._compacted_history_digest = hashlib.sha256(
             ModelMessagesTypeAdapter.dump_json(retained_history)
         ).hexdigest()
         return [*retained_history, *active_turn]
 
 
-def build_integral_history_compaction() -> IntegralHistorySummary:
+def build_integral_history_compaction(
+    *, retrieval_scope: HarnessExecutionScope | None = None
+) -> IntegralHistorySummary:
     """Summarize old prose after the separate cheap result-clearing pass.
 
     The populated browser chat retained 112k conversation characters after
@@ -1622,6 +1702,7 @@ def build_integral_history_compaction() -> IntegralHistorySummary:
     checkpoints remain searchable. Summary requests share model accounting.
     """
     return IntegralHistorySummary(
+        retrieval_scope=retrieval_scope,
         max_messages=40,
         max_tokens=24_576,
         # Only completed turns reach this strategy. Keeping 20 messages plus
@@ -1645,8 +1726,23 @@ class IntegralWorkingContext(TieredCompaction):
 
     policy: IntegralContextPolicy = IntegralContextPolicy()
 
+    retrieval_scope: HarnessExecutionScope | None = None
+
+    async def _assert_live_retrieval(self, messages):
+        if self.retrieval_scope is None:
+            return
+        from app.services.retrieval.history import assert_retrieval_history_current
+
+        await assert_retrieval_history_current(
+            messages,
+            principal_id=self.retrieval_scope.principal_id,
+            workspace_id=self.retrieval_scope.workspace_id,
+            allow_unproven_tool_results=True,
+        )
+
     async def before_model_request(self, ctx, request_context):
         before = list(request_context.messages)
+        await self._assert_live_retrieval(before)
         # Small read clearings happen without inference even below the history
         # trigger. Typed activation was already normalized before node prepare.
         request_context.messages = account_context_reclaim(
@@ -1698,16 +1794,22 @@ class IntegralWorkingContext(TieredCompaction):
                     ).compact(prior, ctx),
                 )
         if request_context.messages != before:
+            await self._assert_live_retrieval(request_context.messages)
             ctx.messages[:] = request_context.messages
         return request_context
 
 
-def build_integral_working_context(*, clearable_tools: frozenset[str]):
+def build_integral_working_context(
+    *,
+    clearable_tools: frozenset[str],
+    retrieval_scope: HarnessExecutionScope | None = None,
+):
     """Use native tier orchestration; Core supplies protection and lifecycle rules."""
     return IntegralWorkingContext(
+        retrieval_scope=retrieval_scope,
         tiers=[
             build_integral_context_compaction(clearable_tools=clearable_tools),
-            build_integral_history_compaction(),
+            build_integral_history_compaction(retrieval_scope=retrieval_scope),
         ],
         target_tokens=16_384,
     )
@@ -1716,11 +1818,14 @@ def build_integral_working_context(*, clearable_tools: frozenset[str]):
 def classify_integral_harness_exception(exc: BaseException) -> str | None:
     """Translate Pydantic AI failures to Integral's stable error categories."""
     from app.agentive.harness.model_errors import classified_model_error
+    from app.services.retrieval.history import RetrievalEvidenceStale
 
     current: BaseException | None = exc
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
+        if isinstance(current, RetrievalEvidenceStale):
+            return "harness_retrieval_history_stale"
         if isinstance(current, IntegralContextOverflow):
             return "harness_context_limit"
         if isinstance(current, UsageLimitExceeded):
@@ -1737,6 +1842,10 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         if isinstance(current, UnexpectedModelBehavior):
+            if str(current).startswith(
+                "Model token limit ("
+            ) and " exceeded before any response was generated." in str(current):
+                return "model_output_limit"
             return "model_response_invalid"
         current = current.__cause__ or current.__context__
     if isinstance(exc, UsageLimitExceeded):
@@ -1761,10 +1870,13 @@ __all__ = [
     "BinaryContent",
     "Capability",
     "CancellationToken",
+    "CallDeferred",
     "ClearToolResults",
     "build_integral_history_compaction",
     "ContinuableSnapshot",
     "ConversationSearch",
+    "DeferredToolRequests",
+    "DeferredToolResults",
     "FunctionToolCallEvent",
     "FunctionToolResultEvent",
     "Instrumentation",
@@ -1774,6 +1886,8 @@ __all__ = [
     "ModelResponse",
     "ModelRetry",
     "OpenAIChatModel",
+    "OpenRouterModel",
+    "OpenAIModelProfile",
     "PartDeltaEvent",
     "PartEndEvent",
     "PartStartEvent",
@@ -1786,7 +1900,9 @@ __all__ = [
     "RunRecord",
     "SchemaValidator",
     "Skills",
-    "LocalWorkspaceBackend",
+    "FileEntry",
+    "WorkspaceReadOnlyError",
+    "WorkspaceRef",
     "SnapshotHistorySource",
     "StepEvent",
     "StepPersistence",

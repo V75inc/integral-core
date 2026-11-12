@@ -127,6 +127,16 @@ async def _lock_decision(
         and current.expires_at <= datetime.now(timezone.utc)
     ):
         raise StagingError("expired", "Original approval has expired")
+    if not recovering:
+        from app.agentive.services.work_approvals import lock_linked_staging_work
+        from app.schemas.agentive.work import WorkError
+
+        try:
+            await lock_linked_staging_work(transaction=database, staging_data=data)
+        except WorkError as exc:
+            raise StagingError(
+                "approval_unavailable", "Linked work is no longer available"
+            ) from exc
     return row, current
 
 

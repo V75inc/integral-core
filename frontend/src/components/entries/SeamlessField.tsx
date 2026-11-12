@@ -175,8 +175,8 @@ function SeamlessShell({
   return (
     <div
       className={`
-        relative rounded-md border transition-[border-color,background-color] duration-fast
-        ${active ? 'border-[var(--panel-border)] bg-[var(--panel)]' : 'border-transparent bg-transparent hover:bg-[var(--panel-2)]'}
+        relative rounded-[var(--radius-input)] border transition-[border-color,background-color] duration-fast
+        ${active ? 'border-[var(--text-muted)] bg-[var(--field-bg)]' : 'border-[var(--field-border)] bg-[var(--field-bg)] hover:border-[var(--field-border-hover)]'}
         ${className}
       `}
       aria-required={required || undefined}
@@ -220,6 +220,8 @@ function LegacyField(props: SeamlessFieldProps) {
     memberFormUpload,
   } = props;
   const v = value;
+  // A label set on the field itself, then any a caller supplies (a board's own column names win).
+  const labels = { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) };
   if (field.type === 'boolean') {
     return (
       <label className="flex items-center gap-2 pl-3 text-sm text-[var(--text)]">
@@ -237,7 +239,7 @@ function LegacyField(props: SeamlessFieldProps) {
     const enumStrings = (field.enum ?? []) as string[];
     const opts = enumStrings.map(opt => ({
       value: opt,
-      label: resolveEnumOptionLabel(opt, enumLabels),
+      label: resolveEnumOptionLabel(opt, labels),
     }));
     return (
       <>
@@ -276,7 +278,7 @@ function LegacyField(props: SeamlessFieldProps) {
                     onChange(next);
                   }}
                 />
-                {resolveEnumOptionLabel(opt, enumLabels)}
+                {resolveEnumOptionLabel(opt, labels)}
               </label>
             ))
           )}
@@ -477,7 +479,7 @@ function SeamlessSelectInner({
   const enumStrings = (field.enum ?? []) as string[];
   const opts = enumStrings.map(opt => ({
     value: opt,
-    label: resolveEnumOptionLabel(opt, enumLabels),
+    label: resolveEnumOptionLabel(opt, { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) }),
   }));
   const hasValue = hasMeaningfulValue(value, field.type);
   const [hovered, setHovered] = useState(false);
@@ -579,7 +581,7 @@ function SeamlessMultiSelectInner({
                   }
                 `}
               >
-                {resolveEnumOptionLabel(opt, enumLabels)}
+                {resolveEnumOptionLabel(opt, { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) })}
               </button>
             );
           })}

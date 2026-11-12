@@ -257,6 +257,13 @@ async def refresh_library_package_from_disk(slug: str) -> bool:
         return False
     if (rows[0].manifest or {}) == (spec.manifest or {}):
         return False
+    # Only the files changing since the catalog was synced is a reason to refresh: a catalog row
+    # published newer than its files (same bundle) is kept as it is.
+    synced_fingerprint = str(
+        (getattr(rows[0], "metadata", None) or {}).get("bundle_fingerprint") or ""
+    )
+    if synced_fingerprint and synced_fingerprint == str(spec.bundle_fingerprint or ""):
+        return False
     from app.models.nodes import OPERATIONAL_MODELS_REGISTRY_ID, OperationalModels
     from app.services.app_graph import ensure_catalog_edge
 

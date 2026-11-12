@@ -16,9 +16,10 @@ import logging
 from builtins import anext
 from collections import defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -36,7 +37,12 @@ from app.agentive.harness.model_errors import (
     NativeModelRequestError,
     model_request_error,
 )
-from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatModel
+from app.agentive.harness.pydantic_ai_compat import (
+    LiteLLMProvider,
+    OpenAIChatModel,
+    OpenAIModelProfile,
+    OpenRouterModel,
+)
 from app.schemas.agentive.model_dispatch import ModelDispatchInput, ModelDispatchRoute
 
 logger = logging.getLogger(__name__)
@@ -199,9 +205,20 @@ def _cost_value(value: Any) -> Decimal | None:
         return None
     try:
         cost = Decimal(str(value))
-    except (TypeError, ValueError):
+    except (InvalidOperation, TypeError, ValueError):
         return None
     return cost if cost.is_finite() and cost >= 0 else None
+
+
+_COST_FIELDS = ("cost", "response_cost")
+
+
+def _cost_fields(payload: dict[str, Any]) -> dict[str, Decimal]:
+    return {
+        key: cost
+        for key in _COST_FIELDS
+        if (cost := _cost_value(payload.get(key))) is not None
+    }
 
 
 def _reported_cost(
@@ -212,15 +229,12 @@ def _reported_cost(
     hidden = hidden if isinstance(hidden, dict) else {}
     raw_usage = payload.get("usage")
     raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
-    usage_cost = raw_usage.get("cost", raw_usage.get("response_cost"))
-    provider_cost = _cost_value(usage_cost)
-    if provider_cost is not None:
-        return provider_cost, "provider_response"
-
-    for key in ("response_cost", "cost"):
-        direct_cost = _cost_value(payload.get(key))
-        if direct_cost is not None:
-            return direct_cost, "provider_response"
+    for source in (raw_usage, payload):
+        amounts = set(_cost_fields(source).values())
+        if len(amounts) > 1:
+            return None, "unavailable"
+        if amounts:
+            return amounts.pop(), "provider_response"
     headers = hidden.get("additional_headers")
     if isinstance(headers, dict):
         header_cost = _cost_value(headers.get("llm_provider-x-litellm-response-cost"))
@@ -349,6 +363,117 @@ class _StreamAccountingResponse:
         return self._payload
 
 
+class _AnthropicReasoningCodec:
+    """Lossless wire bridge to the SDK's durable typed reasoning-details format.
+
+    LiteLLM emits signed blocks, but OpenAI chat models only retain their text.
+    The public OpenRouterModel codec persists both text and opaque signatures in
+    ThinkingPart. State here identifies streaming blocks, never supplies replay.
+    """
+
+    def __init__(self) -> None:
+        self._next_index = 0
+        self._has_text = False
+
+    def response(
+        self, payload: dict[str, Any], *, stream: bool = False
+    ) -> dict[str, Any]:
+        payload = deepcopy(payload)
+        payload.setdefault("provider", "Anthropic")
+        for choice in payload.get("choices", []):
+            message = choice.get("delta" if stream else "message", {})
+            blocks = message.get("thinking_blocks")
+            if blocks is None:
+                blocks = (message.get("provider_specific_fields") or {}).get(
+                    "thinking_blocks"
+                )
+            if not blocks:
+                continue
+            details = []
+            for index, block in enumerate(blocks):
+                block_type = block.get("type")
+                part_index = self._next_index if stream else index
+                common = {
+                    "format": "anthropic-claude-v1",
+                    "index": part_index,
+                    "id": f"anthropic-thinking-{part_index}",
+                }
+                if block_type == "thinking":
+                    signature = block.get("signature")
+                    text = block.get("thinking", "")
+                    if stream and signature:
+                        # LiteLLM repeats ALL accumulated reasoning on signature
+                        # deltas. The already emitted deltas are authoritative.
+                        if text and not self._has_text:
+                            raise ValueError(
+                                "Signed thinking arrived without its text deltas"
+                            )
+                        text = ""
+                    details.append(
+                        {
+                            **common,
+                            "type": "reasoning.text",
+                            "text": text,
+                            "signature": signature,
+                        }
+                    )
+                    if stream:
+                        self._has_text = self._has_text or bool(text)
+                        if signature:
+                            self._next_index += 1
+                            self._has_text = False
+                elif block_type == "redacted_thinking":
+                    details.append(
+                        {**common, "type": "reasoning.encrypted", "data": block["data"]}
+                    )
+                    if stream:
+                        self._next_index += 1
+                        self._has_text = False
+                else:
+                    raise ValueError("Unsupported Anthropic thinking block")
+            message["reasoning_details"] = details
+            # Do not duplicate thinking as generic text, or expose vendor
+            # fields alongside the typed codec's preserved representation.
+            message.pop("reasoning_content", None)
+            message.pop("thinking_blocks", None)
+            if isinstance(message.get("provider_specific_fields"), dict):
+                message["provider_specific_fields"].pop("thinking_blocks", None)
+        return payload
+
+    @staticmethod
+    def request(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        messages = deepcopy(messages)
+        for message in messages:
+            details = message.pop("reasoning_details", None)
+            if details is None:
+                continue
+            blocks = []
+            for detail in details:
+                if detail.get("format") != "anthropic-claude-v1":
+                    # A route switch must not send another provider's opaque
+                    # reasoning to Anthropic. Public SDK excludes foreign
+                    # provider parts; this is defense in depth at the boundary.
+                    continue
+                if detail.get("type") == "reasoning.text":
+                    if not detail.get("signature"):
+                        raise ValueError("Cannot replay unsigned Anthropic thinking")
+                    blocks.append(
+                        {
+                            "type": "thinking",
+                            "thinking": detail.get("text", ""),
+                            "signature": detail["signature"],
+                        }
+                    )
+                elif detail.get("type") == "reasoning.encrypted":
+                    blocks.append({"type": "redacted_thinking", "data": detail["data"]})
+                else:
+                    raise ValueError("Unsupported Anthropic reasoning detail")
+            if blocks:
+                message["thinking_blocks"] = blocks
+                message.pop("reasoning_content", None)
+        return messages
+
+
 class _LiteLLMStream(httpx.AsyncByteStream):
     """Render LiteLLM stream chunks as the SSE shape expected by OpenAI SDK."""
 
@@ -360,6 +485,7 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         response: Any = None,
         deadline: float | None = None,
         idle_timeout_seconds: float = 30.0,
+        anthropic_reasoning: bool = False,
     ) -> None:
         self._chunks = chunks
         self._deadline = deadline
@@ -367,8 +493,8 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         self._finish = finish
         self._last: Any | None = None
         self._usage: dict[str, Any] = {}
-        self._reported_usage_cost: Any = None
-        self._reported_direct_cost: Any = None
+        self._reported_usage_cost: dict[str, Decimal] = {}
+        self._reported_direct_cost: dict[str, Decimal] = {}
         self._hidden_params: dict[str, Any] = {}
         self._hidden_cost: Any = None
         self._additional_headers: dict[str, Any] = {}
@@ -376,6 +502,9 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         self._capture(response)
         self._finished = False
         self._tool_call_indexes = _ToolCallIndexNormalizer()
+        self._reasoning_codec = (
+            _AnthropicReasoningCodec() if anthropic_reasoning else None
+        )
 
     def _capture(self, response: Any) -> None:
         """Retain accounting metadata without retaining every streamed token."""
@@ -384,15 +513,19 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         except (TypeError, ValueError):
             payload = {}
         if isinstance(payload, dict):
-            for key in ("cost", "response_cost"):
-                if _cost_value(payload.get(key)) is not None:
-                    self._reported_direct_cost = payload[key]
+            self._reported_direct_cost = (
+                _cost_fields(payload) or self._reported_direct_cost
+            )
             usage = payload.get("usage")
             if isinstance(usage, dict):
-                self._usage.update(usage)
-                for key in ("cost", "response_cost"):
-                    if _cost_value(usage.get(key)) is not None:
-                        self._reported_usage_cost = usage[key]
+                self._usage.update(
+                    (key, value)
+                    for key, value in usage.items()
+                    if key not in _COST_FIELDS
+                )
+                self._reported_usage_cost = (
+                    _cost_fields(usage) or self._reported_usage_cost
+                )
             request_id = payload.get("id")
             if request_id:
                 self._provider_request_id = request_id
@@ -422,12 +555,10 @@ class _LiteLLMStream(httpx.AsyncByteStream):
             if isinstance(last_payload, dict):
                 payload.update(last_payload)
         payload["id"] = self._provider_request_id or payload.get("id")
-        merged_usage = dict(self._usage)
-        if self._reported_usage_cost is not None:
-            merged_usage["cost"] = self._reported_usage_cost
-        payload["usage"] = merged_usage
-        if self._reported_direct_cost is not None:
-            payload["response_cost"] = self._reported_direct_cost
+        payload["usage"] = {**self._usage, **self._reported_usage_cost}
+        for key in _COST_FIELDS:
+            payload.pop(key, None)
+        payload.update(self._reported_direct_cost)
 
         hidden = dict(self._hidden_params)
         if self._hidden_cost is not None:
@@ -457,6 +588,8 @@ class _LiteLLMStream(httpx.AsyncByteStream):
                 payload = _plain(chunk)
                 if isinstance(payload, dict):
                     payload = self._tool_call_indexes.normalize(deepcopy(payload))
+                    if self._reasoning_codec is not None:
+                        payload = self._reasoning_codec.response(payload, stream=True)
                 data = json.dumps(payload, separators=(",", ":"))
                 yield f"data: {data}\n\n".encode("utf-8")
             # Claim settlement before awaiting persistence. The HTTP client may
@@ -659,6 +792,10 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         from app.services.model_settings import provider_model_options
 
         kwargs = dict(body)
+        if self._route.provider == "anthropic":
+            kwargs["messages"] = _AnthropicReasoningCodec.request(
+                kwargs.get("messages", [])
+            )
         if "max_tokens" in self._route.generation_settings:
             kwargs.pop("max_completion_tokens", None)
         kwargs.update(provider_model_options(self._route.generation_settings))
@@ -834,25 +971,28 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 # conservatively for the separate no-dispatch recovery path.
                 await readiness()
 
-            if self._request_validator is not None:
-                try:
+            try:
+                if self._request_validator is not None:
                     await self._request_validator(body)
-                except BaseException as exc:
-                    # The SDK was never entered. Settle the dispatch intent as
-                    # a known refusal so revoked uploads cannot leave an
-                    # unknown request that blocks durable chat continuation.
-                    await self._observe(
-                        request_id=request_id,
-                        request_context=request_context,
-                        attempt=attempt,
-                        started_at=started_at,
-                        outcome=(
-                            "cancelled"
-                            if isinstance(exc, asyncio.CancelledError)
-                            else "failed"
-                        ),
-                    )
-                    raise
+                from app.services.retrieval.history import (
+                    assert_bound_model_retrieval_current,
+                )
+
+                await assert_bound_model_retrieval_current(self._scope)
+            except BaseException as exc:
+                # No SDK call was made. Settle the intent as a known refusal.
+                await self._observe(
+                    request_id=request_id,
+                    request_context=request_context,
+                    attempt=attempt,
+                    started_at=started_at,
+                    outcome=(
+                        "cancelled"
+                        if isinstance(exc, asyncio.CancelledError)
+                        else "failed"
+                    ),
+                )
+                raise
 
             try:
                 deadline = asyncio.get_running_loop().time() + self._timeout_seconds
@@ -897,6 +1037,8 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                                                 "function_call",
                                                 "refusal",
                                                 "reasoning_content",
+                                                "thinking_blocks",
+                                                "reasoning_details",
                                             )
                                         )
                                         for choice in choices
@@ -1061,12 +1203,18 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                     finish=finish,
                     deadline=deadline,
                     idle_timeout_seconds=self._idle_timeout_seconds,
+                    anthropic_reasoning=self._route.provider == "anthropic",
                 ),
                 request=request,
             )
 
         try:
             payload = _plain(response)
+            if self._route.provider == "anthropic":
+                payload = _AnthropicReasoningCodec().response(payload)
+            elif self._route.provider == "openrouter":
+                payload = deepcopy(payload)
+                payload.setdefault("provider", "OpenRouter")
             encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         except Exception:
             await self._observe(
@@ -1097,6 +1245,56 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             content=encoded,
             request=request,
         )
+
+
+class RetrievalAwareOpenAIChatModel(OpenAIChatModel):
+    """Bind native message evidence before the SDK projects messages to HTTP."""
+
+    def __init__(
+        self, *args: Any, retrieval_scope: HarnessExecutionScope, **kwargs: Any
+    ):
+        super().__init__(*args, **kwargs)
+        self._retrieval_scope = retrieval_scope
+
+    async def request(self, messages, model_settings, model_request_parameters):
+        from app.services.retrieval.history import bind_model_request_retrieval
+
+        with bind_model_request_retrieval(
+            self._retrieval_scope, messages, allow_unproven_tool_results=True
+        ):
+            return await super().request(
+                messages, model_settings, model_request_parameters
+            )
+
+    @asynccontextmanager
+    async def request_stream(
+        self, messages, model_settings, model_request_parameters, run_context=None
+    ):
+        from app.services.retrieval.history import bind_model_request_retrieval
+
+        with bind_model_request_retrieval(
+            self._retrieval_scope, messages, allow_unproven_tool_results=True
+        ):
+            async with super().request_stream(
+                messages, model_settings, model_request_parameters, run_context
+            ) as response:
+                yield response
+
+
+class RetrievalAwareReasoningModel(RetrievalAwareOpenAIChatModel, OpenRouterModel):
+    """Public SDK reasoning-details codec with the existing retrieval binding."""
+
+
+class _ReasoningProvider(LiteLLMProvider):
+    """Keep signed provider history isolated when a conversation changes route."""
+
+    def __init__(self, *, reasoning_provider: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._reasoning_provider = reasoning_provider
+
+    @property
+    def name(self) -> str:
+        return self._reasoning_provider
 
 
 def build_litellm_sdk_model(
@@ -1138,7 +1336,12 @@ def build_litellm_sdk_model(
         http_client=http_client,
         max_retries=0,
     )
-    provider = LiteLLMProvider(openai_client=client)
+    signed_reasoning = route.provider in {"anthropic", "openrouter"}
+    provider = (
+        _ReasoningProvider(reasoning_provider=route.provider, openai_client=client)
+        if signed_reasoning
+        else LiteLLMProvider(openai_client=client)
+    )
     # Admission and native compaction must see the same explicit capacity as
     # the provider transport. Custom/Ollama identifiers may have no registry
     # entry; otherwise their configured window silently became the fallback.
@@ -1161,11 +1364,39 @@ def build_litellm_sdk_model(
             context_window = model_capabilities(provider_name, model_name).get(
                 "native_context"
             )
-    profile = (
+    profile: OpenAIModelProfile | None = (
         {"context_window": context_window}
         if isinstance(context_window, int)
         and not isinstance(context_window, bool)
         and context_window > 0
         else None
     )
-    return OpenAIChatModel(route.model, provider=provider, profile=profile)
+    from app.services.model_settings import mandatory_adaptive_thinking
+
+    if route.api_base is None and mandatory_adaptive_thinking(
+        route.provider, route.model
+    ):
+        from app.services.model_settings import validate_model_settings
+
+        # Recheck legacy/deployment selections at execution, not only writes.
+        validate_model_settings(
+            route.provider,
+            route.model.removeprefix(f"{route.provider}/"),
+            route.generation_settings,
+        )
+        # Public Pydantic AI profile contract selects auto tool choice rather
+        # than forced any/tool, retaining normal output validation and retries.
+        profile = {
+            **(profile or {}),
+            "supports_forced_tool_choice": False,
+            "supports_forced_tool_choice_with_thinking": False,
+            "openai_unsupported_model_settings": ("temperature", "top_p"),
+        }
+    model_class = (
+        RetrievalAwareReasoningModel
+        if signed_reasoning
+        else RetrievalAwareOpenAIChatModel
+    )
+    return model_class(
+        route.model, provider=provider, profile=profile, retrieval_scope=scope
+    )

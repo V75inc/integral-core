@@ -1036,3 +1036,27 @@ async def test_schedule_inherits_account_zone_and_freezes_it_before_approval():
         timezone="Europe/London",
     )
     assert overridden.timezone == "Europe/London"
+
+
+@pytest.mark.parametrize(
+    ("now", "start", "end", "expected"),
+    [
+        ("2026-03-08T06:00:00+00:00", "22:00", "02:30", "2026-03-08T07:00:00+00:00"),
+        ("2026-11-01T05:30:00+00:00", "22:00", "02:30", "2026-11-01T07:30:00+00:00"),
+        ("2026-11-01T07:30:00+00:00", "22:00", "02:30", None),
+    ],
+)
+def test_task_watch_quiet_hours_follow_local_time_at_dst(now, start, end, expected):
+    from datetime import datetime
+
+    from app.agentive.services.routine_task_watch import quiet_hours_end
+    from app.schemas.agentive.routines import RoutineQuietHours
+
+    assert (
+        quiet_hours_end(
+            datetime.fromisoformat(now),
+            "America/New_York",
+            RoutineQuietHours(start=start, end=end),
+        )
+        == expected
+    )

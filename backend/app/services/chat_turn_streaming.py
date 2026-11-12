@@ -7,7 +7,50 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 
 from app.schemas.agentive.work import TERMINAL_WORK_STATUSES
 from app.services.chat_sse import sse_bytes
-from app.services.chat_turn_events import replay_work_item_chat_events
+from app.services.chat_turn_events import (
+    chat_approval_error,
+    replay_work_item_chat_events,
+)
+
+
+async def find_parked_chat_stream_id(
+    *, principal_id: str, workspace_id: str, thread_id: str, thread_revision: str
+) -> str | None:
+    """Discover a continuation stream without reserving an execution slot."""
+    from jvspatial.core.context import get_default_context
+
+    database = get_default_context().database
+    approvals = await database.find(
+        "object",
+        {
+            "entity": "WorkApproval",
+            "context.deferred_thread_revision": thread_revision,
+            "context.status": {"$in": ["pending", "approved"]},
+            "context.framework_snapshot_id": {"$exists": True, "$ne": ""},
+        },
+        limit=2,
+    )
+    if len(approvals) != 1:
+        return None
+    approval = approvals[0].get("context") or {}
+    work_item_id = approval.get("work_item_id")
+    run_id = approval.get("run_id")
+    if not isinstance(work_item_id, str) or not work_item_id or not run_id:
+        return None
+    row = await database.get("object", f"o.WorkItem.{work_item_id}")
+    item = (row or {}).get("context") or {}
+    if (
+        (row or {}).get("entity") == "WorkItem"
+        and item.get("work_item_id") == work_item_id
+        and item.get("kind") == "chat_turn"
+        and item.get("principal_id") == principal_id
+        and item.get("workspace_id") == workspace_id
+        and item.get("thread_id") == thread_id
+        and item.get("run_id") == run_id
+        and item.get("status") in {"waiting_for_human", "queued", "running"}
+    ):
+        return work_item_id
+    return None
 
 
 async def stream_committed_chat_turn(
@@ -69,15 +112,17 @@ async def stream_committed_chat_turn(
             continue
         if page.work_status in TERMINAL_WORK_STATUSES:
             if page.work_status not in {"succeeded", "cancelled"} and not saw_error:
-                await assert_scope()
-                yield sse_bytes(
-                    "error",
-                    {
+                error = (
+                    chat_approval_error(page.approval_outcome)
+                    if page.approval_outcome
+                    else {
                         "type": "error",
                         "code": f"work.{page.work_status}",
                         "message": "This turn stopped before completing. Check its saved result before retrying.",
-                    },
+                    }
                 )
+                await assert_scope()
+                yield sse_bytes("error", error)
             await assert_scope()
             yield sse_bytes(
                 "turn-settled",

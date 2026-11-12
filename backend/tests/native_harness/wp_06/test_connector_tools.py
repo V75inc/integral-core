@@ -97,3 +97,10 @@ def test_portable_resident_skill_is_available_to_native_core_discovery():
         in core["web-research"]["tools_required"]
     )
     assert "search retrieval" in core["web-research"]["resolved_body"]
+    assert "extended mode" in core["web-research"]["resolved_body"]
+    assert (
+        "not claims of completeness or hard limits"
+        in core["web-research"]["resolved_body"]
+    )
+    assert "web_search__search" not in core["web-research"]["tools_required"]
+    assert "web_fetch__fetch" not in core["web-research"]["tools_required"]

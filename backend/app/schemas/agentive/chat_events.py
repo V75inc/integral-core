@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,6 +18,7 @@ class ChatEventReplayPage(BaseModel):
     has_more: bool = False
     gap: bool = False
     work_status: WorkStatus
+    approval_outcome: Literal["rejected", "expired"] | None = None
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

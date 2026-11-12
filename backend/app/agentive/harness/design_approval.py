@@ -17,6 +17,10 @@ from app.services.release_admission import release_admission
 logger = logging.getLogger(__name__)
 
 
+class DesignDecisionRequired(ValueError):
+    """A saved draft requires a real decision, not another operation plan."""
+
+
 @asynccontextmanager
 async def _authority_transaction(work_context: WorkExecutionContext | None):
     if work_context is not None:
@@ -57,7 +61,11 @@ async def pending_design_is_approved_for_reply(
     # A prior turn's approval authorizes its saved revision, not a command to
     # build on every later reply. Let the primary model select revision versus
     # resume for this reply; freeze the design only after this run approves it.
-    return bool(marker.get("approved") and marker.get("affirm_run_id") == scope.run_id)
+    return bool(
+        marker.get("approved")
+        and marker.get("affirm_run_id") == scope.run_id
+        and not (marker.get("blueprint") or {}).get("open_decisions")
+    )
 
 
 async def authorize_pending_design_build(
@@ -83,6 +91,14 @@ async def authorize_pending_design_build(
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker or marker.get("build_receipt"):
         return False
+    from app.services.design_blueprint import (
+        design_decision_reply,
+        open_design_questions,
+    )
+
+    questions = open_design_questions(marker.get("blueprint") or {})
+    if questions and not marker.get("partial_build"):
+        raise DesignDecisionRequired(design_decision_reply(questions))
     # Earlier approval belongs to its saved revision and run. Even an already
     # approved design must revalidate this run and current authority before a
     # later primary tool selection can authorize continuation.

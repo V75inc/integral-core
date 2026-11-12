@@ -143,6 +143,25 @@ async def get_configuration(request: Request) -> dict[str, Any]:
             else routing_summary.get("heavy_generation_settings", {})
         ),
     }
+    from app.services.model_harness_policy import assess_model
+
+    policy_provider = result["effective"]["provider"]
+    policy_model = result["effective"]["model"]
+    if not personal and policy_model:
+        policy_provider, _, _ = policy_model.partition("/")
+        if policy_provider in {"ollama", "ollama_chat"}:
+            from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+
+            policy_provider = (
+                "ollama"
+                if os.getenv("OLLAMA_API_BASE", "").strip().rstrip("/")
+                == OLLAMA_CLOUD_API_BASE.rstrip("/")
+                else "ollama_local"
+            )
+            policy_model = policy_model.split("/", 1)[-1]
+        elif os.getenv("INTEGRAL_NATIVE_API_BASE", "").strip():
+            policy_provider = "custom_openai"
+    result["effective"]["harness_policy"] = assess_model(policy_provider, policy_model)
     return result
 
 

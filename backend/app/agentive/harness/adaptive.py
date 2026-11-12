@@ -74,7 +74,10 @@ class SimpleReminderRequest(BaseModel):
 LIGHT_INSTRUCTIONS = (
     "You are Integral's conversational router within its resident AI harness. "
     "Choose exactly one output tool for the CURRENT user request. Do not answer "
-    "in plain text. Resolve short follow-ups against the supplied dialogue. "
+    "in plain text. Use the supplied dialogue to resolve references such as "
+    "'what about her other projects?' or 'make that shorter'. When the user "
+    "introduces a new subject, route that request on its own. An earlier "
+    "task, active page, or loaded workflow does not add work to this request. "
     "Apply these rules in order:\n"
     "1. Call request_operational_context for requests to do work in "
     "Integral, plan or build an App, inspect or change workspace records, use "
@@ -154,12 +157,30 @@ def requires_operational_path(ctx: Any, thread: Any, previous_run: Any) -> bool:
     )
 
 
-def public_dialogue(messages: list[Any], *, exclude_id: str | None = None):
+def public_dialogue(
+    messages: list[Any],
+    *,
+    exclude_id: str | None = None,
+    allow_assistant: bool = True,
+):
     """Project recent plain dialogue; omit tools, reasoning and host messages."""
     projected: list[ModelRequest | ModelResponse] = []
     remaining = 12_000
     for message in reversed(messages):
         if message.id == exclude_id or message.role not in {"user", "assistant"}:
+            continue
+        metadata = getattr(message, "provider_metadata", None) or {}
+        interaction = metadata.get("interactPayload")
+        if message.role == "assistant" and (
+            not allow_assistant
+            or metadata.get("resident_assignment_draft")
+            or metadata.get("mandate_entry_read_result")
+            or metadata.get("origin") in ("proactive", "routine_task")
+            or (
+                isinstance(interaction, dict)
+                and interaction.get("origin") == "routine_task"
+            )
+        ):
             continue
         text = "\n".join(
             str(part.get("text") or "")
@@ -177,6 +198,14 @@ def public_dialogue(messages: list[Any], *, exclude_id: str | None = None):
             else ModelResponse(parts=[TextPart(text)])
         )
     return list(reversed(projected))
+
+
+def thread_has_operational_history(thread: Any) -> bool:
+    """A retired checkpoint does not make older assistant text source-free."""
+    return bool(
+        getattr(thread, "active_harness_session_id", None)
+        or getattr(thread, "harness_session_generation", 0)
+    )
 
 
 async def recent_public_messages(thread: Any) -> list[Any]:

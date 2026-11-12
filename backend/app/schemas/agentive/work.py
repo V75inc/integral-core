@@ -26,6 +26,8 @@ WorkKind = Literal[
     "chat_turn",
     "chat_title",
     "attachment_analysis",
+    "resident_assignment",
+    "mandate_entry_read",
     "routine_turn",
     "approval_resume",
     "event_trigger",
@@ -149,6 +151,7 @@ class ChatTurnSubmissionRequest(BaseModel):
     )
     parts: list[Dict[str, Any]] = Field(min_length=1)
     provider_metadata: Dict[str, Any] = Field(default_factory=dict)
+    from_follow_up_queue: bool = False
     parent_id: Optional[str] = None
     execution_context: Optional["ChatTurnExecutionContext"] = None
     # Computed by the authenticated HTTP producer from the validated client

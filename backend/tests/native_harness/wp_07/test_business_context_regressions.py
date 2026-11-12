@@ -781,3 +781,62 @@ async def test_admission_budget_can_reclaim_older_reads_after_native_tiers(monke
     assert result.messages[-1].parts[0].content == receipt
     assert result.messages[0].parts[0].content == "Current task"
     assert result.messages[-3].parts[0].content == "row " * 3500
+
+
+@pytest.mark.asyncio
+async def test_active_verified_entry_facts_survive_later_evidence_reads():
+    from app.services.retrieval.history import (
+        RETRIEVAL_EVIDENCE,
+        retained_retrieval_evidence,
+        retrieval_result_evidence,
+    )
+
+    name = "integral_resolve_entry"
+    messages = [ModelRequest(parts=[UserPromptPart("Review the goal and evidence")])]
+    for index in range(3):
+        entry_id = f"n.Entry.{index}"
+        content = {
+            "entry": {
+                "id": entry_id,
+                "title": f"Evidence {index}",
+                "track_id": "n.Track.test",
+                "record_revision": 1,
+                "body": f"Verified fact {index}",
+            }
+        }
+        messages += [
+            ModelResponse(parts=[ToolCallPart(name, {"entry_id": entry_id}, entry_id)]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        name,
+                        content,
+                        entry_id,
+                        metadata={
+                            RETRIEVAL_EVIDENCE: retrieval_result_evidence(
+                                content, tool_name=name
+                            )
+                        },
+                    )
+                ]
+            ),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, active_keep_pairs=1, clearable_tools=frozenset({name})
+    )
+    result = await compactor.compact(messages, SimpleNamespace())
+    returns = [p for m in result for p in m.parts if type(p) is ToolReturnPart]
+    assert [part.content["entry"]["body"] for part in returns] == [
+        "Verified fact 0",
+        "Verified fact 1",
+        "Verified fact 2",
+    ]
+    assert retained_retrieval_evidence(result) is None
+
+    effect = ModelRequest(
+        parts=[ToolReturnPart("integral_update_entry", {"status": "applied"}, "effect")]
+    )
+    projected = await compactor.compact([*messages, effect], SimpleNamespace())
+    older = projected[2].parts[0]
+    assert older.content["identity_preview"] is True
+    assert "body" not in older.content["entry"]

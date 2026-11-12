@@ -99,13 +99,16 @@ _ERROR_MESSAGES: Dict[str, str] = {
     "ai_quota_exceeded": "This workspace has used its AI allowance. Ask your workspace administrator about adding more, or try again when the allowance renews.",
     "walker_failed": "I ran into a problem and couldn't finish. Please try again.",
     "model_context_limit": "The AI service said this step exceeds the selected model’s context limit. Your conversation is saved. Retry with fewer attachments or one part of the task at a time, or choose a model with a larger context window. If you run the model locally, check its context window in Settings → AI Models.",
+    "harness_retrieval_history_stale": "A source changed or is no longer available. Your chat and pending approvals are saved. Send a new request to continue with current sources.",
     "harness_context_limit": "This step exceeded the context available to the selected model. Your conversation is saved. Retry with fewer attachments or one part of the task at a time, or choose a model with a larger context window. If you run the model locally, check its context window in Settings → AI Models.",
     "harness_usage_limit": "I couldn't finish everything in one go. Check any saved changes and approvals in this chat, then ask me to continue with what's left.",
     "harness_reconciliation_required": "I couldn't pick up the earlier request reliably. Its actions haven't been repeated. Check what was already saved, then tell me what you'd like to do next in this chat.",
     "model_configuration_invalid": "The AI connection needs attention. Ask your workspace administrator to check Settings → AI Models.",
     "model_authentication_failed": "The AI service wouldn't let Integral connect. Ask your workspace administrator to check the connection in Settings → AI Models.",
     "model_endpoint_unreachable": "I couldn't connect to the AI service. Please try again shortly. If this continues, ask your workspace administrator to check the connection.",
-    "model_response_invalid": "The selected model couldn’t complete this request reliably. Try again, or choose another model in the chat’s model menu.",
+    "model_role_incompatible": "This configuration uses a light model for operational work. Choose a preferred heavy model in Settings → AI configuration. Light models are supported only in the light role of a dual-model setup. No model was switched automatically.",
+    "model_response_invalid": "The selected model couldn’t complete this request reliably. Check what was already saved before retrying. Choose a preferred heavy model in Settings → AI configuration, or use Heavy only for this chat. A stronger model may help, but repeated failures can also indicate a harness issue.",
+    "model_output_limit": "The model reached its response limit before it could finish. Your conversation is saved. Try again, choose another model, or ask your workspace administrator to increase the model's output limit in Settings → AI Models.",
     "model_empty_response": "I didn't receive an answer from the AI service. Please try again shortly.",
     "model_request_timeout": "The AI service took too long to reply. Please try again shortly.",
     "model_rate_limited": "The AI service is at its usage limit. Please try again later, or ask your workspace administrator to check the allowance.",
@@ -158,7 +161,9 @@ def _scaffold_plan_failure_message(exc: BaseException) -> Optional[str]:
         return (
             "I couldn't build the setup you approved because some of its details "
             "didn't fit together. Ask me to review the setup and try again. "
-            "Check anything already saved before repeating changes."
+            "Check anything already saved before repeating changes. If this keeps happening, "
+            "try a preferred heavy model in Settings → AI configuration; repeated failures "
+            "may also need a harness fix."
         )
     return None
 
@@ -199,6 +204,10 @@ def classify_turn_exception(
     """Map an exception raised mid-stream to ``(code, user_facing_message)``."""
     try:
         from app.api.errors import ResourceConflictError, ServiceUnavailableError
+        from app.services.model_harness_policy import ModelHarnessPolicyError
+
+        if isinstance(exc, ModelHarnessPolicyError):
+            return "model_role_incompatible", _ERROR_MESSAGES["model_role_incompatible"]
 
         if (
             isinstance(exc, ServiceUnavailableError)

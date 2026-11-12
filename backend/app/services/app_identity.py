@@ -5,8 +5,10 @@ import re
 from typing import Optional
 
 from app.api.errors import BadRequestError
+from app.services.manifest_icons import MANIFEST_ICON_KEYS
 
-APP_ICON_KEYS = frozenset(
+# The same fixed list manifests use, so an App's icon can be picked from it in settings or named by its package.
+APP_ICON_KEYS = MANIFEST_ICON_KEYS | frozenset(
     {"layers", "briefcase", "book", "chart", "calendar", "globe", "sparkles", "leaf"}
 )
 MAX_LOGO_BYTES = 128 * 1024

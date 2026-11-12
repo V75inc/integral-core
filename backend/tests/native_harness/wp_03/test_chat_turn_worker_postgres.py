@@ -1427,8 +1427,9 @@ async def test_answer_finishes_before_independently_leased_title(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+@pytest.mark.parametrize("from_queue", [False, True], ids=["direct", "queued"])
 async def test_steering_survives_worker_process_death(
-    postgres_graph_context, monkeypatch
+    postgres_graph_context, monkeypatch, from_queue
 ) -> None:
     from pydantic_ai import Agent
     from pydantic_ai.messages import EnqueuedMessagesEvent, UserPromptPart
@@ -1436,19 +1437,60 @@ async def test_steering_survives_worker_process_death(
 
     from app.agentive.harness.steering import DurableSteering
     from app.api.errors import ResourceConflictError, ResourceNotFoundError
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
     from app.schemas.agentive.steering import SteeringCorrectionRequest
     from app.schemas.agentive.work import WorkExecutionContext
     from app.services import chat_providers
+    from app.services.chat_followups import accept_chat_follow_up, list_chat_follow_ups
     from app.services.chat_steering import accept_steering_correction
 
     item, principal_id = await _submitted_claimed_turn(claim=False)
     correction = SteeringCorrectionRequest(
-        client_request_id="correction-1", text="Use the revised destination."
+        client_request_id="correction-1",
+        text="Use the revised destination.",
+        from_follow_up_queue=from_queue,
     )
+    if from_queue:
+        scope = {
+            "principal_id": principal_id,
+            "workspace_id": item.workspace_id,
+            "thread_id": item.thread_id,
+        }
+        first = ChatFollowUpRequest(client_request_id="first", text="Stay queued.")
+        follow_up = ChatFollowUpRequest(
+            client_request_id=correction.client_request_id, text=correction.text
+        )
+        await accept_chat_follow_up(**scope, request=first)
+        await accept_chat_follow_up(**scope, request=follow_up)
+        with pytest.raises(ResourceConflictError, match="matching text-only"):
+            await accept_steering_correction(
+                item.work_item_id,
+                principal_id,
+                correction.model_copy(update={"text": "Changed input"}),
+            )
+        assert await list_chat_follow_ups(**scope) == [first, follow_up]
+        from app.models.harness_records import HarnessSteeringInbox
+
+        async def fail_steering_write(**_):
+            raise RuntimeError("steering write failed")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(HarnessSteeringInbox, "create_if_absent", fail_steering_write)
+            with pytest.raises(RuntimeError, match="steering write failed"):
+                await accept_steering_correction(
+                    item.work_item_id, principal_id, correction
+                )
+        assert await list_chat_follow_ups(**scope) == [first, follow_up]
     accepted = await accept_steering_correction(
         item.work_item_id, principal_id, correction
     )
-    assert accepted == {"correction_id": "correction-1", "status": "accepted"}
+    assert accepted["status"] == "accepted"
+    if from_queue:
+        assert accepted["correction_id"].startswith("queued-follow-up:")
+        await accept_chat_follow_up(**scope, request=follow_up)
+        assert await list_chat_follow_ups(**scope) == [first]
+    else:
+        assert accepted["correction_id"] == correction.client_request_id
     assert (
         await accept_steering_correction(item.work_item_id, principal_id, correction)
         == accepted
@@ -1559,8 +1601,8 @@ async def test_steering_survives_worker_process_death(
         work_item_id=item.work_item_id,
     )
     expected_steering = [
-        {"correction_id": request.client_request_id, "text": request.text}
-        for request in (correction, late)
+        {"correction_id": accepted["correction_id"], "text": correction.text},
+        {"correction_id": late.client_request_id, "text": late.text},
     ]
     assert [
         {"correction_id": event["correction_id"], "text": event["text"]}
@@ -1583,3 +1625,368 @@ async def test_steering_survives_worker_process_death(
             principal_id,
             late.model_copy(update={"client_request_id": "too-late"}),
         )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_follow_up_acceptance_is_scoped_ordered_and_idempotent(
+    postgres_graph_context, postgres_raw_db
+) -> None:
+    from jvspatial.core.context import scoped_default_context_async
+
+    from app.agentive.harness.turn_input import purge_turn_input_capsules_for_thread
+    from app.api.errors import ResourceConflictError, ResourceNotFoundError
+    from app.models.nodes import ChatMessage
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
+    from app.schemas.chat_entity_refs import EntityRef
+    from app.services.chat_followups import (
+        accept_chat_follow_up,
+        list_chat_follow_ups,
+        resume_chat_follow_ups,
+    )
+
+    item, principal_id = await _submitted_claimed_turn(claim=False)
+    scope = {
+        "principal_id": principal_id,
+        "workspace_id": item.workspace_id,
+        "thread_id": item.thread_id,
+    }
+    first = ChatFollowUpRequest(
+        client_request_id="follow-up-1",
+        text="Check the tagged Track first.",
+        entity_refs=[EntityRef(kind="track", id="n.Track.example", label="Orders")],
+    )
+    second = ChatFollowUpRequest(
+        client_request_id="follow-up-2", text="Then summarize the result."
+    )
+    await accept_chat_follow_up(**scope, request=first)
+    await accept_chat_follow_up(**scope, request=second)
+    await accept_chat_follow_up(**scope, request=first)
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        assert await list_chat_follow_ups(**scope) == [first, second]
+        with pytest.raises(ResourceConflictError):
+            await accept_chat_follow_up(
+                **scope, request=first.model_copy(update={"text": "Different input"})
+            )
+        with pytest.raises(ResourceNotFoundError):
+            await list_chat_follow_ups(**{**scope, "principal_id": "other-user"})
+
+        def submission(entry: ChatFollowUpRequest) -> ChatTurnSubmissionRequest:
+            return ChatTurnSubmissionRequest(
+                **scope,
+                client_request_id=entry.client_request_id,
+                parts=[{"type": "text", "text": entry.text}],
+                provider_metadata={
+                    "entity_refs": [
+                        ref.model_dump(mode="json") for ref in entry.entity_refs
+                    ]
+                },
+                from_follow_up_queue=True,
+            )
+
+        with pytest.raises(ResourceConflictError, match="already in progress"):
+            await submit_chat_turn(submission(first))
+        assert await list_chat_follow_ups(**scope) == [first, second]
+
+        await work_items.cancel_work_item(item.work_item_id)
+        await resume_chat_follow_ups(**scope)
+        with pytest.raises(ResourceConflictError, match="front of the queue"):
+            await submit_chat_turn(submission(second))
+        assert await list_chat_follow_ups(**scope) == [first, second]
+
+        ordinary = await submit_chat_turn(
+            submission(first).model_copy(update={"from_follow_up_queue": False})
+        )
+        assert await list_chat_follow_ups(**scope) == [first, second]
+        await work_items.cancel_work_item(ordinary.work_item_id)
+        await resume_chat_follow_ups(**scope)
+
+        first_receipt = await submit_chat_turn(submission(first))
+        assert first_receipt.message_id != ordinary.message_id
+        assert await submit_chat_turn(submission(first)) == first_receipt
+        await accept_chat_follow_up(**scope, request=first)
+        with pytest.raises(ResourceConflictError, match="different content"):
+            await accept_chat_follow_up(
+                **scope, request=first.model_copy(update={"entity_refs": []})
+            )
+        assert await list_chat_follow_ups(**scope) == [second]
+        message = await ChatMessage.get(first_receipt.message_id)
+        assert message is not None
+        assert message.provider_metadata["entity_refs"][0]["id"] == "n.Track.example"
+
+        await work_items.cancel_work_item(first_receipt.work_item_id)
+        await resume_chat_follow_ups(**scope)
+        second_receipt = await submit_chat_turn(submission(second))
+        assert second_receipt.work_item_id != first_receipt.work_item_id
+        assert await list_chat_follow_ups(**scope) == []
+        await purge_turn_input_capsules_for_thread(**scope)
+        assert await list_chat_follow_ups(**scope) == []
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_chat_worker_drains_persisted_follow_ups_without_client(
+    postgres_graph_context, postgres_raw_db, monkeypatch
+) -> None:
+    from jvspatial.core.context import scoped_default_context_async
+
+    from app.models.nodes import ChatMessage
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
+    from app.services import chat_providers
+    from app.services.chat_followups import (
+        accept_chat_follow_up,
+        dismiss_chat_follow_up,
+        list_chat_follow_ups,
+    )
+
+    item, principal_id = await _submitted_claimed_turn(claim=False)
+    scope = {
+        "principal_id": principal_id,
+        "workspace_id": item.workspace_id,
+        "thread_id": item.thread_id,
+    }
+    follow_ups = [
+        ChatFollowUpRequest(client_request_id=f"queued-{index}", text=text)
+        for index, text in enumerate(("Follow up first.", "Follow up second."))
+    ]
+    for follow_up in follow_ups:
+        await accept_chat_follow_up(**scope, request=follow_up)
+
+    dismissed = ChatFollowUpRequest(client_request_id="dismiss-me", text="Skip this.")
+    assert await accept_chat_follow_up(**scope, request=dismissed) == "queued"
+    for _ in range(2):
+        await dismiss_chat_follow_up(
+            **scope, client_request_id=dismissed.client_request_id
+        )
+    assert await accept_chat_follow_up(**scope, request=dismissed) == "dismissed"
+
+    provider = _Provider(
+        [{"type": "text-delta", "delta": "Ready."}, {"type": "message-finish"}]
+    )
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+
+    # A fresh graph context and worker cursor reconstruct the queue from storage.
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        first_turn = await work_worker.process_one_due_item(
+            worker_id="original-chat-worker",
+            kinds=frozenset({"chat_turn"}),
+            follow_up_cursor={},
+        )
+        assert first_turn is not None
+        assert first_turn.work_item_id == item.work_item_id
+        assert await list_chat_follow_ups(**scope) == follow_ups
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        for index, follow_up in enumerate(follow_ups):
+            promoted = await work_worker.process_one_due_item(
+                worker_id="replacement-chat-worker",
+                kinds=frozenset({"chat_turn"}),
+                follow_up_cursor={},
+            )
+            assert promoted is not None and promoted.status == "succeeded"
+            message = await ChatMessage.get(
+                promoted.input_payload["accepted_message_id"]
+            )
+            assert message is not None
+            assert message.parts == [{"type": "text", "text": follow_up.text}]
+            assert await list_chat_follow_ups(**scope) == follow_ups[index + 1 :]
+        assert (
+            await work_worker.process_one_due_item(
+                worker_id="replacement-chat-worker",
+                kinds=frozenset({"chat_turn"}),
+                follow_up_cursor={},
+            )
+            is None
+        )
+    assert provider.calls == 3
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_failed_turn_pauses_follow_up_until_user_resumes(
+    postgres_graph_context, monkeypatch
+) -> None:
+    from app.api.errors import ResourceConflictError
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
+    from app.services import chat_providers
+    from app.services.chat_followups import (
+        accept_chat_follow_up,
+        chat_follow_ups_paused,
+        list_chat_follow_ups,
+        resume_chat_follow_ups,
+    )
+
+    item, principal_id = await _submitted_claimed_turn(claim=False)
+    scope = {
+        "principal_id": principal_id,
+        "workspace_id": item.workspace_id,
+        "thread_id": item.thread_id,
+    }
+    queued = ChatFollowUpRequest(client_request_id="after-failure", text="Continue.")
+    await accept_chat_follow_up(**scope, request=queued)
+    with pytest.raises(ResourceConflictError, match="not paused"):
+        await resume_chat_follow_ups(**scope)
+    provider = _Provider([RuntimeError("provider failed")])
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+
+    failed = await work_worker.process_one_due_item(
+        work_item_id=item.work_item_id, worker_id="failure-worker", lease_seconds=120
+    )
+    assert failed is not None and failed.status == "failed"
+    assert await chat_follow_ups_paused(**scope)
+    assert await list_chat_follow_ups(**scope) == [queued]
+    assert (
+        await work_worker.process_one_due_item(
+            worker_id="failure-worker",
+            kinds=frozenset({"chat_turn"}),
+            follow_up_cursor={},
+        )
+        is None
+    )
+
+    provider.events = [
+        {"type": "text-delta", "delta": "Done."},
+        {"type": "message-finish"},
+    ]
+    await resume_chat_follow_ups(**scope)
+    await resume_chat_follow_ups(**scope)
+    assert not await chat_follow_ups_paused(**scope)
+    continued = await work_worker.process_one_due_item(
+        worker_id="failure-worker", kinds=frozenset({"chat_turn"}), follow_up_cursor={}
+    )
+    assert continued is not None and continued.status == "succeeded"
+    from app.agentive.harness.turn_input import load_turn_input_capsule
+
+    capsule = await load_turn_input_capsule(
+        capsule_id=continued.input_payload["capsule_id"],
+        expected_digest=continued.input_payload["capsule_digest"],
+        principal_id=principal_id,
+        workspace_id=item.workspace_id,
+        thread_id=item.thread_id,
+        work_item_id=continued.work_item_id,
+    )
+    assert "preceding reply was interrupted" in capsule.execution_context.system_context
+    assert (
+        "queued message as the current request"
+        in capsule.execution_context.system_context
+    )
+    assert "requested length and format" in capsule.execution_context.system_context
+    assert await list_chat_follow_ups(**scope) == []
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_follow_up_arriving_after_cancel_is_paused(
+    postgres_graph_context,
+) -> None:
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
+    from app.services.chat_followups import (
+        accept_chat_follow_up,
+        chat_follow_ups_paused,
+        list_chat_follow_ups,
+    )
+
+    item, principal_id = await _submitted_claimed_turn(claim=False)
+    scope = {
+        "principal_id": principal_id,
+        "workspace_id": item.workspace_id,
+        "thread_id": item.thread_id,
+    }
+    await work_items.cancel_work_item(item.work_item_id)
+    queued = ChatFollowUpRequest(
+        client_request_id="late-after-cancel",
+        after_work_item_id=item.work_item_id,
+        text="Continue with the earlier result.",
+    )
+    assert await accept_chat_follow_up(**scope, request=queued) == "queued"
+    assert await chat_follow_ups_paused(**scope)
+    assert await list_chat_follow_ups(**scope) == [queued]
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_concurrent_follow_up_acceptance_and_cancellation_stays_paused(
+    postgres_graph_context, postgres_raw_db
+) -> None:
+    from jvspatial.core.context import scoped_default_context_async
+
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
+    from app.services.chat_followups import (
+        accept_chat_follow_up,
+        chat_follow_ups_paused,
+        list_chat_follow_ups,
+    )
+
+    for index in range(6):
+        item, principal_id = await _submitted_claimed_turn(claim=False)
+        scope = {
+            "principal_id": principal_id,
+            "workspace_id": item.workspace_id,
+            "thread_id": item.thread_id,
+        }
+        queued = ChatFollowUpRequest(
+            client_request_id=f"racing-{index}",
+            after_work_item_id=item.work_item_id,
+            text="Continue after this turn.",
+        )
+        start = asyncio.Event()
+
+        async def accept():
+            async with scoped_default_context_async(
+                GraphContext(database=postgres_raw_db)
+            ):
+                await start.wait()
+                return await accept_chat_follow_up(**scope, request=queued)
+
+        async def cancel():
+            async with scoped_default_context_async(
+                GraphContext(database=postgres_raw_db)
+            ):
+                await start.wait()
+                return await work_items.cancel_work_item(item.work_item_id)
+
+        tasks = [asyncio.create_task(accept()), asyncio.create_task(cancel())]
+        start.set()
+        accepted, cancelled = await asyncio.wait_for(asyncio.gather(*tasks), timeout=15)
+        assert accepted == "queued"
+        assert cancelled.status == "cancelled"
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            assert await chat_follow_ups_paused(**scope)
+            assert await list_chat_follow_ups(**scope) == [queued]
+            assert await accept_chat_follow_up(**scope, request=queued) == "queued"
+            assert await list_chat_follow_ups(**scope) == [queued]
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_follow_up_cannot_bind_another_threads_turn(
+    postgres_graph_context,
+) -> None:
+    from app.api.errors import ResourceNotFoundError
+    from app.schemas.agentive.chat_followups import ChatFollowUpRequest
+    from app.services.chat_followups import accept_chat_follow_up, list_chat_follow_ups
+
+    first, principal_id = await _submitted_claimed_turn(claim=False)
+    other, _ = await _submitted_claimed_turn(claim=False)
+    scope = {
+        "principal_id": principal_id,
+        "workspace_id": first.workspace_id,
+        "thread_id": first.thread_id,
+    }
+    queued = ChatFollowUpRequest(
+        client_request_id="other-turn",
+        after_work_item_id=other.work_item_id,
+        text="Continue.",
+    )
+    with pytest.raises(ResourceNotFoundError):
+        await accept_chat_follow_up(**scope, request=queued)
+    assert await list_chat_follow_ups(**scope) == []

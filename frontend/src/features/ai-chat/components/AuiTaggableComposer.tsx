@@ -124,14 +124,30 @@ export function AuiTaggableComposer({
     [entityRefsCtx],
   );
 
-  const sendNow = useCallback(() => {
+  const queueSubmittingRef = useRef(false);
+  const unconfirmedQueueDraftRef = useRef<string | null>(null);
+  const sendNow = useCallback(async () => {
     // Dictation can add words after submit was requested. Validate the live
     // composer before consuming references or clearing any draft state.
     const composer = aui.composer();
     const { text, attachments } = composer.getState();
     if (chatMessageTooLong(text)) return;
-    if (queueWhileRunning && steeringRunning && queueFollowUp) {
-      if (attachments.length || !text.trim() || !queueFollowUp(text.trim(), entityRefsRef.current)) return;
+    if (queueSubmittingRef.current) return;
+    const refs = entityRefsRef.current;
+    const draftKey = JSON.stringify([activeThreadId, text.trim(), refs]);
+    const retryQueue = unconfirmedQueueDraftRef.current === draftKey;
+    if (queueFollowUp && ((queueWhileRunning && steeringRunning) || retryQueue)) {
+      if (attachments.length || !text.trim()) return;
+      queueSubmittingRef.current = true;
+      unconfirmedQueueDraftRef.current = draftKey;
+      try {
+        if (!await queueFollowUp(text.trim(), refs)) return;
+        unconfirmedQueueDraftRef.current = null;
+      } finally {
+        queueSubmittingRef.current = false;
+      }
+      // An acceptance can arrive after the user starts writing another draft.
+      if (composer.getState().text !== text || entityRefsRef.current !== refs) return;
       setLocalValue("");
       composer.setText("");
       setEntityRefs([]);
@@ -142,7 +158,7 @@ export function AuiTaggableComposer({
     entityRefsCtx?.flushPendingEntityRefs();
     onSendAttempt?.();
     void aui.composer().send();
-  }, [aui, entityRefsCtx, onSendAttempt, queueFollowUp, queueWhileRunning, steeringRunning]);
+  }, [activeThreadId, aui, entityRefsCtx, onSendAttempt, queueFollowUp, queueWhileRunning, steeringRunning]);
 
   const handleSubmit = useCallback(() => {
     // Finish dictation first so the last words land before the message goes.
@@ -158,7 +174,7 @@ export function AuiTaggableComposer({
         });
       return;
     }
-    sendNow();
+    void sendNow();
   }, [dictation, sendNow]);
 
   useEffect(() => {

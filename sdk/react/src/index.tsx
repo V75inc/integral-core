@@ -29,6 +29,7 @@ export type ProgressProps = {value?: number; ariaLabel: string};
 export type StatProps = {label: ReactNode; value: ReactNode; note?: ReactNode; delta?: ReactNode; emphasis?: boolean; trend?: number[]; trendLabel?: string};
 export type TabsProps = {options: {value: string; label: ReactNode; count?: number | null}[]; value: string; onChange: (value: string) => void; ariaLabel?: string};
 export type BadgeProps = {tone?: 'neutral' | 'success' | 'warn' | 'danger' | 'info'; children: ReactNode};
+export type FilePreviewProps = {title: string; data?: string; url?: string; mime?: string; filename?: string; height?: string; emptyTitle?: ReactNode; emptyMessage?: ReactNode};
 export type DateInputProps = {required?: boolean; invalid?: boolean; 'aria-describedby'?: string; value: string; onChange: (value: string) => void; mode?: 'date' | 'datetime'; disabled?: boolean; placeholder?: string; 'aria-label'?: string; id?: string};
 export interface ContributionLifecycle {
   mode: 'create' | 'edit' | 'detail';
@@ -145,6 +146,7 @@ export interface UIPrimitives {
   Tabs?: ComponentType<TabsProps>;
   Badge?: ComponentType<BadgeProps>;
   DateInput?: ComponentType<DateInputProps>;
+  FilePreview?: ComponentType<FilePreviewProps>;
   Button: ComponentType<any>; Input: ComponentType<any>; Select: ComponentType<any>;
   Textarea: ComponentType<any>; Text: ComponentType<any>; Surface: ComponentType<any>;
   Stack: ComponentType<any>; Inline: ComponentType<any>; Modal: ComponentType<any> & {Body: ComponentType<any>; Footer: ComponentType<any>};
@@ -184,6 +186,7 @@ export const BridgeChart = primitive<BridgeChartProps>('BridgeChart');
 export const Tabs = primitive<TabsProps>('Tabs');
 export const Badge = primitive<BadgeProps>('Badge');
 export const DateInput = primitive<DateInputProps>('DateInput');
+export const FilePreview = primitive<FilePreviewProps>('FilePreview');
 export const Text = primitive<TextProps>('Text');
 export const Surface = primitive<SurfaceProps>('Surface');
 export const Stack = primitive<LayoutProps>('Stack');
@@ -202,6 +205,62 @@ export const AppField = primitive<AppFieldProps>('AppField');
 export const AppActions = primitive<AppActionsProps>('AppActions');
 export const AppSummary = primitive<AppSummaryProps>('AppSummary');
 export const AppNotice = primitive<AppNoticeProps>('AppNotice');
+
+/** What a record page shows. Any App can fill it, so a payslip, an invoice or a contract use the same page. */
+export type RecordViewData = {
+  title: ReactNode; subtitle?: ReactNode; eyebrow?: ReactNode;
+  badges?: {label: ReactNode; tone?: BadgeProps['tone']}[];
+  /** Headline figures, shown as tiles. */
+  figures?: {label: ReactNode; value: ReactNode; note?: ReactNode; emphasis?: boolean}[];
+  /** Labelled groups of facts, shown as summary panels. */
+  panels?: {title: ReactNode; rows: {key?: string; label: ReactNode; value: ReactNode; emphasis?: boolean}[]}[];
+  /** The record's document (a PDF, an image), shown in the page with download. */
+  file?: {filename?: string; mime?: string; content_base64?: string; url?: string} | null;
+  file_title?: string; file_description?: ReactNode;
+  file_empty?: {title?: ReactNode; message?: ReactNode};
+  /** Buttons that open related records. */
+  links?: {label: ReactNode; kind?: 'entry' | 'track' | 'app' | 'dashboard'; id: string; variant?: 'primary' | 'outline' | 'ghost'}[];
+};
+
+const columnsFor = (count: number, most: 2 | 3 | 4): 1 | 2 | 3 | 4 => Math.max(1, Math.min(count, most)) as 1 | 2 | 3 | 4;
+
+/** A record page: header with related-record buttons, headline figures, fact panels and the record's document. */
+export function RecordView({record}: {record: RecordViewData}) {
+  const ui = useAppUI();
+  const figures = record.figures || [];
+  const panels = record.panels || [];
+  const file = record.file;
+  return <AppPage>
+    <AppHeader eyebrow={record.eyebrow} title={record.title} description={record.subtitle}
+      meta={record.badges?.length ? <>{record.badges.map((b, i) => <Badge key={i} tone={b.tone}>{b.label}</Badge>)}</> : undefined}
+      actions={record.links?.length ? <AppActions>{record.links.map((link, i) =>
+        <Button key={i} variant={link.variant || 'outline'} onClick={() => { void ui.navigate({kind: link.kind || 'entry', id: link.id}); }}>{link.label}</Button>)}</AppActions> : undefined} />
+    {figures.length ? <AppGrid columns={columnsFor(figures.length, 4)} gap="md" fit="container">
+      {figures.map((f, i) => <Stat key={i} label={f.label} value={f.value} note={f.note} emphasis={f.emphasis} />)}
+    </AppGrid> : null}
+    {panels.length ? <AppGrid columns={columnsFor(panels.length, 2)} gap="lg" fit="container">
+      {panels.map((panel, i) => <AppSummary key={i} title={panel.title} rows={panel.rows.map((r, j) => ({...r, key: r.key || String(j)}))} />)}
+    </AppGrid> : null}
+    {record.file_title ? <AppSection title={record.file_title} description={record.file_description}>
+      <FilePreview title={record.file_title} data={file?.content_base64} url={file?.url} mime={file?.mime} filename={file?.filename}
+        emptyTitle={record.file_empty?.title} emptyMessage={record.file_empty?.message} />
+    </AppSection> : null}
+  </AppPage>;
+}
+
+/** A record page whose content an App query supplies: ``query`` returns a RecordViewData (or ``{ok: false, reason}``). It is asked about this entry unless ``input`` says otherwise. */
+export function QueryRecordView({query, input, loadingText = 'Loading…'}: {query: string; input?: Json; loadingText?: ReactNode}) {
+  const ui = useAppUI();
+  const lifecycle = useContributionLifecycle();
+  const entryId = String(lifecycle?.entryId || ui.context.entryId || '');
+  const result = useAppQuery(query, input ?? {entry_id: entryId}, {enabled: Boolean(input || entryId), staleTime: 0});
+  const out = ((result.data as {output?: Json} | undefined)?.output ?? result.data ?? {}) as Json;
+  if (result.loading) return <AppPage><AppNotice>{loadingText}</AppNotice></AppPage>;
+  if (result.error || out.ok === false) {
+    return <AppPage><AppNotice tone="danger" title="This could not be shown">{String(out.reason || result.error?.message || 'Try again.')}</AppNotice></AppPage>;
+  }
+  return <RecordView record={out as unknown as RecordViewData} />;
+}
 
 /** Semantic aliases inherit the live host theme; fonts and spacing use typed controls. */
 export const appTheme = Object.freeze({

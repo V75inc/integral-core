@@ -110,7 +110,7 @@ async def test_dispatch_propose_design_records_marker(
     denied = await get_artifact(
         user_id="other", session_id="sess-PD", key="app_design_blueprint"
     )
-    assert denied["error"] == "forbidden"
+    assert denied["error"] == "not_found"
     assert "blueprint" not in denied
     # No Prompt Sheet / staged design card.
     from app.services.prompt_queue import get_queue, queue_is_open
@@ -324,8 +324,19 @@ async def test_dispatch_scaffold_batch_refuses_track_without_app(
 
 
 @pytest.mark.asyncio
-async def test_artifact_upsert_get_list(bind_fresh_graph_context_for_async_tests):
-    await _thread("sess-art", 1, user_id="u1")
+async def test_artifact_upsert_get_list(
+    bind_fresh_graph_context_for_async_tests, monkeypatch
+):
+    thread = await _thread("sess-art", 1, user_id="u1")
+    thread.workspace_id = "ws1"
+    await thread.save()
+    from unittest.mock import AsyncMock
+
+    from app.services import workspace_permissions
+
+    monkeypatch.setattr(
+        workspace_permissions, "can_access_workspace", AsyncMock(return_value="member")
+    )
     up = await dispatch_tool(
         "integral_upsert_artifact",
         {
@@ -340,6 +351,19 @@ async def test_artifact_upsert_get_list(bind_fresh_graph_context_for_async_tests
     )
     assert not up.is_error, up
     assert up.data.get("version") == 1
+    stale = await dispatch_tool(
+        "integral_upsert_artifact",
+        {
+            "key": "checklist",
+            "kind": "checklist",
+            "body": "stale",
+            "expected_version": 0,
+        },
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-art",
+    )
+    assert stale.is_error and stale.error_code == "version_conflict"
 
     got = await dispatch_tool(
         "integral_get_artifact",
@@ -360,3 +384,471 @@ async def test_artifact_upsert_get_list(bind_fresh_graph_context_for_async_tests
     )
     assert not listed.is_error, listed
     assert listed.data.get("count") == 1
+
+
+@pytest.mark.asyncio
+async def test_artifact_tools_refuse_foreign_scope_and_revoked_membership(monkeypatch):
+    """A private draft cannot cross the active workspace or survive revocation."""
+    from unittest.mock import AsyncMock
+
+    from app.agentive import artifacts
+    from app.services import workspace_permissions
+
+    thread = await _thread("sess-scoped-artifact", 1, user_id="u1")
+    thread.workspace_id = "ws1"
+    await thread.save()
+    allow = AsyncMock(return_value="member")
+    monkeypatch.setattr(workspace_permissions, "can_access_workspace", allow)
+    saved = await artifacts.upsert_artifact(
+        user_id="u1",
+        session_id="sess-scoped-artifact",
+        workspace_id="ws1",
+        key="draft",
+        kind="note",
+        body="private draft",
+    )
+    assert saved["ok"]
+    for tool, args in (
+        ("integral_get_artifact", {"key": "draft"}),
+        ("integral_list_artifacts", {}),
+        (
+            "integral_upsert_artifact",
+            {"key": "draft", "kind": "note", "body": "overwrite"},
+        ),
+    ):
+        result = await dispatch_tool(
+            tool,
+            args,
+            principal_id="u1",
+            scope="ws2",
+            session_id="sess-scoped-artifact",
+        )
+        assert result.is_error and result.error_code == "session_unavailable"
+        assert "private draft" not in str(result)
+    allow.return_value = "none"
+    denied = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-scoped-artifact",
+    )
+    assert denied.is_error and denied.error_code == "session_unavailable"
+    assert (await ChatThread.get(thread.id)).artifacts["draft"][
+        "body"
+    ] == "private draft"
+
+
+@pytest.mark.asyncio
+async def test_artifact_tool_refuses_ambiguous_provider_session(monkeypatch):
+    """Two matching sessions are not resolved by arbitrary query order."""
+    from unittest.mock import AsyncMock
+
+    from app.services import workspace_permissions
+
+    monkeypatch.setattr(
+        workspace_permissions, "can_access_workspace", AsyncMock(return_value="member")
+    )
+    for _ in range(2):
+        thread = await _thread("ambiguous-artifact-session", 1, user_id="u1")
+        thread.workspace_id = "ws1"
+        thread.artifacts = {"draft": {"body": "private", "kind": "note"}}
+        await thread.save()
+    result = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id="u1",
+        scope="ws1",
+        session_id="ambiguous-artifact-session",
+    )
+    assert result.is_error and result.error_code == "session_unavailable"
+    assert "private" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_native_artifact_scope_uses_live_workspace_membership():
+    """Scoped draft access follows actual workspace membership and revocation."""
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services import chat_threads
+    from app.services.app_graph import catalog_user, ensure_integral_app_graph
+    from tests.fixtures.workspaces import make_org_workspace
+
+    await ensure_integral_app_graph(include_library=False)
+    user_id = "o.User.artifact-scope"
+    await AuthUser.create(
+        id=user_id, email="artifact-scope@example.com", password_hash="fixture"
+    )
+    user = await User.create(user_id=user_id, display_name="Tester")
+    await catalog_user(user)
+    first = await make_org_workspace("Drafts one", owner=user)
+    second = await make_org_workspace("Drafts two", owner=user)
+    thread = await chat_threads.create_thread(
+        user_id=user_id, provider_id="integral_native", workspace_id=first.id
+    )
+    saved = await dispatch_tool(
+        "integral_upsert_artifact",
+        {"key": "draft", "kind": "note", "body": "private"},
+        principal_id=user_id,
+        scope=first.id,
+        session_id=thread.id,
+    )
+    assert not saved.is_error
+    wrong = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id=user_id,
+        scope=second.id,
+        session_id=thread.id,
+    )
+    assert wrong.is_error and wrong.error_code == "session_unavailable"
+    graph = await user.get_context()
+    memberships = await graph.find_edges_between(
+        user.id, first.id, edge_class=IS_MEMBER_OF
+    )
+    assert memberships
+    for membership in memberships:
+        await membership.delete()
+    revoked = await dispatch_tool(
+        "integral_get_artifact",
+        {"key": "draft"},
+        principal_id=user_id,
+        scope=first.id,
+        session_id=thread.id,
+    )
+    assert revoked.is_error and revoked.error_code == "session_unavailable"
+    assert "private" not in str(revoked)
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_artifact_revisions_serialize_and_reject_stale_writes():
+    """Concurrent revisions cannot clobber other drafts or a newer version."""
+    import asyncio
+
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.agentive import artifacts
+    from app.models.nodes import User
+    from app.services import chat_threads
+    from app.services.app_graph import catalog_user, ensure_integral_app_graph
+    from tests.fixtures.workspaces import make_org_workspace
+
+    await ensure_integral_app_graph(include_library=False)
+    user_id = "o.User.artifact-concurrency"
+    await AuthUser.create(
+        id=user_id, email="artifact-concurrency@example.com", password_hash="fixture"
+    )
+    user = await User.create(user_id=user_id, display_name="Tester")
+    await catalog_user(user)
+    workspace = await make_org_workspace("Draft concurrency", owner=user)
+    thread = await chat_threads.create_thread(
+        user_id=user_id, provider_id="integral_native", workspace_id=workspace.id
+    )
+    scope = {"user_id": user_id, "workspace_id": workspace.id, "session_id": thread.id}
+    first = await artifacts.upsert_artifact(
+        **scope, key="draft", kind="note", body="initial", expected_version=0
+    )
+    assert first["version"] == 1
+    results = await asyncio.gather(
+        artifacts.upsert_artifact(
+            **scope, key="draft", kind="note", body="left", expected_version=1
+        ),
+        artifacts.upsert_artifact(
+            **scope, key="draft", kind="note", body="right", expected_version=1
+        ),
+        artifacts.upsert_artifact(
+            **scope, key="other", kind="note", body="independent", expected_version=0
+        ),
+    )
+    assert sum(item.get("error") == "version_conflict" for item in results) == 1
+    assert sum(item.get("ok") is True for item in results) == 2
+    draft = await artifacts.get_artifact(**scope, key="draft")
+    other = await artifacts.get_artifact(**scope, key="other")
+    assert draft["version"] == 2 and draft["body"] in {"left", "right"}
+    assert other["body"] == "independent" and other["version"] == 1
+    stale = await artifacts.upsert_artifact(
+        **scope, key="draft", kind="note", body="stale", expected_version=1
+    )
+    assert stale["error"] == "version_conflict" and stale["current_version"] == 2
+    assert (await artifacts.get_artifact(**scope, key="draft"))["body"] == draft["body"]
+
+    initial_document = await artifacts.upsert_artifact(
+        **scope,
+        key="report",
+        kind="document_draft",
+        title="Report",
+        body="Initial draft",
+        metadata={"format": "markdown"},
+        expected_version=0,
+    )
+    assert initial_document["version"] == 1
+    revised, unfenced = await asyncio.gather(
+        artifacts.upsert_artifact(
+            **scope,
+            key="report",
+            kind="document_draft",
+            title="Report",
+            body="Reviewed revision",
+            metadata={"format": "markdown"},
+            expected_version=1,
+        ),
+        artifacts.upsert_artifact(
+            **scope, key="report", kind="note", body="Unfenced replacement"
+        ),
+    )
+    assert revised.get("ok") is True and revised["version"] == 2
+    assert unfenced["error"] == "version_required"
+    saved_document = await artifacts.get_artifact(**scope, key="report")
+    assert saved_document["kind"] == "document_draft"
+    assert saved_document["body"] == "Reviewed revision"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [False, True])
+async def test_missing_design_scratch_recovers_canonical_read_without_mutation(
+    bind_fresh_graph_context_for_async_tests,
+    approved,
+):
+    from copy import deepcopy
+
+    from app.agentive.artifacts import get_artifact
+    from app.services.design_blueprint import blueprint_digest
+
+    thread = await _thread("recovery-design", 1)
+    marker = {
+        "artifact_key": "app_design_blueprint",
+        "design_id": "saved-design",
+        "blueprint": deepcopy(_BLUEPRINT),
+        "blueprint_revision": 3,
+        "blueprint_digest": blueprint_digest(_BLUEPRINT),
+        "proposal": _PROPOSAL,
+        "summary": "Demo",
+        "approved": approved,
+    }
+    thread.design_proposed = deepcopy(marker)
+    thread.artifacts = None
+    await thread.save()
+    result = await get_artifact(
+        user_id="u1", session_id="recovery-design", key="app_design_blueprint"
+    )
+    assert result["ok"]
+    assert result["blueprint"] == _BLUEPRINT
+    assert result["blueprint_revision"] == 3
+    assert result["version"] == 0
+    assert result["metadata"] == {"source": "saved_design"}
+    assert result["body"] == _PROPOSAL
+    result["blueprint"]["app"]["name"] = "Changed client copy"
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed == marker
+    assert reloaded.artifacts is None
+    assert (
+        await get_artifact(
+            user_id="other", session_id="recovery-design", key="app_design_blueprint"
+        )
+    )["error"] == "not_found"
+    assert (
+        await get_artifact(user_id="u1", session_id="recovery-design", key="unrelated")
+    )["error"] == "not_found"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"blueprint_digest": "sha256:invalid"},
+        {"blueprint_revision": True},
+        {"blueprint_revision": 0},
+        {"design_id": ""},
+        {"artifact_key": "other"},
+    ],
+)
+async def test_missing_design_scratch_refuses_incomplete_authority(
+    bind_fresh_graph_context_for_async_tests,
+    invalid,
+):
+    from app.agentive.artifacts import get_artifact
+    from app.services.design_blueprint import blueprint_digest
+
+    thread = await _thread("invalid-recovery", 1)
+    thread.design_proposed = {
+        "artifact_key": "app_design_blueprint",
+        "design_id": "saved-design",
+        "blueprint": _BLUEPRINT,
+        "blueprint_revision": 1,
+        "blueprint_digest": blueprint_digest(_BLUEPRINT),
+        **invalid,
+    }
+    await thread.save()
+    result = await get_artifact(
+        user_id="u1", session_id="invalid-recovery", key="app_design_blueprint"
+    )
+    assert result["error"] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_proposal_reaches_native_final_clarification(monkeypatch):
+    """Exercise real proposal dispatch, not a mock with a richer response."""
+    from types import SimpleNamespace
+
+    from app.agentive.harness.broker_tools import build_brokered_tools
+    from app.agentive.harness.contracts import HarnessExecutionScope
+    from app.schemas.capability_broker import CapabilityResult
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    thread = await _thread("unresolved-dispatch", 1)
+    question = "Should project updates also change the main project status?"
+    blueprint = dict(
+        _BLUEPRINT, open_decisions=[{"id": "q.filing", "question": question}]
+    )
+    state = {"capability_search_completed": True}
+    dispatched = []
+
+    async def invoke(**kwargs):
+        result = await dispatch_tool(
+            kwargs["capability_key"],
+            kwargs["arguments"],
+            principal_id="u1",
+            scope="ws1",
+            session_id="unresolved-dispatch",
+        )
+        dispatched.append(result)
+        return CapabilityResult(
+            ok=not result.is_error,
+            data=result.data,
+            error_code=result.error_code,
+            message=result.message,
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    scope = HarnessExecutionScope(
+        tenant_id="ws1",
+        workspace_id="ws1",
+        principal_id="u1",
+        thread_id=thread.id,
+        session_id="unresolved-dispatch",
+        run_id="run1",
+        permission_revision="p1",
+        capability_version="c1",
+    )
+    tool = build_brokered_tools(
+        scope=scope,
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_propose_design",
+                "description": "Propose",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "proposal": {"type": "string"},
+                        "blueprint": {"type": "object"},
+                    },
+                },
+            }
+        ],
+    )[0]
+    result = await tool.function_schema.call(
+        {"summary": "Demo", "proposal": _PROPOSAL, "blueprint": blueprint},
+        SimpleNamespace(
+            tool_call_id="proposal", active_capability_ids={"integral-scaffold"}
+        ),
+    )
+    assert len(dispatched) == 1
+    assert not dispatched[0].is_error
+    assert result["coverage"]["status"] == "needs_decision"
+    assert question in result["decision_required"]
+    output = await _scaffold_completion_validator(state)(None, "Confirm this setup.")
+    assert output == result["decision_required"]
+    assert question in output
+    assert "Confirm" not in output
+
+
+@pytest.mark.asyncio
+async def test_misnested_blueprint_sections_refused_without_losing_open_questions(
+    bind_fresh_graph_context_for_async_tests,
+):
+    import copy
+
+    thread = await _thread("sess-misnested", 1)
+    question = "Should updates change the main project status too?"
+    sections = {
+        "tracks": _BLUEPRINT["tracks"],
+        "views": [],
+        "platform_defaults": [],
+        "open_decisions": [{"id": "q.filing", "question": question}],
+    }
+    arguments = {
+        "summary": "Contacts app",
+        "proposal": _PROPOSAL,
+        "blueprint": {"schema_version": 1, "app": _BLUEPRINT["app"]},
+        **copy.deepcopy(sections),
+    }
+    original = copy.deepcopy(arguments)
+    result = await dispatch_tool(
+        "integral_propose_design",
+        arguments,
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-misnested",
+    )
+    assert result.error_code == "invalid_arguments"
+    assert "inside `blueprint`" in result.message
+    assert "open_decisions" in result.message
+    assert "NOT recorded" in result.message
+    assert question not in result.message
+    assert arguments == original
+    saved = await ChatThread.get(thread.id)
+    assert not saved.design_proposed and not saved.artifacts
+
+    corrected = {key: value for key, value in original.items() if key not in sections}
+    corrected["blueprint"] = {**original["blueprint"], **sections}
+    result = await dispatch_tool(
+        "integral_propose_design",
+        corrected,
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-misnested",
+    )
+    assert not result.is_error, result
+    saved = await ChatThread.get(thread.id)
+    assert (
+        saved.design_proposed["blueprint"]["open_decisions"]
+        == sections["open_decisions"]
+    )
+    assert not saved.design_proposed["approved"]
+    assert question in result.data["decision_required"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_proposal_envelope_key_is_not_echoed_or_ignored(
+    bind_fresh_graph_context_for_async_tests,
+):
+    thread = await _thread("sess-unknown-envelope", 1)
+    result = await dispatch_tool(
+        "integral_propose_design",
+        {
+            "summary": "Contacts",
+            "proposal": _PROPOSAL,
+            "blueprint": _BLUEPRINT,
+            "private-sentinel": "secret-value",
+        },
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-unknown-envelope",
+    )
+    assert result.error_code == "invalid_arguments"
+    assert "private-sentinel" not in result.message
+    assert "secret-value" not in result.message
+    assert not (await ChatThread.get(thread.id)).design_proposed

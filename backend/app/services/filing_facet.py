@@ -11,25 +11,40 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from jvspatial.core.context import get_default_context
 from jvspatial.db import get_prime_database
 
 from app.api.entries import _slugify_entry_type_key
 from app.api.errors import BadRequestError
+from app.contracts.goal_semantics import GOAL_COMPLETED_STATUS
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import REFERENCES, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
 from app.schemas.policy import Resource, Subject
+from app.services.agent_scope import active_workspace_id
 from app.services.app_invariant_guards import enforce_protected_field_write
+from app.services.app_operations.event_outbox import (
+    deliver_operation_event,
+    insert_entry_event,
+)
 from app.services.app_operations.transaction_scope import (
     OperationTransactionUnavailable,
+    current_graph_transaction_database,
     graph_transaction_available,
+    measure_write_lock,
     postgres_graph_transaction,
 )
+from app.services.authorization_scope import authorization_scope
+from app.services.mutation_provenance import provenance_details
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.query_boundary import generic_entry_read, relation_visible
+from app.services.resource_location import DATA_APP_STATES, locate_resource
 from app.utils.time import utc_now_iso
+
+logger = logging.getLogger(__name__)
 
 _PROBE: Optional[Callable[[str], None]] = None
 _OBJECT_COLLECTION = "object"
@@ -62,6 +77,10 @@ def reset_filing_idempotency() -> None:
 
 def _fingerprint(payload: Dict[str, Any]) -> str:
     body = {key: payload.get(key) for key in _FINGERPRINT_KEYS}
+    if payload.get("evidence_revisions"):
+        body["evidence_revisions"] = payload["evidence_revisions"]
+    if payload.get("close_goal") is True:
+        body["close_goal"] = True
     return json.dumps(body, sort_keys=True, default=str)
 
 
@@ -154,7 +173,8 @@ async def _write_receipt(
         await saver(_OBJECT_COLLECTION, document)
 
 
-async def _live_schema_revision(track: Optional[Track], entry: Entry) -> int:
+async def live_filing_schema_revision(track: Optional[Track], entry: Entry) -> int:
+    """Resolve the filing schema revision from the active Track profile."""
     if track is None:
         return int(getattr(entry, "schema_revision", 1) or 1)
     try:
@@ -324,6 +344,8 @@ async def _mutate_entry(
     if tag_ids is not None:
         await _apply_tags(entry, tag_ids, user_id)
 
+    if payload.get("close_goal") is True:
+        entry.status = GOAL_COMPLETED_STATUS
     entry.record_revision = current_revision + 1
     entry.schema_revision = current_schema
     entry.updated_at = utc_now_iso()
@@ -336,6 +358,58 @@ async def _mutate_entry(
         "record_revision": entry.record_revision,
         "appended": mode == "append",
     }
+
+
+def filing_evidence_revisions(value: object, entry_id: str) -> dict[str, int]:
+    """Validate a bounded set of exact source revisions."""
+    if value is None:
+        return {}
+    if (
+        not isinstance(value, dict)
+        or not 1 <= len(value) <= 8
+        or any(
+            not isinstance(key, str)
+            or not key.startswith("n.Entry.")
+            or len(key) > 255
+            or key == entry_id
+            or type(revision) is not int
+            or revision < 1
+            for key, revision in value.items()
+        )
+    ):
+        raise ValueError(
+            "Provide one to eight supporting Entry IDs and positive revisions, excluding the destination."
+        )
+    return value
+
+
+async def _current_evidence(
+    user_id: str, workspace_id: str, record: dict, revision: int
+) -> Entry | None:
+    source_id = record["id"]
+    location = await locate_resource(
+        "entry", source_id, selected_record=record, allowed_app_states=DATA_APP_STATES
+    )
+    if location is None or location.workspace_id != workspace_id:
+        return None
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="entry.read",
+        resource=Resource(
+            kind="entry", id=source_id, scope=f"track:{location.track_id}"
+        ),
+        _dry_run=True,
+    )
+    if not decision.allowed:
+        return None
+    source = await get_default_context()._deserialize_entity(Entry, record)
+    if (
+        source is not None
+        and source.record_revision == revision
+        and source.status not in {"archived", "deleted"}
+    ):
+        return source
+    return None
 
 
 async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -355,6 +429,23 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             "expected_record_revision and expected_schema_revision are required",
         )
 
+    try:
+        evidence = filing_evidence_revisions(
+            payload.get("evidence_revisions"), entry_id
+        )
+    except ValueError as exc:
+        return _refused("invalid_evidence_revisions", str(exc))
+    close_goal = payload.get("close_goal") is True
+    if close_goal and (
+        mode != "append"
+        or payload.get("append_field") != "body"
+        or not evidence
+        or any(payload.get(key) is not None for key in ("fields", "tags", "relations"))
+    ):
+        return _refused(
+            "goal_closure_invalid",
+            "Closing a goal requires a body note and its supporting Entry revisions.",
+        )
     fingerprint = _fingerprint(payload)
     idem = str(payload.get("idempotency_key") or "").strip()
     receipt_id = _receipt_id(user_id, idem) if idem else ""
@@ -382,7 +473,7 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             "record_revision_conflict",
             "Entry has changed since it was read",
         )
-    current_schema = await _live_schema_revision(track, entry)
+    current_schema = await live_filing_schema_revision(track, entry)
     if int(payload["expected_schema_revision"]) != current_schema:
         return _refused(
             "schema_revision_conflict",
@@ -406,6 +497,11 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
 
     type_key = await _entry_type_key(entry, payload)
     workspace_id = str(getattr(track, "workspace_id", "") or "")
+    scoped_workspace = active_workspace_id()
+    if evidence and (
+        not workspace_id or (scoped_workspace and scoped_workspace != workspace_id)
+    ):
+        return _refused("denied", "Access denied")
     if proposed:
         try:
             await enforce_protected_field_write(
@@ -437,42 +533,124 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
                 "Tags not defined on this Track: " + ", ".join(unknown),
             )
 
-    if mode == "append":
-        current_value = (
-            entry.body or ""
-            if append_field == "body"
-            else str((entry.custom_fields or {}).get(append_field) or "")
-        )
-        if current_value.endswith(text):
-            result = {
-                "filed": True,
-                "partial": False,
-                "appended": False,
-                "already_applied": True,
-                "entry_id": entry.id,
-                "mode": mode,
-                "record_revision": current_revision,
-            }
-            if receipt_id:
-                await _write_receipt(
-                    _store(),
-                    receipt_id=receipt_id,
-                    fingerprint=fingerprint,
-                    result=result,
-                )
-            return result
-
-    needs_txn = bool(targets) or tag_ids is not None
+    needs_txn = bool(evidence or targets) or tag_ids is not None
     if needs_txn and not graph_transaction_available():
         return _refused(
             "transaction_unavailable",
-            "Tags and relation links require a store that can host one transaction",
+            "Supporting evidence, tags and relation links require a transactional store",
         )
 
-    async def _run(store: Any) -> Dict[str, Any]:
-        fresh = await Entry.get(entry_id)
+    effect_outbox_id: str | None = None
+
+    async def _run(store: Any, *, lock_entry: bool = False) -> Dict[str, Any]:
+        nonlocal effect_outbox_id
+        if lock_entry:
+            records = {}
+            for record_id in sorted({entry_id, *evidence}):
+                shared = record_id != entry_id
+                with measure_write_lock("entry_row", shared=shared):
+                    records[record_id] = await store.lock_record(
+                        "node", record_id, shared=shared
+                    )
+            locked = records[entry_id]
+            fresh = (
+                await get_default_context()._deserialize_entity(Entry, locked)
+                if locked is not None and locked.get("entity") == Entry._entity_name()
+                else None
+            )
+        else:
+            fresh = await Entry.find_one({"id": entry_id})
+        if receipt_id:
+            existing = await _load_receipt(store, receipt_id)
+            if existing is not None:
+                return _replay_or_conflict(existing, fingerprint)
         if fresh is None:
             return _refused("not_found", "Entry not found")
+        if (
+            fresh.track_id != entry.track_id
+            or int(fresh.record_revision or 1) != current_revision
+        ):
+            return _refused(
+                "record_revision_conflict", "Entry has changed since it was read"
+            )
+        if evidence:
+            sources: dict[str, Entry] = {}
+            location = await locate_resource(
+                "entry",
+                entry_id,
+                selected_record=locked,
+                allowed_app_states=DATA_APP_STATES,
+            )
+            decision = await policy_evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action="entry.update",
+                resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
+            )
+            if (
+                location is None
+                or location.workspace_id != workspace_id
+                or not decision.allowed
+            ):
+                return _refused("denied", "Access denied")
+            live_track = await Track.find_one({"id": fresh.track_id})
+            if (
+                live_track is None
+                or await live_filing_schema_revision(live_track, fresh)
+                != current_schema
+            ):
+                return _refused(
+                    "schema_revision_conflict",
+                    "Entry schema has changed since it was read",
+                )
+            for source_id, revision in evidence.items():
+                record = records[source_id]
+                source = (
+                    await _current_evidence(user_id, workspace_id, record, revision)
+                    if record is not None
+                    else None
+                )
+                if source is None:
+                    return _refused(
+                        "record_revision_conflict",
+                        "Supporting evidence changed or is no longer available. Review the current sources and propose the change again.",
+                    )
+                sources[source_id] = source
+            if close_goal:
+                from app.services.goal_evidence import goal_criteria_met
+
+                if fresh.status != "active" or not await goal_criteria_met(
+                    fresh, sources
+                ):
+                    return _refused(
+                        "goal_criteria_unmet",
+                        "The goal is not open or its published criteria are not met by the reviewed evidence.",
+                    )
+        if mode == "append" and not close_goal:
+            current_value = (
+                fresh.body or ""
+                if append_field == "body"
+                else str((fresh.custom_fields or {}).get(append_field) or "")
+            )
+            if current_value.endswith(text):
+                result = {
+                    "filed": True,
+                    "partial": False,
+                    "appended": False,
+                    "already_applied": True,
+                    "entry_id": fresh.id,
+                    "mode": mode,
+                    "record_revision": current_revision,
+                }
+                if receipt_id:
+                    await _write_receipt(
+                        store,
+                        receipt_id=receipt_id,
+                        fingerprint=fingerprint,
+                        result=result,
+                    )
+                return result
+        provenance = provenance_details() if close_goal else {}
+        before = {"body": fresh.body, "status": fresh.status} if provenance else None
         result = await _mutate_entry(
             entry=fresh,
             payload=payload,
@@ -485,6 +663,26 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
             current_revision=current_revision,
             current_schema=current_schema,
         )
+        if before is not None:
+            effect_outbox_id = await insert_entry_event(
+                transaction=store,
+                workspace_id=workspace_id,
+                event={
+                    "actor_kind": "agent",
+                    "actor_id": user_id,
+                    "action": "entry.update",
+                    "resource_type": "Entry",
+                    "resource_id": fresh.id,
+                    "before": before,
+                    "after": {
+                        "body": fresh.body,
+                        "status": fresh.status,
+                        "record_revision": fresh.record_revision,
+                    },
+                    "scope": f"track:{fresh.track_id}",
+                    "details": {**provenance, "goal_closure": True},
+                },
+            )
         if receipt_id:
             await _write_receipt(
                 store,
@@ -497,17 +695,30 @@ async def apply_filing_facet(user_id: str, payload: Dict[str, Any]) -> Dict[str,
     if needs_txn or graph_transaction_available():
         try:
             async with postgres_graph_transaction() as transaction:
-                return await _run(transaction)
+                if evidence:
+                    async with authorization_scope(workspace_id):
+                        result = await _run(transaction, lock_entry=True)
+                else:
+                    result = await _run(transaction, lock_entry=True)
         except OperationTransactionUnavailable:
             if needs_txn:
                 return _refused(
                     "transaction_unavailable",
-                    "Tags and relation links require a store that can host one transaction",
+                    "Supporting evidence, tags and relation links require a transactional store",
                 )
             return await _run(_store())
         except Exception as exc:  # noqa: BLE001 — mid-facet failure rolls the txn
             refused = _refused("facet_rolled_back", str(exc) or "facet rolled back")
             refused["rolled_back"] = True
             return refused
+        if (
+            effect_outbox_id
+            and current_graph_transaction_database(required=False) is None
+        ):
+            try:
+                await deliver_operation_event(outbox_id=effect_outbox_id)
+            except Exception:
+                logger.exception("Goal closure change event awaits recovery")
+        return result
 
     return await _run(_store())

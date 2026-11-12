@@ -1,5 +1,7 @@
 """Filing existing chat bytes must share one graph/approval receipt commit."""
 
+import json
+
 import pytest
 from jvspatial.core.context import GraphContext, scoped_default_context_async
 
@@ -53,9 +55,17 @@ async def filing_proposal():
 async def test_filing_completion_loss_leaves_exact_applied_receipt(
     postgres_raw_db, monkeypatch
 ):
+    from app.agentive.harness.deferred_staging import _project_applied_result
+    from app.schemas.agentive.work import WorkError
+    from app.services.credential_crypto import decrypt_secret_from_storage
+
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "aa" * 32)
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
-        auth, _, entry_id, attachment, change = await filing_proposal()
+        auth, workspace, entry_id, attachment, change = await filing_proposal()
+        tool = "integral_attach_uploaded_file_to_entry"
+        evidence = {"entry_id": entry_id, "attachment_id": attachment.id}
+        with pytest.raises(WorkError):
+            await _project_applied_result(auth.id, workspace.id, tool, evidence)
 
         consume = staging_apply.consume_token
 
@@ -85,6 +95,21 @@ async def test_filing_completion_loss_leaves_exact_applied_receipt(
         )
         assert recovered["consumed"], recovered
         assert recovered["execute_result"]["execution_receipt"]["replayed"] is True
+        applied_evidence = json.loads(
+            decrypt_secret_from_storage(
+                receipt["context"]["result_ciphertext"], aad=receipt["id"]
+            )
+        )
+        assert await _project_applied_result(
+            auth.id, workspace.id, tool, applied_evidence
+        ) == {
+            "applied": True,
+            **evidence,
+        }
+        with pytest.raises(WorkError):
+            await _project_applied_result(
+                auth.id, "different-workspace", tool, evidence
+            )
         assert await postgres_raw_db.get("node", entry_id) == current
         assert await postgres_raw_db.get("node", attachment.id) == filed
         assert await postgres_raw_db.find("edge", {}, sort=[("id", 1)]) == edges

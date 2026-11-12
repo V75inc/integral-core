@@ -1,6 +1,10 @@
-import { type ReactNode, type RefObject } from 'react';
+import { type ReactNode, type RefObject, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { TrackFilterStrip } from '../TrackFilterStrip';
+import type { FieldFilter } from '../fieldFilters';
+import { ListPager } from '../../ui/ListPager';
+import { FilterChips } from '../../views/FilterChips';
+import { trackFilterSpecs } from '../../views/columnFilterModel';
 import { EntryComposer } from '../../entries/EntryComposer';
 import { FilterActionRow, LINE_ICON_STROKE, filterBar } from '../../ui';
 import { ViewRenderer } from '../../../views';
@@ -65,6 +69,13 @@ export interface TrackDetailMainColumnProps {
   onEntryCreate: NonNullable<ViewWidgetProps['onEntryCreate']>;
   entryTypes: EntryTypeNode[];
   trackEntryTypeFields: OperationalModelFieldSpec[];
+  fieldFilters: FieldFilter[];
+  setFieldFilters: (value: FieldFilter[]) => void;
+  /** Table lists: the server's order for the whole list, the exact total, and the page controls. */
+  sort?: { field: string; path?: string; dir: 'asc' | 'desc' } | null;
+  onSortChange?: (next: { field: string; path?: string; dir: 'asc' | 'desc' }) => void;
+  entriesTotal?: number;
+  pager?: { page: number; pageSize: number; total: number; busy?: boolean; onPage: (page: number) => void; onPageSize: (size: number) => void };
   hasNextPage: boolean | undefined;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
@@ -118,6 +129,12 @@ export function TrackDetailMainColumn({
   onEntryCreate,
   entryTypes,
   trackEntryTypeFields,
+  fieldFilters,
+  setFieldFilters,
+  sort,
+  onSortChange,
+  entriesTotal,
+  pager,
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
@@ -125,6 +142,7 @@ export function TrackDetailMainColumn({
   recordReadBoundaryNotice,
   trackEntriesSentinelRef,
 }: TrackDetailMainColumnProps) {
+  const filterSpecs = useMemo(() => trackFilterSpecs(trackEntryTypeFields, track?.id), [trackEntryTypeFields, track?.id]);
   return (
     <section
       className={`min-w-0 ${
@@ -149,6 +167,9 @@ export function TrackDetailMainColumn({
                 filterType={filterType}
                 setFilterType={setFilterType}
                 entryTypeSlugs={entryTypeSlugs}
+                filterSpecs={filterSpecs}
+                fieldFilters={fieldFilters}
+                onFieldFiltersChange={setFieldFilters}
                 tagEntries={tagFilterEntries}
                 selectedTags={filterTags}
                 onTagsChange={setFilterTags}
@@ -212,6 +233,11 @@ export function TrackDetailMainColumn({
         </div>
       ) : null}
 
+      {!isPagesView && fieldFilters.length > 0 ? (
+        <div className="mb-3 overflow-hidden rounded-[var(--radius-card)] border border-[var(--entry-table-border)] bg-[var(--panel)]">
+          <FilterChips specs={filterSpecs} filters={fieldFilters} onChange={setFieldFilters} total={entriesTotal} />
+        </div>
+      ) : null}
       {recordReadBoundaryNotice}
       {recordReadBoundaryNotice && filteredEntries.length === 0 ? null : activeView ? (
         <>
@@ -235,6 +261,11 @@ export function TrackDetailMainColumn({
               track?.operational_model_defaults?.default_entry_type
             }
             fields={trackEntryTypeFields}
+            columnFilters={fieldFilters}
+            onColumnFiltersChange={setFieldFilters}
+            totalCount={entriesTotal}
+            sort={sort}
+            onSortChange={onSortChange}
             filterType={filterType}
             onFilterChange={setFilterType}
             fetchMore={
@@ -248,6 +279,17 @@ export function TrackDetailMainColumn({
             isEditor={canCreateEntry}
             track={track ?? undefined}
           />
+          {pager ? (
+            <ListPager
+              page={pager.page}
+              pageSize={pager.pageSize}
+              total={pager.total}
+              busy={pager.busy}
+              onPageChange={pager.onPage}
+              onPageSizeChange={pager.onPageSize}
+              label="entries"
+            />
+          ) : null}
           {isFetchingNextPage ? (
             <div className="flex justify-center py-4 text-[color:var(--text-muted)]">
               <Loader2

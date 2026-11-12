@@ -46,7 +46,7 @@ It starts a private PostgreSQL database, the API and the web interface, then ope
 
 Integral is pre-1.0. Read the source version from `backend/pyproject.toml`; a repository version does not establish that a matching package has been published. Use the frozen lock for source development.
 
-Prerequisites: Python 3.11 or later, [uv](https://docs.astral.sh/uv/), and a Node.js version supported by the checked-in Vite release. Use the project lockfiles.
+Prerequisites: Python 3.11.5 or later, [uv](https://docs.astral.sh/uv/), and a Node.js version supported by the checked-in Vite release. Use the project lockfiles.
 
 ```bash
 uv sync --directory backend --frozen --extra dev --extra test

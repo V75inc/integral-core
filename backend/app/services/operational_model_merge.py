@@ -131,14 +131,16 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["create_wizard"] = spec.get("create_wizard")
         if "singleton" not in merged and spec.get("singleton") is not None:
             merged["singleton"] = bool(spec.get("singleton"))
-        if "search_index" in spec:
-            merged["search_index"] = spec["search_index"]
+        for key in ("search_index", "task_semantics", "goal_semantics"):
+            if key in spec:
+                merged[key] = spec[key]
         if spec.get("key") and "_manifest_entry_type_key" not in merged:
             merged["_manifest_entry_type_key"] = str(spec.get("key") or "")
         return normalize_entry_type_form_schema(merged)
     out: Dict[str, Any] = {"fields": list(spec.get("fields") or [])}
-    if "search_index" in spec:
-        out["search_index"] = spec["search_index"]
+    for key in ("search_index", "task_semantics", "goal_semantics"):
+        if key in spec:
+            out[key] = spec[key]
     if spec.get("key"):
         out["_manifest_entry_type_key"] = str(spec.get("key") or "")
     if spec.get("base_fields") is not None:
@@ -1396,7 +1398,15 @@ def _track_spec_to_library_manifest_dict(
     tier = {
         k: v
         for k, v in track_spec.items()
-        if k not in ("provision_on_create", "nav_visible", "key", "name", "description")
+        if k
+        not in (
+            "provision_on_create",
+            "nav_visible",
+            "key",
+            "name",
+            "description",
+            "icon",
+        )
     }
     # App-owned view composites (F2) compile to ``view_type: <composite_key>``
     # plus ``composite.base``. Track-scope recompile has no ``view_types[]``,
@@ -1475,6 +1485,14 @@ async def refresh_app_track_template_materialization(
         ):
             spawned.nav_visible = desired_nav
             await spawned.save()
+    template_icon = str(template_spec.get("icon") or "")
+    if template_icon:
+        for spawned in await app_node.nodes(edge=["CONTAINS"], node=["Track"]):
+            if str(getattr(spawned, "template_id", "") or "") == template_key and not (
+                getattr(spawned, "icon", "") or ""
+            ):
+                spawned.icon = template_icon
+                await spawned.save()
     return template_cp
 
 
@@ -1628,6 +1646,10 @@ async def provision_prescribed_tracks_from_app_manifest(
                 if bool(getattr(existing_track, "nav_visible", True)) != desired_nav:
                     existing_track.nav_visible = desired_nav
                     dirty = True
+                # The package's icon is a default: a Track that already has one (set by a person) keeps it.
+                if spec.get("icon") and not (getattr(existing_track, "icon", "") or ""):
+                    existing_track.icon = str(spec["icon"])
+                    dirty = True
                 if sync_track_description_from_manifest(
                     existing_track,
                     str(spec.get("description") or "").strip(),
@@ -1657,7 +1679,7 @@ async def provision_prescribed_tracks_from_app_manifest(
             owner_id=owner_user_id,
             purpose=str(spec.get("description") or "").strip(),
             purpose_from_manifest=str(spec.get("description") or "").strip(),
-            icon="",
+            icon=str(spec.get("icon") or ""),
             visibility=resolved_vis,
             template_id=key,
             workspace_id=track_workspace_id,

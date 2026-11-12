@@ -77,7 +77,7 @@ async def test_list_omits_extracted_text_body(monkeypatch):
     monkeypatch.setattr(
         attachment_agent, "policy_evaluate", lambda **kw: _async(_Allow())
     )
-    entry, _ = await _seed_entry_with_attachment("x" * 500)
+    entry, att = await _seed_entry_with_attachment("x" * 500)
     out = await attachment_agent.list_attachments_for_entry(
         user_id="o.User.test", entry_id=entry.id
     )
@@ -88,9 +88,8 @@ async def test_list_omits_extracted_text_body(monkeypatch):
     assert item["has_text"] is True
     assert item["text_length"] == 500
     assert item["download_url"]  # delivery URL present
-    # Reply hint steers the model away from "above" (card renders below).
-    hint = out["assistant_reply_hint"]
-    assert "below" in hint and "above" in hint  # mentions both to forbid "above"
+    assert item["source_url"] == f"/entries/{entry.id}?attachment={att.id}"
+    assert "source_url" in out["assistant_reply_hint"]
 
 
 @pytest.mark.asyncio
@@ -285,7 +284,7 @@ async def test_get_text_caps_and_flags_untrusted(monkeypatch):
     monkeypatch.setattr(
         attachment_agent, "policy_evaluate", lambda **kw: _async(_Allow())
     )
-    _, att = await _seed_entry_with_attachment("y" * 50)
+    entry, att = await _seed_entry_with_attachment("y" * 50)
     out = await attachment_agent.get_attachment_text(
         user_id="o.User.test", attachment_id=att.id, max_chars=10
     )
@@ -293,6 +292,7 @@ async def test_get_text_caps_and_flags_untrusted(monkeypatch):
     assert out["char_count"] == 10
     assert len(out["text"]) == 10
     assert out["content_untrusted"] is True
+    assert out["source_url"] == f"/entries/{entry.id}?attachment={att.id}"
 
 
 @pytest.mark.asyncio

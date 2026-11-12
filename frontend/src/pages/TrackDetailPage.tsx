@@ -1,4 +1,6 @@
 import { useDeployment } from '../hooks/useDeployment';
+import { MAX_FIELD_FILTERS, toRequestFilters, type FieldFilter } from '../components/tracks/fieldFilters';
+import { PAGE_SIZES } from '../components/ui/ListPager';
 import type { EntryCreateInput } from '../views/types';
 import { entriesMatchingTags } from '../components/tracks/TrackTagFilters';
 /* patch:kanban-hire-intercept */
@@ -19,6 +21,7 @@ import { sharingApi } from '../api/sharing';
 import { DeriveLibraryPackageModal } from '../components/library/DeriveLibraryPackageModal';
 import {
   useInfiniteQuery,
+  keepPreviousData,
   useQuery,
   useQueryClient,
   type InfiniteData
@@ -94,7 +97,8 @@ import {
 } from '../utils';
 import {
   getDisallowedCustomFieldKeys,
-  getMissingRequiredFields
+  getMissingRequiredFields,
+  mergeEntryListRow,
 } from '../utils/entryMetaFields';
 import { useTrackPermissions } from '../utils/entryEditRights';
 import { entryPagePath } from '../utils/resourcePaths';
@@ -164,6 +168,15 @@ export function TrackDetailPage() {
   const [deriveModalOpen, setDeriveModalOpen] = useState(false);
   const [filterType, setFilterType] = useState('');
   const [filterTags, setFilterTags] = useState<string[]>([]);
+  // Filters on the Track's fields. The server applies them before it pages, so totals and every page follow.
+  const [fieldFilters, setFieldFilters] = useState<FieldFilter[]>([]);
+  // Table lists are paged: a page number, a page size and the server's order for the whole list.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(() => {
+    try { const n = Number(window.localStorage.getItem('track-page-size')); return PAGE_SIZES.includes(n as (typeof PAGE_SIZES)[number]) ? n : 25; } catch { return 25; }
+  });
+  const [sort, setSort] = useState<{ field: string; path?: string; dir: 'asc' | 'desc' } | null>(null);
+  useEffect(() => { setFieldFilters([]); setSort(null); setPage(1); }, [id]);
   useEffect(() => setFilterTags([]), [id]);
   const [trackSearch, setTrackSearch] = useState('');
   // Right rail collapsed by default. Two mutually exclusive modes:
@@ -541,15 +554,38 @@ export function TrackDetailPage() {
     feedFallbackView,
   ]);
 
-  const entryFilters = dashboardFilters
-    ? { dashboard_filters: JSON.stringify(dashboardFilters) }
-    : activeView?.id ? { view_id: activeView.id } : {};
-  const entryFilterKey = dashboardFiltersParam ?? activeView?.id;
+  // Dashboard drill-down filters and the user's field filters go to the server together. The view is sent too, so
+  // its entry types and its own filters keep applying.
+  const requestFilters = useMemo(
+    () => [...(dashboardFilters ?? []), ...toRequestFilters(fieldFilters)].slice(0, MAX_FIELD_FILTERS),
+    [dashboardFilters, fieldFilters],
+  );
+  const pagedMode = activeView?.type === 'table';
+  // What the list holds, remembered while paging so each page does not count it again.
+  const [totalMemo, setTotalMemo] = useState<{ key: string; total: number } | null>(null);
+  const sortParam = sort ? `${sort.dir === 'desc' ? '-' : ''}${sort.path || sort.field}` : '';
+  const entryFilters = {
+    ...(requestFilters.length ? { dashboard_filters: JSON.stringify(requestFilters) } : {}),
+    ...(activeView?.id ? { view_id: activeView.id } : {}),
+    ...(pagedMode && sortParam ? { sort: sortParam } : {}),
+  };
+  const baseFilterKey = requestFilters.length
+    ? `${JSON.stringify(requestFilters)}|${activeView?.id ?? ''}`
+    : activeView?.id;
+  // A page, its size and the order are part of the key: each page is its own cached read.
+  const entryFilterKey = pagedMode ? `${baseFilterKey ?? ''}|${sortParam}|p${page}x${pageSize}` : baseFilterKey;
+  const totalKey = `${id}|${baseFilterKey ?? ''}`;
+  const knownTotal = totalMemo?.key === totalKey ? totalMemo.total : undefined;
+  // Back to the first page whenever what the list shows changes.
+  const listShapeKey = `${id}|${baseFilterKey ?? ''}|${sortParam}|${pageSize}`;
+  const [seenShape, setSeenShape] = useState(listShapeKey);
+  if (seenShape !== listShapeKey) { setSeenShape(listShapeKey); if (page !== 1) setPage(1); }
 
   const {
     data: entriesData,
     error: entriesError,
     isPending: entriesPending,
+    isFetching: entriesFetching,
     isFetchingNextPage,
     isFetchNextPageError,
     hasNextPage,
@@ -567,8 +603,16 @@ export function TrackDetailPage() {
       (dashboardFilters !== undefined || activeView !== null)
     ),
     initialPageParam: undefined as string | undefined,
+    // The rows stay on screen while the next page loads.
+    placeholderData: pagedMode ? keepPreviousData : undefined,
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
+      if (pagedMode) {
+        // The total is counted on the first page and whenever the filters change; moving between pages reuses it.
+        return tracksApi.getEntriesPage(id, {
+          ...entryFilters, include_total: page === 1 || knownTotal === undefined, limit: pageSize, offset: (page - 1) * pageSize,
+        });
+      }
       return tracksApi.getEntriesPage(id, {
         ...entryFilters,
         include_total: false,
@@ -578,13 +622,18 @@ export function TrackDetailPage() {
     retry: (attempt, error) =>
       (error as { response?: { status?: number } }).response?.status !== 429 && attempt < 1,
     getNextPageParam: last =>
-      last.hasMore && last.nextCursor ? last.nextCursor : undefined
+      !pagedMode && last.hasMore && last.nextCursor ? last.nextCursor : undefined
   });
 
   const firstEntryPage = entriesData?.pages[0];
+  const countedTotal = pagedMode ? firstEntryPage?.total : undefined;
+  useEffect(() => {
+    if (countedTotal !== undefined && (totalMemo?.key !== totalKey || totalMemo.total !== countedTotal)) setTotalMemo({ key: totalKey, total: countedTotal });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countedTotal, totalKey]);
   const { data: exactEntriesTotal } = useQuery({
     queryKey: ['track', id, 'entries-total', entryFilterKey],
-    enabled: Boolean(id && firstEntryPage?.hasMore && firstEntryPage.nextCursor
+    enabled: Boolean(id && !pagedMode && firstEntryPage?.hasMore && firstEntryPage.nextCursor
       && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
     queryFn: () => tracksApi.getEntriesTotal(id!, entryFilters),
     retry: false,
@@ -696,9 +745,7 @@ export function TrackDetailPage() {
     principalId: user?.id,
     trackId: id,
     enabled: semanticMode && Boolean(id && trackDetailQuery.data && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
-    params: dashboardFilters
-      ? { dashboard_filters: JSON.stringify(dashboardFilters) }
-      : activeView?.id ? { view_id: activeView.id } : {},
+    params: entryFilters,
   });
 
   const allEntries = useMemo(
@@ -801,7 +848,7 @@ export function TrackDetailPage() {
   ]);
 
   const entriesTotal =
-    exactEntriesTotal ?? firstEntryPage?.total ??
+    (pagedMode ? firstEntryPage?.total ?? knownTotal : undefined) ?? exactEntriesTotal ?? firstEntryPage?.total ??
     (firstEntryPage && !firstEntryPage.hasMore ? firstEntryPage.entries.length : undefined);
   const loadedEntries = entriesData?.pages.reduce((sum, page) => sum + page.entries.length, 0);
 
@@ -1031,8 +1078,8 @@ export function TrackDetailPage() {
 
   /** Must match ``useInfiniteQuery`` key (includes active saved view). */
   const trackEntriesInfiniteQueryKey = useMemo(
-    () => ['track', id, 'entries', activeView?.id] as const,
-    [id, activeView?.id]
+    () => ['track', id, 'entries', entryFilterKey] as const,
+    [id, entryFilterKey]
   );
 
   const patchEntriesCache = useCallback(
@@ -1128,10 +1175,14 @@ export function TrackDetailPage() {
     (u: Entry) => {
       patchEntriesCache(p => ({
         ...p,
-        entries: p.entries.map(e => (e.id === u.id ? u : e))
+        entries: p.entries.map(entry =>
+          entry.id === u.id
+            ? mergeEntryListRow(entry, u, entryTypesQuery.data ?? [])
+            : entry
+        )
       }));
     },
-    [patchEntriesCache]
+    [entryTypesQuery.data, patchEntriesCache]
   );
 
   /** Persist an entry mutation owned by a view widget (Kanban drag,
@@ -2011,6 +2062,12 @@ export function TrackDetailPage() {
           onEntryCreate={handleEntryCreate}
           entryTypes={(entryTypesQuery.data ?? []) as EntryTypeNode[]}
           trackEntryTypeFields={trackEntryTypeFields}
+          fieldFilters={fieldFilters}
+          setFieldFilters={setFieldFilters}
+          sort={sort}
+          onSortChange={pagedMode ? setSort : undefined}
+          entriesTotal={entriesTotal}
+          pager={pagedMode && entriesTotal !== undefined ? { page, pageSize, total: entriesTotal, busy: entriesPending || entriesFetching, onPage: setPage, onPageSize: (n: number) => { setPageSize(n); try { window.localStorage.setItem('track-page-size', String(n)); } catch { /* optional */ } } } : undefined}
           hasNextPage={hasNextPage && !(semanticMode && Boolean(retrievalQuery))}
           isFetchingNextPage={isFetchingNextPage}
           fetchNextPage={() => {

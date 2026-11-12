@@ -341,3 +341,31 @@ async def test_routine_details_include_its_source_app_and_readable_targets(
     assert [
         (link["kind"], link["label"]) for link in response.json()["context_links"]
     ] == [("app", "Routine source App"), ("track", "Routine target Track")]
+
+
+@pytest.mark.asyncio
+async def test_routine_tool_marks_only_the_bound_conversation():
+    from app.agentive.tooling.dispatch import dispatch_tool
+    from app.services.chat_threads import create_thread
+
+    user_id, workspace_id, current = await _bootstrap("routines-tool-scope@example.com")
+    sibling = await create_thread(
+        user_id=user_id, provider_id="integral_native", workspace_id=workspace_id
+    )
+    here = await _seed(user_id, workspace_id, current.id, instruction="Same watch")
+    elsewhere = await _seed(user_id, workspace_id, sibling.id, instruction="Same watch")
+
+    result = await dispatch_tool(
+        "integral_list_routines",
+        {},
+        principal_id=user_id,
+        scope=workspace_id,
+        session_id=current.id,
+    )
+    assert not result.is_error, result
+    assert {
+        row["id"]: row["in_current_conversation"] for row in result.data["routines"]
+    } == {
+        here.id: True,
+        elsewhere.id: False,
+    }

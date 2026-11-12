@@ -157,3 +157,29 @@ async def test_revocation_withholds_terminal_frame(monkeypatch):
     assert b"message-finish" in await anext(response)
     with pytest.raises(PermissionError):
         await anext(response)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("outcome", "status", "message"),
+    [
+        ("rejected", "failed", b"You rejected the proposed change."),
+        ("expired", "expired", b"The proposed change expired before it was approved."),
+    ],
+)
+async def test_approval_terminal_frame_names_the_decision(
+    monkeypatch, outcome, status, message
+):
+    monkeypatch.setattr(
+        chat_turn_streaming,
+        "replay_work_item_chat_events",
+        AsyncMock(
+            return_value=ChatEventReplayPage(
+                work_status=status, approval_outcome=outcome
+            )
+        ),
+    )
+    frames = [frame async for frame in stream()]
+    assert f"work.approval_{outcome}".encode() in frames[0]
+    assert message in frames[0]
+    assert b"turn-settled" in frames[1]

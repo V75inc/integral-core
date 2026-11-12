@@ -310,7 +310,9 @@ async def test_expiry_preserves_dispatched_unknown_outcome_on_restart(postgres_r
             kind=sc.kind,
             payload=sc.payload,
         )
-        await mark_staging_external_dispatch(claim)
+        await mark_staging_external_dispatch(
+            claim, approval_token=sc.token, approval_claim=claim
+        )
         with pytest.raises(StagingError) as exc:
             await staging.consume_token(
                 user_id=auth.id, token=sc.token, expected_kind=sc.kind

@@ -92,8 +92,10 @@ function ResolvedTarget({
     );
   }
 
+  // A table cell shows the record's own name; the track it lives in is on hover (the parent sets the tooltip).
+  const shown = variant === 'cell' ? target.name ?? target.label : target.label;
   if (!route) {
-    return <span className="break-words">{target.label}</span>;
+    return <span className="break-words">{shown}</span>;
   }
   return (
     <Link
@@ -101,7 +103,7 @@ function ResolvedTarget({
       className={inlineLinkClass}
       onClick={handleNavigate}
     >
-      {target.label}
+      {shown}
     </Link>
   );
 }

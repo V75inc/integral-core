@@ -21,15 +21,14 @@ from app.agentive.harness.pydantic_ai_compat import (
     Agent,
     Capability,
     ConversationSearch,
+    DeferredToolRequests,
     InstructionDisclosureGuard,
     Instrumentation,
     IntegralContextAdmission,
     IntegralContextLifecycle,
     IntegralLimitWarnings,
     IntegralToolDisclosure,
-    LocalWorkspaceBackend,
     PublicConversationHistorySource,
-    Skills,
     SnapshotHistorySource,
     StepPersistence,
     StepStore,
@@ -38,6 +37,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     build_integral_working_context,
 )
 from app.agentive.harness.scoped_store import ScopedStepStore
+from app.agentive.harness.skill_sources import projected_skills
 from app.agentive.harness.turn_progress import TurnProgress
 from app.schemas.agentive.work import WorkExecutionContext
 
@@ -86,6 +86,7 @@ def build_native_runtime(
     protected_instruction_text: str | None = None,
     initial_skill: tuple[str, str] | None = None,
     accepts_steering: bool = False,
+    accepts_deferred_approvals: bool = False,
     instructions: str,
     tools: Sequence[Any],
     step_store_backend: StepStore | None = None,
@@ -176,17 +177,19 @@ def build_native_runtime(
             store=scoped_store,
             agent_name=agent_name,
             run_id=scope.framework_run_id,
+            capture_frontier=accepts_deferred_approvals,
         ),
         # Bound repeated read payloads even within a long active turn. Only
         # tools explicitly marked read-only in the Core catalogue may be
         # compacted; capability loading, skills, staging, and writes stay exact.
         build_integral_working_context(
+            retrieval_scope=scope,
             clearable_tools=frozenset(
                 tool.name
                 for tool in tools
                 if (getattr(tool, "metadata", None) or {}).get("integral_op_class")
                 == "read"
-            )
+            ),
         ),
         # Search only this server-assigned Pydantic conversation. The source
         # is the exact tenant/principal/thread/session-scoped StepStore used by
@@ -212,13 +215,7 @@ def build_native_runtime(
     )
     if remaining_skills:
         capabilities.append(
-            Skills(
-                directories=[path.resolve() for path in skill_directories],
-                include=remaining_skills,
-                # Attach a backend only to Skills. No filesystem or shell
-                # capability is added to the resident agent.
-                workspace=LocalWorkspaceBackend(skill_directories[0].resolve()),
-            )
+            projected_skills(skill_directories, include=remaining_skills)
         )
 
     capabilities.append(InstructionDisclosureGuard(protected_instructions=protected))
@@ -232,11 +229,18 @@ def build_native_runtime(
     agent = Agent(
         model,
         instructions=build_integral_run_instructions(
-            instructions + "\n\n" + DISCLOSURE_POLICY, turn_progress
+            instructions + "\n\n" + DISCLOSURE_POLICY,
+            turn_progress,
+            workflow_skill_ids=selected_skills,
         ),
         tools=list(tools),
         retries={"output": 3},
         capabilities=capabilities,
+        **(
+            {"output_type": [str, DeferredToolRequests]}
+            if accepts_deferred_approvals
+            else {}
+        ),
     )
     agent.output_validator(instruction_output_validator(protected))
     return agent, scoped_store

@@ -159,3 +159,72 @@ async def test_home_source_denial_is_actionable_and_creates_no_approval(monkeypa
     assert result.error_code == "permission_denied"
     assert "secret-sentinel" not in result.message
     stage.assert_not_called()
+
+
+_ALREADY_ACTIVE = (
+    "Capability 'integral-scaffold' is already active. "
+    "Use its existing instructions and any tools it provides; "
+    "do not call `load_capability` for it again."
+)
+
+
+def test_duplicate_capability_load_has_precise_content_free_diagnostic():
+    from pydantic_ai.messages import RetryPromptPart
+
+    event = list(
+        translate_event(
+            FunctionToolResultEvent(
+                part=RetryPromptPart(
+                    tool_name="load_capability",
+                    tool_call_id="load-duplicate",
+                    content=_ALREADY_ACTIVE,
+                )
+            )
+        )
+    )[0]
+    # It remains a retry/failure, not a fabricated completed tool effect.
+    assert event["status"] == "error"
+    assert event["summary"]["outcome"] == "failed"
+    public = normalize_public_event(event)
+    assert public["diagnostic"]["code"] == "capability_already_active"
+    assert "integral-scaffold" not in str(public)
+    parts, _ = _native_chat_transcript([public])
+    assert _public_parts(parts) == parts
+    assert parts[0]["isError"] is True
+    assert parts[0]["diagnostic"]["message"] == (
+        "The requested capability is already active; no additional loading was needed."
+    )
+
+
+@pytest.mark.parametrize(
+    "tool_name,content,is_retry",
+    [
+        ("integral_update_app", _ALREADY_ACTIVE, True),
+        ("load_capability", _ALREADY_ACTIVE + " secret-sentinel", True),
+        ("load_capability", "No capability found with id 'private'.", True),
+        ("load_capability", {"error": True, "message": _ALREADY_ACTIVE}, False),
+        (
+            "load_capability",
+            {"error": True, "error_code": "capability_already_active"},
+            False,
+        ),
+    ],
+)
+def test_other_tool_failures_do_not_masquerade_as_duplicate_load(
+    tool_name, content, is_retry
+):
+    from pydantic_ai.messages import RetryPromptPart
+
+    part_type = RetryPromptPart if is_retry else ToolReturnPart
+    event = list(
+        translate_event(
+            FunctionToolResultEvent(
+                part=part_type(
+                    tool_name=tool_name, tool_call_id="call-other", content=content
+                )
+            )
+        )
+    )[0]
+    assert event["status"] == "error"
+    assert event["diagnostic"]["code"] == "tool_failed"
+    assert "secret-sentinel" not in str(normalize_public_event(event))

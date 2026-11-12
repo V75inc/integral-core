@@ -42,11 +42,16 @@ RUN python -m venv /opt/venv \
 
 # The image build does not consume uv.lock. Check the installed versions and
 # reject VCS installs before copying this environment into the runtime image.
-RUN /opt/venv/bin/python -c 'import importlib.metadata as m, tomllib; \
-assert m.version("integral-core") == tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; \
+RUN /opt/venv/bin/python -c 'import importlib.metadata as m, re, tomllib; \
+project = tomllib.load(open("pyproject.toml", "rb"))["project"]; \
+assert m.version("integral-core") == project["version"]; \
 assert m.version("integral-sdk") == "0.2.0"; \
 from integral_sdk import OperationContext; \
-assert m.version("jvspatial") == "0.2.8", "Expected jvspatial 0.2.8, installed " + m.version("jvspatial"); \
+pin, = [requirement for requirement in project["dependencies"] if re.match(r"(?i)^jvspatial\b", requirement)]; \
+expected = re.fullmatch(r"jvspatial==([0-9]+\.[0-9]+\.[0-9]+)", pin); \
+assert expected, f"Expected an exact PyPI release pin, found {pin}"; \
+installed = m.version("jvspatial"); \
+assert installed == expected[1], f"Expected {pin}, installed jvspatial=={installed}"; \
 assert m.version("pydantic-ai-harness") == "0.59.0"; \
 assert m.distribution("jvspatial").read_text("direct_url.json") is None'
 

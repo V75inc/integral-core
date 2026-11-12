@@ -6,6 +6,30 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc62 — 2026-11-12
+
+- Prepare the next Integral Core release candidate.
+
+## 0.1.1rc61 — 2026-11-11
+
+- Start desktop workspaces without warming or downloading the optional search model. Load it when a search or indexing operation needs it.
+- Report database and workspace startup stages, and keep readiness checks within the local API request budget.
+
+## 0.1.1rc60 — 2026-11-11
+
+- Keep App Home widgets evenly sized on wide layouts and stack them on narrow layouts.
+- Wait for text extraction when a file is uploaded and immediately sent in chat.
+- Link answers that use an Entry attachment directly to the source file.
+- Match the browser favicon to Integral’s selected theme.
+
+## 0.1.1rc58 — 2026-11-10
+
+- Reduce redundant protected reads for eligible shared Entry creates.
+- Improve Entry Detail type resolution and date display in table views.
+- Share library validation across overlapping view requests and batch tag lookups on Entry pages.
+- Fall back to portable title pagination when native title sorting is unavailable.
+- Pin the published jvspatial 0.2.9 release.
+
 ## 0.1.1rc57 — 2026-11-09
 
 - Reduce repeated authorization work in Track Detail and recheck current Track and collaborator-directory access before returning the response.

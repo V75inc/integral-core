@@ -524,3 +524,63 @@ async def test_ordinary_chat_lease_revoked_during_receipt_prevents_sdk(
     with pytest.raises(WorkError):
         await call(b)
     assert b.events == ["dispatch_intent"]
+
+
+@pytest.mark.asyncio
+async def test_reviewed_native_inference_uses_the_physical_ledger(
+    physical_boundary, monkeypatch
+):
+    from app.agentive.harness import litellm_model, model_observations
+    from app.agentive.services.work_mandate_inference import (
+        run_reviewed_mandate_inference,
+    )
+    from app.schemas.agentive.work_mandate import WorkMandateRevision
+    from tests.test_work_mandate_contract import mandate_payload
+
+    b = physical_boundary
+    host_hooks.register_model_bounds_resolver(b.bounds)
+    host_hooks.register_model_price_resolver(b.price)
+    build = litellm_model.build_litellm_sdk_model
+
+    async def complete(**kwargs):
+        b.events.append("sdk")
+        return {
+            "id": "mandate-response",
+            "model": "synthetic",
+            "object": "chat.completion",
+            "created": 1,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "Reviewed summary"},
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+        }
+
+    async def observe(observation, *, work_execution_context):
+        assert work_execution_context is b.context
+        await b.observe(observation)
+
+    def build_model(**kwargs):
+        return build(**kwargs, completion=complete)
+
+    monkeypatch.setattr(litellm_model, "build_litellm_sdk_model", build_model)
+    monkeypatch.setattr(
+        model_observations, "persist_model_request_observation", observe
+    )
+    result = await run_reviewed_mandate_inference(
+        b.context,
+        WorkMandateRevision.model_validate(mandate_payload()),
+        route=b.route,
+        resolve_route=AsyncMock(return_value=b.route),
+        instructions="Summarize the supplied evidence.",
+        prompt={"evidence": "A reviewed Entry"},
+        capability_version="reviewed-entry-read-v1",
+    )
+    assert result == "Reviewed summary"
+    assert b.events.index("reserve") < b.events.index("mark") < b.events.index("sdk")
+    assert len(b.reservations) == 1
+    assert b.current_dispatch.await_count == 1
+    assert b.settlement.await_count == 1

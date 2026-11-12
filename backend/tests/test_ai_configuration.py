@@ -63,15 +63,15 @@ async def test_profiles_switch_without_key_reentry_or_speech_loss():
         ),
     )
     a = await service.save_profile(
-        "owner", ProfileWrite(name="Fast", connection_id=c["id"], model="gpt-4o-mini")
+        "owner", ProfileWrite(name="Fast", connection_id=c["id"], model="gpt-4o")
     )
     b = await service.save_profile(
-        "owner", ProfileWrite(name="Other", connection_id=c["id"], model="gpt-4.1-mini")
+        "owner", ProfileWrite(name="Other", connection_id=c["id"], model="gpt-4.1")
     )
     await service.activate_profile("owner", a["id"])
     await service.activate_profile("owner", b["id"])
     record = await service.get_credential_for_user("owner")
-    assert record.model == "gpt-4.1-mini"
+    assert record.model == "gpt-4.1"
     assert (
         decrypt_secret_from_storage(record.api_key_enc, aad="owner")
         == "synthetic-provider-key"
@@ -83,7 +83,7 @@ async def test_profiles_switch_without_key_reentry_or_speech_loss():
     with pytest.raises(ValueError, match="unavailable"):
         await service.save_profile(
             "other",
-            ProfileWrite(name="Steal", connection_id=c["id"], model="gpt-4o-mini"),
+            ProfileWrite(name="Steal", connection_id=c["id"], model="gpt-4o"),
         )
 
 
@@ -101,7 +101,7 @@ async def test_legacy_snapshot_idempotent_and_key_rotation_updates_active_defaul
     legacy = await model_credentials.upsert_user_credential(
         user_id="owner",
         provider="openai",
-        model="gpt-4o-mini",
+        model="gpt-4o",
         api_key="synthetic-original-key",
         speech_model="gpt-4o-mini-transcribe",
     )
@@ -181,10 +181,10 @@ async def test_model_options_reach_selected_profile_and_do_not_change_default(
     await service.activate_profile("owner", p["id"])
     original = await service.get_credential_for_user("owner")
     fast = await service.save_profile(
-        "owner", ProfileWrite(name="Fast", connection_id=c["id"], model="gpt-4o-mini")
+        "owner", ProfileWrite(name="Fast", connection_id=c["id"], model="gpt-4o")
     )
     selected = await service.profile_credential("owner", fast["id"], original)
-    assert selected.model == "gpt-4o-mini"
+    assert selected.model == "gpt-4o"
     assert (await service.get_credential_for_user("owner")).model == "gpt-5"
     assert provider_model_options(original.generation_settings) == {
         "reasoning_effort": "high",
@@ -204,7 +204,7 @@ async def test_model_options_reach_selected_profile_and_do_not_change_default(
     override = await resolver.resolve_native_model_override(
         "workspace", profile_id=fast["id"]
     )
-    assert override["model"] == "openai/gpt-4o-mini"
+    assert override["model"] == "openai/gpt-4o"
     assert (await service.get_credential_for_user("owner")).model == "gpt-5"
 
 
@@ -220,6 +220,21 @@ async def test_model_options_reach_selected_profile_and_do_not_change_default(
 def test_invalid_or_arbitrary_settings_rejected(value):
     with pytest.raises(ValidationError):
         ModelGenerationSettings.model_validate(value)
+
+
+def test_proxied_cloud_context_setting_uses_verified_capacity(monkeypatch):
+    """The explicit context control can match the chosen cloud model."""
+    from app.services.model_settings import model_capabilities, validate_model_settings
+
+    monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "openai/test")
+    monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", raising=False)
+    model = "deepseek-v4.1-flash:cloud"
+    assert model_capabilities("ollama_local", model)["native_context"] == 1_000_000
+    assert validate_model_settings(
+        "ollama_local", model, {"context_window": 1_000_000}
+    ) == {"context_window": 1_000_000}
+    with pytest.raises(ValueError, match="cannot exceed"):
+        validate_model_settings("ollama_local", model, {"context_window": 1_000_001})
 
 
 @pytest.mark.asyncio
@@ -260,7 +275,7 @@ async def test_api_saves_tests_and_activates_profile(authenticated_client):
         json={
             "name": "Fast",
             "connection_id": connection.json()["id"],
-            "model": "gpt-4o-mini",
+            "model": "gpt-4o",
         },
     )
     assert profile.status_code == 200, profile.text
@@ -341,13 +356,13 @@ async def test_legacy_key_update_replaces_profile_selection(monkeypatch):
     )
     p = await service.save_profile(
         "owner",
-        ProfileWrite(name="Default", connection_id=c["id"], model="gpt-4o-mini"),
+        ProfileWrite(name="Default", connection_id=c["id"], model="gpt-4o"),
     )
     await service.activate_profile("owner", p["id"])
     updated = await model_credentials.upsert_user_credential(
         user_id="owner",
         provider="openai",
-        model="gpt-4o-mini",
+        model="gpt-4o",
         api_key="synthetic-legacy-key",
     )
     assert updated.active_profile_id == ""
@@ -370,7 +385,7 @@ async def test_account_purge_removes_connections_and_profiles_only_for_owner():
         ConnectionWrite(name="Other", provider="openai", api_key="synthetic-other-key"),
     )
     await service.save_profile(
-        "owner", ProfileWrite(name="Own", connection_id=own["id"], model="gpt-4o-mini")
+        "owner", ProfileWrite(name="Own", connection_id=own["id"], model="gpt-4o")
     )
     assert await delete_credentials_for_user("owner") == 2
     snapshot = await service.configuration("owner")
@@ -401,6 +416,21 @@ async def test_conversation_profile_select_reset_and_busy_guard(authenticated_cl
         "editable": True,
         "routing_mode": "profile",
     }
+    light = await authenticated_client.post(
+        "/api/users/me/model-profiles",
+        json={
+            "name": "Light only",
+            "connection_id": config["profiles"][0]["connection_id"],
+            "model": "gpt-5.4-mini",
+        },
+    )
+    assert light.status_code == 200, light.text
+    rejected = await authenticated_client.post(
+        "/api/users/me/conversation-model",
+        json={"thread_id": thread_id, "profile_id": light.json()["id"]},
+    )
+    assert rejected.status_code == 400
+    assert "light model" in rejected.text
     reset = await authenticated_client.post(
         "/api/users/me/conversation-model",
         json={"thread_id": thread_id, "profile_id": ""},
@@ -521,7 +551,7 @@ async def test_saved_profile_replaces_warmed_lookup_before_next_dispatch():
     )
     profile = await service.save_profile(
         "owner",
-        ProfileWrite(name="Quick", connection_id=connection["id"], model="gpt-4o-mini"),
+        ProfileWrite(name="Quick", connection_id=connection["id"], model="gpt-4o"),
     )
     await UserModelProfile.get(profile["id"])
     await service.save_profile(
@@ -623,3 +653,34 @@ def test_verified_ollama_tool_contract_supersedes_stale_sdk_metadata(
             service._require_structured_support("ollama", "unsupported-model")
     finally:
         model_capabilities.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "provider, model",
+    [
+        ("anthropic", "claude-opus-5-5"),
+        ("openrouter", "anthropic/claude-opus-5.5"),
+    ],
+)
+def test_mandatory_adaptive_model_cannot_disable_thinking_or_use_legacy_budget(
+    provider, model
+):
+    from app.services.model_settings import model_capabilities, validate_model_settings
+
+    caps = model_capabilities(provider, model)
+    assert "none" not in caps["reasoning_efforts"]
+    assert "high" in caps["reasoning_efforts"]
+    assert caps["thinking_budget"] is False
+    assert caps["temperature"] is False
+    assert caps["top_p"] is False
+    for value in (
+        {"reasoning_effort": "none"},
+        {"thinking_budget": 2048, "max_tokens": 4096},
+        {"temperature": 1},
+        {"top_p": 0.9},
+    ):
+        with pytest.raises(ValueError, match="not supported"):
+            validate_model_settings(provider, model, value)
+    assert validate_model_settings(provider, model, {"reasoning_effort": "high"}) == {
+        "reasoning_effort": "high"
+    }

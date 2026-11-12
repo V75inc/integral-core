@@ -1406,3 +1406,26 @@ async def test_partial_design_cannot_resume_foreign_batch(approved, monkeypatch)
         interaction_id=None,
     )
     assert result.error_code == "partial_build_requires_repair"
+
+
+@pytest.mark.asyncio
+async def test_legacy_open_decision_requires_clarification_before_plan_repair(approved):
+    import copy
+
+    question = "Should updates also change project status?"
+    approved.design_proposed["blueprint"] = {
+        "open_decisions": [{"id": "q.filing", "question": question}]
+    }
+    before = copy.deepcopy(approved.design_proposed)
+    result = await scaffold_build.build_approved_design(
+        {"operations": []},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="session-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "design_decision_required"
+    assert question in result.message
+    assert not result.next_tool
+    assert approved.design_proposed == before
+    assert not is_batch_open("user-1", "session-1")

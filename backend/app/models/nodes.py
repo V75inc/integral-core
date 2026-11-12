@@ -372,6 +372,7 @@ class WorkspaceAuthorizationState(Node):
 
     workspace_id: str = ""
     revision: int = Field(default=0, ge=0)
+    resident_assignment_enabled: bool = False
 
 
 class Invitation(Node):

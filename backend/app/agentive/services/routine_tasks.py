@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from app.agentive.edges import HAS_ROUTINE_TASK
 from app.agentive.nodes import RoutineTask
 from app.api.errors import BadRequestError, ResourceNotFoundError
+from app.schemas.agentive.routines import DURABLE_OBSERVATION_MODES, RoutineQuietHours
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,9 @@ async def create_routine_task(
     source_schedule_key: str = "",
     delivery_mode: str = "agent",
     source_staging_token: str = "",
+    watch_entry_id: str = "",
+    watch_goal: bool = False,
+    watch_prepare_closure: bool = False,
 ) -> RoutineTask:
     """Create + graph-wire a new ``RoutineTask`` (I-GRAPH-01).
 
@@ -167,7 +171,40 @@ async def create_routine_task(
 
     if not instruction or not instruction.strip():
         raise BadRequestError(message="instruction is required")
-    validate_delivery_mode(delivery_mode, instruction, write_scope)
+    validate_delivery_mode(delivery_mode, instruction, write_scope, watch_entry_id)
+    if watch_goal and delivery_mode != "task_watch":
+        raise BadRequestError(message="A goal watch requires task_watch delivery")
+    if watch_prepare_closure and not watch_goal:
+        raise BadRequestError(message="Closure preparation requires a typed goal watch")
+    watch_fingerprint = ""
+    if delivery_mode in DURABLE_OBSERVATION_MODES:
+        from app.agentive.services.routine_task_watch import read_task_watch_snapshot
+        from app.services.app_operations.transaction_scope import (
+            graph_transaction_available,
+        )
+        from app.services.chat_proactive_bridge import find_thread_by_provider_session
+
+        thread = await find_thread_by_provider_session(
+            user_id=user_id, workspace_id=workspace_id, provider_session_id=thread_id
+        )
+        if (
+            not graph_transaction_available()
+            or not source_staging_token
+            or thread is None
+            or thread.id != thread_id
+        ):
+            raise BadRequestError(
+                message="Observation requires a reviewed native chat binding"
+            )
+        if delivery_mode == "task_watch":
+            snapshot = await read_task_watch_snapshot(
+                user_id, workspace_id, watch_entry_id, goal=watch_goal
+            )
+            if snapshot is None:
+                raise BadRequestError(
+                    message="Watch requires a readable Entry with the selected published semantics"
+                )
+            _, watch_fingerprint, _ = snapshot
     if not thread_id:
         raise BadRequestError(message="thread_id is required")
 
@@ -212,6 +249,9 @@ async def create_routine_task(
         agent_id=agent_id,
         instruction=instruction.strip(),
         delivery_mode=delivery_mode,
+        watch_entry_id=watch_entry_id,
+        watch_fingerprint=watch_fingerprint,
+        watch_prepare_closure=watch_prepare_closure,
         source_staging_token=source_staging_token,
         cron=cron_s,
         timezone=timezone or "UTC",
@@ -260,6 +300,10 @@ def serialize_routine(r: RoutineTask) -> Dict[str, Any]:
         "id": r.id,
         "instruction": r.instruction,
         "delivery_mode": r.delivery_mode,
+        "watch_entry_id": r.watch_entry_id or None,
+        "watch_prepare_closure": r.watch_prepare_closure,
+        "snoozed_until": r.snoozed_until,
+        "quiet_hours": r.quiet_hours.model_dump() if r.quiet_hours else None,
         "cron": r.cron,
         "timezone": r.timezone,
         "status": r.status,
@@ -285,7 +329,11 @@ async def get_routine_task(*, user_id: str, routine_id: str) -> RoutineTask:
 
 
 async def list_routine_tasks(
-    user_id: str, *, status: Optional[str] = None
+    user_id: str,
+    *,
+    status: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Service-backed read for ``integral_list_routines`` and REST list.
 
@@ -303,16 +351,29 @@ async def list_routine_tasks(
             details={"status": status},
         )
 
-    routines = await RoutineTask.find({"user_id": user_id})
+    query = {"user_id": user_id}
+    if workspace_id:
+        query["workspace_id"] = workspace_id
+    routines = await RoutineTask.find(query)
     if status is not None:
         routines = [r for r in routines if r.status == status]
     else:
         routines = [r for r in routines if r.status != "cancelled"]
     routines.sort(key=lambda r: r.next_run_at or "")
-    return {
-        "routines": [serialize_routine(r) for r in routines],
-        "total": len(routines),
-    }
+    rows = [serialize_routine(r) for r in routines]
+    if session_id:
+        from app.services.chat_proactive_bridge import find_thread_by_provider_session
+
+        thread = await find_thread_by_provider_session(
+            user_id=user_id,
+            workspace_id=workspace_id or "",
+            provider_session_id=session_id,
+        )
+        for row in rows:
+            row["in_current_conversation"] = (
+                thread is not None and row["thread_id"] == thread.id
+            )
+    return {"routines": rows, "total": len(rows)}
 
 
 async def update_routine_task(
@@ -327,6 +388,10 @@ async def update_routine_task(
     max_runs: Optional[int] = None,
     clear_max_runs: bool = False,
     delivery_mode: Optional[str] = None,
+    snooze_until: Optional[str] = None,
+    clear_snooze: bool = False,
+    quiet_hours: RoutineQuietHours | None = None,
+    clear_quiet_hours: bool = False,
 ) -> RoutineTask:
     """Apply an owned delta from the same fresh row used by scheduler writers."""
     from app.agentive.services.routine_state import locked_routine
@@ -343,6 +408,10 @@ async def update_routine_task(
             max_runs=max_runs,
             clear_max_runs=clear_max_runs,
             delivery_mode=delivery_mode,
+            snooze_until=snooze_until,
+            clear_snooze=clear_snooze,
+            quiet_hours=quiet_hours,
+            clear_quiet_hours=clear_quiet_hours,
         )
 
 
@@ -358,6 +427,10 @@ async def _update_owned_routine_task(
     max_runs: Optional[int] = None,
     clear_max_runs: bool = False,
     delivery_mode: Optional[str] = None,
+    snooze_until: Optional[str] = None,
+    clear_snooze: bool = False,
+    quiet_hours: RoutineQuietHours | None = None,
+    clear_quiet_hours: bool = False,
 ) -> RoutineTask:
     """Apply an edit to an owned routine. Recomputes ``next_run_at`` if cadence changed.
 
@@ -370,10 +443,19 @@ async def _update_owned_routine_task(
     """
     routine = await _get_owned_routine(user_id, routine_id)
 
+    if (
+        delivery_mode is not None
+        and delivery_mode != routine.delivery_mode
+        and {delivery_mode, routine.delivery_mode} & DURABLE_OBSERVATION_MODES
+    ):
+        raise BadRequestError(
+            message="Create a new reviewed routine to change observation mode"
+        )
     validate_delivery_mode(
         delivery_mode or routine.delivery_mode,
         instruction if instruction is not None else routine.instruction,
         write_scope if write_scope is not None else routine.write_scope,
+        routine.watch_entry_id,
     )
     if delivery_mode is not None:
         routine.delivery_mode = delivery_mode
@@ -407,8 +489,43 @@ async def _update_owned_routine_task(
     elif max_runs is not None:
         routine.max_runs = _validate_max_runs(max_runs)
 
-    if cadence_changed:
-        routine.next_run_at = compute_next_run_at(routine.cron, routine.timezone)
+    if quiet_hours is not None or clear_quiet_hours:
+        if routine.delivery_mode not in DURABLE_OBSERVATION_MODES:
+            raise BadRequestError(
+                message="Quiet hours are available for observation routines"
+            )
+        routine.quiet_hours = quiet_hours
+
+    if snooze_until is not None or clear_snooze:
+        if (
+            routine.delivery_mode not in DURABLE_OBSERVATION_MODES
+            or routine.status != "active"
+        ):
+            raise BadRequestError(
+                message="Only an active observation can be snoozed or resumed early"
+            )
+        if snooze_until is not None and clear_snooze:
+            raise BadRequestError(message="Choose either snooze or resume")
+        if snooze_until is not None:
+            routine.snoozed_until = parse_run_at(snooze_until, routine.timezone)
+            routine.next_run_at = routine.snoozed_until
+        elif routine.snoozed_until:
+            routine.snoozed_until = None
+            # Resume with one current check. Skipped slots are never replayed.
+            routine.next_run_at = utc_now_iso()
+    elif cadence_changed:
+        if routine.delivery_mode in DURABLE_OBSERVATION_MODES and routine.snoozed_until:
+            routine.next_run_at = max(routine.snoozed_until, utc_now_iso())
+        else:
+            routine.next_run_at = compute_next_run_at(routine.cron, routine.timezone)
+
+    if routine.watch_delivery_after and (
+        quiet_hours is not None or clear_quiet_hours or timezone is not None
+    ):
+        # Re-evaluate deferred evidence against the new window without replaying it.
+        routine.watch_delivery_after = None
+        if routine.status == "active" and not routine.snoozed_until:
+            routine.next_run_at = utc_now_iso()
 
     routine.updated_at = utc_now_iso()
     await routine.save()
@@ -502,6 +619,7 @@ async def enqueue_routine_turn_work(
     scheduled_for: str,
     thread_id: str = "",
     app_id: str = "",
+    task_watch_slot: bool = False,
 ) -> Any:
     """Enqueue a ``kind=routine_turn`` WorkItem for a due fire (idempotent)."""
     from jvspatial.core.context import get_default_context
@@ -520,19 +638,32 @@ async def enqueue_routine_turn_work(
             or routine.thread_id != thread_id
         ):
             raise WorkError("work.policy_denied", "Routine enqueue binding mismatch")
+        fingerprint = routine_mandate_fingerprint(routine)
+        payload = {
+            "routine_id": routine_id,
+            "scheduled_for": scheduled_for,
+            "routine_mandate_fingerprint": fingerprint,
+        }
+        slot_key = scheduled_for
+        if task_watch_slot:
+            if (
+                routine.delivery_mode not in DURABLE_OBSERVATION_MODES
+                or routine.status != "active"
+                or routine.next_run_at != scheduled_for
+                or not is_postgres_entry_transaction(get_default_context().database)
+            ):
+                raise WorkError("work.policy_denied", "Task watch slot changed")
+            payload["task_watch_slot"] = "v1"
+            slot_key = f"{scheduled_for}:{fingerprint}"
         return await work_items.enqueue_work_item(
             kind="routine_turn",
             origin="scheduler",
             principal_id=principal_id,
             workspace_id=workspace_id or "",
             idempotency_key=routine_work_idempotency_key(
-                routine_id=routine_id, scheduled_for=scheduled_for
+                routine_id=routine_id, scheduled_for=slot_key
             ),
-            input_payload={
-                "routine_id": routine_id,
-                "scheduled_for": scheduled_for,
-                "routine_mandate_fingerprint": routine_mandate_fingerprint(routine),
-            },
+            input_payload=payload,
             thread_id=thread_id or None,
             app_id=app_id or None,
             transaction=(
@@ -581,6 +712,18 @@ async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
     # Permission reads may await I/O while the work lease is cancelled or
     # expires. Recheck the existing effect fence after those reads as well.
     await assert_effect_boundary_allowed(ctx)
+    if task.delivery_mode == "task_watch":
+        from app.agentive.services.routine_task_watch import deliver_task_watch
+
+        await deliver_task_watch(task, ctx)
+        return
+    if task.delivery_mode == "assignment_digest":
+        from app.agentive.services.routine_assignment_digest import (
+            deliver_assignment_digest,
+        )
+
+        await deliver_assignment_digest(task, ctx)
+        return
     if task.delivery_mode == "reminder":
         await _deliver_reminder(task, ctx)
         return
@@ -598,10 +741,27 @@ async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
         )
 
 
-def validate_delivery_mode(mode: str, instruction: str, write_scope: Any) -> None:
-    """Reminder mode posts reviewed literal text; it cannot run tools or writes."""
-    if mode not in {"agent", "reminder"}:
-        raise BadRequestError(message="delivery_mode must be agent or reminder")
+def validate_delivery_mode(
+    mode: str, instruction: str, write_scope: Any, watch_entry_id: str = ""
+) -> None:
+    """Validate read-only modes and their reviewed target."""
+    if mode not in {"agent", "reminder"} | DURABLE_OBSERVATION_MODES:
+        raise BadRequestError(message="Invalid routine delivery mode")
+    if mode == "assignment_digest" and write_scope:
+        raise BadRequestError(message="Assignment digests cannot grant a write scope")
+    if mode == "task_watch":
+        if (
+            write_scope
+            or not watch_entry_id.startswith("n.Entry.")
+            or len(watch_entry_id) > 128
+        ):
+            raise BadRequestError(
+                message="Task watch requires an Entry ID and no write scope"
+            )
+    elif watch_entry_id:
+        raise BadRequestError(
+            message="An Entry target is only supported in task watch mode"
+        )
     if mode == "reminder" and (
         write_scope or not instruction.strip() or len(instruction) > 2000
     ):

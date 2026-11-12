@@ -120,6 +120,7 @@ import { entryPath } from '../../utils/resourcePaths';
 import type { ToastAction } from '../../context/ToastContext';
 import { isVisible as conditionHolds } from '../views/regionConditions';
 import { useEntryWriteCheck } from '../../hooks/useEntryWriteCheck';
+import { WriteCheckNotice } from './WriteCheckNotice';
 import { Text } from '../../ui';
 const EMPTY_FIELDS: OperationalModelFieldSpec[] = [];
 
@@ -733,9 +734,10 @@ export function useEntryExpandedForm(
     if (!Array.isArray(f)) return EMPTY_FIELDS;
     // ``hidden`` fields never show; ``hide_on_create`` ones only skip the
     // create form. Their defaults still apply (seeded from the full list).
-    const visible = (f as OperationalModelFieldSpec[]).filter(
-      field => !field.hidden && !(mode === 'create' && field.hide_on_create)
-    );
+    const visible = (f as OperationalModelFieldSpec[])
+      .filter(field => !field.hidden && !(mode === 'create' && field.hide_on_create))
+      // A field required on create is marked and checked like any required field, in the create form only.
+      .map(field => (mode === 'create' && field.required_on_create && !field.required ? { ...field, required: true } : field));
     return sortFieldsByOrder(visible);
   }, [selectedType?.form_schema?.fields, mode]);
 
@@ -1254,6 +1256,10 @@ export function useEntryExpandedForm(
         titleEnabled && bodyEnabled
           ? `Add a ${titleLabelText.toLowerCase()} or some ${bodyLabelText.toLowerCase()} text`
           : `Add a ${(titleEnabled ? titleLabelText : bodyLabelText).toLowerCase()}`;
+    }
+    if (!ownsForm && titleEnabled && titleBase.required && !title.trim()) {
+      labels[TITLE_PROBLEM_KEY] = titleLabelText;
+      found[TITLE_PROBLEM_KEY] = 'Required';
     }
     for (const field of dynamicFields) {
       const label = String(field.name || field.key);
@@ -1932,6 +1938,8 @@ export function EntryFormExpandedView({
   fieldValues,
   initialEntry,
 }: EntryFormExpandedViewProps) {
+  // A type choice only when there is a choice: with one type the dialog's own title already says what it makes.
+  const showTypePicker = typeOptions.length > 1 && !typeLocked;
   // The server's answer to "would this save?", from the same rules a real save runs.
   const writeCheck = useEntryWriteCheck({
     // An App-owned form (e.g. a pay record editor) shapes its values when Save is pressed: no live check there.
@@ -1976,6 +1984,7 @@ export function EntryFormExpandedView({
             </span>
           </summary>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--text-muted)]">
+            {showTypePicker && (
             <label className="inline-flex items-center gap-1.5 min-w-0">
               <span className="text-[var(--text-subtle)] shrink-0">Type</span>
               <AppSelect
@@ -1994,6 +2003,7 @@ export function EntryFormExpandedView({
                 aria-label="Entry type"
               />
             </label>
+            )}
             {needsTrackPicker && tracksList.length > 0 && (
               <label className="inline-flex items-center gap-1.5 min-w-0 max-w-full">
                 <span className="text-[var(--text-subtle)] shrink-0">Track</span>
@@ -2021,6 +2031,7 @@ export function EntryFormExpandedView({
         </details>
       ) : (
       <div className="flex flex-wrap items-center gap-2 pb-3">
+        {showTypePicker && (
         <AppSelect
           variant="pill"
           value={type}
@@ -2036,6 +2047,7 @@ export function EntryFormExpandedView({
           className="font-semibold shrink-0"
           aria-label="Entry type"
         />
+        )}
         {needsTrackPicker && tracksList.length > 0 && (
           <AppSelect
             variant="pill"
@@ -2067,6 +2079,12 @@ export function EntryFormExpandedView({
           return (
             <div key="title" className="space-y-1">
               <FieldProblem fieldKey={TITLE_PROBLEM_KEY} message={problems[TITLE_PROBLEM_KEY]}>
+              <div className="relative">
+              {!isWiki && (
+                <span className="pointer-events-none absolute -top-2.5 left-3 z-[1] rounded bg-[var(--panel)] px-1 text-[12px] font-medium text-[var(--text-muted)]" aria-hidden>
+                  {titleSlotLabel}{titleBase.required ? <span className="ml-0.5 text-[var(--danger-fg)]">*</span> : null}
+                </span>
+              )}
               <input
                 ref={titleInputRef}
                 key={`title-${type}`}
@@ -2074,13 +2092,15 @@ export function EntryFormExpandedView({
                 value={title}
                 onChange={e => { setTitle(e.target.value); clearProblem(TITLE_PROBLEM_KEY); clearProblem(BODY_PROBLEM_KEY); }}
                 autoFocus={!focusTitleOnMount}
-                aria-label={titleSlotLabel}
+                aria-label={titleBase.required ? `${titleSlotLabel} (required)` : titleSlotLabel}
+                aria-required={titleBase.required || undefined}
                 className={
                   isWiki
                     ? 'w-full px-0 text-2xl font-semibold tracking-tight text-[var(--text)] placeholder:text-[var(--text-subtle)] border-none outline-none bg-transparent'
-                    : 'w-full px-3 text-base font-semibold text-[var(--text)] placeholder:text-[var(--text-muted)] border-none outline-none bg-transparent'
+                    : 'w-full px-3 py-2 text-base font-semibold text-[var(--text)] placeholder:text-[var(--text-muted)] rounded-[var(--radius-input)] border border-[var(--field-border)] bg-[var(--field-bg)] outline-none transition hover:border-[var(--field-border-hover)] focus:border-[var(--text-muted)] focus:ring-2 focus:ring-[var(--focus-ring-color)]'
                 }
               />
+              </div>
               </FieldProblem>
               {titleBase.help ? (
                 <p className="text-xs text-[var(--text-muted)] pl-3">{titleBase.help}</p>
@@ -2118,6 +2138,10 @@ export function EntryFormExpandedView({
                   />
                 </Suspense>
               ) : (
+                <div className="relative">
+                <span className="pointer-events-none absolute -top-2.5 left-3 z-[1] rounded bg-[var(--panel)] px-1 text-[12px] font-medium text-[var(--text-muted)]" aria-hidden>
+                  {bodySlotLabel}{bodyBase.required ? <span className="ml-0.5 text-[var(--danger-fg)]">*</span> : null}
+                </span>
                 <MentionableTextarea
                   key={`body-${type}`}
                   ref={bodyTextareaRef}
@@ -2126,9 +2150,10 @@ export function EntryFormExpandedView({
                   onChange={v => { setBody(v); clearProblem(BODY_PROBLEM_KEY); clearProblem(TITLE_PROBLEM_KEY); }}
                   rows={1}
                   aria-label={bodySlotLabel}
-                  className="w-full px-3 py-0.5 text-sm font-normal leading-normal text-[var(--text)] placeholder:text-[var(--text-muted)] border-none outline-none bg-transparent resize-none overflow-hidden"
+                  className="min-h-[4.5rem] w-full px-3 py-2 text-sm font-normal leading-normal text-[var(--text)] placeholder:text-[var(--text-muted)] rounded-[var(--radius-input)] border border-[var(--field-border)] bg-[var(--field-bg)] outline-none transition hover:border-[var(--field-border-hover)] focus:border-[var(--text-muted)] focus:ring-2 focus:ring-[var(--focus-ring-color)] resize-none overflow-hidden"
                   trackId={selectedTrackId || undefined}
                 />
+                </div>
               )}
               {bodyBase.help ? (
                 <p className="text-xs text-[var(--text-muted)] pl-3">{bodyBase.help}</p>
@@ -2242,6 +2267,7 @@ export function EntryFormExpandedView({
         return null;
       })}
       {composeExtraSection}
+      {!writeCheck.ok && writeCheck.message ? <WriteCheckNotice message={writeCheck.message} /> : null}
       {!hideActions ? (
         <div
           className={

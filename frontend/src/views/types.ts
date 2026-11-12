@@ -28,6 +28,15 @@ export interface ViewWidgetProps {
   entryTypeSlugs?: string[];
   filterType?: string;
   onFilterChange?: (type: string) => void;
+  /** Filters on the Track's fields (applied by the server) and how a widget changes them. A table shows one filter
+   *  control per visible column when ``onColumnFiltersChange`` is given. */
+  columnFilters?: import('../components/tracks/fieldFilters').FieldFilter[];
+  /** How many records match the active filters (the exact total), shown beside the filter chips. */
+  totalCount?: number;
+  /** The list's order, when the page asks the server to sort the whole list (so pages stay in order). */
+  sort?: { field: string; path?: string; dir: 'asc' | 'desc' } | null;
+  onSortChange?: (next: { field: string; path?: string; dir: 'asc' | 'desc' }) => void;
+  onColumnFiltersChange?: (next: import('../components/tracks/fieldFilters').FieldFilter[]) => void;
   fetchMore?: () => void;
   hasNextPage?: boolean;
   isFetchingNext?: boolean;

@@ -2,14 +2,115 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
+import stat
 from collections import Counter
-from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from pathlib import Path, PurePosixPath
+from typing import Collection, Iterable, Mapping, Sequence
 
 import yaml
+
+from app.agentive.harness.pydantic_ai_compat import (
+    FileEntry,
+    Skills,
+    WorkspaceReadOnlyError,
+    WorkspaceRef,
+)
+
+
+class _ProjectedSkillWorkspace:
+    """Expose only private, projected skill libraries to the native loader."""
+
+    def __init__(self, directories: Sequence[Path]):
+        self._mounts = {
+            str(index): directory.resolve()
+            for index, directory in enumerate(directories)
+        }
+
+    @property
+    def ref(self) -> WorkspaceRef | None:
+        return None  # This secondary workspace is never restored from a checkpoint.
+
+    async def working_dir(self) -> str:
+        return "/"
+
+    def _resolve(self, path: str) -> Path:
+        anchor, *components = PurePosixPath(path).parts or ("",)
+        if anchor != "/" or not components:
+            raise FileNotFoundError(path)
+        mount, *parts = components
+        root = self._mounts.get(mount)
+        if root is None or any(
+            part == ".." or "\\" in part or ":" in part for part in parts
+        ):
+            raise FileNotFoundError(path)
+        target = root.joinpath(*parts).resolve()
+        if not target.is_relative_to(root):
+            raise FileNotFoundError(path)
+        return target
+
+    def _stat(self, path: str) -> FileEntry:
+        info = self._resolve(path).stat()
+        return FileEntry(
+            name=PurePosixPath(path).name,
+            path=path,
+            is_dir=stat.S_ISDIR(info.st_mode),
+            size=info.st_size if stat.S_ISREG(info.st_mode) else None,
+        )
+
+    async def realpath(self, path: str) -> str:
+        target = await asyncio.to_thread(self._resolve, path)
+        mount = PurePosixPath(path).parts[1]
+        relative = target.relative_to(self._mounts[mount])
+        return PurePosixPath("/", mount, *relative.parts).as_posix()
+
+    async def stat(self, path: str) -> FileEntry:
+        return await asyncio.to_thread(self._stat, path)
+
+    def _list_dir(self, path: str) -> list[FileEntry]:
+        entries = []
+        for child in self._resolve(path).iterdir():
+            try:
+                entries.append(self._stat(f"{path}/{child.name}"))
+            except FileNotFoundError:
+                continue  # Ignore dangling links and entries outside the projection.
+        return entries
+
+    async def list_dir(self, path: str) -> list[FileEntry]:
+        return await asyncio.to_thread(self._list_dir, path)
+
+    async def read_bytes(self, path: str) -> bytes:
+        return await asyncio.to_thread(lambda: self._resolve(path).read_bytes())
+
+    async def exists(self, path: str) -> bool:
+        try:
+            await self.stat(path)
+        except FileNotFoundError:
+            return False
+        return True
+
+    async def write_bytes(self, path: str, data: bytes) -> None:
+        raise WorkspaceReadOnlyError("Projected skills are read-only")
+
+    async def make_dir(self, path: str) -> None:
+        raise WorkspaceReadOnlyError("Projected skills are read-only")
+
+    async def remove(self, path: str) -> None:
+        raise WorkspaceReadOnlyError("Projected skills are read-only")
+
+
+def projected_skills(
+    directories: Sequence[Path], *, include: Collection[str]
+) -> Skills:
+    """Use the native loader without requiring a POSIX shell or drive paths."""
+    return Skills(
+        directories=[f"/{index}" for index in range(len(directories))],
+        include=include,
+        workspace=_ProjectedSkillWorkspace(directories),
+    )
 
 
 def _portable_name(value: str) -> str:
@@ -136,8 +237,6 @@ async def load_selected_workflow(
     selections, only to load the same full body after two more model rounds.
     Never truncate a procedure or select a collision/changed body by guessing.
     """
-    from app.agentive.harness.pydantic_ai_compat import LocalWorkspaceBackend, Skills
-
     matching = [body for key, _, body in skill_sources if key == selected_key]
     if not selected_key or len(matching) != 1:
         return None
@@ -150,11 +249,7 @@ async def load_selected_workflow(
     )
     if selected_name not in allowed_skill_names:
         return None
-    catalog = await Skills(
-        directories=[skill_directory],
-        include=[selected_name],
-        workspace=LocalWorkspaceBackend(skill_directory),
-    ).load()
+    catalog = await projected_skills([skill_directory], include=[selected_name]).load()
     if len(catalog.skills) != 1:
         return None
     definition = catalog.skills[0]
@@ -167,8 +262,6 @@ async def routing_skill_candidates(
     *, workspace_id, principal_id, focused_app_id, query
 ):
     """Advisory public metadata only; do not prepare/load operational skill bodies."""
-    import asyncio
-
     from app.agentive.harness.capability_search import (
         _rank,
         _searchable_skill_description,

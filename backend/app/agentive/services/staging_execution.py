@@ -394,10 +394,73 @@ async def record_staging_execution_result(
     )
 
 
-async def mark_staging_external_dispatch(claim: StagingExecutionClaim) -> None:
+async def mark_staging_external_dispatch(
+    claim: StagingExecutionClaim,
+    *,
+    approval_token: str,
+    approval_claim: StagingExecutionClaim,
+) -> None:
     """Persist irreversible dispatch intent before sending any external bytes."""
     async with postgres_graph_transaction(get_default_context().database) as database:
         await _lock_current(database, claim)
+        if approval_claim != claim:
+            if (
+                approval_claim.kind != "batch"
+                or approval_claim.principal_id != claim.principal_id
+                or approval_claim.workspace_id != claim.workspace_id
+            ):
+                raise StagingError(
+                    "approval_unavailable", "Parent approval scope changed"
+                )
+            await _lock_current(database, approval_claim)
+        from app.agentive.services.work_approvals import lock_linked_staging_work
+        from app.agentive.staging_store import StagedChangeRecord
+        from app.schemas.agentive.work import WorkError
+
+        rows = await database.find(
+            "object",
+            {
+                "entity": StagedChangeRecord._entity_name(),
+                "context.token": approval_token,
+            },
+            limit=2,
+        )
+        if len(rows) != 1:
+            raise StagingError(
+                "approval_unavailable", "Approved decision is unavailable"
+            )
+        row = await database.find_one_and_update(
+            "object", {"id": rows[0]["id"]}, {"$set": {}}
+        )
+        decision = (row or {}).get("context") or {}
+        digest = hashlib.sha256(
+            json.dumps(
+                decision.get("payload"),
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        try:
+            expiry = datetime.fromisoformat(decision.get("expires_at") or "")
+            valid = expiry.tzinfo is not None and expiry > _now()
+        except (TypeError, ValueError):
+            valid = False
+        if (
+            not valid
+            or decision.get("state") != "blessed"
+            or decision.get("user_id") != approval_claim.principal_id
+            or decision.get("workspace_id") != approval_claim.workspace_id
+            or decision.get("kind") != approval_claim.kind
+            or digest != approval_claim.request_hash
+        ):
+            raise StagingError("approval_unavailable", "Approved decision changed")
+        try:
+            await lock_linked_staging_work(transaction=database, staging_data=decision)
+        except WorkError as exc:
+            raise StagingError(
+                "approval_unavailable", "Linked work is no longer available"
+            ) from exc
         await database.find_one_and_update(
             "object",
             {"id": claim.object_id},
@@ -688,6 +751,19 @@ async def staged_command_effect(
                 "approval_unavailable",
                 "Current approved decision does not match this effect",
             )
+
+        from app.agentive.services.work_approvals import lock_linked_staging_work
+        from app.schemas.agentive.work import WorkError
+
+        try:
+            # Retain the linked WorkItem lock until the graph effect and its
+            # receipt commit. A concurrent cancellation is ordered against
+            # this transaction instead of racing its admission check.
+            await lock_linked_staging_work(transaction=database, staging_data=decision)
+        except WorkError as exc:
+            raise StagingError(
+                "approval_unavailable", "Linked work is no longer available"
+            ) from exc
 
         from app.agentive.services.entry_proposal_revision import (
             validate_entry_edit_fence,

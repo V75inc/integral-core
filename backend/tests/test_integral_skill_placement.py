@@ -23,6 +23,7 @@ _INTEGRAL_SKILLS = (
     "integral-insights",
     "integral-indexing",
     "integral-filing",
+    "integral-goals",
     "integral-attachments",
     "integral-organize",
     "integral-onboard",

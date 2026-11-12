@@ -44,7 +44,7 @@ npm ci
 npm run dev
 ```
 
-Use Python 3.11 or later. The frontend toolchain's Node engine requirement applies. Source development normally uses Vite's proxy to port 4000. Configure the appropriate development environment explicitly; `DEBUG` is false by default.
+Use Python 3.11.5 or later. The frontend toolchain's Node engine requirement applies. Source development normally uses Vite's proxy to port 4000. Configure the appropriate development environment explicitly; `DEBUG` is false by default.
 
 ## Packaged distribution
 
@@ -205,11 +205,18 @@ INTEGRAL_TEST_DB=postgres INTEGRAL_TEST_RESTORE=1 \
 The client container must reach that server. Set `INTEGRAL_RESTORE_CLIENT_HOST`
 when its host name differs inside Docker, and `PGDUMP_DOCKER_IMAGE` when a
 different PostgreSQL client major version is required. This gate backs up
-test-only encrypted snapshots, recovery manifests and a synthetic credential,
-reads a separate restored copy in a fresh process, rejects foreign scope and
-wrong keys, then runs the scratch drill. It does not qualify attachment bytes,
-session invalidation, live provider credentials, or automatic continuation of
-an interrupted production run.
+test-only encrypted snapshots, recovery manifests, a synthetic credential,
+and a marked mandate reservation. A fresh process reads the restored copy,
+rejects foreign scope and wrong keys, and settles the restored hold once when
+a synthetic definitive receipt arrives. The source hold remains reserved.
+The same gate copies an isolated local attachment store alongside the graph
+backup. The restored conversation can read the generated file with the same
+digest and media type. A foreign workspace principal is refused, and removing
+the file from the restored store leaves the source intact and causes restored
+review to fail closed. The scratch drill verifies graph counts and record
+identities. Object-store backup, consistency under concurrent writes,
+session invalidation, live provider credentials, and automatic continuation
+of interrupted production runs require separate qualification.
 
 ## Upgrade
 
@@ -219,7 +226,7 @@ For a failed upgrade, inspect the schema and effect state before reverting an im
 
 ## jvspatial compatibility release gate
 
-Current metadata pins `jvspatial==0.2.8` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
+Current metadata pins `jvspatial==0.2.9` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
 
 jvspatial 0.2.4 keeps shallow node deletion within the selected node and its incident edges. Qualify App deletion with nested comments and linked content through both the manual dialog and chat approval. Verify atomic graph cleanup and execution receipts, retained shared resources, rollback on failure, and refusal of malformed discussion graphs.
 
@@ -267,6 +274,27 @@ for admission, recovery, measurement limitations and rollback to Single model.
 The AI Models page shows deployment roles and their validated tuning as read-only
 server-managed settings. ENV keys are not copied into personal Providers. Under
 `hybrid`, a usable owner BYOK profile takes precedence; `byo_strict` requires it.
+
+### Entry-read mandate canary
+
+Leave Entry-read mandate execution disabled until the canary workspace and reviewed model route are ready. Set `INTEGRAL_MANDATE_ENTRY_EXECUTION_ENABLED=true` and set `INTEGRAL_MANDATE_ENTRY_WORKSPACE_ALLOWLIST` to a JSON array of exact workspace IDs. Apply the same configuration on all API replicas. An empty array admits no work.
+
+During an upgrade from a release that only recognizes the deployment switch,
+keep that switch off on every API replica until all replicas support the
+workspace allowlist. Turn it off before rolling back to such a release.
+Older replicas can otherwise admit work in an excluded workspace. Keep
+receipt recovery running while the replicas change.
+
+Check the following on the release candidate before expanding the allowlist.
+
+1. Open an owned native conversation in the canary workspace. Use a disposable Entry to propose, approve, and run a mandate. Verify the review pins the Entry revision and the result appears in the same private conversation.
+2. In an excluded workspace, verify the structured proposal form is absent and direct proposal and Run requests are refused. Existing reviews remain readable by their owners.
+3. Exercise Stop on queued work and during execution. Verify that a stop accepted before publication prevents a private result. Restart an isolated worker with an outstanding dispatch intent and verify that recovery does not repeat the request.
+4. Verify accounting separately from work status. An undispatched terminal reservation can be released. A marked request with unknown provider cost retains its reservation until definitive evidence arrives.
+
+To stop new admissions, remove the workspace from the allowlist or turn off the deployment switch across all API replicas. An admitted mandate may still run. Use the review's Stop control for specific queued or running work, and leave recovery enabled so it can finish cancellation and reconcile receipts. Keep ordinary chat available and preserve the work and accounting records during rollback.
+
+See the [work mandate contract](../backend/work-mandate-contract.md) for the review and accounting boundaries.
 
 ### Workspace email providers
 

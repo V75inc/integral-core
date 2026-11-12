@@ -4,12 +4,20 @@ import { Text } from "../../../ui";
 export function ChatFollowUps({ locked }: { locked: boolean }) {
   const {
     followUps, steeringRunning, steeringWorkItemId,
-    steerFollowUp, removeFollowUp,
+    steerFollowUp, removeFollowUp, followUpsPaused, resumeFollowUps,
   } = useChatActivity();
   if (!followUps?.length) return null;
 
   return (
     <ul aria-label="Follow-up messages" className="flex min-w-0 flex-col gap-2 px-2">
+      {followUpsPaused && (
+        <li>
+          <Text as="p" variant="meta">The previous reply was interrupted. Review it before continuing.</Text>
+          <button type="button" className="underline" onClick={() => void resumeFollowUps?.()}>
+            <Text as="span" variant="meta">Continue queued messages</Text>
+          </button>
+        </li>
+      )}
       {followUps.map((item) => {
         const canSteer = item.refs.length === 0 && !locked && steeringRunning && Boolean(steeringWorkItemId) &&
           (!item.workItemId || item.workItemId === steeringWorkItemId) &&
@@ -33,7 +41,7 @@ export function ChatFollowUps({ locked }: { locked: boolean }) {
               </button>
             )}
             {item.state !== "sending" && (
-              <button type="button" className="underline" onClick={() => removeFollowUp?.(item.id)}>
+              <button type="button" className="underline" onClick={() => void removeFollowUp?.(item.id)}>
                 <Text as="span" variant="meta">{item.state === "queued" ? "Remove from queue" : "Dismiss"}</Text>
               </button>
             )}

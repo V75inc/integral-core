@@ -296,8 +296,10 @@ async def upsert_user_credential(
 
     if clear_api_key and (slug != "custom_openai" or (api_key or "").strip()):
         raise ValueError("clear_api_key is only supported for keyless custom endpoints")
+    from app.services.model_harness_policy import require_heavy_model
     from app.services.model_settings import validate_model_settings
 
+    require_heavy_model(slug, model)
     local_ollama = slug == "ollama_local"
     existing = await get_credential_for_user(user_id)
     configured_settings = await asyncio.to_thread(

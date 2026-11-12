@@ -12,7 +12,7 @@ import logging
 import re
 import threading
 from contextvars import ContextVar
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import jsonschema
 from pydantic import ValidationError
@@ -446,6 +446,21 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "index": bool(field.get("index", False)),
     }
+    # How a choice is shown when its stored value is not the wording people use (``biweekly`` shown as
+    # ``Fortnightly``). Display only: the stored value, filters and rules keep using the value. Added only when
+    # given, so every existing definition compiles to exactly what it did before.
+    enum_labels = _as_dict(field.get("enum_labels"), where=f"field '{key}' enum_labels")
+    if enum_labels:
+        out["enum_labels"] = {
+            str(value): str(label).strip()
+            for value, label in enum_labels.items()
+            if str(label).strip()
+        }
+    # Required when a record is created, not when an existing one is saved: marked in the form and refused on create,
+    # while records saved before the field was required stay valid and editable. Added only when given, so every
+    # existing definition compiles exactly as before.
+    if bool(field.get("required_on_create", False)):
+        out["required_on_create"] = True
     # Prefill from the parent App's settings at compose/create time
     # (e.g. Finance ``currency`` ← ``default_currency``). Empty string omitted.
     default_from_setting = str(field.get("default_from_setting") or "").strip()
@@ -725,6 +740,8 @@ def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
         "placeholder": str(title_raw.get("placeholder") or ""),
         "help": str(title_raw.get("help") or ""),
     }
+    if bool(title_raw.get("required", False)):
+        title_out["required"] = True
     if "order" in title_raw and title_raw.get("order") is not None:
         try:
             title_out["order"] = int(title_raw["order"])
@@ -739,6 +756,8 @@ def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
         "placeholder": str(body_raw.get("placeholder") or ""),
         "help": str(body_raw.get("help") or ""),
     }
+    if bool(body_raw.get("required", False)):
+        body_out["required"] = True
     if "order" in body_raw and body_raw.get("order") is not None:
         try:
             body_out["order"] = int(body_raw["order"])
@@ -774,6 +793,36 @@ def _normalize_search_index(raw):
         return IndexDefinition.model_validate(raw).model_dump()
     except ValidationError as exc:
         raise BadRequestError(message="Invalid search_index declaration") from exc
+
+
+def _track_icon_part(spec: Dict[str, Any], where: str) -> Dict[str, str]:
+    """``{"icon": name}`` when the manifest names one of Integral's icons; refuses any other name."""
+    from app.services.manifest_icons import normalize_manifest_icon
+
+    icon = normalize_manifest_icon(spec.get("icon"), where=where)
+    return {"icon": icon} if icon else {}
+
+
+def _normalize_task_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.contracts.task_semantics import validate_task_semantics
+
+    try:
+        return validate_task_semantics(raw, fields).model_dump(exclude_none=True)
+    except ValueError as exc:
+        raise BadRequestError(
+            message=f"Invalid task_semantics declaration: {exc}"
+        ) from exc
+
+
+def _normalize_goal_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.contracts.goal_semantics import validate_goal_semantics
+
+    try:
+        return validate_goal_semantics(raw, fields).model_dump()
+    except ValueError as exc:
+        raise BadRequestError(
+            message=f"Invalid goal_semantics declaration: {exc}"
+        ) from exc
 
 
 def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
@@ -857,6 +906,24 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         **(
             {"search_index": _normalize_search_index(spec["search_index"])}
             if "search_index" in spec
+            else {}
+        ),
+        **(
+            {
+                "task_semantics": _normalize_task_semantics(
+                    spec["task_semantics"], fields
+                )
+            }
+            if "task_semantics" in spec
+            else {}
+        ),
+        **(
+            {
+                "goal_semantics": _normalize_goal_semantics(
+                    spec["goal_semantics"], fields
+                )
+            }
+            if "goal_semantics" in spec
             else {}
         ),
         # Opt-in: a multi-step create flow (region_system's create_wizard
@@ -1374,6 +1441,7 @@ def _normalize_track_template_spec(
             "description": str(td.get("description") or "").strip(),
             # A track spawned from this template stays out of the App's track list when this is false.
             "nav_visible": bool(td.get("nav_visible", True)),
+            **_track_icon_part(td, f"{where}[{key!r}]"),
             "entry_types": [
                 _normalize_entry_type_spec(
                     _as_dict(e, where=f"{where}[{key!r}].entry_types[]")
@@ -4311,6 +4379,7 @@ def _compile_canonical_manifest(
                             # When false, Track is provisioned / addressable but
                             # omitted from default App nav lists (see Track.nav_visible).
                             "nav_visible": bool(td.get("nav_visible", True)),
+                            **_track_icon_part(td, f"app.tracks[{tname!r}]"),
                             # Declared intent only — never auto-minted. The
                             # owner's explicit enable mints the token.
                             **({"public_share": public_share} if public_share else {}),
@@ -4472,6 +4541,7 @@ def _compile_canonical_manifest(
             )
 
             out["app"] = {
+                **_track_icon_part(app_node, "app"),
                 "tracks": tracks_out,
                 "track_templates": track_templates_out,
                 "relations": [
@@ -4689,6 +4759,10 @@ def normalize_entry_type_form_schema(
     }
     if "search_index" in raw:
         out["search_index"] = _normalize_search_index(raw["search_index"])
+    if "task_semantics" in raw:
+        out["task_semantics"] = _normalize_task_semantics(raw["task_semantics"], fields)
+    if "goal_semantics" in raw:
+        out["goal_semantics"] = _normalize_goal_semantics(raw["goal_semantics"], fields)
     if "graph_context" in raw:
         from app.schemas.graph_context import validate_entry_graph_context
 
@@ -5023,15 +5097,13 @@ def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 # Built once from the process-cached library specs. Opening a track used to
 # reparse every package for each view that lacked entry-type keys.
-_SEEDED_VIEW_INDEX: Optional[Dict[str, Dict[str, Any]]] = None
-_SEEDED_VIEW_INDEX_TOKEN: Optional[int] = None
+_SEEDED_VIEW_INDEX: Optional[Tuple[Sequence[Any], Dict[str, Dict[str, Any]]]] = None
 
 
 def reset_seeded_library_view_index() -> None:
     """Drop the view-key index. Tests reset this with the library spec cache."""
-    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
+    global _SEEDED_VIEW_INDEX
     _SEEDED_VIEW_INDEX = None
-    _SEEDED_VIEW_INDEX_TOKEN = None
 
 
 def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
@@ -5041,15 +5113,29 @@ def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
     ``load_library_operational_models_with_issues_cached``; this only walks
     the already-parsed manifests.
     """
-    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
     from app.services.operational_model_library_sync import (
         load_library_operational_models_with_issues_cached,
     )
 
     specs, _issues = load_library_operational_models_with_issues_cached()
-    token = id(specs)
-    if _SEEDED_VIEW_INDEX is not None and _SEEDED_VIEW_INDEX_TOKEN == token:
-        return _SEEDED_VIEW_INDEX
+    return _seeded_library_view_index(specs)
+
+
+async def load_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
+    """Share the current off-loop library validation with overlapping callers."""
+    from app.services.operational_model_library_sync import load_library_snapshot
+
+    _, specs, _issues = await load_library_snapshot()
+    return _seeded_library_view_index(specs)
+
+
+def _seeded_library_view_index(
+    specs: Sequence[Any],
+) -> Dict[str, Dict[str, Any]]:
+    global _SEEDED_VIEW_INDEX
+    cached = _SEEDED_VIEW_INDEX
+    if cached is not None and cached[0] is specs:
+        return cached[1]
 
     index: Dict[str, Dict[str, Any]] = {}
 
@@ -5081,8 +5167,7 @@ def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
                 if isinstance(track_spec, dict):
                     _remember(track_spec)
 
-    _SEEDED_VIEW_INDEX = index
-    _SEEDED_VIEW_INDEX_TOKEN = token
+    _SEEDED_VIEW_INDEX = (specs, index)
     return index
 
 

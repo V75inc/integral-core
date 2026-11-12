@@ -105,6 +105,9 @@ _STAGING_EXEMPT_PROPOSE_TOOLS = {
     # explicit so a new immediate propose tool cannot silently bypass staging.
     "integral_propose_design",
     "integral_upsert_artifact",
+    # Creates only a private, conversation-owned preparation; Entry filing
+    # still requires its own staged approval. Scope and revision are host-bound.
+    "integral_prepare_document_attachment",
     "integral_get_artifact",
     "integral_list_artifacts",
     # integral_add_comment RECONCILED (M2a Task 5b): ``add_comment`` executor

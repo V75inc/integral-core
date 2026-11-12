@@ -57,6 +57,18 @@ must not release a human turn or a newer worker's slot.
 These paths preserve the same workspace access checks (I-RET-01), reviewed
 mutation boundary (I-CRUD-01), owned-thread binding and durable execution fences.
 
+The legacy `POST /agentive/proactive/log-push` in-app bridge requires a
+`payload.session_id` and a stable `payload.delivery_id` to deliver content.
+The active workspace is resolved from the authenticated request, never the
+payload. A missing ID or unresolved destination returns `delivered: false` with
+a `delivery_reason`; it never falls back to another chat. On PostgreSQL, the
+message and its scoped delivery receipt commit together. Retrying the same ID
+and content resolves the existing message; reusing it for different content or
+a different thread is a conflict. The bridge refuses delivery on stores without
+transaction support. WebSocket notifications are best effort and can repeat on
+retry; the durable chat message, not a notification, is the delivery record.
+This bridge is not the scheduled-work kernel or an autonomous mandate.
+
 ## Image input
 
 Native chat accepts PNG, JPEG, WebP and GIF through the ordinary persisted
@@ -561,3 +573,22 @@ permission decision is cached across users or runs.
 Operational answers retain the configured Heavy model and reasoning settings;
 workflow nomination removes discovery round trips without changing execution
 quality, request/token/funding budgets or the normal approval path.
+
+### Generated document preparation
+
+An exact `document_draft` revision can be rendered and downloaded privately.
+When a user wants the file attached to a workspace Entry, the resident can use
+`integral_prepare_document_attachment` to create a private chat-owned file,
+then propose `integral_attach_uploaded_file_to_entry` through the usual review
+flow. Preparation does not approve or perform the Entry write. New attachment
+proposals bind the file fingerprint and give the user an authenticated review
+download; the write rechecks the source before applying. The durable
+preparation receipt prevents a repeated request from charging for another copy.
+
+This path currently requires the transactional store for safe preparation and
+reviewed filing. Abandoned temporary blobs are retried by the recovery loop;
+their tombstones remain so a late writer can be cleaned up on a later pass.
+Long-term tombstone retention, accounting coordinated with all upload paths,
+older approval migration, and provider-specific storage immutability remain
+qualification work. The scanner's `skipped` status is not a claim that malware
+scanning occurred.

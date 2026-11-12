@@ -174,6 +174,69 @@ def _scope() -> HarnessExecutionScope:
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.smoke
+@pytest.mark.parametrize("name", ["integral_create_entry", "integral_schedule_task"])
+async def test_proposal_validation_requires_a_correction_and_bounds_retries(
+    monkeypatch, name
+):
+    calls = []
+
+    async def invoke(**kwargs):
+        value = kwargs["arguments"]["value"]
+        calls.append(value)
+        if value == "corrected":
+            return CapabilityResult(ok=True, data={"token": "staged"})
+        return CapabilityResult(
+            ok=False,
+            error_code="invalid_arguments",
+            message="value: use the current schema key",
+            next_tool=name,
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+
+    def make_tool():
+        return build_brokered_tools(
+            scope=_scope(),
+            catalogue=[
+                {
+                    "name": name,
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"value": {"type": "string"}},
+                    },
+                }
+            ],
+        )[0]
+
+    tool = make_tool()
+    ctx = SimpleNamespace(active_capability_ids=set(), tool_call_id="proposal")
+
+    first = await tool.function_schema.call({"value": "bad"}, ctx)
+    assert first["retryable"] is True
+    assert "value: use the current schema key" in first["message"]
+    assert "next_tool" not in first
+
+    duplicate = await tool.function_schema.call({"value": "bad"}, ctx)
+    assert "already rejected" in duplicate["message"]
+    corrected = await tool.function_schema.call({"value": "corrected"}, ctx)
+    assert corrected["token"] == "staged"
+
+    await tool.function_schema.call({"value": "bad"}, ctx)
+    second = await tool.function_schema.call({"value": "still bad"}, ctx)
+    assert second["retryable"] is False
+    assert "Stop retrying" in second["message"]
+    blocked = await tool.function_schema.call({"value": "changed again"}, ctx)
+    assert blocked["retryable"] is False
+    assert calls == ["bad", "corrected", "bad", "still bad"]
+
+    fresh_turn = await make_tool().function_schema.call({"value": "corrected"}, ctx)
+    assert fresh_turn["token"] == "staged"
+
+
 def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
     """Model-facing route enrichment leaves broker receipts unchanged."""
     source = {
@@ -1721,7 +1784,11 @@ async def test_saved_build_exposes_its_verifier_without_reloading_scaffold(
         "app.agentive.services.capability_broker.invoke_declared_capability", invoke
     )
     state = {"approved_design_ready": True}
-    names = {"integral_build_approved_design", "integral_verify_build"}
+    names = {
+        "integral_build_approved_design",
+        "integral_verify_build",
+        "integral_list_tracks",
+    }
     tools = build_brokered_tools(
         scope=_scope(),
         skill_library=tmp_path,
@@ -1780,6 +1847,11 @@ async def test_saved_build_exposes_its_verifier_without_reloading_scaffold(
         "integral_verify_build",
     ]
     assert state["verification_succeeded"] is True
+    assert not state["turn_progress"].should_finalize
+    await by_name["integral_list_tracks"].function_schema.call(
+        {}, SimpleNamespace(tool_call_id="post-build", active_capability_ids=set())
+    )
+    assert state["post_build_activity"] is True
     assert all(c["principal_id"] == scope.principal_id for c in calls)
     assert all(c["workspace_id"] == scope.workspace_id for c in calls)
     assert calls[1]["arguments"]["execution_receipt_id"] == "xr.current"
@@ -2144,6 +2216,8 @@ async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
     )
     item = SimpleNamespace(kind="chat_turn")
     invocations = []
+    source_url = "/entries/n.Entry.report?attachment=n.Attachment.pdf"
+    run_state = {"capability_search_completed": True}
 
     @asynccontextmanager
     async def authorized(context):
@@ -2152,7 +2226,14 @@ async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
 
     async def invoke(**kwargs):
         invocations.append(kwargs)
-        return CapabilityResult(ok=True, data={"text": "accepted file"})
+        return CapabilityResult(
+            ok=True,
+            data={
+                "text": "accepted file",
+                "filename": "report.pdf",
+                "source_url": source_url,
+            },
+        )
 
     guard = AsyncMock(side_effect=WorkError("work.policy_denied", "attachment changed"))
     monkeypatch.setattr(
@@ -2184,18 +2265,22 @@ async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
                 },
             }
         ],
-        run_state={"capability_search_completed": True},
+        run_state=run_state,
     )
     tool = next(tool for tool in tools if tool.name == "integral_get_attachment_text")
     ctx = SimpleNamespace(tool_call_id="file-call", active_capability_ids=set())
     with pytest.raises(WorkError, match="attachment changed"):
         await tool.function_schema.call({"attachment_id": "file-1"}, ctx)
     assert invocations == []
+    assert "attachment_source_links" not in run_state
     guard.assert_awaited_once_with(item=item)
     guard.side_effect = None
     result = await tool.function_schema.call({"attachment_id": "file-1"}, ctx)
     assert result["text"] == "accepted file"
     assert len(invocations) == 1
+    assert run_state["attachment_source_links"] == {
+        source_url: {"url": source_url, "label": "report.pdf"}
+    }
 
 
 @pytest.mark.asyncio
@@ -2461,3 +2546,401 @@ def test_scoped_read_recovery_is_not_replaced_by_generic_hint():
     }
     original = {"refused": {"declared_query_required": True}, "recovery": recovery}
     assert _resource_links_for_model(original)["recovery"] == recovery
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("evade_forever", [False, True])
+async def test_plan_repair_cannot_escape_as_final_offer(monkeypatch, evade_forever):
+    """Tool ModelRetry alone permits final prose; output validation closes it."""
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    calls = []
+    state = {"approved_design_ready": True, "capability_search_completed": True}
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return CapabilityResult(
+                ok=False,
+                error_code="plan_differs_from_design",
+                message="The plan adds a Home seed not in the approved design.",
+            )
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    turns = []
+
+    def respond(messages, info):
+        turns.append(messages)
+        if len(turns) == 1 or (len(turns) == 3 and not evade_forever):
+            return ModelResponse(
+                parts=[ToolCallPart("integral_build_approved_design", {})]
+            )
+        if len(calls) == 2:
+            # Stand in for successful readback; its independent tests cover it.
+            state["verification_succeeded"] = True
+            return ModelResponse(parts=[TextPart("Built and checked.")])
+        return ModelResponse(parts=[TextPart("Shall I retry the approved design?")])
+
+    agent = Agent(FunctionModel(respond), tools=tools, retries={"output": 3})
+    agent.output_validator(_scaffold_completion_validator(state))
+    result = await agent.run("Build the approved design.")
+    if evade_forever:
+        assert len(calls) == 1
+        assert len(turns) == 4
+        assert "No changes from this build were saved" in result.output
+    else:
+        assert len(calls) == 2
+        assert len(turns) == 4
+        assert result.output == "Built and checked."
+        assert "build_plan_repair_pending" not in state
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["partial", "unknown", "denied", "exception"])
+async def test_repair_state_does_not_replay_uncertain_or_denied_build(
+    monkeypatch, outcome
+):
+    calls = []
+    state = {"approved_design_ready": True, "capability_search_completed": True}
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return CapabilityResult(
+                ok=False, error_code="plan_differs_from_design", message="Extra seed."
+            )
+        if outcome == "exception":
+            raise RuntimeError("Connection lost after dispatch")
+        return CapabilityResult(ok=False, error_code=outcome, message=outcome)
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    ctx = SimpleNamespace(tool_call_id="first", active_capability_ids=set())
+    with pytest.raises(ModelRetry):
+        await tool.function_schema.call({}, ctx)
+    assert state["build_plan_repair_pending"] == "Extra seed."
+    ctx.tool_call_id = "corrected"
+    if outcome == "exception":
+        with pytest.raises(RuntimeError):
+            await tool.function_schema.call({}, ctx)
+    else:
+        result = await tool.function_schema.call({}, ctx)
+        assert result["error_code"] == outcome
+    assert "build_plan_repair_pending" not in state
+    ctx.tool_call_id = "duplicate"
+    assert (await tool.function_schema.call({}, ctx))["error_code"] == (
+        "build_already_attempted"
+    )
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_approved", [False, True])
+async def test_unresolved_design_asks_question_without_plan_retry(
+    monkeypatch, legacy_approved
+):
+    from app.agentive.harness.design_approval import DesignDecisionRequired
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    question = "Before I can build this, I need to clarify:\n\nUpdate status too?"
+    calls = []
+
+    async def authorize(**kwargs):
+        raise DesignDecisionRequired(question)
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(
+            ok=False, error_code="design_decision_required", message=question
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.harness.design_approval.authorize_pending_design_build", authorize
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    state = {
+        "approved_design_ready": legacy_approved,
+        "pending_design": True,
+        "active_user_turn": 2,
+        "active_user_text": "Looks good",
+        "capability_search_completed": True,
+    }
+    tool = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    result = await tool.function_schema.call(
+        {}, SimpleNamespace(tool_call_id="build", active_capability_ids=set())
+    )
+    assert result["error_code"] == "design_decision_required"
+    assert len(calls) == int(legacy_approved)
+    assert not state["approved_design_ready"]
+    assert "build_plan_repair_pending" not in state
+    assert (
+        await _scaffold_completion_validator(state)(None, "I couldn't build it.")
+        == question
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("question_succeeds", [True, False])
+async def test_invalid_proposal_then_question_settles_only_successful_queue(
+    monkeypatch, question_succeeds
+):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    # Workflow discovery is covered separately; exercise the actual broker and
+    # output lifecycle without filesystem skill activation in this model stub.
+    monkeypatch.setattr(
+        "app.agentive.harness.broker_tools._REQUIRED_SKILLS_BY_TOOL", {}
+    )
+    calls = []
+    state = {"capability_search_completed": True}
+    question = "Where should an unmatched update go?"
+
+    async def invoke(**kwargs):
+        name = kwargs["capability_key"]
+        calls.append(name)
+        if name == "integral_propose_design":
+            return CapabilityResult(
+                ok=False,
+                error_code="invalid_blueprint",
+                message="tracks: Field required",
+            )
+        if not question_succeeds:
+            return CapabilityResult(
+                ok=False, error_code="forbidden", message="Question not queued"
+            )
+        return CapabilityResult(
+            ok=True,
+            data={
+                "_kind": "user_question",
+                "state": "pending",
+                "queue_open": True,
+                "question_id": "q1",
+                "question": question,
+                "options": [{"label": "Ask me", "description": "Do not guess."}],
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        always_available_tools={"integral_propose_design", "integral_ask_user"},
+        run_state=state,
+        catalogue=[
+            {
+                "name": name,
+                "description": name,
+                "input_schema": {"type": "object", "properties": {}},
+            }
+            for name in ("integral_propose_design", "integral_ask_user")
+        ],
+    )
+    turns = []
+
+    def respond(messages, info):
+        turns.append(messages)
+        if len(turns) == 1:
+            return ModelResponse(parts=[ToolCallPart("integral_propose_design", {})])
+        if len(turns) == 2:
+            return ModelResponse(parts=[ToolCallPart("integral_ask_user", {})])
+        return ModelResponse(parts=[TextPart("I couldn't save the design.")])
+
+    agent = Agent(FunctionModel(respond), tools=tools, retries={"output": 3})
+    agent.output_validator(_scaffold_completion_validator(state))
+    result = await agent.run("Design my projects app")
+    assert calls == ["integral_propose_design", "integral_ask_user"]
+    if question_succeeds:
+        assert result.output == question + "\n\n- Ask me: Do not guess."
+        assert len(turns) == 3
+        assert state["turn_progress"].should_finalize
+        assert "scaffold_proposal_output_retries" not in state
+        # Model noncompliance cannot continue the scaffold after queuing.
+        refused = await tools[0].function_schema.call(
+            {}, SimpleNamespace(tool_call_id="late", active_capability_ids=set())
+        )
+        assert refused["error_code"] == "clarification_pending"
+        assert len(calls) == 2
+    else:
+        assert "scaffold_pending_clarification" not in state
+        assert "couldn't save the proposed setup" in result.output
+        assert len(turns) == 5  # Two bounded output corrections, then honest stop.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", ["plan_differs_from_design", "partial", "unknown", "denied"]
+)
+async def test_post_build_question_never_masks_build_outcome(monkeypatch, outcome):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    monkeypatch.setattr(
+        "app.agentive.harness.broker_tools._REQUIRED_SKILLS_BY_TOOL", {}
+    )
+    state = {
+        "approved_design_ready": True,
+        "proposal_attempted": True,
+        "capability_search_completed": True,
+    }
+
+    async def invoke(**kwargs):
+        if kwargs["capability_key"] == "integral_build_approved_design":
+            return CapabilityResult(ok=False, error_code=outcome, message=outcome)
+        return CapabilityResult(
+            ok=True,
+            data={
+                "_kind": "user_question",
+                "state": "pending",
+                "queue_open": True,
+                "question_id": "q1",
+                "question": "Shall I try something else?",
+                "options": [],
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": name,
+                "description": name,
+                "input_schema": {"type": "object", "properties": {}},
+            }
+            for name in ("integral_build_approved_design", "integral_ask_user")
+        ],
+    )
+    ctx = SimpleNamespace(tool_call_id="build", active_capability_ids=set())
+    if outcome == "plan_differs_from_design":
+        with pytest.raises(ModelRetry):
+            await tools[0].function_schema.call({}, ctx)
+    else:
+        await tools[0].function_schema.call({}, ctx)
+    ctx.tool_call_id = "question"
+    await tools[1].function_schema.call({}, ctx)
+    assert state["scaffold_build_attempted"]
+    assert "scaffold_pending_clarification" not in state
+    if outcome == "plan_differs_from_design":
+        assert state["build_plan_repair_pending"] == outcome
+    else:
+        reply = "The build outcome needs review before any further changes."
+        assert await _scaffold_completion_validator(state)(None, reply) == reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["integral_create_entry", "integral_update_entry"])
+async def test_attachment_workflow_cannot_stage_plain_record_write(
+    tmp_path, monkeypatch, name
+):
+    """Real skill declarations enforce compound filing, not upload heuristics."""
+    import shutil
+
+    for skill in ("integral-attachments", "integral-entries"):
+        destination = tmp_path / skill
+        destination.mkdir()
+        shutil.copy(
+            Path("app/resident_harness/skills") / skill / "SKILL.md",
+            destination / "SKILL.md",
+        )
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        catalogue=[
+            row
+            for row in build_tool_catalogue()
+            if row["name"] in {name, "integral_file_uploaded_document"}
+        ],
+    )
+    tool = next(t for t in tools if t.name == name)
+    ctx = SimpleNamespace(
+        active_capability_ids={"integral-attachments"}, tool_call_id="wrong-write"
+    )
+    compound = next(t for t in tools if t.name == "integral_file_uploaded_document")
+    assert await compound.prepare_tool_def(ctx) is not None
+    assert await tool.prepare_tool_def(ctx) is None
+    result = await tool.function_schema.call({}, ctx)
+    assert result["error_code"] == "required_skill_not_loaded"
+    assert "integral_file_uploaded_document" in result["message"]
+    assert calls == []
+    ctx.active_capability_ids.add("integral-entries")
+    assert await tool.prepare_tool_def(ctx) is not None
+    await tool.function_schema.call({}, ctx)
+    assert len(calls) == 1

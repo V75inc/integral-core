@@ -538,3 +538,65 @@ async def test_design_awaiting_user_response_true_until_reply():
     msg = await ChatMessage.create(role="user", thread_id=thread.id)
     await thread.connect(msg, edge=CONTAINS)
     assert await chat_threads.design_awaiting_user_response("sess-F") is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [False, True])
+async def test_legacy_affirmation_cannot_bypass_open_design_decisions(approved):
+    import copy
+
+    thread = await _thread_with_user_turns("unresolved-legacy", 2)
+    thread.design_proposed = {
+        "approved": approved,
+        "proposed_at_user_turn": 1,
+        "blueprint": {
+            "open_decisions": [{"id": "q.filing", "question": "Update status too?"}]
+        },
+    }
+    await thread.save()
+    before = copy.deepcopy(thread.design_proposed)
+    assert not await chat_threads.stamp_design_approved(
+        thread=thread, utterance="Looks good"
+    )
+    assert not await chat_threads.design_chat_affirmed_for_build("unresolved-legacy")
+    assert (await ChatThread.get(thread.id)).design_proposed == before
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {},
+        {"approved": False},
+        {"approved": True},
+        {"approved": True, "partial_build": {"batch_token": "partial-token"}},
+        {"approved": True, "build_receipt": None},
+        {"approved": True, "build_receipt": {}},
+    ],
+)
+def test_native_pending_context_preserves_unfinished_design(state):
+    import copy
+
+    marker = {"proposal": _PROPOSAL, **state}
+    before = copy.deepcopy(marker)
+    assert chat_threads.native_pending_design_context(marker) == _PROPOSAL
+    assert marker == before
+
+
+def test_native_completed_design_does_not_reenter_pending_filing_context():
+    import copy
+
+    marker = {
+        "proposal": "Proposed: nothing built. Confirm this design.",
+        "approved": True,
+        "build_receipt": {
+            "id": "xr.completed",
+            "design_id": "design-1",
+            "applied_at": "2026-11-12T20:59:33Z",
+            "mapping": {"projects_app": {"kind": "app", "object_id": "app-1"}},
+        },
+    }
+    before = copy.deepcopy(marker)
+    assert chat_threads.native_pending_design_context(marker) == ""
+    assert marker == before
+    assert chat_threads.native_pending_design_context(None) == ""
+    assert chat_threads.native_pending_design_context("untrusted") == ""

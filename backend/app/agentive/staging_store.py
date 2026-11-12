@@ -566,6 +566,18 @@ async def _persist_existing(
         logger.warning("staging_store.missing_approved_decision")
 
 
+async def persist_pending_in_transaction(sc: "StagedChange") -> None:
+    """Mint a pending review with the caller's durable handoff."""
+    from app.services.app_operations.transaction_scope import (
+        current_graph_transaction_database,
+    )
+
+    current_graph_transaction_database()
+    if sc.state != "pending" or sc.autonomy_grant_used:
+        raise ValueError("A background review must require human approval")
+    await StagedChangeRecord.create(**_sc_to_fields(sc))
+
+
 async def replace_partial(old: "StagedChange", new: "StagedChange") -> None:
     """Strict writes inside the caller's transaction; never swallow rollback errors."""
     existing = await _find_record(old.token)

@@ -23,6 +23,11 @@ from app.services.model_credentials import (
     get_credential_for_user,
     validate_provider_api_key,
 )
+from app.services.model_harness_policy import (
+    assess_model,
+    model_policy_catalog,
+    require_heavy_model,
+)
 from app.services.model_provider_endpoints import normalize_custom_base_url
 from app.services.model_settings import validate_model_settings
 from app.utils.time import utc_now_iso
@@ -168,7 +173,19 @@ async def configuration(user_id: str) -> dict[str, Any]:
     profiles = await _find(UserModelProfile, {"context.user_id": user_id}, limit=101)
     return {
         "connections": [_connection_view(c) for c in connections],
-        "profiles": [_profile_view(p) for p in profiles],
+        "profiles": [
+            {
+                **_profile_view(p),
+                "harness_policy": assess_model(
+                    next(
+                        (c.provider for c in connections if c.id == p.connection_id), ""
+                    ),
+                    p.model,
+                ),
+            }
+            for p in profiles
+        ],
+        "model_policy": model_policy_catalog(),
         "default_profile_id": default_id,
         "routing": {
             "mode": record.routing_mode if record else "single",
@@ -309,6 +326,8 @@ async def save_profile(user_id: str, body: ProfileWrite) -> dict[str, Any]:
         if record and record.is_active
         else ""
     )
+    if default_id and profile.id == default_id:
+        require_heavy_model(connection.provider, body.model)
     previous = profile.updated_at if body.id else None
     profile.name, profile.connection_id, profile.model = (
         body.name.strip(),
@@ -344,6 +363,7 @@ async def activate_profile(
     _enabled()
     profile = await _owned(UserModelProfile, user_id, item_id)
     connection = await _owned(UserModelConnection, user_id, profile.connection_id)
+    require_heavy_model(connection.provider, profile.model)
     configured = await asyncio.to_thread(
         validate_model_settings,
         connection.provider,
@@ -575,7 +595,8 @@ async def conversation_model(
                 raise ValueError(
                     "Choose a default model before setting a conversation override"
                 )
-            await profile_credential(user_id, profile_id, record)
+            selected = await profile_credential(user_id, profile_id, record)
+            require_heavy_model(selected.provider, selected.model)
         from app.agentive.harness.model_route import resolve_native_model_route
         from app.agentive.harness.model_routing import (
             applicable_reasoning_efforts,

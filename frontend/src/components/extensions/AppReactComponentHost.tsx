@@ -12,6 +12,7 @@ import { BridgeChart, DataTable, LineChart, Progress, Stat, Tabs, StatusBadge, I
 import { Button, Skeleton } from '../ui';
 import { Modal } from '../ui/Modal';
 import {AsyncCombobox} from './AsyncCombobox';
+import {FilePreview} from '../ui/FilePreview';
 import {DatePicker} from '../ui/DatePicker';
 import {prepareReadScope, readScopedAppQuery} from './scopedAppReads';
 import {EntryRegionBridge, EntryRegionHostContext} from './EntryRegionBridge';
@@ -224,7 +225,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
         setLoaded(null); setFailure(false); setReload(value => value + 1);
       }
     }}>Reload view</Button></div> : null}
-    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{...AppPatterns, DataTable, Stat, Progress, LineChart, BridgeChart, Tabs, Badge: StatusBadge, Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal: AppModal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput}}>
+    <Boundary key={loadedDigest} onError={() => setFailure(true)}><UIPrimitivesProvider value={{...AppPatterns, DataTable, Stat, Progress, LineChart, BridgeChart, Tabs, Badge: StatusBadge, Button, Input, Select, Textarea, Text, Surface, Stack, Inline, Modal: AppModal, EntryRegion: EntryRegionBridge, AsyncCombobox, DateInput, FilePreview}}>
       <AppUIProvider value={{...api, context, lifecycle: composedLifecycle}}><EntryRegionHostContext.Provider value={composedLifecycle || null}><Loaded {...effectiveProps} /></EntryRegionHostContext.Provider></AppUIProvider>
     </UIPrimitivesProvider></Boundary>
   </>;

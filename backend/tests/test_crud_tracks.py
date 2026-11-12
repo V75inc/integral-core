@@ -251,6 +251,7 @@ class TestTracksCRUD:
         )
         assert detail.status_code == 200
         assert "entry_count" not in detail.json()["track"]
+        assert detail.json()["track"]["schema_revision"] >= 1
 
         url = f"/api/tracks/{track_id}/entries"
         page = await authenticated_client.get(

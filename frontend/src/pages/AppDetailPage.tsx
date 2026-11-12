@@ -416,6 +416,18 @@ export function AppDetailPage() {
     Boolean(Object.keys(functionSettings.data?.role_actions || {}).length || functionSettings.data?.bindings?.length));
   const hasAppSettings = hasConfigurableSettings || hasFunctionSettings;
 
+  // The App menu's Settings link lands here with ?settings=1: open the standard App settings dialog once.
+  const settingsRequested = sectionParams.get('settings') === '1';
+  useEffect(() => {
+    if (!settingsRequested || !app || app.id !== appId) return;
+    if (canAdmin) setShowAppSettingsModal(true);
+    setSectionParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete('settings');
+      return next;
+    }, { replace: true });
+  }, [settingsRequested, app, appId, canAdmin, setSectionParams]);
+
   // Adding or linking a track is app.update, not the workspace create flag.
   // A workspace owner can open this App as a commenter and still holds
   // canCreateTracks; showing New track in that case returns 403.
@@ -1378,6 +1390,7 @@ function AppTrackRow({
                 : ''
             }
             title={track.title}
+            icon={track.icon}
           />
           {canDrag && sortable && (
             <button

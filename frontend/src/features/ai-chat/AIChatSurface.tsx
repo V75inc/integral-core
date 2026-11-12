@@ -41,10 +41,12 @@ const ChatActivityContext = createContext<{
   activeThreadId: string | null;
   composerReady: boolean;
   followUps?: readonly FollowUp[];
-  queueFollowUp?: (text: string, refs: ChatEntityRef[]) => boolean;
-  removeFollowUp?: (id: string) => void;
+  queueFollowUp?: (text: string, refs: ChatEntityRef[]) => Promise<boolean>;
+  removeFollowUp?: (id: string) => Promise<void>;
   steerFollowUp?: (id: string) => Promise<void>;
   steeringWorkItemId: string | null;
+  followUpsPaused?: boolean;
+  resumeFollowUps?: () => Promise<void>;
   steeringRunning: boolean;
   streamingThreadIds: readonly string[];
   /** Threads busy with a turn this tab did not start. */
@@ -167,6 +169,8 @@ function AIChatRuntimeBoundaryInner({
     activeThreadId,
     composerReady,
     followUps,
+    followUpsPaused,
+    resumeFollowUps,
     queueFollowUp,
     removeFollowUp,
     steerFollowUp,
@@ -201,6 +205,8 @@ function AIChatRuntimeBoundaryInner({
           activeThreadId,
           composerReady,
           followUps,
+          followUpsPaused,
+          resumeFollowUps,
           queueFollowUp,
           removeFollowUp,
           steerFollowUp,

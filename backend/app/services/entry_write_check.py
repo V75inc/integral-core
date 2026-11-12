@@ -11,7 +11,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from app.api.errors import BadRequestError, InsufficientPermissionsError, ResourceNotFoundError
+from app.api.errors import (
+    BadRequestError,
+    InsufficientPermissionsError,
+    ResourceNotFoundError,
+)
 from app.models.nodes import Entry, EntryType, Track
 from app.schemas.policy import Resource, Subject
 
@@ -68,7 +72,11 @@ async def check_entry_write(
         raise ResourceNotFoundError(message="Entry type not found on track")
 
     proposed = dict(custom_fields or {})
-    fields = {**(getattr(entry, "custom_fields", None) or {}), **proposed} if entry else proposed
+    fields = (
+        {**(getattr(entry, "custom_fields", None) or {}), **proposed}
+        if entry
+        else proposed
+    )
     _model, runtime_tier, _ = await resolve_track_runtime_profile(track)
     # Required fields are the form's own job (it marks them, and the real save enforces them); a form that is
     # still being filled in, or an App editor that sets values only when Save is pressed, must not be blocked
@@ -105,7 +113,10 @@ async def check_entry_write(
         if "is required" in str(exc.message):
             return {"ok": True}
         details = getattr(exc, "details", None) or {}
-        return _refused(str(exc.message), str(details.get("field") or "") if isinstance(details, dict) else "")
+        return _refused(
+            str(exc.message),
+            str(details.get("field") or "") if isinstance(details, dict) else "",
+        )
     except ValueError as exc:
         return _refused(str(exc))
     except PermissionError as exc:

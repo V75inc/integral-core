@@ -411,7 +411,7 @@ async def materialize_anchor_track(
         title_fold=track_title.strip().casefold(),
         owner_id=getattr(source_track, "owner_id", None) or "",
         purpose="",
-        icon="",
+        icon=str(template_spec.get("icon") or ""),
         visibility="private",
         template_id=template_key,
         workspace_id=source_ws,
@@ -949,6 +949,8 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
             }
             for chrome_key in (
                 "search_index",
+                "task_semantics",
+                "goal_semantics",
                 "ui_contributions",
                 "related_views",
                 "open_as_page",

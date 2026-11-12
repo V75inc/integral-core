@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { Plus, Trash2 } from 'lucide-react';
 import { SeamlessField } from '../entries/SeamlessField';
 import { entriesApi, entryTypesApi } from '../../api';
+import { findEntryTypeForEntry } from '../../utils/entryMetaFields';
+import { formatDateFieldDisplay } from '../../utils/dateFieldValue';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
@@ -289,18 +291,23 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
+            {rows.map((row, index) => {
+              const rowFields = findEntryTypeForEntry(entryTypes, row)?.form_schema?.fields;
+              return (
               <tr key={row.id} className={`border-b border-[var(--entry-table-divider)] last:border-b-0 hover:bg-[var(--entry-table-row-hover)] ${index % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'}`}>
                 {columnKeys.map(key => {
                   const field = fieldByKey.get(key);
                   const value = (row.custom_fields || {})[key];
                   if (!field || field.type === 'computed' || field.readonly) {
+                    const dateType = rowFields?.find(candidate => candidate.key === key)?.type;
+                    const display =
+                      (dateType === 'date' || dateType === 'datetime') && typeof value === 'string'
+                        ? formatDateFieldDisplay(value, dateType, { compact: true }) || value
+                        : value == null ? '' : String(value);
                     return (
                       <td key={key} className="px-3 py-2">
                         <Text variant="body-sm" tone="muted">
-                          {value === undefined || value === null || value === ''
-                            ? '—'
-                            : String(value)}
+                          {display || '—'}
                         </Text>
                       </td>
                     );
@@ -338,7 +345,8 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                   </button>
                 </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
       </div>

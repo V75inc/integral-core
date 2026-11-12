@@ -42,7 +42,91 @@ async function normalizeEntriesWithTypes(raw: any[]): Promise<Entry[]> {
   );
 }
 
+export type ResidentAssignmentState = 'assigned' | 'withdrawn';
+
+export interface ResidentAssignmentView {
+  state: ResidentAssignmentState;
+  revision: number;
+  can_assign: boolean;
+  can_withdraw: boolean;
+  can_request_review?: boolean;
+  readiness?: 'paused' | 'needs_reassignment' | 'needs_task_setup' | 'awaiting_execution_policy' | null;
+}
+
+export interface ResidentAssignmentReview {
+  work_item_id: string;
+  review_digest: string;
+  status: string;
+  approval_status: string;
+  can_approve: boolean;
+  model: string;
+  provider: string;
+  max_model_requests: number;
+  max_spend_usd: string;
+  deadline_at: string;
+  preparation_thread_id?: string | null;
+  needs_model_evidence?: boolean;
+}
+
 export const entriesApi = {
+  async getResidentAssignment(entryId: string, workspaceId: string): Promise<ResidentAssignmentView> {
+    const { data } = await apiClient.get(`/entries/${encodeURIComponent(entryId)}/resident-assignment`, {
+      headers: { 'X-Integral-Scope': `ws:${workspaceId}` },
+    });
+    return data;
+  },
+
+  async setResidentAssignment(
+    entryId: string, workspaceId: string, state: ResidentAssignmentState, revision: number,
+  ): Promise<Pick<ResidentAssignmentView, 'state' | 'revision'>> {
+    const { data } = await apiClient.put(
+      `/entries/${encodeURIComponent(entryId)}/resident-assignment`,
+      { state, expected_assignment_revision: revision },
+      { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } },
+    );
+    return data;
+  },
+
+  async getResidentAssignmentReview(entryId: string, workspaceId: string): Promise<ResidentAssignmentReview | null> {
+    const { data } = await apiClient.get(`/entries/${encodeURIComponent(entryId)}/resident-assignment/review`, {
+      headers: { 'X-Integral-Scope': `ws:${workspaceId}` },
+    });
+    return data;
+  },
+
+  async requestResidentAssignmentReview(
+    entryId: string, workspaceId: string, revision: number,
+  ): Promise<ResidentAssignmentReview | null> {
+    const { data } = await apiClient.post(
+      `/entries/${encodeURIComponent(entryId)}/resident-assignment/review`,
+      { expected_assignment_revision: revision },
+      { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } },
+    );
+    return data;
+  },
+
+  async stageResidentAssignmentPlacement(
+    entryId: string, workspaceId: string, reviewDigest: string,
+  ): Promise<{ proposal_token: string }> {
+    const { data } = await apiClient.post(
+      `/entries/${encodeURIComponent(entryId)}/resident-assignment/placement`,
+      { review_digest: reviewDigest },
+      { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } },
+    );
+    return data;
+  },
+
+  async approveResidentAssignmentReview(
+    entryId: string, workspaceId: string, reviewDigest: string,
+  ): Promise<ResidentAssignmentReview | null> {
+    const { data } = await apiClient.put(
+      `/entries/${encodeURIComponent(entryId)}/resident-assignment/review`,
+      { review_digest: reviewDigest },
+      { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } },
+    );
+    return data;
+  },
+
   list: async (params?: Record<string, unknown>) => {
     const { data } = await apiClient.get('/entries', { params });
     const inner = unwrapApiDataEnvelope(data);
@@ -169,13 +253,14 @@ export const entriesApi = {
   listRelated: async (
     entryId: string,
     relation: string,
-    opts?: { limit?: number; cursor?: string; entryType?: string; entryTypes?: string[] }
-  ): Promise<{ entries: Entry[]; nextCursor: string | null; hasMore: boolean }> => {
+    opts?: { limit?: number; cursor?: string; offset?: number; entryType?: string; entryTypes?: string[] }
+  ): Promise<{ entries: Entry[]; nextCursor: string | null; hasMore: boolean; total?: number }> => {
     const { data } = await apiClient.get(`/entries/${entryId}/related`, {
       params: {
         relation,
         limit: opts?.limit,
         cursor: opts?.cursor,
+        offset: opts?.offset || undefined,
         entry_type: opts?.entryTypes?.length ? opts.entryTypes : opts?.entryType,
       },
     });
@@ -184,6 +269,7 @@ export const entriesApi = {
       entries: await normalizeEntriesWithTypes(raw),
       nextCursor: typeof data?.next_cursor === 'string' ? data.next_cursor : null,
       hasMore: Boolean(data?.has_more),
+      total: typeof data?.total === 'number' ? data.total : undefined,
     };
   },
   /**

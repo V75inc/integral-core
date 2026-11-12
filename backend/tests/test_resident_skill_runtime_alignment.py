@@ -490,3 +490,22 @@ def test_attachments_skill_observes_app_query_boundaries_and_viewer_controls() -
     assert "do not repeat generic searches" in skill
     assert "missing `preview_url` or `thumb_url` does not mean" in skill
     assert "Open/Download" in skill
+
+
+def test_attachment_only_workflow_projects_atomic_filing_not_batch_construction():
+    """Loading attachments must not invite a batch incompatible with its compound tool."""
+    from app.agentive.services.agent_skills import list_core_skills
+
+    skill = _skill("integral-attachments")
+    frontmatter = yaml.safe_load(skill.split("---", 2)[1])
+    tools = set(frontmatter["allowed-tools"].split())
+    assert "integral_file_uploaded_document" in tools
+    assert "integral_cancel_batch" in tools
+    assert not {"integral_begin_batch", "integral_commit_batch"} & tools
+    projected = next(
+        row for row in list_core_skills() if row["key"] == "integral-attachments"
+    )
+    assert set(projected["tools_required"]) == tools
+    assert "it owns its complete batch lifecycle" in skill
+    assert "do not automatically cancel a populated batch" in skill
+    assert "authorized" in skill

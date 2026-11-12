@@ -12,13 +12,26 @@ from app.schemas.agentive.work import WorkExecutionContext
 _active: ContextVar[tuple[object, dict[str, Any]] | None] = ContextVar(
     "integral_proposal_origin", default=None
 )
+_deferred_invocation: ContextVar[tuple[object, WorkExecutionContext] | None] = (
+    ContextVar("integral_deferred_proposal_invocation", default=None)
+)
+
+
+@contextmanager
+def bind_deferred_proposal(context: WorkExecutionContext) -> Iterator[None]:
+    """Mark the exact broker invocation that will park a native frontier."""
+    token = _deferred_invocation.set((asyncio.current_task(), context))
+    try:
+        yield
+    finally:
+        _deferred_invocation.reset(token)
 
 
 def origin_for(
     context: WorkExecutionContext, capability_key: str, mandate: str
 ) -> dict[str, Any]:
     """Describe an invocation without storing its lease credential."""
-    return {
+    proof = {
         "version": "work-proposal-v1",
         "work_item_id": context.work_item_id,
         "run_id": context.run_id,
@@ -30,6 +43,9 @@ def origin_for(
         "capability_key": capability_key,
         "mandate_fingerprint": mandate,
     }
+    if _deferred_invocation.get() == (asyncio.current_task(), context):
+        proof["requires_deferred_link"] = True
+    return proof
 
 
 @contextmanager

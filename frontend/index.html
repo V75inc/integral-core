@@ -3,6 +3,8 @@
 
 <head>
   <script type="importmap">{"imports":{"react":"/ui-runtime/react.mjs","react/jsx-runtime":"/ui-runtime/jsx.mjs","@integral/sdk-react":"/ui-runtime/sdk.mjs"}}</script>
+  <link id="app-favicon" rel="icon" type="image/svg+xml" href="/integral-logo.svg?v=system-theme"
+    data-dark="/integral-logo-white.svg?v=system-theme" data-light="/integral-logo.svg?v=system-theme" />
   <script>
     globalThis.process = globalThis.process || { env: { NODE_ENV: 'development' } };
   </script>
@@ -10,18 +12,21 @@
     (function () {
       try {
         var t = localStorage.getItem('t75_theme');
-        if (t === 'light') document.documentElement.classList.remove('theme-dark');
-        else document.documentElement.classList.add('theme-dark');
+        var dark = t !== 'light';
+        document.documentElement.classList.toggle('theme-dark', dark);
       } catch (e) {
         document.documentElement.classList.add('theme-dark');
       }
+      var icon = document.getElementById('app-favicon');
+      var systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+      function updateFavicon() {
+        icon.href = systemTheme.matches ? icon.dataset.dark : icon.dataset.light;
+      }
+      updateFavicon();
+      systemTheme.addEventListener('change', updateFavicon);
     })();
   </script>
   <meta charset="UTF-8" />
-  <link rel="icon" href="/favicon.ico?v=split-square" sizes="any" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=split-square" />
-  <link rel="icon" type="image/svg+xml" href="/integral-logo.svg?v=split-square" media="(prefers-color-scheme: light)" />
-  <link rel="icon" type="image/svg+xml" href="/integral-logo-white.svg?v=split-square" media="(prefers-color-scheme: dark)" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=split-square" />
   <link rel="manifest" href="/site.webmanifest?v=split-square" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />

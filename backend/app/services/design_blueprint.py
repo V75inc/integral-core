@@ -181,6 +181,20 @@ def _seed_field_difference(
     return " ".join(parts)
 
 
+def open_design_questions(blueprint: Dict[str, Any]) -> List[str]:
+    """Return saved unresolved questions, never inferred answers or authority."""
+    return [
+        str(item["question"]).strip()
+        for item in blueprint.get("open_decisions", [])
+        if isinstance(item, dict) and str(item.get("question") or "").strip()
+    ]
+
+
+def design_decision_reply(questions: List[str]) -> str:
+    """Render saved design questions without claiming approval or completion."""
+    return "Before I can build this, I need to clarify:\n\n" + "\n".join(questions)
+
+
 def plan_fidelity_errors(
     blueprint: Dict[str, Any],
     operations: List[Tuple[str, Dict[str, Any]]],
