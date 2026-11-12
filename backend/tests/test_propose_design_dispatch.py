@@ -604,3 +604,85 @@ async def test_artifact_revisions_serialize_and_reject_stale_writes():
     saved_document = await artifacts.get_artifact(**scope, key="report")
     assert saved_document["kind"] == "document_draft"
     assert saved_document["body"] == "Reviewed revision"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [False, True])
+async def test_missing_design_scratch_recovers_canonical_read_without_mutation(
+    bind_fresh_graph_context_for_async_tests,
+    approved,
+):
+    from copy import deepcopy
+
+    from app.agentive.artifacts import get_artifact
+    from app.services.design_blueprint import blueprint_digest
+
+    thread = await _thread("recovery-design", 1)
+    marker = {
+        "artifact_key": "app_design_blueprint",
+        "design_id": "saved-design",
+        "blueprint": deepcopy(_BLUEPRINT),
+        "blueprint_revision": 3,
+        "blueprint_digest": blueprint_digest(_BLUEPRINT),
+        "proposal": _PROPOSAL,
+        "summary": "Demo",
+        "approved": approved,
+    }
+    thread.design_proposed = deepcopy(marker)
+    thread.artifacts = None
+    await thread.save()
+    result = await get_artifact(
+        user_id="u1", session_id="recovery-design", key="app_design_blueprint"
+    )
+    assert result["ok"]
+    assert result["blueprint"] == _BLUEPRINT
+    assert result["blueprint_revision"] == 3
+    assert result["version"] == 0
+    assert result["metadata"] == {"source": "saved_design"}
+    assert result["body"] == _PROPOSAL
+    result["blueprint"]["app"]["name"] = "Changed client copy"
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed == marker
+    assert reloaded.artifacts is None
+    assert (
+        await get_artifact(
+            user_id="other", session_id="recovery-design", key="app_design_blueprint"
+        )
+    )["error"] == "not_found"
+    assert (
+        await get_artifact(user_id="u1", session_id="recovery-design", key="unrelated")
+    )["error"] == "not_found"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"blueprint_digest": "sha256:invalid"},
+        {"blueprint_revision": True},
+        {"blueprint_revision": 0},
+        {"design_id": ""},
+        {"artifact_key": "other"},
+    ],
+)
+async def test_missing_design_scratch_refuses_incomplete_authority(
+    bind_fresh_graph_context_for_async_tests,
+    invalid,
+):
+    from app.agentive.artifacts import get_artifact
+    from app.services.design_blueprint import blueprint_digest
+
+    thread = await _thread("invalid-recovery", 1)
+    thread.design_proposed = {
+        "artifact_key": "app_design_blueprint",
+        "design_id": "saved-design",
+        "blueprint": _BLUEPRINT,
+        "blueprint_revision": 1,
+        "blueprint_digest": blueprint_digest(_BLUEPRINT),
+        **invalid,
+    }
+    await thread.save()
+    result = await get_artifact(
+        user_id="u1", session_id="invalid-recovery", key="app_design_blueprint"
+    )
+    assert result["error"] == "not_found"

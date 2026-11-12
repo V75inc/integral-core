@@ -165,6 +165,14 @@ async def _save_artifact_map(thread, store: Dict[str, Any]) -> None:
     )
     if updated is None:
         raise RuntimeError("Conversation disappeared while saving an artifact")
+    thread.artifacts = deepcopy(store)
+    # jvspatial 0.2.7 has no public single-entity refresh/invalidation API;
+    # clear_cache does not clear its transaction identity map. A raw partial
+    # write must evict both caches before another get/save in this transaction,
+    # or binding the design marker can overwrite the artifact with stale None.
+    from jvspatial.core.context import get_default_context
+
+    await get_default_context()._evict_from_cache(thread.id)
 
 
 async def upsert_artifact(
@@ -319,13 +327,37 @@ async def get_artifact(
 
         store: Dict[str, Any] = dict(getattr(thread, "artifacts", None) or {})
         entry = store.get(art_key)
+        marker = getattr(thread, "design_proposed", None) or {}
         if not isinstance(entry, dict):
-            return {
-                "error": "not_found",
-                "detail": f"No artifact with key {art_key!r}.",
+            # Older native turns could lose the scratch artifact while the
+            # canonical typed design survived. Recover readback only, after
+            # the same live conversation/workspace admission as any artifact.
+            # This neither recreates scratch state nor grants build approval.
+            from app.services.design_blueprint import blueprint_digest
+
+            blueprint = marker.get("blueprint")
+            if not (
+                art_key == "app_design_blueprint"
+                and marker.get("artifact_key") == art_key
+                and isinstance(blueprint, dict)
+                and marker.get("design_id")
+                and type(marker.get("blueprint_revision")) is int
+                and marker["blueprint_revision"] > 0
+                and marker.get("blueprint_digest") == blueprint_digest(blueprint)
+            ):
+                return {
+                    "error": "not_found",
+                    "detail": f"No artifact with key {art_key!r}.",
+                }
+            entry = {
+                "key": art_key,
+                # No scratch revision exists. Its next upsert still uses 0;
+                # design build authority uses blueprint_revision separately.
+                "version": 0,
+                "created_at": marker.get("proposed_at"),
+                "updated_at": marker.get("proposed_at"),
             }
         result = {"ok": True, "_kind": "artifact", **entry}
-        marker = getattr(thread, "design_proposed", None) or {}
         if (
             art_key == "app_design_blueprint"
             and marker.get("artifact_key") == art_key
