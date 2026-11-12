@@ -2546,3 +2546,125 @@ def test_scoped_read_recovery_is_not_replaced_by_generic_hint():
     }
     original = {"refused": {"declared_query_required": True}, "recovery": recovery}
     assert _resource_links_for_model(original)["recovery"] == recovery
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("evade_forever", [False, True])
+async def test_plan_repair_cannot_escape_as_final_offer(monkeypatch, evade_forever):
+    """Tool ModelRetry alone permits final prose; output validation closes it."""
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    calls = []
+    state = {"approved_design_ready": True, "capability_search_completed": True}
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return CapabilityResult(
+                ok=False,
+                error_code="plan_differs_from_design",
+                message="The plan adds a Home seed not in the approved design.",
+            )
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    turns = []
+
+    def respond(messages, info):
+        turns.append(messages)
+        if len(turns) == 1 or (len(turns) == 3 and not evade_forever):
+            return ModelResponse(
+                parts=[ToolCallPart("integral_build_approved_design", {})]
+            )
+        if len(calls) == 2:
+            # Stand in for successful readback; its independent tests cover it.
+            state["verification_succeeded"] = True
+            return ModelResponse(parts=[TextPart("Built and checked.")])
+        return ModelResponse(parts=[TextPart("Shall I retry the approved design?")])
+
+    agent = Agent(FunctionModel(respond), tools=tools, retries={"output": 3})
+    agent.output_validator(_scaffold_completion_validator(state))
+    result = await agent.run("Build the approved design.")
+    if evade_forever:
+        assert len(calls) == 1
+        assert len(turns) == 4
+        assert "No changes from this build were saved" in result.output
+    else:
+        assert len(calls) == 2
+        assert len(turns) == 4
+        assert result.output == "Built and checked."
+        assert "build_plan_repair_pending" not in state
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["partial", "unknown", "denied", "exception"])
+async def test_repair_state_does_not_replay_uncertain_or_denied_build(
+    monkeypatch, outcome
+):
+    calls = []
+    state = {"approved_design_ready": True, "capability_search_completed": True}
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return CapabilityResult(
+                ok=False, error_code="plan_differs_from_design", message="Extra seed."
+            )
+        if outcome == "exception":
+            raise RuntimeError("Connection lost after dispatch")
+        return CapabilityResult(ok=False, error_code=outcome, message=outcome)
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    ctx = SimpleNamespace(tool_call_id="first", active_capability_ids=set())
+    with pytest.raises(ModelRetry):
+        await tool.function_schema.call({}, ctx)
+    assert state["build_plan_repair_pending"] == "Extra seed."
+    ctx.tool_call_id = "corrected"
+    if outcome == "exception":
+        with pytest.raises(RuntimeError):
+            await tool.function_schema.call({}, ctx)
+    else:
+        result = await tool.function_schema.call({}, ctx)
+        assert result["error_code"] == outcome
+    assert "build_plan_repair_pending" not in state
+    ctx.tool_call_id = "duplicate"
+    assert (await tool.function_schema.call({}, ctx))["error_code"] == (
+        "build_already_attempted"
+    )
+    assert len(calls) == 2

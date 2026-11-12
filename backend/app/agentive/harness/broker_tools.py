@@ -287,6 +287,10 @@ def _make_handler(
 
         nonlocal build_attempted, build_validation_failures
         call_state["attempted"] += 1
+        if effective_op_class != "read":
+            # A prior pre-effect refusal is not evidence about a new write.
+            # Clear before admission/dispatch, including exceptions or denials.
+            call_state.pop("build_plan_repair_pending", None)
         arguments = normalize_tool_arguments(arguments, input_schema)
         if no_workspace_writes and effective_op_class != "read":
             return {
@@ -710,7 +714,11 @@ def _make_handler(
                 # subsequent actions as if its original proposal were pending.
                 call_state["pending_design"] = False
                 call_state["approved_design_ready"] = False
-            if not result.ok and result.error_code in BUILD_PRE_EFFECT_ERRORS:
+            if (
+                capability_source == "core"
+                and not result.ok
+                and result.error_code in BUILD_PRE_EFFECT_ERRORS
+            ):
                 build_validation_failures += 1
                 if (
                     build_validation_failures >= 3
@@ -741,6 +749,7 @@ def _make_handler(
                 # design again. Applied, partial, authorization and unknown
                 # outcomes stay one-shot.
                 build_attempted = False
+                call_state["build_plan_repair_pending"] = result.message
                 raise ModelRetry(
                     result.message
                     + " Correct the generated operation plan to match the saved, "

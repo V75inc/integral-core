@@ -155,6 +155,26 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
         finalizing = final_response_reserved(ctx) or bool(
             progress and progress.should_finalize
         )
+        repair = run_state.get("build_plan_repair_pending")
+        if isinstance(repair, str):
+            # ModelRetry on a tool only requests correction; Pydantic permits a
+            # final text response instead. Use its public output validator to
+            # enforce Core's still-pending, proven pre-effect repair, bounded
+            # independently of tool retries. Never infer this state from prose.
+            retries = run_state.get("build_plan_repair_output_retries", 0)
+            if finalizing or getattr(ctx, "last_attempt", False) or retries >= 2:
+                return (
+                    "I couldn't build the setup you approved because I couldn't "
+                    "prepare its details correctly. No changes from this build "
+                    "were saved. You can ask me to review the setup and try again."
+                )
+            run_state["build_plan_repair_output_retries"] = retries + 1
+            raise ModelRetry(
+                f"Core rejected the generated plan before any build changes: {repair} "
+                "Call integral_build_approved_design with the corrected plan now. "
+                "Keep the approved design unchanged; do not ask for approval again "
+                "or finish with an offer to retry. Do not add new requirements."
+            )
         if (
             finalizing
             and run_state.get("build_succeeded")

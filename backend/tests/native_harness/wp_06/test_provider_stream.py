@@ -1185,3 +1185,14 @@ def test_unapplied_preview_and_application_error_are_not_compacted(state):
         "last_error": {"code": "revision_conflict"},
     }
     assert _terminal_staging_context(snapshot) is snapshot
+
+
+@pytest.mark.asyncio
+async def test_pending_plan_repair_respects_final_output_budget():
+    from types import SimpleNamespace
+
+    state = {"build_plan_repair_pending": "Extra seed."}
+    validate = _scaffold_completion_validator(state)
+    result = await validate(SimpleNamespace(last_attempt=True), "Built successfully.")
+    assert "No changes from this build were saved" in result
+    assert "build_plan_repair_output_retries" not in state
