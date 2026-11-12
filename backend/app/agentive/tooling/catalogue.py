@@ -247,11 +247,19 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
     ):
         from app.schemas.design_blueprint import DesignBlueprint
 
+        # Design sections belong inside blueprint. Extra envelope keys used
+        # to pass admission and were then silently omitted by the dispatcher.
+        schema["additionalProperties"] = False
         blueprint_schema = DesignBlueprint.model_json_schema()
         # ``#/$defs/...`` refs resolve against the document root.
         schema["$defs"] = blueprint_schema.pop("$defs", {})
         blueprint_schema.pop("title", None)
         properties["blueprint"] = {**blueprint_schema, **properties["blueprint"]}
+        properties["blueprint"]["description"] += (
+            " Put every design section, including tracks, views, open_decisions "
+            "and platform_defaults, INSIDE this blueprint object, never beside it. "
+            "Preserve unresolved questions; do not discard them to pass validation."
+        )
     if required:
         schema["required"] = required
     return schema

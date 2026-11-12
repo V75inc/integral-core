@@ -1209,3 +1209,30 @@ async def test_design_question_overrides_generic_build_failure_and_approval_cta(
         }
     )
     assert await validate(None, "Your setup is ready.") == question
+
+
+@pytest.mark.asyncio
+async def test_missing_proposal_final_response_retry_is_bounded_and_honest():
+    from types import SimpleNamespace
+
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    state = {"proposal_attempted": True, "proposal_succeeded": False}
+    validate = _scaffold_completion_validator(state)
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("I couldn't save that design.")])
+
+    agent = Agent(FunctionModel(respond), retries={"output": 3})
+    agent.output_validator(validate)
+    result = await agent.run("Continue")
+    assert len(calls) == 3
+    assert state["scaffold_proposal_output_retries"] == 2
+    assert "couldn't save the proposed setup" in result.output
+    assert "hasn't been built" in result.output
+    last = _scaffold_completion_validator({"proposal_attempted": True})
+    assert "couldn't save" in await last(SimpleNamespace(last_attempt=True), "Ready!")

@@ -2731,3 +2731,166 @@ async def test_unresolved_design_asks_question_without_plan_retry(
         await _scaffold_completion_validator(state)(None, "I couldn't build it.")
         == question
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("question_succeeds", [True, False])
+async def test_invalid_proposal_then_question_settles_only_successful_queue(
+    monkeypatch, question_succeeds
+):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    # Workflow discovery is covered separately; exercise the actual broker and
+    # output lifecycle without filesystem skill activation in this model stub.
+    monkeypatch.setattr(
+        "app.agentive.harness.broker_tools._REQUIRED_SKILLS_BY_TOOL", {}
+    )
+    calls = []
+    state = {"capability_search_completed": True}
+    question = "Where should an unmatched update go?"
+
+    async def invoke(**kwargs):
+        name = kwargs["capability_key"]
+        calls.append(name)
+        if name == "integral_propose_design":
+            return CapabilityResult(
+                ok=False,
+                error_code="invalid_blueprint",
+                message="tracks: Field required",
+            )
+        if not question_succeeds:
+            return CapabilityResult(
+                ok=False, error_code="forbidden", message="Question not queued"
+            )
+        return CapabilityResult(
+            ok=True,
+            data={
+                "_kind": "user_question",
+                "state": "pending",
+                "queue_open": True,
+                "question_id": "q1",
+                "question": question,
+                "options": [{"label": "Ask me", "description": "Do not guess."}],
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        always_available_tools={"integral_propose_design", "integral_ask_user"},
+        run_state=state,
+        catalogue=[
+            {
+                "name": name,
+                "description": name,
+                "input_schema": {"type": "object", "properties": {}},
+            }
+            for name in ("integral_propose_design", "integral_ask_user")
+        ],
+    )
+    turns = []
+
+    def respond(messages, info):
+        turns.append(messages)
+        if len(turns) == 1:
+            return ModelResponse(parts=[ToolCallPart("integral_propose_design", {})])
+        if len(turns) == 2:
+            return ModelResponse(parts=[ToolCallPart("integral_ask_user", {})])
+        return ModelResponse(parts=[TextPart("I couldn't save the design.")])
+
+    agent = Agent(FunctionModel(respond), tools=tools, retries={"output": 3})
+    agent.output_validator(_scaffold_completion_validator(state))
+    result = await agent.run("Design my projects app")
+    assert calls == ["integral_propose_design", "integral_ask_user"]
+    if question_succeeds:
+        assert result.output == question + "\n\n- Ask me: Do not guess."
+        assert len(turns) == 3
+        assert state["turn_progress"].should_finalize
+        assert "scaffold_proposal_output_retries" not in state
+        # Model noncompliance cannot continue the scaffold after queuing.
+        refused = await tools[0].function_schema.call(
+            {}, SimpleNamespace(tool_call_id="late", active_capability_ids=set())
+        )
+        assert refused["error_code"] == "clarification_pending"
+        assert len(calls) == 2
+    else:
+        assert "scaffold_pending_clarification" not in state
+        assert "couldn't save the proposed setup" in result.output
+        assert len(turns) == 5  # Two bounded output corrections, then honest stop.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", ["plan_differs_from_design", "partial", "unknown", "denied"]
+)
+async def test_post_build_question_never_masks_build_outcome(monkeypatch, outcome):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    monkeypatch.setattr(
+        "app.agentive.harness.broker_tools._REQUIRED_SKILLS_BY_TOOL", {}
+    )
+    state = {
+        "approved_design_ready": True,
+        "proposal_attempted": True,
+        "capability_search_completed": True,
+    }
+
+    async def invoke(**kwargs):
+        if kwargs["capability_key"] == "integral_build_approved_design":
+            return CapabilityResult(ok=False, error_code=outcome, message=outcome)
+        return CapabilityResult(
+            ok=True,
+            data={
+                "_kind": "user_question",
+                "state": "pending",
+                "queue_open": True,
+                "question_id": "q1",
+                "question": "Shall I try something else?",
+                "options": [],
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": name,
+                "description": name,
+                "input_schema": {"type": "object", "properties": {}},
+            }
+            for name in ("integral_build_approved_design", "integral_ask_user")
+        ],
+    )
+    ctx = SimpleNamespace(tool_call_id="build", active_capability_ids=set())
+    if outcome == "plan_differs_from_design":
+        with pytest.raises(ModelRetry):
+            await tools[0].function_schema.call({}, ctx)
+    else:
+        await tools[0].function_schema.call({}, ctx)
+    ctx.tool_call_id = "question"
+    await tools[1].function_schema.call({}, ctx)
+    assert state["scaffold_build_attempted"]
+    assert "scaffold_pending_clarification" not in state
+    if outcome == "plan_differs_from_design":
+        assert state["build_plan_repair_pending"] == outcome
+    else:
+        reply = "The build outcome needs review before any further changes."
+        assert await _scaffold_completion_validator(state)(None, reply) == reply

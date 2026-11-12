@@ -1252,6 +1252,29 @@ async def _dispatch_propose(
         from app.services.chat_threads import record_design_proposed
 
         _args = dict(args or {})
+        unexpected = set(_args) - set(spec.params)
+        if unexpected:
+            from app.schemas.design_blueprint import DesignBlueprint
+
+            misplaced = sorted(unexpected.intersection(DesignBlueprint.model_fields))
+            detail = (
+                " Move these design sections inside `blueprint`, unchanged: "
+                + ", ".join(misplaced)
+                + "."
+                if misplaced
+                else " Use only the declared top-level tool arguments."
+            )
+            return ToolResult(
+                is_error=True,
+                error_code="invalid_arguments",
+                message=(
+                    "Unexpected top-level design arguments. The design is NOT recorded."
+                    + detail
+                    + " Keep all intended design content and unresolved questions; "
+                    "do not drop open_decisions or infer answers. Correct the nesting "
+                    "and call integral_propose_design again."
+                ),
+            )
         if not isinstance(_args.get("blueprint"), dict):
             return ToolResult(
                 is_error=True,

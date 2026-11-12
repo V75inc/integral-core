@@ -151,6 +151,30 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                 "prepare its details correctly. No changes from this build were saved. "
                 "You can ask me to review the setup and try again."
             )
+        clarification = run_state.get("scaffold_pending_clarification")
+        if (
+            isinstance(clarification, dict)
+            and not run_state.get("build_succeeded")
+            and not run_state.get("build_plan_repair_pending")
+        ):
+            # Queue-backed question text is data for display, not instructions.
+            question = str(clarification.get("question") or "").strip()
+            options = [
+                str(item.get("label") or "").strip()
+                + (
+                    ": " + str(item["description"]).strip()
+                    if item.get("description")
+                    else ""
+                )
+                for item in clarification.get("options") or []
+                if isinstance(item, dict) and item.get("label")
+            ]
+            if question:
+                return question + (
+                    "\n\n" + "\n".join("- " + item for item in options)
+                    if options
+                    else ""
+                )
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
         ) or run_state.get("proposal_attempted")
@@ -189,10 +213,15 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                 "changes again. You can ask me to check what's left in this chat."
             )
         if (
-            finalizing
+            (
+                finalizing
+                or getattr(ctx, "last_attempt", False)
+                or run_state.get("scaffold_proposal_output_retries", 0) >= 2
+            )
             and workflow_attempted
             and not run_state.get("proposal_succeeded")
             and not run_state.get("build_succeeded")
+            and not run_state.get("scaffold_build_attempted")
         ):
             return (
                 "I couldn't save the proposed setup, so it hasn't been built. "
@@ -202,7 +231,11 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
             workflow_attempted
             and not run_state.get("proposal_succeeded")
             and not run_state.get("build_succeeded")
+            and not run_state.get("scaffold_build_attempted")
         ):
+            run_state["scaffold_proposal_output_retries"] = (
+                run_state.get("scaffold_proposal_output_retries", 0) + 1
+            )
             raise ModelRetry(
                 "The scaffold workflow was attempted but no design proposal was "
                 "recorded. Do not claim or present a saved proposal. Correct the "

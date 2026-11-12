@@ -286,8 +286,26 @@ def _make_handler(
         """Invoke the declared capability with server-bound identity."""
 
         nonlocal build_attempted, build_validation_failures
+        if capability_name == "integral_build_approved_design":
+            # Clarification completion is exclusively pre-build. Even an
+            # unknown/denied outcome must not be hidden by a later question.
+            call_state["scaffold_build_attempted"] = True
+        if call_state.get("scaffold_pending_clarification") and capability_name in {
+            "integral_propose_design",
+            "integral_check_design_coverage",
+            "integral_build_approved_design",
+        }:
+            # A question queued earlier in the same model response is a real
+            # pause, not permission to guess its answer and continue building.
+            return {
+                "error": True,
+                "error_code": "clarification_pending",
+                "message": "Ask the queued question and wait for the user's answer.",
+                "retryable": False,
+            }
         call_state["attempted"] += 1
-        if effective_op_class != "read":
+        if effective_op_class != "read" and capability_name != "integral_ask_user":
+            # A question only queues clarification, not a new workspace write.
             # A prior pre-effect refusal is not evidence about a new write.
             # Clear before admission/dispatch, including exceptions or denials.
             call_state.pop("build_plan_repair_pending", None)
@@ -800,6 +818,35 @@ def _make_handler(
                 call_state["verified_build_resources"] = (
                     model_result.get("resources") or []
                 )
+        if (
+            capability_source == "core"
+            and capability_name == "integral_ask_user"
+            and result.ok
+            and model_result.get("_kind") == "user_question"
+            and model_result.get("state") == "pending"
+            and model_result.get("queue_open") is True
+            and model_result.get("question_id")
+            and isinstance(model_result.get("question"), str)
+            and model_result["question"].strip()
+            and (
+                call_state.get("proposal_attempted")
+                or call_state.get("scaffold_coverage_attempted")
+            )
+            and not call_state.get("proposal_succeeded")
+            and not call_state.get("scaffold_build_attempted")
+            and not call_state.get("build_succeeded")
+            and not call_state.get("build_plan_repair_pending")
+            and not call_state.get("build_validation_failure")
+        ):
+            # Only the successful Core queue result establishes a clarification
+            # boundary. Reuse the existing public prepare/model-request hooks
+            # for tool-free finalization; never infer a pause from model prose.
+            call_state["scaffold_pending_clarification"] = {
+                key: model_result.get(key) for key in ("question", "options")
+            }
+            call_state["turn_progress"].reason = (
+                "A clarification is queued. Ask it and wait for the user's answer."
+            )
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
             call_state.pop("design_decision_required", None)

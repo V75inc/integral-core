@@ -773,3 +773,82 @@ async def test_unresolved_proposal_reaches_native_final_clarification(monkeypatc
     assert output == result["decision_required"]
     assert question in output
     assert "Confirm" not in output
+
+
+@pytest.mark.asyncio
+async def test_misnested_blueprint_sections_refused_without_losing_open_questions(
+    bind_fresh_graph_context_for_async_tests,
+):
+    import copy
+
+    thread = await _thread("sess-misnested", 1)
+    question = "Should updates change the main project status too?"
+    sections = {
+        "tracks": _BLUEPRINT["tracks"],
+        "views": [],
+        "platform_defaults": [],
+        "open_decisions": [{"id": "q.filing", "question": question}],
+    }
+    arguments = {
+        "summary": "Contacts app",
+        "proposal": _PROPOSAL,
+        "blueprint": {"schema_version": 1, "app": _BLUEPRINT["app"]},
+        **copy.deepcopy(sections),
+    }
+    original = copy.deepcopy(arguments)
+    result = await dispatch_tool(
+        "integral_propose_design",
+        arguments,
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-misnested",
+    )
+    assert result.error_code == "invalid_arguments"
+    assert "inside `blueprint`" in result.message
+    assert "open_decisions" in result.message
+    assert "NOT recorded" in result.message
+    assert question not in result.message
+    assert arguments == original
+    saved = await ChatThread.get(thread.id)
+    assert not saved.design_proposed and not saved.artifacts
+
+    corrected = {key: value for key, value in original.items() if key not in sections}
+    corrected["blueprint"] = {**original["blueprint"], **sections}
+    result = await dispatch_tool(
+        "integral_propose_design",
+        corrected,
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-misnested",
+    )
+    assert not result.is_error, result
+    saved = await ChatThread.get(thread.id)
+    assert (
+        saved.design_proposed["blueprint"]["open_decisions"]
+        == sections["open_decisions"]
+    )
+    assert not saved.design_proposed["approved"]
+    assert question in result.data["decision_required"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_proposal_envelope_key_is_not_echoed_or_ignored(
+    bind_fresh_graph_context_for_async_tests,
+):
+    thread = await _thread("sess-unknown-envelope", 1)
+    result = await dispatch_tool(
+        "integral_propose_design",
+        {
+            "summary": "Contacts",
+            "proposal": _PROPOSAL,
+            "blueprint": _BLUEPRINT,
+            "private-sentinel": "secret-value",
+        },
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-unknown-envelope",
+    )
+    assert result.error_code == "invalid_arguments"
+    assert "private-sentinel" not in result.message
+    assert "secret-value" not in result.message
+    assert not (await ChatThread.get(thread.id)).design_proposed
