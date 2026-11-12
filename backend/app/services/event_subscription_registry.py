@@ -146,7 +146,7 @@ def reset_consumer_hooks() -> None:
 async def register_subscription(user_id: str, websocket: WebSocket) -> None:
     """Register a new subscriber connection for the given user."""
     _subscriptions.setdefault(user_id, []).append(websocket)
-    queue = asyncio.Queue(maxsize=100)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _queues[id(websocket)] = queue
     logger.info(
         "event subscription registered: user=%s active=%d",
