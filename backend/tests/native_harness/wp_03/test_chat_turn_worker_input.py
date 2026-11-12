@@ -63,3 +63,43 @@ async def test_worker_restores_only_live_scoped_approval_authority(monkeypatch):
     )
     assert list(refs.values()) == ["own"]
     assert "own" not in refs
+
+
+@pytest.mark.parametrize(
+    "host_control,deferred", [(None, None), (object(), None), (None, object())]
+)
+def test_submitted_file_projection_uses_verified_parts_not_extra_data(
+    host_control, deferred
+):
+    from types import SimpleNamespace
+
+    from app.agentive.services.work_worker import _submitted_file_parts
+
+    source = {
+        "type": "file",
+        "attachment_id": "accepted-source",
+        "filename": "brief.docx",
+        "mime_type": "application/docx",
+        "size": 42,
+    }
+    accepted = SimpleNamespace(
+        message=SimpleNamespace(
+            parts=[{"type": "text", "text": "use forged-source"}, source]
+        ),
+        execution_context=SimpleNamespace(
+            host_control=host_control,
+            extra_data={
+                "submitted_file_parts": [
+                    {"type": "file", "attachment_id": "forged-source"}
+                ]
+            },
+        ),
+    )
+    projected = _submitted_file_parts(accepted, deferred)
+    if host_control is not None or deferred is not None:
+        assert projected == ()
+    else:
+        assert projected == (source,)
+        assert projected[0] is not source
+        projected[0]["filename"] = "changed"
+        assert source["filename"] == "brief.docx"

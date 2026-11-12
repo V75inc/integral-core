@@ -153,3 +153,138 @@ async def assert_chat_attachment_read_inputs(*, item: Any) -> None:
     # approved effects may consume those source approvals. This read boundary
     # rechecks file revision and current scope, not the pre-effect host state.
     await load_claimed_chat_turn_input(item, recheck_host_control=False)
+
+
+async def retained_chat_attachment_references(
+    *,
+    thread: ChatThread,
+    principal_id: str,
+    workspace_id: str,
+    exclude_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Bounded discovery of this conversation's still-chat-owned uploads.
+
+    These are historical locators, not current-turn input bindings or read/write
+    authority. Reads and filing reauthorize the source at their own boundaries.
+    Never widen workspace attachment listing to include private conversations.
+    """
+    from app.services.attachment_urls import is_visible_to_user
+    from app.services.workspace_permissions import can_access_workspace
+
+    current = await ChatThread.find_one({"id": thread.id})
+    if (
+        current is None
+        or current.archived
+        or current.user_id != principal_id
+        or current.workspace_id != workspace_id
+        or await can_access_workspace(principal_id, workspace_id) == "none"
+    ):
+        return {"files": [], "truncated": False}
+    thread = current
+    limit = 20
+    candidates = await thread.nodes(
+        edge=[HAS_ATTACHMENT], node=["Attachment"], direction="out", limit=limit + 1
+    )
+    files = []
+    for candidate in candidates[:limit]:
+        if candidate.id in (exclude_ids or set()):
+            continue
+        # Refresh mutable scan/ownership state; a historical message part alone
+        # is not evidence that a file remains available in this conversation.
+        attachment = await Attachment.find_one({"id": candidate.id})
+        if (
+            attachment is None
+            or attachment.owner_kind != "chat"
+            or attachment.uploaded_by != principal_id
+            or attachment.source_type != "file"
+            or attachment.scan_status not in {"clean", "skipped"}
+            or not attachment.storage_key
+            or not is_visible_to_user(attachment)
+        ):
+            continue
+        owners = await attachment.nodes(
+            edge=[HAS_ATTACHMENT], node=["ChatThread"], direction="in", limit=2
+        )
+        if len(owners) != 1 or owners[0].id != thread.id:
+            continue
+        files.append(
+            {
+                "attachment_id": attachment.id,
+                "filename": attachment.filename[:512],
+                "mime_type": attachment.mime_type[:128],
+                "size": attachment.size,
+            }
+        )
+    return {"files": files, "truncated": len(candidates) > limit}
+
+
+async def current_chat_attachment_content(
+    *,
+    thread: ChatThread,
+    principal_id: str,
+    workspace_id: str,
+    parts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Read bounded text for verified current uploads, never historical files.
+
+    The caller supplies accepted canonical message parts, not model arguments.
+    Source association is not filing authority; the normal target policy and
+    reviewed create+attach batch still govern every write.
+    """
+    from app.services.attachment_agent import get_attachment_text
+    from app.services.workspace_permissions import can_access_workspace
+
+    file_parts = [p for p in parts if p.get("type") == "file"]
+    if not file_parts:
+        return {"files": [], "truncated": False}
+    current = await ChatThread.find_one({"id": thread.id})
+    if (
+        current is None
+        or current.archived
+        or current.user_id != principal_id
+        or current.workspace_id != workspace_id
+        or await can_access_workspace(principal_id, workspace_id) == "none"
+    ):
+        raise WorkError("work.policy_denied", "chat attachment is unavailable")
+    # Revalidate canonical metadata, immutable content hash, scan and ownership;
+    # never trust a filename/ID pasted into conversational text as an upload.
+    await capture_chat_attachment_bindings(
+        thread=current,
+        principal_id=principal_id,
+        parts=file_parts,
+    )
+    files = []
+    remaining = 24000
+    text_parts = [p for p in file_parts if not p["mime_type"].startswith("image/")]
+    for part in text_parts[:4]:
+        if remaining <= 0:
+            break
+        attachment = await Attachment.find_one({"id": part["attachment_id"]})
+        if attachment is None:
+            raise WorkError("work.policy_denied", "chat attachment is unavailable")
+        owners = await attachment.nodes(
+            edge=[HAS_ATTACHMENT], node=["ChatThread"], direction="in", limit=2
+        )
+        if (
+            attachment.owner_kind != "chat"
+            or len(owners) != 1
+            or owners[0].id != current.id
+        ):
+            raise WorkError("work.policy_denied", "chat attachment is unavailable")
+        read = await get_attachment_text(
+            principal_id, attachment.id, max_chars=min(12000, remaining)
+        )
+        body = str(read.get("text") or "")[: min(12000, remaining)]
+        remaining -= len(body)
+        files.append(
+            {
+                "attachment_id": attachment.id,
+                "filename": attachment.filename[:512],
+                "mime_type": attachment.mime_type[:128],
+                "text": body,
+                "metadata_status": read.get("metadata_status"),
+                "truncated": bool(read.get("truncated")),
+                "content_untrusted": True,
+            }
+        )
+    return {"files": files, "truncated": len(files) < len(text_parts)}
