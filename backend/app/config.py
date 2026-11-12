@@ -612,3 +612,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def embedding_model_warmup_enabled() -> bool:
+    """Optional encoder warmup is a server policy, never a desktop startup task."""
+    return (
+        settings.INTEGRAL_DEPLOYMENT_PROFILE != "desktop_single_user"
+        and os.environ.get("EMBEDDING_MODEL_EAGER_LOAD", "1") == "1"
+    )

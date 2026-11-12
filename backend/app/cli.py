@@ -71,7 +71,7 @@ def _package_version() -> str:
     try:
         return version("integral-core")
     except PackageNotFoundError:
-        return "0.1.1rc60"
+        return "0.1.1rc61"
 
 
 def _readme(slug: str | None, name: str, core_version: str) -> str:
@@ -435,12 +435,21 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("--port must be between 0 and 65535")
                 if args.apps and not args.apps.is_dir():
                     raise ValueError("--apps must be an existing directory")
+
+                def setup_progress(stage: str) -> None:
+                    print(f"integral-setup: {stage}", file=sys.stderr, flush=True)
+
                 result = runtime.start(
                     home,
                     profile=args.profile,
                     port=args.port,
                     open_browser=not args.no_open,
                     apps=args.apps,
+                    on_progress=(
+                        setup_progress
+                        if os.environ.get("INTEGRAL_SETUP_PROGRESS") == "1"
+                        else None
+                    ),
                 )
             elif args.cmd == "status":
                 result = runtime.status(home)
