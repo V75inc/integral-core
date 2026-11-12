@@ -1,8 +1,10 @@
-import { type ReactNode, type RefObject } from 'react';
+import { type ReactNode, type RefObject, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { TrackFilterStrip } from '../TrackFilterStrip';
 import type { FieldFilter } from '../fieldFilters';
 import { ListPager } from '../../ui/ListPager';
+import { FilterChips } from '../../views/FilterChips';
+import { trackFilterSpecs } from '../../views/columnFilterModel';
 import { EntryComposer } from '../../entries/EntryComposer';
 import { FilterActionRow, LINE_ICON_STROKE, filterBar } from '../../ui';
 import { ViewRenderer } from '../../../views';
@@ -140,6 +142,7 @@ export function TrackDetailMainColumn({
   recordReadBoundaryNotice,
   trackEntriesSentinelRef,
 }: TrackDetailMainColumnProps) {
+  const filterSpecs = useMemo(() => trackFilterSpecs(trackEntryTypeFields, track?.id), [trackEntryTypeFields, track?.id]);
   return (
     <section
       className={`min-w-0 ${
@@ -164,8 +167,9 @@ export function TrackDetailMainColumn({
                 filterType={filterType}
                 setFilterType={setFilterType}
                 entryTypeSlugs={entryTypeSlugs}
-                fieldFilterCount={fieldFilters.length}
-                onClearFieldFilters={() => setFieldFilters([])}
+                filterSpecs={filterSpecs}
+                fieldFilters={fieldFilters}
+                onFieldFiltersChange={setFieldFilters}
                 tagEntries={tagFilterEntries}
                 selectedTags={filterTags}
                 onTagsChange={setFilterTags}
@@ -229,6 +233,11 @@ export function TrackDetailMainColumn({
         </div>
       ) : null}
 
+      {!isPagesView && fieldFilters.length > 0 ? (
+        <div className="mb-3 overflow-hidden rounded-[var(--radius-card)] border border-[var(--entry-table-border)] bg-[var(--panel)]">
+          <FilterChips specs={filterSpecs} filters={fieldFilters} onChange={setFieldFilters} total={entriesTotal} />
+        </div>
+      ) : null}
       {recordReadBoundaryNotice}
       {recordReadBoundaryNotice && filteredEntries.length === 0 ? null : activeView ? (
         <>

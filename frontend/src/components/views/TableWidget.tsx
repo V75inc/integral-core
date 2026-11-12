@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { ChevronDown, Columns, Filter, Plus } from 'lucide-react';
+import { ChevronDown, Columns, Filter } from 'lucide-react';
 import { AnchoredPopover } from '../ui/AnchoredPopover';
 import { ColumnFilterMenu } from './ColumnFilterMenu';
-import { FilterChips } from './FilterChips';
 import { columnFilterSpec, columnPath, onField, type ColumnFilterSpec } from './columnFilterModel';
 import { Avatar, AvatarStackedMeta, MarkdownContent } from '../ui';
 import { MemberValue } from '../entries/members';
@@ -223,7 +222,8 @@ function TableWidgetInner({
   onColumnFiltersChange,
   totalCount,
   sort,
-  onSortChange
+  onSortChange,
+  track
 }: ViewWidgetProps) {
   const config = (view.config || {}) as Record<string, unknown>;
   const rawColumns = config.columns as TableColumn[] | undefined;
@@ -413,16 +413,15 @@ function TableWidgetInner({
   const filters = columnFilters ?? [];
   const filterSpecs = useMemo<ColumnFilterSpec[]>(
     () => onColumnFiltersChange
-      ? columns.map(c => columnFilterSpec(c, fields ?? [])).filter((x): x is ColumnFilterSpec => x !== null)
+      ? columns.map(c => columnFilterSpec(c, fields ?? [], track?.id)).filter((x): x is ColumnFilterSpec => x !== null)
       : [],
-    [columns, fields, onColumnFiltersChange],
+    [columns, fields, onColumnFiltersChange, track?.id],
   );
   const specByColumn = useMemo(
-    () => new Map(columns.map(c => [c.field, onColumnFiltersChange ? columnFilterSpec(c, fields ?? []) : null])),
-    [columns, fields, onColumnFiltersChange],
+    () => new Map(columns.map(c => [c.field, onColumnFiltersChange ? columnFilterSpec(c, fields ?? [], track?.id) : null])),
+    [columns, fields, onColumnFiltersChange, track?.id],
   );
   const [menu, setMenu] = useState<{ spec: ColumnFilterSpec; anchor: HTMLElement } | null>(null);
-  const [adding, setAdding] = useState<HTMLElement | null>(null);
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--entry-table-border)] bg-[var(--panel)] shadow-[var(--shadow-card)]">
@@ -444,41 +443,7 @@ function TableWidgetInner({
             ))}
           </div>
         </div>
-        {onColumnFiltersChange && filterSpecs.length > 0 ? (
-          <button
-            type="button"
-            onClick={e => setAdding(adding ? null : e.currentTarget)}
-            aria-haspopup="dialog"
-            className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-input)] border border-[var(--entry-table-border)] bg-[var(--panel)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--text-subtle)]"
-          >
-            <Plus size={12} aria-hidden /> Add filter
-          </button>
-        ) : null}
       </div>
-      {onColumnFiltersChange ? (
-        <FilterChips
-          specs={filterSpecs}
-          filters={filters}
-          onChange={onColumnFiltersChange}
-          total={totalCount}
-          onEdit={(fieldPath, anchor) => { const spec = filterSpecs.find(f => f.field === fieldPath); if (spec) setMenu({ spec, anchor }); }}
-        />
-      ) : null}
-      {adding ? (
-        <AnchoredPopover anchor={adding} onClose={() => setAdding(null)} width={240} label="Choose a column to filter">
-          <p className="mb-1.5 text-xs text-[var(--text-muted)]">Filter by</p>
-          <ul className="max-h-64 space-y-0.5 overflow-auto">
-            {filterSpecs.map(spec => (
-              <li key={spec.field}>
-                <button type="button" className="w-full rounded-[var(--radius-input)] px-2 py-1.5 text-left text-sm text-[var(--text)] hover:bg-[var(--panel-2)]"
-                  onClick={() => { const anchor = adding; setAdding(null); setMenu({ spec, anchor }); }}>
-                  {spec.label}{onField(filters, spec.field).length ? ' •' : ''}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </AnchoredPopover>
-      ) : null}
       {columnsMenu ? (
         <AnchoredPopover anchor={columnsMenu} onClose={() => setColumnsMenu(null)} width={260} label="Choose columns">
           <p className="mb-1.5 text-xs text-[var(--text-muted)]">Show columns</p>

@@ -1932,6 +1932,8 @@ export function EntryFormExpandedView({
   fieldValues,
   initialEntry,
 }: EntryFormExpandedViewProps) {
+  // A type choice only when there is a choice: with one type the dialog's own title already says what it makes.
+  const showTypePicker = typeOptions.length > 1 && !typeLocked;
   // The server's answer to "would this save?", from the same rules a real save runs.
   const writeCheck = useEntryWriteCheck({
     // An App-owned form (e.g. a pay record editor) shapes its values when Save is pressed: no live check there.
@@ -1976,6 +1978,7 @@ export function EntryFormExpandedView({
             </span>
           </summary>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--text-muted)]">
+            {showTypePicker && (
             <label className="inline-flex items-center gap-1.5 min-w-0">
               <span className="text-[var(--text-subtle)] shrink-0">Type</span>
               <AppSelect
@@ -1994,6 +1997,7 @@ export function EntryFormExpandedView({
                 aria-label="Entry type"
               />
             </label>
+            )}
             {needsTrackPicker && tracksList.length > 0 && (
               <label className="inline-flex items-center gap-1.5 min-w-0 max-w-full">
                 <span className="text-[var(--text-subtle)] shrink-0">Track</span>
@@ -2021,6 +2025,7 @@ export function EntryFormExpandedView({
         </details>
       ) : (
       <div className="flex flex-wrap items-center gap-2 pb-3">
+        {showTypePicker && (
         <AppSelect
           variant="pill"
           value={type}
@@ -2036,6 +2041,7 @@ export function EntryFormExpandedView({
           className="font-semibold shrink-0"
           aria-label="Entry type"
         />
+        )}
         {needsTrackPicker && tracksList.length > 0 && (
           <AppSelect
             variant="pill"
@@ -2078,7 +2084,7 @@ export function EntryFormExpandedView({
                 className={
                   isWiki
                     ? 'w-full px-0 text-2xl font-semibold tracking-tight text-[var(--text)] placeholder:text-[var(--text-subtle)] border-none outline-none bg-transparent'
-                    : 'w-full px-3 text-base font-semibold text-[var(--text)] placeholder:text-[var(--text-muted)] border-none outline-none bg-transparent'
+                    : 'w-full px-3 py-2 text-base font-semibold text-[var(--text)] placeholder:text-[var(--text-muted)] rounded-[var(--radius-input)] border border-[var(--field-border)] bg-[var(--field-bg)] outline-none transition hover:border-[var(--field-border-hover)] focus:border-[var(--text-muted)] focus:ring-2 focus:ring-[var(--focus-ring-color)]'
                 }
               />
               </FieldProblem>
@@ -2126,7 +2132,7 @@ export function EntryFormExpandedView({
                   onChange={v => { setBody(v); clearProblem(BODY_PROBLEM_KEY); clearProblem(TITLE_PROBLEM_KEY); }}
                   rows={1}
                   aria-label={bodySlotLabel}
-                  className="w-full px-3 py-0.5 text-sm font-normal leading-normal text-[var(--text)] placeholder:text-[var(--text-muted)] border-none outline-none bg-transparent resize-none overflow-hidden"
+                  className="min-h-[4.5rem] w-full px-3 py-2 text-sm font-normal leading-normal text-[var(--text)] placeholder:text-[var(--text-muted)] rounded-[var(--radius-input)] border border-[var(--field-border)] bg-[var(--field-bg)] outline-none transition hover:border-[var(--field-border-hover)] focus:border-[var(--text-muted)] focus:ring-2 focus:ring-[var(--focus-ring-color)] resize-none overflow-hidden"
                   trackId={selectedTrackId || undefined}
                 />
               )}

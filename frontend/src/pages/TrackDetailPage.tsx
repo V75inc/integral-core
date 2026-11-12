@@ -1,5 +1,5 @@
 import { useDeployment } from '../hooks/useDeployment';
-import { MAX_FIELD_FILTERS, type FieldFilter } from '../components/tracks/fieldFilters';
+import { MAX_FIELD_FILTERS, toRequestFilters, type FieldFilter } from '../components/tracks/fieldFilters';
 import { PAGE_SIZES } from '../components/ui/ListPager';
 import type { EntryCreateInput } from '../views/types';
 import { entriesMatchingTags } from '../components/tracks/TrackTagFilters';
@@ -556,10 +556,12 @@ export function TrackDetailPage() {
   // Dashboard drill-down filters and the user's field filters go to the server together. The view is sent too, so
   // its entry types and its own filters keep applying.
   const requestFilters = useMemo(
-    () => [...(dashboardFilters ?? []), ...fieldFilters].slice(0, MAX_FIELD_FILTERS),
+    () => [...(dashboardFilters ?? []), ...toRequestFilters(fieldFilters)].slice(0, MAX_FIELD_FILTERS),
     [dashboardFilters, fieldFilters],
   );
   const pagedMode = activeView?.type === 'table';
+  // What the list holds, remembered while paging so each page does not count it again.
+  const [totalMemo, setTotalMemo] = useState<{ key: string; total: number } | null>(null);
   const sortParam = sort ? `${sort.dir === 'desc' ? '-' : ''}${sort.path || sort.field}` : '';
   const entryFilters = {
     ...(requestFilters.length ? { dashboard_filters: JSON.stringify(requestFilters) } : {}),
@@ -571,6 +573,8 @@ export function TrackDetailPage() {
     : activeView?.id;
   // A page, its size and the order are part of the key: each page is its own cached read.
   const entryFilterKey = pagedMode ? `${baseFilterKey ?? ''}|${sortParam}|p${page}x${pageSize}` : baseFilterKey;
+  const totalKey = `${id}|${baseFilterKey ?? ''}`;
+  const knownTotal = totalMemo?.key === totalKey ? totalMemo.total : undefined;
   // Back to the first page whenever what the list shows changes.
   const listShapeKey = `${id}|${baseFilterKey ?? ''}|${sortParam}|${pageSize}`;
   const [seenShape, setSeenShape] = useState(listShapeKey);
@@ -603,8 +607,9 @@ export function TrackDetailPage() {
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
       if (pagedMode) {
+        // The total is counted on the first page and whenever the filters change; moving between pages reuses it.
         return tracksApi.getEntriesPage(id, {
-          ...entryFilters, include_total: true, limit: pageSize, offset: (page - 1) * pageSize,
+          ...entryFilters, include_total: page === 1 || knownTotal === undefined, limit: pageSize, offset: (page - 1) * pageSize,
         });
       }
       return tracksApi.getEntriesPage(id, {
@@ -620,6 +625,11 @@ export function TrackDetailPage() {
   });
 
   const firstEntryPage = entriesData?.pages[0];
+  const countedTotal = pagedMode ? firstEntryPage?.total : undefined;
+  useEffect(() => {
+    if (countedTotal !== undefined && (totalMemo?.key !== totalKey || totalMemo.total !== countedTotal)) setTotalMemo({ key: totalKey, total: countedTotal });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countedTotal, totalKey]);
   const { data: exactEntriesTotal } = useQuery({
     queryKey: ['track', id, 'entries-total', entryFilterKey],
     enabled: Boolean(id && !pagedMode && firstEntryPage?.hasMore && firstEntryPage.nextCursor
@@ -837,7 +847,7 @@ export function TrackDetailPage() {
   ]);
 
   const entriesTotal =
-    exactEntriesTotal ?? firstEntryPage?.total ??
+    (pagedMode ? firstEntryPage?.total ?? knownTotal : undefined) ?? exactEntriesTotal ?? firstEntryPage?.total ??
     (firstEntryPage && !firstEntryPage.hasMore ? firstEntryPage.entries.length : undefined);
   const loadedEntries = entriesData?.pages.reduce((sum, page) => sum + page.entries.length, 0);
 

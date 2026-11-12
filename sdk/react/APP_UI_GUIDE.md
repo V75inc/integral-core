@@ -46,6 +46,9 @@ must improve in Core rather than being copied independently into each App.
 | `Progress` | A bar for work under way: `value` (percent, 0 to 100) with `ariaLabel`; leave `value` out when the amount is not known and the bar slides. It fills smoothly and respects reduced motion. |
 | `LineChart` | One or more series over a short row of labelled points, oldest first: `labels`, `series` (`key`, `label`, `values`), `ariaLabel`; optional `tooltips`, `formatValue`. Coloured from Core's chart palette. |
 | `BridgeChart` | The reasons a figure moved, one bar each around a zero line: `steps` (`key`, `label`, signed `value`), `ariaLabel`; optional `formatValue`, `upLabel`, `downLabel`. |
+| `FilePreview` | A PDF, image or other file shown in the page with Download and Open in a new tab: `title`, `data` (base64) or `url`, `mime`, `filename`, optional `height`, `emptyTitle`, `emptyMessage`. Shows a plain empty state when there is no file. Made in the browser; nothing is stored. |
+| `RecordView` | A whole record page from data: `record` with `title`, `subtitle`, `eyebrow`, `badges`, `figures` (headline tiles), `panels` (labelled facts), `file` (shown with `FilePreview`), `links` (buttons that open related records). Any App fills it, so a payslip, an invoice and a contract share one page. |
+| `QueryRecordView` | `RecordView` filled by an App query: `<QueryRecordView query="my_query" />` asks it about this Entry and shows `{ok: false, reason}` as an error. The query returns the `record` shape. |
 | `Tabs` | A short strip that switches the section below it: `options` (`value`, `label`, `count`), `value`, `onChange`, `ariaLabel`. |
 | `Badge` | A short coloured state label: `tone="neutral|success|warn|danger|info"` and the text. Meaning must also be in the text, not colour alone. |
 

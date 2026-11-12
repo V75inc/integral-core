@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from '../ui/Button';
+import { FacetList } from './FacetList';
 import { filterValue, withFilter, type FieldFilter } from '../tracks/fieldFilters';
 import { DATE_PRESETS, endOfDay, onField, optionLabel, withoutField, type ColumnFilterSpec } from './columnFilterModel';
 
@@ -19,6 +20,8 @@ export function ColumnFilterMenu({
 }: { spec: ColumnFilterSpec; filters: FieldFilter[]; onChange(next: FieldFilter[]): void; onClose(): void }) {
   const mine = onField(filters, spec.field);
   const rest = withoutField(filters, spec.field);
+  const pickedBefore = (filterValue(filters, spec.field, 'in') as unknown[] | undefined)?.map(String) ?? [];
+  const [mode, setMode] = useState<'pick' | 'type'>(spec.kind === 'text' && pickedBefore.length === 0 && filterValue(filters, spec.field, 'contains') !== undefined ? 'type' : 'pick');
   const [exact, setExact] = useState(filterValue(filters, spec.field, 'eq') !== undefined && spec.kind === 'text');
   const [text, setText] = useState(str(filterValue(filters, spec.field, exact ? 'eq' : 'contains')));
   const [min, setMin] = useState(str(filterValue(filters, spec.field, 'gte')));
@@ -28,10 +31,13 @@ export function ColumnFilterMenu({
   const chosen = ((filterValue(filters, spec.field, 'in') as unknown[]) ?? []).map(String);
 
   const set = (next: FieldFilter[]) => onChange(next);
+  const pick = (values: string[], labels: Record<string, string>) =>
+    set(values.length ? [...rest, { field: spec.field, op: 'in', value: values, labels }] : rest);
   const apply = () => {
     let next = rest;
     const add = (op: string, value: unknown) => { next = withFilter(next, spec.field, op, value); };
     if (spec.kind === 'text') add(exact ? 'eq' : 'contains', text.trim());
+    if (spec.kind === 'text') next = next.filter(f => !(f.field === spec.field && f.op === 'in'));
     if (spec.kind === 'number') {
       add('gte', min.trim() === '' || !Number.isFinite(Number(min)) ? undefined : Number(min));
       add('lte', max.trim() === '' || !Number.isFinite(Number(max)) ? undefined : Number(max));
@@ -49,14 +55,31 @@ export function ColumnFilterMenu({
 
       {spec.kind === 'text' && (
         <div className="space-y-2">
-          <div className="flex gap-1.5" role="group" aria-label="Match">
-            {[[false, 'Contains'], [true, 'Is exactly']].map(([isExact, name]) => (
-              <button key={String(name)} type="button" aria-pressed={exact === isExact} onClick={() => setExact(Boolean(isExact))}
-                className={`rounded-full border px-3 py-1 text-xs ${exact === isExact ? 'border-[var(--panel-border)] bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--panel-2)]'}`}>{String(name)}</button>
+          <div className="flex gap-1.5" role="group" aria-label="How to filter">
+            {([['pick', 'Pick values'], ['type', 'Type to match']] as const).map(([m, name]) => (
+              <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
+                className={`rounded-full border px-3 py-1 text-xs ${mode === m ? 'border-[var(--panel-border)] bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--panel-2)]'}`}>{name}</button>
             ))}
           </div>
-          <input autoFocus className={field} aria-label={`${spec.label} value`} placeholder="Type to filter…" value={text} onChange={e => setText(e.target.value)} />
+          {mode === 'pick' ? (
+            <FacetList spec={spec} otherFilters={rest} selected={pickedBefore} labelsOf={{}} onChange={pick} />
+          ) : (
+            <div className="space-y-2">
+              <div className="flex gap-1.5" role="group" aria-label="Match">
+                {[[false, 'Contains'], [true, 'Is exactly']].map(([isExact, name]) => (
+                  <button key={String(name)} type="button" aria-pressed={exact === isExact} onClick={() => setExact(Boolean(isExact))}
+                    className={`rounded-full border px-3 py-1 text-xs ${exact === isExact ? 'border-[var(--panel-border)] bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--panel-2)]'}`}>{String(name)}</button>
+                ))}
+              </div>
+              <input autoFocus className={field} aria-label={`${spec.label} value`} placeholder="Type to filter…" value={text} onChange={e => setText(e.target.value)} />
+            </div>
+          )}
         </div>
+      )}
+
+      {spec.kind === 'relation' && (
+        <FacetList spec={spec} otherFilters={rest} selected={pickedBefore}
+          labelsOf={(filters.find(f => f.field === spec.field && f.op === 'in')?.labels) ?? {}} onChange={pick} />
       )}
 
       {spec.kind === 'number' && (
@@ -109,7 +132,7 @@ export function ColumnFilterMenu({
 
       <div className="flex items-center justify-between gap-2 pt-1">
         <Button variant="ghost" size="sm" onClick={clear} disabled={!mine.length}>Clear</Button>
-        {['text', 'number', 'date', 'datetime'].includes(spec.kind) ? <Button variant="primary" size="sm" onClick={apply}>Apply</Button> : <Button variant="outline" size="sm" onClick={onClose}>Done</Button>}
+        {(spec.kind === 'text' && mode === 'type') || ['number', 'date', 'datetime'].includes(spec.kind) ? <Button variant="primary" size="sm" onClick={apply}>Apply</Button> : <Button variant="outline" size="sm" onClick={onClose}>Done</Button>}
       </div>
     </div>
   );

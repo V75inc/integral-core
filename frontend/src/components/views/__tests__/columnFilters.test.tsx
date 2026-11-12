@@ -1,9 +1,27 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
 import { expect, it, vi } from 'vitest';
 import { ColumnFilterMenu } from '../ColumnFilterMenu';
 import { FilterChips } from '../FilterChips';
 import { DATE_PRESETS, columnFilterSpec, columnPath, describeColumnFilter, type ColumnFilterSpec } from '../columnFilterModel';
 import type { OperationalModelFieldSpec } from '../../../types';
+
+vi.mock('../../../api', () => ({
+  tracksApi: {
+    getFacets: vi.fn(async (_track: string, field: string) => ({
+      values: field.endsWith('job_title')
+        ? [{ value: 'Clerk', count: 12 }, { value: 'Driver', count: 5 }]
+        : [{ value: 'n.Entry.dept1', count: 7 }, { value: 'n.Entry.dept2', count: 3 }],
+      truncated: false,
+      distinct: 2,
+    })),
+  },
+}));
+vi.mock('../../entries/relations/relationTargetLoader', () => ({
+  loadRelationTarget: vi.fn(async (_kind: string, id: string) => ({ id, title: id.endsWith('1') ? 'Design' : 'Sales' })),
+}));
+const withClient = (ui: ReactElement) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>;
 
 const fields = [
   { key: 'gross', name: 'Gross', type: 'number' },
@@ -11,13 +29,15 @@ const fields = [
   { key: 'status', name: 'Status', type: 'select', enum: ['draft', 'paid'], enum_labels: { paid: 'Settled' } },
   { key: 'pay_date', name: 'Pay date', type: 'date' },
   { key: 'employee', name: 'Employee', type: 'relation' },
+  { key: 'job_title', name: 'Job title', type: 'text' },
+  { key: 'department', name: 'Department', type: 'relation' },
 ] as OperationalModelFieldSpec[];
-const spec = (key: string, label: string): ColumnFilterSpec => columnFilterSpec({ field: `custom_fields.${key}`, label }, fields)!;
+const spec = (key: string, label: string): ColumnFilterSpec => columnFilterSpec({ field: `custom_fields.${key}`, label }, fields, 'n.Track.t1')!;
 
-it('works out what each column can be filtered by, and nothing for links to other records', () => {
+it('works out what each column can be filtered by, including links to other records', () => {
   expect(columnPath('gross', fields)).toBe('custom_fields.gross');
   expect(columnFilterSpec({ field: 'title', label: 'Payslip' }, fields)).toMatchObject({ field: 'title', kind: 'text' });
-  expect(columnFilterSpec({ field: 'custom_fields.employee', label: 'Employee' }, fields)).toBeNull();
+  expect(columnFilterSpec({ field: 'custom_fields.employee', label: 'Employee' }, fields)).toMatchObject({ kind: 'relation' });
   expect(spec('status', 'Status')).toMatchObject({ kind: 'select', options: ['draft', 'paid'] });
 });
 
@@ -63,15 +83,41 @@ it('ticks choices, shows their labels, and clears a column', () => {
   expect(onChange).toHaveBeenLastCalledWith([]);
 });
 
-it('applies a text filter with Enter, exact or contains', () => {
+it('picks text values from the list of what exists, with counts, instead of typing', async () => {
+  const onChange = vi.fn(); const job = spec('job_title', 'Job title');
+  render(withClient(<ColumnFilterMenu spec={job} filters={[]} onChange={onChange} onClose={vi.fn()} />));
+  expect(await screen.findByText('Clerk')).toBeTruthy();
+  expect(screen.getByText('12')).toBeTruthy();
+  fireEvent.click(screen.getByLabelText(/Clerk/));
+  expect(onChange).toHaveBeenLastCalledWith([{ field: job.field, op: 'in', value: ['Clerk'], labels: { Clerk: 'Clerk' } }]);
+  fireEvent.change(screen.getByLabelText('Search Job title'), { target: { value: 'dri' } });
+  await waitFor(() => expect(screen.queryByText('Clerk')).toBeNull());
+  expect(screen.getByText('Driver')).toBeTruthy();
+});
+
+it('picks linked records by their names', async () => {
+  const onChange = vi.fn(); const dept = spec('department', 'Department');
+  render(withClient(<ColumnFilterMenu spec={dept} filters={[]} onChange={onChange} onClose={vi.fn()} />));
+  expect(await screen.findByText('Design')).toBeTruthy();
+  fireEvent.click(screen.getByLabelText(/Design/));
+  expect(onChange).toHaveBeenLastCalledWith([{ field: dept.field, op: 'in', value: ['n.Entry.dept1'], labels: { 'n.Entry.dept1': 'Design' } }]);
+});
+
+it('still lets text be typed: contains or exactly, with Enter', () => {
   const onChange = vi.fn(); const period = spec('period', 'Period');
-  render(<ColumnFilterMenu spec={period} filters={[]} onChange={onChange} onClose={vi.fn()} />);
+  render(withClient(<ColumnFilterMenu spec={period} filters={[]} onChange={onChange} onClose={vi.fn()} />));
+  fireEvent.click(screen.getByRole('button', { name: 'Type to match' }));
   fireEvent.change(screen.getByLabelText('Period value'), { target: { value: ' May ' } });
   fireEvent.keyDown(screen.getByLabelText('Period value'), { key: 'Enter' });
   expect(onChange).toHaveBeenCalledWith([{ field: period.field, op: 'contains', value: 'May' }]);
   fireEvent.click(screen.getByRole('button', { name: 'Is exactly' }));
   fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
   expect(onChange).toHaveBeenLastCalledWith([{ field: period.field, op: 'eq', value: 'May' }]);
+});
+
+it('words a linked-record filter with the picked names', () => {
+  const dept = spec('department', 'Department');
+  expect(describeColumnFilter(dept, [{ field: dept.field, op: 'in', value: ['a', 'b'], labels: { a: 'Design', b: 'Sales' } }])).toBe('Department: Design, Sales');
 });
 
 it('shows active filters as chips with a count, removes one, and clears all', () => {

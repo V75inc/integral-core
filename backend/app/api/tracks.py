@@ -790,6 +790,50 @@ async def get_track_entries(
     return response
 
 
+@endpoint("/tracks/{track_id}/facets", methods=["GET"], auth=True, tags=["Tracks"])
+async def get_track_facets(
+    request: Request,
+    track_id: str,
+    field: str,
+    q: Optional[str] = None,
+    limit: int = 50,
+    view_id: Optional[str] = None,
+    dashboard_filters: Optional[str] = None,
+) -> Dict[str, Any]:
+    """The values one field holds across the entries the caller can read, with counts: what a filter menu lists.
+
+    ``dashboard_filters`` are the other active filters (as on the entries list), so each count is how many
+    entries would remain. Bounded: ``truncated`` says a very large list was only partly counted.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="track.read",
+        resource=Resource(kind="track", id=track_id, scope=f"track:{track_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    from app.models.nodes import View as ViewNode
+    from app.services.entry_facets import facet_values
+
+    parsed = None
+    if dashboard_filters:
+        import json
+
+        try:
+            parsed = json.loads(dashboard_filters)
+        except (TypeError, ValueError) as exc:
+            raise BadRequestError(message="Invalid filter") from exc
+        if not isinstance(parsed, list) or len(parsed) > 8 or any(not isinstance(i, dict) for i in parsed):
+            raise BadRequestError(message="Invalid filter")
+    view_node = await ViewNode.get(view_id) if view_id else None
+    return await facet_values(
+        user_id, track_id, field, filters=parsed, view_node=view_node, q=q or "", limit=limit
+    )
+
+
 @endpoint(
     "/tracks/{track_id}/collaborators", methods=["POST"], auth=True, tags=["Tracks"]
 )

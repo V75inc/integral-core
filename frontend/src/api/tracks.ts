@@ -193,6 +193,29 @@ export const tracksApi = {
     return { entries, nextCursor, hasMore, total, ...(requiresAppQuery(inner) ? { appQueryRequired: true } : {}) };
   },
 
+  /** The values one field holds across the entries the caller can read, with counts (what a filter menu lists). */
+  getFacets: async (
+    id: string,
+    field: string,
+    opts?: { q?: string; limit?: number; filters?: unknown[]; viewId?: string },
+  ): Promise<{ values: { value: string | number | boolean; count: number }[]; truncated: boolean; distinct: number }> => {
+    const { data } = await apiClient.get(`/tracks/${id}/facets`, {
+      params: {
+        field,
+        q: opts?.q || undefined,
+        limit: opts?.limit ?? 50,
+        view_id: opts?.viewId || undefined,
+        dashboard_filters: opts?.filters?.length ? JSON.stringify(opts.filters) : undefined,
+      },
+    });
+    const inner = unwrapApiDataEnvelope(data);
+    return {
+      values: Array.isArray(inner.values) ? (inner.values as { value: string | number | boolean; count: number }[]) : [],
+      truncated: Boolean(inner.truncated),
+      distinct: typeof inner.distinct === 'number' ? inner.distinct : 0,
+    };
+  },
+
   getEntriesTotal: async (id: string, params: Record<string, unknown>) => {
     const { data } = await apiClient.get(`/tracks/${id}/entries`, {
       params: { ...params, count_only: true },

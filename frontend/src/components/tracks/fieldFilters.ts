@@ -6,7 +6,12 @@ export interface FieldFilter {
   field: string;
   op: string;
   value: unknown;
+  /** For a pick-list filter: the shown name of each picked value (a linked record's title). Never sent to the server. */
+  labels?: Record<string, string>;
 }
+
+/** The filters as the server takes them. */
+export const toRequestFilters = (filters: FieldFilter[]) => filters.map(({ field, op, value }) => ({ field, op, value }));
 
 /** The server accepts at most this many filters on one request. */
 export const MAX_FIELD_FILTERS = 8;

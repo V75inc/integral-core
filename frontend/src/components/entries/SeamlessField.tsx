@@ -175,8 +175,8 @@ function SeamlessShell({
   return (
     <div
       className={`
-        relative rounded-md border transition-[border-color,background-color] duration-fast
-        ${active ? 'border-[var(--panel-border)] bg-[var(--panel)]' : 'border-transparent bg-transparent hover:bg-[var(--panel-2)]'}
+        relative rounded-[var(--radius-input)] border transition-[border-color,background-color] duration-fast
+        ${active ? 'border-[var(--text-muted)] bg-[var(--field-bg)]' : 'border-[var(--field-border)] bg-[var(--field-bg)] hover:border-[var(--field-border-hover)]'}
         ${className}
       `}
       aria-required={required || undefined}

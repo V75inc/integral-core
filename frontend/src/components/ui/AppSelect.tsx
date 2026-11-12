@@ -184,7 +184,7 @@ export function AppSelect({
   const fieldTrigger =
     'flex w-full min-w-0 items-center justify-between gap-2 text-left cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
   const pillTrigger =
-    'flex min-w-0 max-w-full items-center justify-between gap-2 rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-1.5 pr-2 text-left text-sm text-[var(--text)] cursor-pointer outline-none transition focus:ring-2 focus:ring-[var(--focus-ring-color)] disabled:opacity-50 disabled:cursor-not-allowed';
+    'flex min-w-0 max-w-full items-center justify-between gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 py-1.5 pr-2 text-left text-sm text-[var(--text)] cursor-pointer outline-none transition hover:border-[var(--field-border-hover)] focus:ring-2 focus:ring-[var(--focus-ring-color)] disabled:opacity-50 disabled:cursor-not-allowed';
 
   const filteredOptions = useMemo(() => {
     if (remoteSearch || !searchable || !query.trim()) return options;

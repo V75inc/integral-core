@@ -532,10 +532,6 @@ class App(Node):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-# "Which revision of this App is active": asked on every write an App operation makes. With one index per field the
-# database read and unpacked every stored revision of the App (about 1.2 MB each, 72 for a Payroll App upgraded
-# often) to check each one's status, 114 ms a call; this answers it from the index alone.
-@compound_index([("app_id", 1), ("status", 1)], name="idx_appdef_app_status")
 class ApplicationDefinition(Node):
     """An immutable compiled revision of an installed App's contract.
 
