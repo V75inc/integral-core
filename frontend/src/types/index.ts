@@ -530,6 +530,8 @@ export interface Track {
   description?: string;
   /** Custom #RGB / #RRGGBB accent; omit or empty uses app brand accent (`--brand-accent`). */
   accent_color?: string;
+  /** A name from the manifest icon list; shown beside the track name when set. */
+  icon?: string;
   visibility: string;
   owner_id: string;
   owner?: User;

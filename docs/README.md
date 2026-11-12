@@ -20,6 +20,8 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
+Apps, Tracks and entry types can name an icon from a fixed list: see [App, Track and entry type icons](platform/app-icons.md).
+
 All App authors follow the [App settings UI contract](platform/app-settings-ui.md):
 App-specific settings controls belong in the standard App settings dialog.
 

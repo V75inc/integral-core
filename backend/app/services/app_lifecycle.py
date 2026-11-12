@@ -705,7 +705,9 @@ async def install_app(
             name_fold=app_name.casefold(),
             owner_user_id=actor_id,
             description=app_description,
-            icon=validate_app_icon(icon_override),
+            # A person's choice wins; otherwise the package's own icon (already checked when the manifest compiled).
+            icon=validate_app_icon(icon_override)
+            or validate_app_icon(str(canonical_app.get("icon") or "")),
             visibility=resolved_visibility,
             workspace_id=workspace_id,
             lifecycle_state="installing",
@@ -1925,6 +1927,10 @@ async def _update_app_from_library(
         app_node.name = str(library_cp.name)
     if library_cp.description is not None:
         app_node.description = str(library_cp.description)
+    # The package's icon is a default: an App that already has one (chosen by a person) keeps it.
+    package_icon = str((canonical.get("app") or {}).get("icon") or "")
+    if package_icon and not (getattr(app_node, "icon", "") or ""):
+        app_node.icon = package_icon
     app_node.updated_at = utc_now_iso()
     await app_node.save()
     definition = await compile_application_definition(

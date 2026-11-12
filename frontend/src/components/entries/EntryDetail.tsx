@@ -907,11 +907,18 @@ export function EntryDetail({
     );
   }, [anchoredEntryTypes]);
 
+  // A record opened from a list on a full page (a payslip on its pay run) opens in a dialog over that page; the page
+  // keeps its place. In a dialog host the record still replaces the content, with a way back.
+  const [previewEntry, setPreviewEntry] = useState<Entry | null>(null);
   const handleEmbeddedEntryOpen = useCallback((task: Entry) => {
+    if (variant === 'page') {
+      setPreviewEntry(task);
+      return;
+    }
     setParentEntry(entry);
     setEntry(task);
     setIsEditing(false);
-  }, [entry]);
+  }, [entry, variant]);
 
   const handleBackToParent = useCallback(() => {
     if (!parentEntry) return;
@@ -2046,6 +2053,22 @@ export function EntryDetail({
           entryId={entry.id}
           appId={track?.app?.id || entry.track?.app?.id}
           entryTypeKey={entry.type}
+        />
+      ) : null}
+      {previewEntry ? (
+        <EntryDetail
+          key={`preview:${previewEntry.id}`}
+          entry={previewEntry}
+          variant="modal"
+          onClose={() => setPreviewEntry(null)}
+          onUpdate={updated => {
+            setPreviewEntry(updated);
+            onUpdateRef.current?.(entry);
+          }}
+          onDelete={() => {
+            setPreviewEntry(null);
+            void refreshHostEntry();
+          }}
         />
       ) : null}
     </>

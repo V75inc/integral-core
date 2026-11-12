@@ -1378,6 +1378,7 @@ function AppTrackRow({
                 : ''
             }
             title={track.title}
+            icon={track.icon}
           />
           {canDrag && sortable && (
             <button

@@ -795,6 +795,14 @@ def _normalize_search_index(raw):
         raise BadRequestError(message="Invalid search_index declaration") from exc
 
 
+def _track_icon_part(spec: Dict[str, Any], where: str) -> Dict[str, str]:
+    """``{"icon": name}`` when the manifest names one of Integral's icons; refuses any other name."""
+    from app.services.manifest_icons import normalize_manifest_icon
+
+    icon = normalize_manifest_icon(spec.get("icon"), where=where)
+    return {"icon": icon} if icon else {}
+
+
 def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     name = str(spec.get("name") or "").strip()
     key = str(spec.get("key") or _slug(name)).strip()
@@ -1393,6 +1401,7 @@ def _normalize_track_template_spec(
             "description": str(td.get("description") or "").strip(),
             # A track spawned from this template stays out of the App's track list when this is false.
             "nav_visible": bool(td.get("nav_visible", True)),
+            **_track_icon_part(td, f"{where}[{key!r}]"),
             "entry_types": [
                 _normalize_entry_type_spec(
                     _as_dict(e, where=f"{where}[{key!r}].entry_types[]")
@@ -4330,6 +4339,7 @@ def _compile_canonical_manifest(
                             # When false, Track is provisioned / addressable but
                             # omitted from default App nav lists (see Track.nav_visible).
                             "nav_visible": bool(td.get("nav_visible", True)),
+                            **_track_icon_part(td, f"app.tracks[{tname!r}]"),
                             # Declared intent only — never auto-minted. The
                             # owner's explicit enable mints the token.
                             **({"public_share": public_share} if public_share else {}),
@@ -4491,6 +4501,7 @@ def _compile_canonical_manifest(
             )
 
             out["app"] = {
+                **_track_icon_part(app_node, "app"),
                 "tracks": tracks_out,
                 "track_templates": track_templates_out,
                 "relations": [
