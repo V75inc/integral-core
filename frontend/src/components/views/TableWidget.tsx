@@ -1,6 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { ColumnFilterRow } from './ColumnFilterRow';
-import { ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { ChevronDown, Columns, Filter, Plus } from 'lucide-react';
+import { AnchoredPopover } from '../ui/AnchoredPopover';
+import { ColumnFilterMenu } from './ColumnFilterMenu';
+import { FilterChips } from './FilterChips';
+import { columnFilterSpec, columnPath, onField, type ColumnFilterSpec } from './columnFilterModel';
 import { Avatar, AvatarStackedMeta, MarkdownContent } from '../ui';
 import { MemberValue } from '../entries/members';
 import { RelationValue } from '../entries/relations';
@@ -89,7 +92,7 @@ function renderCellValue(
         <>
           {entry.title ? (
             <>
-              <p className="font-medium text-[var(--text)]">{entry.title}</p>
+              <p className="truncate font-medium text-[var(--text)]">{entry.title}</p>
               {entry.body ? (
                 <div className="text-xs text-[var(--text-muted)] max-w-xs mt-0.5 line-clamp-2 overflow-hidden">
                   <MarkdownContent compact>{entry.body}</MarkdownContent>
@@ -217,7 +220,10 @@ function TableWidgetInner({
   onEntryOpen,
   commentCounts,
   columnFilters,
-  onColumnFiltersChange
+  onColumnFiltersChange,
+  totalCount,
+  sort,
+  onSortChange
 }: ViewWidgetProps) {
   const config = (view.config || {}) as Record<string, unknown>;
   const rawColumns = config.columns as TableColumn[] | undefined;
@@ -295,8 +301,13 @@ function TableWidgetInner({
     [visibleColumnSelections, columnSelectionKey, columns]
   );
 
-  const [sortField, setSortField] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  // The page can own the order (the server sorts the whole list, so a page is in order across pages); without
+  // that, the loaded rows are ordered here.
+  const [localSortField, setSortField] = useState<string | null>(null);
+  const [localSortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const serverSort = Boolean(onSortChange);
+  const sortField = serverSort ? sort?.field ?? null : localSortField;
+  const sortDir = serverSort ? sort?.dir ?? 'asc' : localSortDir;
 
   const [resizing, setResizing] = useState<{ field: string; startX: number; startWidth: number } | null>(null);
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -307,7 +318,7 @@ function TableWidgetInner({
   );
 
   const sortedEntries = useMemo(() => {
-    if (!sortField) return entries;
+    if (!sortField || serverSort) return entries;
     return [...entries].sort((a, b) => {
       const aVal = getFieldValue(a, sortField, commentCounts);
       const bVal = getFieldValue(b, sortField, commentCounts);
@@ -323,12 +334,16 @@ function TableWidgetInner({
       const cmp = String(aVal).localeCompare(String(bVal));
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [entries, sortField, sortDir, commentCounts]);
+  }, [entries, sortField, sortDir, serverSort, commentCounts]);
 
   const handleSort = useCallback(
     (field: string) => {
       const col = columns.find(c => c.field === field);
       if (!col?.sortable) return;
+      if (onSortChange) {
+        onSortChange({ field, path: columnPath(field, fields ?? []), dir: sortField === field && sortDir === 'asc' ? 'desc' : 'asc' });
+        return;
+      }
       if (sortField === field) {
         setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
       } else {
@@ -336,7 +351,7 @@ function TableWidgetInner({
         setSortDir('asc');
       }
     },
-    [columns, sortField]
+    [columns, sortField, sortDir, onSortChange]
   );
 
   const handleMouseDown = useCallback(
@@ -383,52 +398,127 @@ function TableWidgetInner({
     });
   };
 
+  // How tight the rows are, remembered per browser; and the menu that shows or hides columns.
+  const [density, setDensityState] = useState<'comfortable' | 'compact'>(() => {
+    try { return window.localStorage.getItem('table-density') === 'compact' ? 'compact' : 'comfortable'; } catch { return 'comfortable'; }
+  });
+  const setDensity = (next: 'comfortable' | 'compact') => {
+    setDensityState(next);
+    try { window.localStorage.setItem('table-density', next); } catch { /* optional */ }
+  };
+  const [columnsMenu, setColumnsMenu] = useState<HTMLElement | null>(null);
+  const cellPad = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-3';
+
+  // Filters: one per filterable column, opened from its heading or from "Add filter"; the server applies them.
+  const filters = columnFilters ?? [];
+  const filterSpecs = useMemo<ColumnFilterSpec[]>(
+    () => onColumnFiltersChange
+      ? columns.map(c => columnFilterSpec(c, fields ?? [])).filter((x): x is ColumnFilterSpec => x !== null)
+      : [],
+    [columns, fields, onColumnFiltersChange],
+  );
+  const specByColumn = useMemo(
+    () => new Map(columns.map(c => [c.field, onColumnFiltersChange ? columnFilterSpec(c, fields ?? []) : null])),
+    [columns, fields, onColumnFiltersChange],
+  );
+  const [menu, setMenu] = useState<{ spec: ColumnFilterSpec; anchor: HTMLElement } | null>(null);
+  const [adding, setAdding] = useState<HTMLElement | null>(null);
+
   return (
     <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--entry-table-border)] bg-[var(--panel)] shadow-[var(--shadow-card)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--entry-table-divider)] bg-[var(--entry-table-toolbar)] px-3 py-2.5 md:px-4">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs text-[var(--text-muted)] shrink-0">Columns:</span>
-          {/* Toggle row scrolls horizontally on mobile so it never wraps
-              into 3+ lines and pushes content off-screen. */}
-          <div className="flex flex-nowrap md:flex-wrap gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {columns.map(col => (
-              <button
-                key={col.field}
-                type="button"
-                onClick={() => toggleColumn(col.field)}
-                aria-pressed={visibleColumns.has(col.field)}
-                className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[var(--radius-input)] border px-2.5 py-1 text-xs transition-colors hover:border-[var(--text-subtle)] ${visibleColumns.has(col.field) ? 'border-[var(--entry-table-border)] bg-[var(--panel)] text-[var(--text)]' : 'border-transparent text-[var(--text-muted)]'}`}
-              >
-                {visibleColumns.has(col.field) ? (
-                  <Eye size={10} className="text-[var(--text-muted)]" />
-                ) : (
-                  <EyeOff size={10} className="text-[var(--text-muted)]" />
-                )}
-                {col.label}
-              </button>
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={e => setColumnsMenu(columnsMenu ? null : e.currentTarget)}
+            aria-haspopup="dialog"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-[var(--radius-input)] border border-[var(--entry-table-border)] bg-[var(--panel)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--text-subtle)]"
+          >
+            <Columns size={12} aria-hidden /> Columns
+            <span className="tabular-nums text-[var(--text-muted)]">{visibleColumns.size}/{columns.length}</span>
+          </button>
+          <div className="inline-flex overflow-hidden rounded-[var(--radius-input)] border border-[var(--entry-table-border)] text-xs" role="group" aria-label="Row density">
+            {(['comfortable', 'compact'] as const).map(mode => (
+              <button key={mode} type="button" aria-pressed={density === mode} onClick={() => setDensity(mode)}
+                className={`px-2.5 py-1 capitalize transition-colors ${density === mode ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'bg-[var(--panel)] text-[var(--text-muted)] hover:text-[var(--text)]'}`}>{mode}</button>
             ))}
           </div>
         </div>
+        {onColumnFiltersChange && filterSpecs.length > 0 ? (
+          <button
+            type="button"
+            onClick={e => setAdding(adding ? null : e.currentTarget)}
+            aria-haspopup="dialog"
+            className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-input)] border border-[var(--entry-table-border)] bg-[var(--panel)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--text-subtle)]"
+          >
+            <Plus size={12} aria-hidden /> Add filter
+          </button>
+        ) : null}
       </div>
+      {onColumnFiltersChange ? (
+        <FilterChips
+          specs={filterSpecs}
+          filters={filters}
+          onChange={onColumnFiltersChange}
+          total={totalCount}
+          onEdit={(fieldPath, anchor) => { const spec = filterSpecs.find(f => f.field === fieldPath); if (spec) setMenu({ spec, anchor }); }}
+        />
+      ) : null}
+      {adding ? (
+        <AnchoredPopover anchor={adding} onClose={() => setAdding(null)} width={240} label="Choose a column to filter">
+          <p className="mb-1.5 text-xs text-[var(--text-muted)]">Filter by</p>
+          <ul className="max-h-64 space-y-0.5 overflow-auto">
+            {filterSpecs.map(spec => (
+              <li key={spec.field}>
+                <button type="button" className="w-full rounded-[var(--radius-input)] px-2 py-1.5 text-left text-sm text-[var(--text)] hover:bg-[var(--panel-2)]"
+                  onClick={() => { const anchor = adding; setAdding(null); setMenu({ spec, anchor }); }}>
+                  {spec.label}{onField(filters, spec.field).length ? ' •' : ''}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </AnchoredPopover>
+      ) : null}
+      {columnsMenu ? (
+        <AnchoredPopover anchor={columnsMenu} onClose={() => setColumnsMenu(null)} width={260} label="Choose columns">
+          <p className="mb-1.5 text-xs text-[var(--text-muted)]">Show columns</p>
+          <ul className="max-h-72 space-y-0.5 overflow-auto">
+            {columns.map(col => (
+              <li key={col.field}>
+                <label className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-input)] px-1.5 py-1.5 text-sm text-[var(--text)] hover:bg-[var(--panel-2)]">
+                  <input type="checkbox" checked={visibleColumns.has(col.field)} disabled={visibleColumns.has(col.field) && visibleColumns.size === 1} onChange={() => toggleColumn(col.field)} />
+                  {col.label}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </AnchoredPopover>
+      ) : null}
+      {menu && onColumnFiltersChange ? (
+        <AnchoredPopover anchor={menu.anchor} onClose={() => setMenu(null)} label={`Filter ${menu.spec.label}`}>
+          <ColumnFilterMenu spec={menu.spec} filters={filters} onChange={onColumnFiltersChange} onClose={() => setMenu(null)} />
+        </AnchoredPopover>
+      ) : null}
 
       {/* Desktop / md+: classic table with horizontal scroll fallback if
           column count exceeds viewport. */}
-      <div className="hidden md:block overflow-x-auto">
+      <div className="hidden md:block max-h-[72vh] overflow-auto">
         <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="border-b border-[var(--entry-table-border)] bg-[var(--entry-table-header)]">
               {visibleCols.map(col => (
                 <th
                   key={col.field}
-                  className="relative select-none px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)]"
+                  className={`relative select-none whitespace-nowrap ${cellPad} text-left text-xs font-semibold text-[var(--text-muted)] sticky top-0 bg-[var(--entry-table-header)] ${col.field === visibleCols[0]?.field ? 'left-0 z-30' : 'z-20'}`}
                   style={colWidths[col.field] ? { width: colWidths[col.field] } : col.width ? { width: col.width } : undefined}
                   aria-sort={col.sortable && sortField === col.field ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
                 >
+                  <div className="flex items-center gap-1">
                   <button
                     type="button"
                     disabled={!col.sortable}
                     onClick={() => handleSort(col.field)}
-                    className="flex items-center gap-1 text-left disabled:cursor-default enabled:hover:text-[var(--text)]"
+                    className="flex items-center gap-1 whitespace-nowrap text-left disabled:cursor-default enabled:hover:text-[var(--text)]"
                   >
                     {col.label}
                     {col.sortable && sortField === col.field && (
@@ -438,6 +528,17 @@ function TableWidgetInner({
                       />
                     )}
                   </button>
+                  {specByColumn.get(col.field) ? (
+                    <button
+                      type="button"
+                      aria-label={`Filter ${col.label}`}
+                      onClick={e => { const spec = specByColumn.get(col.field)!; setMenu(menu?.spec.field === spec.field ? null : { spec, anchor: e.currentTarget }); }}
+                      className={`rounded p-1 transition-colors hover:bg-[var(--panel-2)] ${onField(filters, specByColumn.get(col.field)!.field).length ? 'text-[var(--link)]' : 'text-[var(--text-subtle)] hover:text-[var(--text)]'}`}
+                    >
+                      <Filter size={12} fill={onField(filters, specByColumn.get(col.field)!.field).length ? 'currentColor' : 'none'} aria-hidden />
+                    </button>
+                  ) : null}
+                  </div>
                   {col.sortable && (
                     <div
                       className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--text-muted)]/20"
@@ -447,30 +548,31 @@ function TableWidgetInner({
                 </th>
               ))}
             </tr>
-            {onColumnFiltersChange ? (
-              <ColumnFilterRow
-                columns={visibleCols}
-                fields={fields ?? []}
-                filters={columnFilters ?? []}
-                onChange={onColumnFiltersChange}
-                className="border-b border-[var(--entry-table-border)] bg-[var(--entry-table-header)]"
-              />
-            ) : null}
           </thead>
           <tbody>
             {sortedEntries.map((entry, i) => (
               <tr
                 key={entry.id}
                 onClick={() => onEntryOpen(entry)}
-                className={`cursor-pointer border-b border-[var(--entry-table-divider)] last:border-b-0 hover:bg-[var(--entry-table-row-hover)] transition-colors ${
+                className={`group cursor-pointer border-b border-[var(--entry-table-divider)] last:border-b-0 hover:bg-[var(--entry-table-row-hover)] transition-colors ${
                   i % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'
                 }`}
               >
-                {visibleCols.map(col => (
-                  <td key={col.field} className="px-4 py-3">
-                    {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, enumLabelsByField)}
-                  </td>
-                ))}
+                {visibleCols.map((col, ci) => {
+                  const first = ci === 0;
+                  const raw = getFieldValue(entry, col.field, commentCounts);
+                  const tip = col.field === 'title' ? entry.title : typeof raw === 'string' || typeof raw === 'number' ? String(raw) : undefined;
+                  return (
+                    <td
+                      key={col.field}
+                      title={tip}
+                      style={colWidths[col.field] ? { maxWidth: colWidths[col.field] } : undefined}
+                      className={`${cellPad} overflow-hidden text-ellipsis whitespace-nowrap ${first ? 'max-w-[22rem]' : 'max-w-[16rem]'} ${first ? `sticky left-0 z-10 ${i % 2 === 0 ? 'bg-[var(--panel)]' : 'bg-[var(--entry-table-row-alt)]'} group-hover:bg-[var(--entry-table-row-hover)]` : ''}`}
+                    >
+                      {renderCellValue(entry, col, commentCounts, relationByField, memberFieldPaths, selectFieldTypes, enumLabelsByField)}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

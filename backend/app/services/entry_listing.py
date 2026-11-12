@@ -181,8 +181,12 @@ async def fetch_accessible_entries_page(
     include_total: bool = False,
     entry_ids: Optional[List[str]] = None,
     count_only: bool = False,
+    offset: int = 0,
+    order_by: Optional[List[Tuple[str, int]]] = None,
 ) -> Tuple[List[Entry], dict]:
-    """Fetch one page of entries via DB keyset pagination."""
+    """Fetch one page of entries via DB keyset pagination (or by position with ``offset``).
+
+    ``order_by`` is ``[(field, 1 | -1)]`` and overrides the view's own order."""
     from app.services.entry_access_projection import (
         candidate_query,
         count_accessible_records,
@@ -241,10 +245,13 @@ async def fetch_accessible_entries_page(
         if isinstance(cfg, dict) and cfg.get("sort"):
             sort = _view_sort_to_db_sort(cfg.get("sort") or [])
 
+    if order_by:
+        sort = _view_sort_to_db_sort([{"field": f, "direction": "desc" if d < 0 else "asc"} for f, d in order_by])
     return await select_page(
         user_id,
         query,
-        cursor=cursor,
+        cursor=None if offset else cursor,
+        offset=offset,
         limit=min(max(1, limit), MAX_LIMIT),
         sort=sort,
         include_total=include_total,

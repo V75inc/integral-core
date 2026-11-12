@@ -681,6 +681,18 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
     return {"message": "Track deleted successfully", "deleted_track_id": track_id}
 
 
+def _parse_sort_param(raw: Optional[str]) -> Optional[list]:
+    """``field`` or ``-field`` into the stored sort the list is ordered by; nothing when not given."""
+    import re
+
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if not re.fullmatch(r"-?[A-Za-z][A-Za-z0-9_.]{0,127}", text):
+        raise BadRequestError(message="Invalid sort")
+    return [(text.lstrip("-"), -1 if text.startswith("-") else 1)]
+
+
 @endpoint("/tracks/{track_id}/entries", methods=["GET"], auth=True, tags=["Tracks"])
 async def get_track_entries(
     request: Request,
@@ -693,8 +705,13 @@ async def get_track_entries(
     entry_ids: Optional[str] = None,
     include_total: bool = True,
     count_only: bool = False,
+    offset: int = 0,
+    sort: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get entries in a track, filtered by the user's visibility access.
+
+    ``offset`` pages by position (page number x ``limit``) and replaces the cursor; ``sort`` orders the whole
+    list before it is paged, as ``field`` or ``-field`` (``title``, ``updated_at``, ``custom_fields.<key>``).
 
     When ``view_id`` is provided, applies that view's entry-type constraint
     (``View.entry_type_keys``) so view tabs hide entries of unrelated types.
@@ -762,6 +779,8 @@ async def get_track_entries(
         include_total=include_total,
         count_only=count_only,
         entry_ids=selected_entry_ids(entry_ids),
+        offset=max(0, int(offset or 0)),
+        order_by=_parse_sort_param(sort),
     )
     if count_only:
         return {"total": response["total"]}

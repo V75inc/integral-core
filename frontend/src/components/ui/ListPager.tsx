@@ -65,12 +65,12 @@ export function ListPager({
       </p>
       <div className="flex flex-wrap items-center gap-3">
         {onPageSizeChange && (
-          <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+          <label className="flex items-center gap-2 whitespace-nowrap text-sm text-[var(--text-muted)]">
             Rows per page
             <select
               value={pageSize}
               onChange={e => onPageSizeChange(Number(e.target.value))}
-              className="app-input h-8 py-0 text-sm"
+              className="app-input h-8 w-20 py-0 text-sm"
               aria-label="Rows per page"
             >
               {pageSizes.map(n => <option key={n} value={n}>{n}</option>)}

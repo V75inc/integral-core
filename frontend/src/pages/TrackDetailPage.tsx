@@ -1,5 +1,6 @@
 import { useDeployment } from '../hooks/useDeployment';
 import { MAX_FIELD_FILTERS, type FieldFilter } from '../components/tracks/fieldFilters';
+import { PAGE_SIZES } from '../components/ui/ListPager';
 import type { EntryCreateInput } from '../views/types';
 import { entriesMatchingTags } from '../components/tracks/TrackTagFilters';
 /* patch:kanban-hire-intercept */
@@ -20,6 +21,7 @@ import { sharingApi } from '../api/sharing';
 import { DeriveLibraryPackageModal } from '../components/library/DeriveLibraryPackageModal';
 import {
   useInfiniteQuery,
+  keepPreviousData,
   useQuery,
   useQueryClient,
   type InfiniteData
@@ -167,7 +169,13 @@ export function TrackDetailPage() {
   const [filterTags, setFilterTags] = useState<string[]>([]);
   // Filters on the Track's fields. The server applies them before it pages, so totals and every page follow.
   const [fieldFilters, setFieldFilters] = useState<FieldFilter[]>([]);
-  useEffect(() => { setFieldFilters([]); }, [id]);
+  // Table lists are paged: a page number, a page size and the server's order for the whole list.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(() => {
+    try { const n = Number(window.localStorage.getItem('track-page-size')); return PAGE_SIZES.includes(n as (typeof PAGE_SIZES)[number]) ? n : 25; } catch { return 25; }
+  });
+  const [sort, setSort] = useState<{ field: string; path?: string; dir: 'asc' | 'desc' } | null>(null);
+  useEffect(() => { setFieldFilters([]); setSort(null); setPage(1); }, [id]);
   useEffect(() => setFilterTags([]), [id]);
   const [trackSearch, setTrackSearch] = useState('');
   // Right rail collapsed by default. Two mutually exclusive modes:
@@ -551,17 +559,28 @@ export function TrackDetailPage() {
     () => [...(dashboardFilters ?? []), ...fieldFilters].slice(0, MAX_FIELD_FILTERS),
     [dashboardFilters, fieldFilters],
   );
-  const entryFilters = requestFilters.length
-    ? { dashboard_filters: JSON.stringify(requestFilters), ...(activeView?.id ? { view_id: activeView.id } : {}) }
-    : activeView?.id ? { view_id: activeView.id } : {};
-  const entryFilterKey = requestFilters.length
+  const pagedMode = activeView?.type === 'table';
+  const sortParam = sort ? `${sort.dir === 'desc' ? '-' : ''}${sort.path || sort.field}` : '';
+  const entryFilters = {
+    ...(requestFilters.length ? { dashboard_filters: JSON.stringify(requestFilters) } : {}),
+    ...(activeView?.id ? { view_id: activeView.id } : {}),
+    ...(pagedMode && sortParam ? { sort: sortParam } : {}),
+  };
+  const baseFilterKey = requestFilters.length
     ? `${JSON.stringify(requestFilters)}|${activeView?.id ?? ''}`
     : activeView?.id;
+  // A page, its size and the order are part of the key: each page is its own cached read.
+  const entryFilterKey = pagedMode ? `${baseFilterKey ?? ''}|${sortParam}|p${page}x${pageSize}` : baseFilterKey;
+  // Back to the first page whenever what the list shows changes.
+  const listShapeKey = `${id}|${baseFilterKey ?? ''}|${sortParam}|${pageSize}`;
+  const [seenShape, setSeenShape] = useState(listShapeKey);
+  if (seenShape !== listShapeKey) { setSeenShape(listShapeKey); if (page !== 1) setPage(1); }
 
   const {
     data: entriesData,
     error: entriesError,
     isPending: entriesPending,
+    isFetching: entriesFetching,
     isFetchingNextPage,
     isFetchNextPageError,
     hasNextPage,
@@ -579,8 +598,15 @@ export function TrackDetailPage() {
       (dashboardFilters !== undefined || activeView !== null)
     ),
     initialPageParam: undefined as string | undefined,
+    // The rows stay on screen while the next page loads.
+    placeholderData: pagedMode ? keepPreviousData : undefined,
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
+      if (pagedMode) {
+        return tracksApi.getEntriesPage(id, {
+          ...entryFilters, include_total: true, limit: pageSize, offset: (page - 1) * pageSize,
+        });
+      }
       return tracksApi.getEntriesPage(id, {
         ...entryFilters,
         include_total: false,
@@ -590,13 +616,13 @@ export function TrackDetailPage() {
     retry: (attempt, error) =>
       (error as { response?: { status?: number } }).response?.status !== 429 && attempt < 1,
     getNextPageParam: last =>
-      last.hasMore && last.nextCursor ? last.nextCursor : undefined
+      !pagedMode && last.hasMore && last.nextCursor ? last.nextCursor : undefined
   });
 
   const firstEntryPage = entriesData?.pages[0];
   const { data: exactEntriesTotal } = useQuery({
     queryKey: ['track', id, 'entries-total', entryFilterKey],
-    enabled: Boolean(id && firstEntryPage?.hasMore && firstEntryPage.nextCursor
+    enabled: Boolean(id && !pagedMode && firstEntryPage?.hasMore && firstEntryPage.nextCursor
       && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
     queryFn: () => tracksApi.getEntriesTotal(id!, entryFilters),
     retry: false,
@@ -1041,8 +1067,8 @@ export function TrackDetailPage() {
 
   /** Must match ``useInfiniteQuery`` key (includes active saved view). */
   const trackEntriesInfiniteQueryKey = useMemo(
-    () => ['track', id, 'entries', activeView?.id] as const,
-    [id, activeView?.id]
+    () => ['track', id, 'entries', entryFilterKey] as const,
+    [id, entryFilterKey]
   );
 
   const patchEntriesCache = useCallback(
@@ -2023,6 +2049,10 @@ export function TrackDetailPage() {
           trackEntryTypeFields={trackEntryTypeFields}
           fieldFilters={fieldFilters}
           setFieldFilters={setFieldFilters}
+          sort={sort}
+          onSortChange={pagedMode ? setSort : undefined}
+          entriesTotal={entriesTotal}
+          pager={pagedMode && entriesTotal !== undefined ? { page, pageSize, total: entriesTotal, busy: entriesPending || entriesFetching, onPage: setPage, onPageSize: (n: number) => { setPageSize(n); try { window.localStorage.setItem('track-page-size', String(n)); } catch { /* optional */ } } } : undefined}
           hasNextPage={hasNextPage && !(semanticMode && Boolean(retrievalQuery))}
           isFetchingNextPage={isFetchingNextPage}
           fetchNextPage={() => {

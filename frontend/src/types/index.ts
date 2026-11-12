@@ -742,6 +742,8 @@ export interface EntryBacklink {
 export interface RelationFieldTarget {
   id: string;
   label: string;
+  /** The record's own name, without the track it lives in (``label`` adds that: "Design (Departments)"). Cells show this. */
+  name?: string;
   kind: 'entry' | 'track';
   trackId?: string;
 }
