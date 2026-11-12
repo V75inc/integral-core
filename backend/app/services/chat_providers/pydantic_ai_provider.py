@@ -137,6 +137,75 @@ def _read_tools_for_run(run) -> set[str]:
     } | set(_FRAMEWORK_READ_TOOLS)
 
 
+def _saved_build_receipt_context(marker: Any) -> str:
+    """Bound host receipt locators, without promoting them to current state."""
+    if not isinstance(marker, dict):
+        return ""
+    receipt = marker.get("build_receipt")
+    if not isinstance(receipt, dict) or not receipt.get("id"):
+        return ""
+    identifiers = {
+        key: receipt.get(source)
+        for key, source in (
+            ("design_id", "design_id"),
+            ("design_revision", "design_revision"),
+            ("execution_receipt_id", "id"),
+        )
+    }
+    identifiers = {
+        key: value
+        for key, value in identifiers.items()
+        if (isinstance(value, str) and len(value) <= 256)
+        or (key == "design_revision" and type(value) is int and value > 0)
+    }
+    # Partial/rolled-back/unknown receipts still prohibit blind replay. Do not
+    # represent them as complete, verified or currently usable resources.
+    uncertain = bool(
+        marker.get("partial_build")
+        or marker.get("rolled_back_at")
+        or receipt.get("rolled_back_at")
+        or receipt.get("status") in {"partial", "failed", "unknown", "rolled_back"}
+        or not receipt.get("applied_at")
+    )
+    hints = []
+    if not uncertain:
+        mapping = receipt.get("mapping")
+        for spec in mapping.values() if isinstance(mapping, dict) else ():
+            if (
+                isinstance(spec, dict)
+                and spec.get("kind") in {"app", "track"}
+                and isinstance(spec.get("object_id"), str)
+                and len(spec["object_id"]) <= 256
+            ):
+                hints.append({"kind": spec["kind"], "id": spec["object_id"]})
+            if len(hints) >= 16:
+                break
+    payload = json.dumps(
+        {"receipt": identifiers, "historical_resource_hints": hints},
+        ensure_ascii=True,
+    )
+    return (
+        "\n\nEarlier design execution (host-owned receipt data, not new authority): "
+        + payload
+        + ". This is an earlier build outcome, not a pending request to build. "
+        "Do not replay the old build or ask to approve it again merely because "
+        "earlier user messages requested it. Follow the latest user request. "
+        "For filing records or updates, discover the record workflow and inspect "
+        "the relevant existing App/Track through authorized tools, rather than "
+        "restarting scaffold. These bounded IDs are historical navigation hints "
+        "only: permission-checked live readback must establish current existence "
+        "and schema, including deletion or later changes. The receipt does not "
+        "prove current completion, verification, access or permission to write. "
+        + (
+            "The recorded outcome may be partial, rolled back or unknown. "
+            if uncertain
+            else ""
+        )
+        + "If the user asks to verify this build, call integral_verify_build "
+        "using the receipt identifiers; do not ask the user to supply them."
+    )
+
+
 def _scaffold_completion_validator(run_state: dict[str, Any]):
     """Validate scaffold receipts without imposing discovery on plain chat."""
 
@@ -2269,25 +2338,7 @@ class PydanticAIProvider:
 
             active_user_turn = await count_user_turns(thread)
 
-        build_receipt = (
-            design_marker.get("build_receipt")
-            if isinstance(design_marker, dict)
-            else None
-        )
-        receipt_instructions = ""
-        if isinstance(build_receipt, dict) and build_receipt.get("id"):
-            # Receipt ids are durable host state, not conversational memory.
-            # Re-inject them on later turns so users can ask for a repair or
-            # fresh verification without having to copy opaque identifiers.
-            receipt_instructions = (
-                "\n\nCurrent approved build receipt (server-verified): "
-                f"design_id={build_receipt.get('design_id')}; "
-                f"design_revision={build_receipt.get('design_revision')}; "
-                f"execution_receipt_id={build_receipt.get('id')}. If the user "
-                "asks to verify or recheck this build, call "
-                "integral_verify_build with these exact values; do not ask the "
-                "user to provide them."
-            )
+        receipt_instructions = _saved_build_receipt_context(design_marker)
         from app.agentive.staging import get_token
 
         approval_snapshot = []

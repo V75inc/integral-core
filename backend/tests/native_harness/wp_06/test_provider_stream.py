@@ -1236,3 +1236,66 @@ async def test_missing_proposal_final_response_retry_is_bounded_and_honest():
     assert "hasn't been built" in result.output
     last = _scaffold_completion_validator({"proposal_attempted": True})
     assert "couldn't save" in await last(SimpleNamespace(last_attempt=True), "Ready!")
+
+
+def test_saved_build_receipt_context_preserves_filing_continuity_without_authority():
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _saved_build_receipt_context,
+    )
+
+    marker = {
+        "proposal": "OLD CONFIRM THIS DESIGN",
+        "build_receipt": {
+            "id": "xr.saved",
+            "design_id": "design1",
+            "design_revision": 1,
+            "applied_at": "2026-11-12T20:59:30Z",
+            "mapping": {
+                "app": {"kind": "app", "object_id": "n.WorkspaceApp.projects"},
+                "track": {"kind": "track", "object_id": "n.Track.projects"},
+                "field": {"kind": "field", "object_id": "PRIVATE_FIELD"},
+            },
+        },
+    }
+    context = _saved_build_receipt_context(marker)
+    assert "OLD CONFIRM" not in context
+    assert "n.WorkspaceApp.projects" in context
+    assert "n.Track.projects" in context
+    assert "PRIVATE_FIELD" not in context
+    assert "not a pending request to build" in context
+    assert "Follow the latest user request" in context
+    assert "permission-checked live readback" in context
+    assert "does not prove current completion" in context
+    assert "integral_verify_build" in context
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"partial_build": {"batch_token": "partial"}},
+        {"rolled_back_at": "now"},
+        {"receipt_override": {"status": "unknown"}},
+        {"receipt_override": {"rolled_back_at": "now"}},
+        {"receipt_override": {"applied_at": None}},
+    ],
+)
+def test_uncertain_build_context_never_claims_complete_or_hints_resources(override):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _saved_build_receipt_context,
+    )
+
+    marker = {
+        "build_receipt": {
+            "id": "xr.saved",
+            "applied_at": "before",
+            "mapping": {
+                "app": {"kind": "app", "object_id": "DO_NOT_HINT"},
+            },
+        },
+        **{k: v for k, v in override.items() if k != "receipt_override"},
+    }
+    marker["build_receipt"].update(override.get("receipt_override", {}))
+    context = _saved_build_receipt_context(marker)
+    assert "DO_NOT_HINT" not in context
+    assert "partial, rolled back or unknown" in context
+    assert "Do not replay" in context

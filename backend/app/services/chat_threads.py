@@ -997,6 +997,18 @@ async def stamp_design_approved(
     return True
 
 
+def native_pending_design_context(marker: Any) -> str:
+    """Expose only an unfinished native design, never a completed proposal.
+
+    Core records build_receipt only after successful application. Approval,
+    staging or a partial-build cursor alone are not completion and must retain
+    their existing context. This projection grants no build or retry authority.
+    """
+    if not isinstance(marker, dict) or marker.get("build_receipt"):
+        return ""
+    return str(marker.get("proposal") or "")
+
+
 async def pending_design_context_for_utterance(
     *,
     marker: Optional[Dict[str, Any]],
