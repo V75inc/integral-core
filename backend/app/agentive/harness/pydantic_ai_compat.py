@@ -65,7 +65,7 @@ from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
-from pydantic_ai.workspaces import LocalWorkspaceBackend
+from pydantic_ai.workspaces import FileEntry, WorkspaceReadOnlyError, WorkspaceRef
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.compaction import (
     ClearToolResults,
@@ -1884,7 +1884,9 @@ __all__ = [
     "RunRecord",
     "SchemaValidator",
     "Skills",
-    "LocalWorkspaceBackend",
+    "FileEntry",
+    "WorkspaceReadOnlyError",
+    "WorkspaceRef",
     "SnapshotHistorySource",
     "StepEvent",
     "StepPersistence",

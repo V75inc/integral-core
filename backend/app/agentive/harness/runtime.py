@@ -28,9 +28,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     IntegralContextLifecycle,
     IntegralLimitWarnings,
     IntegralToolDisclosure,
-    LocalWorkspaceBackend,
     PublicConversationHistorySource,
-    Skills,
     SnapshotHistorySource,
     StepPersistence,
     StepStore,
@@ -39,6 +37,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     build_integral_working_context,
 )
 from app.agentive.harness.scoped_store import ScopedStepStore
+from app.agentive.harness.skill_sources import projected_skills
 from app.agentive.harness.turn_progress import TurnProgress
 from app.schemas.agentive.work import WorkExecutionContext
 
@@ -216,13 +215,7 @@ def build_native_runtime(
     )
     if remaining_skills:
         capabilities.append(
-            Skills(
-                directories=[path.resolve() for path in skill_directories],
-                include=remaining_skills,
-                # Attach a backend only to Skills. No filesystem or shell
-                # capability is added to the resident agent.
-                workspace=LocalWorkspaceBackend(skill_directories[0].resolve()),
-            )
+            projected_skills(skill_directories, include=remaining_skills)
         )
 
     capabilities.append(InstructionDisclosureGuard(protected_instructions=protected))
