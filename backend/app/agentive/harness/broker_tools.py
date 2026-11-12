@@ -63,6 +63,8 @@ _REQUIRED_SKILLS_BY_TOOL = {
     "integral_build_approved_design": "integral-scaffold",
     "integral_verify_build": "integral-scaffold",
 }
+_VALIDATION_RETRY_TOOLS = frozenset({"integral_create_entry", "integral_schedule_task"})
+_VALIDATION_RETRY_ERRORS = frozenset({"invalid_arguments", "missing_argument"})
 
 
 def _resource_links_for_model(
@@ -195,6 +197,12 @@ def _make_handler(
     call_state.setdefault("turn_progress", TurnProgress())
     build_attempted = False
     build_validation_failures = 0
+    guard_validation = (
+        capability_source == "core"
+        and capability_op_class == "propose"
+        and capability_name in _VALIDATION_RETRY_TOOLS
+    )
+    rejected_arguments: set[str] = set()
 
     async def effective_operation(arguments: dict[str, Any]) -> str:
         effective_op_class = capability_op_class
@@ -385,6 +393,30 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
+        if guard_validation:
+            # These Core proposal tools run sequentially. Remember only
+            # fingerprints of rejected inputs for the current model run.
+            argument_fingerprint = hashlib.sha256(
+                json.dumps(arguments, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            if (
+                argument_fingerprint in rejected_arguments
+                or len(rejected_arguments) >= 2
+            ):
+                can_correct = len(rejected_arguments) < 2
+                return {
+                    "error": True,
+                    "error_code": "invalid_arguments",
+                    "message": (
+                        "These arguments were already rejected. Use the previous "
+                        "validation detail to correct the failing input before retrying."
+                        if can_correct
+                        else "Validation correction attempts are exhausted for this "
+                        "tool in this turn. Explain the remaining problem and report "
+                        "only changes with a confirmed proposal or application receipt."
+                    ),
+                    "retryable": can_correct,
+                }
         # Pydantic AI owns execution and accounting. The progress observer sees
         # the outcome only after this live authorization/dispatch path; it must
         # never replace a read or effect with a cached earlier result.
@@ -579,6 +611,28 @@ def _make_handler(
                 # the proposal and its requirement for a linked approval.
                 raise CallDeferred()
         model_result = _resource_links_for_model(result.for_model())
+        if guard_validation:
+            if result.ok:
+                rejected_arguments.clear()
+            elif result.error_code in _VALIDATION_RETRY_ERRORS:
+                rejected_arguments.add(argument_fingerprint)
+                can_correct = len(rejected_arguments) < 2
+                model_result["retryable"] = can_correct
+                model_result.pop("next_tool", None)
+                # Keep Core's existing model-facing detail. Public chat stores
+                # only the stable error code and its fixed diagnostic text.
+                model_result["message"] = (
+                    f"{result.message} This attempt did not stage a proposal. "
+                    + (
+                        "Correct the failing input against the current tool and "
+                        "target schema before retrying once. Ask for any required "
+                        "information you cannot infer from verified context."
+                        if can_correct
+                        else "Stop retrying this tool in this turn. Explain the "
+                        "remaining problem and distinguish proposals awaiting "
+                        "approval from changes that were applied."
+                    )
+                )
         if capability_name == "integral_get_attachment_text" and result.ok:
             source_url = model_result.get("source_url")
             if source_url:

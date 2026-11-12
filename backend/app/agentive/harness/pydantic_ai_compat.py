@@ -775,8 +775,9 @@ def build_integral_run_instructions(
             blocks.append(
                 "Integral turn budget: this is the final available response. "
                 "Do not call tools or promise further work in this turn. Give a "
-                "concise handoff grounded only in observed receipts: what was "
-                "verified, what is pending approval, and what remains unresolved. "
+                "concise answer or handoff for the current request only. "
+                "Report verified results, pending approvals, and unresolved work "
+                "only when they concern that request. "
                 "A staged proposal is not an applied change. Do not claim success "
                 "without readback. Invite the user to continue in this chat; "
                 "never instruct them to restart or repeat already applied work."
@@ -789,9 +790,9 @@ def build_integral_run_instructions(
         if active_ids:
             blocks.append(
                 "Integral runtime state: these capabilities are already loaded and "
-                f"their instructions are active: {', '.join(active_ids)}. Do not call "
-                "load_capability for them again. Continue the current workflow using "
-                "the loaded instructions and their tools."
+                f"their instructions are available: {', '.join(active_ids)}. Do not call "
+                "load_capability for them again. Apply a loaded workflow only "
+                "when it serves the latest request or the current host continuation."
             )
         outcomes = {}
         for message in getattr(ctx, "messages", ()):
@@ -812,11 +813,12 @@ def build_integral_run_instructions(
                 "Current Core approval outcomes (authoritative, superseding old "
                 "proposal text and skill instructions to wait): "
                 + "; ".join(f"{token}: {state}" for token, state in outcomes.items())
-                + ". Consumed changes have already been applied: read back their "
-                "saved records and report the result. Revoked changes were rejected: "
-                "acknowledge that they were not applied. Expired changes cannot be "
-                "applied. None of these changes is awaiting approval. Do not replay "
-                "them or ask for approval again."
+                + ". Consumed changes have already been applied, revoked changes "
+                "were rejected, and expired changes cannot be applied. Read back "
+                "and report an outcome when the current request concerns that change "
+                "or the current host event asks for confirmation of its outcome. "
+                "None of these changes is awaiting approval. Do not replay them "
+                "or ask for approval again."
             )
         return "\n\n".join(blocks)
 

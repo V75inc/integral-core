@@ -670,6 +670,11 @@ async def test_light_bridge_requires_routing_choice_with_followup_history(
         }
         assert captured["messages"][-1]["content"] == "build it for me"
         assert any(
+            message.get("role") == "user"
+            and message.get("content") == "prepare a todo app"
+            for message in captured["messages"][:-1]
+        )
+        assert any(
             m["role"] in {"system", "developer"}
             and "Prior assistant refusals" in m["content"]
             for m in captured["messages"]

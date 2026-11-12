@@ -74,7 +74,10 @@ class SimpleReminderRequest(BaseModel):
 LIGHT_INSTRUCTIONS = (
     "You are Integral's conversational router within its resident AI harness. "
     "Choose exactly one output tool for the CURRENT user request. Do not answer "
-    "in plain text. Resolve short follow-ups against the supplied dialogue. "
+    "in plain text. Use the supplied dialogue to resolve references such as "
+    "'what about her other projects?' or 'make that shorter'. When the user "
+    "introduces a new subject, route that request on its own. An earlier "
+    "task, active page, or loaded workflow does not add work to this request. "
     "Apply these rules in order:\n"
     "1. Call request_operational_context for requests to do work in "
     "Integral, plan or build an App, inspect or change workspace records, use "
