@@ -584,6 +584,9 @@ def _environment(
     """Isolate managed settings from checkout/distro dotenv files and test flags."""
     env = _system_environment()
     env.update(_operator_settings(home))
+    if os.name == "nt" and config.get("deployment_profile") == "desktop_single_user":
+        # Windows uses a legacy code page for redirected Python streams.
+        env.setdefault("PYTHONIOENCODING", "utf-8")
     package_path = apps or config.get("apps_path") or str(home / "integral-apps")
     core_only = (
         not apps and config.get("deployment_profile", "server") != "desktop_single_user"

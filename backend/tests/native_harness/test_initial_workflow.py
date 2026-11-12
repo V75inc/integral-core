@@ -320,3 +320,24 @@ async def test_light_receives_core_procedures_even_without_keyword_overlap(
         *sorted(f"workflow-{index}" for index in range(core_count))[:24]
     }
     assert checked == [("workspace", {"user_id": "user", "active_apps_only": True})]
+
+
+async def test_routed_scaffolding_loads_the_packaged_skill(tmp_path):
+    from app.agentive.harness.skill_sources import (
+        load_selected_workflow,
+        materialize_standard_skill_library,
+    )
+    from app.agentive.services.agent_skills import list_core_skills
+
+    skill = next(row for row in list_core_skills() if row["key"] == "integral-scaffold")
+    sources = [(skill["key"], skill["description"], skill["resolved_body"])]
+    library = tmp_path / "projected skills"
+    allowed = materialize_standard_skill_library(sources, root=library)
+    selected = await load_selected_workflow(
+        selected_key=skill["key"],
+        skill_sources=sources,
+        skill_directory=library,
+        allowed_skill_names=allowed,
+    )
+    assert selected is not None and selected[0] == skill["key"]
+    assert "integral_propose_design" in selected[1]
