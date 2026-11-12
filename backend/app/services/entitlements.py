@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TypeVar
 
 from jvspatial.db.database import Database
@@ -292,11 +293,17 @@ async def require_installed_app_entitlement(app_node) -> Optional[Entitlement]:
     from app.services.application_definitions import get_active_application_definition
     from app.services.operational_model_runtime import compile_canonical_manifest
 
+    active_id = str(getattr(app_node, "active_definition_id", "") or "")
+    cached = _PACKAGE_META_BY_DEFINITION.get(active_id) if active_id else None
+    if cached is not None:
+        return await _require_package_entitlement(app_node, dict(cached))
     definition = await get_active_application_definition(
         app_node, repair_legacy_pointer=False
     )
     if definition is not None and definition.canonical_manifest:
         canonical = dict(definition.canonical_manifest)
+        if active_id and str(getattr(definition, "id", "") or "") == active_id:
+            _remember_package_meta(active_id, canonical.get("package") or {})
     else:
         attached = await get_app_attached_operational_model(app_node)
         if attached is None:
@@ -304,7 +311,26 @@ async def require_installed_app_entitlement(app_node) -> Optional[Entitlement]:
         canonical = await asyncio.to_thread(
             compile_canonical_manifest, manifest=attached.manifest or {}
         )
-    package_meta = dict(canonical.get("package") or {})
+    return await _require_package_entitlement(app_node, dict(canonical.get("package") or {}))
+
+
+# deviation: process-local memo of each definition revision's package block — the gate otherwise re-reads and decodes
+# the App's whole compiled definition (1.2 MB for Payroll Guyana) for every record a tool or query touches, which
+# with the multi-worker size-0 entity cache was a third of a 1,000-person pay run's prepare time (py-spy, 9106).
+# A definition revision is written once (a change mints a new revision id and moves ``active_definition_id``), so
+# the block for an id never goes stale; the App's current pointer and the entitlement row are still read every call.
+_PACKAGE_META_BY_DEFINITION: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_PACKAGE_META_LIMIT = 256
+
+
+def _remember_package_meta(definition_id: str, package: Dict[str, Any]) -> None:
+    _PACKAGE_META_BY_DEFINITION[definition_id] = dict(package)
+    _PACKAGE_META_BY_DEFINITION.move_to_end(definition_id)
+    while len(_PACKAGE_META_BY_DEFINITION) > _PACKAGE_META_LIMIT:
+        _PACKAGE_META_BY_DEFINITION.popitem(last=False)
+
+
+async def _require_package_entitlement(app_node, package_meta: Dict[str, Any]) -> Optional[Entitlement]:
     # Compiled definitions omit the library slug. Installation provenance is
     # the durable package identity, just as it is at the initial install gate.
     package_meta["slug"] = str(
