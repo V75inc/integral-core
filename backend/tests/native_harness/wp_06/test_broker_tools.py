@@ -174,6 +174,69 @@ def _scope() -> HarnessExecutionScope:
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.smoke
+@pytest.mark.parametrize("name", ["integral_create_entry", "integral_schedule_task"])
+async def test_proposal_validation_requires_a_correction_and_bounds_retries(
+    monkeypatch, name
+):
+    calls = []
+
+    async def invoke(**kwargs):
+        value = kwargs["arguments"]["value"]
+        calls.append(value)
+        if value == "corrected":
+            return CapabilityResult(ok=True, data={"token": "staged"})
+        return CapabilityResult(
+            ok=False,
+            error_code="invalid_arguments",
+            message="value: use the current schema key",
+            next_tool=name,
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+
+    def make_tool():
+        return build_brokered_tools(
+            scope=_scope(),
+            catalogue=[
+                {
+                    "name": name,
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"value": {"type": "string"}},
+                    },
+                }
+            ],
+        )[0]
+
+    tool = make_tool()
+    ctx = SimpleNamespace(active_capability_ids=set(), tool_call_id="proposal")
+
+    first = await tool.function_schema.call({"value": "bad"}, ctx)
+    assert first["retryable"] is True
+    assert "value: use the current schema key" in first["message"]
+    assert "next_tool" not in first
+
+    duplicate = await tool.function_schema.call({"value": "bad"}, ctx)
+    assert "already rejected" in duplicate["message"]
+    corrected = await tool.function_schema.call({"value": "corrected"}, ctx)
+    assert corrected["token"] == "staged"
+
+    await tool.function_schema.call({"value": "bad"}, ctx)
+    second = await tool.function_schema.call({"value": "still bad"}, ctx)
+    assert second["retryable"] is False
+    assert "Stop retrying" in second["message"]
+    blocked = await tool.function_schema.call({"value": "changed again"}, ctx)
+    assert blocked["retryable"] is False
+    assert calls == ["bad", "corrected", "bad", "still bad"]
+
+    fresh_turn = await make_tool().function_schema.call({"value": "corrected"}, ctx)
+    assert fresh_turn["token"] == "staged"
+
+
 def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
     """Model-facing route enrichment leaves broker receipts unchanged."""
     source = {
