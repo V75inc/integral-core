@@ -1315,7 +1315,13 @@ async def _dispatch_propose(
         }
         if result.get("prior_proposal"):
             data["prior_proposal"] = result["prior_proposal"]
-        for key in ("blueprint_revision", "blueprint_digest", "blueprint_diff"):
+        for key in (
+            "blueprint_revision",
+            "blueprint_digest",
+            "blueprint_diff",
+            "decision_required",
+            "coverage",
+        ):
             if key in result:
                 data[key] = result[key]
         return ToolResult(data=data)

@@ -428,6 +428,7 @@ def _make_handler(
             if not call_state.get("approved_design_ready"):
                 if call_state.get("pending_design"):
                     from app.agentive.harness.design_approval import (
+                        DesignDecisionRequired,
                         authorize_pending_design_build,
                     )
 
@@ -440,6 +441,15 @@ def _make_handler(
                                 work_context=work_execution_context,
                             )
                         )
+                    except DesignDecisionRequired as exc:
+                        call_state["design_decision_required"] = str(exc)
+                        call_state["approved_design_ready"] = False
+                        return {
+                            "error": True,
+                            "error_code": "design_decision_required",
+                            "message": str(exc),
+                            "retryable": False,
+                        }
                     except Exception:
                         return {
                             "error": True,
@@ -707,6 +717,14 @@ def _make_handler(
                     "id": result.receipt.step_id,
                     "session_id": scope.session_id,
                 }
+        if (
+            capability_source == "core"
+            and capability_name == "integral_build_approved_design"
+            and not result.ok
+            and result.error_code == "design_decision_required"
+        ):
+            call_state["design_decision_required"] = result.message
+            call_state["approved_design_ready"] = False
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
             if result.ok:
@@ -784,6 +802,11 @@ def _make_handler(
                 )
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
+            call_state.pop("design_decision_required", None)
+            if model_result.get("decision_required"):
+                call_state["design_decision_required"] = model_result[
+                    "decision_required"
+                ]
             call_state["approved_design_ready"] = bool(model_result.get("approved"))
             proposal_text = model_result.get("proposal")
             if isinstance(proposal_text, str) and proposal_text.strip():

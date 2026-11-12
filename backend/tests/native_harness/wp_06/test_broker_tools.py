@@ -2668,3 +2668,66 @@ async def test_repair_state_does_not_replay_uncertain_or_denied_build(
         "build_already_attempted"
     )
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_approved", [False, True])
+async def test_unresolved_design_asks_question_without_plan_retry(
+    monkeypatch, legacy_approved
+):
+    from app.agentive.harness.design_approval import DesignDecisionRequired
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    question = "Before I can build this, I need to clarify:\n\nUpdate status too?"
+    calls = []
+
+    async def authorize(**kwargs):
+        raise DesignDecisionRequired(question)
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(
+            ok=False, error_code="design_decision_required", message=question
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.harness.design_approval.authorize_pending_design_build", authorize
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    state = {
+        "approved_design_ready": legacy_approved,
+        "pending_design": True,
+        "active_user_turn": 2,
+        "active_user_text": "Looks good",
+        "capability_search_completed": True,
+    }
+    tool = build_brokered_tools(
+        scope=_scope(),
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    result = await tool.function_schema.call(
+        {}, SimpleNamespace(tool_call_id="build", active_capability_ids=set())
+    )
+    assert result["error_code"] == "design_decision_required"
+    assert len(calls) == int(legacy_approved)
+    assert not state["approved_design_ready"]
+    assert "build_plan_repair_pending" not in state
+    assert (
+        await _scaffold_completion_validator(state)(None, "I couldn't build it.")
+        == question
+    )

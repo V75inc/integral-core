@@ -200,3 +200,37 @@ async def test_foreign_thread_cannot_receive_build_authority(monkeypatch):
         await design_approval.authorize_pending_design_build(
             scope=scope(), expected_user_turn=2, expected_utterance="Go ahead"
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("already_approved", [False, True])
+async def test_open_decision_cannot_be_stamped_by_generic_affirm(
+    monkeypatch, already_approved
+):
+    import copy
+
+    marker = {
+        "approved": already_approved,
+        "blueprint": {
+            "open_decisions": [{"id": "q.filing", "question": "Update status too?"}]
+        },
+    }
+    before = copy.deepcopy(marker)
+    thread = SimpleNamespace(
+        user_id="user-a",
+        workspace_id="workspace-a",
+        provider_id="integral_native",
+        design_proposed=marker,
+    )
+
+    async def get_thread(_id):
+        return thread
+
+    monkeypatch.setattr(design_approval.ChatThread, "get", get_thread)
+    with pytest.raises(
+        design_approval.DesignDecisionRequired, match="Update status too"
+    ):
+        await design_approval.authorize_pending_design_build(
+            scope=scope(), expected_user_turn=2, expected_utterance="Looks good"
+        )
+    assert thread.design_proposed == before

@@ -141,6 +141,9 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
     """Validate scaffold receipts without imposing discovery on plain chat."""
 
     async def validate(ctx: Any, output: str) -> str:
+        decision = run_state.get("design_decision_required")
+        if isinstance(decision, str) and decision.strip():
+            return decision
         build_validation_failure = run_state.get("build_validation_failure")
         if isinstance(build_validation_failure, str):
             return (

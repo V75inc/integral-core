@@ -283,3 +283,81 @@ async def test_propose_requires_code_needs_named():
     assert result["coverage"]["status"] == "needs_trusted_package"
     marker = (await ChatThread.get(thread.id)).design_proposed
     assert marker["coverage"]["requires_trusted_package"][0]["name"] == "Charge card"
+
+
+@pytest.mark.asyncio
+async def test_open_design_decisions_are_not_buildable_or_hidden():
+    question = "Should updates also change the main project status automatically?"
+    blueprint = _variant(open_decisions=[{"id": "q.filing", "question": question}])
+    coverage = await check_design_coverage("u1", blueprint)
+    assert coverage["status"] == "needs_decision"
+    assert coverage["open_decisions"][0]["question"] == question
+    thread = await _thread("coverage-open-decisions")
+    thread.provider_id = "integral_native"
+    await thread.save()
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.id,
+        summary="Orders app",
+        proposal=_PROPOSAL,
+        blueprint=blueprint,
+    )
+    assert result["ok"] is True
+    assert question in result["decision_required"]
+    marker = (await ChatThread.get(thread.id)).design_proposed
+    assert marker["coverage"]["status"] == "needs_decision"
+    assert marker["approved"] is False
+    # A pre-patch approved unresolved draft can receive a resolved revision.
+    marker["approved"] = True
+    thread = await ChatThread.get(thread.id)
+    thread.design_proposed = marker
+    await thread.save()
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.id,
+        summary="Resolved Orders app",
+        proposal=_PROPOSAL,
+        blueprint=_BLUEPRINT,
+    )
+    assert result["ok"] is True
+    marker = (await ChatThread.get(thread.id)).design_proposed
+    assert marker["approved"] is False
+    assert marker["blueprint_revision"] == 2
+    assert not marker["blueprint"]["open_decisions"]
+
+
+@pytest.mark.asyncio
+async def test_yes_to_legacy_open_question_can_record_resolved_revision(monkeypatch):
+    thread = await _thread("legacy-decision-yes")
+    blueprint = _variant(
+        open_decisions=[{"id": "q.status", "question": "Update status too?"}]
+    )
+    first = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="legacy-decision-yes",
+        summary="Orders",
+        proposal=_PROPOSAL,
+        blueprint=blueprint,
+    )
+    assert first["ok"]
+    msg = await ChatMessage.create(
+        role="user", thread_id=thread.id, parts=[{"type": "text", "text": "Yes"}]
+    )
+    await thread.connect(msg, edge=CONTAINS)
+
+    async def affirm(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(chat_threads, "looks_like_design_affirm", affirm)
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="legacy-decision-yes",
+        summary="Resolved Orders",
+        proposal=_PROPOSAL,
+        blueprint=_BLUEPRINT,
+    )
+    assert result["ok"]
+    marker = (await ChatThread.get(thread.id)).design_proposed
+    assert marker["blueprint_revision"] == 2
+    assert marker["approved"] is False
+    assert not marker["blueprint"]["open_decisions"]

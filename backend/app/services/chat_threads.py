@@ -928,6 +928,10 @@ async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
         return False
     if marker.get("build_receipt"):
         return False
+    if (marker.get("blueprint") or {}).get("open_decisions") and not marker.get(
+        "partial_build"
+    ):
+        return False
     proposed_at = marker.get("proposed_at_user_turn")
     if not isinstance(proposed_at, int):
         return False
@@ -963,6 +967,10 @@ async def stamp_design_approved(
     """
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker or marker.get("approved"):
+        return False
+    if (marker.get("blueprint") or {}).get("open_decisions") and not marker.get(
+        "partial_build"
+    ):
         return False
     saved = _saved_affirm(marker, utterance)
     affirmed = (
@@ -1153,6 +1161,7 @@ async def record_design_proposed(
     if (
         existing
         and not native_turn
+        and not unbuildable
         and not existing.get("approved")
         and isinstance(prior_turn, int)
         and current_turns > prior_turn
@@ -1365,6 +1374,20 @@ async def record_design_proposed(
             "Do not begin_batch until they reply."
         ),
     }
+    if canonical_blueprint is not None:
+        from app.services.design_blueprint import (
+            design_decision_reply,
+            open_design_questions,
+        )
+
+        questions = open_design_questions(canonical_blueprint)
+        if questions:
+            out["decision_required"] = design_decision_reply(questions)
+            out["message"] = (
+                "Draft recorded, not ready for approval or building. Ask the "
+                "saved open questions in decision_required. Do not infer answers "
+                "from a general affirmation. Revise the design after clarification."
+            )
     if prior_proposal and replaced:
         out["prior_proposal"] = prior_proposal
     out.update({k: v for k, v in blueprint_fields.items() if k != "blueprint"})

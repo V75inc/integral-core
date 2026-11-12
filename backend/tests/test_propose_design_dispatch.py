@@ -686,3 +686,90 @@ async def test_missing_design_scratch_refuses_incomplete_authority(
         user_id="u1", session_id="invalid-recovery", key="app_design_blueprint"
     )
     assert result["error"] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_proposal_reaches_native_final_clarification(monkeypatch):
+    """Exercise real proposal dispatch, not a mock with a richer response."""
+    from types import SimpleNamespace
+
+    from app.agentive.harness.broker_tools import build_brokered_tools
+    from app.agentive.harness.contracts import HarnessExecutionScope
+    from app.schemas.capability_broker import CapabilityResult
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    thread = await _thread("unresolved-dispatch", 1)
+    question = "Should project updates also change the main project status?"
+    blueprint = dict(
+        _BLUEPRINT, open_decisions=[{"id": "q.filing", "question": question}]
+    )
+    state = {"capability_search_completed": True}
+    dispatched = []
+
+    async def invoke(**kwargs):
+        result = await dispatch_tool(
+            kwargs["capability_key"],
+            kwargs["arguments"],
+            principal_id="u1",
+            scope="ws1",
+            session_id="unresolved-dispatch",
+        )
+        dispatched.append(result)
+        return CapabilityResult(
+            ok=not result.is_error,
+            data=result.data,
+            error_code=result.error_code,
+            message=result.message,
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    scope = HarnessExecutionScope(
+        tenant_id="ws1",
+        workspace_id="ws1",
+        principal_id="u1",
+        thread_id=thread.id,
+        session_id="unresolved-dispatch",
+        run_id="run1",
+        permission_revision="p1",
+        capability_version="c1",
+    )
+    tool = build_brokered_tools(
+        scope=scope,
+        run_state=state,
+        catalogue=[
+            {
+                "name": "integral_propose_design",
+                "description": "Propose",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "proposal": {"type": "string"},
+                        "blueprint": {"type": "object"},
+                    },
+                },
+            }
+        ],
+    )[0]
+    result = await tool.function_schema.call(
+        {"summary": "Demo", "proposal": _PROPOSAL, "blueprint": blueprint},
+        SimpleNamespace(
+            tool_call_id="proposal", active_capability_ids={"integral-scaffold"}
+        ),
+    )
+    assert len(dispatched) == 1
+    assert not dispatched[0].is_error
+    assert result["coverage"]["status"] == "needs_decision"
+    assert question in result["decision_required"]
+    output = await _scaffold_completion_validator(state)(None, "Confirm this setup.")
+    assert output == result["decision_required"]
+    assert question in output
+    assert "Confirm" not in output

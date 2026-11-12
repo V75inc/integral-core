@@ -1196,3 +1196,16 @@ async def test_pending_plan_repair_respects_final_output_budget():
     result = await validate(SimpleNamespace(last_attempt=True), "Built successfully.")
     assert "No changes from this build were saved" in result
     assert "build_plan_repair_output_retries" not in state
+
+
+@pytest.mark.asyncio
+async def test_design_question_overrides_generic_build_failure_and_approval_cta():
+    question = "Before I can build this, I need to clarify:\n\nUpdate status too?"
+    validate = _scaffold_completion_validator(
+        {
+            "design_decision_required": question,
+            "proposal_succeeded": True,
+            "proposal_text": "Confirm this design.",
+        }
+    )
+    assert await validate(None, "Your setup is ready.") == question
