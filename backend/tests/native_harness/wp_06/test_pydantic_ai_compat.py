@@ -485,6 +485,7 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     assert "already loaded" in active
     assert "integral-model, integral-scaffold" in active
     assert "Do not call load_capability for them again." in active
+    assert "only when it serves the latest request" in active
 
 
 def test_run_instructions_use_server_utc_date_and_refresh_for_new_invocations(
@@ -528,12 +529,14 @@ def test_run_instructions_surface_current_core_outcomes_over_old_proposal_text()
                     "call",
                 )
             ]
-        )
+        ),
+        ModelRequest(parts=[UserPromptPart("Can you look up Avia Lindie online?")]),
     ]
     result = instructions(
         SimpleNamespace(active_capability_ids=set(), messages=history)
     )
     assert "proposal-a: consumed" in result
+    assert "when the current request concerns that change" in result
     assert "None of these changes is awaiting approval" in result
     assert "Untrusted document" not in result
 

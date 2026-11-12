@@ -2260,10 +2260,19 @@ class PydanticAIProvider:
 
         time_context = await user_time_context(scope.principal_id)
         instructions = (
-            "You are Integral's resident intelligence. A host continuation can "
+            "You are Integral's resident intelligence. Use the latest user "
+            "message to decide what to do and what to answer. Use earlier dialogue "
+            "to resolve references and carry forward relevant constraints. For "
+            "example, 'what else did she build?' continues the discussion about "
+            "the person just mentioned. A request to search online for a newly "
+            "named person starts a public web lookup. Use the public web workflow "
+            "for explicit online research. Read workspace material only if the "
+            "current request needs it. Leave unrelated earlier topics out of "
+            "both tool calls and the answer. A host continuation can "
             "carry a current approval outcome without a new user message. An empty "
             "utterance is not a human reply, refusal, or evidence a proposal is pending. "
-            "When current host context or Core receipts report consumed/applied "
+            "When the current host event or a receipt for work relevant to the "
+            "latest request reports consumed/applied "
             "changes, read back the affected records and acknowledge the verified "
             "outcome. Use record IDs in the server-verified execute_result or "
             "consumed_nav with integral_resolve_entry for permitted record readback; "
