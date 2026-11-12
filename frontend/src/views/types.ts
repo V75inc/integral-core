@@ -28,6 +28,10 @@ export interface ViewWidgetProps {
   entryTypeSlugs?: string[];
   filterType?: string;
   onFilterChange?: (type: string) => void;
+  /** Filters on the Track's fields (applied by the server) and how a widget changes them. A table shows one filter
+   *  control per visible column when ``onColumnFiltersChange`` is given. */
+  columnFilters?: import('../components/tracks/fieldFilters').FieldFilter[];
+  onColumnFiltersChange?: (next: import('../components/tracks/fieldFilters').FieldFilter[]) => void;
   fetchMore?: () => void;
   hasNextPage?: boolean;
   isFetchingNext?: boolean;

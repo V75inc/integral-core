@@ -31,6 +31,9 @@ interface TrackFilterStripProps {
   filterType: string;
   setFilterType: (slug: string) => void;
   entryTypeSlugs: string[];
+  /** Filters typed into the table's column headings (applied by the server): how many, and how to clear them. */
+  fieldFilterCount?: number;
+  onClearFieldFilters?: () => void;
   tagEntries?: Entry[];
   selectedTags?: string[];
   onTagsChange?: (value: string[]) => void;
@@ -64,6 +67,8 @@ export function TrackFilterStrip({
   filterType,
   setFilterType,
   entryTypeSlugs,
+  fieldFilterCount = 0,
+  onClearFieldFilters,
   tagEntries = [],
   selectedTags = [],
   onTagsChange,
@@ -105,7 +110,7 @@ export function TrackFilterStrip({
     };
   }, [popoverOpen]);
 
-  const granularActiveCount = (filterType ? 1 : 0) + selectedTags.length;
+  const granularActiveCount = (filterType ? 1 : 0) + selectedTags.length + fieldFilterCount;
   const anyActive = Boolean(search.trim() || granularActiveCount);
 
   // Count badges and Clear can move the trigger on narrow screens. Keep the
@@ -143,6 +148,7 @@ export function TrackFilterStrip({
     setSearch('');
     setFilterType('');
     onTagsChange?.([]);
+    onClearFieldFilters?.();
   };
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

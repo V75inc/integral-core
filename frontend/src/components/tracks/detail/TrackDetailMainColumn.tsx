@@ -1,6 +1,7 @@
 import { type ReactNode, type RefObject } from 'react';
 import { Loader2 } from 'lucide-react';
 import { TrackFilterStrip } from '../TrackFilterStrip';
+import type { FieldFilter } from '../fieldFilters';
 import { EntryComposer } from '../../entries/EntryComposer';
 import { FilterActionRow, LINE_ICON_STROKE, filterBar } from '../../ui';
 import { ViewRenderer } from '../../../views';
@@ -65,6 +66,8 @@ export interface TrackDetailMainColumnProps {
   onEntryCreate: NonNullable<ViewWidgetProps['onEntryCreate']>;
   entryTypes: EntryTypeNode[];
   trackEntryTypeFields: OperationalModelFieldSpec[];
+  fieldFilters: FieldFilter[];
+  setFieldFilters: (value: FieldFilter[]) => void;
   hasNextPage: boolean | undefined;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
@@ -118,6 +121,8 @@ export function TrackDetailMainColumn({
   onEntryCreate,
   entryTypes,
   trackEntryTypeFields,
+  fieldFilters,
+  setFieldFilters,
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
@@ -149,6 +154,8 @@ export function TrackDetailMainColumn({
                 filterType={filterType}
                 setFilterType={setFilterType}
                 entryTypeSlugs={entryTypeSlugs}
+                fieldFilterCount={fieldFilters.length}
+                onClearFieldFilters={() => setFieldFilters([])}
                 tagEntries={tagFilterEntries}
                 selectedTags={filterTags}
                 onTagsChange={setFilterTags}
@@ -235,6 +242,8 @@ export function TrackDetailMainColumn({
               track?.operational_model_defaults?.default_entry_type
             }
             fields={trackEntryTypeFields}
+            columnFilters={fieldFilters}
+            onColumnFiltersChange={setFieldFilters}
             filterType={filterType}
             onFilterChange={setFilterType}
             fetchMore={

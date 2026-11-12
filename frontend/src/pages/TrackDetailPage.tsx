@@ -1,4 +1,5 @@
 import { useDeployment } from '../hooks/useDeployment';
+import { MAX_FIELD_FILTERS, type FieldFilter } from '../components/tracks/fieldFilters';
 import type { EntryCreateInput } from '../views/types';
 import { entriesMatchingTags } from '../components/tracks/TrackTagFilters';
 /* patch:kanban-hire-intercept */
@@ -164,6 +165,9 @@ export function TrackDetailPage() {
   const [deriveModalOpen, setDeriveModalOpen] = useState(false);
   const [filterType, setFilterType] = useState('');
   const [filterTags, setFilterTags] = useState<string[]>([]);
+  // Filters on the Track's fields. The server applies them before it pages, so totals and every page follow.
+  const [fieldFilters, setFieldFilters] = useState<FieldFilter[]>([]);
+  useEffect(() => { setFieldFilters([]); }, [id]);
   useEffect(() => setFilterTags([]), [id]);
   const [trackSearch, setTrackSearch] = useState('');
   // Right rail collapsed by default. Two mutually exclusive modes:
@@ -541,10 +545,18 @@ export function TrackDetailPage() {
     feedFallbackView,
   ]);
 
-  const entryFilters = dashboardFilters
-    ? { dashboard_filters: JSON.stringify(dashboardFilters) }
+  // Dashboard drill-down filters and the user's field filters go to the server together. The view is sent too, so
+  // its entry types and its own filters keep applying.
+  const requestFilters = useMemo(
+    () => [...(dashboardFilters ?? []), ...fieldFilters].slice(0, MAX_FIELD_FILTERS),
+    [dashboardFilters, fieldFilters],
+  );
+  const entryFilters = requestFilters.length
+    ? { dashboard_filters: JSON.stringify(requestFilters), ...(activeView?.id ? { view_id: activeView.id } : {}) }
     : activeView?.id ? { view_id: activeView.id } : {};
-  const entryFilterKey = dashboardFiltersParam ?? activeView?.id;
+  const entryFilterKey = requestFilters.length
+    ? `${JSON.stringify(requestFilters)}|${activeView?.id ?? ''}`
+    : activeView?.id;
 
   const {
     data: entriesData,
@@ -696,9 +708,7 @@ export function TrackDetailPage() {
     principalId: user?.id,
     trackId: id,
     enabled: semanticMode && Boolean(id && trackDetailQuery.data && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
-    params: dashboardFilters
-      ? { dashboard_filters: JSON.stringify(dashboardFilters) }
-      : activeView?.id ? { view_id: activeView.id } : {},
+    params: entryFilters,
   });
 
   const allEntries = useMemo(
@@ -2011,6 +2021,8 @@ export function TrackDetailPage() {
           onEntryCreate={handleEntryCreate}
           entryTypes={(entryTypesQuery.data ?? []) as EntryTypeNode[]}
           trackEntryTypeFields={trackEntryTypeFields}
+          fieldFilters={fieldFilters}
+          setFieldFilters={setFieldFilters}
           hasNextPage={hasNextPage && !(semanticMode && Boolean(retrievalQuery))}
           isFetchingNextPage={isFetchingNextPage}
           fetchNextPage={() => {

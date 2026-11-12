@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { ColumnFilterRow } from './ColumnFilterRow';
 import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { Avatar, AvatarStackedMeta, MarkdownContent } from '../ui';
 import { MemberValue } from '../entries/members';
@@ -212,7 +213,9 @@ function TableWidgetInner({
   view,
   fields,
   onEntryOpen,
-  commentCounts
+  commentCounts,
+  columnFilters,
+  onColumnFiltersChange
 }: ViewWidgetProps) {
   const config = (view.config || {}) as Record<string, unknown>;
   const rawColumns = config.columns as TableColumn[] | undefined;
@@ -430,6 +433,15 @@ function TableWidgetInner({
                 </th>
               ))}
             </tr>
+            {onColumnFiltersChange ? (
+              <ColumnFilterRow
+                columns={visibleCols}
+                fields={fields ?? []}
+                filters={columnFilters ?? []}
+                onChange={onColumnFiltersChange}
+                className="border-b border-[var(--entry-table-border)] bg-[var(--entry-table-header)]"
+              />
+            ) : null}
           </thead>
           <tbody>
             {sortedEntries.map((entry, i) => (
