@@ -216,6 +216,10 @@ class ChangeEventLogger:
         """Ensure DBLog indexes exist on the routed logging database."""
         from jvspatial.logging.models import DBLog
 
+        from app.services.storage_indexes.runtime import managed
+
+        if managed():
+            return  # Provisioned and verified by the catalog lifecycle.
         ctx = self._get_log_context()
         if ctx is None:
             return

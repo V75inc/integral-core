@@ -31,6 +31,42 @@ writes of other kinds stop paying for it.
 
 ## Plan (expand, verify, switch, remove)
 
+### Control creation separately from migration
+
+The candidate jvspatial source supports
+`JVSPATIAL_POSTGRES_INDEX_CREATION=constraints`. In this mode annotation-driven
+and direct adapter performance-index declarations are deferred, including sort
+companions, whole-document GIN and vector indexes. Existing indexes and unique
+constraint enforcement remain intact. Fixed collection primary/entity/tenant
+baseline indexes still initialize. Keep `JVSPATIAL_AUTO_CREATE_INDEXES=true`;
+turning that older flag off skips annotation-declared unique indexes too.
+
+This is an explicit deployment setting, not a dependency upgrade or a new Core
+default. Confirm the selected adapter exposes `index_creation` and resolves the
+requested mode in both API and worker before claiming it is active. Older wheels
+may ignore this environment variable; source selection must be verified.
+
+On a fresh installation provision the reviewed query indexes in a maintenance
+process using an adapter explicitly constructed with `index_creation="auto"`,
+before serving populated workloads. On an existing installation freeze creation
+without removing the currently useful indexes. New declarations then require a
+reviewed provisioning step. Host-issued schema migrations, including dedicated
+semantic-index storage, remain separately managed.
+
+This control does not reduce the cost of existing broad indexes. Continue with
+the expand/verify/remove procedure below; do not turn on partial declarations in
+serving processes and assume the existing write overhead disappears. Index count
+does not grow per invoice: stable declarations produce stable names, but their
+entries and maintenance cost grow with data, and changes in declarations can add
+new companion indexes. Protect against both declaration drift and storage growth.
+
+The read-only usage report accepts `--max-indexes-per-table N` and
+`--max-index-bytes-per-table N`, returning nonzero when a configured budget is
+exceeded. These operator-chosen budgets include constraint indexes, but never
+authorize removal; zero scan counts are not evidence of safe redundancy.
+
+### Migrate existing indexes
+
 1. **Expand.** Set `INTEGRAL_PARTIAL_INDEXES=1` before the API boots. Core's own
    declarations (`backend/app/models/indexing.py`) then ask jvspatial for per-kind
    (`WHERE entity = 'Kind'`) indexes; `ensure_indexes` ADDS them beside the existing ones.
@@ -38,8 +74,9 @@ writes of other kinds stop paying for it.
    - jvspatial creates indexes with a plain `CREATE INDEX IF NOT EXISTS`, which blocks
      writes to the table while it builds. On a large table pre-create the same index
      out of band with `CREATE INDEX CONCURRENTLY` under the same name (the boot step
-     then skips it). Take the name and definition from the boot log or from
-     `python -c` on `GraphContext.get_indexes()`.
+     then skips it). Inspect `Model.get_indexes()` for the declarations and take
+     the generated names/definitions from the qualified disposable database's
+     catalog. Do not infer replacement names from field labels.
 2. **Verify.** For each hot query, compare `EXPLAIN (ANALYZE)` before and after, then
    re-run `index_usage_report.py` after a week of traffic: the new partial indexes should
    show scans and the entity-leading twins should stop.
@@ -61,3 +98,10 @@ cleanly to jvspatial 0.2.5 and needs to go upstream. Core cannot change them.
 
 The five indexes `change_event_logger.py` creates directly are already per-kind
 (`partial_by_entity=True`, added with the events fix).
+
+## Governed physical storage
+
+PostgreSQL API and ordinary workers use verify-only managed storage with a
+versioned catalog, reviewed provisioning artifacts and separate runtime roles.
+See [governed index lifecycle](governed-indexes.md) for commands, ownership, recovery and
+qualification. Transitional `constraints` configuration is not the final boundary.

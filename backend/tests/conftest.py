@@ -57,6 +57,10 @@ TEST_LOG_DB_PATH = f"test_integral_logs{_DB_SUFFIX}"
 _TEST_DB_KIND = (os.getenv("INTEGRAL_TEST_DB") or "json").lower()
 
 if _TEST_DB_KIND in ("postgres", "postgresql"):
+    # These legacy graph/adapter fixtures own and reset their schema. Keep that
+    # maintenance contract explicit; governed lifecycle, fresh provisioning and
+    # real worker-process tests separately exercise managed DML-only serving.
+    os.environ.setdefault("JVSPATIAL_POSTGRES_INDEX_CREATION", "constraints")
     _PG_TEST_DB_NAME = f"integral_test{_DB_SUFFIX}"
     _PG_TEST_DSN = _with_postgres_database(
         os.getenv(
@@ -1034,7 +1038,7 @@ async def _reset_postgres_test_tables() -> None:
     conn = await asyncpg.connect(_PG_TEST_DSN)
     try:
         tables = await conn.fetch(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('integral_index_catalog','integral_index_migrations')"
         )
         if tables:
             names = ", ".join(

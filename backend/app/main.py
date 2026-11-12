@@ -547,6 +547,12 @@ def _collect_index_classes() -> list[type]:
 
 async def _ensure_model_indexes() -> None:
     """Run ``ensure_indexes`` for every indexed model class plus credentials."""
+    from app.services.storage_indexes.runtime import managed, monitor, verify
+
+    if managed():
+        await verify()
+        _background_tasks.append(asyncio.create_task(monitor()))
+        return
     log = std_logging.getLogger(__name__)
     work_index_fatal: Optional[Exception] = None
     try:
@@ -1254,11 +1260,13 @@ if _db_type in ("postgres", "postgresql"):
     )
 
     from app.services.db_init import observability_kwargs, postgres_connection_dsn
+    from app.services.storage_indexes.runtime import postgres_kwargs
 
     _ensure_postgres_dsn()
     _prime_db = create_database(
         "postgres",
         dsn=postgres_connection_dsn(os.environ["JVSPATIAL_POSTGRES_DSN"]),
+        **postgres_kwargs(),
         **observability_kwargs(),
     )
     try:

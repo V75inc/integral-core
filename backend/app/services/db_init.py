@@ -104,6 +104,8 @@ def init_prime_db() -> None:
     obs_kwargs = observability_kwargs()
 
     if db_type in ("postgres", "postgresql"):
+        from app.services.storage_indexes.runtime import postgres_kwargs
+
         if not os.environ.get("JVSPATIAL_POSTGRES_DSN"):
             user = os.environ.get("POSTGRES_USER", "integral").strip()
             password = (os.environ.get("POSTGRES_PASSWORD") or "integral").strip()
@@ -117,6 +119,7 @@ def init_prime_db() -> None:
         prime_db = create_database(
             "postgres",
             dsn=postgres_connection_dsn(os.environ["JVSPATIAL_POSTGRES_DSN"]),
+            **postgres_kwargs(),
             **obs_kwargs,
         )
     elif db_type == "mongodb":

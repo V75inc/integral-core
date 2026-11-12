@@ -257,14 +257,69 @@ async def test_consumer_dead_letter_and_explicit_replay(postgres_raw_db):
     assert len(attempts) == 6
 
 
+async def managed_worker_environment(database):
+    """Provision the reviewed worker catalog outside its restricted process."""
+    import os
+    import uuid
+
+    import asyncpg
+
+    from app.services.storage_indexes.catalog import build_catalog
+    from app.services.storage_indexes.lifecycle import apply, plan
+    from app.services.storage_indexes.provision import serving_dsn
+
+    admin = await asyncpg.connect(database.dsn)
+    role = "event_runtime_" + uuid.uuid4().hex[:12]
+    password = uuid.uuid4().hex
+    await admin.execute(f"CREATE ROLE {role} LOGIN PASSWORD '{password}'")
+    try:
+        specs = build_catalog(include_search=False)
+        artifact = await plan(
+            admin,
+            specs,
+            include_search=False,
+            max_indexes=2000,
+            max_index_bytes=5_000_000_000,
+            max_build_bytes=7_000_000_000,
+            runtime_role=role,
+        )
+        await apply(
+            admin, artifact, approved_hash=artifact["hash"], expected_specs=specs
+        )
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(
+                (
+                    "POSTGRES_",
+                    "INTEGRAL_TEST_",
+                    "STORAGE_INDEX_",
+                    "INTEGRAL_MIGRATION_",
+                    "INDEX_MIGRATION_",
+                )
+            )
+        }
+        runtime = serving_dsn(database.dsn, role, password)
+        env.update(
+            JVSPATIAL_POSTGRES_DSN=runtime,
+            JVSPATIAL_LOG_POSTGRES_DSN=runtime,
+            JVSPATIAL_POSTGRES_INDEX_CREATION="managed",
+            JVSPATIAL_AUTO_CREATE_INDEXES="true",
+        )
+        return env, admin, role
+    except BaseException:
+        await admin.execute(f'DROP OWNED BY "{role}"')
+        await admin.execute(f'DROP ROLE "{role}"')
+        await admin.close()
+        raise
+
+
 async def test_cli_worker_is_an_independent_process(postgres_raw_db):
     """The actual CLI drains synthetic events without booting the API module."""
-    import os
     import sys
 
+    env, maintenance, runtime_role = await managed_worker_environment(postgres_raw_db)
     oid = await enqueue(postgres_raw_db)
-    env = dict(os.environ)
-    env["JVSPATIAL_LOG_POSTGRES_DSN"] = env["JVSPATIAL_POSTGRES_DSN"]
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-c",
@@ -275,9 +330,17 @@ async def test_cli_worker_is_an_independent_process(postgres_raw_db):
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
-    assert process.returncode == 0, stderr.decode()[-3000:]
-    assert (await row(postgres_raw_db, oid))["context"]["status"] == "delivered"
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+        assert process.returncode == 0, stderr.decode()[-3000:]
+        assert (await row(postgres_raw_db, oid))["context"]["status"] == "delivered"
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.communicate()
+        await maintenance.execute(f'DROP OWNED BY "{runtime_role}"')
+        await maintenance.execute(f'DROP ROLE "{runtime_role}"')
+        await maintenance.close()
 
 
 async def test_long_delivery_renews_its_lease(postgres_raw_db, monkeypatch):
@@ -327,12 +390,10 @@ async def test_missing_log_store_never_acknowledges_delivery(
 
 async def test_stalled_consumer_does_not_block_audit_delivery(postgres_raw_db):
     """A separate process keeps delivering audits while a callback is suspended."""
-    import os
     import sys
 
+    env, maintenance, runtime_role = await managed_worker_environment(postgres_raw_db)
     first = await enqueue(postgres_raw_db, "before-stall")
-    env = dict(os.environ)
-    env["JVSPATIAL_LOG_POSTGRES_DSN"] = env["JVSPATIAL_POSTGRES_DSN"]
     script = """
 import asyncio
 from app.services.event_subscription_registry import register_consumer_hook
@@ -351,6 +412,16 @@ asyncio.run(main())
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    # Drain diagnostics while waiting for stdout. A full stderr pipe must not
+    # suspend the child and masquerade as a stalled delivery/consumer failure.
+    diagnostics = []
+
+    async def drain_diagnostics():
+        while chunk := await process.stderr.read(4096):
+            diagnostics.append(chunk)
+            del diagnostics[:-2]
+
+    diagnostic_task = asyncio.create_task(drain_diagnostics())
     try:
 
         async def blocked():
@@ -361,7 +432,13 @@ asyncio.run(main())
                 if not line:
                     raise AssertionError("consumer process exited before delivery")
 
-        await asyncio.wait_for(blocked(), 120)
+        try:
+            await asyncio.wait_for(blocked(), 120)
+        except asyncio.TimeoutError as exc:
+            raise AssertionError(
+                "Consumer did not start: "
+                + b"".join(diagnostics).decode(errors="replace")[-3000:]
+            ) from exc
         assert (await row(postgres_raw_db, first))["context"]["status"] == "delivered"
         second = await enqueue(postgres_raw_db, "during-stall")
 
@@ -373,6 +450,8 @@ asyncio.run(main())
 
         await asyncio.wait_for(delivered(), 10)
     finally:
+        diagnostic_task.cancel()
+        await asyncio.gather(diagnostic_task, return_exceptions=True)
         if process.returncode is None:
             process.terminate()
         try:
@@ -380,3 +459,6 @@ asyncio.run(main())
         except asyncio.TimeoutError:
             process.kill()
             await process.communicate()
+        await maintenance.execute(f'DROP OWNED BY "{runtime_role}"')
+        await maintenance.execute(f'DROP ROLE "{runtime_role}"')
+        await maintenance.close()

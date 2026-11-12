@@ -65,6 +65,12 @@ async def configure_entry_count_projection(
 ) -> bool:
     """Attach the existing projection, or backfill during explicit maintenance."""
     database = get_default_context().database
+    from app.services.storage_indexes.runtime import managed
+
+    if rebuild and managed():
+        raise ValueError(
+            "Managed projection rebuild requires an operator maintenance plan"
+        )
     name = (
         "install_graph_binding_projection"
         if rebuild

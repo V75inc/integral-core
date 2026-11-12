@@ -95,6 +95,8 @@ def initialize(home: Path, *, profile: str | None = None) -> dict[str, Any]:
                 "credential_key": base64.b64encode(secrets.token_bytes(32)).decode(),
                 "oauth_key": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
                 "database_password": secrets.token_hex(32),
+                "runtime_database_password": secrets.token_hex(32),
+                "runtime_database_user": "integral_runtime_" + secrets.token_hex(8),
                 "control_token": secrets.token_hex(32),
             }
             private_json(path, config)
@@ -606,6 +608,8 @@ def _environment(
         "JVSPATIAL_PORT": str(api_port),
         "JVSPATIAL_DB_TYPE": "postgres",
         "JVSPATIAL_POSTGRES_DSN": dsn,
+        "JVSPATIAL_POSTGRES_INDEX_CREATION": "managed",
+        "JVSPATIAL_AUTO_CREATE_INDEXES": "true",
         "JVSPATIAL_DB_LOGGING_ENABLED": (
             "true"
             if config.get("deployment_profile") == "desktop_single_user"
@@ -659,6 +663,7 @@ def _environment(
         "ADMIN_PASSWORD",
     ):
         env.setdefault(key, "")
+    env.pop("INTEGRAL_MIGRATION_POSTGRES_DSN", None)
     env.update(controlled)
     return env
 
@@ -731,7 +736,25 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
             desktop = config.get("deployment_profile") == "desktop_single_user"
             if desktop:
                 deadline = time.monotonic() + 150
-            env = _environment(home, config, dsn, api_port, web_port, apps)
+            import asyncio
+
+            from app.services.storage_indexes.provision import initial_install
+
+            if not config.get("runtime_database_password") or not config.get(
+                "runtime_database_user"
+            ):
+                raise RuntimeErrorDetail(
+                    "Existing installation requires a reviewed storage/role migration before managed startup"
+                )
+            runtime_dsn = asyncio.run(
+                initial_install(
+                    dsn,
+                    runtime_role=config["runtime_database_user"],
+                    runtime_password=config["runtime_database_password"],
+                    plan_path=home / "storage-initial-plan.json",
+                )
+            )
+            env = _environment(home, config, runtime_dsn, api_port, web_port, apps)
             child([sys.executable, "-m", "app.main"], "api", env)
             child(
                 [sys.executable, "-m", "app.local_runtime", "web", str(home)],

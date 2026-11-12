@@ -411,7 +411,73 @@ def main(argv: list[str] | None = None) -> int:
         help="Exit nonzero if event delivery is unhealthy",
     )
     worker_modes.add_argument("--replay", help="Replay one dead-letter event fact ID")
+    indexes = sub.add_parser(
+        "indexes", help="Plan, provision or inspect reviewed PostgreSQL indexes"
+    )
+    indexes.add_argument("action", choices=["plan", "apply", "status"])
+    indexes.add_argument("--schema", default="public")
+    indexes.add_argument(
+        "--no-search",
+        action="store_true",
+        help="Omit optional search storage on graph-only installations",
+    )
+    indexes.add_argument("--output", type=Path)
+    indexes.add_argument("--plan", type=Path)
+    indexes.add_argument("--approved-hash")
+    indexes.add_argument("--check", action="store_true")
+    indexes.add_argument("--max-indexes", type=int)
+    indexes.add_argument("--max-index-bytes", type=int)
+    indexes.add_argument("--max-build-bytes", type=int)
+    indexes.add_argument("--runtime-role")
+    indexes.add_argument("--remove", action="append")
+    indexes.add_argument("--repair", action="append")
+    indexes.add_argument("--retirement-evidence", type=Path)
+    indexes.add_argument("--app-manifest", type=Path, action="append")
+    indexes.add_argument(
+        "--approved-app-catalog",
+        type=Path,
+        action="append",
+        help="Separately qualified platform specifications for App proposals",
+    )
+    indexes.add_argument(
+        "--include-request",
+        action="append",
+        help="Explicit app-slug:request-key selection",
+    )
+    indexes.add_argument(
+        "--profile",
+        type=Path,
+        action="append",
+        help="Explicit reviewed embedding profile JSON",
+    )
     args = parser.parse_args(argv)
+    if args.cmd == "indexes":
+        import asyncio
+
+        from app.services.storage_indexes.commands import execute
+
+        if args.action == "plan" and (
+            not args.output
+            or any(
+                x is None
+                for x in (args.max_indexes, args.max_index_bytes, args.max_build_bytes)
+            )
+        ):
+            parser.error(
+                "indexes plan requires --output and all three explicit budgets"
+            )
+        if args.action == "apply" and (not args.plan or not args.approved_hash):
+            parser.error("indexes apply requires --plan and --approved-hash")
+        try:
+            return asyncio.run(execute(args))
+        except Exception as exc:
+            print(
+                "Index lifecycle failed: "
+                + type(exc).__name__
+                + ". Inspect the reviewed plan/status.",
+                file=sys.stderr,
+            )
+            return 1
     if args.cmd == "worker":
         import asyncio
 

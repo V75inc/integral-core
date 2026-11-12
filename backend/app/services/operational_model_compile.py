@@ -1249,6 +1249,18 @@ def _normalize_package_meta(package: Dict[str, Any]) -> Dict[str, Any]:
         )
     for c in caps_out:
         ctype = str(c.get("type") or "")
+        if ctype == "storage_index_requests":
+            config = c.get("config") or {}
+            if (
+                set(config) - {"version"}
+                or type(config.get("version", 1)) is not int
+                or config.get("version", 1) != 1
+            ):
+                raise BadRequestError(
+                    message="Unsupported storage index request capability"
+                )
+            c["config"] = {"version": 1}
+            continue
         if ctype and not _view_type_known(ctype):
             raise BadRequestError(
                 message=(
@@ -4493,6 +4505,23 @@ def _compile_canonical_manifest(
                 app_node.get("queries"),
                 where="app.queries",
             )
+            from app.services.storage_indexes.proposals import normalize_requests
+
+            try:
+                if (
+                    type(app_node.get("storage_index_requests_version", 1)) is not int
+                    or app_node.get("storage_index_requests_version", 1) != 1
+                ):
+                    raise ValueError(
+                        "Unsupported storage index request capability version"
+                    )
+                storage_index_requests = normalize_requests(
+                    app_node.get("storage_index_requests"),
+                    queries=app_queries,
+                    tracks=tracks_out,
+                )
+            except ValueError as exc:
+                raise BadRequestError(message=str(exc)) from exc
             from app.services.app_home_contract import normalize_app_home
 
             try:
@@ -4563,6 +4592,14 @@ def _compile_canonical_manifest(
                 # F0 extension contract
                 "operations": app_operations,
                 "queries": app_queries,
+                **(
+                    {
+                        "storage_index_requests": storage_index_requests,
+                        "storage_index_requests_version": 1,
+                    }
+                    if storage_index_requests
+                    else {}
+                ),
                 "protected_state": app_protected_state,
                 "extension_views": app_extension_views,
                 **(

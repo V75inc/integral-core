@@ -98,6 +98,32 @@ def human(n: int) -> str:
     return f"{n} B"
 
 
+def budget_violations(
+    rows: List[Dict[str, Any]],
+    max_indexes: int | None = None,
+    max_bytes: int | None = None,
+) -> List[str]:
+    """Read-only deployment budgets; never infer that an index may be dropped."""
+    violations = []
+    for table, totals in summarise(rows).items():
+        if max_indexes is not None and totals["indexes"] > max_indexes:
+            violations.append(
+                f"{table}: {totals['indexes']} indexes exceeds budget {max_indexes}"
+            )
+        if max_bytes is not None and totals["bytes"] > max_bytes:
+            violations.append(
+                f"{table}: {totals['bytes']} index bytes exceeds budget {max_bytes}"
+            )
+    return violations
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("Budget must be a positive integer")
+    return parsed
+
+
 async def fetch(dsn: str, schema: str) -> List[Dict[str, Any]]:
     """Read the index statistics from the database (read only)."""
     import asyncpg
@@ -137,13 +163,29 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument(
         "--json", action="store_true", help="print JSON instead of text"
     )
+    parser.add_argument("--max-indexes-per-table", type=positive_int)
+    parser.add_argument("--max-index-bytes-per-table", type=positive_int)
     args = parser.parse_args(argv)
     rows = asyncio.run(fetch(args.dsn, args.schema))
+    violations = budget_violations(
+        rows, args.max_indexes_per_table, args.max_index_bytes_per_table
+    )
     if args.json:
-        print(json.dumps({"summary": summarise(rows), "indexes": rows}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "summary": summarise(rows),
+                    "indexes": rows,
+                    "budget_violations": violations,
+                },
+                indent=2,
+            )
+        )
     else:
         print(render(rows))
-    return 0
+        for violation in violations:
+            print(f"Budget exceeded: {violation}")
+    return 1 if violations else 0
 
 
 if __name__ == "__main__":

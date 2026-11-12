@@ -64,3 +64,21 @@ def test_rendering_lists_totals_and_every_index():
 def test_human_sizes():
     assert report.human(512) == "512 B"
     assert report.human(5 * 1024**3) == "5.0 GB"
+
+
+def test_budgets_cover_unique_indexes_without_recommending_removal():
+    rows = [
+        _row("a", 0, 100, "CREATE UNIQUE INDEX a ON o (x)", unique=True),
+        _row("b", 10, 50, "CREATE INDEX b ON o (y)"),
+    ]
+    assert report.budget_violations(rows) == []
+    assert report.budget_violations(rows, max_indexes=2, max_bytes=150) == []
+    assert len(report.budget_violations(rows, max_indexes=1, max_bytes=149)) == 2
+    assert report.budget_violations(rows, max_bytes=149)[0].startswith("object:")
+
+
+def test_invalid_budgets_fail_before_database_access():
+    import argparse
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        report.positive_int("0")

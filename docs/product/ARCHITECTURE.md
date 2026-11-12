@@ -109,3 +109,10 @@ Core owns native Resend, SendGrid and SMTP configuration independently of Apps.
 Workspace email uses encrypted intents and leased dispatch; account recovery
 remains immediate platform-only mail. See [workspace email](../platform/workspace-email.md)
 for administration, status semantics, signed events and legacy migration.
+
+## Governed physical storage
+
+PostgreSQL API and ordinary workers use verify-only managed storage with a
+versioned catalog, reviewed provisioning artifacts and separate runtime roles.
+See [governed index lifecycle](../backend/governed-indexes.md) for commands, ownership, recovery and
+qualification. Transitional `constraints` configuration is not the final boundary.

@@ -41,10 +41,22 @@ async def readiness() -> Dict[str, Any]:
 
     try:
         db = get_database_manager().get_prime_database()
-        await asyncio.wait_for(
-            db.count("__readiness_probe__", {}),
-            timeout=_READINESS_DB_TIMEOUT_SECONDS,
-        )
+        from app.services.storage_indexes.runtime import managed, state
+
+        if managed():
+            if not state()["ready"]:
+                raise RuntimeError("Managed storage is not ready")
+            pool = await db._ensure_pool()
+            async with pool.acquire() as connection:
+                await asyncio.wait_for(
+                    connection.fetchval("SELECT 1"),
+                    timeout=_READINESS_DB_TIMEOUT_SECONDS,
+                )
+        else:
+            await asyncio.wait_for(
+                db.count("__readiness_probe__", {}),
+                timeout=_READINESS_DB_TIMEOUT_SECONDS,
+            )
     except asyncio.TimeoutError:
         logger.warning(
             "Readiness probe timed out after %.1fs", _READINESS_DB_TIMEOUT_SECONDS

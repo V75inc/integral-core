@@ -28,7 +28,16 @@ async def initialise(*, ensure_indexes=True) -> None:
     init_prime_db()
     if not initialize_logging_database(log_levels=set(), enable_api_endpoints=False):
         raise RuntimeError("Event worker logging database unavailable")
-    if ensure_indexes:
+    from app.services.storage_indexes.runtime import managed, verify
+
+    if managed() and ensure_indexes:
+        await verify()
+    if not ensure_indexes:
+        # Health/status only reads the durable heartbeat and queue. The resident
+        # worker owns periodic catalog verification; do not repeat full model
+        # discovery and consumer registration in every health probe process.
+        return
+    if ensure_indexes and not managed():
         await get_change_event_logger().ensure_indexes()
     from app.agentive.sample_consumers import register_sample_consumers
 
@@ -42,7 +51,7 @@ async def initialise(*, ensure_indexes=True) -> None:
     async with postgres_graph_transaction(db) as held:
         if not is_postgres_entry_transaction(held):
             raise RuntimeError("The event worker requires a PostgreSQL primary store")
-    if ensure_indexes:
+    if ensure_indexes and not managed():
         from jvspatial.core.context import get_default_context
 
         from app.agentive import work_models
@@ -188,7 +197,11 @@ async def run(*, once=False) -> None:
             # Windows console event loops do not implement add_signal_handler.
             fallback_handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop.set))
+    from app.services.storage_indexes.runtime import managed, monitor, state
+
     consumers = []
+    if not once and managed():
+        consumers.append(asyncio.create_task(monitor(), name="event-index-readiness"))
     if not once:
         from functools import partial
 
@@ -206,6 +219,8 @@ async def run(*, once=False) -> None:
             )
     try:
         while not stop.is_set():
+            if managed() and not state()["ready"]:
+                raise RuntimeError("Managed storage is not ready")
             delivered = 0
             try:
                 delivered = await deliver_pending_operation_events()

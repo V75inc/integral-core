@@ -307,3 +307,10 @@ migration before upgrading existing Business Email Log configuration surfaces.
 ## Independent event delivery
 
 Deploy the same Core artifact as `integral worker events` beside the API. Configure the same prime/logging PostgreSQL stores and monitor heartbeat, pending age and dead letters. See [the event-worker contract](../backend/event-worker.md); audit/feed visibility is eventual after record saves.
+
+## Governed physical storage
+
+PostgreSQL API and ordinary workers use verify-only managed storage with a
+versioned catalog, reviewed provisioning artifacts and separate runtime roles.
+See [governed index lifecycle](../backend/governed-indexes.md) for commands, ownership, recovery and
+qualification. Transitional `constraints` configuration is not the final boundary.
