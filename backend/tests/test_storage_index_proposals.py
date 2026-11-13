@@ -95,6 +95,35 @@ def test_catalog_is_bounded_and_environment_independent(monkeypatch):
     assert all(s.queries for s in first if not s.required)
 
 
+def test_core_selects_its_catalog_for_framework_adapters(monkeypatch):
+    from jvspatial.db.postgres import PostgresDB
+
+    from app.services.storage_indexes.runtime import postgres_kwargs
+
+    monkeypatch.setenv("JVSPATIAL_POSTGRES_INDEX_CREATION", "managed")
+    monkeypatch.setenv("JVSPATIAL_AUTO_CREATE_INDEXES", "true")
+    monkeypatch.setenv(
+        "JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "integral_index_catalog"
+    )
+    monkeypatch.delenv("JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", raising=False)
+    configured = PostgresDB(**postgres_kwargs())
+    framework_created = PostgresDB()
+    assert configured.index_catalog_table == "integral_index_catalog"
+    assert framework_created.index_catalog_table == "integral_index_catalog"
+
+
+def test_core_rejects_a_catalog_its_provisioner_does_not_manage(monkeypatch):
+    from jvspatial import ManagedSchemaError
+
+    from app.services.storage_indexes.runtime import postgres_kwargs
+
+    monkeypatch.setenv("JVSPATIAL_POSTGRES_INDEX_CREATION", "managed")
+    monkeypatch.setenv("JVSPATIAL_AUTO_CREATE_INDEXES", "true")
+    monkeypatch.setenv("JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "other_catalog")
+    with pytest.raises(ManagedSchemaError, match="integral_index_catalog"):
+        postgres_kwargs()
+
+
 @pytest.mark.parametrize("flag", ["0", "false", "no", "off", "", "garbage"])
 def test_managed_mode_cannot_disable_integrity_verification(monkeypatch, flag):
     """Every disabled or ambiguous declaration flag fails before serving."""

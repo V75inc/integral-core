@@ -47,6 +47,13 @@ def postgres_kwargs():
         raise ManagedSchemaError(
             "Managed mode requires integrity declarations to remain enabled"
         )
+    catalog_table = os.getenv(
+        "JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "integral_index_catalog"
+    )
+    if catalog_table != "integral_index_catalog":
+        raise ManagedSchemaError("Core requires its provisioned integral_index_catalog")
+    # Also configure framework-created adapters, including the separate log store.
+    os.environ["JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE"] = catalog_table
     return {"index_creation": mode}
 
 

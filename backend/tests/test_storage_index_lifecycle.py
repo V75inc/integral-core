@@ -104,7 +104,12 @@ async def test_fresh_apply_runtime_no_ddl_and_integrity(storage_pg):
         conn, artifact, approved_hash=artifact["hash"], expected_specs=specs
     )
     initial = snapshot(await inventory(conn, schema))
-    db = PostgresDB(dsn=dsn, schema_name=schema, index_creation="managed")
+    db = PostgresDB(
+        dsn=dsn,
+        schema_name=schema,
+        index_creation="managed",
+        index_catalog_table="integral_index_catalog",
+    )
     try:
         await db.verify_index_spec(specs[0])
         for i in range(20):
@@ -199,7 +204,12 @@ async def test_competing_runner_and_unsafe_retirement(storage_pg):
 
 async def test_managed_missing_table_or_constraint_fails_closed(storage_pg):
     conn, schema, dsn = storage_pg
-    db = PostgresDB(dsn=dsn, schema_name=schema, index_creation="managed")
+    db = PostgresDB(
+        dsn=dsn,
+        schema_name=schema,
+        index_creation="managed",
+        index_catalog_table="integral_index_catalog",
+    )
     try:
         with pytest.raises(ManagedSchemaError):
             await db.get("node", "missing")
