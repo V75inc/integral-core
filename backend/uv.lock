@@ -1556,7 +1556,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "reportlab", specifier = ">=4.0.0" },
     { name = "sentry-sdk", extras = ["fastapi"], specifier = ">=2.0.0" },
-    { name = "soupsieve", specifier = ">=4.0" },
+    { name = "soupsieve", specifier = ">=4.0,<5" },
     { name = "tokenizers", specifier = ">=0.22,<1" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "tzdata", specifier = ">=2024.1" },
