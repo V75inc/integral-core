@@ -33,7 +33,7 @@ async def test_get_returns_metadata_only(enc_key, authenticated_client, test_use
         await upsert_user_credential(
             user_id=auth_user_id,
             provider="openai",
-            model="gpt-4o-mini",
+            model="gpt-4o",
             api_key="sk-live-test-key-1234",
         )
 
@@ -57,7 +57,7 @@ async def test_post_validates_before_save(enc_key, authenticated_client):
             "/api/users/me/model-credentials",
             json={
                 "provider": "openai",
-                "model": "gpt-4o-mini",
+                "model": "gpt-4o",
                 "api_key": "sk-bad",
             },
         )
@@ -73,7 +73,7 @@ async def test_post_saves_local_ollama_without_api_key(enc_key, authenticated_cl
     ) as validate:
         resp = await authenticated_client.post(
             "/api/users/me/model-credentials",
-            json={"provider": "ollama_local", "model": "gemma4:e2b"},
+            json={"provider": "ollama_local", "model": "local-evaluated-heavy"},
         )
 
     assert resp.status_code == 200
@@ -124,12 +124,12 @@ async def test_post_update_primary_model_without_resubmitting_api_key(
             "/api/users/me/model-credentials",
             json={
                 "provider": "openai",
-                "model": "gpt-4.1-mini",
+                "model": "gpt-4.1",
             },
         )
     assert resp.status_code == 200
     body = resp.json()["credential"]
-    assert body["model"] == "gpt-4.1-mini"
+    assert body["model"] == "gpt-4.1"
     assert body["key_fingerprint"]
 
 
@@ -175,7 +175,7 @@ async def test_account_deletion_purges_credentials(enc_key, test_user):
         await upsert_user_credential(
             user_id=auth_user_id,
             provider="openai",
-            model="gpt-4o-mini",
+            model="gpt-4o",
             api_key="sk-delete-test-key",
         )
     assert await get_active_credential_for_user(auth_user_id) is not None

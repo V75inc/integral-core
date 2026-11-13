@@ -593,8 +593,14 @@ async def test_provider_suppresses_output_after_work_item_fence_loss(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_history", ["none", "reset", "refuse"])
+@pytest.mark.parametrize(
+    "file_state", ["current", "deleted", "moved", "blocked", "revoked"]
+)
 async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     monkeypatch: pytest.MonkeyPatch,
+    file_state,
+    legacy_history,
 ) -> None:
     """Harness tools use the same durable run that Core's chat router created."""
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "a" * 32)
@@ -633,6 +639,53 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         workspace_id="workspace-a",
         provider_id="integral_native",
         active_harness_session_id=None,
+    )
+    # This upload existed when the turn was queued. Its current state is read
+    # only during provider preparation, not trusted from the signed capsule.
+    from unittest.mock import AsyncMock
+
+    candidate = SimpleNamespace(id="attachment-prior")
+    fresh_thread = SimpleNamespace(
+        id=thread.id,
+        user_id=thread.user_id,
+        workspace_id=thread.workspace_id,
+        archived=False,
+        nodes=AsyncMock(return_value=[candidate]),
+    )
+    attachment = SimpleNamespace(
+        id=candidate.id,
+        owner_kind="chat",
+        uploaded_by=thread.user_id,
+        source_type="file",
+        scan_status="blocked" if file_state == "blocked" else "clean",
+        storage_key="private-storage",
+        filename="prior-brief.pdf",
+        mime_type="application/pdf",
+        size=42,
+        nodes=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    id="other-thread" if file_state == "moved" else thread.id
+                )
+            ]
+        ),
+    )
+    rechecking_files = False
+
+    async def current_thread(_query):
+        nonlocal rechecking_files
+        rechecking_files = True
+        return fresh_thread
+
+    async def current_access(_user, _workspace):
+        return "none" if rechecking_files and file_state == "revoked" else "owner"
+
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.ChatThread.find_one", current_thread
+    )
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.Attachment.find_one",
+        AsyncMock(return_value=None if file_state == "deleted" else attachment),
     )
     core_run = SimpleNamespace(
         run_id="host-run-42",
@@ -704,7 +757,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     )
     monkeypatch.setattr(
         "app.services.workspace_permissions.can_access_workspace",
-        lambda _user, _workspace: _return("owner"),
+        current_access,
     )
     monkeypatch.setattr(
         "app.agentive.tooling.catalogue.build_tool_catalogue", lambda: []
@@ -745,7 +798,8 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     ctx = ChatTurnContext(
         user_id="user-a",
         user_email="user@example.test",
-        text="I need a simple equipment register for my small business.",
+        text="File the PDF I shared earlier under a new project.",
+        system_context="Signed host context must remain unchanged.",
         thread_id="thread-a",
         session_id=None,
         workspace_id="workspace-a",
@@ -754,7 +808,97 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
             "work_execution_context": work_context.model_dump(),
         },
     )
+    from dataclasses import replace
+
+    file_part = {
+        "type": "file",
+        "attachment_id": "current-doc",
+        "filename": "doc.docx",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "size": 10,
+    }
+    ctx = replace(ctx, submitted_file_parts=(file_part,))
+
+    async def assimilate(**kwargs):
+        assert kwargs["parts"] in ([file_part], [])
+        assert kwargs["principal_id"] == "user-a"
+        if not kwargs["parts"]:
+            return {"files": [], "truncated": False}
+        return {
+            "files": [
+                {
+                    "attachment_id": "current-doc",
+                    "text": "Verified document facts for project planning.",
+                    "metadata_status": "complete",
+                    "content_untrusted": True,
+                }
+            ],
+            "truncated": False,
+        }
+
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.current_chat_attachment_content", assimilate
+    )
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.recent_chat_upload_context",
+        lambda **_kwargs: _return(None),
+    )
+    legacy_messages = []
+    if legacy_history != "none":
+        from pydantic_ai.messages import ModelRequest, SystemPromptPart
+
+        legacy_messages = [
+            ModelRequest(
+                parts=[SystemPromptPart("Summary containing old private source facts")]
+            ),
+            ModelRequest(
+                parts=[
+                    SystemPromptPart(
+                        "<!-- BEGIN_CONTEXT_DATA kind=retained_chat_file_references -->old private source"
+                    )
+                ],
+                metadata={"integral_host_turn_v1": "legacy-run"},
+            ),
+        ]
+        monkeypatch.setattr(
+            "app.services.chat_providers.pydantic_ai_provider._resume_history",
+            lambda *_args, **_kwargs: _return(list(legacy_messages)),
+        )
+        if legacy_history == "reset":
+            core_run.metadata = {"chat_message_id": "accepted-current-message"}
+            monkeypatch.setattr(
+                "app.services.chat_image_inputs.chat_image_prompt",
+                lambda _scope, _message_id, text: _return(text),
+            )
+        else:
+            from app.api.errors import ResourceConflictError
+
+            with pytest.raises(
+                ResourceConflictError, match="Prior retrieval evidence changed"
+            ):
+                await PydanticAIProvider()._prepare(ctx)
+            assert len(legacy_messages) == 2
+            return
     scope, *_rest = await PydanticAIProvider()._prepare(ctx)
+    if legacy_history == "reset":
+        assert _rest[3] == []  # model-facing history only; no paraphrased summary
+        assert _rest[-1]["public_dialogue_restored"] is True
+        assert len(legacy_messages) == 2  # stored transcript/evidence untouched
+    assert "file_context" not in _rest[-1]
+    assert "Verified document facts" in runtime_args["instructions"]
+    assert "Verified document facts" not in runtime_args["protected_instruction_text"]
+    assert ctx.system_context == "Signed host context must remain unchanged."
+    assert "private-storage" not in runtime_args["instructions"]
+    assert ("attachment-prior" in runtime_args["instructions"]) == (
+        file_state == "current"
+    )
+    assert ("prior-brief.pdf" in runtime_args["instructions"]) == (
+        file_state == "current"
+    )
+    assert "attachment-prior" not in runtime_args["protected_instruction_text"]
+    if file_state == "current":
+        assert "not new uploads or permission to act" in runtime_args["instructions"]
+        assert "integral_get_attachment_text" in runtime_args["instructions"]
     assert scope.run_id == "host-run-42"
     assert scope_args["scope"] == scope
     assert scope_args["binding_id"] == "pydantic_ai_v1"
@@ -791,6 +935,27 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         "do not repeat the same call with unchanged inputs"
         in runtime_args["instructions"]
     )
+    if file_state == "current":
+        # A clarification answer does not resubmit or rebind the file. The next
+        # preparation rediscovers the same conversation's sources, preserving
+        # the path to a real read + combined filing without forcing unrelated work.
+        followup = replace(
+            ctx, text="Call it the Agentive SDLC Project.", submitted_file_parts=()
+        )
+        followup_prepared = await PydanticAIProvider()._prepare(followup)
+        assert followup_prepared[0].thread_id == "thread-a"
+        assert "file_context" not in followup_prepared[-1]
+        assert "prior-brief.pdf" in runtime_args["instructions"]
+        assert "attachment-prior" in runtime_args["instructions"]
+        assert "Verified document facts" not in runtime_args["instructions"]
+        assert "after a clarification" in runtime_args["instructions"]
+        assert "explicit-source compound proposal" in runtime_args["instructions"]
+        assert "integral_file_uploaded_document" in runtime_args["instructions"]
+        assert (
+            "existing record instead of recreating it" in runtime_args["instructions"]
+        )
+        assert "unrelated historical uploads" in runtime_args["instructions"]
+        assert followup.submitted_file_parts == ()
     assert tool_args["work_execution_context"] == work_context
     boundary = model_args["admission"]
     await model_args["observer"](
@@ -1185,3 +1350,117 @@ def test_unapplied_preview_and_application_error_are_not_compacted(state):
         "last_error": {"code": "revision_conflict"},
     }
     assert _terminal_staging_context(snapshot) is snapshot
+
+
+@pytest.mark.asyncio
+async def test_pending_plan_repair_respects_final_output_budget():
+    from types import SimpleNamespace
+
+    state = {"build_plan_repair_pending": "Extra seed."}
+    validate = _scaffold_completion_validator(state)
+    result = await validate(SimpleNamespace(last_attempt=True), "Built successfully.")
+    assert "No changes from this build were saved" in result
+    assert "build_plan_repair_output_retries" not in state
+
+
+@pytest.mark.asyncio
+async def test_design_question_overrides_generic_build_failure_and_approval_cta():
+    question = "Before I can build this, I need to clarify:\n\nUpdate status too?"
+    validate = _scaffold_completion_validator(
+        {
+            "design_decision_required": question,
+            "proposal_succeeded": True,
+            "proposal_text": "Confirm this design.",
+        }
+    )
+    assert await validate(None, "Your setup is ready.") == question
+
+
+@pytest.mark.asyncio
+async def test_missing_proposal_final_response_retry_is_bounded_and_honest():
+    from types import SimpleNamespace
+
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    state = {"proposal_attempted": True, "proposal_succeeded": False}
+    validate = _scaffold_completion_validator(state)
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("I couldn't save that design.")])
+
+    agent = Agent(FunctionModel(respond), retries={"output": 3})
+    agent.output_validator(validate)
+    result = await agent.run("Continue")
+    assert len(calls) == 3
+    assert state["scaffold_proposal_output_retries"] == 2
+    assert "couldn't save the proposed setup" in result.output
+    assert "hasn't been built" in result.output
+    last = _scaffold_completion_validator({"proposal_attempted": True})
+    assert "couldn't save" in await last(SimpleNamespace(last_attempt=True), "Ready!")
+
+
+def test_saved_build_receipt_context_preserves_filing_continuity_without_authority():
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _saved_build_receipt_context,
+    )
+
+    marker = {
+        "proposal": "OLD CONFIRM THIS DESIGN",
+        "build_receipt": {
+            "id": "xr.saved",
+            "design_id": "design1",
+            "design_revision": 1,
+            "applied_at": "2026-11-12T20:59:30Z",
+            "mapping": {
+                "app": {"kind": "app", "object_id": "n.WorkspaceApp.projects"},
+                "track": {"kind": "track", "object_id": "n.Track.projects"},
+                "field": {"kind": "field", "object_id": "PRIVATE_FIELD"},
+            },
+        },
+    }
+    context = _saved_build_receipt_context(marker)
+    assert "OLD CONFIRM" not in context
+    assert "n.WorkspaceApp.projects" in context
+    assert "n.Track.projects" in context
+    assert "PRIVATE_FIELD" not in context
+    assert "not a pending request to build" in context
+    assert "Follow the latest user request" in context
+    assert "permission-checked live readback" in context
+    assert "does not prove current completion" in context
+    assert "integral_verify_build" in context
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"partial_build": {"batch_token": "partial"}},
+        {"rolled_back_at": "now"},
+        {"receipt_override": {"status": "unknown"}},
+        {"receipt_override": {"rolled_back_at": "now"}},
+        {"receipt_override": {"applied_at": None}},
+    ],
+)
+def test_uncertain_build_context_never_claims_complete_or_hints_resources(override):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _saved_build_receipt_context,
+    )
+
+    marker = {
+        "build_receipt": {
+            "id": "xr.saved",
+            "applied_at": "before",
+            "mapping": {
+                "app": {"kind": "app", "object_id": "DO_NOT_HINT"},
+            },
+        },
+        **{k: v for k, v in override.items() if k != "receipt_override"},
+    }
+    marker["build_receipt"].update(override.get("receipt_override", {}))
+    context = _saved_build_receipt_context(marker)
+    assert "DO_NOT_HINT" not in context
+    assert "partial, rolled back or unknown" in context
+    assert "Do not replay" in context

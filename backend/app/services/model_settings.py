@@ -66,6 +66,28 @@ def _gateway_reasoning_catalog() -> dict[str, Any]:
     )["models"]
 
 
+def mandatory_adaptive_thinking(provider: str, model: str) -> bool:
+    """Use the pinned publisher contract, including native Anthropic aliases.
+
+    Opus 5.5's migration contract requires adaptive thinking and forbids legacy
+    budgets or disabling it. Gateway metadata applies to the same native model.
+    https://platform.claude.com/docs/en/models/opus-5-5/migration-guide
+    """
+    model = model.removeprefix(f"{provider}/")
+    if provider == "openrouter":
+        return model.startswith("anthropic/") and bool(
+            _gateway_reasoning_catalog().get(model, {}).get("mandatory")
+        )
+    if provider == "anthropic":
+        return any(
+            key.removeprefix("anthropic/").replace(".", "-") == model
+            and contract.get("mandatory")
+            for key, contract in _gateway_reasoning_catalog().items()
+            if key.startswith("anthropic/")
+        )
+    return False
+
+
 @lru_cache(maxsize=256)
 def model_capabilities(provider: str, model: str) -> dict[str, Any]:
     """Read conservative model capabilities from local LiteLLM metadata."""
@@ -175,6 +197,10 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         if gateway.get("mandatory"):
             efforts = [level for level in efforts if level != "none"]
         reasoning = True
+    mandatory_adaptive = mandatory_adaptive_thinking(provider, model)
+    if mandatory_adaptive:
+        efforts = [level for level in efforts if level not in {"none", "minimal"}]
+        reasoning = True
     return {
         "reasoning_efforts": efforts,
         "thinking_enabled": provider in {"ollama", "ollama_local"}
@@ -184,7 +210,8 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         "temperature": "temperature" in parameters and not reasoning,
         "top_p": "top_p" in parameters and not reasoning,
         "verbosity": "verbosity" in parameters,
-        "thinking_budget": (
+        "thinking_budget": not mandatory_adaptive
+        and (
             gateway.get("supports_max_tokens") is True
             if gateway is not None
             else (

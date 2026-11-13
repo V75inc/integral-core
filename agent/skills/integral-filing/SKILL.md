@@ -1,10 +1,20 @@
 ---
 name: integral-filing
 description: Files user-typed unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape. Also handles remembering, retrieving and correcting shared App notes. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.
-allowed-tools: integral_find_workspace_resources integral_get_page_context integral_file_content integral_rank_destinations integral_list_tracks integral_get_track_schema integral_query_entries integral_query integral_search_cross_track integral_resolve_entry integral_update_entry
+allowed-tools: integral_file_uploaded_document integral_find_workspace_resources integral_get_page_context integral_file_content integral_rank_destinations integral_list_tracks integral_get_track_schema integral_query_entries integral_query integral_search_cross_track integral_resolve_entry integral_update_entry
 ---
 
 # Integral filing — SOP
+
+For an uploaded document, read the selected source via `integral-attachments`,
+resolve the destination and typed schema, then prefer
+`integral_file_uploaded_document(attachment_id=…, mode=…)` to stage the
+record summary/update and original file together in one approval. Use create
+for a new record, update for an existing record plus its explicit patch, or
+attach when no record change is requested. Never infer the source from an
+unrelated previous upload. This preserves canonical access, scan, staging
+and approval checks and rejects an already-open batch. Text-only facts still
+use `integral_file_content`; an entry body alone does not attach a document.
 
 Before changing existing Apps or Tracks, identify every source and destination.
 Use current-turn verified page context only when it and the user request clearly

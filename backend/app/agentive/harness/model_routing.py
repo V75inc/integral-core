@@ -151,6 +151,9 @@ async def _resolve_turn_routes(
         default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
         **({"profile_id": profile_id} if profile_id else {}),
     )
+    from app.services.model_harness_policy import require_heavy_model
+
+    require_heavy_model(heavy.provider, heavy.model)
     source = getattr(heavy, "credential_source", None)
     owner_record = (
         await _workspace_owner_credential(workspace_id)

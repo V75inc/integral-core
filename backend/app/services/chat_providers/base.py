@@ -127,6 +127,9 @@ class ChatTurnContext:
     field. Reserved for future composer affordances (focused entry id,
     selected tool override, etc.)."""
 
+    submitted_file_parts: tuple[Dict[str, Any], ...] = ()
+    """Host-verified current file parts, populated by the durable worker only."""
+
     accepts_steering: bool = False
     """Set only by the durable interactive worker."""
 

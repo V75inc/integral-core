@@ -20,6 +20,20 @@ from app.services.chat_turn_transcript import (
 log = logging.getLogger(__name__)
 
 
+def _submitted_file_parts(worker_input, deferred_resume) -> tuple[dict[str, Any], ...]:
+    """Project only verified accepted user files, not metadata or resumed effects."""
+    if (
+        worker_input.execution_context.host_control is not None
+        or deferred_resume is not None
+    ):
+        return ()
+    return tuple(
+        dict(part)
+        for part in worker_input.message.parts or []
+        if part.get("type") == "file"
+    )
+
+
 async def _pending_write_references(
     *, principal_id: str, workspace_id: str, session_id: Optional[str]
 ) -> dict[str, str]:
@@ -777,6 +791,7 @@ async def _execute_chat_turn(
             focused_view_id=execution.focused_view_id,
             workspace_id=ctx.workspace_id,
             extra_data=extra_data,
+            submitted_file_parts=_submitted_file_parts(worker_input, deferred_resume),
             accepts_steering=execution.host_control is None,
             deferred_resume=deferred_resume,
         )

@@ -9,6 +9,9 @@ _MESSAGES = {
     "permission_denied": "A required resource is unavailable in the current scope.",
     "policy_denied": "The current permissions do not allow this operation.",
     "internal_error": "The tool could not complete because of an internal error.",
+    "capability_already_active": (
+        "The requested capability is already active; no additional loading was needed."
+    ),
     "tool_failed": "The tool did not complete. Detailed output is not retained.",
 }
 

@@ -1828,3 +1828,329 @@ async def test_custom_endpoint_does_not_inherit_a_borrowed_vendor_capacity(monke
         metadata.assert_not_called()
     finally:
         await model.client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider, model_name",
+    [
+        ("anthropic", "anthropic/claude-opus-5-5"),
+        ("openrouter", "openrouter/anthropic/claude-opus-5.5"),
+    ],
+)
+async def test_mandatory_adaptive_profile_uses_auto_tools_and_omits_sampling(
+    provider, model_name, monkeypatch
+):
+    """Public SDK profile controls the actual wire request, not just UI hints."""
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    from pydantic import BaseModel
+    from pydantic_ai import ToolOutput
+
+    class Answer(BaseModel):
+        value: str
+
+    captured = {}
+
+    async def completion(**kwargs):
+        captured.update(kwargs)
+        name = kwargs["tools"][0]["function"]["name"]
+        return {
+            "id": "fixture",
+            "object": "chat.completion",
+            "created": 1,
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "answer",
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": '{"value":"ok"}',
+                                },
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+
+    model = build_litellm_sdk_model(
+        route=_route().model_copy(update={"provider": provider, "model": model_name}),
+        scope=_scope(),
+        observer=_ignore_observation,
+        completion=completion,
+    )
+    result = await Agent(model, output_type=ToolOutput(Answer)).run(
+        "Answer", model_settings={"temperature": 1, "top_p": 0.9}
+    )
+    assert result.output.value == "ok"
+    assert captured["tool_choice"] == "auto"
+    assert "temperature" not in captured
+    assert "top_p" not in captured
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["anthropic", "openrouter"])
+@pytest.mark.parametrize("stream", [False, True])
+async def test_signed_reasoning_survives_tools_and_serialized_fresh_model(
+    provider, stream, monkeypatch
+):
+    """Signed + redacted thinking survives durable history, not a transport cache."""
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    from pydantic_ai.messages import ModelMessagesTypeAdapter, ThinkingPart
+
+    blocks = [
+        {"type": "thinking", "thinking": "First exact text", "signature": "sig-one"},
+        {"type": "redacted_thinking", "data": "opaque-data"},
+        {"type": "thinking", "thinking": "Second exact text", "signature": "sig-two"},
+    ]
+    details = [
+        {
+            "type": "reasoning.text",
+            "text": "First exact text",
+            "signature": "sig-one",
+            "format": "anthropic-claude-v1",
+            "index": 0,
+        },
+        {
+            "type": "reasoning.encrypted",
+            "data": "opaque-data",
+            "format": "anthropic-claude-v1",
+            "index": 1,
+        },
+        {
+            "type": "reasoning.text",
+            "text": "Second exact text",
+            "signature": "sig-two",
+            "format": "anthropic-claude-v1",
+            "index": 2,
+        },
+    ]
+    captured = []
+    observations = []
+
+    async def observe(event):
+        observations.append(event)
+
+    async def completion(**kwargs):
+        captured.append(kwargs)
+        first = len(captured) == 1
+        tool = {
+            "id": "tool-one",
+            "type": "function",
+            "function": {"name": "lookup", "arguments": "{}"},
+        }
+        if kwargs.get("stream"):
+
+            async def chunks():
+                def chunk(delta, finish=None):
+                    return {
+                        "id": "fixture",
+                        "object": "chat.completion.chunk",
+                        "created": 1,
+                        "model": kwargs["model"],
+                        "choices": [
+                            {"index": 0, "delta": delta, "finish_reason": finish}
+                        ],
+                    }
+
+                if first:
+                    if provider == "anthropic":
+                        # Signature events carry cumulative text from LiteLLM.
+                        for block in [
+                            {"type": "thinking", "thinking": "First exact "},
+                            {"type": "thinking", "thinking": "text"},
+                            blocks[0],
+                            blocks[1],
+                            {"type": "thinking", "thinking": "Second exact text"},
+                            {
+                                **blocks[2],
+                                "thinking": "First exact textSecond exact text",
+                            },
+                        ]:
+                            yield chunk(
+                                {
+                                    "thinking_blocks": [block],
+                                    "provider_specific_fields": {
+                                        "thinking_blocks": [block]
+                                    },
+                                }
+                            )
+                    else:
+                        for detail in details:
+                            yield chunk({"reasoning_details": [detail]})
+                    yield chunk({"tool_calls": [{**tool, "index": 0}]}, "tool_calls")
+                else:
+                    yield chunk({"content": "done"}, "stop")
+
+            return chunks()
+        return {
+            "id": "fixture",
+            "object": "chat.completion",
+            "created": 1,
+            "model": kwargs["model"],
+            "provider": "Anthropic",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls" if first else "stop",
+                    "message": (
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [tool],
+                            **(
+                                {"thinking_blocks": blocks}
+                                if provider == "anthropic"
+                                else {"reasoning_details": details}
+                            ),
+                        }
+                        if first
+                        else {"role": "assistant", "content": "done"}
+                    ),
+                }
+            ],
+        }
+
+    route = _route().model_copy(
+        update={
+            "provider": provider,
+            "model": (
+                "anthropic/claude-opus-5-5"
+                if provider == "anthropic"
+                else "openrouter/anthropic/claude-opus-5.5"
+            ),
+        }
+    )
+
+    def new_agent():
+        agent = Agent(
+            build_litellm_sdk_model(
+                route=route, scope=_scope(), observer=observe, completion=completion
+            )
+        )
+
+        @agent.tool_plain
+        def lookup() -> str:
+            return "found"
+
+        return agent
+
+    agent = new_agent()
+    if stream:
+        async with agent.run_stream("Look it up") as result:
+            await result.get_output()
+            messages = result.all_messages()
+    else:
+        result = await agent.run("Look it up")
+        messages = result.all_messages()
+    history = ModelMessagesTypeAdapter.validate_json(
+        ModelMessagesTypeAdapter.dump_json(messages)
+    )
+    thinking = [
+        part
+        for message in history
+        for part in message.parts
+        if isinstance(part, ThinkingPart)
+    ]
+    assert [part.signature for part in thinking] == [
+        "sig-one",
+        "opaque-data",
+        "sig-two",
+    ]
+    assert [part.content for part in thinking] == [
+        "First exact text",
+        "",
+        "Second exact text",
+    ]
+    await new_agent().run("Continue", message_history=history)
+    for request in (captured[1], captured[-1]):
+        assistant = next(
+            message for message in request["messages"] if message.get("tool_calls")
+        )
+        if provider == "anthropic":
+            assert assistant["thinking_blocks"] == blocks
+            assert "reasoning_details" not in assistant
+            import litellm
+
+            native = litellm.AnthropicConfig().transform_request(
+                model="claude-opus-5-5",
+                messages=request["messages"],
+                optional_params={"max_tokens": 4096},
+                litellm_params={},
+                headers={},
+            )
+            native_assistant = next(
+                message
+                for message in native["messages"]
+                if message["role"] == "assistant"
+            )
+            assert native_assistant["content"][:3] == blocks
+        else:
+            assert [
+                detail.get("signature") or detail.get("data")
+                for detail in assistant["reasoning_details"]
+            ] == ["sig-one", "opaque-data", "sig-two"]
+    assert [event.outcome for event in observations].count("responded") == len(captured)
+
+
+def test_anthropic_reasoning_codec_rejects_unsigned_replay_and_ambiguous_stream():
+    from app.agentive.harness.litellm_model import _AnthropicReasoningCodec
+
+    with pytest.raises(ValueError, match="unsigned"):
+        _AnthropicReasoningCodec.request(
+            [
+                {
+                    "role": "assistant",
+                    "reasoning_details": [
+                        {
+                            "format": "anthropic-claude-v1",
+                            "type": "reasoning.text",
+                            "text": "lost signature",
+                        }
+                    ],
+                }
+            ]
+        )
+    with pytest.raises(ValueError, match="without its text deltas"):
+        _AnthropicReasoningCodec().response(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "thinking_blocks": [
+                                {
+                                    "type": "thinking",
+                                    "thinking": "unseen cumulative text",
+                                    "signature": "sig",
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            stream=True,
+        )
+    foreign = _AnthropicReasoningCodec.request(
+        [
+            {
+                "role": "assistant",
+                "content": "visible answer",
+                "reasoning_details": [
+                    {
+                        "format": "openai-responses-v1",
+                        "type": "reasoning.encrypted",
+                        "data": "foreign-opaque",
+                    }
+                ],
+            }
+        ]
+    )
+    assert foreign == [{"role": "assistant", "content": "visible answer"}]

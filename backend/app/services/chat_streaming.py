@@ -106,7 +106,8 @@ _ERROR_MESSAGES: Dict[str, str] = {
     "model_configuration_invalid": "The AI connection needs attention. Ask your workspace administrator to check Settings → AI Models.",
     "model_authentication_failed": "The AI service wouldn't let Integral connect. Ask your workspace administrator to check the connection in Settings → AI Models.",
     "model_endpoint_unreachable": "I couldn't connect to the AI service. Please try again shortly. If this continues, ask your workspace administrator to check the connection.",
-    "model_response_invalid": "The selected model couldn’t complete this request reliably. Try again, or choose another model in the chat’s model menu.",
+    "model_role_incompatible": "This configuration uses a light model for operational work. Choose a preferred heavy model in Settings → AI configuration. Light models are supported only in the light role of a dual-model setup. No model was switched automatically.",
+    "model_response_invalid": "The selected model couldn’t complete this request reliably. Check what was already saved before retrying. Choose a preferred heavy model in Settings → AI configuration, or use Heavy only for this chat. A stronger model may help, but repeated failures can also indicate a harness issue.",
     "model_output_limit": "The model reached its response limit before it could finish. Your conversation is saved. Try again, choose another model, or ask your workspace administrator to increase the model's output limit in Settings → AI Models.",
     "model_empty_response": "I didn't receive an answer from the AI service. Please try again shortly.",
     "model_request_timeout": "The AI service took too long to reply. Please try again shortly.",
@@ -160,7 +161,9 @@ def _scaffold_plan_failure_message(exc: BaseException) -> Optional[str]:
         return (
             "I couldn't build the setup you approved because some of its details "
             "didn't fit together. Ask me to review the setup and try again. "
-            "Check anything already saved before repeating changes."
+            "Check anything already saved before repeating changes. If this keeps happening, "
+            "try a preferred heavy model in Settings → AI configuration; repeated failures "
+            "may also need a harness fix."
         )
     return None
 
@@ -201,6 +204,10 @@ def classify_turn_exception(
     """Map an exception raised mid-stream to ``(code, user_facing_message)``."""
     try:
         from app.api.errors import ResourceConflictError, ServiceUnavailableError
+        from app.services.model_harness_policy import ModelHarnessPolicyError
+
+        if isinstance(exc, ModelHarnessPolicyError):
+            return "model_role_incompatible", _ERROR_MESSAGES["model_role_incompatible"]
 
         if (
             isinstance(exc, ServiceUnavailableError)

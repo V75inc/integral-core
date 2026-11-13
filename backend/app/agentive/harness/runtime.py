@@ -229,7 +229,9 @@ def build_native_runtime(
     agent = Agent(
         model,
         instructions=build_integral_run_instructions(
-            instructions + "\n\n" + DISCLOSURE_POLICY, turn_progress
+            instructions + "\n\n" + DISCLOSURE_POLICY,
+            turn_progress,
+            workflow_skill_ids=selected_skills,
         ),
         tools=list(tools),
         retries={"output": 3},

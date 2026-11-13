@@ -2755,11 +2755,10 @@ async def send_message(
     if native_design_approval:
         # Native approval is interpreted inside the claimed, metered run.
         # No lexical gate or legacy harness light-model inference before admission.
-        prior_design_body = (
-            str(design_marker.get("proposal") or "")
-            if isinstance(design_marker, dict)
-            else ""
-        )
+        # A successful receipt settles the old proposal. Reinjecting its
+        # "nothing built / confirm" text as pending misroutes subsequent
+        # record-filing requests back into scaffolding.
+        prior_design_body = chat_store.native_pending_design_context(design_marker)
     else:
         prior_design_body = await chat_store.pending_design_context_for_utterance(
             marker=design_marker if isinstance(design_marker, dict) else None,

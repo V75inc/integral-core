@@ -1252,6 +1252,29 @@ async def _dispatch_propose(
         from app.services.chat_threads import record_design_proposed
 
         _args = dict(args or {})
+        unexpected = set(_args) - set(spec.params)
+        if unexpected:
+            from app.schemas.design_blueprint import DesignBlueprint
+
+            misplaced = sorted(unexpected.intersection(DesignBlueprint.model_fields))
+            detail = (
+                " Move these design sections inside `blueprint`, unchanged: "
+                + ", ".join(misplaced)
+                + "."
+                if misplaced
+                else " Use only the declared top-level tool arguments."
+            )
+            return ToolResult(
+                is_error=True,
+                error_code="invalid_arguments",
+                message=(
+                    "Unexpected top-level design arguments. The design is NOT recorded."
+                    + detail
+                    + " Keep all intended design content and unresolved questions; "
+                    "do not drop open_decisions or infer answers. Correct the nesting "
+                    "and call integral_propose_design again."
+                ),
+            )
         if not isinstance(_args.get("blueprint"), dict):
             return ToolResult(
                 is_error=True,
@@ -1315,7 +1338,13 @@ async def _dispatch_propose(
         }
         if result.get("prior_proposal"):
             data["prior_proposal"] = result["prior_proposal"]
-        for key in ("blueprint_revision", "blueprint_digest", "blueprint_diff"):
+        for key in (
+            "blueprint_revision",
+            "blueprint_digest",
+            "blueprint_diff",
+            "decision_required",
+            "coverage",
+        ):
             if key in result:
                 data[key] = result[key]
         return ToolResult(data=data)
@@ -1496,6 +1525,7 @@ async def _dispatch_propose(
     )
     if (
         not native_design_thread
+        and spec.name != "integral_file_uploaded_document"
         and session_id is not None
         and not is_batch_open(principal_id, session_id)
         and await design_proposed_pending(session_id)
@@ -1511,6 +1541,14 @@ async def _dispatch_propose(
     # staged op is ACCUMULATED rather than minting its own token. One bless at
     # ``integral_commit_batch`` then applies the whole workflow. The op carries
     # only stager output (no identity/scope — PC-1/PC-2 preserved).
+    if spec.name == "integral_file_uploaded_document" and is_batch_open(
+        principal_id, session_id
+    ):
+        return ToolResult(
+            is_error=True,
+            error_code="open_batch_conflict",
+            message="Finish or cancel the existing batch before filing this document.",
+        )
     if session_id is not None and is_batch_open(principal_id, session_id):
         # Greenfield scaffold: refuse orphan tracks (no app) even inside a batch —
         # they would bless as "App: (no app)" and break {{app.id}} wiring.

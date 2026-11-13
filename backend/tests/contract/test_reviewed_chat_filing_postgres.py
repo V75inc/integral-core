@@ -23,8 +23,12 @@ pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
 @pytest.mark.parametrize("cancel_during_write", [False, True])
+@pytest.mark.parametrize(
+    "filing_tool",
+    ["integral_attach_uploaded_file_to_entry", "integral_file_uploaded_document"],
+)
 async def test_worker_broker_preparation_fences_publication(
-    postgres_raw_db, monkeypatch, tmp_path, cancel_during_write
+    postgres_raw_db, monkeypatch, tmp_path, cancel_during_write, filing_tool
 ):
     """The real worker adapter performs I/O outside, then rechecks its lease."""
     from datetime import datetime, timezone
@@ -129,10 +133,15 @@ async def test_worker_broker_preparation_fences_publication(
             )
             attach = invocation.model_copy(
                 update={
-                    "capability_key": "integral_attach_uploaded_file_to_entry",
+                    "capability_key": filing_tool,
                     "arguments": {
                         "entry_id": entry_id,
                         "attachment_id": result["attachment_id"],
+                        **(
+                            {"mode": "attach"}
+                            if filing_tool == "integral_file_uploaded_document"
+                            else {}
+                        ),
                     },
                     "work_execution_context": attach_context,
                 }

@@ -66,3 +66,26 @@ def test_validate_rejects_propose_without_staging_kind():
     ce = reg["integral_create_entry"].model_copy(update={"staging_kind": None})
     with pytest.raises(ManifestError, match="staging_kind"):
         validate_manifest({ce.name: ce})
+
+
+def test_uploaded_document_contract_requires_explicit_source_and_mode():
+    tool = load_manifest()["integral_file_uploaded_document"]
+    assert tool.op_class == "propose"
+    assert tool.policy_action == "attachment.create"
+    assert tool.staging_kind == "batch"  # existing canonical operations
+    assert tool.params["attachment_id"]["required"] is True
+    assert tool.params["mode"]["required"] is True
+    assert tool.params["mode"]["enum"] == ["create", "update", "attach"]
+    assert set(tool.params) == {
+        "attachment_id",
+        "mode",
+        "track_id",
+        "title",
+        "text",
+        "fields",
+        "entry_type",
+        "entry_id",
+        "updates",
+    }
+    assert "open batch" in tool.summary
+    assert "no automatic execution" in tool.privacy

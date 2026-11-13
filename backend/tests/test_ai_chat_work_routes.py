@@ -442,7 +442,9 @@ async def test_stop_native_thread_uses_active_durable_work(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_kind", ["text", "file", "host", "staging"])
+@pytest.mark.parametrize(
+    "input_kind", ["text", "file", "file_completed_design", "host", "staging"]
+)
 async def test_native_message_route_accepts_durable_work_without_inline_run(
     authenticated_client: AsyncClient,
     test_user,
@@ -494,7 +496,7 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
     replay = AsyncMock(side_effect=saved_stream)
     monkeypatch.setattr(ai_chat, "stream_chat_turn_events", replay)
     payload = {"text": "Help me assess my idea", "client_request_id": "durable-route"}
-    if input_kind == "file":
+    if input_kind in {"file", "file_completed_design"}:
         from app.models.edges import HAS_ATTACHMENT
         from app.models.nodes import Attachment
 
@@ -513,6 +515,21 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
             "attachment_ids": [attachment.id],
             "client_request_id": "durable-route",
         }
+    if input_kind == "file_completed_design":
+        thread.design_proposed = {
+            "design_id": "projects-design",
+            "proposed_at_user_turn": 1,
+            "proposal": "Proposed: nothing built. Confirm this old Projects design.",
+            "approved": True,
+            "build_receipt": {
+                "id": "xr.completed-projects",
+                "design_id": "projects-design",
+                "applied_at": "2026-11-12T20:59:33Z",
+                "mapping": {},
+            },
+        }
+        await thread.save()
+        payload["text"] = "File this under a new project to track"
     if input_kind == "host":
         thread.prompt_queue = {
             "status": "closed",
@@ -576,9 +593,30 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
     assert response.headers["X-Integral-Work-Item"] == "chat-turn:accepted"
     assert response.headers["X-Integral-Accepted-Message"] == "n.ChatMessage.accepted"
     accepted = submit.await_args.args[0]
-    if input_kind == "file":
-        assert accepted.parts[0]["type"] == "file"
-        assert all(part["type"] != "text" for part in accepted.parts)
+    if input_kind in {"file", "file_completed_design"}:
+        file_parts = [part for part in accepted.parts if part["type"] == "file"]
+        assert len(file_parts) == 1
+        assert file_parts[0]["attachment_id"] == attachment.id
+        assert file_parts[0]["filename"] == "idea-brief.txt"
+        if input_kind == "file":
+            assert all(part["type"] != "text" for part in accepted.parts)
+        else:
+            assert accepted.parts[0] == {
+                "type": "text",
+                "text": "File this under a new project to track",
+            }
+            context = accepted.execution_context.system_context
+            assert "pending_design_proposal" not in context
+            assert "Confirm this old Projects design" not in context
+            assert "Proposed: nothing built" not in context
+            assert attachment.id in context
+            assert "uploaded_file_read_contract" in context
+            assert (
+                accepted.execution_context.attachment_bindings[0]["attachment_id"]
+                == attachment.id
+            )
+            reloaded = await ChatThread.get(thread.id)
+            assert reloaded.design_proposed == thread.design_proposed
         assert (
             accepted.execution_context.attachment_bindings[0]["content_hash"]
             == "a" * 64

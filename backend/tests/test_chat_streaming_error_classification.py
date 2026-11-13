@@ -196,3 +196,21 @@ def test_generic_tool_retry_exhaustion_does_not_claim_an_approved_build_failed()
     assert code == "model_response_invalid"
     assert "approved" not in message.lower()
     assert "unknown-tool" not in message
+
+
+def test_light_model_role_error_has_actionable_safe_guidance():
+    from app.services.model_harness_policy import ModelHarnessPolicyError
+
+    code, message = classify_turn_exception(ModelHarnessPolicyError("private detail"))
+    assert code == "model_role_incompatible"
+    assert "preferred heavy model" in message
+    assert "private detail" not in message
+
+
+def test_model_failure_recommends_heavy_without_claiming_a_model_is_the_cause():
+    from app.services.chat_streaming import _ERROR_MESSAGES
+
+    message = _ERROR_MESSAGES["model_response_invalid"]
+    assert "preferred heavy model" in message
+    assert "harness issue" in message
+    assert "already saved" in message

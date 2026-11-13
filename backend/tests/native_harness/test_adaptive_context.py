@@ -216,7 +216,12 @@ async def setup_turn(monkeypatch, *, escalation=False, origin="http"):
         )
 
     async def route(**kwargs):
-        return SimpleNamespace()
+        # Exercise the runtime model-role policy with the real route contract.
+        from app.agentive.harness.contracts import ResolvedModelRoute
+
+        return ResolvedModelRoute(
+            provider="openai", model="openai/gpt-6.1-sol", credential_source="local"
+        )
 
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "a" * 32)
     monkeypatch.setattr(

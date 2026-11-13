@@ -286,7 +286,29 @@ def _make_handler(
         """Invoke the declared capability with server-bound identity."""
 
         nonlocal build_attempted, build_validation_failures
+        if capability_name == "integral_build_approved_design":
+            # Clarification completion is exclusively pre-build. Even an
+            # unknown/denied outcome must not be hidden by a later question.
+            call_state["scaffold_build_attempted"] = True
+        if call_state.get("scaffold_pending_clarification") and capability_name in {
+            "integral_propose_design",
+            "integral_check_design_coverage",
+            "integral_build_approved_design",
+        }:
+            # A question queued earlier in the same model response is a real
+            # pause, not permission to guess its answer and continue building.
+            return {
+                "error": True,
+                "error_code": "clarification_pending",
+                "message": "Ask the queued question and wait for the user's answer.",
+                "retryable": False,
+            }
         call_state["attempted"] += 1
+        if effective_op_class != "read" and capability_name != "integral_ask_user":
+            # A question only queues clarification, not a new workspace write.
+            # A prior pre-effect refusal is not evidence about a new write.
+            # Clear before admission/dispatch, including exceptions or denials.
+            call_state.pop("build_plan_repair_pending", None)
         arguments = normalize_tool_arguments(arguments, input_schema)
         if no_workspace_writes and effective_op_class != "read":
             return {
@@ -390,6 +412,22 @@ def _make_handler(
                     "The skills declaring this tool are: "
                     + ", ".join(sorted(workflow_skills))
                     + ". Choose the one that fits the user's request."
+                    + (
+                        " The loaded attachment workflow uses "
+                        "integral_file_uploaded_document with an explicit source "
+                        "and create/update/attach mode. If content is already saved, "
+                        "use attach; do not rewrite it. Load integral-entries only "
+                        "for a separate requested record edit or deliberate broader "
+                        "composition, not to omit a requested source attachment."
+                        if "integral-attachments" in ctx.active_capability_ids
+                        and capability_name
+                        in {
+                            "integral_create_entry",
+                            "integral_update_entry",
+                            "integral_file_content",
+                        }
+                        else ""
+                    )
                 ),
                 "retryable": False,
             }
@@ -424,6 +462,7 @@ def _make_handler(
             if not call_state.get("approved_design_ready"):
                 if call_state.get("pending_design"):
                     from app.agentive.harness.design_approval import (
+                        DesignDecisionRequired,
                         authorize_pending_design_build,
                     )
 
@@ -436,6 +475,15 @@ def _make_handler(
                                 work_context=work_execution_context,
                             )
                         )
+                    except DesignDecisionRequired as exc:
+                        call_state["design_decision_required"] = str(exc)
+                        call_state["approved_design_ready"] = False
+                        return {
+                            "error": True,
+                            "error_code": "design_decision_required",
+                            "message": str(exc),
+                            "retryable": False,
+                        }
                     except Exception:
                         return {
                             "error": True,
@@ -538,6 +586,7 @@ def _make_handler(
             in {
                 "integral_prepare_document_attachment",
                 "integral_attach_uploaded_file_to_entry",
+                "integral_file_uploaded_document",
             }
         ):
             # The broker delegates this specific recoverable multi-stage
@@ -703,6 +752,14 @@ def _make_handler(
                     "id": result.receipt.step_id,
                     "session_id": scope.session_id,
                 }
+        if (
+            capability_source == "core"
+            and capability_name == "integral_build_approved_design"
+            and not result.ok
+            and result.error_code == "design_decision_required"
+        ):
+            call_state["design_decision_required"] = result.message
+            call_state["approved_design_ready"] = False
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
             if result.ok:
@@ -710,7 +767,11 @@ def _make_handler(
                 # subsequent actions as if its original proposal were pending.
                 call_state["pending_design"] = False
                 call_state["approved_design_ready"] = False
-            if not result.ok and result.error_code in BUILD_PRE_EFFECT_ERRORS:
+            if (
+                capability_source == "core"
+                and not result.ok
+                and result.error_code in BUILD_PRE_EFFECT_ERRORS
+            ):
                 build_validation_failures += 1
                 if (
                     build_validation_failures >= 3
@@ -741,6 +802,7 @@ def _make_handler(
                 # design again. Applied, partial, authorization and unknown
                 # outcomes stay one-shot.
                 build_attempted = False
+                call_state["build_plan_repair_pending"] = result.message
                 raise ModelRetry(
                     result.message
                     + " Correct the generated operation plan to match the saved, "
@@ -773,8 +835,42 @@ def _make_handler(
                 call_state["verified_build_resources"] = (
                     model_result.get("resources") or []
                 )
+        if (
+            capability_source == "core"
+            and capability_name == "integral_ask_user"
+            and result.ok
+            and model_result.get("_kind") == "user_question"
+            and model_result.get("state") == "pending"
+            and model_result.get("queue_open") is True
+            and model_result.get("question_id")
+            and isinstance(model_result.get("question"), str)
+            and model_result["question"].strip()
+            and (
+                call_state.get("proposal_attempted")
+                or call_state.get("scaffold_coverage_attempted")
+            )
+            and not call_state.get("proposal_succeeded")
+            and not call_state.get("scaffold_build_attempted")
+            and not call_state.get("build_succeeded")
+            and not call_state.get("build_plan_repair_pending")
+            and not call_state.get("build_validation_failure")
+        ):
+            # Only the successful Core queue result establishes a clarification
+            # boundary. Reuse the existing public prepare/model-request hooks
+            # for tool-free finalization; never infer a pause from model prose.
+            call_state["scaffold_pending_clarification"] = {
+                key: model_result.get(key) for key in ("question", "options")
+            }
+            call_state["turn_progress"].reason = (
+                "A clarification is queued. Ask it and wait for the user's answer."
+            )
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
+            call_state.pop("design_decision_required", None)
+            if model_result.get("decision_required"):
+                call_state["design_decision_required"] = model_result[
+                    "decision_required"
+                ]
             call_state["approved_design_ready"] = bool(model_result.get("approved"))
             proposal_text = model_result.get("proposal")
             if isinstance(proposal_text, str) and proposal_text.strip():
