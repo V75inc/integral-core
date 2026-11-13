@@ -10,7 +10,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-POLICY_VERSION = "2026-11-13.1"
+POLICY_VERSION = "2026-11-13.2"
 _NOTE = (
     "Preferred models are starting points, not certification. Validate your own "
     "workflows. Single/default and heavy roles need a capable model; lighter "
@@ -28,16 +28,17 @@ def _entry(model: str, label: str, evidence: str, *, role: str = "heavy") -> dic
     }
 
 
+# Frontier defaults reviewed 2026-11-13 against provider catalogs.
+# Anthropic contract: https://platform.claude.com/docs/en/models/opus-5-5/migration-guide
+# Provider availability is distinct from end-to-end Integral qualification.
 _PROVIDERS = {
     "openai": {
         "preferred_heavy": "gpt-6.1-sol",
         "models": [
-            _entry(
-                "gpt-6.1-sol", "GPT-6.1 Sol (limited workflow observation)", "observed"
-            ),
+            _entry("gpt-6.1-sol", "GPT-6.1 Sol", "observed"),
             _entry(
                 "gpt-5.4-mini",
-                "GPT-5.4 Mini (light role only)",
+                "GPT-5.4 Mini",
                 "unverified",
                 role="light",
             ),
@@ -48,20 +49,20 @@ _PROVIDERS = {
         "models": [
             _entry(
                 "openai/gpt-6.1-sol",
-                "GPT-6.1 Sol via OpenRouter (candidate)",
+                "GPT-6.1 Sol",
                 "candidate",
             ),
             _entry(
-                "anthropic/claude-sonnet-4.6",
-                "Claude Sonnet 4.6 (candidate)",
+                "anthropic/claude-opus-5.5",
+                "Claude Opus 5.5",
                 "candidate",
             ),
         ],
     },
     "anthropic": {
-        "preferred_heavy": "claude-sonnet-4-6",
+        "preferred_heavy": "claude-opus-5-5",
         "models": [
-            _entry("claude-sonnet-4-6", "Claude Sonnet 4.6 (candidate)", "candidate"),
+            _entry("claude-opus-5-5", "Claude Opus 5.5", "candidate"),
         ],
     },
     "ollama": {
@@ -69,7 +70,7 @@ _PROVIDERS = {
         "models": [
             _entry(
                 "deepseek-v4.1-flash",
-                "DeepSeek V4.1 Flash (limited user observation)",
+                "DeepSeek V4.1 Flash",
                 "observed",
             ),
         ],

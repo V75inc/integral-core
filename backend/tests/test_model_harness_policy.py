@@ -40,6 +40,12 @@ def test_evidence_and_provider_boundaries():
     assert assess_model("openrouter", "openai/gpt-6.1-sol")["evidence"] == "candidate"
     assert assess_model("custom_openai", "gpt-6.1-sol")["tier"] == "unverified"
     assert assess_model("openai", "gpt-4o-mini-transcribe")["tier"] == "unverified"
+    assert assess_model("anthropic", "claude-opus-5-5")["evidence"] == "candidate"
+    assert assess_model("openrouter", "anthropic/claude-opus-5.5")["recommended"]
+    assert (
+        model_policy_catalog()["providers"]["anthropic"]["preferred_heavy"]
+        == "claude-opus-5-5"
+    )
     require_heavy_model("custom_openai", "my-evaluated-model")
     catalog = model_policy_catalog()
     catalog["providers"]["openai"]["preferred_heavy"] = "changed"

@@ -63,6 +63,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 from pydantic_ai.workspaces import FileEntry, WorkspaceReadOnlyError, WorkspaceRef
@@ -1884,6 +1886,8 @@ __all__ = [
     "ModelResponse",
     "ModelRetry",
     "OpenAIChatModel",
+    "OpenRouterModel",
+    "OpenAIModelProfile",
     "PartDeltaEvent",
     "PartEndEvent",
     "PartStartEvent",

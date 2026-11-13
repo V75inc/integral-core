@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.mocked(aiConfigurationApi.saveRouting).mockResolvedValue({});
 });
 it.each([
-  ["openai", "gpt-6.1-sol"], ["anthropic", "claude-sonnet-4-6"],
+  ["openai", "gpt-6.1-sol"], ["anthropic", "claude-opus-5-5"],
   ["openrouter", "openai/gpt-6.1-sol"], ["ollama", "deepseek-v4.1-flash"],
 ])("connects %s with its default model using only provider and key", async (provider, model) => {
   const {busy} = show();

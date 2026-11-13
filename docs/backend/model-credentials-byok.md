@@ -22,6 +22,34 @@ time can lower deployment ceilings, never raise them. Unset values inherit
 provider/deployment defaults. Testing a provider establishes access, not support
 for every model, tool or tuning parameter. All update feedback uses toasts.
 
+## Preferred models and role suitability
+
+Guided setup uses provider-specific frontier defaults (reviewed 2026-11-13):
+OpenAI `gpt-6.1-sol`, Anthropic `claude-opus-5-5`, OpenRouter
+`openai/gpt-6.1-sol` (also offers `anthropic/claude-opus-5.5`), and Ollama Cloud
+`deepseek-v4.1-flash`. Local/custom endpoints have no automatic heavy default.
+Existing profiles are not migrated or switched silently.
+
+The versioned harness policy separates candidate availability from observed
+Integral workflows; neither is certification. OpenAI Sol has limited workflow
+observations, Ollama DeepSeek has user-reported scaffolding success, and the
+other provider routes remain candidates. Provider catalogs and model IDs can
+change. Validate representative workflows before relying on a configuration.
+
+Known light models are allowed only in the light role of a dual setup, not as
+the single/default, heavy, or fixed conversation model. Unknown advanced models
+remain configurable with an unverified-suitability warning. Normal preferred
+choices have plain labels and no warning banners; warnings appear only for
+unsuitable roles or unverified selections. Failure guidance suggests a heavy
+model without automatically changing providers, spending more, or assuming the
+model rather than the harness caused the failure.
+
+Anthropic Opus 5.5 requires adaptive thinking, automatic tool choice and preserved
+signed thinking across tool calls; it does not accept legacy thinking budgets,
+thinking-off, temperature or top-p. See the publisher's
+[migration contract](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide).
+Model metadata is distinct from end-to-end transport and workflow verification.
+
 ## Single or automatic routing
 
 Single model is the default. A workspace owner may select Automatic (light +

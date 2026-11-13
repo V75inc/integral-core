@@ -399,7 +399,7 @@ export function AiConfigurationSection({
                               className="break-words"
                             >
                               {profileSummary(p.generation_settings)}
-                              {p.harness_policy && ` · ${p.harness_policy.message}`}
+                              {p.harness_policy && !p.harness_policy.recommended && (p.harness_policy.tier !== "light" || p.id === data.default_profile_id) && ` · ${p.harness_policy.message}`}
                             </Text>
                           </Stack>
                         </div>

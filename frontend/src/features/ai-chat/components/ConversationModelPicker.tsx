@@ -162,7 +162,7 @@ export function ConversationModelPicker() {
                 </optgroup>}
               </Select>
             </label>
-            {selected?.harness_policy && <Text as="p" variant="meta" tone="muted">{selected.harness_policy.message}</Text>}
+            {selected?.harness_policy && !selected.harness_policy.recommended && <Text as="p" variant="meta" tone="muted">{selected.harness_policy.message}</Text>}
             <Surface tone="panel-2" border="none" radius="input" padding="sm">
               <dl className="space-y-2">
                 {current === "" && automatic && <div className="flex items-start justify-between gap-4"><Text as="dt" variant="meta" tone="muted">Light</Text><Text as="dd" variant="body-sm" className="min-w-0 break-words text-right">{profileName(lightModel)}</Text></div>}

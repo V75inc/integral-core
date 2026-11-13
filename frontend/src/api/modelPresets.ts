@@ -8,8 +8,8 @@ export interface ModelPreset {
 
 export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
   openai: [
-    { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol · preferred heavy', recommended: true },
-    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini · light role only' },
+    { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', recommended: true },
+    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
     { id: 'gpt-4.1', label: 'GPT-4.1' },
     { id: 'gpt-4o', label: 'GPT-4o' },
     { id: 'gpt-5', label: 'GPT-5 (reasoning)' },
@@ -20,15 +20,17 @@ export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
       id: 'claude-sonnet-4-20250514',
       label: 'Claude Sonnet 4',
     },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', recommended: true },
+    { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', recommended: true },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
     { id: 'claude-3-7-sonnet-latest', label: 'Claude 3.7 Sonnet' },
     { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   ],
   openrouter: [
-    { id: 'openai/gpt-6.1-sol', label: 'GPT-6.1 Sol · preferred heavy', recommended: true },
-    { id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini · light role only' },
+    { id: 'openai/gpt-6.1-sol', label: 'GPT-6.1 Sol', recommended: true },
+    { id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini' },
     { id: 'openai/gpt-4.1', label: 'OpenAI GPT-4.1' },
     { id: 'openai/gpt-5', label: 'OpenAI GPT-5 (reasoning)' },
+    { id: 'anthropic/claude-opus-5.5', label: 'Claude Opus 5.5' },
     { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
   ],
   ollama: [
@@ -40,7 +42,7 @@ export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
     { id: 'gpt-oss:120b', label: 'gpt-oss 120b (cloud)' },
   ],
   ollama_local: [
-    { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local) · light role only' },
+    { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local)' },
     { id: 'gemma4:26b', label: 'Gemma 4 26B (local)' },
   ],
   // Custom OpenAI-compatible endpoints have no known model catalog, so the

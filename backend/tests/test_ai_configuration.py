@@ -653,3 +653,34 @@ def test_verified_ollama_tool_contract_supersedes_stale_sdk_metadata(
             service._require_structured_support("ollama", "unsupported-model")
     finally:
         model_capabilities.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "provider, model",
+    [
+        ("anthropic", "claude-opus-5-5"),
+        ("openrouter", "anthropic/claude-opus-5.5"),
+    ],
+)
+def test_mandatory_adaptive_model_cannot_disable_thinking_or_use_legacy_budget(
+    provider, model
+):
+    from app.services.model_settings import model_capabilities, validate_model_settings
+
+    caps = model_capabilities(provider, model)
+    assert "none" not in caps["reasoning_efforts"]
+    assert "high" in caps["reasoning_efforts"]
+    assert caps["thinking_budget"] is False
+    assert caps["temperature"] is False
+    assert caps["top_p"] is False
+    for value in (
+        {"reasoning_effort": "none"},
+        {"thinking_budget": 2048, "max_tokens": 4096},
+        {"temperature": 1},
+        {"top_p": 0.9},
+    ):
+        with pytest.raises(ValueError, match="not supported"):
+            validate_model_settings(provider, model, value)
+    assert validate_model_settings(provider, model, {"reasoning_effort": "high"}) == {
+        "reasoning_effort": "high"
+    }

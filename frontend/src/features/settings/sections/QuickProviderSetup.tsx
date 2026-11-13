@@ -90,7 +90,7 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
           <Text as="h3" variant="heading-sm">{readOnly && !available ? "Workspace AI" : editing ? "Update your AI provider" : available ? "Your AI is connected" : "Connect your AI provider"}</Text>
           <Text as="p" variant="body-sm" tone="muted">
             {readOnly ? managed ? "AI is managed for this installation." : "This workspace uses its owner's AI setup."
-              : editing ? "Choose a provider or update its API key." : available ? "You're ready to chat and work with Integral." : "Choose a provider and add your API key. Integral selects a preferred heavy model."}
+              : editing ? "Choose a provider or update its API key." : available ? "You're ready to chat and work with Integral." : "Choose a provider and add your API key. Integral selects the model for you."}
           </Text>
         </div>
       </div>
@@ -117,8 +117,7 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
           </div>
         </Stack>
       </form>}
-      {data.effective.harness_policy && <Text as="p" variant="body-sm" tone={data.effective.harness_policy.tier === "light" ? "warn" : "muted"}>{data.effective.harness_policy.message}</Text>}
-      <Text as="p" variant="meta" tone="muted">Preferred models are starting recommendations, not certification. Compatibility varies by task and provider. Existing model choices are not changed automatically.</Text>
+      {data.effective.harness_policy && !data.effective.harness_policy.recommended && <Text as="p" variant="body-sm" tone={data.effective.harness_policy.tier === "light" ? "warn" : "muted"}>{data.effective.harness_policy.message}</Text>}
       {!readOnly && <Text as="p" variant="meta" tone="muted">API usage is billed by your provider.</Text>}
     </Stack>
   </Surface>;
