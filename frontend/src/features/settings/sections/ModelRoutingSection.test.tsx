@@ -284,3 +284,17 @@ it.each([false, true])(
     );
   },
 );
+
+it("restricts known light profiles to the light role without silently changing legacy routing", () => {
+  const data = structuredClone(configuration);
+  data.profiles[0].harness_policy = { tier: "light", recommended: false, evidence: "role_policy", message: "Light role only." };
+  data.default_profile_id = "light";
+  data.routing!.heavy_profile_id = "light";
+  show(data);
+  fireEvent.click(screen.getByRole("button", { name: "Configure routing" }));
+  const main = screen.getByLabelText("Main model");
+  expect(within(main).getByRole("option", { name: /Quick/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save routing" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Routing mode"), { target: { value: "light_heavy" } });
+  expect(within(screen.getByLabelText("Light model")).getByRole("option", { name: /Quick/ })).not.toBeDisabled();
+});

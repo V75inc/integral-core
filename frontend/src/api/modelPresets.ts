@@ -8,7 +8,8 @@ export interface ModelPreset {
 
 export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
   openai: [
-    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', recommended: true },
+    { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol · preferred heavy', recommended: true },
+    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini · light role only' },
     { id: 'gpt-4.1', label: 'GPT-4.1' },
     { id: 'gpt-4o', label: 'GPT-4o' },
     { id: 'gpt-5', label: 'GPT-5 (reasoning)' },
@@ -24,7 +25,8 @@ export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
     { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   ],
   openrouter: [
-    { id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini', recommended: true },
+    { id: 'openai/gpt-6.1-sol', label: 'GPT-6.1 Sol · preferred heavy', recommended: true },
+    { id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini · light role only' },
     { id: 'openai/gpt-4.1', label: 'OpenAI GPT-4.1' },
     { id: 'openai/gpt-5', label: 'OpenAI GPT-5 (reasoning)' },
     { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
@@ -38,7 +40,7 @@ export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
     { id: 'gpt-oss:120b', label: 'gpt-oss 120b (cloud)' },
   ],
   ollama_local: [
-    { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local)', recommended: true },
+    { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local) · light role only' },
     { id: 'gemma4:26b', label: 'Gemma 4 26B (local)' },
   ],
   // Custom OpenAI-compatible endpoints have no known model catalog, so the
@@ -68,6 +70,7 @@ export function defaultSpeechModel(provider: SpeechProvider): string {
 }
 
 export function defaultModel(provider: ModelProvider): string {
+  if (provider === 'ollama_local' || provider === 'custom_openai') return '';
   const presets = RECOMMENDED_MODELS[provider];
   return presets.find(p => p.recommended)?.id ?? presets[0]?.id ?? '';
 }

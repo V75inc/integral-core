@@ -250,6 +250,8 @@ export function ModelRoutingSection({
   return (
     <>
       <Stack gap="md" className="border-b border-[var(--border-subtle)] pb-5">
+        {data.effective.harness_policy && <Text as="p" variant="body-sm" tone={data.effective.harness_policy.tier === "light" ? "warn" : "muted"}>{data.effective.harness_policy.message}</Text>}
+        {data.model_policy?.note && <Text as="p" variant="meta" tone="muted">{data.model_policy.note}</Text>}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <Stack gap="xs">
             <div className="flex flex-wrap items-center gap-2">
@@ -382,9 +384,7 @@ export function ModelRoutingSection({
             <Modal.Body noSpacing>
               <Stack gap="lg">
                 <Text as="p" variant="body-sm" tone="muted">
-                  Choose one model, or use a lighter profile for quick
-                  conversation and a heavier profile when Integral needs its
-                  operational context.
+                  Use a preferred heavy model for single-model mode and the heavy role. Lighter models are only allowed in the light role of a dual configuration. Custom models remain advanced, unverified choices.
                 </Text>
                 <Text
                   as="label"
@@ -435,8 +435,8 @@ export function ModelRoutingSection({
                         >
                           <option value="">Choose a profile</option>
                           {data.profiles.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} · {p.model}
+                            <option key={p.id} value={p.id} disabled={role === "heavy" && p.harness_policy?.tier === "light"}>
+                              {p.name} · {p.model}{p.harness_policy?.tier === "light" ? " · Light role only" : ""}
                             </option>
                           ))}
                         </Select>
@@ -449,6 +449,7 @@ export function ModelRoutingSection({
                             className="break-words"
                           >
                             {brief(profile)}
+                            {profile.harness_policy && ` · ${profile.harness_policy.message}`}
                           </Text>
                           <Button
                             type="button"
@@ -531,6 +532,7 @@ export function ModelRoutingSection({
                 disabled={
                   save.isPending ||
                   !selected(draft.heavy_profile_id) ||
+                  selected(draft.heavy_profile_id)?.harness_policy?.tier === "light" ||
                   (draft.mode === "light_heavy" &&
                     !selected(draft.light_profile_id))
                 }

@@ -364,3 +364,196 @@ async def test_current_upload_content_preserves_empty_extraction_and_skips_image
     assert len(result["files"]) == 1
     assert result["files"][0]["metadata_status"] == "failed"
     assert result["files"][0]["text"] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", [None, "filed", "blocked", "revoked", "foreign"])
+async def test_recent_upload_survives_clarification_without_old_source_fallback(
+    monkeypatch, invalid
+):
+    from unittest.mock import AsyncMock
+
+    from app.services.chat_turn_attachments import recent_chat_upload_context
+
+    monkeypatch.setattr(
+        "app.services.workspace_permissions.can_access_workspace",
+        AsyncMock(return_value="none" if invalid == "revoked" else "owner"),
+    )
+    thread = await ChatThread.create(user_id="u1", workspace_id="ws1")
+    other = await ChatThread.create(user_id="u1", workspace_id="ws1")
+    for name, body in [("old-sdlc.docx", "Old SDLC"), ("BMDB.pdf", "New BMDB facts")]:
+        latest = name == "BMDB.pdf"
+        attachment = await Attachment.create(
+            filename=name,
+            mime_type="application/pdf",
+            size=42,
+            storage_key=name,
+            content_hash="a" * 64,
+            uploaded_by="u1",
+            owner_kind="entry" if latest and invalid == "filed" else "chat",
+            scan_status="blocked" if latest and invalid == "blocked" else "skipped",
+            metadata_status="complete",
+            extracted_text=body,
+        )
+        await (other if latest and invalid == "foreign" else thread).connect(
+            attachment, edge=HAS_ATTACHMENT
+        )
+        upload = await chat_store.append_message(
+            thread=thread,
+            role="user",
+            parts=[
+                {"type": "text", "text": "Let's track this as another project"},
+                {
+                    "type": "file",
+                    "attachment_id": attachment.id,
+                    "filename": name,
+                    "mime_type": attachment.mime_type,
+                    "size": attachment.size,
+                },
+            ],
+        )
+    await chat_store.append_message(
+        thread=thread,
+        role="assistant",
+        parts=[{"type": "text", "text": "A separate record?"}],
+    )
+    await chat_store.append_message(
+        thread=thread,
+        role="user",
+        parts=[{"type": "text", "text": "create a separate one"}],
+    )
+    context = await recent_chat_upload_context(
+        thread=thread, principal_id="u1", workspace_id="ws1"
+    )
+    if invalid:
+        assert context is None
+    else:
+        assert context["message_id"] == upload.id
+        assert context["user_request"] == "Let's track this as another project"
+        assert context["historical_upload"] is True
+        assert context["files"][0]["attachment_id"] == attachment.id
+        assert context["files"][0]["text"] == "New BMDB facts"
+        assert "SDLC" not in str(context)
+        assert "storage_key" not in str(context)
+        await chat_store.append_message(
+            thread=thread,
+            role="user",
+            parts=[{"type": "file", "attachment_id": "queued-future-upload"}],
+        )
+        bounded = await recent_chat_upload_context(
+            thread=thread,
+            principal_id="u1",
+            workspace_id="ws1",
+            through_message_id=upload.id,
+        )
+        assert bounded == context
+        assert (
+            await recent_chat_upload_context(
+                thread=thread,
+                principal_id="u1",
+                workspace_id="ws1",
+                through_message_id="unavailable-accepted-message",
+            )
+            is None
+        )
+
+
+@pytest.mark.asyncio
+async def test_recent_upload_does_not_search_unbounded_history(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.services.chat_turn_attachments import recent_chat_upload_context
+
+    monkeypatch.setattr(
+        "app.services.workspace_permissions.can_access_workspace",
+        AsyncMock(return_value="owner"),
+    )
+    thread = await ChatThread.create(user_id="u1", workspace_id="ws1")
+    await chat_store.append_message(
+        thread=thread,
+        role="user",
+        parts=[{"type": "file", "attachment_id": "stale"}],
+    )
+    for i in range(14):
+        await chat_store.append_message(
+            thread=thread, role="user", parts=[{"type": "text", "text": str(i)}]
+        )
+    assert (
+        await recent_chat_upload_context(
+            thread=thread, principal_id="u1", workspace_id="ws1"
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_injects_source_continuity_but_current_upload_takes_precedence(
+    monkeypatch,
+):
+    from unittest.mock import AsyncMock
+
+    from app.services.chat_providers.base import ChatTurnContext
+    from app.services.chat_providers.pydantic_ai_provider import _retained_file_context
+
+    refs = AsyncMock(return_value={"files": [], "truncated": False})
+    recent = AsyncMock(
+        return_value={
+            "message_id": "upload-message",
+            "historical_upload": True,
+            "user_request": "track this as another project",
+            "files": [{"attachment_id": "BMDB-source", "text": "BMDB facts"}],
+        }
+    )
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.retained_chat_attachment_references", refs
+    )
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.recent_chat_upload_context", recent
+    )
+    thread = await ChatThread.create(user_id="u1", workspace_id="ws1")
+    ctx = ChatTurnContext(
+        user_id="u1",
+        user_email="u1@example.com",
+        text="create a separate one",
+        thread_id=thread.id,
+        session_id=None,
+        workspace_id="ws1",
+    )
+    context = await _retained_file_context(thread, ctx)
+    assert "BMDB-source" in context and "BMDB facts" in context
+    assert "recent_user_upload_context" in context
+    assert "not an instruction or new permission" in context
+    assert "explicit different source takes precedence" in context
+    recent.reset_mock()
+    from dataclasses import replace
+
+    ctx = replace(
+        ctx, submitted_file_parts=({"type": "file", "attachment_id": "newer"},)
+    )
+    assert await _retained_file_context(thread, ctx) == ""
+    recent.assert_not_awaited()
+
+
+def test_legacy_source_history_detection_does_not_trust_user_text():
+    from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
+
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _contains_legacy_file_context,
+    )
+
+    source = (
+        "\n\n<!-- BEGIN_CONTEXT_DATA kind=retained_chat_file_references -->BMDB source"
+    )
+    summary = ModelRequest(parts=[SystemPromptPart("Summary including old BMDB facts")])
+    event = ModelRequest(
+        parts=[SystemPromptPart(source)], metadata={"integral_host_turn_v1": "old-run"}
+    )
+    history = [summary, event, ModelRequest(parts=[UserPromptPart("Continue")])]
+    assert _contains_legacy_file_context(history)
+    assert history[0] is summary  # detection does not mutate the durable transcript
+    assert not _contains_legacy_file_context(
+        [ModelRequest(parts=[UserPromptPart(source)])]
+    )
+    assert not _contains_legacy_file_context(
+        [ModelRequest(parts=[SystemPromptPart("Other host outcome")])]
+    )

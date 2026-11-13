@@ -218,6 +218,75 @@ async def retained_chat_attachment_references(
     return {"files": files, "truncated": len(candidates) > limit}
 
 
+async def recent_chat_upload_context(
+    *,
+    thread: ChatThread,
+    principal_id: str,
+    workspace_id: str,
+    through_message_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Keep a recent user upload associated with its request across clarification.
+
+    This is historical read context, never a selection or filing permit. The
+    harness's public message reader bounds discovery and verifies CONTAINS;
+    attachment reads still independently enforce current scope and ownership.
+    Pydantic AI's model history does not retain host-only upload context, so
+    this substrate association must be recovered from canonical chat parts.
+    """
+    from app.agentive.harness.adaptive import recent_public_messages
+    from app.services.workspace_permissions import can_access_workspace
+
+    current = await ChatThread.find_one({"id": thread.id})
+    if (
+        current is None
+        or current.archived
+        or current.user_id != principal_id
+        or current.workspace_id != workspace_id
+        or await can_access_workspace(principal_id, workspace_id) == "none"
+    ):
+        return None
+    messages = await recent_public_messages(current)
+    if through_message_id:
+        accepted = next(
+            (
+                i
+                for i, message in enumerate(messages)
+                if message.id == through_message_id
+            ),
+            None,
+        )
+        if accepted is None:
+            return None
+        messages = messages[: accepted + 1]
+    for message in reversed(messages):
+        if message.role != "user":
+            continue
+        parts = message.parts or []
+        files = [p for p in parts if p.get("type") == "file"]
+        if not files:
+            continue
+        # Do not fall back to an older upload if the newest is no longer
+        # readable/chat-owned: that would silently substitute the source.
+        try:
+            content = await current_chat_attachment_content(
+                thread=current,
+                principal_id=principal_id,
+                workspace_id=workspace_id,
+                parts=files,
+            )
+        except WorkError:
+            return None
+        return {
+            "message_id": message.id,
+            "user_request": "\n".join(
+                str(p.get("text") or "") for p in parts if p.get("type") == "text"
+            )[:4000],
+            "historical_upload": True,
+            **content,
+        }
+    return None
+
+
 async def current_chat_attachment_content(
     *,
     thread: ChatThread,
@@ -225,7 +294,7 @@ async def current_chat_attachment_content(
     workspace_id: str,
     parts: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Read bounded text for verified current uploads, never historical files.
+    """Read bounded text for verified canonical uploads, not arbitrary locators.
 
     The caller supplies accepted canonical message parts, not model arguments.
     Source association is not filing authority; the normal target policy and

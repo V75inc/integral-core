@@ -593,12 +593,14 @@ async def test_provider_suppresses_output_after_work_item_fence_loss(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_history", ["none", "reset", "refuse"])
 @pytest.mark.parametrize(
     "file_state", ["current", "deleted", "moved", "blocked", "revoked"]
 )
 async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     monkeypatch: pytest.MonkeyPatch,
     file_state,
+    legacy_history,
 ) -> None:
     """Harness tools use the same durable run that Core's chat router created."""
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "a" * 32)
@@ -837,7 +839,52 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     monkeypatch.setattr(
         "app.services.chat_turn_attachments.current_chat_attachment_content", assimilate
     )
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.recent_chat_upload_context",
+        lambda **_kwargs: _return(None),
+    )
+    legacy_messages = []
+    if legacy_history != "none":
+        from pydantic_ai.messages import ModelRequest, SystemPromptPart
+
+        legacy_messages = [
+            ModelRequest(
+                parts=[SystemPromptPart("Summary containing old private source facts")]
+            ),
+            ModelRequest(
+                parts=[
+                    SystemPromptPart(
+                        "<!-- BEGIN_CONTEXT_DATA kind=retained_chat_file_references -->old private source"
+                    )
+                ],
+                metadata={"integral_host_turn_v1": "legacy-run"},
+            ),
+        ]
+        monkeypatch.setattr(
+            "app.services.chat_providers.pydantic_ai_provider._resume_history",
+            lambda *_args, **_kwargs: _return(list(legacy_messages)),
+        )
+        if legacy_history == "reset":
+            core_run.metadata = {"chat_message_id": "accepted-current-message"}
+            monkeypatch.setattr(
+                "app.services.chat_image_inputs.chat_image_prompt",
+                lambda _scope, _message_id, text: _return(text),
+            )
+        else:
+            from app.api.errors import ResourceConflictError
+
+            with pytest.raises(
+                ResourceConflictError, match="Prior retrieval evidence changed"
+            ):
+                await PydanticAIProvider()._prepare(ctx)
+            assert len(legacy_messages) == 2
+            return
     scope, *_rest = await PydanticAIProvider()._prepare(ctx)
+    if legacy_history == "reset":
+        assert _rest[3] == []  # model-facing history only; no paraphrased summary
+        assert _rest[-1]["public_dialogue_restored"] is True
+        assert len(legacy_messages) == 2  # stored transcript/evidence untouched
+    assert "file_context" not in _rest[-1]
     assert "Verified document facts" in runtime_args["instructions"]
     assert "Verified document facts" not in runtime_args["protected_instruction_text"]
     assert ctx.system_context == "Signed host context must remain unchanged."
@@ -897,6 +944,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         )
         followup_prepared = await PydanticAIProvider()._prepare(followup)
         assert followup_prepared[0].thread_id == "thread-a"
+        assert "file_context" not in followup_prepared[-1]
         assert "prior-brief.pdf" in runtime_args["instructions"]
         assert "attachment-prior" in runtime_args["instructions"]
         assert "Verified document facts" not in runtime_args["instructions"]

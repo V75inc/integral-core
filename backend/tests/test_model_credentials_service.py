@@ -77,7 +77,7 @@ async def test_upsert_after_revoke_reuses_same_row(enc_key, test_user):
         first = await upsert_user_credential(
             user_id=auth_user_id,
             provider="openai",
-            model="gpt-4o-mini",
+            model="gpt-4o",
             api_key="sk-live-test-key-1234",
         )
         await revoke_user_credential(auth_user_id)
@@ -110,7 +110,7 @@ async def test_local_ollama_credential_saves_without_secret(enc_key, test_user):
         record = await upsert_user_credential(
             user_id=auth_user_id,
             provider="ollama_local",
-            model="gemma4:e2b",
+            model="local-evaluated-heavy",
         )
 
     assert record.provider == "ollama_local"
@@ -141,7 +141,7 @@ async def test_local_ollama_does_not_require_encryption_key(test_user, monkeypat
         record = await upsert_user_credential(
             user_id=auth_user_id,
             provider="ollama_local",
-            model="gemma4:e2b",
+            model="local-evaluated-heavy",
         )
 
     assert record.api_key_enc == ""

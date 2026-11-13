@@ -15,6 +15,7 @@ from app.agentive.services.execution_runs import (
     finish_run,
     mint_surface_run,
 )
+from app.api.errors import JVSpatialAPIException
 from app.schemas.capability_broker import (
     ERR_ADAPTER,
     ERR_AMBIGUOUS_DECLARATION,
@@ -610,7 +611,9 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
         mark_latency("firstOperationalToolMs")
     try:
         data = await _call_adapter(inv, cap)
-    except AdapterError as exc:
+    except (AdapterError, JVSpatialAPIException) as exc:
+        # Host preflight errors occur before adapter normalization.
+        # Keep safe domain errors actionable, rather than report a crash.
         step.status = "failed"
         step.error_code = ERR_ADAPTER
         step.adapter_error_code = exc.error_code
@@ -627,7 +630,7 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
             snapshot_fingerprint=snapshot_fp,
             snapshot_divergence=divergence,
         )
-        result.next_tool = exc.next_tool
+        result.next_tool = getattr(exc, "next_tool", "")
         await _persist_envelope(step, result)
         if inv.origin in SHORT_LIVED_ORIGINS:
             await finish_run(
