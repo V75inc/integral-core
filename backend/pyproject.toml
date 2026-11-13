@@ -80,7 +80,9 @@ dependencies = [
     "authlib>=1.9.1",
     # Reject joserfc releases flagged by the release dependency audit.
     "joserfc>=1.7.6",
-    "dnspython>=2.9.0",
+    "dnspython>=2.9.2",
+    # Enforce the patched tracing API for transitive runtime consumers too.
+    "opentelemetry-api>=1.45.2,<2",
     "pymongo>=4.18.3",
     "httpx>=0.24.0",
     # LiteLLM HTTP transport: exclude versions flagged by the release audit.
@@ -154,7 +156,7 @@ integral = "app.cli:main"
 
 [project.optional-dependencies]
 observability = [
-    "opentelemetry-api>=1.20,<2",
+    "opentelemetry-api>=1.45.2,<2",
     "opentelemetry-sdk>=1.20,<2",
     "opentelemetry-exporter-otlp-proto-http>=1.20,<2",
 ]
