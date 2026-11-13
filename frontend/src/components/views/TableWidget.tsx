@@ -35,7 +35,7 @@ type MemberFieldPaths = Set<string>;
  *  same way every other select control in the app already displays it
  *  (SeamlessField's `resolveEnumOptionLabel`/`humanizeEnumValue`) instead
  *  of printing the raw snake/kebab-case value verbatim. */
-type SelectFieldTypes = Map<string, 'select' | 'multi_select' | 'date' | 'datetime'>;
+type SelectFieldTypes = Map<string, 'select' | 'multi_select'>;
 type EnumLabelsByField = Map<string, Record<string, string>>;
 
 const DEFAULT_COLUMNS: TableColumn[] = [
@@ -222,10 +222,6 @@ function renderCellValue(
           </span>
         );
       }
-      if ((selectType === 'date' || selectType === 'datetime') && typeof val === 'string') {
-        const shown = formatDateFieldDisplay(val, selectType);
-        if (shown) return <span className="text-sm text-[var(--text)] whitespace-nowrap">{shown}</span>;
-      }
       if (selectType === 'select' && typeof val === 'string') {
         return <span className="text-sm text-[var(--text)]">{enumLabelsByField.get(column.field)?.[val] ?? humanizeEnumValue(val)}</span>;
       }
@@ -277,7 +273,7 @@ function TableWidgetInner({
     const out: SelectFieldTypes = new Map();
     for (const f of fields ?? []) {
       const t = String(f.type || '').toLowerCase();
-      if (t === 'select' || t === 'multi_select' || t === 'date' || t === 'datetime') {
+      if (t === 'select' || t === 'multi_select') {
         if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
         out.set(`custom_fields.${f.key}`, t);
       }

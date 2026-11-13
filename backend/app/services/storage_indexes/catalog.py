@@ -72,7 +72,7 @@ def model_classes():
 def compile_models(classes, *, schema="public") -> list[IndexSpec]:
     """Compile typed model declarations into explicit filter and ordering requirements."""
     db = PostgresDB(schema_name=schema, index_creation="managed")
-    specs = {}
+    specs: dict[str, IndexSpec] = {}
 
     def put(spec):
         prior = specs.get(spec.fingerprint)
