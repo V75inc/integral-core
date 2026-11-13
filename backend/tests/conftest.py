@@ -61,6 +61,11 @@ if _TEST_DB_KIND in ("postgres", "postgresql"):
     # maintenance contract explicit; governed lifecycle, fresh provisioning and
     # real worker-process tests separately exercise managed DML-only serving.
     os.environ.setdefault("JVSPATIAL_POSTGRES_INDEX_CREATION", "constraints")
+    # Lazy app startup configures framework-created adapters too. Establish its
+    # catalog default before the per-test environment leak guard snapshots.
+    os.environ.setdefault(
+        "JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "integral_index_catalog"
+    )
     _PG_TEST_DB_NAME = f"integral_test{_DB_SUFFIX}"
     _PG_TEST_DSN = _with_postgres_database(
         os.getenv(
