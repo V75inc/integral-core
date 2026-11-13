@@ -2894,3 +2894,53 @@ async def test_post_build_question_never_masks_build_outcome(monkeypatch, outcom
     else:
         reply = "The build outcome needs review before any further changes."
         assert await _scaffold_completion_validator(state)(None, reply) == reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["integral_create_entry", "integral_update_entry"])
+async def test_attachment_workflow_cannot_stage_plain_record_write(
+    tmp_path, monkeypatch, name
+):
+    """Real skill declarations enforce compound filing, not upload heuristics."""
+    import shutil
+
+    for skill in ("integral-attachments", "integral-entries"):
+        destination = tmp_path / skill
+        destination.mkdir()
+        shutil.copy(
+            Path("app/resident_harness/skills") / skill / "SKILL.md",
+            destination / "SKILL.md",
+        )
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        catalogue=[
+            row
+            for row in build_tool_catalogue()
+            if row["name"] in {name, "integral_file_uploaded_document"}
+        ],
+    )
+    tool = next(t for t in tools if t.name == name)
+    ctx = SimpleNamespace(
+        active_capability_ids={"integral-attachments"}, tool_call_id="wrong-write"
+    )
+    compound = next(t for t in tools if t.name == "integral_file_uploaded_document")
+    assert await compound.prepare_tool_def(ctx) is not None
+    assert await tool.prepare_tool_def(ctx) is None
+    result = await tool.function_schema.call({}, ctx)
+    assert result["error_code"] == "required_skill_not_loaded"
+    assert "integral_file_uploaded_document" in result["message"]
+    assert calls == []
+    ctx.active_capability_ids.add("integral-entries")
+    assert await tool.prepare_tool_def(ctx) is not None
+    await tool.function_schema.call({}, ctx)
+    assert len(calls) == 1

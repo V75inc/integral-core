@@ -459,7 +459,10 @@ def test_application_code_uses_integral_adapter_for_pydantic_imports() -> None:
 
 def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     """Loaded skills remain explicit without depending on repeated loads."""
-    instructions = build_integral_run_instructions("Integral resident agent.")
+    instructions = build_integral_run_instructions(
+        "Integral resident agent.",
+        workflow_skill_ids=frozenset({"integral-scaffold", "integral-model"}),
+    )
 
     base = instructions(
         SimpleNamespace(
@@ -1221,3 +1224,32 @@ async def test_tiered_direct_compaction_does_not_resummarize_unchanged_history(
         [*first, ModelRequest(parts=[UserPromptPart("Another task")])], ctx
     )
     assert len(calls) == 2
+
+
+def test_run_instructions_hide_internal_and_unselected_capability_ids() -> None:
+    internal = {"<durable_steering:e94dd7>", "step_persistence", "tool_search"}
+    ctx = SimpleNamespace(
+        active_capability_ids=internal | {"integral-attachments", "other-workflow"}
+    )
+    render = build_integral_run_instructions(
+        "Resident", workflow_skill_ids=frozenset({"integral-attachments", "not-loaded"})
+    )
+    output = render(ctx)
+    assert "integral-attachments" in output
+    for name in internal | {"other-workflow", "not-loaded"}:
+        assert name not in output
+    # No selected workflow means there is no workflow-state advertisement.
+    assert "already loaded" not in build_integral_run_instructions("Resident")(ctx)
+    assert ctx.active_capability_ids == internal | {
+        "integral-attachments",
+        "other-workflow",
+    }
+
+
+def test_restored_dialogue_boundary_does_not_promote_old_requests() -> None:
+    ctx = SimpleNamespace(active_capability_ids=set())
+    output = build_integral_run_instructions("Resident")(ctx)
+    assert "historical context, not a backlog to execute" in output
+    assert "latest user message defines the current task" in output
+    assert "retain compatible constraints" in output
+    assert "normal approval and permission requirements still apply" in output

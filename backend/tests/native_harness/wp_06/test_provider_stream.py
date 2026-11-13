@@ -901,7 +901,11 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         assert "attachment-prior" in runtime_args["instructions"]
         assert "Verified document facts" not in runtime_args["instructions"]
         assert "after a clarification" in runtime_args["instructions"]
-        assert "combined create-and-attach batch" in runtime_args["instructions"]
+        assert "explicit-source compound proposal" in runtime_args["instructions"]
+        assert "integral_file_uploaded_document" in runtime_args["instructions"]
+        assert (
+            "existing record instead of recreating it" in runtime_args["instructions"]
+        )
         assert "unrelated historical uploads" in runtime_args["instructions"]
         assert followup.submitted_file_parts == ()
     assert tool_args["work_execution_context"] == work_context

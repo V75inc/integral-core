@@ -412,6 +412,22 @@ def _make_handler(
                     "The skills declaring this tool are: "
                     + ", ".join(sorted(workflow_skills))
                     + ". Choose the one that fits the user's request."
+                    + (
+                        " The loaded attachment workflow uses "
+                        "integral_file_uploaded_document with an explicit source "
+                        "and create/update/attach mode. If content is already saved, "
+                        "use attach; do not rewrite it. Load integral-entries only "
+                        "for a separate requested record edit or deliberate broader "
+                        "composition, not to omit a requested source attachment."
+                        if "integral-attachments" in ctx.active_capability_ids
+                        and capability_name
+                        in {
+                            "integral_create_entry",
+                            "integral_update_entry",
+                            "integral_file_content",
+                        }
+                        else ""
+                    )
                 ),
                 "retryable": False,
             }
@@ -570,6 +586,7 @@ def _make_handler(
             in {
                 "integral_prepare_document_attachment",
                 "integral_attach_uploaded_file_to_entry",
+                "integral_file_uploaded_document",
             }
         ):
             # The broker delegates this specific recoverable multi-stage

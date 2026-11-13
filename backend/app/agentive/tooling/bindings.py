@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from app.agentive.tooling import staging_display as _sd
+from app.agentive.tooling.stagers_document_filing import stage_file_uploaded_document
 from app.agentive.tooling.stagers_filing import stage_file_content
 from app.agentive.tooling.stagers_indexing import stage_configure_index, stage_reindex
 from app.agentive.tooling.stagers_scheduling import (
@@ -2522,7 +2523,9 @@ async def _stage_attach_file(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
+async def _stage_attach_uploaded_file(
+    args: Dict[str, Any], *, prepared_create: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     _require(args, "entry_id", "attachment_id")
     principal = _propose_principal.get()
     review = None
@@ -2552,9 +2555,19 @@ async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
         )
         if error:
             raise BadRequestError(message=error["message"])
-        pending = await pending_entry_creation(
-            user_id=principal, session_id=session_id, reference=args["entry_id"]
-        )
+        # A compound stager may supply its already policy-checked create
+        # plan directly. This keyword is private host code, never a tool arg.
+        if prepared_create is not None:
+            if (
+                prepared_create.get("kind") != "create_entry"
+                or args["entry_id"] != "{{step_1.id}}"
+            ):
+                raise ValueError("Invalid compound entry reference")
+            pending = prepared_create["payload"]
+        else:
+            pending = await pending_entry_creation(
+                user_id=principal, session_id=session_id, reference=args["entry_id"]
+            )
         if pending is not None:
             # No target exists yet. Commit resolves the validated backward
             # reference and repeats destination policy/workspace checks on
@@ -4183,6 +4196,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_param_map=_pick("text", "facets"),
     ),
     "integral_file_content": ToolBinding(stager=stage_file_content),
+    "integral_file_uploaded_document": ToolBinding(stager=stage_file_uploaded_document),
     "integral_update_entry": ToolBinding(stager=_stage_update_entry),
     "integral_delete_entry": ToolBinding(stager=_stage_delete_entry),
     # ---- Phase 0 enabler tools ----

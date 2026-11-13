@@ -1525,6 +1525,7 @@ async def _dispatch_propose(
     )
     if (
         not native_design_thread
+        and spec.name != "integral_file_uploaded_document"
         and session_id is not None
         and not is_batch_open(principal_id, session_id)
         and await design_proposed_pending(session_id)
@@ -1540,6 +1541,14 @@ async def _dispatch_propose(
     # staged op is ACCUMULATED rather than minting its own token. One bless at
     # ``integral_commit_batch`` then applies the whole workflow. The op carries
     # only stager output (no identity/scope — PC-1/PC-2 preserved).
+    if spec.name == "integral_file_uploaded_document" and is_batch_open(
+        principal_id, session_id
+    ):
+        return ToolResult(
+            is_error=True,
+            error_code="open_batch_conflict",
+            message="Finish or cancel the existing batch before filing this document.",
+        )
     if session_id is not None and is_batch_open(principal_id, session_id):
         # Greenfield scaffold: refuse orphan tracks (no app) even inside a batch —
         # they would bless as "App: (no app)" and break {{app.id}} wiring.

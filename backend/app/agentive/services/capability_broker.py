@@ -230,7 +230,10 @@ async def _call_adapter(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
         with bind_preparation_work_context(context):
             return await dispatch_capability(inv, cap)
 
-    if inv.capability_key == "integral_attach_uploaded_file_to_entry":
+    if inv.capability_key in {
+        "integral_attach_uploaded_file_to_entry",
+        "integral_file_uploaded_document",
+    }:
         from app.api.errors import ResourceNotFoundError
         from app.services.chat_attachment_review import (
             bind_preinspected_attachment,
