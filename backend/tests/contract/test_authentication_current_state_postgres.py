@@ -49,8 +49,11 @@ async def test_repeated_validation_coalesces_only_advisory_activity(postgres_raw
 
 @pytest.mark.parametrize("held_disable", [False, True])
 async def test_other_process_cannot_validate_or_reactivate_disabled_identity(
-    postgres_raw_db, held_disable
+    postgres_raw_db, monkeypatch, held_disable
 ):
+    # Exercise the conditional activity write fence. Default throttled reads
+    # may observe the last committed active state until the disable commits.
+    monkeypatch.setenv("INTEGRAL_ACTIVITY_TOUCH_SECONDS", "0")
     secret = secrets.token_urlsafe(48)
     service = IntegralAuthenticationService(
         GraphContext(database=postgres_raw_db), jwt_secret=secret

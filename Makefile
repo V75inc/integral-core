@@ -14,7 +14,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-REPO_ROOT := $(shell cd "$(dirname "$(firstword $(MAKEFILE_LIST))")" && pwd)
+REPO_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
 
 # Same interpreter resolution the pre-commit hooks use, so `make` and the hook
 # never disagree about which venv is in play.

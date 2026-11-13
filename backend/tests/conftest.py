@@ -1089,6 +1089,10 @@ async def _install_postgres_test_log_db() -> object:
     from jvspatial.logging.models import DBLog
 
     await GraphContext(database=log_database).ensure_indexes(DBLog)
+    # Constraints mode skips non-unique DBLog indexes, so ensure_indexes alone
+    # may leave the collection cold. Bootstrap before graph transactions can
+    # hold locks that the separate log adapter's schema setup needs.
+    await log_database.find("object", {}, limit=1)
     return log_database
 
 
