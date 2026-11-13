@@ -48,7 +48,7 @@ hashing. These parsing limits do not grant package publication authority.
 
 ## jvspatial security compatibility
 
-Metadata pins jvspatial 0.2.9 and pydantic-ai-harness 0.59.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
+Metadata pins jvspatial 0.2.10 and pydantic-ai-harness 0.59.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
 
 PostgreSQL token validation coalesces the advisory `last_accessed` timestamp
 within one minute. It still locks and checks the current identity row on every
