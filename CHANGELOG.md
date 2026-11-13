@@ -6,6 +6,15 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc63 — 2026-11-13
+
+- Preserve approved designs and uploaded source context through scaffolding and reviewed document filing.
+- Save original attachments with their project records and bound long attachment names inside chat bubbles.
+- Default to preferred heavy models for operational work; reserve light models for the light role and show warnings only when relevant.
+- Preserve signed Anthropic thinking across tool round-trips and restored conversations.
+- Keep fresh provider setup free of warnings about an unconfigured model.
+- Require patched SoupSieve selector parsing and Python 3.11.5 or later.
+
 ## 0.1.1rc62 — 2026-11-12
 
 - Prepare the next Integral Core release candidate.

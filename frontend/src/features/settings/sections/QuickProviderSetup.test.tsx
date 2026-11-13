@@ -119,3 +119,17 @@ it("offers a personal provider override when the installation already supplies A
   expect(screen.getByText(/GPT-6\.1 Sol.*will be selected automatically\./)).toBeVisible();
   expect(aiConfigurationApi.saveRouting).not.toHaveBeenCalled();
 });
+
+it("does not warn about an absent model during fresh provider setup", () => {
+  const data = blank();
+  data.effective.harness_policy = {tier:"unverified",recommended:false,evidence:"",message:"Advanced model choice: harness suitability is unverified."};
+  show(data);
+  expect(screen.getByText(/GPT-6\.1 Sol.*will be selected automatically\./)).toBeVisible();
+  expect(screen.queryByText(/harness suitability is unverified/)).not.toBeInTheDocument();
+});
+it("retains suitability warnings for a connected unverified model", () => {
+  const data = blank();
+  data.effective = {...data.effective,source:"workspace_owner",provider:"openai",model:"custom-model",harness_policy:{tier:"unverified",recommended:false,evidence:"",message:"Advanced model choice: harness suitability is unverified."}};
+  show(data);
+  expect(screen.getByText(/harness suitability is unverified/)).toBeVisible();
+});
