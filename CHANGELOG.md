@@ -13,7 +13,7 @@ bump does not establish that a release is available on a package index.
 - Default to preferred heavy models for operational work; reserve light models for the light role and show warnings only when relevant.
 - Preserve signed Anthropic thinking across tool round-trips and restored conversations.
 - Keep fresh provider setup free of warnings about an unconfigured model.
-- Require patched SoupSieve selector parsing and Python 3.11.5 or later.
+- Require patched SoupSieve selector parsing, OpenTelemetry API, and Python 3.11.5 or later.
 
 ## 0.1.1rc62 — 2026-11-12
 

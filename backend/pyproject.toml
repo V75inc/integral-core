@@ -125,6 +125,8 @@ dependencies = [
     # HTML extraction for the native standard skill library.
     # CVE-2026-126190: patched CSS selector parsing requires Python 3.11.5+.
     "soupsieve>=4.0",
+    # CVE-2026-126360: keep telemetry API above the vulnerable patch release.
+    "opentelemetry-api>=1.45.2",
     "beautifulsoup4>=4.12,<5",
     "markdownify>=0.13,<2",
     # openai stays for the SDK's own use elsewhere in the tree (embeddings,
