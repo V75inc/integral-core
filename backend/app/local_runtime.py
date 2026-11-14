@@ -672,10 +672,14 @@ def _environment(
 
 
 def _event_worker_ready(home: Path, env: dict[str, str], started_at: float) -> bool:
-    """Check durable worker heartbeat/backlog without logging secrets or payloads."""
+    """Require this boot's live worker, not a globally healthy delivery backlog.
+
+    Historical dead letters remain visible through worker --check/status but
+    must not prevent the local API from starting so they can be inspected.
+    """
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "app.cli", "worker", "events", "--check"],
+            [sys.executable, "-m", "app.cli", "worker", "events", "--status"],
             cwd=home,
             env=env,
             stdout=subprocess.PIPE,
@@ -688,9 +692,12 @@ def _event_worker_ready(home: Path, env: dict[str, str], started_at: float) -> b
 
         report = json.loads(result.stdout)
         heartbeat = (report.get("heartbeat") or {}).get("context", {}).get("updated_at")
+        age = report.get("heartbeat_age_seconds")
         return bool(
             result.returncode == 0
-            and report.get("healthy") is True
+            and report.get("change_events_enabled") is True
+            and isinstance(age, (int, float))
+            and 0 <= age <= 30
             and heartbeat
             and datetime.fromisoformat(heartbeat).timestamp() >= started_at
         )

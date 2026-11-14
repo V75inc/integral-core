@@ -507,11 +507,19 @@ def test_free_port_keeps_an_unused_preferred_port():
 
 
 @pytest.mark.parametrize(
-    "heartbeat,healthy,expected",
-    [(101, True, True), (99, True, False), (101, False, False)],
+    "heartbeat,healthy,age,enabled,code,expected",
+    [
+        (101, True, 1, True, 0, True),
+        (99, True, 1, True, 0, False),
+        (101, False, 1, True, 0, True),  # Historical dead-letter backlog.
+        (None, False, None, True, 0, False),
+        (101, False, 31, True, 0, False),
+        (101, True, 1, False, 0, False),
+        (101, True, 1, True, 1, False),
+    ],
 )
 def test_event_worker_readiness_requires_current_boot_heartbeat(
-    tmp_path, monkeypatch, heartbeat, healthy, expected
+    tmp_path, monkeypatch, heartbeat, healthy, age, enabled, code, expected
 ):
     from datetime import datetime, timezone
 
@@ -521,17 +529,24 @@ def test_event_worker_readiness_requires_current_boot_heartbeat(
         calls.append((args, kwargs))
         return subprocess.CompletedProcess(
             args,
-            0,
+            code,
             json.dumps(
                 {
                     "healthy": healthy,
-                    "heartbeat": {
-                        "context": {
-                            "updated_at": datetime.fromtimestamp(
-                                heartbeat, timezone.utc
-                            ).isoformat()
+                    "change_events_enabled": enabled,
+                    "heartbeat_age_seconds": age,
+                    "dead_letters": 0 if healthy else 1,
+                    "heartbeat": (
+                        {
+                            "context": {
+                                "updated_at": datetime.fromtimestamp(
+                                    heartbeat, timezone.utc
+                                ).isoformat()
+                            }
                         }
-                    },
+                        if heartbeat is not None
+                        else None
+                    ),
                 }
             ),
         )
@@ -539,13 +554,16 @@ def test_event_worker_readiness_requires_current_boot_heartbeat(
     monkeypatch.setattr(runtime.subprocess, "run", run)
     env = {"SYNTHETIC_CONFIG": "same"}
     assert runtime._event_worker_ready(tmp_path, env, 100) is expected
-    assert calls[0][0][-3:] == ["worker", "events", "--check"]
+    assert calls[0][0][-3:] == ["worker", "events", "--status"]
     assert calls[0][1]["env"] is env
     assert calls[0][1]["timeout"] == 10
 
 
 @pytest.mark.parametrize("worker_dies", [False, True])
-def test_supervisor_owns_event_worker_lifecycle(tmp_path, monkeypatch, worker_dies):
+@pytest.mark.parametrize("delivery_healthy", [True, False])
+def test_supervisor_owns_event_worker_lifecycle(
+    tmp_path, monkeypatch, worker_dies, delivery_healthy
+):
     from app.services.storage_indexes import provision
 
     config = runtime.initialize(tmp_path, profile="desktop_single_user")
@@ -612,9 +630,34 @@ def test_supervisor_owns_event_worker_lifecycle(tmp_path, monkeypatch, worker_di
         def __exit__(self, *args):
             pass
 
+    actual_worker_ready = runtime._event_worker_ready
+
     def ready(home, env, started):
         ready_checks.append((home, env, started))
-        return True
+        return actual_worker_ready(home, env, started)
+
+    def status_run(args, **kwargs):
+        from datetime import datetime, timezone
+
+        # First probe must wait for the new process to publish its heartbeat.
+        heartbeat = (
+            {"context": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+            if len(ready_checks) > 1
+            else None
+        )
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {
+                    "healthy": delivery_healthy,
+                    "dead_letters": 0 if delivery_healthy else 1,
+                    "change_events_enabled": True,
+                    "heartbeat_age_seconds": 0 if heartbeat else None,
+                    "heartbeat": heartbeat,
+                }
+            ),
+        )
 
     monkeypatch.setattr(runtime, "private_json", record)
     monkeypatch.setattr(runtime, "database_python", lambda home: Path(sys.executable))
@@ -630,6 +673,7 @@ def test_supervisor_owns_event_worker_lifecycle(tmp_path, monkeypatch, worker_di
     )
     monkeypatch.setattr(runtime, "_identity", lambda *args: True)
     monkeypatch.setattr(runtime, "_event_worker_ready", ready)
+    monkeypatch.setattr(runtime.subprocess, "run", status_run)
     monkeypatch.setattr(runtime.time, "sleep", lambda *args: None)
     runtime.supervise(tmp_path, 19006)
     assert [item[0] for item in spawned] == ["database", "api", "events", "web"]
@@ -648,7 +692,7 @@ def test_supervisor_owns_event_worker_lifecycle(tmp_path, monkeypatch, worker_di
         assert "exited" in states[-1]["error"]
         assert not any(state["state"] == "ready" for state in states)
     else:
-        assert len(ready_checks) == 1
+        assert len(ready_checks) == 2
         assert any(
             state["state"] == "ready" and state["event_worker"] == "startup_ready"
             for state in states
