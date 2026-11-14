@@ -4,13 +4,17 @@
 
 FROM node:22-alpine AS builder
 
-WORKDIR /app
+WORKDIR /app/frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ .
-COPY sdk/react/ /sdk/react/
+# Preserve monorepo sibling paths: SDK imports and the build's --target ..
+# guide gate both resolve against /app, not the container filesystem root.
+COPY sdk/react/ /app/sdk/react/
+COPY APP_UI_GUIDE.md AGENTS.md CLAUDE.md /app/
+COPY .cursor/rules/app-ui.mdc /app/.cursor/rules/app-ui.mdc
 
 # Same-origin /api when unset (Traefik path routing on one hostname).
 # Override at build time for split-host deploys, e.g.:
@@ -34,7 +38,7 @@ FROM nginx:1.27-alpine AS runtime
 # /etc/nginx/conf.d/default.conf on container start.
 ARG NGINX_CONF=nginx.conf
 COPY frontend/${NGINX_CONF} /etc/nginx/templates/default.conf.template
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
 # Default the CSP's connect-src to the API origin this image was built against.
 #
