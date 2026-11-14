@@ -28,7 +28,7 @@ from app.models.nodes import (
     Track,
     View,
 )
-from app.schemas.policy import Resource, Subject
+from app.schemas.policy import Decision, Resource, Subject
 from app.services.app_graph import (
     get_app_attached_operational_model,
     get_or_create_views_registry_for_operational_model,
@@ -53,8 +53,8 @@ from app.services.operational_model_runtime import (
 )
 from app.services.permissions import (
     can_create_app_under_workspace,
-    count_user_accessible_entries,
-    get_user_accessible_apps,
+    count_user_accessible_entries_for_tracks,
+    get_user_accessible_apps_for_navigation,
     get_user_node,
     resolve_role,
 )
@@ -101,7 +101,7 @@ async def list_apps(
         # answer 200 with {apps: []} for a consistency failure.
         raise MissingAuthenticationError(message="Authentication required")
 
-    result = await get_user_accessible_apps(user_id)
+    result = await get_user_accessible_apps_for_navigation(user_id)
     result = [
         s
         for s in result
@@ -563,8 +563,14 @@ async def list_app_tracks(
     request: Request,
     app_id: str,
     include_nav_hidden: bool = False,
+    include_details: bool = True,
 ) -> Dict[str, Any]:
     """List Tracks in an App.
+
+    ``include_details=false`` skips ``operational_model_defaults`` (about 5 ms per Track to
+    resolve each Track's operational-model profile); only the Track detail screens read it.
+    ``anchor_source`` is always attached: AppDetailPage splits entry-spawned Tracks from
+    curated ones with it.
 
     By default omits tracks with ``nav_visible=False`` (internal / line-item
     tracks). Pass ``include_nav_hidden=true`` for admin/config/agent surfaces
@@ -590,46 +596,123 @@ async def list_app_tracks(
         node=["Track"],
         limit=500,
     )
-    decisions = await asyncio.gather(
-        *(
-            policy_evaluate(
+    # Nav visibility is a plain attribute test, so apply it before the work that
+    # costs something (it does not change which Tracks the caller may read).
+    if not include_nav_hidden:
+        tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
+
+    from app.middleware.permissions_cache import computation_fact_scope
+    from app.models.edges import CONTAINS
+
+    ctx = await sp.get_context()
+    wanted_ids = {t.id for t in tracks if getattr(t, "id", None)}
+
+    admitted_tracks: list = []
+
+    async def _decisions() -> list:
+        """``track.read`` decision per Track, same order as ``tracks``.
+
+        Fast path: for a human the engine's ``track.read`` is ``can_view_track``, and
+        the canonical inventory pass answers it for every Track in one batch. That
+        pass was checked equal to ``policy_evaluate`` (dry run) for every user and
+        every Track in the local data set. Only Tracks it admits skip the per-Track
+        evaluation; anything it does not admit still goes through ``policy_evaluate``
+        so denials keep their audit record and any allow path the batch misses is kept.
+        """
+        from app.runtime.composition import admits_human, runtime
+        from app.services.permissions import _filter_canonical_resource_inventory
+
+        admitted_ids: set = set()
+        if tracks and admits_human(user_id) and runtime().supports_action("track.read"):
+            try:
+                admitted_tracks.extend(
+                    await _filter_canonical_resource_inventory(user_id, "track", tracks)
+                )
+                admitted_ids = {t.id for t in admitted_tracks}
+            except Exception:
+                admitted_tracks.clear()
+                admitted_ids = set()
+
+        async def _decide(t: Track):
+            if t.id in admitted_ids:
+                return Decision(allowed=True, reason="default_human_policy")
+            return await policy_evaluate(
                 subject=Subject(kind="human", id=user_id),
                 action="track.read",
                 resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
             )
-            for t in tracks
+
+        return list(await asyncio.gather(*(_decide(t) for t in tracks)))
+
+    async def _all_counts() -> Dict[str, int]:
+        # One shared admission scan for every Track instead of one scan per Track,
+        # and the same per-track snapshot the Tracks list uses (off unless
+        # INTEGRAL_NAV_SNAPSHOT_TTL is set; dropped on any access change).
+        from app.services import permissions_process_cache as _ppc
+
+        if not tracks:
+            return {}
+        await decisions_ready.wait()
+        counts: Dict[str, int] = {}
+        missing = list(tracks)
+        if _ppc.nav_snapshot_enabled():
+            missing = []
+            for t in tracks:
+                cached = _ppc.get_nav_snapshot(user_id, f"nav_count:{t.id}")
+                if cached is None:
+                    missing.append(t)
+                else:
+                    counts[t.id] = cached
+        if missing:
+            generation = _ppc.generation(user_id)
+            missing_ids = {t.id for t in missing}
+            admitted = (
+                [t for t in admitted_tracks if t.id in missing_ids]
+                if admitted_tracks
+                else None
+            )
+            fresh = await count_user_accessible_entries_for_tracks(
+                user_id, missing, admitted=admitted
+            )
+            counts.update(fresh)
+            if _ppc.nav_snapshot_enabled():
+                for track_id, value in fresh.items():
+                    _ppc.set_nav_snapshot(
+                        user_id,
+                        f"nav_count:{track_id}",
+                        value,
+                        expected_generation=generation,
+                    )
+        return counts
+
+    async def _all_positions() -> Dict[str, int]:
+        # One query for the App's CONTAINS edges instead of one per Track.
+        found: Dict[str, int] = {}
+        if not wanted_ids:
+            return found
+        for e in await ctx.find_edges_between(sp.id, None, edge_class=CONTAINS):
+            tid = getattr(e, "target", None)
+            pos = getattr(e, "position", None)
+            if tid in wanted_ids and tid not in found and isinstance(pos, int):
+                found[tid] = pos
+        return found
+
+    # The three reads are independent: run them together, and let them share one
+    # computation-scoped fact memo (user node, role) instead of re-resolving per Track.
+    decisions_ready = asyncio.Event()
+
+    async def _decisions_then_signal() -> list:
+        try:
+            return await _decisions()
+        finally:
+            decisions_ready.set()
+
+    with computation_fact_scope():
+        decisions, entry_counts, track_positions = await asyncio.gather(
+            _decisions_then_signal(), _all_counts(), _all_positions()
         )
-    )
+    # Every Track still has to pass policy_evaluate track.read to be returned.
     tracks = [t for t, decision in zip(tracks, decisions) if decision.allowed]
-    if not include_nav_hidden:
-        tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
-    track_ids = [t.id for t in tracks if getattr(t, "id", None)]
-    entry_counts: Dict[str, int] = {}
-    track_positions: Dict[str, int] = {}
-    if track_ids:
-        from app.models.edges import CONTAINS
-
-        ctx = await sp.get_context()
-
-        async def _count_for_track(tid: str) -> tuple:
-            return (tid, await count_user_accessible_entries(user_id, tid))
-
-        async def _position_for_track(tid: str) -> tuple:
-            edges = await ctx.find_edges_between(sp.id, tid, edge_class=CONTAINS)
-            pos: Optional[int] = None
-            for e in edges:
-                p = getattr(e, "position", None)
-                if isinstance(p, int):
-                    pos = p
-                    break
-            return (tid, pos)
-
-        count_results, pos_results = await asyncio.gather(
-            asyncio.gather(*[_count_for_track(tid) for tid in track_ids]),
-            asyncio.gather(*[_position_for_track(tid) for tid in track_ids]),
-        )
-        entry_counts = dict(count_results)
-        track_positions = {tid: p for tid, p in pos_results if p is not None}
 
     # Phase 34 — order by CONTAINS edge position (asc). Tracks without a
     # position default to a large sentinel so they sort to the end;
@@ -645,14 +728,22 @@ async def list_app_tracks(
         ),
     )
 
-    items = []
-    for t in sorted_tracks:
+    async def _row(t: Track) -> Dict[str, Any]:
         row = await export_node(t)
         row["entry_count"] = entry_counts.get(t.id, 0)
         row["position"] = track_positions.get(t.id)
-        await attach_operational_model_defaults_to_track_data(row, t)
-        await attach_anchor_source_to_track_data(row, t)
-        items.append(row)
+        # anchor_source is always attached: AppDetailPage splits entry-spawned Tracks (pay
+        # runs, line items) from curated ones with it.
+        if include_details:
+            await asyncio.gather(
+                attach_operational_model_defaults_to_track_data(row, t),
+                attach_anchor_source_to_track_data(row, t),
+            )
+        else:
+            await attach_anchor_source_to_track_data(row, t)
+        return row
+
+    items = list(await asyncio.gather(*(_row(t) for t in sorted_tracks)))
     return {"tracks": items, "total": len(items), "app_id": app_id}
 
 
@@ -1869,8 +1960,13 @@ async def install_app_endpoint(
     version: Optional[str] = None,
     settings: Optional[Dict[str, Any]] = None,
     include_seed_data: bool = True,
+    use_default_settings: bool = False,
 ) -> Dict[str, Any]:
     """Install an App into a Workspace from a library OperationalModel.
+
+    ``use_default_settings`` installs with each setting's declared default when no
+    ``settings`` are sent, instead of pausing at awaiting_settings (opt-in; the
+    default keeps a person in the loop).
 
     The endpoint records a durable lifecycle WorkItem and returns its identity.
     A caller must read the WorkItem/result state rather than treating this
@@ -1886,6 +1982,13 @@ async def install_app_endpoint(
         )
 
     from app.services.app_lifecycle import enqueue_install_work
+
+    if settings is None and use_default_settings:
+        from app.services.app_batch_install import default_settings_for_library_model
+
+        settings = await default_settings_for_library_model(
+            library_operational_model_id
+        )
 
     return await enqueue_install_work(
         workspace_id=workspace_id,

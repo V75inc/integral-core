@@ -14,6 +14,8 @@ import re as _re
 from contextvars import ContextVar
 from typing import Any, Dict, Optional
 
+from app.services.perf_trace import perf_traced
+
 logger = logging.getLogger(__name__)
 
 _active_save_hooks: ContextVar[frozenset[tuple[object, str, str, str]]] = ContextVar(
@@ -95,13 +97,21 @@ async def run_entry_before_write_hooks(
     track_id: str = "",
     entry_id: str = "",
     write_actor: Optional[str] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Dispatch bundle hooks that validate or adjust fields before persistence.
 
     Bindings match on ``phase: before_write`` in their ``match`` block.
     Returns merged ``custom_fields`` (tools may return an updated dict).
+
+    ``dry_run`` (a form asking whether a save would pass): hooks receive
+    ``dry_run: true`` and a read-only context, so they check without writing.
     """
-    from app.services.hooks.registry import ToolContext, get_workspace_tools
+    from app.services.hooks.registry import (
+        ToolContext,
+        get_workspace_tools,
+        save_hook_suppressed,
+    )
     from app.services.hooks.resolver import find_matching_bindings
     from app.services.hooks.tool_dispatch import run_tool
 
@@ -119,6 +129,7 @@ async def run_entry_before_write_hooks(
         "custom_fields": merged_fields,
         "phase": "before_write",
         "hook_point": hook_point,
+        **({"dry_run": True} if dry_run else {}),
     }
 
     tools = get_workspace_tools(workspace_id)
@@ -126,6 +137,7 @@ async def run_entry_before_write_hooks(
         user_id=actor_id,
         workspace_id=workspace_id,
         scope=f"entry:{entry_id}" if entry_id else f"entry_type:{entry_type_id}",
+        read_only=bool(dry_run),
     )
 
     bindings = find_matching_bindings(workspace_id, hook_point, payload)
@@ -142,6 +154,8 @@ async def run_entry_before_write_hooks(
                 workspace_id,
             )
             continue
+        if save_hook_suppressed(workspace_id, spec):
+            continue
         result = await run_tool(spec, payload, ctx)
         if isinstance(result, dict):
             patch = result.get("custom_fields")
@@ -151,6 +165,7 @@ async def run_entry_before_write_hooks(
     return merged_fields
 
 
+@perf_traced("save.business_hooks")
 async def run_entry_save_hooks(
     *,
     entry,
@@ -172,6 +187,7 @@ async def run_entry_save_hooks(
         ToolContext,
         get_workspace_hooks,
         get_workspace_tools,
+        save_hook_suppressed,
     )
     from app.services.hooks.resolver import find_matching_bindings
     from app.services.hooks.tool_dispatch import run_tool
@@ -230,6 +246,8 @@ async def run_entry_save_hooks(
                 workspace_id,
             )
             continue
+        if save_hook_suppressed(workspace_id, spec):
+            continue
         identity = (asyncio.current_task(), workspace_id, str(entry.id), tool_key)
         active = _active_save_hooks.get()
         if identity in active:
@@ -253,6 +271,7 @@ async def run_entry_save_hooks(
             _active_save_hooks.reset(token)
 
 
+@perf_traced("save.validation")
 async def run_entry_validation_hooks(
     *, workspace_id: str, actor_id: str, payload: dict
 ) -> None:

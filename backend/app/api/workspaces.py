@@ -7,6 +7,7 @@ personal-kind workspaces have a single implicit member (the owner), no
 invitations, and no quota enforcement.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -685,19 +686,30 @@ async def list_workspace_tracks(request: Request, workspace_id: str) -> Dict[str
         attach_parent_app_to_track_data,
     )
     from app.services.permissions import (
-        count_user_accessible_entries,
+        count_user_accessible_entries_for_tracks,
         get_user_accessible_tracks,
     )
 
-    out: list[Dict[str, Any]] = []
-    for tr in await get_user_accessible_tracks(user_id):
-        if (getattr(tr, "workspace_id", "") or "") != workspace_id:
-            continue
-        row = await export_node(tr)
-        row["entry_count"] = await count_user_accessible_entries(user_id, tr.id)
-        await attach_parent_app_to_track_data(row, tr)
-        await attach_anchor_source_to_track_data(row, tr)
-        out.append(row)
+    tracks = [
+        tr
+        for tr in await get_user_accessible_tracks(user_id)
+        if (getattr(tr, "workspace_id", "") or "") == workspace_id
+    ]
+    # One shared count for every Track (the same counter the App and Tracks
+    # lists use) instead of a separate count per Track, which was 81% of a
+    # 22 s request on a 313-Track workspace.
+    counts = await count_user_accessible_entries_for_tracks(user_id, tracks)
+    gate = asyncio.Semaphore(8)
+
+    async def _row(tr: Any) -> Dict[str, Any]:
+        async with gate:
+            row = await export_node(tr)
+            row["entry_count"] = counts.get(tr.id, 0)
+            await attach_parent_app_to_track_data(row, tr)
+            await attach_anchor_source_to_track_data(row, tr)
+            return row
+
+    out = list(await asyncio.gather(*(_row(tr) for tr in tracks)))
     return {"tracks": out, "total": len(out), "workspace_id": workspace_id}
 
 

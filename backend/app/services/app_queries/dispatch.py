@@ -108,6 +108,35 @@ async def invoke_app_query(
     params: Optional[Dict[str, Any]] = None,
     correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Execute a declared App query with policy and input validation.
+
+    A query is read-only and runs as one computation: the facts it needs more than
+    once (user node, resolved roles, resource locations) are looked up once for the
+    duration of this call instead of once per lookup. The scope is dropped when the
+    call ends and is invalidated by any access change (see computation_fact_scope).
+    """
+    from app.middleware.permissions_cache import computation_fact_scope
+
+    with computation_fact_scope():
+        return await _invoke_app_query(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            query_key=query_key,
+            params=params,
+            correlation_id=correlation_id,
+        )
+
+
+async def _invoke_app_query(
+    *,
+    user_id: str,
+    workspace_id: str,
+    app_id: str,
+    query_key: str,
+    params: Optional[Dict[str, Any]] = None,
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Execute a declared App query with policy and input validation."""
     try:
         execution_scope = ExecutionScope.create(

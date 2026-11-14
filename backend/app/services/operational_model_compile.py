@@ -244,6 +244,84 @@ def _as_dict(value: Any, *, where: str) -> Dict[str, Any]:
     return value
 
 
+def normalize_track_tabs(value: Any, *, where: str) -> Dict[str, Any]:
+    """Validate and normalize a track's ``defaults.tabs`` (see docs/platform/track-tabs.md).
+
+    ``order``: view keys in the order their tabs should appear; views not listed follow in the order the
+    manifest declares them. ``show_single_tab``: keep the tab strip when only one view is visible (the
+    default, which is how every track behaved before this option existed). Unknown keys are refused so a
+    typo is not silently ignored.
+    """
+    if value is None:
+        return {}
+    tabs = _as_dict(value, where=where)
+    unknown = sorted(set(tabs) - {"order", "show_single_tab"})
+    if unknown:
+        raise BadRequestError(
+            message=f"{where} has unknown option(s): {', '.join(unknown)}. Supported: order, show_single_tab"
+        )
+    out: Dict[str, Any] = {}
+    if "order" in tabs:
+        raw = _as_list(tabs["order"], where=f"{where}.order")
+        keys: List[str] = []
+        for item in raw:
+            if not isinstance(item, str) or not item.strip():
+                raise BadRequestError(
+                    message=f"{where}.order must be a list of view keys"
+                )
+            key = slug_manifest_key(item)
+            if key in keys:
+                raise BadRequestError(message=f"{where}.order lists {item!r} twice")
+            keys.append(key)
+        out["order"] = keys
+    if "show_single_tab" in tabs:
+        if not isinstance(tabs["show_single_tab"], bool):
+            raise BadRequestError(
+                message=f"{where}.show_single_tab must be true or false"
+            )
+        out["show_single_tab"] = tabs["show_single_tab"]
+    return out
+
+
+def normalize_track_toolbar(value: Any, *, where: str) -> Dict[str, Any]:
+    """Validate a track's ``defaults.toolbar`` (see docs/platform/track-tabs.md).
+
+    ``show_search_and_filters``: ``false`` hides the track's search box and Filters button, for a
+    settings-style track where they mean nothing. Default ``true`` (shown, as before this option). Unknown
+    keys are refused so a typo is not silently ignored.
+    """
+    if value is None:
+        return {}
+    toolbar = _as_dict(value, where=where)
+    unknown = sorted(set(toolbar) - {"show_search_and_filters"})
+    if unknown:
+        raise BadRequestError(
+            message=f"{where} has unknown option(s): {', '.join(unknown)}. Supported: show_search_and_filters"
+        )
+    out: Dict[str, Any] = {}
+    if "show_search_and_filters" in toolbar:
+        if not isinstance(toolbar["show_search_and_filters"], bool):
+            raise BadRequestError(
+                message=f"{where}.show_search_and_filters must be true or false"
+            )
+        out["show_search_and_filters"] = toolbar["show_search_and_filters"]
+    return out
+
+
+def _normalize_track_defaults(
+    defaults: Dict[str, Any], *, where: str
+) -> Dict[str, Any]:
+    """Validate the options inside a track's ``defaults`` that have a contract; pass the rest through."""
+    out = dict(defaults)
+    if "tabs" in defaults:
+        out["tabs"] = normalize_track_tabs(defaults.get("tabs"), where=f"{where}.tabs")
+    if "toolbar" in defaults:
+        out["toolbar"] = normalize_track_toolbar(
+            defaults.get("toolbar"), where=f"{where}.toolbar"
+        )
+    return out
+
+
 def _as_list(value: Any, *, where: str) -> List[Any]:
     if value is None:
         return []
@@ -368,6 +446,21 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "index": bool(field.get("index", False)),
     }
+    # How a choice is shown when its stored value is not the wording people use (``biweekly`` shown as
+    # ``Fortnightly``). Display only: the stored value, filters and rules keep using the value. Added only when
+    # given, so every existing definition compiles to exactly what it did before.
+    enum_labels = _as_dict(field.get("enum_labels"), where=f"field '{key}' enum_labels")
+    if enum_labels:
+        out["enum_labels"] = {
+            str(value): str(label).strip()
+            for value, label in enum_labels.items()
+            if str(label).strip()
+        }
+    # Required when a record is created, not when an existing one is saved: marked in the form and refused on create,
+    # while records saved before the field was required stay valid and editable. Added only when given, so every
+    # existing definition compiles exactly as before.
+    if bool(field.get("required_on_create", False)):
+        out["required_on_create"] = True
     # Prefill from the parent App's settings at compose/create time
     # (e.g. Finance ``currency`` ← ``default_currency``). Empty string omitted.
     default_from_setting = str(field.get("default_from_setting") or "").strip()
@@ -605,7 +698,33 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             raise BadRequestError(message=f"Computed field '{key}' cannot be required")
         out["readonly"] = True
         out["expression"] = attach_computed_expression(key, field.get("expression"))
+    if field.get("readonly_if") is not None:
+        out["readonly_if"] = _normalize_readonly_if(key, field.get("readonly_if"))
     return out
+
+
+def _normalize_readonly_if(key: str, raw: Any) -> Dict[str, Any]:
+    """A condition under which a field is read-only (same shape as ``visible_if``).
+
+    ``{field, equals | in | not_in}``: the field is locked while the condition holds on
+    the record's current values, for example a pay run's period once its status is
+    no longer draft. The server still enforces the rule; this makes the form say so.
+    """
+    cond = _as_dict(raw, where=f"field '{key}' readonly_if")
+    ref = str(cond.get("field") or "").strip()
+    if not ref:
+        raise BadRequestError(message=f"Field '{key}' readonly_if needs a field")
+    modes = [m for m in ("equals", "in", "not_in") if m in cond]
+    if len(modes) != 1:
+        raise BadRequestError(
+            message=f"Field '{key}' readonly_if needs exactly one of equals, in, not_in"
+        )
+    mode = modes[0]
+    if mode in ("in", "not_in") and not isinstance(cond[mode], list):
+        raise BadRequestError(
+            message=f"Field '{key}' readonly_if {mode} must be a list"
+        )
+    return {"field": ref, mode: cond[mode]}
 
 
 def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
@@ -621,6 +740,8 @@ def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
         "placeholder": str(title_raw.get("placeholder") or ""),
         "help": str(title_raw.get("help") or ""),
     }
+    if bool(title_raw.get("required", False)):
+        title_out["required"] = True
     if "order" in title_raw and title_raw.get("order") is not None:
         try:
             title_out["order"] = int(title_raw["order"])
@@ -635,6 +756,8 @@ def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
         "placeholder": str(body_raw.get("placeholder") or ""),
         "help": str(body_raw.get("help") or ""),
     }
+    if bool(body_raw.get("required", False)):
+        body_out["required"] = True
     if "order" in body_raw and body_raw.get("order") is not None:
         try:
             body_out["order"] = int(body_raw["order"])
@@ -670,6 +793,14 @@ def _normalize_search_index(raw):
         return IndexDefinition.model_validate(raw).model_dump()
     except ValidationError as exc:
         raise BadRequestError(message="Invalid search_index declaration") from exc
+
+
+def _track_icon_part(spec: Dict[str, Any], where: str) -> Dict[str, str]:
+    """``{"icon": name}`` when the manifest names one of Integral's icons; refuses any other name."""
+    from app.services.manifest_icons import normalize_manifest_icon
+
+    icon = normalize_manifest_icon(spec.get("icon"), where=where)
+    return {"icon": icon} if icon else {}
 
 
 def _normalize_task_semantics(raw: Any, fields: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -835,15 +966,18 @@ _VALID_UI_CONTRIBUTION_PLACEMENTS = frozenset({"entry_compose", "entry_detail"})
 def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]:
     """Normalize optional ``ui_contributions[]`` for entry compose/detail slots.
 
-    Each contribution is one of two exclusive shapes:
+    Each contribution is one of three exclusive shapes:
 
     - ``extension_view_key`` — App package iframe via ``AppExtensionViewHost``
       (ADR-011 escape hatch).
     - ``view`` (saved view key on the host track) and/or ``view_type`` (+
       optional inline ``config``) — Core React region via the view palette.
+    - ``component_key`` — an operator-admitted App React component.
 
-    Exactly one of the two shapes is required. ``layout`` (e.g. ``wide``)
-    remains optional on both.
+    Exactly one shape is required. ``layout`` (e.g. ``wide``) remains optional.
+
+    ``component_key`` selects an operator-admitted App React component, with
+    an optional saved ``fallback_view`` when the operator disables it.
     """
     items = _as_list(raw, where=where)
     if not items:
@@ -863,22 +997,31 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
         view_key = str(ed.get("view") or "").strip()
         view_type = str(ed.get("view_type") or "").strip()
         has_ext = bool(ext_key)
+        component_key = str(ed.get("component_key") or "").strip()
         has_native = bool(view_key or view_type)
-        if has_ext and has_native:
+        if sum((has_ext, has_native, bool(component_key))) > 1:
             raise BadRequestError(
                 message=(
                     f"{where}[{idx}] must set either extension_view_key "
                     f"(iframe) or view/view_type (Core region), not both"
                 )
             )
-        if not has_ext and not has_native:
+        if not has_ext and not has_native and not component_key:
             raise BadRequestError(
                 message=(
                     f"{where}[{idx}] requires extension_view_key or " f"view/view_type"
                 )
             )
         contrib: Dict[str, Any] = {"placement": placement}
-        if has_ext:
+        if component_key:
+            contrib["component_key"] = component_key
+            if ed.get("owns_field_data") is True:
+                contrib["owns_field_data"] = True
+            fallback_view = str(ed.get("fallback_view") or "").strip()
+            if fallback_view:
+                contrib["fallback_view"] = fallback_view
+            contrib["props"] = _as_dict(ed.get("props") or {}, where=f"{where}.props")
+        elif has_ext:
             contrib["extension_view_key"] = ext_key
         else:
             if view_key:
@@ -1106,6 +1249,18 @@ def _normalize_package_meta(package: Dict[str, Any]) -> Dict[str, Any]:
         )
     for c in caps_out:
         ctype = str(c.get("type") or "")
+        if ctype == "storage_index_requests":
+            config = c.get("config") or {}
+            if (
+                set(config) - {"version"}
+                or type(config.get("version", 1)) is not int
+                or config.get("version", 1) != 1
+            ):
+                raise BadRequestError(
+                    message="Unsupported storage index request capability"
+                )
+            c["config"] = {"version": 1}
+            continue
         if ctype and not _view_type_known(ctype):
             raise BadRequestError(
                 message=(
@@ -1296,6 +1451,9 @@ def _normalize_track_template_spec(
             "key": key,
             "name": name,
             "description": str(td.get("description") or "").strip(),
+            # A track spawned from this template stays out of the App's track list when this is false.
+            "nav_visible": bool(td.get("nav_visible", True)),
+            **_track_icon_part(td, f"{where}[{key!r}]"),
             "entry_types": [
                 _normalize_entry_type_spec(
                     _as_dict(e, where=f"{where}[{key!r}].entry_types[]")
@@ -1309,7 +1467,10 @@ def _normalize_track_template_spec(
             "taxonomy": _normalize_taxonomy(
                 _as_dict(td.get("taxonomy"), where=f"{where}.taxonomy")
             ),
-            "defaults": _as_dict(td.get("defaults"), where=f"{where}.defaults"),
+            "defaults": _normalize_track_defaults(
+                _as_dict(td.get("defaults"), where=f"{where}.defaults"),
+                where=f"{where}.defaults",
+            ),
         }
     )
 
@@ -1710,6 +1871,31 @@ def _dedupe_specs_by_key(
     return list(by_key.values())
 
 
+_ATOMIC_TYPES = (str, int, float, bool, type(None))
+
+
+def _fast_copy(value: Any) -> Any:
+    """``copy.deepcopy`` for the plain JSON-like data manifests are made of.
+
+    Manifests read from the database or compiled from them are nested dict / list /
+    str / number / bool / None. ``copy.deepcopy`` spends most of its time on its memo table
+    and per-type dispatch for that shape (about 1 ms per 12 KB manifest, several copies per
+    request). Exact ``dict`` and ``list`` are copied directly and immutable scalars shared;
+    any other type (tuples, sets, subclasses, objects) falls back to ``copy.deepcopy`` so the
+    result is always a fully independent copy. The one difference: ``deepcopy`` keeps two
+    references to the same sub-object as one object in the copy; this makes two. Data parsed
+    from JSON has no such sharing.
+    """
+    t = type(value)
+    if t is dict:
+        return {k: _fast_copy(v) for k, v in value.items()}
+    if t is list:
+        return [_fast_copy(v) for v in value]
+    if t in _ATOMIC_TYPES:
+        return value
+    return copy.deepcopy(value)
+
+
 def repair_stored_manifest_for_compile(manifest: Dict[str, Any]) -> Dict[str, Any]:
     """Dedupe keyed lists on persisted manifests before runtime compile.
 
@@ -1717,9 +1903,8 @@ def repair_stored_manifest_for_compile(manifest: Dict[str, Any]) -> Dict[str, An
     ``key``). Author-time ``compile_canonical_manifest`` still rejects those;
     this helper only runs when reading an attached OperationalModel from the DB.
     """
-    import copy
 
-    m = copy.deepcopy(manifest)
+    m = _fast_copy(manifest)
     scope = str(m.get("scope") or "").strip().lower()
 
     def _repair_track_tier(tier: Dict[str, Any]) -> None:
@@ -2465,6 +2650,22 @@ def _validate_local_props_schema(value: Any) -> None:
     elif isinstance(value, list):
         for child in value:
             _validate_local_props_schema(child)
+
+
+def _parse_ui_components(raw: Any) -> List[Dict[str, Any]]:
+    from app.schemas.ui_components import UIComponentDeclaration
+
+    items = _as_list(raw, where="app.ui_components")
+    if len(items) > 32:
+        raise BadRequestError(message="At most 32 UI components are supported")
+    try:
+        result = [
+            UIComponentDeclaration.model_validate(item).model_dump() for item in items
+        ]
+    except (ValueError, jsonschema.SchemaError) as exc:
+        raise BadRequestError(message="Invalid UI component declaration") from exc
+    _assert_unique_keys(result, where="app.ui_components")
+    return result
 
 
 def _parse_manifest_extension_views(
@@ -3624,6 +3825,9 @@ def _parse_manifest_requires_apps(
       - ``key`` (str, required) — App package name to depend on
       - ``min_version`` (str, default ``"0.0.0"``)
       - ``optional`` (bool, default False) — soft vs hard dependency
+      - ``read`` (bool, default False) — the App's screens (queries and read
+        operations) may read this App's records, read-only, in the same
+        workspace and under the viewer's own permissions
       - ``reason`` (str, free-form explanation for the install UX)
 
     Actual install-time resolution (hard-dep blocks install, soft-dep
@@ -3658,6 +3862,7 @@ def _parse_manifest_requires_apps(
                 "key": key,
                 "min_version": str(ed.get("min_version") or "0.0.0"),
                 "optional": bool(ed.get("optional", False)),
+                "read": ed.get("read", False) is True,
                 "reason": str(ed.get("reason") or ""),
             }
         )
@@ -3923,7 +4128,7 @@ def _compile_canonical_manifest(
     ck_base = _manifest_cache_key(manifest, manifest_yaml, scope_hint)
     ck = (ck_base + f":pc={int(bool(is_public_catalog))}") if ck_base else None
     if ck is not None and ck in _manifest_compile_cache:
-        return copy.deepcopy(_manifest_compile_cache[ck])
+        return _fast_copy(_manifest_compile_cache[ck])
 
     raw: Dict[str, Any]
     if manifest_yaml is not None:
@@ -4186,6 +4391,7 @@ def _compile_canonical_manifest(
                             # When false, Track is provisioned / addressable but
                             # omitted from default App nav lists (see Track.nav_visible).
                             "nav_visible": bool(td.get("nav_visible", True)),
+                            **_track_icon_part(td, f"app.tracks[{tname!r}]"),
                             # Declared intent only — never auto-minted. The
                             # owner's explicit enable mints the token.
                             **({"public_share": public_share} if public_share else {}),
@@ -4299,6 +4505,23 @@ def _compile_canonical_manifest(
                 app_node.get("queries"),
                 where="app.queries",
             )
+            from app.services.storage_indexes.proposals import normalize_requests
+
+            try:
+                if (
+                    type(app_node.get("storage_index_requests_version", 1)) is not int
+                    or app_node.get("storage_index_requests_version", 1) != 1
+                ):
+                    raise ValueError(
+                        "Unsupported storage index request capability version"
+                    )
+                storage_index_requests = normalize_requests(
+                    app_node.get("storage_index_requests"),
+                    queries=app_queries,
+                    tracks=tracks_out,
+                )
+            except ValueError as exc:
+                raise BadRequestError(message=str(exc)) from exc
             from app.services.app_home_contract import normalize_app_home
 
             try:
@@ -4306,6 +4529,7 @@ def _compile_canonical_manifest(
                     app_node.get("home"),
                     app_queries,
                     operations=app_operations,
+                    components=_parse_ui_components(app_node.get("ui_components")),
                 )
             except ValueError as exc:
                 raise BadRequestError(message=str(exc)) from exc
@@ -4346,6 +4570,7 @@ def _compile_canonical_manifest(
             )
 
             out["app"] = {
+                **_track_icon_part(app_node, "app"),
                 "tracks": tracks_out,
                 "track_templates": track_templates_out,
                 "relations": [
@@ -4367,8 +4592,21 @@ def _compile_canonical_manifest(
                 # F0 extension contract
                 "operations": app_operations,
                 "queries": app_queries,
+                **(
+                    {
+                        "storage_index_requests": storage_index_requests,
+                        "storage_index_requests_version": 1,
+                    }
+                    if storage_index_requests
+                    else {}
+                ),
                 "protected_state": app_protected_state,
                 "extension_views": app_extension_views,
+                **(
+                    {"ui_components": _parse_ui_components(app_node["ui_components"])}
+                    if "ui_components" in app_node
+                    else {}
+                ),
                 "track_aliases": app_track_aliases,
                 # ADR-006 (I-PC-01)
                 "unstaged_tracks": app_unstaged_tracks,
@@ -4435,7 +4673,7 @@ def _compile_canonical_manifest(
         if ck is not None:
             if len(_manifest_compile_cache) >= _MANIFEST_CACHE_MAX:
                 _manifest_compile_cache.pop(next(iter(_manifest_compile_cache)), None)
-            _manifest_compile_cache[ck] = copy.deepcopy(out)
+            _manifest_compile_cache[ck] = _fast_copy(out)
         return out
     finally:
         _active_field_composites.reset(field_token)
@@ -4612,6 +4850,8 @@ BUILTIN_VIEW_CONFIG_KEYS = frozenset(
         "default_page_id",
         "columns",
         "extension_view_key",
+        "component_key",
+        "component_props",
         "_manifest_view_key",
         "card_template",
         "density",
@@ -4637,6 +4877,13 @@ def normalize_view_config(
         not isinstance(cfg["tab_order"], int) or isinstance(cfg["tab_order"], bool)
     ):
         raise BadRequestError(message="view.config.tab_order must be an integer")
+    if "default_tab_order" in cfg and (
+        not isinstance(cfg["default_tab_order"], int)
+        or isinstance(cfg["default_tab_order"], bool)
+    ):
+        raise BadRequestError(
+            message="view.config.default_tab_order must be an integer"
+        )
     kanban_columns = _as_list(
         cfg.get("kanban_columns"), where="view.config.kanban_columns"
     )
@@ -4692,6 +4939,9 @@ def normalize_view_config(
     }
     if "tab_order" in cfg:
         normalized["tab_order"] = cfg["tab_order"]
+    if "default_tab_order" in cfg:
+        # The App's own order for this tab. A person's drag order (tab_order) wins over it.
+        normalized["default_tab_order"] = cfg["default_tab_order"]
     if vt == "wiki":
         parent_field = str(normalized.get("parent_field") or "").strip()
         if not parent_field:
@@ -4734,9 +4984,23 @@ def normalize_view_config(
         extension_view_key = str(cfg.get("extension_view_key") or "").strip()
         if extension_view_key:
             normalized["extension_view_key"] = extension_view_key
+        # An operator-admitted App React component may host the view; the iframe key above stays as its
+        # fallback. Admission, placement and props are checked again when the component is mounted.
+        component_key = str(cfg.get("component_key") or "").strip()
+        if component_key:
+            if len(component_key) > 80:
+                raise BadRequestError(message="view.config.component_key is too long")
+            normalized["component_key"] = component_key
+            if cfg.get("component_props") is not None:
+                normalized["component_props"] = _as_dict(
+                    cfg.get("component_props"), where="view.config.component_props"
+                )
     mk = cfg.get("_manifest_view_key")
     if mk is not None and str(mk).strip():
         normalized["_manifest_view_key"] = str(mk).strip()
+    # What the App's manifest last said about hiding this view (see the merge).
+    if isinstance(cfg.get("_manifest_hidden"), bool):
+        normalized["_manifest_hidden"] = cfg["_manifest_hidden"]
     ct = cfg.get("card_template")
     if ct is not None:
         normalized["card_template"] = _as_dict(ct, where="view.config.card_template")
@@ -4770,6 +5034,33 @@ def normalize_view_config(
             if key not in normalized:
                 normalized[key] = value
     return normalized
+
+
+def default_tab_order_for(spec: Dict[str, Any], index: int) -> int:
+    """The App's default position for a view's tab: its declared ``tab_order``, else its place in the manifest."""
+    declared = spec.get("tab_order") if isinstance(spec, dict) else None
+    if isinstance(declared, int) and not isinstance(declared, bool):
+        return declared
+    return index
+
+
+def keep_person_tab_order(
+    existing_config: Optional[Dict[str, Any]], new_config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Carry a person's own tab order across an App update.
+
+    An update rewrites a view's config from the manifest. The order someone chose by dragging tabs
+    (``tab_order``) is theirs, not the App's, so it survives; the App's order (``default_tab_order``)
+    is refreshed from the manifest.
+    """
+    chosen = (existing_config or {}).get("tab_order")
+    if (
+        isinstance(chosen, int)
+        and not isinstance(chosen, bool)
+        and "tab_order" not in new_config
+    ):
+        return {**new_config, "tab_order": chosen}
+    return new_config
 
 
 def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:

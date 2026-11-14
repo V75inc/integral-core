@@ -36,6 +36,12 @@ class PassageStore:
         self.suffix = hashlib.sha256(self.table.encode()).hexdigest()[:12]
 
     def ann_index_name(self, workspace_id: str) -> str:
+        from app.services.storage_indexes.runtime import managed
+
+        if managed():
+            from app.services.storage_indexes.search import profile_ann_spec
+
+            return profile_ann_spec(self.profile, table=self.table).name
         scope = hashlib.sha256(
             (self.profile.id + ":" + workspace_id).encode()
         ).hexdigest()[:20]
@@ -49,6 +55,54 @@ class PassageStore:
     async def ensure_schema(self) -> Any:
         pool = await self.driver._get_pool()
         if self._ready:
+            return pool
+        from app.services.storage_indexes.runtime import managed, verify_relation
+
+        if managed():
+            from jvspatial import ManagedSchemaError
+
+            from .embedding_store import EmbeddingStoreUnavailable
+
+            async with self._lock:
+                try:
+                    async with pool.acquire() as conn:
+                        await verify_relation(
+                            conn,
+                            self.table,
+                            {
+                                "entry_id": "text",
+                                "profile_id": "text",
+                                "embedding": "vector",
+                            },
+                        )
+                        await verify_relation(
+                            conn,
+                            self.lexical,
+                            {"entry_id": "text", "search_terms": "tsvector"},
+                        )
+                        await verify_relation(
+                            conn,
+                            self.manifest,
+                            {"entry_id": "text", "profile_id": "text"},
+                        )
+                        from app.services.storage_indexes.runtime import (
+                            verify_search_indexes,
+                        )
+                        from app.services.storage_indexes.search import search_specs
+
+                        await verify_search_indexes(
+                            conn,
+                            [
+                                s
+                                for s in search_specs(table=self.driver._table)
+                                if s.table in {self.table, self.lexical, self.manifest}
+                            ],
+                        )
+                except ManagedSchemaError as exc:
+                    raise EmbeddingStoreUnavailable(
+                        "Search storage requires reviewed provisioning"
+                    ) from exc
+                self._ready = True
             return pool
         async with self._lock:
             async with pool.acquire() as conn, conn.transaction():
@@ -367,6 +421,10 @@ class PassageStore:
 
     async def maintain_selection_indexes(self) -> None:
         """Build shared type/file selectors in worker maintenance, never on reads."""
+        from app.services.storage_indexes.runtime import managed
+
+        if managed():
+            return  # Only an operator plan can provision physical indexes.
         if self._selection_indexes_ready:
             return
         pool = await self.ensure_schema()
@@ -422,6 +480,17 @@ class PassageStore:
         """Build qualified large-profile indexes in worker maintenance, never search."""
         if os.getenv("RETRIEVE_ANN_ENABLED", "0") != "1":
             return False
+        from app.services.storage_indexes.runtime import managed
+
+        if managed():
+            pool = await self.ensure_schema()
+            async with pool.acquire() as conn:
+                return bool(
+                    await conn.fetchval(
+                        "SELECT indisvalid AND indisready FROM pg_index WHERE indexrelid=to_regclass($1)",
+                        self.ann_index_name(workspace_id),
+                    )
+                )
         pool = await self.ensure_schema()
         ann_name = self.ann_index_name(workspace_id)
         threshold = bounded_setting("RETRIEVE_EXACT_THRESHOLD", 2000, 100, 100000)

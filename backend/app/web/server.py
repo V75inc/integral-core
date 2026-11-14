@@ -45,6 +45,7 @@ _STATIC_ASSET_SUFFIXES = frozenset(
         ".jpeg",
         ".jpg",
         ".js",
+        ".mjs",
         ".json",
         ".map",
         ".png",
@@ -182,7 +183,9 @@ def create_web_app(
             return FileResponse(
                 found,
                 headers=(
-                    {"Cache-Control": "no-store"} if found.suffix == ".html" else None
+                    {"Cache-Control": "no-store"}
+                    if found.suffix == ".html" or path.startswith("ui-runtime/")
+                    else None
                 ),
             )
         if Path(path).suffix.lower() in _STATIC_ASSET_SUFFIXES:

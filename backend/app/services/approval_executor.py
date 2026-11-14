@@ -644,10 +644,10 @@ async def _decide(
         )
     for outbox in outboxes:
         await _deliver(outbox)
-    from app.services.app_operations.event_outbox import deliver_operation_event
+    from app.services.app_operations.event_outbox import request_event_delivery
 
     for outbox_id in operation_outboxes:
-        await deliver_operation_event(outbox_id=outbox_id)
+        await request_event_delivery(outbox_id=outbox_id)
     return result
 
 

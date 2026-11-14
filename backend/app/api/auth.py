@@ -294,10 +294,10 @@ async def mint_websocket_ticket(request: Request) -> Dict[str, Any]:
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
-    from app.services.ws_ticket import TTL_SECONDS, mint_ws_ticket
+    from app.services.ws_ticket import TTL_SECONDS, mint_ws_ticket_shared
 
     return {
-        "ticket": mint_ws_ticket(user_id),
+        "ticket": await mint_ws_ticket_shared(user_id),
         "expires_in": TTL_SECONDS,
     }
 

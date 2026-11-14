@@ -675,11 +675,23 @@ async def deliver_outbox_entry(
 
 async def reconcile_missing_outbox_facts(
     work_item: Optional[WorkItem] = None,
+    *,
+    updated_since: Optional[str] = None,
 ) -> int:
-    """Backfill deterministic missing outbox facts (dev / recovery)."""
+    """Backfill deterministic missing outbox facts (dev / recovery).
+
+    Without arguments every WorkItem is checked. ``updated_since`` (an ISO
+    timestamp) limits the check to items changed at or after it: a fact can only
+    go missing when an item is created or transitioned, so a recent window finds
+    new gaps without rereading all history on every periodic pass.
+    """
     items: list[WorkItem]
     if work_item is not None:
         items = [work_item]
+    elif updated_since:
+        items = list(
+            await WorkItem.find({"context.updated_at": {"$gte": updated_since}})
+        )
     else:
         items = list(await WorkItem.find({}))
 

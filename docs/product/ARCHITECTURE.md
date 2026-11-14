@@ -84,6 +84,8 @@ Native chat uses durable WorkItems by default on PostgreSQL. Accepted request fi
 
 WorkItems use current lease token and fence for authority. Brokered effects use deterministic run/effect/logical-step identity. PostgreSQL commits work transitions with outbox and approval state atomically where specified. Routine and event adapters enqueue idempotently. Uncertain effects require reconciliation.
 
+Record commands commit business state and durable event intent together, then return. The independent `integral worker events` process persists audits and advances durable consumer checkpoints; an API-side bounded relay serves local WebSockets with current access checks. Audit occurrence time is separate from delivery order so recovered events remain visible to polling clients. See [event-worker contract](../backend/event-worker.md).
+
 Production work fails closed without the required store indexes and public transaction/CAS contracts; Mongo is not a qualified production work store. JSON/SQLite are single-worker development stores. Shared-store contracts do not by themselves qualify all multi-worker user journeys.
 
 Bounded WorkMandate review is not a runnable public admission route. Approved physical model calls require trusted bounds/pricing, shared holds, intent receipts, and last-moment readiness checks. Ordinary chat work does not acquire mandate authority merely by having a work context.
@@ -107,3 +109,10 @@ Core owns native Resend, SendGrid and SMTP configuration independently of Apps.
 Workspace email uses encrypted intents and leased dispatch; account recovery
 remains immediate platform-only mail. See [workspace email](../platform/workspace-email.md)
 for administration, status semantics, signed events and legacy migration.
+
+## Governed physical storage
+
+PostgreSQL API and ordinary workers use verify-only managed storage with a
+versioned catalog, reviewed provisioning artifacts and separate runtime roles.
+See [governed index lifecycle](../backend/governed-indexes.md) for commands, ownership, recovery and
+qualification. Transitional `constraints` configuration is not the final boundary.

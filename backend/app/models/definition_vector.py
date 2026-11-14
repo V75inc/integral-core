@@ -1,8 +1,9 @@
 """Content-addressed metadata derivations, outside graph authority (I-GRAPH-02)."""
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
 from pydantic import Field
+
+from app.models.indexing import attribute
 
 
 class DefinitionVector(Object):

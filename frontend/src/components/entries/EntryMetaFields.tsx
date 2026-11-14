@@ -28,6 +28,7 @@ import {
   projectIdsFromRelationValue,
   sprintLinkedToProject,
 } from './relationChoiceLoaders';
+import { isVisible } from '../views/regionConditions';
 
 /** Field types that support hover-to-reveal inline editing in the detail panel. */
 const INLINE_EDITABLE_TYPES = new Set(['text', 'number', 'markdown']);
@@ -357,11 +358,17 @@ export function EntryMetaFields({
       continue;
     const raw = values[field.key];
     const t = String(field.type || '').toLowerCase();
+    // A field can lock itself while a condition on the record holds (readonly_if),
+    // for example a pay run's period once it is no longer a draft.
+    const lockedByCondition = Boolean(
+      field.readonly_if && isVisible(field.readonly_if, values)
+    );
     const isInlineEditable =
       variant === 'detail' &&
       !!onCommitField &&
       INLINE_EDITABLE_TYPES.has(t) &&
-      !field.readonly;
+      !field.readonly &&
+      !lockedByCondition;
     // Fields rendered inline through SeamlessField in the detail — relations,
     // selects and dates — so values such as Pipeline status, dates and
     // the description can be edited from the card without opening the Edit form.
@@ -370,6 +377,7 @@ export function EntryMetaFields({
       !!onCommitField &&
       !readOnly &&
       !field.readonly &&
+      !lockedByCondition &&
       (t === 'relation' ||
         t === 'select' ||
         t === 'multi_select' ||
@@ -383,7 +391,8 @@ export function EntryMetaFields({
       !readOnly &&
       !readOnlyKeys.includes(field.key) &&
       (t === 'file' || t === 'files') &&
-      !field.readonly;
+      !field.readonly &&
+      !lockedByCondition;
 
     // Detail-only: an empty *optional informational* field is omitted, but an
     // editable field still renders (as "—"/picker/uploader) so it can be filled
@@ -724,7 +733,7 @@ export function EntryMetaFields({
           ) : null}
         </>
       ) : (
-        <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+        <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2 [&>*]:min-w-0">
           {rows.map((row, idx) => renderRow(row, idx > 0 ? rows[idx - 1] : undefined))}
         </div>
       )}

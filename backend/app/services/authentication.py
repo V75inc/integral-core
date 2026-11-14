@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import weakref
+from contextvars import ContextVar
+from datetime import datetime
 from typing import Any
 from weakref import WeakValueDictionary
 
@@ -29,6 +31,53 @@ _local_identity_locks: WeakValueDictionary[tuple, asyncio.Lock] = WeakValueDicti
 _OBSERVED_TYPES = (AuthUser, RefreshToken)
 _USER_GUARDS = ("is_active", "email", "password_hash", "roles", "permissions")
 _TOKEN_GUARDS = ("is_active", "token_hash", "token_lookup", "user_id", "expires_at")
+_token_validation_touch = ContextVar("integral_token_validation_touch", default=False)
+
+
+def _recent_activity_touch(row: dict, proposed: dict) -> bool:
+    try:
+        previous = datetime.fromisoformat(row["context"]["last_accessed"])
+        current = datetime.fromisoformat(proposed["last_accessed"])
+        return 0 <= (current - previous).total_seconds() < 60
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _activity_touch_seconds() -> float:
+    import os
+
+    try:
+        return max(0.0, float(os.getenv("INTEGRAL_ACTIVITY_TOUCH_SECONDS", "60")))
+    except ValueError:
+        return 60.0
+
+
+def _parse_stamp(value: Any) -> Any:
+    from datetime import datetime, timezone
+
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _activity_stamp_is_fresh(previous: Any, proposed: Any) -> bool:
+    """True when the stored last-seen stamp is newer than the throttle window.
+
+    Fails safe: any missing or unreadable stamp means "write it".
+    """
+    window = _activity_touch_seconds()
+    if window <= 0:
+        return False
+    before, after = _parse_stamp(previous), _parse_stamp(proposed)
+    if before is None or after is None:
+        return False
+    return 0 <= (after - before).total_seconds() < window
 
 
 class AuthenticationStateConflict(ValueError):
@@ -121,6 +170,22 @@ class AuthenticationContext(GraphContext):
             if field not in baseline or baseline[field] != value
         }
         removed = set(baseline) - set(proposed)
+        if (
+            isinstance(entity, AuthUser)
+            and set(changed) == {"last_accessed"}
+            and not removed
+            and _activity_stamp_is_fresh(
+                baseline.get("last_accessed"), changed["last_accessed"]
+            )
+        ):
+            # A "last seen" touch within the throttle window is not written: it took a
+            # row lock and a compare-and-swap on the user's auth row for every request
+            # (about 12% of a simple request, and it serialised one user's requests).
+            # Nothing is lost for authority: validate_token re-reads the CURRENT user on
+            # every request and rejects an inactive or removed account, so a disabled
+            # account is cut off immediately; only the displayed stamp is up to the
+            # window old. INTEGRAL_ACTIVITY_TOUCH_SECONDS=0 restores a write per request.
+            return entity
         guards = _USER_GUARDS if isinstance(entity, AuthUser) else _TOKEN_GUARDS
         query: dict[str, Any] = {"id": entity.id, "entity": entity._entity_name()}
         for field in set(guards) | set(changed) | removed:
@@ -180,9 +245,20 @@ class AuthenticationContext(GraphContext):
                 if locked is None:
                     raise AuthenticationStateConflict("Authentication state changed")
                 if QueryEngine.match(locked, query):
-                    row = await transaction.find_one_and_update(
-                        "object", identity_query, update
-                    )
+                    if (
+                        activity_touch_only
+                        and _token_validation_touch.get()
+                        and _recent_activity_touch(locked, proposed)
+                    ):
+                        # Activity is advisory. Keep the current locked identity
+                        # fence, but avoid rewriting its timestamp on every read.
+                        # Passwords, roles, lifecycle and explicit saves retain
+                        # their existing compare-and-set write semantics.
+                        row = locked
+                    else:
+                        row = await transaction.find_one_and_update(
+                            "object", identity_query, update
+                        )
                 elif activity_touch_only and QueryEngine.match(locked, activity_query):
                     # The row lock already fenced the current identity. Keep
                     # its concurrent activity stamp rather than overwriting it.
@@ -275,7 +351,11 @@ class IntegralAuthenticationService(AuthenticationService):
         )
 
     async def validate_token(self, token: str) -> UserResponse | None:
-        response = await super().validate_token(token)
+        cadence = _token_validation_touch.set(True)
+        try:
+            response = await super().validate_token(token)
+        finally:
+            _token_validation_touch.reset(cadence)
         if response is None:
             return None
         # The upstream last_accessed write is best effort. A lost CAS must not

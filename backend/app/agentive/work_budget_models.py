@@ -3,8 +3,9 @@
 from typing import Any, Literal
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
 from pydantic import Field
+
+from app.models.indexing import attribute
 
 
 class WorkBudgetReservation(Object):

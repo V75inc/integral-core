@@ -79,7 +79,7 @@ services:
       INTEGRAL_CREDENTIAL_ENC_KEY: ${INTEGRAL_CREDENTIAL_ENC_KEY:?run scripts/bootstrap_env.sh to generate the storage encryption key}
       JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4000,http://127.0.0.1:4000
       APP_BASE_URL: http://localhost:9006
-      EMAIL_PROVIDER: console
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
     depends_on:
       db:
         condition: service_healthy
@@ -90,8 +90,8 @@ services:
 
   web:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         NGINX_CONF: nginx.docker.conf
         VITE_API_URL:

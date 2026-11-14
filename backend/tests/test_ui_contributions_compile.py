@@ -108,3 +108,42 @@ def test_title_from_fields():
         where="test",
     )
     assert out[0]["title_from_fields"] == ["doc_number", "party_name"]
+
+
+def test_component_contribution_retains_admission_and_fallback_metadata():
+    contribution = {
+        "placement": "entry_compose",
+        "component_key": "document_composer",
+        "fallback_view": "document_view",
+        "owns_field_data": True,
+        "layout": "wide",
+        "owns_form": True,
+        "title_from_fields": ["document_number"],
+    }
+    out = _normalize_ui_contributions([contribution], where="test")
+    assert out == [{**contribution, "props": {}}]
+    assert "view" not in contribution
+
+
+def test_component_without_fallback_still_requires_operator_admission():
+    out = _normalize_ui_contributions(
+        [{"placement": "entry_compose", "component_key": "composer"}], where="test"
+    )
+    assert out == [
+        {"placement": "entry_compose", "component_key": "composer", "props": {}}
+    ]
+
+
+def test_component_fallback_preserves_iframe_exclusivity():
+    with pytest.raises(BadRequestError, match="not both"):
+        _normalize_ui_contributions(
+            [
+                {
+                    "placement": "entry_compose",
+                    "component_key": "composer",
+                    "fallback_view": "document_view",
+                    "extension_view_key": "iframe",
+                }
+            ],
+            where="test",
+        )

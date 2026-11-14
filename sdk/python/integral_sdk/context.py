@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import (
+    Any,
+    AsyncContextManager,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    runtime_checkable,
+)
 
 
 @runtime_checkable
@@ -23,6 +32,10 @@ class OperationContext(Protocol):
         ...
 
     async def get_entry(self, entry_id: str) -> Any: ...
+
+    async def read_entry_records(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Bounded, caller-authorized App pages; track_key and text_search are additive."""
+        ...
 
     async def find_entries_in_track_type(
         self, track_type: str, entry_type: Optional[str] = None
@@ -64,6 +77,14 @@ class OperationContext(Protocol):
         """
         ...
 
+    def track_write_scope(self, track_id: str) -> AsyncContextManager[None]:
+        """Order this owning-App collection's writers until command commit.
+
+        No value is reserved and no write permission is granted. Use around
+        fresh check/read/write logic; read-only contexts are rejected.
+        """
+        ...
+
     async def create_entry(
         self,
         *,
@@ -85,6 +106,16 @@ class OperationContext(Protocol):
         """Apply a validated update; False includes a stale record revision."""
         ...
 
+    async def delete_entry(
+        self, entry_id: str, *, expected_record_revision: int
+    ) -> bool:
+        """Human write contexts only: ordinary owning-App delete authority and fresh revision.
+
+        Uses the operation transaction and canonical deletion/cleanup. False
+        includes scope/permission rejection or a stale observed revision.
+        """
+        ...
+
     async def conditional_update_entry_fields(
         self,
         entry_id: str,
@@ -101,6 +132,10 @@ class OperationContext(Protocol):
     ) -> Optional[str]: ...
 
     async def find_entries(self, query: dict) -> list: ...
+
+    async def find_entry_values(self, query: dict, fields: List[str]) -> List[dict]:
+        """Exact workspace projections, restricted to the App when context-bound."""
+        ...
 
     async def get(self, object_ref: dict) -> Any:
         """Read an authorized entry or retained native tool source observation.

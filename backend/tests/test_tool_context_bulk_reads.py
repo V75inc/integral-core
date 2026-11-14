@@ -37,6 +37,7 @@ async def test_bulk_facade_keeps_exclusion_direct_grant_and_current_membership()
     reader, membership, _, _, track, entry, context = await reader_context()
     await reader.connect(entry, edge=EXCLUDED_FROM)
     assert await context.find_entries({}) == []
+
     await reader.connect(entry, edge=COLLABORATES_ON, role="viewer")
     assert [row.id for row in await context.find_entries({})] == [entry.id]
     assert [
@@ -44,6 +45,23 @@ async def test_bulk_facade_keeps_exclusion_direct_grant_and_current_membership()
     ] == [entry.id]
     await membership.delete()
     assert await context.find_entries({}) == []
+
+
+async def test_point_facade_keeps_current_entry_and_parent_authority():
+    """A faster hook read still checks exclusions, direct grants and revocation."""
+    reader, membership, _, _, _, entry, context = await reader_context()
+    assert await context.get_entry({"$ne": None}) is None
+    assert (await context.get_entry(entry.id)).id == entry.id
+    exclusion = await reader.connect(entry, edge=EXCLUDED_FROM)
+    assert await context.get_entry(entry.id) is None
+    grant = await reader.connect(entry, edge=COLLABORATES_ON, role="viewer")
+    assert (await context.get_entry(entry.id)).id == entry.id
+    await grant.delete()
+    assert await context.get_entry(entry.id) is None
+    await exclusion.delete()
+    assert (await context.get_entry(entry.id)).id == entry.id
+    await membership.delete()
+    assert await context.get_entry(entry.id) is None
 
 
 async def test_bulk_facade_does_not_borrow_workspace_owner_governance():

@@ -1,9 +1,10 @@
 /** Native Home authoring: reusable functions produce data, never an iframe. */
-export const NATIVE_HOME_COMPONENTS = ['stack', 'grid', 'card', 'heading', 'text', 'markdown', 'metric', 'chart', 'records', 'form', 'action', 'tabs', 'accordion'] as const;
+export const NATIVE_HOME_COMPONENTS = ['stack', 'grid', 'card', 'heading', 'text', 'markdown', 'metric', 'chart', 'records', 'form', 'action', 'tabs', 'accordion', 'react_component'] as const;
 export interface HomeInput { name: string; label: string; type?: 'text' | 'textarea' | 'number' | 'email' | 'checkbox'; required?: boolean }
 export interface HomeElement {
   id: string;
   type: typeof NATIVE_HOME_COMPONENTS[number];
+  component_key?: string; props?: Record<string, unknown>;
   title?: string; text?: string; children?: HomeElement[]; columns?: 1 | 2 | 3 | 4; gap?: 'sm' | 'md' | 'lg';
   query_key?: string; params?: Record<string, unknown>; value_path?: string; rows_path?: string;
   label_field?: string; value_field?: string; chart_type?: 'bar' | 'line' | 'pie';

@@ -15,7 +15,7 @@ Backend uses jvspatial graph-based data model — all entities are Nodes with ex
 
 **Harness engineering principle:** Prefer the supported facilities and public extension points of the pinned Pydantic AI Harness and Pydantic AI for agent runtime behavior. Before adding or extending custom harness behavior, examine those libraries for an appropriate facility and use it when it meets Integral's requirements. Custom code is justified for Integral substrate integration or when the libraries do not furnish a suitable facility; document the gap and preserve current authorization, tenancy, staging, receipts and recovery. Review existing custom behavior for replacement where practical, and verify semantic and security parity before removing it. See [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md).
 
-**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.7` and `pydantic-ai-harness[skills]==0.59.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-compatibility-release-gate).
+**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.10` and `pydantic-ai-harness[skills]==0.59.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-compatibility-release-gate).
 
 When repairing legacy `UserModelCredential` duplicates, read through `GraphContext.find` so the unique index is not created before deduplication. Validate the migration against a PostgreSQL schema containing actual duplicate rows, then verify the index rejects a new duplicate.
 
@@ -674,3 +674,19 @@ docker-compose up  # builds backend from Dockerfile, runs API on :4000
 - **backend/README.md**: Full backend documentation
 - **docs/backend/**: Operational Model authoring, packages, app bundles v1, search index
 - **jvspatial**: https://github.com/TrueSelph/jvspatial
+
+
+## Optional local workspace reference
+
+When this repository is part of a local multi-repository workspace and the files exist, [architecture](../docs/ARCHITECTURE.md), [foundation map](../docs/JVSPATIAL_FOUNDATION.md) and [contracts](../docs/API_CONTRACTS.md) provide additional source-navigation context. These documents describe one developer's setup; they do not require sibling repositories, directory names, branches, dependency overrides, tools or deployment choices in other checkouts.
+
+Use this repository's own configuration and instructions as the baseline. Verify actual dependency artifacts and assess affected consumers when changing shared contracts. If another consumer checkout is unavailable, report the validation limit; its absence alone does not block unrelated work. Local workflow exceptions apply only when explicitly authorized for the current workspace.
+
+<!-- integral-app-ui:start -->
+## Shared App UI — automatic instructions
+
+Before creating or changing App UI, read [APP_UI_GUIDE.md](APP_UI_GUIDE.md). Use Core's public React SDK patterns and host theme; keep domain behavior in the App.
+New/migrated React components require SDK ^1.2.0 and design checks. Preserve
+existing scoped instructions. Never treat UI work as permission to publish, deploy
+or activate a release.
+<!-- integral-app-ui:end -->

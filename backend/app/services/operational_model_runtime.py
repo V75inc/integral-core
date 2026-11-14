@@ -81,6 +81,24 @@ async def _warm_seeded_view_index_off_loop() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
+def view_may_need_backfill(v: View) -> bool:
+    """True when ``backfill_view_entry_type_constraints_from_manifest`` could write ``v``.
+
+    Mirrors the three conditions that loop writes under: empty ``entry_type_keys``,
+    empty ``default_entry_type_key``, or an ``extension_view`` whose config lacks
+    ``extension_view_key``. A View with none of those is never modified.
+    """
+    if not (getattr(v, "entry_type_keys", None) or []):
+        return True
+    if not (getattr(v, "default_entry_type_key", "") or ""):
+        return True
+    cfg = v.config if isinstance(v.config, dict) else {}
+    return (
+        str(getattr(v, "type", "") or "") == "extension_view"
+        and not str(cfg.get("extension_view_key") or "").strip()
+    )
+
+
 async def backfill_view_entry_type_constraints_from_manifest(
     track: Track,
     views: List[View],
@@ -101,6 +119,11 @@ async def backfill_view_entry_type_constraints_from_manifest(
     seeded library spec.
     """
     if not views:
+        return
+    # Every write below fills a field that is empty. When none is empty there is
+    # nothing to hydrate, so skip resolving the manifest profile (about 0.3 s per
+    # track open) instead of resolving it only to change nothing.
+    if not any(view_may_need_backfill(v) for v in views):
         return
     cp, tier, _ = await resolve_track_runtime_profile(track)
     by_key: Dict[str, Dict[str, Any]] = {}
@@ -490,6 +513,64 @@ async def ensure_track_views_materialized_from_tier(track: Track) -> bool:
     )
     await synchronize_track_view_default_flags(track)
     return True
+
+
+async def resync_track_view_constraints_from_tier(track: Track) -> int:
+    """Rewrite a track's own views' entry-type constraints from its current template.
+
+    Tracks made from a track template keep their own copy of each view. A library
+    update patches the shared template, but a copy that already exists keeps the
+    entry types it was created with, and the list endpoints only fill an *empty*
+    constraint, never replace a stale one. When an update changes which entry type a
+    view lists (for example a rename to the type's manifest key), every older copy
+    would list nothing. This brings each copy's ``entry_type_keys`` and default entry
+    type in line with the template's view of the same ``_manifest_view_key``.
+
+    Only those two fields are written, only when they differ, and only when the
+    template names at least one entry type; a copy with no template counterpart is
+    left alone. Returns how many views changed.
+    """
+    _, tier, _ = await resolve_track_runtime_profile(track)
+    if not isinstance(tier, dict):
+        return 0
+    by_key: Dict[str, Dict[str, Any]] = {}
+    for spec in _as_list(tier.get("views"), where="track.views"):
+        if isinstance(spec, dict) and str(spec.get("key") or "").strip():
+            by_key[slug_manifest_key(str(spec.get("key")))] = spec
+    if not by_key:
+        return 0
+    changed: List[View] = []
+    for view in await _catalog_views_for_track(track):
+        cfg = view.config if isinstance(view.config, dict) else {}
+        spec = by_key.get(slug_manifest_key(str(cfg.get("_manifest_view_key") or "")))
+        if spec is None:
+            continue
+        wanted: List[str] = []
+        for raw in list(spec.get("entry_type_keys") or spec.get("entry_types") or []):
+            key = slug_manifest_key(str(raw))
+            if key and key not in wanted:
+                wanted.append(key)
+        if not wanted:
+            continue
+        default_key = slug_manifest_key(str(spec.get("default_entry_type") or ""))
+        dirty = False
+        if list(getattr(view, "entry_type_keys", None) or []) != wanted:
+            view.entry_type_keys = wanted
+            dirty = True
+        if (
+            default_key
+            and str(getattr(view, "default_entry_type_key", "") or "") != default_key
+        ):
+            view.default_entry_type_key = default_key
+            dirty = True
+        if dirty:
+            view.updated_at = datetime.now(timezone.utc).isoformat()
+            changed.append(view)
+    if changed:
+        from app.services.graph_hydration import bulk_save_nodes
+
+        await bulk_save_nodes(changed)
+    return len(changed)
 
 
 async def _catalog_views_for_track(track: Track) -> List[View]:

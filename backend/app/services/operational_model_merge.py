@@ -38,6 +38,10 @@ from app.services.app_graph import (
 from app.services.library_package_visibility import (
     assert_library_package_installable_in_workspace,
 )
+from app.services.operational_model_compile import (
+    default_tab_order_for,
+    keep_person_tab_order,
+)
 from app.services.operational_model_runtime import (
     SCHEMA_VERSION,
     app_manifest_provisioning_enabled,
@@ -125,6 +129,8 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["canvas"] = spec.get("canvas")
         if "create_wizard" not in merged and spec.get("create_wizard") is not None:
             merged["create_wizard"] = spec.get("create_wizard")
+        if "singleton" not in merged and spec.get("singleton") is not None:
+            merged["singleton"] = bool(spec.get("singleton"))
         for key in ("search_index", "task_semantics", "goal_semantics"):
             if key in spec:
                 merged[key] = spec[key]
@@ -151,6 +157,10 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         out["canvas"] = spec.get("canvas")
     if spec.get("create_wizard") is not None:
         out["create_wizard"] = spec.get("create_wizard")
+    # One-record types (``singleton``): the compiler sets it, and create-time
+    # enforcement reads it from the stored form_schema, so it must be carried.
+    if spec.get("singleton") is not None:
+        out["singleton"] = bool(spec.get("singleton"))
     return normalize_entry_type_form_schema(out)
 
 
@@ -224,6 +234,7 @@ def merge_entry_type_schema_from_spec(
         "required_tag_groups",
         "open_as_page",
         "create_wizard",
+        "singleton",
     ):
         if key not in desired_schema:
             continue
@@ -1017,6 +1028,15 @@ async def merge_library_manifest_into_operational_model(
                 "queries": merged_queries,
                 "protected_state": merged_protected_state,
                 "extension_views": merged_extension_views,
+                **(
+                    {
+                        "ui_components": canonical_app.get(
+                            "ui_components", target_app.get("ui_components", [])
+                        )
+                    }
+                    if "ui_components" in canonical_app or "ui_components" in target_app
+                    else {}
+                ),
             },
             "package": canonical.get("package") or {},
             "migrations": canonical.get("migrations") or [],
@@ -1175,10 +1195,11 @@ async def merge_library_manifest_into_operational_model(
             legacy_views_by_identity.setdefault(identity, ev)
 
     pending_view_updates: List[View] = []
-    for spec in view_specs:
+    for spec_index, spec in enumerate(view_specs):
         vname = spec.get("name") or "View"
         view_type = spec.get("view_type") or spec.get("type") or "feed"
         view_config = materialize_view_config_from_spec(spec)
+        view_config["default_tab_order"] = default_tab_order_for(spec, spec_index)
         raw_vk = str(spec.get("key") or "").strip()
         spec_key = slug_manifest_key(raw_vk) if raw_vk else ""
         if default_view_key:
@@ -1202,16 +1223,34 @@ async def merge_library_manifest_into_operational_model(
                 patch_key = f"{spec_key}::__template__"
         existing_view = existing_views_by_key.get(patch_key) if patch_key else None
         if existing_view is None and track:
-            existing_view = legacy_views_by_identity.get(
+            # Adopt an unkeyed row at most once: two specs that share a name
+            # and type (a page copy of a tab view) must not both claim it.
+            existing_view = legacy_views_by_identity.pop(
                 _view_materialization_identity(
                     name=str(vname),
                     view_type=str(view_type),
                     track_id=str(track.id),
-                )
+                ),
+                None,
             )
+        # What the manifest says about this view's visibility is remembered
+        # on the view (``_manifest_hidden``). A library update changes the
+        # view's ``hidden`` only when that manifest value changes, so an App
+        # can retire a tab (or bring one back) while a person's own show or
+        # hide choice survives later updates. A view without the marker is
+        # treated as previously shown by the manifest.
+        normalized_config["_manifest_hidden"] = raw_hidden
         if existing_view is not None:
             ev = existing_view
+            normalized_config = keep_person_tab_order(ev.config, normalized_config)
             dirty = False
+            was_manifest_hidden = bool((ev.config or {}).get("_manifest_hidden", False))
+            if (
+                raw_hidden != was_manifest_hidden
+                and bool(getattr(ev, "hidden", False)) != raw_hidden
+            ):
+                ev.hidden = raw_hidden
+                dirty = True
             if str(ev.name or "") != str(vname):
                 ev.name = str(vname)
                 dirty = True
@@ -1359,7 +1398,15 @@ def _track_spec_to_library_manifest_dict(
     tier = {
         k: v
         for k, v in track_spec.items()
-        if k not in ("provision_on_create", "nav_visible", "key", "name", "description")
+        if k
+        not in (
+            "provision_on_create",
+            "nav_visible",
+            "key",
+            "name",
+            "description",
+            "icon",
+        )
     }
     # App-owned view composites (F2) compile to ``view_type: <composite_key>``
     # plus ``composite.base``. Track-scope recompile has no ``view_types[]``,
@@ -1429,6 +1476,23 @@ async def refresh_app_track_template_materialization(
     await merge_library_manifest_into_operational_model(
         shim, template_cp, track=None, for_space=False
     )
+    # Tracks already spawned from this template follow its list visibility too (an update reaches old records).
+    desired_nav = bool(template_spec.get("nav_visible", True))
+    for spawned in await app_node.nodes(edge=["CONTAINS"], node=["Track"]):
+        if (
+            str(getattr(spawned, "template_id", "") or "") == template_key
+            and bool(getattr(spawned, "nav_visible", True)) != desired_nav
+        ):
+            spawned.nav_visible = desired_nav
+            await spawned.save()
+    template_icon = str(template_spec.get("icon") or "")
+    if template_icon:
+        for spawned in await app_node.nodes(edge=["CONTAINS"], node=["Track"]):
+            if str(getattr(spawned, "template_id", "") or "") == template_key and not (
+                getattr(spawned, "icon", "") or ""
+            ):
+                spawned.icon = template_icon
+                await spawned.save()
     return template_cp
 
 
@@ -1471,6 +1535,58 @@ async def apply_space_track_spec_to_track(
     )
 
 
+def sync_track_description_from_manifest(
+    track: Any, desired: str, previous: str = ""
+) -> bool:
+    """Refresh a Track's description from the manifest unless a person edited it.
+
+    The stored description counts as manifest-owned while it is empty, equals the
+    text last written from the manifest (``purpose_from_manifest``), already equals
+    the new text, or equals the previous package's text for that Track (for Tracks made before that was
+    recorded). Anything else was edited by a person and is left alone. Returns True
+    when the Track changed.
+    """
+    desired = (desired or "").strip()
+    if not desired:
+        return False
+    current = str(getattr(track, "purpose", "") or "").strip()
+    written = str(getattr(track, "purpose_from_manifest", "") or "").strip()
+    owned = (
+        not current
+        or current == desired
+        or current == written
+        or (previous and current == previous)
+    )
+    changed = False
+    if owned and current != desired:
+        track.purpose = desired
+        changed = True
+    if owned and written != desired:
+        track.purpose_from_manifest = desired
+        changed = True
+    return changed
+
+
+async def _previous_track_descriptions(app_node: Any) -> Dict[str, str]:
+    """Track descriptions of the package this App was installed or last updated from."""
+    try:
+        from app.services.application_definitions import (
+            get_active_application_definition,
+        )
+
+        definition = await get_active_application_definition(
+            app_node, repair_legacy_pointer=False
+        )
+    except Exception:  # noqa: BLE001 - history is optional
+        return {}
+    base = dict(getattr(definition, "base_package_manifest", None) or {})
+    out: Dict[str, str] = {}
+    for raw in ((base.get("app") or {}).get("tracks")) or []:
+        if isinstance(raw, dict) and raw.get("key"):
+            out[str(raw["key"])] = str(raw.get("description") or "").strip()
+    return out
+
+
 async def provision_prescribed_tracks_from_app_manifest(
     app_node: App, owner_user_id: str
 ) -> None:
@@ -1490,6 +1606,7 @@ async def provision_prescribed_tracks_from_app_manifest(
     used_template_keys = {
         str(t.template_id) for t in existing if getattr(t, "template_id", None)
     }
+    previous_descriptions = await _previous_track_descriptions(app_node)
     for raw_spec in (canonical.get("app") or {}).get("tracks") or []:
         spec = raw_spec if isinstance(raw_spec, dict) else {}
         if not bool(spec.get("provision_on_create", True)):
@@ -1529,6 +1646,16 @@ async def provision_prescribed_tracks_from_app_manifest(
                 if bool(getattr(existing_track, "nav_visible", True)) != desired_nav:
                     existing_track.nav_visible = desired_nav
                     dirty = True
+                # The package's icon is a default: a Track that already has one (set by a person) keeps it.
+                if spec.get("icon") and not (getattr(existing_track, "icon", "") or ""):
+                    existing_track.icon = str(spec["icon"])
+                    dirty = True
+                if sync_track_description_from_manifest(
+                    existing_track,
+                    str(spec.get("description") or "").strip(),
+                    previous_descriptions.get(key, ""),
+                ):
+                    dirty = True
                 if dirty:
                     await existing_track.save()
                 await apply_space_track_spec_to_track(existing_track, spec)
@@ -1551,7 +1678,8 @@ async def provision_prescribed_tracks_from_app_manifest(
             title=str(spec.get("name") or key),
             owner_id=owner_user_id,
             purpose=str(spec.get("description") or "").strip(),
-            icon="",
+            purpose_from_manifest=str(spec.get("description") or "").strip(),
+            icon=str(spec.get("icon") or ""),
             visibility=resolved_vis,
             template_id=key,
             workspace_id=track_workspace_id,

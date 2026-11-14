@@ -64,6 +64,7 @@ from app.services.notification_paths import entry_path
 from app.services.operational_model_derived_fields import (
     resolve_derived_fields_for_entry,
 )
+from app.services.perf_trace import perf_traced
 from app.services.permissions import get_user_node
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.request_scope import resolve_workspace_id_from_request
@@ -285,6 +286,7 @@ async def _apply_view_entry_type_filter(
     return [e for e in entries if (getattr(e, "type_id", "") or "") in allowed_ids]
 
 
+@perf_traced("entries.enrichment")
 async def enrich_entry_page_for_response(
     page_entries: List[Entry],
 ) -> List[Dict[str, Any]]:
@@ -400,6 +402,33 @@ async def list_entries(
     )
     response["entries"] = await enrich_entry_page_for_response(page_entries)
     return response
+
+
+@endpoint("/entries/check", methods=["POST"], auth=True, tags=["Entries"])
+async def check_entry(
+    request: Request,
+    track_id: str = "",
+    type_id: str = "",
+    entry_id: str = "",
+    title: str = "",
+    custom_fields: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Would this create (no ``entry_id``) or update save? Runs the save's validation and App
+    rules without writing: ``{"ok": true}`` or ``{"ok": false, "message", "field"?}``.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    from app.services.entry_write_check import check_entry_write
+
+    return await check_entry_write(
+        user_id=user_id,
+        track_id=track_id,
+        type_id=type_id,
+        entry_id=entry_id,
+        title=title,
+        custom_fields=custom_fields,
+    )
 
 
 @endpoint("/entries", methods=["POST"], auth=True, tags=["Entries"])
@@ -518,6 +547,12 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    # Always the saved record: each API worker keeps its own in-memory entity cache, so after a write handled
+    # by another worker (an action button, a background job) this worker's copy is stale and the page would
+    # show the old status until restart. A record page asks for one record, so one database read is cheap.
+    from jvspatial.core.context import get_default_context
+
+    await get_default_context()._evict_from_cache(entry_id)
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")

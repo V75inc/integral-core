@@ -1,7 +1,8 @@
 """Derived metadata rows, never graph participants or authority (I-GRAPH-02)."""
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
+
+from app.models.indexing import attribute
 
 
 class ResourceMetadataProjection(Object):

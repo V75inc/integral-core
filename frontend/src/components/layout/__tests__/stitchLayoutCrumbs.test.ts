@@ -26,4 +26,14 @@ describe('stitchLayoutCrumbs', () => {
     );
     expect(trail.map(c => c.label)).toEqual(['Home', 'Acme Org', 'Apps']);
   });
+
+  it('names no workspace while the page is still loading its record', () => {
+    // The active workspace is still the previous page's until the record loads.
+    const trail = stitchLayoutCrumbs(
+      [{ label: 'Tracks', to: '/tracks' }, { label: 'Loading…' }],
+      '/tracks/t-1',
+      { id: 'ws-old', name: 'Previous Workspace' },
+    );
+    expect(trail.map(c => c.label)).toEqual(['Home', 'Tracks', 'Loading…']);
+  });
 });

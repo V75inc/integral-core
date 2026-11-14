@@ -2,7 +2,7 @@ import { accessControlApi } from '../api/accessControl';
 import { useDeployment } from '../hooks/useDeployment';
 import { useAppDeletionNavigation } from '../hooks/useAppDeletionNavigation';
 import { AppIcon } from '../ui';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
 import { usePhantomClickGuard } from '../hooks/usePhantomClickGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -130,6 +130,8 @@ export function AppDetailPage() {
   const [callerRole, setCallerRole] = useState<string | null | undefined>(undefined);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadSeq = useRef(0);
+  const [secondaryLoaded, setSecondaryLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [showEditAppModal, setShowEditAppModal] = useState(false);
@@ -230,25 +232,36 @@ export function AppDetailPage() {
   const load = useCallback(async () => {
     if (!appId) return;
     setLoading(true);
+    setSecondaryLoaded(false);
     setError(null);
+    const seq = ++loadSeq.current;
     try {
-      const [sp, tr, c, at, tpls, profile] = await Promise.all([
+      // What the page needs to show its tracks and decide what the caller may do.
+      const [sp, tr, c] = await Promise.all([
         appsApi.get(appId),
         appsApi.listTracks(appId),
         appsApi.getCollaboratorsDetailed(appId),
-        tracksApi.list(),
-        appsApi.listTrackTemplates(appId).catch(() => []),
-        operationalModelsApi.getAttachedForApp(appId).catch(() => null),
       ]);
       setApp(sp);
-      setAppOperationalModel(profile);
       setTracks(tr);
       setCollabs(c.collaborators as CollabRow[]);
       setCollaboratorTotal(typeof c.total === 'number' ? c.total : null);
       setCollaboratorDirectoryVisible(c.directory_visible !== false);
       setCallerRole(c.caller_role);
-      setAllTracks(at as Track[]);
-      setTrackTemplates(tpls.map(t => ({ id: t.id, name: t.name })));
+      // Secondary data (the "link a track" picker, track templates, the attached model) no
+      // longer holds up the first paint; each fills in when it arrives. A failure leaves the
+      // empty default instead of replacing the page with an error.
+      void Promise.all([
+        tracksApi.list({ skipEntryCounts: true }).catch(() => [] as Track[]),
+        appsApi.listTrackTemplates(appId).catch(() => []),
+        operationalModelsApi.getAttachedForApp(appId).catch(() => null),
+      ]).then(([at, tpls, profile]) => {
+        if (loadSeq.current !== seq) return;
+        setAllTracks(at as Track[]);
+        setTrackTemplates(tpls.map(t => ({ id: t.id, name: t.name })));
+        setAppOperationalModel(profile);
+        setSecondaryLoaded(true);
+      });
     } catch (e: unknown) {
       setError(errorMessageFromAxios(e, 'Failed to load app'));
       setApp(null);
@@ -393,7 +406,8 @@ export function AppDetailPage() {
   const functionSettings = useQuery({
     queryKey: ['app-function-settings', appId, app?.workspace_id, homeQuery.data?.definition_revision],
     queryFn: () => accessControlApi.bindings(appId!),
-    enabled: Boolean(isWorkspaceOwner && appId && app?.id === appId && app.workspace_id === activeHomeScope?.workspaceId),
+    // Owner-only settings entry: not needed for the first paint, so it waits for the page data.
+    enabled: Boolean(isWorkspaceOwner && appId && app?.id === appId && app.workspace_id === activeHomeScope?.workspaceId && secondaryLoaded),
     retry: false,
   });
   // Retain existing grants for review/revocation, even if the new definition
@@ -401,6 +415,18 @@ export function AppDetailPage() {
   const hasFunctionSettings = isWorkspaceOwner && (functionSettings.isError ||
     Boolean(Object.keys(functionSettings.data?.role_actions || {}).length || functionSettings.data?.bindings?.length));
   const hasAppSettings = hasConfigurableSettings || hasFunctionSettings;
+
+  // The App menu's Settings link lands here with ?settings=1: open the standard App settings dialog once.
+  const settingsRequested = sectionParams.get('settings') === '1';
+  useEffect(() => {
+    if (!settingsRequested || !app || app.id !== appId) return;
+    if (canAdmin) setShowAppSettingsModal(true);
+    setSectionParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete('settings');
+      return next;
+    }, { replace: true });
+  }, [settingsRequested, app, appId, canAdmin, setSectionParams]);
 
   // Adding or linking a track is app.update, not the workspace create flag.
   // A workspace owner can open this App as a commenter and still holds
@@ -1364,6 +1390,7 @@ function AppTrackRow({
                 : ''
             }
             title={track.title}
+            icon={track.icon}
           />
           {canDrag && sortable && (
             <button

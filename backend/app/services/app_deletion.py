@@ -18,6 +18,7 @@ from jvspatial.core.decorators import on_visit
 
 from app.agentive.services.skill_registry import unregister_skills_for_app
 from app.exceptions import AuthorizationUnavailableError
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.access_delegation import HAS_ACTION_BINDING
 from app.models.access_lifecycle import HAS_OWNERSHIP_PROPOSAL
 from app.models.edges import (
@@ -298,6 +299,7 @@ async def _other_tracks_sharing_operational_model(
     )
 
 
+@invalidates_job_facts
 async def delete_track_and_nested_content(
     track: Track, *, actor_user_id: str = ""
 ) -> None:
@@ -342,6 +344,7 @@ async def delete_track_and_nested_content(
                 await complete({"track_id": current.id, "deleted": True})
 
 
+@invalidates_job_facts
 async def _delete_track_admitted(track: Track, *, actor_user_id: str) -> None:
     """Delete a track, its entries, and its attached operational model subtree.
 
@@ -397,6 +400,7 @@ async def _delete_track_admitted(track: Track, *, actor_user_id: str) -> None:
     await _safe_delete_node(track, "track")
 
 
+@invalidates_job_facts
 async def delete_app_cascade(
     app_node: App, *, actor_user_id: str = ""
 ) -> Tuple[int, int]:
@@ -455,6 +459,7 @@ async def delete_app_cascade(
             return result
 
 
+@invalidates_job_facts
 async def _delete_app_admitted(app_node: App, *, actor_user_id: str) -> Tuple[int, int]:
     """Remove the App and contained data.
 

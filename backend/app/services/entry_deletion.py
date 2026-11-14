@@ -53,6 +53,7 @@ from __future__ import annotations
 import logging
 from typing import List
 
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.edges import ANCHORS
 from app.models.nodes import Comment, Entry
 
@@ -228,6 +229,7 @@ async def _delete_upload_sessions(entry: Entry) -> list[str]:
     return identifiers
 
 
+@invalidates_job_facts
 async def delete_entry_fast(
     entry: Entry,
     *,
@@ -418,6 +420,7 @@ async def delete_entry_fast(
                     )
 
 
+@invalidates_job_facts
 async def _delete_admitted_entry(
     entry: Entry,
     *,

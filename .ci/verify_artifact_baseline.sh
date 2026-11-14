@@ -78,6 +78,7 @@ sys.meta_path[:] = [
 sys.path[:] = [path for path in sys.path if "editable" not in path]
 sys.path_importer_cache.clear()
 import app
+assert (site / "app/services/storage_indexes/approved.json").is_file(), "reviewed storage catalog missing from wheel"
 from app.agentive.tooling.manifest import DEFAULT_MANIFEST_PATH
 from app.connectors.catalog_loader import load_catalog
 from app.views import dashboard_widget_types

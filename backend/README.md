@@ -13,7 +13,7 @@ uv sync --frozen --extra dev --extra test
 .venv/bin/python -m app.main
 ```
 
-Run from this directory with private development settings configured. Python 3.11.5 or later is required. The source API uses port 4000. The frozen lock is authoritative; do not substitute requirements.txt or unrestricted package-index resolution.
+Run from this directory with private development settings configured. Python 3.11.5 or later is required (the patched Soup Sieve HTML selector dependency requires this minimum). The source API uses port 4000. The frozen lock is authoritative; do not substitute requirements.txt or unrestricted package-index resolution.
 
 ## Navigate
 
@@ -48,7 +48,23 @@ hashing. These parsing limits do not grant package publication authority.
 
 ## jvspatial security compatibility
 
-Metadata pins jvspatial 0.2.9 and pydantic-ai-harness 0.59.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
+Metadata pins jvspatial 0.2.10 and pydantic-ai-harness 0.59.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
+
+PostgreSQL token validation coalesces the advisory `last_accessed` timestamp
+within one minute. It still locks and checks the current identity row on every
+validation, rereads current account authority and checks token revocation. A
+pending account disable retains its existing lock fence. Credential/role writes,
+explicit saves, expiry and refresh semantics are unchanged. The focused gate is
+`tests/contract/test_authentication_current_state_postgres.py`; this optimization
+does not cache an authentication or authorization decision.
+
+PostgreSQL token validation coalesces the advisory `last_accessed` timestamp
+within one minute. It still locks and checks the current identity row on every
+validation, rereads current account authority and checks token revocation. A
+pending account disable retains its existing lock fence. Credential/role writes,
+explicit saves, expiry and refresh semantics are unchanged. The focused gate is
+`tests/contract/test_authentication_current_state_postgres.py`; this optimization
+does not cache an authentication or authorization decision.
 
 `make verify` from the repository root is the broad local gate. PR smoke CI is narrower and runs without a developer .env. Database contracts and packaged-wheel checks provide separate evidence.
 
@@ -163,3 +179,7 @@ execution latency; qualify it on the deployment workload. Set
 Explicit DSN `options` or `plan_cache_mode` take precedence, including options
 unrelated to planning. Transaction-pooler mode keeps its existing driver behavior
 and receives no additional session startup option.
+
+## Event worker
+
+Run `integral worker events` beside the API to deliver durable audit facts. See [the worker contract](../docs/backend/event-worker.md) for configuration, recovery and performance qualification.

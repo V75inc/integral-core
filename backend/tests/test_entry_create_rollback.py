@@ -274,6 +274,7 @@ async def test_nested_entry_events_deliver_only_after_outer_commit(monkeypatch):
     from app.services.entry_update import update_entry_in_track
 
     user_id, ws_id, track_id = await _bootstrap_track("context-commit@example.com")
+    await deliver_pending_operation_events()  # Drain the setup Track's own event.
     emitted = []
 
     async def capture_event(**event):

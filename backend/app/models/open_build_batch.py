@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
 from pydantic import Field
+
+from app.models.indexing import attribute
 
 BATCH_SCHEMA_REVISION = "w6.2-1"
 

@@ -13,7 +13,8 @@ from __future__ import annotations
 from typing import Optional
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute, compound_index
+
+from app.models.indexing import attribute, compound_index
 
 
 @compound_index(

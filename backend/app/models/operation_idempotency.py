@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import ClassVar, Optional
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
+
+from app.models.indexing import attribute
 
 
 class OperationIdempotencyRecord(Object):

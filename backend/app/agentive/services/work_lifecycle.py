@@ -6,9 +6,15 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
 log = logging.getLogger(__name__)
+
+# The periodic recovery pass rechecks outbox facts only for work changed in this window; a full
+# recheck of all history runs once per hour (the boot-time pass also does one).
+_RECENT_RECONCILE_WINDOW_SECONDS = 15 * 60
+_FULL_RECONCILE_SECONDS = 60 * 60
 
 
 class WorkKernelBootError(RuntimeError):
@@ -67,6 +73,7 @@ async def assert_work_kernel_store_posture() -> None:
 
 
 async def run_startup_recovery() -> Any:
+    """Reconcile durable work before starting API-side execution loops."""
     from app.agentive.services.work_recovery import run_recovery_pass
 
     return await run_recovery_pass(reclaim_worker_id="startup-recovery")
@@ -90,7 +97,7 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
     )
     from app.agentive.services.work_recovery import run_recovery_pass
     from app.services.app_operations.event_outbox import (
-        deliver_pending_operation_events,
+        deliver_pending_cleanup_events,
     )
     from app.services.resident_assignment_execution import (
         deliver_resident_assignment_approvals,
@@ -98,11 +105,25 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
 
     model_receipt_cursor: dict[str, str] = {}
     next_harness_retention = 0.0
+    next_full_reconcile = 0.0
     next_draft_cleanup = 0.0
     while True:
         try:
-            await run_recovery_pass(reclaim_worker_id="periodic-recovery")
-            await deliver_pending_operation_events()
+            # Checking every work item ever created on each pass costs more with every
+            # run, so the periodic pass only looks at recent changes and does a full
+            # check once an hour. The boot-time reconcile already did one.
+            since = None
+            if time.monotonic() >= next_full_reconcile:
+                next_full_reconcile = time.monotonic() + _FULL_RECONCILE_SECONDS
+            else:
+                since = (
+                    datetime.now(timezone.utc)
+                    - timedelta(seconds=_RECENT_RECONCILE_WINDOW_SECONDS)
+                ).isoformat()
+            await run_recovery_pass(
+                reclaim_worker_id="periodic-recovery", reconcile_updated_since=since
+            )
+            await deliver_pending_cleanup_events()
             await deliver_resident_assignment_approvals()
             from app.services.email_delivery import purge_email_history
 
@@ -168,14 +189,14 @@ async def start_work_kernel_background(
     try:
         from app.agentive.services.work_outbox import reconcile_missing_outbox_facts
         from app.services.app_operations.event_outbox import (
-            deliver_pending_operation_events,
+            deliver_pending_cleanup_events,
         )
         from app.services.resident_assignment_execution import (
             deliver_resident_assignment_approvals,
         )
 
         await reconcile_missing_outbox_facts()
-        await deliver_pending_operation_events()
+        await deliver_pending_cleanup_events()
         await deliver_resident_assignment_approvals()
     except Exception:  # noqa: BLE001
         if not _is_dev_boot():
@@ -198,7 +219,7 @@ async def start_work_kernel_background(
             raise
         log.warning("work kernel startup recovery failed", exc_info=True)
 
-    from app.agentive.services import work_events, work_worker
+    from app.agentive.services import work_worker
 
     background_tasks.append(
         asyncio.create_task(
@@ -235,15 +256,6 @@ async def start_work_kernel_background(
     background_tasks.append(
         asyncio.create_task(_app_schedule_loop(), name="app-schedules")
     )
-    background_tasks.append(
-        asyncio.create_task(
-            work_events.event_consumer_loop(), name="work-event-consumer"
-        )
-    )
-    try:
-        work_events.register_wake_hint()
-    except Exception:  # noqa: BLE001
-        log.debug("work event wake hint registration failed", exc_info=True)
 
 
 __all__ = [

@@ -57,6 +57,15 @@ TEST_LOG_DB_PATH = f"test_integral_logs{_DB_SUFFIX}"
 _TEST_DB_KIND = (os.getenv("INTEGRAL_TEST_DB") or "json").lower()
 
 if _TEST_DB_KIND in ("postgres", "postgresql"):
+    # These legacy graph/adapter fixtures own and reset their schema. Keep that
+    # maintenance contract explicit; governed lifecycle, fresh provisioning and
+    # real worker-process tests separately exercise managed DML-only serving.
+    os.environ.setdefault("JVSPATIAL_POSTGRES_INDEX_CREATION", "constraints")
+    # Lazy app startup configures framework-created adapters too. Establish its
+    # catalog default before the per-test environment leak guard snapshots.
+    os.environ.setdefault(
+        "JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "integral_index_catalog"
+    )
     _PG_TEST_DB_NAME = f"integral_test{_DB_SUFFIX}"
     _PG_TEST_DSN = _with_postgres_database(
         os.getenv(
@@ -398,6 +407,10 @@ _DOMAIN_LIBRARY_MODULES = frozenset(
 # and tokenizer tests off the per-test ``ensure_integral_app_graph`` path.
 _UNIT_MODULES = frozenset(
     {
+        "test_app_track_write_scope",
+        "test_ui_components",
+        "test_ui_definition_activation",
+        "test_ui_contributions_compile",
         "test_validators_common",
         "test_keyword_match",
         "test_hooks_schemas",
@@ -1030,7 +1043,7 @@ async def _reset_postgres_test_tables() -> None:
     conn = await asyncpg.connect(_PG_TEST_DSN)
     try:
         tables = await conn.fetch(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('integral_index_catalog','integral_index_migrations')"
         )
         if tables:
             names = ", ".join(
@@ -1076,6 +1089,10 @@ async def _install_postgres_test_log_db() -> object:
     from jvspatial.logging.models import DBLog
 
     await GraphContext(database=log_database).ensure_indexes(DBLog)
+    # Constraints mode skips non-unique DBLog indexes, so ensure_indexes alone
+    # may leave the collection cold. Bootstrap before graph transactions can
+    # hold locks that the separate log adapter's schema setup needs.
+    await log_database.find("object", {}, limit=1)
     return log_database
 
 

@@ -294,18 +294,51 @@ async def test_install_with_settings_pre_supplied_skips_pause():
 
 
 @pytest.mark.asyncio
-async def test_resume_install_with_valid_token_completes():
+async def test_resume_install_with_valid_token_completes(monkeypatch):
+    from app.services.app_graph import get_app_attached_operational_model
+    from app.services.application_definitions import (
+        definition_fingerprint,
+        get_active_application_definition,
+    )
+    from app.services.hooks import install_hook
+
+    registrations = []
+    register = install_hook.register_bundle_on_install
+
+    async def observed_registration(**kwargs):
+        registrations.append(definition_fingerprint(kwargs["canonical"]))
+        return await register(**kwargs)
+
+    monkeypatch.setattr(
+        install_hook, "register_bundle_on_install", observed_registration
+    )
     ws = await _make_workspace()
     lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="resume-ok", with_settings_schema=True
     )
+    manifest["app"]["ui_components"] = [
+        {
+            "key": "editor",
+            "entry": "ui/editor.mjs",
+            "digest": "a" * 64,
+            "placements": ["entry_compose"],
+            "sdk_range": "^1.1.0",
+        }
+    ]
     lib = await _make_library_cp(manifest)
 
     first = await install_app(
         workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
     )
     assert first["status"] == "awaiting_settings"
+
+    app = await App.get(first["app_id"])
+    definition = await get_active_application_definition(app)
+    attached = await get_app_attached_operational_model(app)
+    assert attached.manifest["app"]["ui_components"][0]["key"] == "editor"
+    attached.manifest["app"]["description"] = "Unpublished authoring edit"
+    await attached.save()
 
     second = await finalize_install(
         app_id=first["app_id"],
@@ -317,6 +350,7 @@ async def test_resume_install_with_valid_token_completes():
     app = await App.get(first["app_id"])
     assert app.lifecycle_state == "active"
     assert app.settings == {"publish_cadence": "daily"}
+    assert registrations[-1] == definition.manifest_fingerprint
 
 
 @pytest.mark.asyncio

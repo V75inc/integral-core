@@ -43,6 +43,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import (
+    computation_fact_scope,
     isolated_permissions_cache,
     live_permissions_required,
     permissions_cache_get,
@@ -69,7 +70,35 @@ def _permission_memo_enabled() -> bool:
 
 
 async def get_user_node(user_id: str) -> Optional[User]:
-    """Resolve current identity/profile facts without cached or ambiguous grants."""
+    """Resolve current identity/profile facts without cached or ambiguous grants.
+
+    Inside one computation (``computation_fact_scope``) or an App job the answer is reused
+    for at most a few seconds and only until the next ACL invalidation; elsewhere it is
+    always read fresh. Only a found user is remembered.
+    """
+    from app.middleware.permissions_cache import (
+        app_job_fact_active,
+        app_job_fact_get,
+        app_job_fact_put,
+        computation_scope_owns_facts,
+    )
+
+    # A user node is bound to the transaction it was read in. Only a single short computation
+    # may remember it; an App job (many transactions) must read it fresh each time.
+    if not app_job_fact_active() or not computation_scope_owns_facts():
+        return await _get_user_node_live(user_id)
+    key = ("user_node", user_id)
+    hit = app_job_fact_get(key)
+    if hit is not None:
+        return hit[0]
+    user = await _get_user_node_live(user_id)
+    if user is not None:
+        app_job_fact_put(key, (user,))
+    return user
+
+
+async def _get_user_node_live(user_id: str) -> Optional[User]:
+    """Read the identity facts from the database every time."""
     try:
         user = (
             None if user_id.startswith("o.") else await User.find_one({"id": user_id})
@@ -371,8 +400,47 @@ def invalidate_user_accessible_caches(user_id: str) -> None:
 
 async def get_user_accessible_apps(user_id: str) -> List[App]:
     """List current data access, including protected workspace stewardship."""
-    with isolated_permissions_cache():
+    with isolated_permissions_cache(), computation_fact_scope():
         return await _get_current_accessible_apps(user_id)
+
+
+async def _navigation_listing(user_id: str, key: str, compute_live: Any) -> Any:
+    """Serve a LISTING from a short snapshot when enabled, else compute it live.
+
+    Off unless ``INTEGRAL_NAV_SNAPSHOT_TTL`` > 0, in which case this is exactly
+    ``compute_live(user_id)``. Never use it to decide access to a record. With
+    ``INTEGRAL_NAV_SNAPSHOT_STALE`` > 0 an expired snapshot is served at once and
+    refreshed in the background. Concurrent computations share one task.
+    """
+    from app.services import permissions_process_cache as _ppc
+
+    if not _ppc.nav_snapshot_enabled():
+        return await compute_live(user_id)
+    hit = _ppc.get_nav_snapshot(user_id, key)
+    if hit is not None:
+        return hit
+
+    async def _compute() -> Any:
+        generation = _ppc.generation(user_id)
+        result = await compute_live(user_id)
+        _ppc.set_nav_snapshot(user_id, key, result, expected_generation=generation)
+        return result
+
+    stale = _ppc.get_nav_snapshot_stale(user_id, key)
+    if stale is not None:
+        _ppc.refresh_in_background(user_id, key, _compute)
+        return stale
+    return await _ppc.single_flight(user_id, key, _compute)
+
+
+async def get_user_accessible_tracks_for_navigation(user_id: str) -> List[Track]:
+    """Tracks for a listing endpoint (see ``_navigation_listing``)."""
+    return await _navigation_listing(user_id, "nav_tracks", get_user_accessible_tracks)
+
+
+async def get_user_accessible_apps_for_navigation(user_id: str) -> List[App]:
+    """Apps for a listing endpoint (see ``_navigation_listing``)."""
+    return await _navigation_listing(user_id, "nav_apps", get_user_accessible_apps)
 
 
 async def _get_current_accessible_apps(user_id: str) -> List[App]:
@@ -1044,8 +1112,27 @@ async def resolve_role(
     # All callers, including workers outside the HTTP middleware, need current
     # facts. Epoch-keyed memoization requires adoption by every ACL writer;
     # a TTL or process-local generation cannot establish that guarantee.
+    # PERF EXPERIMENT (local only): inside an App job (a pay run) the same user's role on the
+    # same record is resolved many times within moments. Reuse it for at most
+    # _APP_JOB_FACT_TTL seconds, and only until the next ACL invalidation
+    # (permissions_process_cache.invalidate_user bumps the job-fact generation). Outside a job
+    # scope this is a no-op, so ordinary requests still read current facts.
+    from app.middleware.permissions_cache import (
+        app_job_fact_active,
+        app_job_fact_get,
+        app_job_fact_put,
+    )
+
+    job_key = ("role", user_id, resource_type, resource_id)
+    if app_job_fact_active():
+        hit = app_job_fact_get(job_key)
+        if hit is not None:
+            return hit[0]
     with isolated_permissions_cache():
-        return await _resolve_current_role(user_id, resource_type, resource_id)
+        role = await _resolve_current_role(user_id, resource_type, resource_id)
+    if app_job_fact_active():
+        app_job_fact_put(job_key, (role,))
+    return role
 
 
 async def _resolve_current_role(
@@ -1084,6 +1171,33 @@ async def _resolve_current_role(
         current = await get_user_node(user_id)
         if current is None or (current.id, current.user_id) != identity:
             return None
+    return role
+
+
+async def _inherited_role(
+    user: User, resource_type: str, resource_id: str
+) -> Optional[str]:
+    """The role a parent (a Track for an Entry, an App for a Track) passes down, for this user.
+
+    Inside an App job (a pay run) every record the job writes under one Track asks for the same Track role; deriving it
+    again for each record (Track, App, workspace) was most of the cost of a record's permission check. The answer is
+    reused for at most _APP_JOB_FACT_TTL seconds and only until the next access change, as the job's other role facts
+    are. Outside a job scope this is a plain lookup, so ordinary requests still read current facts.
+    """
+    from app.middleware.permissions_cache import (
+        app_job_fact_active,
+        app_job_fact_get,
+        app_job_fact_put,
+    )
+
+    if not app_job_fact_active():
+        return await _resolve_role_for_user(user, resource_type, resource_id)
+    key = ("inherited_role", user.id, resource_type, resource_id)
+    hit = app_job_fact_get(key)
+    if hit is not None:
+        return hit[0]
+    role = await _resolve_role_for_user(user, resource_type, resource_id)
+    app_job_fact_put(key, (role,))
     return role
 
 
@@ -1147,11 +1261,28 @@ async def _resolve_role_for_user(
     # workspace anchor are independent and now run concurrently, and the anchor
     # is resolved once instead of twice — the candidates block below used to
     # recompute the same value with a second query.
-    from app.services.resource_location import DATA_APP_STATES, locate_resource
+    from app.services.resource_location import (
+        DATA_APP_STATES,
+        locate_resource,
+        locate_resources,
+    )
+
+    async def current_location():
+        if resource_type == "app":
+            locations = await locate_resources(
+                "app",
+                [resource_id],
+                workspace_hints=[node.workspace_id] if node.workspace_id else [],
+                allowed_app_states=DATA_APP_STATES,
+            )
+            return locations.get(resource_id)
+        return await locate_resource(
+            resource_type, resource_id, allowed_app_states=DATA_APP_STATES
+        )
 
     direct, location = await asyncio.gather(
         _direct_role_on_resource(user, resource_id),
-        locate_resource(resource_type, resource_id, allowed_app_states=DATA_APP_STATES),
+        current_location(),
     )
     if location is None:
         return None
@@ -1246,7 +1377,7 @@ async def _resolve_role_for_user(
         # inherit entry access. Org staff do not reach private inventory
         # through the implicit staff role.
         if not skip_cascade:
-            inherited = await _resolve_role_for_user(user, parent[0], parent[1])
+            inherited = await _inherited_role(user, parent[0], parent[1])
             if inherited is not None:
                 candidates.append(_cap_inherited_role(inherited))
 
@@ -1263,7 +1394,7 @@ async def _resolve_role_for_user(
 @perf_traced("permissions.get_user_accessible_tracks")
 async def get_user_accessible_tracks(user_id: str) -> List[Track]:
     """List current data access, including protected workspace stewardship."""
-    with isolated_permissions_cache():
+    with isolated_permissions_cache(), computation_fact_scope():
         return await _get_current_accessible_tracks(user_id)
 
 
@@ -1698,21 +1829,56 @@ async def get_user_accessible_entries(
     return result
 
 
+# Exact per-Track counts run a few at a time (see the function below).
+_EXACT_COUNT_CONCURRENCY = 8
+
+
 async def count_user_accessible_entries_for_tracks(
-    user_id: str, tracks: list[Track]
+    user_id: str,
+    tracks: list[Track],
+    *,
+    admitted: list[Track] | None = None,
 ) -> dict[str, int]:
     """Count a page's Entries in shared bounded admission windows.
 
     Each row still passes the canonical audience projection. Scanning once
     avoids repeating candidate discovery and parent-graph admission per Track.
     """
-    from app.services.entry_access_projection import iter_records
+    from app.services.entry_access_projection import count_bound_records, iter_records
 
     result = {track.id: 0 for track in tracks}
-    admitted = await _filter_canonical_resource_inventory(user_id, "track", tracks)
+    # Callers that already ran the canonical admission pass it in to avoid a second one.
+    if admitted is None:
+        admitted = await _filter_canonical_resource_inventory(user_id, "track", tracks)
     if not admitted:
         return result
-    ids = [track.id for track in admitted]
+
+    # deviation: per-Track exact counts before the shared stream. Admitting
+    # every Entry row in Python dominated the App and workspace Track lists
+    # (87% of a 29 s Payroll App Track list, 294 Tracks). count_bound_records
+    # is the same exact path count_user_accessible_entries uses for one Track:
+    # it applies only after current protected-owner admission and returns
+    # None otherwise, so those Tracks keep the canonical streaming count.
+    # Measured on the benchmark workspace: Payroll App Track list 28.8 s ->
+    # 7.1 s (294 Tracks), workspace Track list 20.6 s -> 9.9 s (313 Tracks),
+    # every per-Track count identical. Bounded, so a large list does not take
+    # every pooled connection.
+    gate = asyncio.Semaphore(_EXACT_COUNT_CONCURRENCY)
+
+    async def _exact(track: Track) -> tuple[str, int | None]:
+        async with gate:
+            return track.id, await count_bound_records(
+                user_id, track.id, {"context.track_id": track.id}
+            )
+
+    ids: list[str] = []
+    for track_id, exact in await asyncio.gather(*(_exact(t) for t in admitted)):
+        if exact is None:
+            ids.append(track_id)
+        else:
+            result[track_id] = exact
+    if not ids:
+        return result
     async for records in iter_records(
         user_id, {"context.track_id": {"$in": ids}}, projection=[], batch_size=2500
     ):

@@ -130,6 +130,19 @@ async def deliver_bundle_cleanup(*, database=None) -> int:
             )
             if row["id"] != "o.BundleCleanupFact." + expected_id:
                 raise ValueError("Bundle cleanup identity changed")
+            if await db.get("node", workspace_id) is None:
+                # The workspace itself is gone, so no restore or reinstall can
+                # own it and its authority scope can never be established (that
+                # raised and logged on every boot, on every worker). Clear this
+                # process's in-memory registrations, which is idempotent, and
+                # move on; no stored data is touched.
+                if slug:
+                    unregister_bundle_registrations(workspace_id, slug)
+                unregister_app_operations(workspace_id, app_id)
+                unregister_app_queries(workspace_id, app_id)
+                unregister_protected_fields(workspace_id, app_id)
+                _seen.add(row["id"])
+                continue
             async with postgres_graph_transaction(db) as held:
                 async with authorization_scope(workspace_id):
                     live = await held.get("node", app_id)

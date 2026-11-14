@@ -547,6 +547,12 @@ def _collect_index_classes() -> list[type]:
 
 async def _ensure_model_indexes() -> None:
     """Run ``ensure_indexes`` for every indexed model class plus credentials."""
+    from app.services.storage_indexes.runtime import managed, monitor, verify
+
+    if managed():
+        await verify()
+        _background_tasks.append(asyncio.create_task(monitor()))
+        return
     log = std_logging.getLogger(__name__)
     work_index_fatal: Optional[Exception] = None
     try:
@@ -675,6 +681,14 @@ async def _ensure_model_indexes() -> None:
 async def _startup() -> None:
     """Configure logging and optional DB logging at server startup."""
     app.state.desktop_ready = False
+    if not _running_under_pytest() and _effective_worker_count() > 1:
+        # Each worker process otherwise keeps its own in-memory entity cache, so a record written by one
+        # worker (an action button, an App job) is read stale by the others: pages kept the old status and a
+        # tool's follow-up save was refused as a conflict. With several workers, read records from the database.
+        from jvspatial.cache.memory import MemoryCache
+        from jvspatial.core.context import get_default_context
+
+        get_default_context()._cache = MemoryCache(max_size=0)
     # Database-only recovery does not boot this module. Every API boot checks
     # the independently supplied managed restore marker before starting tasks.
     marker_path = os.environ.get("INTEGRAL_RECOVERY_MARKER")
@@ -1035,6 +1049,12 @@ async def _startup() -> None:
             "work_kernel: startup skipped in DEBUG: %s", _exc
         )
 
+    from app.services.event_relay import event_relay_loop
+
+    _background_tasks.append(
+        asyncio.create_task(event_relay_loop(), name="event-relay")
+    )
+
     app.state.desktop_ready = True
 
 
@@ -1240,11 +1260,13 @@ if _db_type in ("postgres", "postgresql"):
     )
 
     from app.services.db_init import observability_kwargs, postgres_connection_dsn
+    from app.services.storage_indexes.runtime import postgres_kwargs
 
     _ensure_postgres_dsn()
     _prime_db = create_database(
         "postgres",
         dsn=postgres_connection_dsn(os.environ["JVSPATIAL_POSTGRES_DSN"]),
+        **postgres_kwargs(),
         **observability_kwargs(),
     )
     try:
@@ -1258,6 +1280,15 @@ if _db_type in ("postgres", "postgresql"):
 else:
     _server_db_type = _db_type
 
+
+# Walker construction runs once per access check; cache its per-class handler discovery.
+from app.services.jvspatial_walker_fast import install as _walker_fast  # noqa: E402
+
+_walker_fast()
+
+from app.services.jvspatial_auth_fast import install as _auth_fast  # noqa: E402
+
+_auth_fast()
 
 server = Server(
     title="Integral API",
@@ -1555,6 +1586,12 @@ from app.services.host_hooks import mount_host_middleware
 mount_host_middleware(app)
 app.add_middleware(RateLimitMiddleware)
 
+from app.middleware.performance import PerformanceMiddleware
+from app.services.performance import initialize_tracing
+
+initialize_tracing()
+app.add_middleware(PerformanceMiddleware)
+
 # jvspatial installs CORS before authentication, so auth can return a 401
 # without CORS headers. Cross-origin clients then see a network error instead
 # of the status that triggers session refresh or sign-in. Move the existing
@@ -1565,6 +1602,21 @@ from starlette.middleware.cors import CORSMiddleware
 
 for middleware in list(app.user_middleware):
     if middleware.cls is CORSMiddleware:
+        for option, additions in (
+            ("allow_headers", ["traceparent", "tracestate"]),
+            (
+                "expose_headers",
+                [
+                    "Server-Timing",
+                    "X-Trace-ID",
+                    "X-DB-Round-Trip-Count",
+                    "X-DB-Duration-Ms",
+                ],
+            ),
+        ):
+            middleware.kwargs[option] = list(
+                dict.fromkeys([*middleware.kwargs.get(option, []), *additions])
+            )
         app.user_middleware.remove(middleware)
         app.user_middleware.insert(0, middleware)
 
