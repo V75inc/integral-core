@@ -1,181 +1,16 @@
-"""Tests for the profanity filter (content_moderation service + write-path wiring).
-
-June 23 QA feature request — block profane language in comments, entry
-creation, and entry editing on public-facing paths (authenticated + public
-share-link).
-"""
+"""Authored language is preserved; access, schema and share controls still govern writes."""
 
 import pytest
 
-from app.api.errors import BadRequestError
 from app.services.app_graph import catalog_track, catalog_workspace
-from app.services.content_moderation import contains_profanity, validate_no_profanity
 
-PROFANE = "this is fucking terrible"
-CLEAN = "this is a perfectly reasonable sentence"
-
-
-# ---------------------------------------------------------------------------
-# Unit tests — content_moderation service
-# ---------------------------------------------------------------------------
-
-
-def test_contains_profanity_detects_flagged_language():
-    """Flagged words in text are detected."""
-    assert contains_profanity(PROFANE) is True
-
-
-def test_contains_profanity_allows_clean_text():
-    """Ordinary text is not flagged."""
-    assert contains_profanity(CLEAN) is False
-
-
-def test_contains_profanity_empty_text_is_clean():
-    """Empty/None text is treated as clean, not an error."""
-    assert contains_profanity("") is False
-    assert contains_profanity(None) is False  # type: ignore[arg-type]
-
-
-def test_validate_no_profanity_raises_on_match():
-    """validate_no_profanity raises BadRequestError on flagged text."""
-    with pytest.raises(BadRequestError):
-        validate_no_profanity(PROFANE, "title")
-
-
-def test_validate_no_profanity_noop_on_clean_text():
-    """validate_no_profanity is a no-op on clean text."""
-    validate_no_profanity(CLEAN, "title")  # must not raise
-
-
-def test_fails_open_when_library_missing(monkeypatch):
-    """When ``_filter`` is explicitly disabled, moderation fails OPEN — it
-    must never block writes. Regression guard for the smoke-test blocker where
-    a missing dependency 500'd every entry/comment create."""
-    from app.services import content_moderation as cm
-
-    cm._filter.cache_clear()
-    monkeypatch.setattr(cm, "_filter", lambda: None)
-
-    # Even flagged text passes when the filter is unavailable.
-    assert cm.contains_profanity(PROFANE) is False
-    cm.validate_no_profanity(PROFANE, "title")  # must NOT raise
-    # monkeypatch restores the real _filter (lru_cache already cleared above).
-
-
-def test_fallback_filter_detects_common_conjugations():
-    """Built-in fallback catches conjugations the divergent 1.x package misses."""
-    from app.services.content_moderation import _FallbackFilter
-
-    flt = _FallbackFilter()
-    assert flt.contains_profanity(PROFANE) is True
-    assert flt.contains_profanity(CLEAN) is False
-
-
-# ---------------------------------------------------------------------------
-# Integration — authenticated write paths
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_create_entry_blocks_profane_title(authenticated_client, test_user):
-    """POST /entries rejects a profane title with 400."""
-    track_resp = await authenticated_client.post(
-        "/api/tracks", json={"title": "Moderation Track", "visibility": "private"}
-    )
-    track_id = track_resp.json()["track"]["id"]
-
-    resp = await authenticated_client.post(
-        "/api/entries",
-        json={"track_id": track_id, "title": PROFANE, "body": "fine"},
-    )
-    assert resp.status_code == 400, resp.text
-
-
-@pytest.mark.asyncio
-async def test_create_entry_blocks_profane_body(authenticated_client, test_user):
-    """POST /entries rejects a profane body with 400."""
-    track_resp = await authenticated_client.post(
-        "/api/tracks", json={"title": "Moderation Track 2", "visibility": "private"}
-    )
-    track_id = track_resp.json()["track"]["id"]
-
-    resp = await authenticated_client.post(
-        "/api/entries",
-        json={"track_id": track_id, "title": "fine title", "body": PROFANE},
-    )
-    assert resp.status_code == 400, resp.text
-
-
-@pytest.mark.asyncio
-async def test_update_entry_blocks_profane_title(authenticated_client, test_user):
-    """PUT /entries/{id} rejects a profane title edit with 400."""
-    track_resp = await authenticated_client.post(
-        "/api/tracks", json={"title": "Moderation Track 3", "visibility": "private"}
-    )
-    track_id = track_resp.json()["track"]["id"]
-    entry_resp = await authenticated_client.post(
-        "/api/entries",
-        json={"track_id": track_id, "title": "clean title", "body": "clean body"},
-    )
-    entry_id = entry_resp.json()["entry"]["id"]
-
-    resp = await authenticated_client.put(
-        f"/api/entries/{entry_id}", json={"title": PROFANE}
-    )
-    assert resp.status_code == 400, resp.text
-
-
-@pytest.mark.asyncio
-async def test_create_comment_blocks_profanity(authenticated_client, test_user):
-    """POST comments rejects profanity with 400; clean text still works."""
-    track_resp = await authenticated_client.post(
-        "/api/tracks", json={"title": "Moderation Track 4", "visibility": "private"}
-    )
-    track_id = track_resp.json()["track"]["id"]
-    entry_resp = await authenticated_client.post(
-        "/api/entries",
-        json={"track_id": track_id, "title": "clean title", "body": "clean body"},
-    )
-    entry_id = entry_resp.json()["entry"]["id"]
-
-    resp = await authenticated_client.post(
-        f"/api/entries/{entry_id}/comments", json={"text": PROFANE}
-    )
-    assert resp.status_code == 400, resp.text
-
-    # Clean text still works.
-    resp = await authenticated_client.post(
-        f"/api/entries/{entry_id}/comments", json={"text": CLEAN}
-    )
-    assert resp.status_code == 200, resp.text
-
-
-@pytest.mark.asyncio
-async def test_update_comment_blocks_profanity(authenticated_client, test_user):
-    """PUT /comments/{id} rejects a profane edit with 400."""
-    track_resp = await authenticated_client.post(
-        "/api/tracks", json={"title": "Moderation Track 5", "visibility": "private"}
-    )
-    track_id = track_resp.json()["track"]["id"]
-    entry_resp = await authenticated_client.post(
-        "/api/entries",
-        json={"track_id": track_id, "title": "clean title", "body": "clean body"},
-    )
-    entry_id = entry_resp.json()["entry"]["id"]
-    comment_resp = await authenticated_client.post(
-        f"/api/entries/{entry_id}/comments", json={"text": CLEAN}
-    )
-    comment_id = comment_resp.json()["comment"]["id"]
-
-    resp = await authenticated_client.put(
-        f"/api/comments/{comment_id}", json={"text": PROFANE}
-    )
-    assert resp.status_code == 400, resp.text
-
-
-# ---------------------------------------------------------------------------
-# Integration — public share-link write paths (auth=False)
-# ---------------------------------------------------------------------------
+TEXTS = [
+    "Fictional dummy record for smoke testing",
+    "this is fucking terrible",
+    "**shit**",
+    "Test 3",
+    "ordinary text",
+]
 
 
 @pytest.fixture
@@ -238,127 +73,44 @@ async def _enable_public_share(authenticated_client, track_id):
     return res.json()["token"]
 
 
+@pytest.mark.parametrize("text", TEXTS)
 @pytest.mark.asyncio
-async def test_public_create_entry_blocks_profanity(
-    authenticated_client, test_user, shared_track_setup
-):
-    """Unauthenticated public-share create/update entry + create comment all
-    reject profanity with 400."""
-    track, et, ws = shared_track_setup
-    token = await _enable_public_share(authenticated_client, track.id)
-
-    auth_header = authenticated_client.headers.pop("Authorization", None)
-    try:
-        resp = await authenticated_client.post(
-            f"/api/public-share/track/{token}/entries",
-            json={"title": PROFANE, "type_id": et.id, "body": "fine"},
-        )
-        assert resp.status_code == 400, resp.text
-
-        resp = await authenticated_client.post(
-            f"/api/public-share/track/{token}/entries",
-            json={"title": CLEAN, "type_id": et.id, "body": "fine"},
-        )
-        assert resp.status_code == 200, resp.text
-        entry_id = resp.json()["entry"]["id"]
-    finally:
-        if auth_header:
-            authenticated_client.headers["Authorization"] = auth_header
-
-    # ---- update, still unauthenticated ----
-    auth_header = authenticated_client.headers.pop("Authorization", None)
-    try:
-        resp = await authenticated_client.patch(
-            f"/api/public-share/track/{token}/entries/{entry_id}",
-            json={"title": PROFANE},
-        )
-        assert resp.status_code == 400, resp.text
-
-        resp = await authenticated_client.post(
-            f"/api/public-share/track/{token}/entries/{entry_id}/comments",
-            json={"text": PROFANE},
-        )
-        assert resp.status_code == 400, resp.text
-    finally:
-        if auth_header:
-            authenticated_client.headers["Authorization"] = auth_header
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "**Next test**: not yet designed.",
-        "**Short project brief**",
-        "*ordinary words*",
-        "***Next test***",
-        "__Next test__",
-        "**Next\ntest**",
-        "*Next **test** please*",
-        "[Next test](https://example.com)",
-    ],
-)
-def test_markdown_formatting_is_not_profanity(text):
-    assert contains_profanity(text) is False
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "**shit**",
-        "*fucking*",
-        "a **fucking terrible** idea",
-        "***shit***",
-        "__shit__",
-        "**shit\nhappens**",
-        "`shit`",
-        "```\nshit\n```",
-        "f*ck",
-        "[shit](https://example.com)",
-    ],
-)
-def test_markdown_formatting_never_hides_flagged_words(text):
-    assert contains_profanity(text) is True
-
-
-@pytest.mark.parametrize(
-    "text", ["**Next test**", "**shit**", "__shit__", "**shit\nhappens**"]
-)
-@pytest.mark.asyncio
-async def test_markdown_on_authenticated_create_update_comment_paths(
+async def test_authorized_entry_and_comment_language_is_preserved(
     authenticated_client, text
 ):
     track = (
         await authenticated_client.post(
-            "/api/tracks", json={"title": "Markdown moderation"}
+            "/api/tracks", json={"title": "Language checks"}
         )
     ).json()["track"]["id"]
     created = await authenticated_client.post(
-        "/api/entries", json={"track_id": track, "title": "Clean record", "body": text}
+        "/api/entries", json={"track_id": track, "title": text, "body": text}
     )
-    flagged = contains_profanity(text)
-    assert created.status_code == (400 if flagged else 200), created.text
-    clean = await authenticated_client.post(
-        "/api/entries",
-        json={"track_id": track, "title": "Other clean record", "body": "Original"},
-    )
-    entry = clean.json()["entry"]["id"]
+    assert created.status_code == 200, created.text
+    entry = created.json()["entry"]
+    assert entry["title"] == entry["body"] == text
+    changed = text + " updated"
     update = await authenticated_client.put(
-        f"/api/entries/{entry}", json={"body": text}
+        f"/api/entries/{entry['id']}", json={"title": changed, "body": changed}
     )
-    assert update.status_code == (400 if flagged else 200), update.text
+    assert update.status_code == 200, update.text
+    assert update.json()["entry"]["title"] == update.json()["entry"]["body"] == changed
     comment = await authenticated_client.post(
-        f"/api/entries/{entry}/comments", json={"text": text}
+        f"/api/entries/{entry['id']}/comments", json={"text": text}
     )
-    assert comment.status_code == (400 if flagged else 200), comment.text
-    if not flagged:
-        assert created.json()["entry"]["body"] == text
+    assert comment.status_code == 200, comment.text
+    row = comment.json()["comment"]
+    assert row["text"] == text
+    edit = await authenticated_client.put(
+        f"/api/comments/{row['id']}", json={"text": changed}
+    )
+    assert edit.status_code == 200, edit.text
+    assert edit.json()["comment"]["text"] == changed
 
 
-@pytest.mark.parametrize(
-    "text", ["**Next test**", "**shit**", "__shit__", "**shit\nhappens**"]
-)
+@pytest.mark.parametrize("text", TEXTS)
 @pytest.mark.asyncio
-async def test_markdown_on_public_create_update_comment_paths(
+async def test_public_share_entry_and_comment_language_is_preserved(
     authenticated_client, shared_track_setup, text
 ):
     track, et, _ = shared_track_setup
@@ -367,91 +119,50 @@ async def test_markdown_on_public_create_update_comment_paths(
     try:
         route = f"/api/public-share/track/{token}/entries"
         created = await authenticated_client.post(
-            route, json={"title": "Clean record", "type_id": et.id, "body": text}
+            route, json={"title": text, "body": text, "type_id": et.id}
         )
-        flagged = contains_profanity(text)
-        assert created.status_code == (400 if flagged else 200), created.text
-        clean = await authenticated_client.post(
-            route,
-            json={
-                "title": "Another clean record",
-                "type_id": et.id,
-                "body": "Original",
-            },
-        )
-        entry = clean.json()["entry"]["id"]
+        assert created.status_code == 200, created.text
+        entry = created.json()["entry"]
+        assert entry["title"] == entry["body"] == text
+        changed = text + " updated"
         update = await authenticated_client.patch(
-            f"{route}/{entry}", json={"body": text}
+            f"{route}/{entry['id']}", json={"title": changed, "body": changed}
         )
-        assert update.status_code == (400 if flagged else 200), update.text
+        assert update.status_code == 200, update.text
+        assert (
+            update.json()["entry"]["title"] == update.json()["entry"]["body"] == changed
+        )
         comment = await authenticated_client.post(
-            f"{route}/{entry}/comments", json={"text": text}
+            f"{route}/{entry['id']}/comments", json={"text": text}
         )
-        assert comment.status_code == (400 if flagged else 200), comment.text
+        assert comment.status_code == 200, comment.text
+        assert comment.json()["comment"]["text"] == text
     finally:
         if authorization:
             authenticated_client.headers["Authorization"] = authorization
 
 
-@pytest.mark.parametrize(
-    "text", ["Test 3", "**Test 3**", "Test 3 release", "Phase 5", "Part 1: draft"]
-)
-def test_numbered_labels_are_not_cross_token_leetspeak(text):
-    assert contains_profanity(text) is False
-
-
-@pytest.mark.parametrize(
-    "text", ["sh1t", "f*ck", "shit 3", "3 fucking tasks", "f u c k"]
-)
-def test_number_boundaries_do_not_disable_real_profanity(text):
-    assert contains_profanity(text) is True
-
-
 @pytest.mark.asyncio
-async def test_numbered_label_survives_authenticated_write_paths(authenticated_client):
-    track = (
-        await authenticated_client.post("/api/tracks", json={"title": "Label checks"})
-    ).json()["track"]["id"]
-    created = await authenticated_client.post(
-        "/api/entries", json={"track_id": track, "title": "Test 3", "body": "Test 3"}
-    )
-    assert created.status_code == 200, created.text
-    entry = created.json()["entry"]
-    assert entry["title"] == entry["body"] == "Test 3"
-    updated = await authenticated_client.put(
-        f"/api/entries/{entry['id']}",
-        json={"title": "Test 3 release", "body": "**Test 3**"},
-    )
-    assert updated.status_code == 200, updated.text
-    comment = await authenticated_client.post(
-        f"/api/entries/{entry['id']}/comments", json={"text": "Test 3"}
-    )
-    assert comment.status_code == 200, comment.text
-
-
-@pytest.mark.asyncio
-async def test_numbered_label_survives_public_write_paths(
+async def test_removing_language_filter_does_not_grant_public_write_permissions(
     authenticated_client, shared_track_setup
 ):
     track, et, _ = shared_track_setup
-    token = await _enable_public_share(authenticated_client, track.id)
+    res = await authenticated_client.post(
+        f"/api/tracks/{track.id}/public-share",
+        json={
+            "enabled": True,
+            "public_permissions": {"read_entries": True, "create_entries": False},
+        },
+    )
+    assert res.status_code == 200, res.text
+    token = res.json()["token"]
     authorization = authenticated_client.headers.pop("Authorization", None)
     try:
-        route = f"/api/public-share/track/{token}/entries"
-        created = await authenticated_client.post(
-            route, json={"title": "Test 3", "body": "Test 3", "type_id": et.id}
+        rejected = await authenticated_client.post(
+            f"/api/public-share/track/{token}/entries",
+            json={"title": "dummy fucking record", "type_id": et.id},
         )
-        assert created.status_code == 200, created.text
-        entry_id = created.json()["entry"]["id"]
-        updated = await authenticated_client.patch(
-            f"{route}/{entry_id}",
-            json={"title": "Test 3 release", "body": "**Test 3**"},
-        )
-        assert updated.status_code == 200, updated.text
-        comment = await authenticated_client.post(
-            f"{route}/{entry_id}/comments", json={"text": "Test 3"}
-        )
-        assert comment.status_code == 200, comment.text
+        assert rejected.status_code == 403, rejected.text
     finally:
         if authorization:
             authenticated_client.headers["Authorization"] = authorization

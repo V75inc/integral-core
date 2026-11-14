@@ -73,11 +73,9 @@ async def _edges(source: str, target: str, edge: Any) -> list[dict]:
 async def current_definition(
     app_id: str, *, execution: bool = True
 ) -> tuple[dict, dict]:
-    """Require exact active pointer, unique attachment and canonical workspace.
+    """Require current active pointer, unique attachment and canonical workspace.
 
-    Inside an App job (``app_job_fact_scope``) the verified pair is reused for a few seconds,
-    never past a definition or lifecycle change: re-reading and re-verifying a large definition
-    for every write dominated the job. Everything outside a job verifies fresh.
+    Compatibility job-fact APIs always miss, so authority is reread on every call.
     """
     from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
 

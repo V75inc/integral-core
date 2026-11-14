@@ -474,13 +474,13 @@ async def test_track_schema_previews_survive_reads_without_unbounded_context():
     ]
     for index, part in enumerate(schemas):
         assert part.content["track"]["id"] == f"track-{index}"
-        assert part.content["entry_types"][0]["fields"] == [
-            {"key": "status", "name": "Status", "type": "select"}
+        assert part.content["entry_types"][0]["form_schema"]["fields"] == [
+            {"key": "status", "name": "Status", "type": "select", "enum": ["private"]}
         ]
-        assert part.content["schema_preview_incomplete"] is True
+        assert part.content["schema_preview_incomplete"] is False
         assert "collaborators" not in part.content
         assert len(json.dumps(part.content).encode()) <= 6144
-        assert compactor._track_schema_preview(part).content == part.content
+        assert compactor._track_schema_contract(part).content == part.content
 
 
 @pytest.mark.asyncio
@@ -528,7 +528,8 @@ async def test_three_linked_track_schemas_remain_complete_until_an_effect():
     result = await compactor.compact(messages, SimpleNamespace())
     result = await compactor.compact(result, SimpleNamespace())
     schemas = [p.content for m in result for p in m.parts if type(p) is ToolReturnPart]
-    assert schemas == originals
+    assert [s["entry_types"] for s in schemas] == [s["entry_types"] for s in originals]
+    assert all(s["schema_preview_incomplete"] is False for s in schemas)
     assert [
         p.content for m in messages for p in m.parts if type(p) is ToolReturnPart
     ] == originals
@@ -840,3 +841,160 @@ async def test_active_verified_entry_facts_survive_later_evidence_reads():
     older = projected[2].parts[0]
     assert older.content["identity_preview"] is True
     assert "body" not in older.content["entry"]
+
+
+@pytest.mark.asyncio
+async def test_eight_form_contracts_survive_batch_staging_and_correction():
+    """UI-heavy discovery must not erase exact keys before dummy-data staging."""
+    from app.agentive.harness.broker_tools import _schema_preserving_result
+
+    name = "integral_get_track_schema"
+    messages = [ModelRequest(parts=[UserPromptPart("Seed all eight tracks")])]
+    expected = {}
+    for index in range(8):
+        form = {
+            "fields": [
+                {"key": "target_end_date", "type": "date", "required": True},
+                {
+                    "key": "status",
+                    "type": "select",
+                    "options": ["New", "Done"],
+                    "default": "New",
+                },
+                {
+                    "key": "owner",
+                    "type": "relation",
+                    "target_track_id": "people",
+                    "multiple": False,
+                    "config": {"allowed_types": ["person"], "on_delete": "restrict"},
+                },
+                {
+                    "key": "address",
+                    "type": "address",
+                    "config": {"fields": [{"key": "country", "enum": ["GY"]}]},
+                },
+            ],
+            "additionalProperties": False,
+        }
+        schema = {
+            "track": {"id": f"t{index}", "title": f"Track {index}"},
+            "entry_types": [{"id": f"et{index}", "key": "item", "form_schema": form}],
+            "views": [{"config": "UI " * 6000}],
+            "collaborators": [{"name": "Private"}],
+        }
+        expected[f"t{index}"] = form
+        messages += [
+            ModelResponse(
+                parts=[ToolCallPart(name, {"track_id": f"t{index}"}, str(index))]
+            ),
+            ModelRequest(parts=[ToolReturnPart(name, schema, str(index))]),
+        ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name})
+    )
+    for index, (tool, payload) in enumerate(
+        [
+            ("integral_begin_batch", {"_kind": "batch_opened"}),
+            (
+                "integral_create_entry",
+                {
+                    "error": True,
+                    "error_code": "invalid_arguments",
+                    "message": "Unknown end_date",
+                },
+            ),
+            ("integral_create_entry", {"_kind": "batched_op", "kind": "create_entry"}),
+            ("integral_create_entry", {"_kind": "batched_op", "kind": "create_entry"}),
+        ]
+    ):
+        assert _schema_preserving_result("core", tool, payload)
+        messages += [
+            ModelResponse(parts=[ToolCallPart(tool, {}, f"stage{index}")]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool,
+                        payload,
+                        f"stage{index}",
+                        metadata={"integral_schema_effect_v1": "preserve"},
+                    )
+                ]
+            ),
+        ]
+        for _ in range(2):
+            messages = await compactor.compact(messages, SimpleNamespace())
+        contracts = [
+            p.content
+            for m in messages
+            for p in m.parts
+            if type(p) is ToolReturnPart and p.tool_name == name
+        ]
+        assert len(contracts) == 8
+        assert (
+            sum(len(json.dumps(c).encode()) for c in contracts)
+            <= compactor.active_schema_bytes
+        )
+        assert {
+            c["track"]["id"]: c["entry_types"][0]["form_schema"] for c in contracts
+        } == expected
+        assert all("collaborators" not in c and "views" not in c for c in contracts)
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        "integral_modify_operational_model",
+        "integral_change_access",
+        "unknown_tool",
+        "integral_commit_batch",
+    ],
+)
+def test_schema_retention_does_not_trust_payload_claims(tool):
+    name = "integral_get_track_schema"
+    messages = [
+        ModelRequest(parts=[UserPromptPart("Current task")]),
+        ModelResponse(parts=[ToolCallPart(name, {}, "read")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(name, {"track": {"id": "t"}, "entry_types": []}, "read")
+            ]
+        ),
+        ModelResponse(parts=[ToolCallPart(tool, {}, "write")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool, {"integral_schema_effect_v1": "preserve"}, "write")
+            ]
+        ),
+    ]
+    compactor = IntegralToolResultCompaction(
+        max_tokens=8192, clearable_tools=frozenset({name})
+    )
+    assert (
+        compactor._compact_classified_reads(messages)[2].parts[0].content
+        == compactor.placeholder
+    )
+
+
+def test_oversized_form_contract_requires_reread_without_partial_constraints():
+    compactor = IntegralToolResultCompaction(max_tokens=8192)
+    part = ToolReturnPart(
+        "integral_get_track_schema",
+        {
+            "track": {"id": "large"},
+            "entry_types": [
+                {
+                    "key": "item",
+                    "form_schema": {
+                        "fields": [{"key": "status", "enum": ["x" * 20000]}]
+                    },
+                }
+            ],
+        },
+        "read",
+    )
+    projected = compactor._track_schema_contract(part)
+    assert projected.content["schema_preview_incomplete"] is True
+    assert len(json.dumps(projected.content).encode()) <= 6144
+    assert projected.content["entry_types"] == []
+    assert "Re-read" in projected.content["instruction"]
+    assert compactor._track_schema_contract(projected).content == projected.content

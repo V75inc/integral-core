@@ -199,6 +199,27 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         reasoning = True
     mandatory_adaptive = mandatory_adaptive_thinking(provider, model)
     if mandatory_adaptive:
+        if not efforts and provider == "anthropic":
+            # A stale/missing SDK row must not erase this already pinned
+            # publisher contract. Preserve SDK levels whenever it has them;
+            # never infer a ladder for arbitrary native models.
+            native_model = model.removeprefix("anthropic/")
+            contract: dict[str, Any] = next(
+                (
+                    row
+                    for key, row in _gateway_reasoning_catalog().items()
+                    if key.startswith("anthropic/")
+                    and key.removeprefix("anthropic/").replace(".", "-") == native_model
+                    and row.get("mandatory")
+                ),
+                {},
+            )
+            supported = contract.get("supported_efforts") or []
+            efforts = [
+                level
+                for level in ("low", "medium", "high", "xhigh", "max")
+                if level in supported
+            ]
         efforts = [level for level in efforts if level not in {"none", "minimal"}]
         reasoning = True
     return {

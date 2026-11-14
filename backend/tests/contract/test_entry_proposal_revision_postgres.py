@@ -17,6 +17,57 @@ from tests.contract.test_staging_command_apply_postgres import proposal
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+async def test_three_staged_creates_remain_editable_after_each_revision(
+    postgres_raw_db,
+):
+    """Keep every staged entry editable across successive revisions."""
+    from app.agentive.tooling import bindings
+    from app.services.agent_scope import current_scope_workspace_id
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, workspace, track, _, _ = await fixture()
+        scope = current_scope_workspace_id.set(workspace.id)
+        principal = bindings._propose_principal.set(auth.id)
+        try:
+            await staging.open_batch(
+                user_id=auth.id, session_id=None, label="Customers"
+            )
+            for title in ("Fixture one", "Fixture two", "Fixture three"):
+                operation = await bindings._stage_create_entry(
+                    {"track_id": track.id, "title": title}
+                )
+                await staging.append_to_batch(
+                    user_id=auth.id, session_id=None, op=operation
+                )
+            batch = await staging.commit_batch(user_id=auth.id, session_id=None)
+        finally:
+            bindings._propose_principal.reset(principal)
+            current_scope_workspace_id.reset(scope)
+        assert batch is not None
+        for index, title in ((2, "Edited third"), (1, "Edited second")):
+            form = await revisions.entry_proposal_form(
+                token=batch.token, user_id=auth.id, workspace_id=workspace.id
+            )
+            assert [entry["operation_index"] for entry in form["entries"]] == [0, 1, 2]
+            assert len(form["entries"]) == 3
+            batch = await revisions.revise_entry_proposal(
+                token=batch.token,
+                user_id=auth.id,
+                workspace_id=workspace.id,
+                request=ReviseEntryProposalRequest(
+                    operation_index=index,
+                    revision=form["entries"][index]["revision"],
+                    draft={"title": title, "body": "", "fields": {}, "tags": []},
+                ),
+            )
+        assert [op["payload"]["title"] for op in batch.payload["operations"]] == [
+            "Fixture one",
+            "Edited second",
+            "Edited third",
+        ]
+        assert await Entry.find({"track_id": track.id}) == []
+
+
 async def test_revision_endpoint_accepts_the_browser_json_body(postgres_raw_db):
     from app.agentive.api.staging import revise_entry_proposal_endpoint
     from app.agentive.staging_executors import _call_endpoint_with_json

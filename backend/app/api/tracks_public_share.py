@@ -49,7 +49,6 @@ from app.schemas.shares import (
     UpdatePublicTrackShareRequest,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_moderation import validate_no_profanity
 from app.services.entry_comment_stats import (
     apply_prefetched_comment_count,
     prefetch_comment_counts,
@@ -773,7 +772,6 @@ async def create_public_track_entry(request: Request, token: str) -> Dict[str, A
         entry_type=entry_type,
         workspace_id=getattr(track, "workspace_id", "") or "",
         actor_kind="human",
-        skip_profanity=False,
     )
 
     from app.api.entries import _reembed_entry
@@ -1026,10 +1024,8 @@ async def update_public_track_entry(
     )
 
     if req.title is not None:
-        validate_no_profanity(req.title, "title")
         entry.title = req.title
     if req.body is not None:
-        validate_no_profanity(req.body, "body")
         entry.body = req.body
     if req.status is not None:
         entry.status = req.status
@@ -1215,8 +1211,6 @@ async def create_public_track_entry_comment(
 
     raw = await request.json()
     req = PublicCommentCreateRequest.model_validate(raw)
-
-    validate_no_profanity(req.text, "comment")
 
     now = utc_now_iso()
     comment = await Comment.create(

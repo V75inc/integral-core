@@ -30,6 +30,9 @@ export function stitchLayoutCrumbs(
   const prefix: Crumb[] = [
     isHomePath ? { label: 'Home' } : { label: 'Home', to: '/' },
   ];
+  if (top === 'workspaces' && pathname.split('/').filter(Boolean).length > 1) {
+    prefix.push({ label: 'Workspaces', to: '/workspaces' });
+  }
   // While a page is still loading its record, the active workspace is the PREVIOUS
   // page's: naming it would show the wrong workspace for several seconds. Say nothing
   // until the page publishes its real trail (it also switches the scope then).

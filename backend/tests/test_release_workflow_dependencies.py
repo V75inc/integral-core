@@ -28,3 +28,19 @@ def test_release_job_context_references_have_direct_dependencies(filename: str) 
             for name in sorted(referenced - set(dependencies))
         )
     assert not missing, "\n".join(missing)
+
+
+def test_stacked_pull_requests_run_ci_and_distribution_gate() -> None:
+    """Stacked target branches receive CI and portable source qualification."""
+    root = Path(__file__).resolve().parents[2]
+    ci = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
+    triggers = ci.get("on", ci.get(True))
+    assert "branches" not in triggers["pull_request"]
+    assert "branches-ignore" not in triggers["pull_request"]
+    steps = ci["jobs"]["artifact-boundary"]["steps"]
+    assert any(step.get("uses", "").startswith("actions/setup-node@") for step in steps)
+    assert any(step.get("run") == "make verify-independent-artifacts" for step in steps)
+    makefile = (root / "Makefile").read_text()
+    for target in ("verify", "verify-independent-artifacts"):
+        prerequisites = re.search(rf"^{target}: (.+)$", makefile, re.MULTILINE)
+        assert prerequisites and "verify-distribution" in prerequisites.group(1).split()

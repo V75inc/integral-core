@@ -684,3 +684,57 @@ def test_mandatory_adaptive_model_cannot_disable_thinking_or_use_legacy_budget(
     assert validate_model_settings(provider, model, {"reasoning_effort": "high"}) == {
         "reasoning_effort": "high"
     }
+
+
+def test_mandatory_native_reasoning_uses_pinned_contract_without_sdk_metadata(
+    monkeypatch,
+):
+    """Publisher's mandatory levels cannot disappear when SDK lookup is stale."""
+    import litellm
+
+    from app.services.model_settings import model_capabilities, validate_model_settings
+
+    monkeypatch.setattr(litellm, "get_model_info", lambda **_: {})
+    monkeypatch.setattr(
+        litellm, "get_supported_openai_params", lambda **_: ["max_tokens"]
+    )
+    model_capabilities.cache_clear()
+    try:
+        caps = model_capabilities("anthropic", "claude-opus-5-5")
+        assert caps["reasoning_efforts"] == ["low", "medium", "high", "xhigh", "max"]
+        assert validate_model_settings(
+            "anthropic", "claude-opus-5-5", {"reasoning_effort": "high"}
+        ) == {"reasoning_effort": "high"}
+        assert (
+            model_capabilities("anthropic", "unverified-future-model")[
+                "reasoning_efforts"
+            ]
+            == []
+        )
+    finally:
+        model_capabilities.cache_clear()
+
+
+def test_mandatory_native_reasoning_preserves_sdk_declared_levels(monkeypatch):
+    import litellm
+
+    from app.services.model_settings import model_capabilities
+
+    monkeypatch.setattr(
+        litellm,
+        "get_model_info",
+        lambda **_: {
+            "supports_reasoning": True,
+            "reasoning_effort_levels": ["high", "xhigh"],
+        },
+    )
+    monkeypatch.setattr(
+        litellm, "get_supported_openai_params", lambda **_: ["reasoning_effort"]
+    )
+    model_capabilities.cache_clear()
+    try:
+        assert model_capabilities("anthropic", "claude-opus-5-5")[
+            "reasoning_efforts"
+        ] == ["high", "xhigh"]
+    finally:
+        model_capabilities.cache_clear()

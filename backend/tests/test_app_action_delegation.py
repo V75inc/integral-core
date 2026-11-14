@@ -23,7 +23,9 @@ from tests.test_resource_location import graph
 pytestmark = [pytest.mark.asyncio, pytest.mark.smoke]
 
 
-async def test_operation_metadata_reuses_definition_only_within_one_read(monkeypatch):
+async def test_operation_metadata_rechecks_current_definition_at_each_boundary(
+    monkeypatch,
+):
     from app.services import access_delegation
     from app.services.app_operations.dispatch import list_app_operations
     from app.services.app_operations.registry import (
@@ -72,7 +74,7 @@ async def test_operation_metadata_reuses_definition_only_within_one_read(monkeyp
             user_id=reader.id, workspace_id=workspace.id, app_id=app.id
         )
         assert all(item["allowed"] for item in result["operations"])
-        assert calls == 1
+        assert calls == 4
         targeted = await list_app_operations(
             user_id=reader.id,
             workspace_id=workspace.id,
@@ -81,14 +83,14 @@ async def test_operation_metadata_reuses_definition_only_within_one_read(monkeyp
         )
         assert [item["key"] for item in targeted["operations"]] == ["read_second"]
         assert targeted["operations"][0]["allowed"] is True
-        assert calls == 2
+        assert calls == 6
         await revoke_binding(actor_id=owner.id, binding_id=binding.id)
         before = calls
         result = await list_app_operations(
             user_id=reader.id, workspace_id=workspace.id, app_id=app.id
         )
         assert all(not item["allowed"] for item in result["operations"])
-        assert calls == before + 1
+        assert calls == before + 4
     finally:
         unregister_app_operations(workspace.id, app.id)
 

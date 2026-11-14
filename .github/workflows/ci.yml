@@ -10,7 +10,7 @@ on:
   # Recover a missed push event without weakening the exact-revision release gate.
   workflow_dispatch:
   pull_request:
-    branches: [main, dev, ab/dev2, prod, codex/pr-113-staging, codex/core-rc18-jvspatial-022]
+    # Validate stacked PRs regardless of their target branch.
     paths:
       - "backend/**"
       - "sdk/**"
@@ -301,6 +301,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Install wheel tooling
         run: python -m pip install --upgrade uv

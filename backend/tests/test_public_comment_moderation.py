@@ -9,8 +9,7 @@ The public-share endpoint stamps a literal ``author_id="public"``
 (``tracks_public_share.create_public_track_entry_comment``, ``auth=False``).
 That string is not a principal id and never will be, so the two together made
 anonymous comments **permanently undeletable by anybody**: turning on "Add
-Comments" for a public link was a one-way door, and the only guard on what
-landed there was the profanity filter. Found by driving the live app as an
+Comments" for a public link was a one-way door. Found by driving the live app as an
 unauthenticated visitor on 2026-08-12; the owner got 403 twice and the rows had
 to be removed directly from Postgres.
 

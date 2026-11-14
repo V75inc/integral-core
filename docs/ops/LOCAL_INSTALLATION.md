@@ -6,7 +6,7 @@ Once the release containing this launcher and its dependencies is published to P
 uvx --python 3.12 --from integral-core integral up
 ```
 
-With an installed package, run `integral up`. It prepares a private PostgreSQL database, starts Core and its packaged web interface, waits for both to be ready, and opens your browser. There is no separate Docker, database, Node, or frontend setup. The initial download requires internet access; later launches reuse the installed environments. AI provider access is configured separately in Settings → AI Models.
+With an installed package, run `integral up`. It prepares a private PostgreSQL database, starts Core, its durable event worker and packaged web interface, waits for them to be ready, and opens your browser. There is no separate Docker, database, Node, or frontend setup. The initial download requires internet access; later launches reuse the installed environments. AI provider access is configured separately in Settings → AI Models.
 
 This checkout implements the launcher. Its version number alone does not establish a public package release. Use a reviewed Core wheel until the stable publication lane is ready. Runtime dependencies resolve from PyPI; no companion agent package is required.
 
@@ -33,7 +33,7 @@ Use `Scripts/integral.exe` on Windows. The web interface prefers port 9006 and t
 | `integral up` | Start once, or reopen the existing installation. |
 | `integral up --no-open --json` | Start without opening a browser; return a machine-readable descriptor. |
 | `integral status` | Show whether the installation is ready, starting, or stopped. |
-| `integral logs --follow` | Follow the API log; select `--service web`, `database`, or `supervisor` when needed. |
+| `integral logs --follow` | Follow the API log; select `--service events`, `web`, `database`, or `supervisor` when needed. |
 | `integral stop` | Stop owned processes and preserve data and keys. |
 | `integral backup --output /safe/place/integral.tar.gz` | Stop and write a consistent private backup; leave Integral stopped. |
 | `integral restore /safe/place/integral.tar.gz --home /empty/directory` | Restore into an empty installation directory. |
@@ -74,6 +74,14 @@ The managed launcher and App authoring commands serve different stages of develo
 
 `init --force` permits overwriting generated files. `web` accepts `--host` and `--port`; when `--api` is omitted, it reads the distro's `JVSPATIAL_PORT`, falling back to port 4000. Neither `web` nor `export-web` provisions a database or starts an API. Continue with the [App quickstart](../developer/quickstart.md) for package structure and extension contracts.
 
+For independently managed services, run `integral worker events` alongside the
+API and web processes, using the same Python environment, database and application
+configuration. The generated distro README includes a three-terminal example.
+Without the worker, durable events are not delivered and agent writes may not
+refresh open views. Managed `integral up` starts this worker automatically; inspect
+its output with `integral logs --service events --lines 100`.
+Startup checks for a fresh heartbeat from the current worker. `integral worker events --check` also checks delivery health, so a retained dead letter can report degraded health without preventing startup. Inspect and reconcile failed deliveries explicitly; startup does not discard or replay them.
+
 ## Backups and upgrades
 
 A backup contains PostgreSQL data, uploaded files, discovered App definitions, operator settings and encryption keys. It excludes disposable Python environments and lifecycle state. The archive contains private credentials and should be stored accordingly. Existing backup files are never overwritten. Symbolic links are refused rather than producing an incomplete portable backup.
@@ -92,7 +100,7 @@ The reviewed Core wheel contains its native harness binding and skills; normal d
 
 The CLI's JSON descriptor has `contract_version: 1`, installation identity, state, home, API and web URLs, version, supervisor PID and process creation time, database kind, `default_harness_provider_id: integral_native`, and `harness_provider_id` for the running supervisor. It contains no tokens or encryption keys. `up` also returns `started`, determined while holding the installation lock. Clients wait for `state: ready`, consume `web_url`, and claim shutdown ownership only when `started` is true. Pass both `--if-pid` and `--if-created` to `stop` to avoid shutting down a replacement supervisor.
 
-Core owns the database helper, API, workspace and their supervisor. Lifecycle operations are locked per installation. PID checks include process creation time. A private authenticated readiness handshake verifies the served installation rather than trusting any process listening on a port.
+Core owns the database helper, API, durable event worker, workspace and their supervisor. Lifecycle operations are locked per installation. PID checks include process creation time. A private authenticated readiness handshake verifies the served installation rather than trusting any process listening on a port.
 
 The PostgreSQL helper is pinned to pgserver 0.1.4 in a separate Python 3.12 environment. Available native wheels cover macOS Intel/Apple Silicon, Linux x86-64, and Windows x86-64. Linux ARM and other architectures are not qualified by this launcher. First-launch provisioning and native installers must be tested on each advertised platform before release.
 

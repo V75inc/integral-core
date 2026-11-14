@@ -70,12 +70,7 @@ def _permission_memo_enabled() -> bool:
 
 
 async def get_user_node(user_id: str) -> Optional[User]:
-    """Resolve current identity/profile facts without cached or ambiguous grants.
-
-    Inside one computation (``computation_fact_scope``) or an App job the answer is reused
-    for at most a few seconds and only until the next ACL invalidation; elsewhere it is
-    always read fresh. Only a found user is remembered.
-    """
+    """Resolve current identity/profile facts, including within job/computation scopes."""
     from app.middleware.permissions_cache import (
         app_job_fact_active,
         app_job_fact_get,
@@ -83,8 +78,8 @@ async def get_user_node(user_id: str) -> Optional[User]:
         computation_scope_owns_facts,
     )
 
-    # A user node is bound to the transaction it was read in. Only a single short computation
-    # may remember it; an App job (many transactions) must read it fresh each time.
+    # Compatibility scope branches are retained, but the memo always misses.
+    # User nodes are read fresh, never reused across authority boundaries.
     if not app_job_fact_active() or not computation_scope_owns_facts():
         return await _get_user_node_live(user_id)
     key = ("user_node", user_id)
@@ -1112,11 +1107,7 @@ async def resolve_role(
     # All callers, including workers outside the HTTP middleware, need current
     # facts. Epoch-keyed memoization requires adoption by every ACL writer;
     # a TTL or process-local generation cannot establish that guarantee.
-    # PERF EXPERIMENT (local only): inside an App job (a pay run) the same user's role on the
-    # same record is resolved many times within moments. Reuse it for at most
-    # _APP_JOB_FACT_TTL seconds, and only until the next ACL invalidation
-    # (permissions_process_cache.invalidate_user bumps the job-fact generation). Outside a job
-    # scope this is a no-op, so ordinary requests still read current facts.
+    # Compatibility memo APIs always miss: every boundary resolves current authority.
     from app.middleware.permissions_cache import (
         app_job_fact_active,
         app_job_fact_get,
@@ -1177,13 +1168,7 @@ async def _resolve_current_role(
 async def _inherited_role(
     user: User, resource_type: str, resource_id: str
 ) -> Optional[str]:
-    """The role a parent (a Track for an Entry, an App for a Track) passes down, for this user.
-
-    Inside an App job (a pay run) every record the job writes under one Track asks for the same Track role; deriving it
-    again for each record (Track, App, workspace) was most of the cost of a record's permission check. The answer is
-    reused for at most _APP_JOB_FACT_TTL seconds and only until the next access change, as the job's other role facts
-    are. Outside a job scope this is a plain lookup, so ordinary requests still read current facts.
-    """
+    """Resolve the parent's current inherited role, without job-level reuse."""
     from app.middleware.permissions_cache import (
         app_job_fact_active,
         app_job_fact_get,

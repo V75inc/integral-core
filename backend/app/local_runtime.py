@@ -1,6 +1,6 @@
 """Public local installation lifecycle used by the CLI and native clients.
 
-The supervisor owns the PostgreSQL helper, API, and workspace processes. Data
+The supervisor owns the PostgreSQL helper, API, event worker, and workspace processes. Data
 and keys live outside the disposable Python tool environment. No domain App or
 client implementation is imported by this module.
 """
@@ -235,6 +235,9 @@ def status(home: Path) -> dict[str, Any]:
         "pid": state.get("pid") if alive else None,
         "process_created": state.get("created") if alive else None,
         "database": "managed-postgresql",
+        "event_worker": (
+            state.get("event_worker", "unavailable") if alive else "stopped"
+        ),
     }
 
 
@@ -668,6 +671,40 @@ def _environment(
     return env
 
 
+def _event_worker_ready(home: Path, env: dict[str, str], started_at: float) -> bool:
+    """Require this boot's live worker, not a globally healthy delivery backlog.
+
+    Historical dead letters remain visible through worker --check/status but
+    must not prevent the local API from starting so they can be inspected.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "app.cli", "worker", "events", "--status"],
+            cwd=home,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        from datetime import datetime
+
+        report = json.loads(result.stdout)
+        heartbeat = (report.get("heartbeat") or {}).get("context", {}).get("updated_at")
+        age = report.get("heartbeat_age_seconds")
+        return bool(
+            result.returncode == 0
+            and report.get("change_events_enabled") is True
+            and isinstance(age, (int, float))
+            and 0 <= age <= 30
+            and heartbeat
+            and datetime.fromisoformat(heartbeat).timestamp() >= started_at
+        )
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, AttributeError):
+        return False
+
+
 def supervise(home: Path, port: int, apps: str | None = None) -> None:
     """Own children, readiness and cleanup independently of the calling terminal."""
     with FileLock(str(home / "supervisor.lock"), timeout=0):
@@ -690,6 +727,7 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
             "pid": process.pid,
             "created": process.create_time(),
             "state": "starting",
+            "event_worker": "starting",
             "deployment_profile": config.get("deployment_profile", "server"),
             "api_url": f"http://127.0.0.1:{api_port}",
             "web_url": f"http://127.0.0.1:{web_port}",
@@ -756,6 +794,14 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
             )
             env = _environment(home, config, runtime_dsn, api_port, web_port, apps)
             child([sys.executable, "-m", "app.main"], "api", env)
+            # Mutation commits persist outbox facts. A separate worker must deliver
+            # them before the API relay can notify any UI, including agent writes.
+            event_worker_started = time.time()
+            child(
+                [sys.executable, "-m", "app.cli", "worker", "events"],
+                "events",
+                env,
+            )
             child(
                 [sys.executable, "-m", "app.local_runtime", "web", str(home)],
                 "web",
@@ -774,13 +820,20 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                             timeout=1,
                         ) as response:
                             healthy = response.status == 200
-                        if healthy and _identity(home, state):
+                        if (
+                            healthy
+                            and _identity(home, state)
+                            and _event_worker_ready(home, env, event_worker_started)
+                        ):
+                            state["event_worker"] = "startup_ready"
                             state["state"] = "ready"
                             private_json(home / "runtime.json", state)
                     except OSError:
                         pass
                     if time.monotonic() > deadline:
-                        raise RuntimeErrorDetail("API readiness timed out")
+                        raise RuntimeErrorDetail(
+                            "API/event worker readiness timed out; inspect api.log and events.log"
+                        )
                     # Do not exhaust the API’s anonymous request budget while it starts.
                     time.sleep(1.5 if desktop else 0.3)
                 else:
@@ -804,6 +857,7 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                         item.kill()
                         item.wait()
             state["state"] = "stopped"
+            state["event_worker"] = "stopped"
             private_json(home / "runtime.json", state)
             (home / "stop.request").unlink(missing_ok=True)
 
