@@ -504,3 +504,152 @@ def test_free_port_keeps_an_unused_preferred_port():
         sock.bind(("127.0.0.1", 0))
         preferred = sock.getsockname()[1]
     assert runtime.free_port(preferred) == preferred
+
+
+@pytest.mark.parametrize(
+    "heartbeat,healthy,expected",
+    [(101, True, True), (99, True, False), (101, False, False)],
+)
+def test_event_worker_readiness_requires_current_boot_heartbeat(
+    tmp_path, monkeypatch, heartbeat, healthy, expected
+):
+    from datetime import datetime, timezone
+
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            json.dumps(
+                {
+                    "healthy": healthy,
+                    "heartbeat": {
+                        "context": {
+                            "updated_at": datetime.fromtimestamp(
+                                heartbeat, timezone.utc
+                            ).isoformat()
+                        }
+                    },
+                }
+            ),
+        )
+
+    monkeypatch.setattr(runtime.subprocess, "run", run)
+    env = {"SYNTHETIC_CONFIG": "same"}
+    assert runtime._event_worker_ready(tmp_path, env, 100) is expected
+    assert calls[0][0][-3:] == ["worker", "events", "--check"]
+    assert calls[0][1]["env"] is env
+    assert calls[0][1]["timeout"] == 10
+
+
+@pytest.mark.parametrize("worker_dies", [False, True])
+def test_supervisor_owns_event_worker_lifecycle(tmp_path, monkeypatch, worker_dies):
+    from app.services.storage_indexes import provision
+
+    config = runtime.initialize(tmp_path, profile="desktop_single_user")
+    spawned = []
+    states = []
+    ready_checks = []
+    actual_private_json = runtime.private_json
+
+    class Child:
+        def __init__(self, name):
+            self.name = name
+            self.terminated = False
+
+        def poll(self):
+            return (
+                1
+                if self.terminated or (worker_dies and self.name == "events")
+                else None
+            )
+
+        def terminate(self):
+            self.terminated = True
+
+        def wait(self, **kwargs):
+            return 0
+
+        def kill(self):
+            self.terminated = True
+
+    def popen(args, **kwargs):
+        name = (
+            "database"
+            if "local_postgres.py" in str(args)
+            else (
+                "events"
+                if "worker" in args
+                else ("api" if "app.main" in args else "web")
+            )
+        )
+        proc = Child(name)
+        spawned.append((name, args, kwargs, proc))
+        if name == "database":
+            actual_private_json(
+                tmp_path / "database.json", {"dsn": "synthetic-bootstrap-dsn"}
+            )
+        return proc
+
+    def record(path, state):
+        actual_private_json(path, state)
+        if path.name == "runtime.json":
+            states.append(dict(state))
+            if state["state"] == "ready":
+                (tmp_path / "stop.request").touch()
+
+    async def initial_install(*args, **kwargs):
+        return "synthetic-runtime-dsn"
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    def ready(home, env, started):
+        ready_checks.append((home, env, started))
+        return True
+
+    monkeypatch.setattr(runtime, "private_json", record)
+    monkeypatch.setattr(runtime, "database_python", lambda home: Path(sys.executable))
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(runtime, "_require_recovery_review", lambda *args: None)
+    monkeypatch.setattr(
+        runtime, "_environment", lambda *args: {"SYNTHETIC_CONFIG": "same"}
+    )
+    monkeypatch.setattr(provision, "initial_install", initial_install)
+    monkeypatch.setattr(
+        runtime.urllib.request, "urlopen", lambda *args, **kwargs: Response()
+    )
+    monkeypatch.setattr(runtime, "_identity", lambda *args: True)
+    monkeypatch.setattr(runtime, "_event_worker_ready", ready)
+    monkeypatch.setattr(runtime.time, "sleep", lambda *args: None)
+    runtime.supervise(tmp_path, 19006)
+    assert [item[0] for item in spawned] == ["database", "api", "events", "web"]
+    worker = spawned[2]
+    assert worker[1] == [sys.executable, "-m", "app.cli", "worker", "events"]
+    assert worker[2]["env"] is spawned[1][2]["env"] is spawned[3][2]["env"]
+    assert all(
+        proc.terminated
+        for name, _, _, proc in spawned
+        if name != "database" and not (worker_dies and name == "events")
+    )
+    assert (tmp_path / "database.stop.request").exists()
+    assert states[-1]["event_worker"] == "stopped"
+    if worker_dies:
+        assert not ready_checks
+        assert "exited" in states[-1]["error"]
+        assert not any(state["state"] == "ready" for state in states)
+    else:
+        assert len(ready_checks) == 1
+        assert any(
+            state["state"] == "ready" and state["event_worker"] == "startup_ready"
+            for state in states
+        )

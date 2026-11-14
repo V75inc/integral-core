@@ -215,21 +215,30 @@ async def test_proposal_validation_requires_a_correction_and_bounds_retries(
     tool = make_tool()
     ctx = SimpleNamespace(active_capability_ids=set(), tool_call_id="proposal")
 
-    first = await tool.function_schema.call({"value": "bad"}, ctx)
+    from pydantic_ai import ToolReturn
+
+    async def call(value):
+        result = await tool.function_schema.call({"value": value}, ctx)
+        if isinstance(result, ToolReturn):
+            assert result.metadata == {"integral_schema_effect_v1": "preserve"}
+            return result.return_value
+        return result
+
+    first = await call("bad")
     assert first["retryable"] is True
     assert "value: use the current schema key" in first["message"]
     assert "next_tool" not in first
 
-    duplicate = await tool.function_schema.call({"value": "bad"}, ctx)
+    duplicate = await call("bad")
     assert "already rejected" in duplicate["message"]
-    corrected = await tool.function_schema.call({"value": "corrected"}, ctx)
+    corrected = await call("corrected")
     assert corrected["token"] == "staged"
 
-    await tool.function_schema.call({"value": "bad"}, ctx)
-    second = await tool.function_schema.call({"value": "still bad"}, ctx)
+    await call("bad")
+    second = await call("still bad")
     assert second["retryable"] is False
     assert "Stop retrying" in second["message"]
-    blocked = await tool.function_schema.call({"value": "changed again"}, ctx)
+    blocked = await call("changed again")
     assert blocked["retryable"] is False
     assert calls == ["bad", "corrected", "bad", "still bad"]
 
@@ -2944,3 +2953,47 @@ async def test_attachment_workflow_cannot_stage_plain_record_write(
     assert await tool.prepare_tool_def(ctx) is not None
     await tool.function_schema.call({}, ctx)
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "source,name,result,expected",
+    [
+        ("core", "integral_begin_batch", {"_kind": "batch_opened"}, True),
+        ("core", "integral_cancel_batch", {"_kind": "batch_cancelled"}, True),
+        (
+            "core",
+            "integral_create_entry",
+            {"_kind": "batched_op", "kind": "create_entry"},
+            True,
+        ),
+        (
+            "core",
+            "integral_create_entry",
+            {"error": True, "error_code": "invalid_arguments"},
+            True,
+        ),
+        ("app", "integral_begin_batch", {"_kind": "batch_opened"}, False),
+        ("core", "integral_create_entry", {"_kind": "unstaged_write"}, False),
+        (
+            "core",
+            "integral_create_entry",
+            {"_kind": "batched_op", "kind": "create_track"},
+            False,
+        ),
+        (
+            "core",
+            "integral_create_entry",
+            {"error": True, "error_code": "forbidden"},
+            False,
+        ),
+        ("core", "integral_commit_batch", {"_kind": "batch_applied"}, False),
+        ("core", "integral_modify_operational_model", {"_kind": "batched_op"}, False),
+        ("core", "unknown", {"integral_schema_effect_v1": "preserve"}, False),
+    ],
+)
+def test_schema_preserving_evidence_is_narrowly_core_owned(
+    source, name, result, expected
+):
+    from app.agentive.harness.broker_tools import _schema_preserving_result
+
+    assert _schema_preserving_result(source, name, result) is expected
