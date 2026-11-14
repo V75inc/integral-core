@@ -282,3 +282,39 @@ async def test_desktop_readiness_refuses_swallowed_startup_failure(desktop_profi
     )
     with pytest.raises(ServiceUnavailableError, match="startup is incomplete"):
         await desktop_readiness(request)
+
+
+@pytest.mark.parametrize("unavailable", [False, True])
+async def test_desktop_readiness_reads_provisioned_audit_collection(
+    desktop_profile, monkeypatch, unavailable
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from jvspatial.db.indexes import ManagedSchemaError
+
+    from app.api.errors import ServiceUnavailableError
+    from app.api.meta import desktop_readiness
+
+    probe = AsyncMock(return_value=None)
+    if unavailable:
+        probe.side_effect = ManagedSchemaError("Managed collection is not provisioned")
+    database = SimpleNamespace(get=probe)
+    monkeypatch.setattr(
+        "jvspatial.db.get_database_manager",
+        lambda: SimpleNamespace(get_database=lambda name: database),
+    )
+    request = Request(
+        {
+            "type": "http",
+            "app": SimpleNamespace(state=SimpleNamespace(desktop_ready=True)),
+        }
+    )
+    if unavailable:
+        with pytest.raises(
+            ServiceUnavailableError, match="audit storage is unavailable"
+        ):
+            await desktop_readiness(request)
+    else:
+        assert (await desktop_readiness(request))["status"] == "ready"
+    probe.assert_awaited_once_with("object", "o.DBLog.__readiness_probe__")

@@ -15,12 +15,13 @@ from .runtime import inspect
 def serving_dsn(migration_dsn, role, password):
     """Derive a runtime-only login while preserving the database endpoint."""
     parsed = urlsplit(migration_dsn)
-    host = parsed.hostname or "localhost"
-    if ":" in host:
-        host = "[" + host + "]"
+    # Preserve the endpoint verbatim. An empty URI host is meaningful: asyncpg
+    # then uses query-string Unix socket/port settings. Synthesizing localhost
+    # overrides those settings and silently switches managed installs to TCP.
+    endpoint = parsed.netloc.rsplit("@", 1)[-1]
     return urlunsplit(
         parsed._replace(
-            netloc=f"{quote(role, safe='')}:{quote(password, safe='')}@{host}:{parsed.port or 5432}"
+            netloc=f"{quote(role, safe='')}:{quote(password, safe='')}@{endpoint}"
         )
     )
 

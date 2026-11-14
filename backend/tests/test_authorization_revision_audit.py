@@ -111,7 +111,31 @@ def test_membership_write_scope_bumps_the_revision():
 
 def test_authorization_scope_only_increments_for_authority_mutations():
     source = (APP / "services/authorization_scope.py").read_text()
-    assert '"$inc": {"context.revision": 1 if authority_mutation else 0}' in source
+    # Read fences must not issue even a no-op UPDATE: shared holders cannot
+    # upgrade their row lock safely. Only the mutation branch increments.
+    tree = ast.parse(source)
+    writes = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "find_one_and_update"
+    ]
+    assert len(writes) == 1
+    guarded = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Name)
+        and node.test.id == "authority_mutation"
+        and any(
+            writes[0] is child
+            for statement in node.body
+            for child in ast.walk(statement)
+        )
+    ]
+    assert len(guarded) == 1
+    assert ast.literal_eval(writes[0].args[2]) == {"$inc": {"context.revision": 1}}
     assert "authority_mutation: bool = False" in source
 
 
@@ -126,6 +150,9 @@ def test_non_bumping_scope_callers_are_only_fences_and_content_writes():
         "services/bundle_cleanup_outbox.py",  # cleanup outbox
         "services/app_operations/history.py",  # operation history
         "services/access_delegation.py",  # owner-checked app function fence
+        "services/resident_assignment.py",  # outer admission; actual opt-in change nests a bump
+        "services/filing_facet.py",  # evidence-backed content filing under current authority
+        "services/resident_opportunity_actions.py",  # prepare/accept review admission fence
     }
     found = set()
     for path in _app_files():
