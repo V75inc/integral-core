@@ -19,6 +19,7 @@ import {
 } from './session';
 import { isPublicAuthPath } from './sessionRoutes';
 import { isHostManagedSession } from './sessionRuntime';
+import { LocalWorkspaceReconnectingError } from './localSessionError';
 import { isSessionPaused } from './sessionRecovery';
 import {
   clearApiFailure,
@@ -86,7 +87,7 @@ apiClient.interceptors.request.use(async config => {
     requestTimings.set(config, timing);
   }
   await checkSessionDeadline();
-  if (isHostManagedSession() && !getAccessToken()) throw new axios.CanceledError('Local workspace is reconnecting');
+  if (isHostManagedSession() && !getAccessToken()) throw new LocalWorkspaceReconnectingError();
   if (isSessionPaused()) throw new axios.CanceledError('Session renewal required');
   // Only real input events count as activity; polling must not keep a
   // session alive after the user walks away.

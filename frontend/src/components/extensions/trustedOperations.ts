@@ -2,7 +2,7 @@ import { AppUIError } from '@integral/sdk-react';
 export { AppUIError } from '@integral/sdk-react';
 import { isAxiosError } from 'axios';
 import { randomUUID } from '../../utils/randomUUID';
-import { RecordedOperationOutputWithheld, requireOperationOutput, type AppOperationInvokeResponse } from '../../api/extensions';
+import { LegacyOperationOutputUnavailable, RecordedOperationOutputWithheld, requireOperationOutput, type AppOperationInvokeResponse } from '../../api/extensions';
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -47,6 +47,7 @@ export async function invokeTrustedOperation(namespace: string[], key: string, i
       if (uncertain) throw new AppUIError('Result unconfirmed. Check current records before retrying the same action.', 'unconfirmed');
       sessionStorage.removeItem(storageKey);
       if (error instanceof RecordedOperationOutputWithheld) throw new AppUIError(error.message, 'withheld', error.operationReceipt);
+      if (error instanceof LegacyOperationOutputUnavailable) throw new AppUIError(error.message, 'withheld');
       if (isAxiosError(error)) {
         const message = error.response?.data?.message;
         throw new AppUIError(typeof message === 'string' ? message.slice(0, 2000) : 'This action was not accepted.');

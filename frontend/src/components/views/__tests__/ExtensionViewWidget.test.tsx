@@ -192,6 +192,13 @@ describe('ExtensionViewWidget', () => {
 });
 
 describe('ExtensionViewWidget React component on a record page', () => {
+  it('preserves an explicitly bound record in a track-list context', async () => {
+    const view = {id: 'v3', type: 'extension_view', track_id: 'track-9', name: 'Panel', config: {
+      component_key: 'panel', __bindings: {appId: 'app-payroll', entryId: 'bound-record'},
+    }} as unknown as SavedView;
+    wrap(<ExtensionViewWidget view={view} viewContext="track-list" entries={[{id: 'unrelated'} as never]} isLoading={false} onEntryOpen={() => undefined} />);
+    expect((await screen.findByTestId('react-host')).getAttribute('data-entry')).toBe('bound-record');
+  });
   it('gives a related view its record and track, as the iframe host does', async () => {
     const view = {
       id: 'v2', type: 'extension_view', track_id: 'track-9', name: 'Pay run',

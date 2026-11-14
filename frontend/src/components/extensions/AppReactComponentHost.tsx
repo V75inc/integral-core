@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AppUIProvider, UIPrimitivesProvider, SDK_VERSION, type AppUI, type Placement } from '@integral/sdk-react';
@@ -22,6 +22,8 @@ import type { ContributionLifecycleApi } from '../entries/contributionLifecycle'
 import { CHANGE_EVENT_APPLIED } from '../../hooks/useChangeEventInvalidation';
 import { loadReactArtifact } from './reactArtifactLoader';
 import { AppUIError, invokeTrustedOperation } from './trustedOperations';
+import { getHostSessionRecoveryGeneration, subscribeHostSessionRecovery } from '../../api/sessionConnection';
+import { LocalWorkspaceReconnectingError } from '../../api/localSessionError';
 
 type Descriptor = {enabled: boolean; artifact_url: string; component: {digest: string; export_name: string; sdk_range: string}; submittedProps: Record<string, unknown>; definition_revision?: string};
 export function supportsSDKRange(range: string) {
@@ -80,6 +82,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
   const [busy, setBusy] = useState(0);
   const [reload, setReload] = useState(0);
   const [initialMode, setInitialMode] = useState<'native' | 'legacy' | null>(null);
+  const recoveryGeneration = useSyncExternalStore(subscribeHostSessionRecovery, getHostSessionRecoveryGeneration);
   const propsSignature = JSON.stringify(props);
   const descriptorKey = ['app-ui-component', principal, workspace, appId, componentKey, placement, propsSignature, reload];
   const descriptor = useQuery<Descriptor>({
@@ -87,13 +90,31 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
     placeholderData: previous => previous,
     enabled: Boolean(principal && workspace),
     queryFn: async ({signal}) => {
+      const generation = getHostSessionRecoveryGeneration();
       const submittedProps = JSON.parse(propsSignature) as Record<string, unknown>;
-      const {data} = await apiClient.post(`/extensions/${encodeURIComponent(appId)}/components/${encodeURIComponent(componentKey)}/mount`,
-        {placement, props: submittedProps}, {signal, headers: {'X-Integral-Scope': `ws:${workspace}`}});
-      if (mounted.current) setInitialMode(current => current ?? (data.enabled ? 'native' : 'legacy'));
+      let data: Descriptor;
+      try {
+        ({data} = await apiClient.post(`/extensions/${encodeURIComponent(appId)}/components/${encodeURIComponent(componentKey)}/mount`,
+          {placement, props: submittedProps}, {signal, headers: {'X-Integral-Scope': `ws:${workspace}`}}));
+      } catch (error) {
+        if (error instanceof LocalWorkspaceReconnectingError) throw new LocalWorkspaceReconnectingError(generation);
+        throw error;
+      }
       return {...data, submittedProps};
     },
   });
+  // The descriptor query may be shared by multiple mounts. Each observer must
+  // independently latch its own initial mode from the admitted result.
+  const observedMode = descriptor.data && !descriptor.isPlaceholderData ? (descriptor.data.enabled ? 'native' : 'legacy') : null;
+  const mode = initialMode ?? observedMode;
+  useLayoutEffect(() => {
+    if (initialMode === null && observedMode) setInitialMode(observedMode);
+  }, [initialMode, observedMode]);
+  const interruptedByHost = descriptor.isError && descriptor.error instanceof LocalWorkspaceReconnectingError;
+  useEffect(() => {
+    if (descriptor.error instanceof LocalWorkspaceReconnectingError && descriptor.error.mountAttemptGeneration !== undefined
+        && recoveryGeneration > descriptor.error.mountAttemptGeneration) void descriptor.refetch();
+  }, [descriptor.error, recoveryGeneration, descriptor.refetch]);
   useEffect(() => {
     const prefix = ['app-ui-data', principal, workspace, appId, componentKey];
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -117,7 +138,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
     window.addEventListener('integral:ui-data-changed', changed);
     return () => {clearTimeout(timer); window.removeEventListener(CHANGE_EVENT_APPLIED, changed); window.removeEventListener('integral:ui-data-changed', changed);};
   }, [client, principal, workspace, appId, componentKey]);
-  useLayoutEffect(() => {if (initialMode) onFieldDataOwnerChange?.(initialMode === 'legacy' ? 'host' : 'app');}, [initialMode, onFieldDataOwnerChange]);
+  useLayoutEffect(() => {if (mode) onFieldDataOwnerChange?.(mode === 'legacy' ? 'host' : 'app');}, [mode, onFieldDataOwnerChange]);
   const declaration = descriptor.data;
   const releaseChanged = Boolean(loadedDigest && declaration && (loadedDigest !== declaration.component.digest || loadedRevision !== (declaration.definition_revision || '')));
   useLayoutEffect(() => {
@@ -132,7 +153,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
   }, [channel, declaration?.enabled, failure, descriptor.isError, releaseChanged]);
   const effectiveProps = declaration?.submittedProps || props;
   useEffect(() => {
-    if (initialMode === 'legacy' || !declaration?.enabled || !supportsSDKRange(declaration.component.sdk_range) || descriptor.isFetching || Loaded || failure) return;
+    if (mode === 'legacy' || !declaration?.enabled || !supportsSDKRange(declaration.component.sdk_range) || descriptor.isFetching || Loaded || failure) return;
     let active = true;
     loadReactArtifact(declaration.artifact_url).then(module => {
       if (!active) return;
@@ -142,7 +163,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
       setLoaded(() => component); setLoadedDigest(declaration.component.digest); setLoadedRevision(declaration.definition_revision || '');
     }, () => { if (active) setFailure(true); });
     return () => { active = false; };
-  }, [initialMode, declaration, descriptor.isFetching, Loaded, failure]);
+  }, [mode, declaration, descriptor.isFetching, Loaded, failure]);
   // One registered handle per child; nested fields/lines must all validate and submit.
   const members = useRef(new Map<symbol, ContributionLifecycleHandle>());
   const registerMember = useCallback((handle: ContributionLifecycleHandle) => {
@@ -161,12 +182,12 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
   const registerLifecycle = lifecycle?.register;
   useLayoutEffect(() => {
     // The disabled fallback owns its original lifecycle.
-    if (initialMode === 'legacy' || (declaration && !declaration.enabled)) return;
+    if (mode === 'legacy' || (declaration && !declaration.enabled)) return;
     return registerLifecycle?.({
       requestValidate: async () => status.current && channel.active ? runContributionHandles(members.current.values(), 'validate', undefined, () => status.current && channel.active) : {ok: false, error: 'The App form is not ready.'},
       requestSubmit: async id => status.current && channel.active ? runContributionHandles(members.current.values(), 'submit', id, () => status.current && channel.active) : {ok: false, error: 'The App form is not ready.'},
     });
-  }, [registerLifecycle, channel, initialMode, declaration?.enabled]);
+  }, [registerLifecycle, channel, mode, declaration?.enabled]);
   const latest = useRef({context, lifecycle, preview, liveData});
   useLayoutEffect(() => { latest.current = {context, lifecycle, preview, liveData}; }, [context, lifecycle, preview, liveData]);
   const api = useMemo<AppUI>(() => ({
@@ -202,13 +223,13 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
     notify: (message, kind = 'info') => { if (mounted.current && channel.active) showToast(message, kind); },
     confirm: async options => !latest.current.preview && mounted.current && channel.active && await confirm(options) && mounted.current && channel.active,
   }), [principal, workspace, appId, componentKey, placement, preview, liveData, channel, client, navigate, showToast, confirm, loadedRevision]);
-  if (descriptor.isError || failure || (declaration && !supportsSDKRange(declaration.component.sdk_range))) return <div role="alert"><Text>This App component is unavailable.</Text><Button type="button" disabled={busy > 0} onClick={async () => {
+  if ((descriptor.isError && (!Loaded || !interruptedByHost)) || failure || (declaration && !supportsSDKRange(declaration.component.sdk_range))) return <div role="alert"><Text>This App component is unavailable.</Text><Button type="button" disabled={busy > 0} onClick={async () => {
     if (!Loaded || await confirm({title: 'Reload App view?', message: 'Unsaved changes in this view will be discarded.', confirmLabel: 'Reload view'})) {
       setLoaded(null); setFailure(false); setReload(value => value + 1);
     }
   }}>Retry view</Button></div>;
   if (!declaration) return <Skeleton className="h-32" />;
-  if (initialMode === 'legacy') return <>
+  if (mode === 'legacy') return <>
     {declaration.enabled ? <div role="status"><Text>A newer view is available.</Text><Button type="button" onClick={async () => {
       if (await confirm({title: 'Reload App view?', message: 'Check any pending action first. Reloading discards unsaved changes.', confirmLabel: 'Reload view'})) {
         setInitialMode('native'); setReload(value => value + 1);
@@ -220,6 +241,7 @@ function Session({appId, componentKey, placement, props = {}, context = {}, life
   if (!Loaded) return <Skeleton className="h-32" />;
   const updated = releaseChanged;
   return <>
+    {descriptor.isError ? <div role="alert"><Text>This App component is unavailable.</Text><Button type="button" onClick={() => { void descriptor.refetch(); }}>Retry view</Button></div> : null}
     {updated ? <div role="status"><Text>A new version of this view is available.</Text><Button disabled={busy > 0} onClick={async () => {
       if (await confirm({title: 'Reload App view?', message: 'Unsaved changes in this view will be discarded.', confirmLabel: 'Reload view'})) {
         setLoaded(null); setFailure(false); setReload(value => value + 1);

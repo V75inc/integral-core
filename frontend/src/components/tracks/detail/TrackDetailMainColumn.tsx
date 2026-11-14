@@ -7,6 +7,7 @@ import { FilterChips } from '../../views/FilterChips';
 import { trackFilterSpecs } from '../../views/columnFilterModel';
 import { EntryComposer } from '../../entries/EntryComposer';
 import { FilterActionRow, LINE_ICON_STROKE, filterBar } from '../../ui';
+import { Surface } from '../../../ui';
 import { ViewRenderer } from '../../../views';
 import type { ViewWidgetProps } from '../../../views/types';
 import type {
@@ -234,15 +235,16 @@ export function TrackDetailMainColumn({
       ) : null}
 
       {!isPagesView && fieldFilters.length > 0 ? (
-        <div className="mb-3 overflow-hidden rounded-[var(--radius-card)] border border-[var(--entry-table-border)] bg-[var(--panel)]">
+        <Surface tone="panel" border="entry-table" radius="card" padding="none" className="mb-3 overflow-hidden">
           <FilterChips specs={filterSpecs} filters={fieldFilters} onChange={setFieldFilters} total={entriesTotal} />
-        </div>
+        </Surface>
       ) : null}
       {recordReadBoundaryNotice}
       {recordReadBoundaryNotice && filteredEntries.length === 0 ? null : activeView ? (
         <>
           <ViewRenderer
             view={activeView}
+            viewContext="track-list"
             entries={filteredEntries}
             isLoading={entriesPending}
             onEntryOpen={onEntryOpen}
