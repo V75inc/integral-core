@@ -95,3 +95,57 @@ async def test_a_clean_change_carries_no_reason():
     staging._tokens[sc.token] = sc
 
     assert sc.to_dict()["last_error"] is None
+
+
+@pytest.mark.parametrize(
+    "completed,child_state,expected",
+    [
+        (0, None, "not_applied"),
+        (1, None, "partially_applied"),
+        (0, "partially_applied", "partially_applied"),
+        (1, "not_applied", "partially_applied"),
+        (0, "reconciliation_required", "reconciliation_required"),
+        (1, "reconciliation_required", "reconciliation_required"),
+    ],
+)
+def test_durable_batch_refusal_preserves_reason_and_honest_application_state(
+    completed, child_state, expected
+):
+    from app.agentive.services.staging_command_batch import _batch_step_failure
+
+    child = {
+        "error": True,
+        "error_code": "bad_request",
+        "status_code": 400,
+        "message": "The required status field is missing.",
+    }
+    if child_state:
+        child["application_state"] = child_state
+    results = [{"kind": "create_entry", "result": child}]
+    error = _batch_step_failure(index=completed, total=2, result=child, results=results)
+    assert child["message"] in error["message"]
+    assert error["completed"] == completed
+    assert error["status_code"] == 400
+    assert error["error_code"] == "bad_request"
+    assert error["application_state"] == expected
+    assert error["results"] is results
+
+
+@pytest.mark.asyncio
+async def test_durable_batch_child_reason_reaches_saved_parent_error():
+    from app.agentive.services.staging_command_batch import _batch_step_failure
+
+    sc = _staged()
+    staging._tokens[sc.token] = sc
+    error = _batch_step_failure(
+        index=0,
+        total=2,
+        result={"error": True, "message": "Revise the body."},
+        results=[],
+    )
+    await record_execute_outcome(token=sc.token, error=error)
+    assert (
+        "Revise the body."
+        in staging._tokens[sc.token].to_dict()["last_error"]["message"]
+    )
+    assert staging._tokens[sc.token].last_error["application_state"] == "not_applied"

@@ -1366,7 +1366,18 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
             sc.resolved_at = datetime.fromisoformat(marker["resolved_at"])
             sc = await _cache_durable_decision(sc)
         else:
+            # Expiry can retain a blessed proposal when committed/unknown
+            # effects require reconciliation. Repeated reads of that same
+            # evidence are not transitions: broadcasting them makes listeners
+            # refetch the token and recursively broadcast again.
+            unchanged_reconciliation = (
+                sc.state == "expired"
+                and fresh.state in {"pending", "blessed"}
+                and fresh.last_error == sc.last_error
+            )
             sc = await _cache_durable_decision(fresh)
+            if unchanged_reconciliation:
+                return
     await _push_state_event(sc)
     if sc.state in ("consumed", "revoked", "expired"):
         # Record the decision BEFORE the row goes (ADR-007). What the person

@@ -263,11 +263,15 @@ async def transition_staged_decision(
                     "partially_applied": partial,
                     "message": message,
                 }
-                updated = await database.find_one_and_update(
-                    "object",
-                    {"id": row["id"]},
-                    {"$set": {"context.last_error": error}},
-                )
+                # A read may revisit an expired proposal whose effects need
+                # reconciliation. Do not rewrite identical evidence on every poll.
+                updated = row
+                if data.get("last_error") != error:
+                    updated = await database.find_one_and_update(
+                        "object",
+                        {"id": row["id"]},
+                        {"$set": {"context.last_error": error}},
+                    )
                 sc = staging_store._record_to_sc(
                     staging_store.StagedChangeRecord(id=row["id"], **updated["context"])
                 )

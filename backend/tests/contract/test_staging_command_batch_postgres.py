@@ -337,6 +337,15 @@ async def test_expired_partial_batch_retains_committed_step(
         assert observed.last_error["application_state"] == "reconciliation_required"
         assert observed.last_error["partially_applied"] is True
         assert observed.last_error["applied"] is False
+        from unittest.mock import AsyncMock
+
+        pushed = AsyncMock()
+        monkeypatch.setattr(staging, "_push_state_event", pushed)
+        for _ in range(3):
+            staging._tokens.clear()
+            again = await staging.get_token(sc.token)
+            assert again.last_error == observed.last_error
+        pushed.assert_not_awaited()
         assert await staging_store.load_current(sc.token) is not None
         assert await staging_store.load_decision_state(sc.token, auth.id) is None
         with pytest.raises(StagingError) as exc:

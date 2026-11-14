@@ -60,11 +60,6 @@ dependencies = [
     "PyYAML>=6.0.0",
     # Phase 9 — notification email templates (EmailChannel).
     "Jinja2>=3.0",
-    # Profanity filtering on public entry/comment write paths (services/content_moderation.py).
-    # Cap below 1.x — PyPI's better-profanity 1.0 is a divergent package whose
-    # wordlist misses common conjugations (e.g. "fucking"), which silently
-    # disables the June 23 QA moderation gate under an open >=0.7.0 pin.
-    "better-profanity>=0.7.0,<1",
     # Cron next-fire-time math for user-created routine tasks (services/routine_tasks.py).
     "croniter>=2.0.0",
     # Postgres driver when JVSPATIAL_DB_TYPE=postgres (default in deploy stacks).

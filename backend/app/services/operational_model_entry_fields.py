@@ -233,7 +233,6 @@ async def _resolve_or_create_labeled_relation(
         workspace_id=workspace_id,
         actor_kind=actor_kind or "agent",
         authorization_subject=subject,
-        skip_profanity=True,
     )
     return str(created.id) if created is not None else None
 
