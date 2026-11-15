@@ -119,7 +119,13 @@ def mint_handshake_token(
 async def _ensure_app_access(app: App, user_id: str, workspace_id: str) -> None:
     if getattr(app, "workspace_id", None) != workspace_id:
         raise InsufficientPermissionsError(message="App/workspace mismatch")
-    ws_role = await can_access_workspace(user_id, workspace_id)
+    ws_role, role = await asyncio.gather(
+        can_access_workspace(user_id, workspace_id),
+        resolve_role(user_id, "app", app.id),
+        return_exceptions=True,
+    )
+    if isinstance(ws_role, BaseException):
+        raise ws_role
     if ws_role == "none":
         raise InsufficientPermissionsError(message="Access denied")
     state = str(getattr(app, "lifecycle_state", "active") or "active")
@@ -128,7 +134,8 @@ async def _ensure_app_access(app: App, user_id: str, workspace_id: str) -> None:
             message=f"App is not active (state={state})",
             details={"error_code": "app_not_active"},
         )
-    role = await resolve_role(user_id, "app", app.id)
+    if isinstance(role, BaseException):
+        raise role
     if role is None:
         raise InsufficientPermissionsError(message="Access denied")
 

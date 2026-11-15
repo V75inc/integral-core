@@ -13,6 +13,7 @@ from app.api.errors import (
     ResourceConflictError,
 )
 from app.exceptions import AuthorizationUnavailableError
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.access_lifecycle import RESOURCE_ACCESS_BLOCK
 from app.models.edges import (
     CATALOGS,
@@ -61,6 +62,7 @@ class RehomeInventory(Walker):
         await self.visit(children)
 
 
+@invalidates_job_facts
 async def rehome_workspace_resources(
     *, actor_id: str, source_id: str, destination_id: str
 ) -> dict:

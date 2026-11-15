@@ -36,6 +36,25 @@ def validate_native_home(home: Dict[str, Any], manifest: Dict[str, Any]) -> None
                 "Home components need unique IDs, at most 128 nodes and depth 12"
             )
         seen.add(node["id"])
+        if node["type"] == "react_component":
+            import jsonschema
+
+            component = next(
+                (
+                    item
+                    for item in app.get("ui_components", [])
+                    if item["key"] == node.get("component_key")
+                ),
+                None,
+            )
+            if component is None or "home" not in component["placements"]:
+                raise ValueError("Home component must be declared for this App's Home")
+            try:
+                jsonschema.Draft202012Validator(component["props_schema"]).validate(
+                    node.get("props", {})
+                )
+            except jsonschema.ValidationError as exc:
+                raise ValueError("Home component props are invalid") from exc
         if node.get("query_key") and node["query_key"] not in queries:
             raise ValueError("Home query must belong to the owning App")
         query = queries.get(node.get("query_key"))

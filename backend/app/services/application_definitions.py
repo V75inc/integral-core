@@ -380,6 +380,9 @@ async def get_active_application_definition(
     chosen = max(active, key=lambda item: int(getattr(item, "revision", 0) or 0))
     if repair_legacy_pointer:
         app_node.active_definition_id = chosen.id
+        from app.middleware.permissions_cache import note_definition_changed
+
+        note_definition_changed()
         app_node.active_definition_revision = int(getattr(chosen, "revision", 0) or 0)
         await app_node.save()
     return chosen  # type: ignore[return-value]
@@ -534,6 +537,9 @@ async def _compile_application_definition(
             current.status = "superseded"
             await current.save()
         app_node.active_definition_id = definition.id
+        from app.middleware.permissions_cache import note_definition_changed
+
+        note_definition_changed()
         app_node.active_definition_revision = revision
         await app_node.save()
     return definition

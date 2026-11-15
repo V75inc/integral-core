@@ -1,5 +1,8 @@
 import type { Crumb } from '../ui';
 
+/** The label pages publish while their record loads. */
+export const LOADING_LABEL = 'Loading…';
+
 const CRUMBS_SUPPRESSED: ReadonlySet<string> = new Set(['agent']);
 
 const WORKSPACE_EXEMPT: ReadonlySet<string> = new Set([
@@ -27,8 +30,13 @@ export function stitchLayoutCrumbs(
   const prefix: Crumb[] = [
     isHomePath ? { label: 'Home' } : { label: 'Home', to: '/' },
   ];
+  // While a page is still loading its record, the active workspace is the PREVIOUS
+  // page's: naming it would show the wrong workspace for several seconds. Say nothing
+  // until the page publishes its real trail (it also switches the scope then).
+  const loading = crumbs.length > 0 && crumbs[crumbs.length - 1].label === LOADING_LABEL;
   const showWorkspace =
     !isHomePath &&
+    !loading &&
     !WORKSPACE_EXEMPT.has(top) &&
     Boolean(activeWorkspace?.id) &&
     Boolean(activeWorkspace?.name);

@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Dict
 
 from fastapi import Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from jvspatial.api import endpoint
 
 from app.api.errors import (
@@ -62,7 +62,9 @@ async def extension_view_frame_route(request: Request):
     auth=True,
     tags=["App Extensions"],
 )
-async def list_operations(request: Request, app_id: str) -> Dict[str, Any]:
+async def list_operations(
+    request: Request, app_id: str, operation_key: str | None = None
+) -> Dict[str, Any]:
     """List typed operations registered for an app instance."""
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -76,7 +78,12 @@ async def list_operations(request: Request, app_id: str) -> Dict[str, Any]:
         user_id=execution_scope.principal_id,
         workspace_id=execution_scope.workspace_id,
         app_id=app_id,
+        **({"operation_key": operation_key} if operation_key is not None else {}),
     )
+    if operation_key is not None:
+        # A relation's creation affordance needs one current action decision,
+        # not every App/query/connector declaration in the workspace.
+        return AppOperationsListResponse.model_validate(result).model_dump()
     from app.agentive.services.execution_runs import build_capability_snapshot
 
     snapshot = await build_capability_snapshot(execution_scope.workspace_id)
@@ -223,6 +230,7 @@ async def invoke_operation(
     payload = {
         "app_id": output.get("app_id") or app_id,
         "operation_key": output.get("operation_key") or operation_key,
+        "operation_class": "read" if is_query else "execute",
         "output": output.get("output") if "output" in output else output,
         "receipt": result.receipt.model_dump() if result.receipt else None,
         "object_refs": output.get("object_refs") or [],
@@ -343,4 +351,62 @@ async def resolve_view_navigation(request: Request, app_id: str) -> Dict[str, An
         app_id=app_id,
         kind=body.kind,
         resource_id=body.id,
+        source_entry_id=body.source_entry_id,
+        field_key=body.field_key,
+    )
+
+
+@endpoint(
+    "/extensions/{app_id}/components/{component_key}/mount",
+    methods=["POST"],
+    auth=True,
+    tags=["App Extensions"],
+)
+async def mount_ui_component(request: Request, app_id: str, component_key: str):
+    """Resolve an active App component after scoped admission."""
+    from app.schemas.ui_components import (
+        UIComponentMountRequest,
+        UIComponentMountResponse,
+    )
+    from app.services.ui_components import resolve_component
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    scope = await resolve_execution_scope_from_request(
+        request, user_id, origin="http_ui_component"
+    )
+    body = UIComponentMountRequest.model_validate(await request.json())
+    result = await resolve_component(
+        user_id=scope.principal_id,
+        workspace_id=scope.workspace_id,
+        app_id=app_id,
+        key=component_key,
+        placement=body.placement,
+        props=body.props,
+    )
+    return UIComponentMountResponse.model_validate(result).model_dump()
+
+
+@endpoint(
+    "/ui-artifacts/{slug}/{digest}/index.mjs",
+    methods=["GET"],
+    auth=False,
+    tags=["App Extensions"],
+)
+async def ui_component_artifact(request: Request, slug: str, digest: str):
+    """Serve only previously admitted, immutable public JavaScript."""
+    import asyncio
+
+    from app.services.ui_components import read_artifact
+
+    content = await asyncio.to_thread(read_artifact, slug, digest)
+    return Response(
+        content,
+        media_type="text/javascript",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin",
+        },
     )

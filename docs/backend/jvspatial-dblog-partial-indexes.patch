@@ -1,0 +1,53 @@
+--- a/jvspatial/logging/models.py	2026-11-06 23:42:51.541963474 -0400
++++ b/jvspatial/logging/models.py	2026-11-06 23:42:51.587920167 -0400
+@@ -12,11 +12,11 @@
+ from jvspatial.core.annotations import attribute, compound_index
+
+
+-@compound_index([("logged_at", -1)], name="logged_at")
+-@compound_index([("status_code", 1), ("logged_at", -1)], name="status_logged_at")
+-@compound_index([("event_code", 1), ("logged_at", -1)], name="event_code_logged_at")
+-@compound_index([("path", 1), ("logged_at", -1)], name="path_logged_at")
+-@compound_index([("log_level", 1), ("logged_at", -1)], name="log_level_logged_at")
++@compound_index([("logged_at", -1)], name="logged_at", partial_by_entity=True)
++@compound_index([("status_code", 1), ("logged_at", -1)], name="status_logged_at", partial_by_entity=True)
++@compound_index([("event_code", 1), ("logged_at", -1)], name="event_code_logged_at", partial_by_entity=True)
++@compound_index([("path", 1), ("logged_at", -1)], name="path_logged_at", partial_by_entity=True)
++@compound_index([("log_level", 1), ("logged_at", -1)], name="log_level_logged_at", partial_by_entity=True)
+ class DBLog(Object):
+     """Base log entry for database logging.
+
+@@ -111,21 +111,25 @@
+
+     status_code: Optional[int] = attribute(
+         indexed=True,
++        index_partial_by_entity=True,
+         default=None,
+         description="Optional HTTP status code (None for non-HTTP logs)",
+     )
+     event_code: str = attribute(
+         indexed=True,
++        index_partial_by_entity=True,
+         default="",
+         description="Machine-readable event identifier",
+     )
+     log_level: str = attribute(
+         indexed=True,
++        index_partial_by_entity=True,
+         default="INFO",
+         description="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL, CUSTOM, or custom levels)",
+     )
+     path: str = attribute(
+         indexed=True,
++        index_partial_by_entity=True,
+         default="",
+         description="Optional request path (empty for non-HTTP logs)",
+     )
+@@ -135,6 +139,7 @@
+     )
+     logged_at: datetime = attribute(
+         indexed=True,
++        index_partial_by_entity=True,
+         index_direction=-1,
+         default_factory=lambda: datetime.now(timezone.utc),
+         description="Timestamp when logged",

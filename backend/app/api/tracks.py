@@ -47,7 +47,7 @@ from app.services.pagination import DEFAULT_ENTITY_SORT, paginate_nodes_by_ids
 from app.services.permissions import (
     count_user_accessible_entries,
     count_user_accessible_entries_for_tracks,
-    get_user_accessible_tracks,
+    get_user_accessible_tracks_for_navigation,
     get_user_node,
     resolve_role,
 )
@@ -73,8 +73,19 @@ async def list_tracks(
     app_id: Optional[str] = None,
     include_total: bool = True,
     include_nav_hidden: bool = False,
+    include_entry_counts: bool = True,
+    include_details: bool = True,
 ) -> Dict[str, Any]:
     """List all tracks accessible to the current user (cursor pagination).
+
+    ``include_entry_counts=false`` skips the per-track ``entry_count``: computing it streams
+    every admitted entry of every track on the page (one track can hold ~18,000), so callers
+    that only need ids and titles (pickers, lookups, navigation) should not pay for it.
+
+    ``include_details=false`` skips ``operational_model_defaults``: resolving each Track's
+    operational-model profile costs about 5 ms per Track and only the Track detail screens
+    read it. ``anchor_source`` is always attached (screens split entry-spawned Tracks from
+    curated ones with it). Lookup lists (sidebar, pickers, widgets) should not pay for it.
 
     By default omits tracks with ``nav_visible=False``. Pass
     ``include_nav_hidden=true`` when the caller needs internal / line-item
@@ -87,7 +98,7 @@ async def list_tracks(
         # principal still failed to resolve — surface it (see
         # test_list_endpoints_auth_envelope).
         raise MissingAuthenticationError(message="Authentication required")
-    tracks = await get_user_accessible_tracks(user_id)
+    tracks = await get_user_accessible_tracks_for_navigation(user_id)
     if not include_nav_hidden:
         tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
     # W5: server-enforce the active workspace scope from
@@ -160,16 +171,52 @@ async def list_tracks(
     # count + parent_app + operational_model + anchor). Lift to per-track
     # parallel: each track's 4 attaches run together (asyncio.gather),
     # and all N tracks run in parallel against the now-indexed substrate.
-    counts = await count_user_accessible_entries_for_tracks(user_id, page_tracks)
+    # Entry counts walk every admitted entry of every track on the page (the
+    # largest track in a payroll workspace has ~18,000). With navigation
+    # snapshots on, counts are reused for the snapshot TTL; otherwise this is
+    # the original single call.
+    from app.services import permissions_process_cache as _ppc
+
+    counts: Dict[str, int] = {}
+    to_count = list(page_tracks) if include_entry_counts else []
+    if include_entry_counts and _ppc.nav_snapshot_enabled():
+        to_count = []
+        for t in page_tracks:
+            cached = _ppc.get_nav_snapshot(user_id, f"nav_count:{t.id}")
+            if cached is None:
+                to_count.append(t)
+            else:
+                counts[t.id] = cached
+    if to_count:
+        count_generation = _ppc.generation(user_id)
+        fresh = await count_user_accessible_entries_for_tracks(user_id, to_count)
+        counts.update(fresh)
+        if _ppc.nav_snapshot_enabled():
+            for track_id, value in fresh.items():
+                _ppc.set_nav_snapshot(
+                    user_id,
+                    f"nav_count:{track_id}",
+                    value,
+                    expected_generation=count_generation,
+                )
 
     async def _enrich_one(t: Track) -> Dict[str, Any]:
         data = await export_node(t)
-        await asyncio.gather(
-            attach_parent_app_to_track_data(data, t),
-            attach_operational_model_defaults_to_track_data(data, t),
-            attach_anchor_source_to_track_data(data, t),
-        )
-        data["entry_count"] = counts[t.id]
+        # anchor_source is cheap and screens use it to tell entry-spawned Tracks (pay runs,
+        # line items) from curated ones, so it is always attached.
+        if include_details:
+            await asyncio.gather(
+                attach_parent_app_to_track_data(data, t),
+                attach_operational_model_defaults_to_track_data(data, t),
+                attach_anchor_source_to_track_data(data, t),
+            )
+        else:
+            await asyncio.gather(
+                attach_parent_app_to_track_data(data, t),
+                attach_anchor_source_to_track_data(data, t),
+            )
+        if include_entry_counts:
+            data["entry_count"] = counts[t.id]
         data["action_url"] = resolve_resource_action_url("track", t.id)
         return data
 
@@ -634,6 +681,18 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
     return {"message": "Track deleted successfully", "deleted_track_id": track_id}
 
 
+def _parse_sort_param(raw: Optional[str]) -> Optional[list]:
+    """``field`` or ``-field`` into the stored sort the list is ordered by; nothing when not given."""
+    import re
+
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if not re.fullmatch(r"-?[A-Za-z][A-Za-z0-9_.]{0,127}", text):
+        raise BadRequestError(message="Invalid sort")
+    return [(text.lstrip("-"), -1 if text.startswith("-") else 1)]
+
+
 @endpoint("/tracks/{track_id}/entries", methods=["GET"], auth=True, tags=["Tracks"])
 async def get_track_entries(
     request: Request,
@@ -646,8 +705,13 @@ async def get_track_entries(
     entry_ids: Optional[str] = None,
     include_total: bool = True,
     count_only: bool = False,
+    offset: int = 0,
+    sort: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get entries in a track, filtered by the user's visibility access.
+
+    ``offset`` pages by position (page number x ``limit``) and replaces the cursor; ``sort`` orders the whole
+    list before it is paged, as ``field`` or ``-field`` (``title``, ``updated_at``, ``custom_fields.<key>``).
 
     When ``view_id`` is provided, applies that view's entry-type constraint
     (``View.entry_type_keys``) so view tabs hide entries of unrelated types.
@@ -715,6 +779,8 @@ async def get_track_entries(
         include_total=include_total,
         count_only=count_only,
         entry_ids=selected_entry_ids(entry_ids),
+        offset=max(0, int(offset or 0)),
+        order_by=_parse_sort_param(sort),
     )
     if count_only:
         return {"total": response["total"]}
@@ -722,6 +788,60 @@ async def get_track_entries(
     response["entries"] = enriched
     response["track_id"] = track_id
     return response
+
+
+@endpoint("/tracks/{track_id}/facets", methods=["GET"], auth=True, tags=["Tracks"])
+async def get_track_facets(
+    request: Request,
+    track_id: str,
+    field: str,
+    q: Optional[str] = None,
+    limit: int = 50,
+    view_id: Optional[str] = None,
+    dashboard_filters: Optional[str] = None,
+) -> Dict[str, Any]:
+    """The values one field holds across the entries the caller can read, with counts: what a filter menu lists.
+
+    ``dashboard_filters`` are the other active filters (as on the entries list), so each count is how many
+    entries would remain. Bounded: ``truncated`` says a very large list was only partly counted.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="track.read",
+        resource=Resource(kind="track", id=track_id, scope=f"track:{track_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    from app.models.nodes import View as ViewNode
+    from app.services.entry_facets import facet_values
+
+    parsed = None
+    if dashboard_filters:
+        import json
+
+        try:
+            parsed = json.loads(dashboard_filters)
+        except (TypeError, ValueError) as exc:
+            raise BadRequestError(message="Invalid filter") from exc
+        if (
+            not isinstance(parsed, list)
+            or len(parsed) > 8
+            or any(not isinstance(i, dict) for i in parsed)
+        ):
+            raise BadRequestError(message="Invalid filter")
+    view_node = await ViewNode.get(view_id) if view_id else None
+    return await facet_values(
+        user_id,
+        track_id,
+        field,
+        filters=parsed,
+        view_node=view_node,
+        q=q or "",
+        limit=limit,
+    )
 
 
 @endpoint(

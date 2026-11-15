@@ -285,6 +285,36 @@ def test_core_capability_snapshot_is_deterministic(
     ]
 
 
+def test_core_manifest_version_reuses_unchanged_source_and_refreshes_edits(
+    tmp_path, monkeypatch
+):
+    from unittest.mock import Mock
+
+    import yaml
+
+    source = tmp_path / "tool_manifest.yaml"
+    source.write_text("manifest_version: first\n")
+    monkeypatch.setattr("app.agentive.tooling.manifest.DEFAULT_MANIFEST_PATH", source)
+    monkeypatch.setattr(
+        "app.agentive.tooling.catalogue.build_tool_catalogue", lambda: []
+    )
+    parse = Mock(wraps=yaml.safe_load)
+    monkeypatch.setattr(yaml, "safe_load", parse)
+    execution_runs._core_manifest_version.cache_clear()
+    assert (
+        execution_runs.build_core_capability_snapshot()["manifest_version"] == "first"
+    )
+    assert (
+        execution_runs.build_core_capability_snapshot()["manifest_version"] == "first"
+    )
+    assert parse.call_count == 1
+    source.write_text("manifest_version: updated\n")
+    assert (
+        execution_runs.build_core_capability_snapshot()["manifest_version"] == "updated"
+    )
+    assert parse.call_count == 2
+
+
 def test_finalized_snapshot_records_declarations_deterministically() -> None:
     """Persisted app and connector declarations participate in the contract."""
     draft = {

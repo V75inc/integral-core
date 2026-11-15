@@ -35,7 +35,7 @@ function openList(rect: { top: number; bottom: number }, innerHeight = 800) {
     />
   );
   fireEvent.click(screen.getByRole('button', { name: 'Pipeline status' }));
-  return screen.getByRole('listbox');
+  return screen.getByRole('listbox').parentElement!;
 }
 
 it('opens upward when there is no room below the trigger', () => {

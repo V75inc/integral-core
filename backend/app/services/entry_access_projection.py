@@ -22,6 +22,7 @@ from app.exceptions import AuthorizationUnavailableError, BadRequestError
 from app.models.edges import COLLABORATES_ON, CONTAINS, EXCLUDED_FROM, OWNS
 from app.models.nodes import Entry, Track, Workspace
 from app.services.authority_facts import relationship_literal
+from app.services.perf_trace import perf_traced
 from app.services.resource_location import (
     DATA_APP_STATES,
     ResourceLocation,
@@ -64,6 +65,12 @@ async def configure_entry_count_projection(
 ) -> bool:
     """Attach the existing projection, or backfill during explicit maintenance."""
     database = get_default_context().database
+    from app.services.storage_indexes.runtime import managed
+
+    if rebuild and managed():
+        raise ValueError(
+            "Managed projection rebuild requires an operator maintenance plan"
+        )
     name = (
         "install_graph_binding_projection"
         if rebuild
@@ -708,6 +715,7 @@ async def iter_records(
 
 
 @_unavailable_on_source_error
+@perf_traced("entries.hydration")
 async def hydrate_records(records: list[dict]) -> list[Entry]:
     """An admitted row that cannot materialize is unavailable, never invisible."""
     context = get_default_context()

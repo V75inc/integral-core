@@ -333,7 +333,7 @@ Use `type: member` to refer to an account. Materialize HAS_MEMBER_REF and valida
 
 ## Events, audit, and review
 
-All change emission uses `emit_change_event`; no direct competing logger writes. Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types.
+All change emission uses `emit_change_event`; no direct competing logger writes. Transactional resource writes may capture durable `OperationEventOutbox` intent through their canonical command instead; audit persistence and consumers run in the independent event worker after commit. A successful save never waits for delivery. Refusal audit evidence remains independent of rejected writes. See [event worker](backend/event-worker.md). Internal actor recursion bypass stays in process and must not leak into stored audit or observability. High-fan-out denial/cascade actions can suppress websocket push while retaining audit. Introspection extends additively without changing existing key types.
 
 ### I-APPROVAL-01 — Reviewed re-entry is narrowly guarded
 
@@ -570,6 +570,21 @@ targets leave the source fields, revision and relation edges unchanged. Existing
 invalid links are not silently removed by this check; historical repair and
 cross-worker revocation qualification remain separate gates.
 
+### I-APP-06 — Declared read-only cross-App reads
+
+An App's screens (queries and read operations) read only their own App. An App
+may opt in per dependency with `requires_apps: [{key, read: true}]`;
+`OperationContext.for_app(key)` then returns a read-only context bound to that
+required App. The declaration must be in the declaring App's active definition,
+the target must be an active install in the same workspace (I-APP-05) and not
+the declaring App, and `read` must be exactly `true`. Reads through the bound
+context use the target App's own scope and the viewer's own roles, exactly as
+the target's own screens would; nothing is written through it, and agent and
+connector actors are refused. Declaring a dependency without `read: true`
+grants nothing. Generic reads, governed queries, retrieval and the frame
+protocol stay bound to the declaring App. Verification:
+`tests/test_declared_app_reads.py`.
+
 ### I-CRUD-01 — Service-layer canonical mutations
 
 Routes delegate persisted writes to named services; direct graph creation/connection in API modules is forbidden. Internal operations use the appropriate shared writer, not a second mutation implementation. Staged-index guards and behavior tests enforce this boundary.
@@ -644,9 +659,9 @@ Each catalog package directory contains operational-model.yaml. Missing manifest
 
 Every declared skill has the required skills/{key}/SKILL.md file or the validated explicit standard path. Missing files are excluded with diagnostics, never silently granted instructions.
 
-### I-BUNDLE-03 — Production Python signature gate
+### I-BUNDLE-03 — Production executable package signature gate
 
-When the public verification key is configured, Python-shipping bundles require successful signature verification for admission. Record identity and rejection reason without key disclosure.
+When the public verification key is configured, Python-shipping and native UI JavaScript packages require successful signature verification for admission. Native React execution additionally requires operator-admitted publisher/package identity, an exact signed UI declaration and matching artifact digest, even without the legacy bundle key. A manifest trust label or resident approval cannot grant native execution. Unsigned UI is restricted to an explicit operator development allowlist with DEBUG enabled. Record rejection reasons without key disclosure. See [React App UI](platform/react-app-ui.md).
 
 ### I-BUNDLE-04 — Directory/slug agreement
 

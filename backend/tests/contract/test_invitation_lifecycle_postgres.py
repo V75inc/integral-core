@@ -415,6 +415,13 @@ async def test_two_invitations_to_same_target_have_distinct_durable_event_identi
         )
         assert first_error is None and second_error is None
         assert first_result.audit_outbox_id != second_result.audit_outbox_id
+        assert emitted == []  # Requests commit facts; workers persist the audit.
+        from app.services.app_operations.event_outbox import deliver_operation_event
+
+        for invitation in (first_result, second_result):
+            assert await deliver_operation_event(
+                outbox_id=invitation.audit_outbox_id, database=postgres_raw_db
+            )
         assert len(emitted) == 2
         assert {event["after"]["id"] for event in emitted} == {first.id, second.id}
         assert {event["resource_id"] for event in emitted} == {track.id}

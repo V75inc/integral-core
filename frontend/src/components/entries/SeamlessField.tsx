@@ -1,3 +1,4 @@
+import { RemoteRelationField, type RelationSource } from './relations/RemoteRelationField';
 import { useContext, useState, type ReactNode } from 'react';
 import { Pencil, X } from 'lucide-react';
 import { AppSelect, DatePicker } from '../ui';
@@ -63,6 +64,9 @@ export interface SeamlessFieldProps {
   onChange: (value: unknown) => void;
   relationChoices?: SeamlessFieldRelationChoice[];
   relationLoading?: boolean;
+  relationSource?: RelationSource;
+  relationFooter?: ReactNode;
+  onRelationOpen?: (open: boolean) => void;
   /** Other fields on this entry type, used to evaluate a computed expression. */
   siblingFields?: OperationalModelFieldSpec[];
   /** Current values of those fields, including unsaved edits. */
@@ -171,8 +175,8 @@ function SeamlessShell({
   return (
     <div
       className={`
-        relative rounded-md border transition-[border-color,background-color] duration-fast
-        ${active ? 'border-[var(--panel-border)] bg-[var(--panel)]' : 'border-transparent bg-transparent hover:bg-[var(--panel-2)]'}
+        relative rounded-[var(--radius-input)] border transition-[border-color,background-color] duration-fast
+        ${active ? 'border-[var(--text-muted)] bg-[var(--field-bg)]' : 'border-[var(--field-border)] bg-[var(--field-bg)] hover:border-[var(--field-border-hover)]'}
         ${className}
       `}
       aria-required={required || undefined}
@@ -216,6 +220,8 @@ function LegacyField(props: SeamlessFieldProps) {
     memberFormUpload,
   } = props;
   const v = value;
+  // A label set on the field itself, then any a caller supplies (a board's own column names win).
+  const labels = { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) };
   if (field.type === 'boolean') {
     return (
       <label className="flex items-center gap-2 pl-3 text-sm text-[var(--text)]">
@@ -233,7 +239,7 @@ function LegacyField(props: SeamlessFieldProps) {
     const enumStrings = (field.enum ?? []) as string[];
     const opts = enumStrings.map(opt => ({
       value: opt,
-      label: resolveEnumOptionLabel(opt, enumLabels),
+      label: resolveEnumOptionLabel(opt, labels),
     }));
     return (
       <>
@@ -272,7 +278,7 @@ function LegacyField(props: SeamlessFieldProps) {
                     onChange(next);
                   }}
                 />
-                {resolveEnumOptionLabel(opt, enumLabels)}
+                {resolveEnumOptionLabel(opt, labels)}
               </label>
             ))
           )}
@@ -473,7 +479,7 @@ function SeamlessSelectInner({
   const enumStrings = (field.enum ?? []) as string[];
   const opts = enumStrings.map(opt => ({
     value: opt,
-    label: resolveEnumOptionLabel(opt, enumLabels),
+    label: resolveEnumOptionLabel(opt, { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) }),
   }));
   const hasValue = hasMeaningfulValue(value, field.type);
   const [hovered, setHovered] = useState(false);
@@ -575,7 +581,7 @@ function SeamlessMultiSelectInner({
                   }
                 `}
               >
-                {resolveEnumOptionLabel(opt, enumLabels)}
+                {resolveEnumOptionLabel(opt, { ...(field.enum_labels ?? {}), ...(enumLabels ?? {}) })}
               </button>
             );
           })}
@@ -596,6 +602,9 @@ function SeamlessRelationManyInner({
   readonly,
   onNavigate,
   navContext,
+  onOpenChange,
+  footer,
+  onSearchChange,
 }: {
   externalLabel?: boolean;
   field: OperationalModelFieldSpec;
@@ -607,6 +616,9 @@ function SeamlessRelationManyInner({
   readonly: boolean;
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
+  onOpenChange?: (open: boolean) => void;
+  footer?: ReactNode;
+  onSearchChange?: (query: string) => void;
 }) {
   const emptyHint =
     field.key === 'tasks' && opts.length === 0 && !relationLoading
@@ -623,6 +635,9 @@ function SeamlessRelationManyInner({
         onChange={onChange}
         options={opts}
         loading={relationLoading}
+        onOpenChange={onOpenChange}
+        footer={footer}
+        onSearchChange={onSearchChange}
         placeholder={placeholder}
         readonly={readonly}
         emptyHint={emptyHint}
@@ -644,6 +659,8 @@ function SeamlessRelationSingleInner({
   readonly,
   onNavigate,
   navContext,
+  onOpenChange,
+  footer,
   searchable,
   onSearchChange,
 }: {
@@ -657,6 +674,8 @@ function SeamlessRelationSingleInner({
   readonly: boolean;
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
+  onOpenChange?: (open: boolean) => void;
+  footer?: ReactNode;
   searchable?: boolean;
   onSearchChange?: (query: string) => void;
 }) {
@@ -741,6 +760,9 @@ function SeamlessRelationSingleInner({
             onValueChange={val => { onChange(val || null); setEditing(false); }}
             searchable={searchable}
             onSearchChange={onSearchChange}
+            remoteSearch={Boolean(onOpenChange)}
+            onOpenChange={onOpenChange}
+        footer={footer}
             disabled={readonly}
             placeholder={placeholder}
             options={[
@@ -1177,6 +1199,9 @@ function SeamlessFieldInner(props: SeamlessFieldProps) {
           onChange={onChange}
           opts={relationChoices}
           relationLoading={relationLoading}
+          onOpenChange={props.onRelationOpen}
+        footer={props.relationFooter}
+          onSearchChange={props.onRelationSearch}
           placeholder={
             field.key === 'tasks' ? tasksPlaceholder : (placeholder || `Select ${field.name || 'options'}…`)
           }
@@ -1200,6 +1225,8 @@ function SeamlessFieldInner(props: SeamlessFieldProps) {
         navContext={navContext}
         searchable={searchable}
         onSearchChange={props.onRelationSearch}
+        onOpenChange={props.onRelationOpen}
+        footer={props.relationFooter}
       />
     );
   }
@@ -1321,7 +1348,7 @@ function SeamlessFieldInner(props: SeamlessFieldProps) {
  * "Pipeline status *"). The flag is published via context so every inner honors it
  * without each one threading the prop.
  */
-export function SeamlessField(props: SeamlessFieldProps) {
+function SeamlessFieldBase(props: SeamlessFieldProps) {
   const mode = useExperienceMode();
   const lifecycle = useContributionLifecycle();
   // Required or populated data remains visible in Simple mode, including
@@ -1341,4 +1368,12 @@ export function SeamlessField(props: SeamlessFieldProps) {
       {props.field.help ? <div className="space-y-1">{control}<Text variant="body-sm" tone="muted">{props.field.help}</Text></div> : control}
     </ExternalLabelContext.Provider>
   );
+}
+
+export function SeamlessField(props: SeamlessFieldProps) {
+  if (props.relationSource && props.field.type === 'relation' &&
+      (props.field.relation?.target || 'entry') === 'entry') {
+    return <RemoteRelationField props={props} render={next => <SeamlessFieldBase {...next} />} />;
+  }
+  return <SeamlessFieldBase {...props} />;
 }

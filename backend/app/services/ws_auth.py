@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import WebSocket
 
-from app.services.ws_ticket import redeem_ws_ticket
+from app.services.ws_ticket import redeem_ws_ticket_shared
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ async def resolve_websocket_user_id(websocket: WebSocket) -> Optional[str]:
     """Resolve user id from ``?ticket=`` (preferred) or legacy ``?token=`` JWT."""
     ticket = websocket.query_params.get("ticket", "")
     if ticket:
-        user_id = redeem_ws_ticket(ticket)
+        user_id = await redeem_ws_ticket_shared(ticket)
         if user_id:
             return user_id
         logger.warning("WebSocket ticket auth failed: invalid or expired ticket")

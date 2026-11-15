@@ -14,6 +14,8 @@ not mint from it. These tests pin that separation: the declaration survives
 compilation, and provisioning still creates no link.
 """
 
+from copy import deepcopy
+
 import pytest
 
 from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, OWNS
@@ -116,7 +118,10 @@ def test_compiler_carries_public_share_onto_track_specs():
 
 
 @pytest.mark.asyncio
-async def test_declared_intent_is_offered_as_the_enable_default():
+@pytest.mark.parametrize("component_fallback", [False, True])
+async def test_declared_intent_is_offered_as_the_enable_default(
+    monkeypatch, component_fallback
+):
     """The owner is offered the app author's permissions, not the UI defaults.
 
     An intake track declares create-only access. If the enable path fell back to
@@ -124,6 +129,22 @@ async def test_declared_intent_is_offered_as_the_enable_default():
     records the track was built to collect privately.
     """
     from app.services.track_public_share import declared_public_share
+
+    if component_fallback:
+        manifest = deepcopy(_MANIFEST)
+        manifest["app"]["tracks"][0]["entry_types"] = [
+            {
+                "name": "Document",
+                "ui_contributions": [
+                    {
+                        "placement": "entry_compose",
+                        "component_key": "document_composer",
+                        "fallback_view": "document_view",
+                    }
+                ],
+            }
+        ]
+        monkeypatch.setitem(globals(), "_MANIFEST", manifest)
 
     track = await _provisioned_track()
     declared = await declared_public_share(track)

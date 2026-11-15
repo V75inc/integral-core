@@ -392,3 +392,24 @@ async def test_generic_create_blocks_hook_changes_to_protected_state(
     assert error.value.details["error_code"] == "protected_field_write"
     assert error.value.details["fields"] == [key]
     assert not await Entry.find({"context.title": "hook-protected-default"})
+
+
+@pytest.mark.asyncio
+async def test_batch_create_makes_every_entry_in_one_command():
+    """``create_entries_in_track`` admits the batch once and saves each record, in order."""
+    from app.models.nodes import Entry
+    from app.services.entry_create import create_entries_in_track
+
+    user_id, track, et = await _bootstrap_track_with_type("typeid-batch@example.com")
+
+    made = await create_entries_in_track(
+        track=track,
+        user_id=user_id,
+        type_id=et.id,
+        items=[{"title": f"batch-{n}"} for n in range(3)],
+    )
+
+    assert [e.title for e in made] == ["batch-0", "batch-1", "batch-2"]
+    assert all(e.type_id == et.id for e in made)
+    found = await Entry.find({"context.title": {"$regex": "^batch-"}})
+    assert len(list(found or [])) == 3

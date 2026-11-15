@@ -162,3 +162,27 @@ async def test_new_uninstall_generation_is_not_suppressed_by_old_ack(postgres_ra
             assert rows[0]["context"]["generation"] != rows[1]["context"]["generation"]
         finally:
             clear_workspace_registrations(workspace.id)
+
+
+async def test_cleanup_for_a_deleted_workspace_clears_ram_without_error(
+    postgres_raw_db, monkeypatch, caplog
+):
+    """A workspace that no longer exists cannot fail authority on every boot."""
+    called = []
+    monkeypatch.setattr(
+        "app.services.hooks.registry.unregister_bundle_registrations",
+        lambda *args: called.append(args),
+    )
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        await cleanup.retain_bundle_cleanup(
+            app_id="n.App.orphan",
+            workspace_id="n.Workspace.deleted-long-ago",
+            bundle_slug="orphan",
+        )
+        with caplog.at_level("ERROR"):
+            assert await cleanup.deliver_bundle_cleanup(database=postgres_raw_db) == 0
+        assert called == [("n.Workspace.deleted-long-ago", "orphan")]
+        assert "Bundle cleanup remains pending" not in caplog.text
+        # Seen in this process: the next sweep does not repeat it.
+        assert await cleanup.deliver_bundle_cleanup(database=postgres_raw_db) == 0
+        assert len(called) == 1

@@ -139,10 +139,10 @@ async def _deliver_invitation_audit(invitation: Invitation) -> None:
     database = get_default_context().database
     if is_postgres_entry_transaction(database):
         return  # The outer command owns commit and outbox recovery.
-    from app.services.app_operations.event_outbox import deliver_operation_event
+    from app.services.app_operations.event_outbox import request_event_delivery
 
     try:
-        await deliver_operation_event(
+        await request_event_delivery(
             outbox_id=invitation.audit_outbox_id, database=database
         )
     except Exception:

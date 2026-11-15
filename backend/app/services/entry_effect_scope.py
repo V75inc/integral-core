@@ -17,6 +17,44 @@ class ExclusiveEntryCreateRequired(Exception):
     """Abort an optimistic create before retrying with exclusive admission."""
 
 
+def admission_is_shared(
+    *,
+    action: str,
+    target_kind: str,
+    payload: dict,
+    subject_kind: str,
+    shared_create: bool,
+) -> bool:
+    """Whether an Entry write is admitted under shared locks (peers may run beside it) or exclusive ones.
+
+    Shared admission still blocks anything that changes who may do what: those mutations take the exclusive lock and
+    wait for every shared holder. Exclusive admission serialises every write by the same person, so it is kept for
+    what may affect other records: a type change, and anything by an agent or connector.
+
+    Metadata-only updates and guarded standalone creates always share. When ``ENTRY_SHARED_ADMISSION_ENABLED`` is on,
+    a person's creates and updates that carry custom fields share too (their relations are still admitted and
+    read-checked inside the transaction, and the entry's own row stays locked for an update).
+    """
+    from app.config import settings
+
+    shared_fields = (
+        bool(settings.ENTRY_SHARED_ADMISSION_ENABLED) and subject_kind == "human"
+    )
+    update_shared = (
+        action == "entry.update"
+        and target_kind == "entry"
+        and "type_id" not in payload
+        and ("custom_fields" not in payload or shared_fields)
+    )
+    create_shared = (
+        action == "entry.create"
+        and target_kind == "track"
+        and subject_kind == "human"
+        and (shared_create or shared_fields)
+    )
+    return update_shared or create_shared
+
+
 @asynccontextmanager
 async def entry_effect_scope(
     *,
@@ -96,19 +134,12 @@ async def entry_effect_scope(
     service = (
         None if subject.kind == "human" else await delegated_subject_record(subject)
     )
-    # Type changes, custom fields and cascades may affect other records.
-    # Only metadata updates and guarded standalone creates can share admission.
-    shared = (
-        action == "entry.update"
-        and target_kind == "entry"
-        and "custom_fields" not in payload
-        and "type_id" not in payload
-    )
-    shared = shared or (
-        shared_create
-        and action == "entry.create"
-        and target_kind == "track"
-        and subject.kind == "human"
+    shared = admission_is_shared(
+        action=action,
+        target_kind=target_kind,
+        payload=payload,
+        subject_kind=subject.kind,
+        shared_create=shared_create,
     )
     with isolated_permissions_cache():
         async with identity_admission(participants, shared=shared):

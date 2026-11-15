@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from app.utils.time import utc_now_iso
 
@@ -43,6 +44,31 @@ HOOK_POINTS: frozenset = frozenset(
 #     ordered by registration order (bundle install order).
 _TOOLS: Dict[str, Dict[str, Dict[str, Any]]] = {}
 _HOOKS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+
+# Entry-save hook tools an App has asked to skip for the rest of the current
+# task, as (workspace_id, bundle_slug, tool_key). Set only through
+# ``ToolContext.suppress_own_save_hooks``, which admits the calling App's own
+# tools and nothing else. Context-local, so it follows the batch into the tasks
+# it spawns and never reaches another request.
+_SUPPRESSED_SAVE_HOOKS: ContextVar[FrozenSet[Tuple[str, str, str]]] = ContextVar(
+    "integral_suppressed_save_hooks", default=frozenset()
+)
+
+
+def save_hook_suppressed(workspace_id: str, spec: Dict[str, Any]) -> bool:
+    """True when the App owning ``spec`` asked to skip this save hook here.
+
+    The bundle is read from the registered spec, so an App can only ever
+    silence its own tools; another App's hooks on the same records still run.
+    """
+    held = _SUPPRESSED_SAVE_HOOKS.get()
+    if not held:
+        return False
+    return (
+        str(workspace_id or ""),
+        str(spec.get("_bundle_slug") or ""),
+        str(spec.get("key") or ""),
+    ) in held
 
 
 def register_workspace_tools(
@@ -241,20 +267,32 @@ class ToolContext:
 
     async def get_entry(self, entry_id: str):
         """Fetch an Entry node by id (scoped to caller's workspace access)."""
+        if not self.workspace_id or not isinstance(entry_id, str) or not entry_id:
+            return None
+        from jvspatial.core.context import get_default_context
+
         from app.middleware.permissions_cache import isolated_permissions_cache
         from app.models.nodes import Entry
-        from app.services.permissions import resolve_role
+        from app.services.entry_access_projection import admit_records, hydrate_records
+        from app.services.resource_location import ACTIVE_APP_STATES
+        from app.services.workspace_governance import ordinary_authority_only
 
-        with isolated_permissions_cache():
-            if not await self._resource_in_scope("entry", entry_id):
-                return None
-            ent = await Entry.find_one({"id": entry_id})
-            if (
-                ent is None
-                or await resolve_role(self.user_id, "entry", entry_id) is None
-            ):
-                return None
-            return ent
+        # Admit the selected current row through the same authority proof as
+        # bulk reads. A separate location walk followed by scalar role
+        # resolution repeats the complete ancestry traversal on every hook read.
+        with ordinary_authority_only(), isolated_permissions_cache():
+            rows = await get_default_context().database.find(
+                "node", {"id": entry_id, "entity": Entry._entity_name()}, limit=2
+            )
+            admitted = await admit_records(
+                self.user_id,
+                rows,
+                workspace_id=self.workspace_id,
+                app_id=str(getattr(self, "app_id", "") or "") or None,
+                allowed_app_states=ACTIVE_APP_STATES,
+            )
+            entries = await hydrate_records(admitted)
+            return entries[0] if entries else None
 
     async def get(self, object_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Fetch a serialized object by ObjectRef-shaped dict (ToolContext v2)."""
@@ -369,6 +407,61 @@ class ToolContext:
             ):
                 scoped.extend(await hydrate_records(records))
         return scoped
+
+    async def find_entry_values(
+        self, query: Dict[str, Any], fields: List[str]
+    ) -> List[dict]:
+        """Exact authorized scalar projections without hydrating full entries."""
+        import re
+
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.entry_access_projection import iter_records
+        from app.services.resource_location import ACTIVE_APP_STATES
+        from app.services.workspace_governance import ordinary_authority_only
+
+        if not self.workspace_id:
+            raise ValueError("A workspace context is required")
+        if (
+            not isinstance(fields, list)
+            or not fields
+            or len(fields) > 20
+            or any(
+                not isinstance(field, str)
+                or field == "id"
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,127}", field)
+                for field in fields
+            )
+        ):
+            raise ValueError("Select one to twenty App custom fields")
+        values = []
+        with ordinary_authority_only(), isolated_permissions_cache():
+            async for records in iter_records(
+                self.user_id,
+                query,
+                workspace_id=self.workspace_id,
+                app_id=str(getattr(self, "app_id", "") or "") or None,
+                allowed_app_states=ACTIVE_APP_STATES,
+                projection=["context.custom_fields." + field for field in fields],
+            ):
+                for row in records:
+                    custom = row.get("context", {}).get("custom_fields") or {}
+                    values.append(
+                        {
+                            "id": row["id"],
+                            **{field: custom.get(field) for field in fields},
+                        }
+                    )
+        return values
+
+    def track_write_scope(self, track_id: str):
+        """Fence this App's collection checks until the surrounding command commits.
+
+        Use async with; this orders writers without allocating values or
+        granting mutation authority. Read-only contexts are refused.
+        """
+        from app.services.track_write_scope import app_track_write_scope
+
+        return app_track_write_scope(self, track_id)
 
     async def read_entry_records(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Read a bounded App page or stream an explicit authorized count."""
@@ -1273,6 +1366,40 @@ class ToolContext:
             },
         )
         return await run_tool(spec, dict(payload or {}), callee_ctx)
+
+    def suppress_own_save_hooks(self, tool_keys: Iterable[str]) -> Token:
+        """Skip some of this App's own entry-save hooks until released.
+
+        For a batch that already does what those hooks would do (for example
+        a filing built in one pass, whose per-line hooks would only step
+        aside). Skipped hooks are not dispatched at all, so nothing runs and
+        nothing is audited for them. Only the calling App's own tools may be
+        named; other Apps' hooks keep firing. Pass the returned token to
+        ``release_save_hooks`` in a ``finally`` block.
+        """
+        caller = (self.bundle_slug or "").strip()
+        if not caller:
+            raise PermissionError(
+                "suppress_own_save_hooks: only a running app tool may do this"
+            )
+        if getattr(self, "read_only", False):
+            raise PermissionError("suppress_own_save_hooks: read-only context")
+        tools = get_workspace_tools(self.workspace_id)
+        keys = {str(k or "").strip() for k in tool_keys or ()}
+        keys.discard("")
+        for key in keys:
+            spec = tools.get(key)
+            if spec is None or str(spec.get("_bundle_slug") or "") != caller:
+                raise PermissionError(
+                    f"suppress_own_save_hooks: {key!r} is not a tool of this App "
+                    "in this workspace"
+                )
+        added = {(self.workspace_id, caller, key) for key in keys}
+        return _SUPPRESSED_SAVE_HOOKS.set(_SUPPRESSED_SAVE_HOOKS.get() | added)
+
+    def release_save_hooks(self, token: Token) -> None:
+        """Undo ``suppress_own_save_hooks`` (restores what was skipped before)."""
+        _SUPPRESSED_SAVE_HOOKS.reset(token)
 
     async def enqueue_job(
         self,

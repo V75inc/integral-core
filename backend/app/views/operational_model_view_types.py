@@ -365,6 +365,8 @@ _META_WIDGET_TYPES: List[ViewTypeSpec] = [
         ),
         config_schema={
             "extension_view_key": {"type": "string"},
+            "component_key": {"type": "string"},
+            "component_props": {"type": "object"},
         },
         scope="both",
         palette_group="extension",

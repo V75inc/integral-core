@@ -19,6 +19,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 
+async def _persist_and_deliver(**kwargs):
+    """Explicitly simulate delivery after persistence, independently of a save."""
+    from app.services.change_event import emit_change_event
+    from app.services.event_subscription_registry import broadcast_change_event
+
+    envelope = await emit_change_event(**kwargs)
+    await broadcast_change_event(envelope)
+    return envelope
+
+
 @pytest.mark.usefixtures("client")
 def test_ws_rejects_missing_token():
     """No ?token= → close 4001 (D-13).
@@ -34,9 +44,11 @@ def test_ws_rejects_missing_token():
     from app.main import app
 
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect("/api/events") as ws:
-            ws.receive_text()
+    with (
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect("/api/events") as ws,
+    ):
+        ws.receive_text()
     assert exc_info.value.code == 4001
 
 
@@ -49,9 +61,11 @@ def test_ws_rejects_invalid_token():
     from app.main import app
 
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect("/api/events?token=not-a-real-jwt") as ws:
-            ws.receive_text()
+    with (
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect("/api/events?token=not-a-real-jwt") as ws,
+    ):
+        ws.receive_text()
     assert exc_info.value.code == 4001
 
 
@@ -111,18 +125,17 @@ def test_ws_path_is_core_not_agentive_gated():
 
 @pytest.mark.asyncio
 async def test_emit_change_event_reaches_registered_subscriber(monkeypatch):
-    """End-to-end: emit_change_event resolves the registry import and broadcasts.
+    """A persisted event can be delivered separately to registered subscribers.
 
     Uses an in-memory mock WebSocket registered through register_subscription,
     monkeypatches the can_view_track helper so the permission filter passes,
-    then triggers emit_change_event directly. Asserts the mock received the
+    then explicitly delivers the persisted event. Asserts the mock received the
     JSON-serialized broadcast payload.
     """
     from app.schemas.policy import Decision as _Decision
     from app.services import event_subscription_registry as esr
-    from app.services.change_event import emit_change_event
 
-    async def always_allow(*args, **kwargs):
+    async def always_allow(*args: object, **kwargs: object):
         return _Decision(allowed=True, reason="test_bypass")
 
     # Plan 03-02 migrated the per-message filter to policy_engine.evaluate.
@@ -134,7 +147,7 @@ async def test_emit_change_event_reaches_registered_subscriber(monkeypatch):
     initial_keys = set(esr._subscriptions.keys())
     await esr.register_subscription("user-A", ws)
     try:
-        await emit_change_event(
+        await _persist_and_deliver(
             actor_kind="human",
             actor_id="actor-1",
             action="entry.create",
@@ -167,9 +180,8 @@ async def test_cross_tenant_emit_does_not_reach_unpermitted_subscriber(monkeypat
     """
     from app.schemas.policy import Decision as _Decision
     from app.services import event_subscription_registry as esr
-    from app.services.change_event import emit_change_event
 
-    async def fake_deny(*args, **kwargs):
+    async def fake_deny(*args: object, **kwargs: object):
         return _Decision(allowed=False, reason="test_deny")  # A cannot view ANY track
 
     # Plan 03-02 migrated the per-message filter to policy_engine.evaluate.
@@ -182,7 +194,7 @@ async def test_cross_tenant_emit_does_not_reach_unpermitted_subscriber(monkeypat
     initial_keys = set(esr._subscriptions.keys())
     await esr.register_subscription("user-A", ws)
     try:
-        await emit_change_event(
+        await _persist_and_deliver(
             actor_kind="human",
             actor_id="actor-other",
             action="entry.create",
@@ -205,11 +217,10 @@ async def test_revocation_mid_session_stops_subsequent_broadcasts(monkeypatch):
     """D-07 invariant exercised through the emit path (not just registry unit)."""
     from app.schemas.policy import Decision as _Decision
     from app.services import event_subscription_registry as esr
-    from app.services.change_event import emit_change_event
 
     state = {"granted": True}
 
-    async def fake_evaluate(*args, **kwargs):
+    async def fake_evaluate(*args: object, **kwargs: object):
         return _Decision(
             allowed=state["granted"],
             reason="test_granted" if state["granted"] else "test_revoked",
@@ -225,7 +236,7 @@ async def test_revocation_mid_session_stops_subsequent_broadcasts(monkeypatch):
     initial_keys = set(esr._subscriptions.keys())
     await esr.register_subscription("user-A", ws)
     try:
-        await emit_change_event(
+        await _persist_and_deliver(
             actor_kind="human",
             actor_id="actor-1",
             action="entry.create",
@@ -240,7 +251,7 @@ async def test_revocation_mid_session_stops_subsequent_broadcasts(monkeypatch):
 
         state["granted"] = False  # revoke
 
-        await emit_change_event(
+        await _persist_and_deliver(
             actor_kind="human",
             actor_id="actor-1",
             action="entry.update",

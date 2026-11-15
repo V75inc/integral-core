@@ -117,7 +117,7 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
           </div>
         </Stack>
       </form>}
-      {data.effective.harness_policy && !data.effective.harness_policy.recommended && <Text as="p" variant="body-sm" tone={data.effective.harness_policy.tier === "light" ? "warn" : "muted"}>{data.effective.harness_policy.message}</Text>}
+      {available && data.effective.harness_policy && !data.effective.harness_policy.recommended && <Text as="p" variant="body-sm" tone={data.effective.harness_policy.tier === "light" ? "warn" : "muted"}>{data.effective.harness_policy.message}</Text>}
       {!readOnly && <Text as="p" variant="meta" tone="muted">API usage is billed by your provider.</Text>}
     </Stack>
   </Surface>;

@@ -11,6 +11,7 @@
 
 import type { Crumb } from '../components/ui';
 import type { Track } from '../types';
+import { LOADING_LABEL } from '../components/layout/stitchLayoutCrumbs';
 import { humanizeFieldKey } from './humanizeFieldKey';
 
 export type BreadcrumbFromParent = {
@@ -29,7 +30,7 @@ export function buildTrackBreadcrumbs(
   }
 ): Crumb[] {
   if (!track) {
-    return [{ label: 'Tracks', to: '/tracks' }, { label: 'Loading…' }];
+    return [{ label: 'Tracks', to: '/tracks' }, { label: LOADING_LABEL }];
   }
 
   const appCrumb: Crumb[] = track.app
@@ -99,9 +100,15 @@ export function buildTrackBreadcrumbs(
     ];
   }
 
+  // An App whose only Track has the App's own name (Documents > Documents) reads
+  // as a repeat: keep the more specific Track crumb.
+  const sameName =
+    track.app &&
+    (track.app.name || '').trim().toLowerCase() ===
+      (track.title || '').trim().toLowerCase();
   return [
     { label: 'Tracks', to: '/tracks' },
-    ...appCrumb,
+    ...(sameName ? [] : appCrumb),
     entryCrumb.length
       ? {
           label: track.title || 'Untitled',

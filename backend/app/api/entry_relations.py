@@ -153,7 +153,12 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
             entry_type_filters.append(extra.strip())
     cursor = request.query_params.get("cursor")
     raw_limit = request.query_params.get("limit")
-    paginated = bool(cursor) or raw_limit is not None
+    # ``offset`` lets a page-numbered list jump to any page; it takes the place of the cursor.
+    try:
+        offset = max(0, int(request.query_params.get("offset") or 0))
+    except ValueError:
+        offset = 0
+    paginated = bool(cursor) or raw_limit is not None or offset > 0
     try:
         limit = int(raw_limit) if raw_limit is not None else 50
     except ValueError:
@@ -175,10 +180,14 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
     # with payslips could hide the matching NIS/PAYE filings entirely.
     if entry_type_filters:
         typed_related = []
+        # One lookup per entry type, not per related record (a pay run has hundreds of payslips of one type).
+        type_names: Dict[str, Any] = {}
         for source in related_in:
             if not isinstance(source, Entry) or not getattr(source, "type_id", None):
                 continue
-            source_et = await EntryType.get(source.type_id)
+            if source.type_id not in type_names:
+                type_names[source.type_id] = await EntryType.get(source.type_id)
+            source_et = type_names[source.type_id]
             if source_et and any(
                 _slug(str(source_et.name)) == _slug(entry_type)
                 for entry_type in entry_type_filters
@@ -187,6 +196,7 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
         related_in = typed_related
     next_cursor: Any = None
     has_more = False
+    total_related = 0
     if paginated:
         from app.services.pagination import paginate_list
 
@@ -194,6 +204,11 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
         related_in.sort(
             key=lambda n: (getattr(n, "created_at", "") or "", n.id), reverse=True
         )
+        total_related = len(related_in)
+        if offset > 0:
+            # Page by position: the cursor is not used, and the next cursor still follows this page.
+            related_in = related_in[offset:]
+            cursor = None
         related_in, next_cursor, has_more = paginate_list(
             related_in,
             cursor,
@@ -386,6 +401,8 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
     if paginated:
         response["next_cursor"] = next_cursor
         response["has_more"] = has_more
+        # Records related to this one (before per-record visibility): what a page-numbered list counts pages by.
+        response["total"] = total_related
     return response
 
 

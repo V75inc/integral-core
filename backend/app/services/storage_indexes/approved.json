@@ -1,0 +1,2579 @@
+{
+  "version": 1,
+  "indexes": [
+    {
+      "logical_id": "OpenBuildBatch:object_openbuildbatch_context_session_id_idx",
+      "owner": "app.models.open_build_batch",
+      "fingerprint": "00007e7589ce35dd914cee4152066c4956ab680b77ad649048b2c3bfc6e7ff34",
+      "required": false
+    },
+    {
+      "logical_id": "Workspace:node_workspace_context_kind_context_created_at_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "01ebca424566eefb096f02bf43707f9ad16608e0322c78afa6c1bb3ecd0df2d4",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_step_idx",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "01f99d8c993e8dddf777c9c0e447b1447c1fa3bde654343d3a2f3897a7243b73",
+      "required": false
+    },
+    {
+      "logical_id": "RoutineTask:node_context_status_context_next_run_at_idx:keyset",
+      "owner": "app.agentive.nodes",
+      "fingerprint": "025a7d9fafedcdc3bae31edcedba19cec55b88fe69151c3dc5b96f8221bb2099",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_run_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "027d231913b5a808878262099676b525363ec2e28385bbb1df8ee646251e50bb",
+      "required": false
+    },
+    {
+      "logical_id": "integral_index_catalog:primary",
+      "owner": "core.storage",
+      "fingerprint": "02dada05a8f909479971255e7700e9ef41c3edad51b4309b45dc0ded095e5c2d",
+      "required": true
+    },
+    {
+      "logical_id": "WorkspaceEmailConfiguration:node_workspaceemailconfiguration_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "038e32589dcea9d421b561813a42ff1683eacd369ae02d48d0b834b42ff2f609",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_kind_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "0563612457c1d613ef1a498a7afcb7a7265f3476af5fab11c97b3df58496391e",
+      "required": false
+    },
+    {
+      "logical_id": "passage-scope",
+      "owner": "core.search",
+      "fingerprint": "0651ff7e001ca27f93c7fa5fee87ce3bf7c38505d9c2444dace5b8a7ce938845",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessMessageRecord:object_harnessmessagerecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "07dc07f064ef8dc25ee8385de58504840df73b6b05f7eb5ab66281dbf8f48b22",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_package_slug_idx:keyset",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "07f243d0960eb9413a01c2ba652de4952922cad31bfa72c4187d9d0fea6806ca",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_principal_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "09bb79408eb9ed1b298ab597135af5c740950a21bf8adcbfdabb27e9a81bac26",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_run_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "0b9df363eac6ac87ea8e6aac4b957db87f68f034483600d60f40ece59d7332a6",
+      "required": false
+    },
+    {
+      "logical_id": "WorkspaceEmailConfiguration:node_workspaceemailconfiguration_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "0be4b96224bf43bead4abcd29246a56a7c7131fb4d490a4482666871eb6748bb",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_expires_at_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "0ce4f554455713218aba830b625aed8c674977619d9ea3bb82d368065ea0e60c",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding_manifest:primary",
+      "owner": "core.search",
+      "fingerprint": "0e4e61f077490bf1ad91d99f76a44cf2de328260e93fed91fab5041e6e3f56ea",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "0e8b4f64d4d240d6122a399c99778c85a518c5fa642de9584f3d13141d276e5f",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_workspace_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "0edff3a5704456ec66eeac097b2d24244d0d3231f3c431b5c8d98b9240760f2b",
+      "required": false
+    },
+    {
+      "logical_id": "User:node_user_context_user_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "0f1037921ede43abc64c136cf1291ed6e7035354767a096ede3e0783475564c1",
+      "required": false
+    },
+    {
+      "logical_id": "ChangeEventTriggerCheckpoint:object_changeeventtriggercheckpoint_context_consumer_name_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "1021e9253718f8c866ff567cf7799a0de6c5e70f7eab98c43b7285c5b92aa17d",
+      "required": false
+    },
+    {
+      "logical_id": "object:primary",
+      "owner": "core.storage",
+      "fingerprint": "104ef66164157b8678dd61428aa0d03d8fb56f4d7066039e978af66693835253",
+      "required": true
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_status_idx:keyset",
+      "owner": "app.models.entitlement",
+      "fingerprint": "1110a0176de807f63e141cc548f46e6b6095a92311af052ae55134c1e81e7f5a",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_status_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "1154280788b89292e3eebf0b704b95c18a8e2c34456a6f127d312ba57da2c93e",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_workspace_id_idx:keyset",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "117bcb81ad5c89c5191bfae2cc3022a10c8a8d0352bfad152eb90b93a4982f40",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventCursor:object_harnesschateventcursor_context_work_item_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "121c5127e6aa7e440eabb864e37f19713b0ebf847200ae07b561a533b0a2ee64",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelConnection:object_usermodelconnection_context_user_id_idx:keyset",
+      "owner": "app.models.credentials",
+      "fingerprint": "12cef712e34221e55cc29bc13fd781adc976cb77e424183f1ea1b6e7cdf36fdd",
+      "required": false
+    },
+    {
+      "logical_id": "lexical-text",
+      "owner": "core.search",
+      "fingerprint": "12e06365a9d343c3c8cb39dc787949f57195686629425743844d0344ac91d36b",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "135e293a7515ae2c9c9677ba8ac5b5107fd337f528b48c0db3f085fe033aa20c",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "144f87760c1361239e5a042b39ed2b2ef733f450d6660575fbdf0f380f4612d6",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_session_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "156c521928f48eb130537d9f23a0f4034844eb72ddb8e890bbd4d4f762c7a2f0",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_run_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "16b89311f284bbed67982926e04621137c3934ca9aef0fd1e376f028eb866b52",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_state_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "174717b9b9e8d8bb855c83545e5a60a64494bf2ffe59e70cc9066eb14ebe7b6b",
+      "required": false
+    },
+    {
+      "logical_id": "Edge:edge_entity_target_idx",
+      "owner": "jvspatial.core.entities.edge",
+      "fingerprint": "174ec341c509fb40a19d84fc930fc98340fd864b14168532dc2c096ba4ea7a20",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_conversation_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "184a4f5fa05ba5258ff3f2b27f42db8800bce1539d58067224df94834a26888b",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding_passage:attachment",
+      "owner": "core.search",
+      "fingerprint": "18ed67d07907c34cb2f5ac853c3ecb3703707500198a0e5a54f6c2cb74c4d3ee",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_capability_hash_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "190f336a28f3975817f9dc82f8aed02847e68710e579b8da37df896b0c399bbc",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_context_entry_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "1955c93ce32f1e1c1389676dd0c02e6dfff78adba537df0999f4bf198022df12",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_path_context_logged_at_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "1a97681358c5efac1df79b9a73fc03379135e87a55cb59aa003f33d4749e8eaf",
+      "required": false
+    },
+    {
+      "logical_id": "entry:title:malformed",
+      "owner": "core.pagination",
+      "fingerprint": "1caec8c849b2e1cef40bf19a6cd4ad74fe3385b4443a52a3395c0240a3a51f80",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_workspace_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "1d89232c6c842ca7066a63ed35ed1086868e7e0f79ebf6da48e6d5a588fdb2c0",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_workspace_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "1dd2a8642b4000910a603b92fc42652375b81288f0cc335d31831ddc6cde3428",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_principal_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "1e78903455e53c42641f5eb52f2e63027483c598b8ed0a385558aa4867c1ee33",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding_lexical:type",
+      "owner": "core.search",
+      "fingerprint": "1f626bd67bf9b6c0a745a0f96078d5d1c4cbdd081d2117db27e13f5c1906d6e3",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_revision_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "2007883700f19359a51abf11adcb49b8f5f3d06d8422da10395b654e1aaee4b1",
+      "required": false
+    },
+    {
+      "logical_id": "object_operationeventoutbox_context_created_at_id_idx",
+      "owner": "core.events",
+      "fingerprint": "210ec1ec91ba5670529b8783e5ce39d29f421136066d287dd5a6120d1d54f3b6",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_event_code_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "2144c5a03c14e16f8a00608f06fbf085213bf06e27b7884984236666e85f3ebe",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_client_request_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "216706dc2bdf865d75cd51807da6537bcb4eba03eb1bcb443fa0524c7a9d69ee",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_work_item_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "22abec2a1c994a469c05350cdcab8cbabe3a6d2ead269fa3c8b69d792217f977",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "22c6581f0fcf548d848d73e9e534d3d678c8495489f077316d4d1bcb868b6db0",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_sequence_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "23aae84000df0ac46be76d6a9dd8351723748cc08ac24b0243f8383b9f1f367e",
+      "required": false
+    },
+    {
+      "logical_id": "WorkBudgetReservation:object_workbudgetreservation_context_root_work_item_id_idx:keyset",
+      "owner": "app.agentive.work_budget_models",
+      "fingerprint": "24ddbbe496ecb6cdee6108d235a9d1c39a40798a7b7e8df06be4bc3a8da9e10c",
+      "required": false
+    },
+    {
+      "logical_id": "node:primary",
+      "owner": "core.storage",
+      "fingerprint": "25f5ba87bf6f196dfec5bbb82e473c446cb54be69290299d71cf22dafc1102c3",
+      "required": true
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_thread_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "261483245091aaecbe708c68036bd0945844653b5de647865e99bee4e3bfc2a7",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_status_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "2653250ff975d6c4537a6e1b9d2a9b1add91847c934cf69de886521dd56b6bb3",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_email_norm_idx:keyset",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "26b560a6b6b9574aa2d05460bdb0c44f98e363e478373c523221be59a1ae498d",
+      "required": false
+    },
+    {
+      "logical_id": "DefinitionVector:object_definitionvector_context_created_at_idx",
+      "owner": "app.models.definition_vector",
+      "fingerprint": "2747e682c693082a8c7312ee935e715f88cd5dcb7fd3e2367a867046bfa5ec16",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_topic_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "290a6d9c3c3d3bd03556abb179bd3553764c7c435aa2528834062aec8a069e87",
+      "required": false
+    },
+    {
+      "logical_id": "Notification:node_notification_context_user_id_context_read_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "294ff26099b107568523da06bc0a339072da0bbceb6c4d23d66e6ca18794eebf",
+      "required": false
+    },
+    {
+      "logical_id": "WorkspaceApp:node_workspaceapp_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "296c2b7b093f86d20dca3ac1773911ec3a72449c4804566e8665591ccce66d2a",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_ca_3ad42c1249_idx",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "29d9d7084fec553b828ab0188ce141bd393e9e11f162d51db35bfde540412ce8",
+      "required": false
+    },
+    {
+      "logical_id": "Invitation:node_invitation_context_email_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "2a4f4ce48339fd8cae96389c1d1573c1ceec510a04000ea8d34ecfc2db008a41",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_work_item_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "2b104715805e80e7b40f96b52967d03b34376b58188a91123a5a02db7866d8b4",
+      "required": false
+    },
+    {
+      "logical_id": "WorkspaceApp:node_workspaceapp_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "2b75e899d21bf5e515e2b55781e05d249f66e4c382f3865fe059a3ad644b779a",
+      "required": false
+    },
+    {
+      "logical_id": "ShareLink:node_sharelink_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "2bd6e958ccb3e24a3521f580b62884e2d7062e6d5e6b8fed04ecc85271e889aa",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_workspace_id_idx:keyset",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "2e1fce4899c76b9decc0bebf0dbe9a8cbbc3a2e6c9bd413a92bde1f4d38aec9e",
+      "required": false
+    },
+    {
+      "logical_id": "Notification:node_notification_context_user_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "2e607012cb1661f69b7882b707b945665fa5f9b4930c42a7ef9f224e8c0e4de6",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_sequence_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "2ff7c57e2a33b654281786bfbb41f32437d2d987f63ddb85f5f4f1669352539a",
+      "required": false
+    },
+    {
+      "logical_id": "Edge:edge_entity_source_idx",
+      "owner": "jvspatial.core.entities.edge",
+      "fingerprint": "3040ebf742491b210de2182581846d21bda723e4bd146081ac93630b2a0f16c4",
+      "required": false
+    },
+    {
+      "logical_id": "View:node_view_context_track_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "324ffef41dbf02f2d00ce533d56cac44b8396b1de59ce70f17b2195a5079729d",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "3275febad05d49aa1976f3e254b1d5ef73af96ded7b0ef51277087b63545f03b",
+      "required": false
+    },
+    {
+      "logical_id": "edge:entity",
+      "owner": "core.storage",
+      "fingerprint": "3292d6c00b308ffa0d969bf356d63d9295238f47d90c1ad5db389c62937c6991",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventCursor:object_harnesschateventcursor_context_thread_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "3339e90091452020e923f22e8185f6c689f9fe4f34b0f5746ebc4a62df3ae467",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_created_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "366692d8a30dd10d3294c2cd38ef7425c2fbb2424817ff71d6cc264d6309a00c",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessMessageRecord:object_harnessmessagerecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "37a37768ee023987a6e766caf9ac63b8538b420ee0eaa87d6ff81546ce14e857",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_idempotency_key_idx:keyset",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "3851dc1d1c6511d5f4173785f764ebcefed3b984f61f7c8c900f08c712360dab",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "39c7c81f307169571700ce8813b887b224723da202b23683e25cbcdbb5df373a",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_definition_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "3aed091285c58ad2c72274fea3b8dca225a10d71bd01772dad2acbd672f58839",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "3b25b3d11c358fe02c9ec49d07bc00b9ca16f881d6e8108541a91fa7ea0ca1f3",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_package_slug_idx",
+      "owner": "app.models.entitlement",
+      "fingerprint": "3c562ff89eec110a74b63f537608a68e29a6c15fe897f89b05f1dc6d17c6ffcd",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_outbox_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "3c60234e9e5da571c6435ecbb840c27eba37657947aec95122c3a1578858b9b0",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_tool_call_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "3cc0d3eee4253e92fdc0db24dfe6273c2b405e815c4789d7a32f575882948550",
+      "required": false
+    },
+    {
+      "logical_id": "CatalogueGeneration:object_cataloguegeneration_context_generation_id_idx:keyset",
+      "owner": "app.models.catalogue_generation",
+      "fingerprint": "3ce492d10d881d2e81e522df1caed5357c55530a372fd216e7d215f5d3a5ca4e",
+      "required": false
+    },
+    {
+      "logical_id": "EntryType:node_entrytype_context_track_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "3dab37e39decb2fb673798e5718ca7ad695047a2ef25f93034134a484d65c2ff",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_revision_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "3de3cfadb09206ed7780386d078093d9c7680a13c6188cdbc01e6025f40cab12",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_log_data__b48960837f_idx",
+      "owner": "core.events",
+      "fingerprint": "3e15252224be44409fe1656c37fb2e812d74e2bac3c60bc2f5c5701112812286",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_work_item_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "3e49050b750215359b18fefa38eff49c7f7e8a7661ba049482fd95d55e6e9e97",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_status_code_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "3e611302b6df130aecd7b000e12497db6eeb315694e059e49122c540097a8bca",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_submission_id_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "3e931fbca846f5fa40bc82e24b9471eaec57585f6b028b0a0f639306f25e823f",
+      "required": false
+    },
+    {
+      "logical_id": "entry-index-job:fair-order",
+      "owner": "core.search",
+      "fingerprint": "3eea66ac4d7c10780ec09cf99ceefb5866a565acce9479de30c2214a1481b68d",
+      "required": false
+    },
+    {
+      "logical_id": "object_operationeventoutbox_context_status_conte_b014a07cc2_idx",
+      "owner": "core.events",
+      "fingerprint": "3eeb92b32013dbcb2f877def2c51a8fbaa48aaf3c6d3635140327480590cfc84",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_status_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "3f1cce5bbb2daa9c04dd4f5ee0646be9bc77655db7e189a53b767da7875e2d42",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_entry_id_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "3f8e38ffa32e34cbde57b4f405d546d3ac90536cdf4213e8474734ab1bc13286",
+      "required": false
+    },
+    {
+      "logical_id": "EventTriggerDeclaration:object_eventtriggerdeclaration_context_action_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "3fd76109f8273611cd4ce7839bdc52c7b005ff1e723492417526e99de5f23818",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_parent_run_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "40eb41575346e053261ed09cc9e690629d8160f365c6200a450aa0c05aacce8f",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_lease_expires_at_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "40f4353124bbd98804000282cae04a8260e59cab93e93da046662f0f30f00d9e",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_share_link_id_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "41105d2e5c98ffe1f206d4f75f708f8d0f2659533e03067433ffd9abb9fbe594",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_logged_at_id_idx:delivery-order",
+      "owner": "core.events",
+      "fingerprint": "417b74427f98ebca83c15e168b33596759c8724d264b96901804be6655d9c637",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_run_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "4180cb912596e6804ac9f7c00667bf61031b6d3eab7b2da3ee5efdaee93e19d0",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_expires_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "418b20adc4be64236f2eb4a698cd5889ea134c6732b998d34d1dabdf6bbacde5",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_form_id_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "41f34c8b1a464e86270d3c53f0bb2beb76229882f70223005316262ba061d4d1",
+      "required": false
+    },
+    {
+      "logical_id": "CatalogueGeneration:object_cataloguegeneration_context_status_idx",
+      "owner": "app.models.catalogue_generation",
+      "fingerprint": "42adaa5cc4dd35f26723d2bd8753cffd6f99bb06451f68a26c7a217f1916f077",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_principal_id_idx:keyset",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "42b68cf6e59c843b9a3f04ac34fa12d2ac971a2c457dee66ac8a3c297d670fc7",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_logged_at_id_idx:delivery-order",
+      "owner": "core.events",
+      "fingerprint": "431612abac8b7c5113477c1db96cb4d08c62f1ebbd5b770dc1efb947eb9d40d8",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_author_id_context_created_at_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "4353b151923e755f0ca0d69669b6d97e27bb6ace4e41c26e45e103c974cd77c8",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_record_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "44619d3e624e6096740d5857b5717447620a4e6183deb589276a36eae4b73a64",
+      "required": false
+    },
+    {
+      "logical_id": "edge:primary",
+      "owner": "core.storage",
+      "fingerprint": "452c7c70ad932b99f38de68e863f349b3ed5d2052b3b9dfa180f76159a08a89f",
+      "required": true
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_created_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "457db862671cb0c76870419543009585dff2b0c0bda23557bc6ccaaa834903af",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_run_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "46171d326cf348e3cc9de94db098fdb698e774dc527b98c8bcb393038b4aa6bf",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_path_context_logged_at_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "4649361484bbbc59cedebc31a32b00614ec42039c68d70487fb5d784e2e67fd8",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_work_item_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "46d0feecede8807dcba5f6ccd3fd94766eeb9ac8b3b266dea01934f578b554f9",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_thread_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "473de89df7a9016774d57c7095c9e96fa76181fa86c4599b54c2ae748c801e7c",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entity_context_workspace_id_context_entitlement_key_uniq",
+      "owner": "app.models.entitlement",
+      "fingerprint": "473f114e1f531f7d68c3f8551d0f3bcbf18f4aacff52055c82ff23b4bdc2e9c0",
+      "required": true
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_path_cont_05b0114156_idx:delivery-order",
+      "owner": "core.events",
+      "fingerprint": "48b8cd41a05a2c8afc919c3891c2b69138ca1c615a65b8718aa5dbdc50dda9d9",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_run_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "492290dcab1e60440fd5b8306eec33be0e93c8a46c389b3b637e88d9a6deec1e",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_entry__979a7c3763_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "4aff5932e915485c0896b517c7a1fda94ac03e0700451321f600046b7be46ff9",
+      "required": false
+    },
+    {
+      "logical_id": "WorkspaceModelConfiguration:node_workspacemodelconfiguration_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "4b3a82157d0b4b7be4a63b615a7fe8c5dcc311cf1d0eea7ac8c30bfd3d2762aa",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "4ce171f24ca7cbfca4d9ad8c7c4a7ee9ef56d630d34c05ea0d1931e2925d3818",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelProfile:object_usermodelprofile_context_user_id_idx",
+      "owner": "app.models.credentials",
+      "fingerprint": "4d245cdc652fc9ee1c7e0a93f1cca36eada5979644323f18b405ba5588d39f52",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_entitlement_key_idx",
+      "owner": "app.models.entitlement",
+      "fingerprint": "4d66f66ddaf90d38bd92842bd93ee685715aa5fbd70f7b6a0a29ea698644ed9e",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_workspace_id_idx:keyset",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "4d8d8f519b0de5640535bdb5a7ce155e7c02a704098410b90161fbb751e53fc2",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_principal_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "4d9aa2470740c1edb61aff2ca0970400da31622b4447f9573bd07652d8232d0f",
+      "required": false
+    },
+    {
+      "logical_id": "entry:title:ASC",
+      "owner": "core.pagination",
+      "fingerprint": "4e18b7a317b840af38d92d94d6f6a4e3448c765689291e35e9bec23445eb9423",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "4eb934666038acd572f082472cc40eeb3ff6fcabe26d07ca04426dfe8f2006e6",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_lease_expires_at_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "4ee57d4f2b0ee2fefc04cb505d2a12d279d5e927a0e1eafef7279bbcfcf7a2f7",
+      "required": false
+    },
+    {
+      "logical_id": "RunStep:object_runstep_context_idempotency_key_idx:keyset",
+      "owner": "app.agentive.services.execution_runs",
+      "fingerprint": "4f356174cf97597f9d5a469a9bc91be62af1ac2fcb09141754e9b1f7eb9343f7",
+      "required": false
+    },
+    {
+      "logical_id": "lexical-scope",
+      "owner": "core.search",
+      "fingerprint": "4f570825ed592ed6c2b313f907cfab3fa2847f9353e603ce769c961a9b1424e5",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_template_version_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "4fc89b71c868895a6b250f87e998a087b3faf15f8463795b0be9b3cdc6a36d5e",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_ca_3ad42c1249_idx:keyset",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "50309e1c0046f47ae09a65c9dfd03f768e70927c510153ed48f372d04910a2ab",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_request_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "50506bb0dcca2b3aaeda23e9a173704287667beb72589326b0138b2ef72e0c8e",
+      "required": false
+    },
+    {
+      "logical_id": "entry:title:DESC",
+      "owner": "core.pagination",
+      "fingerprint": "50865786170947014887d035f95a7b781ba7e8cdabee64d3214c78d7038e450a",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_status_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "50aacb0d796d68bef349df88c2c41495e251cffc5ec7853d04ed789d32bd7ded",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_accepted_message_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "50b14f52c7b9ca24595493b132f8fc9972f75b73811bb5b7c7c199c69781066e",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_submis_1af6ebe4cc_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "50c57990a658f4cf68e8d3b9e2fa901aac28c9bf6ba6144e1da56bf508f6ae7e",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_transition_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "50fc87293f2e2254d50c3fda591a4d90ca22fc320b36e46919c81b63b18ee7fe",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_occurred_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "51b552834ccb8267c31549263a6307d27f8cd735fd8b6e2cbfa0cebcb215596c",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_log_data__b48960837f_idx:delivery-order",
+      "owner": "core.events",
+      "fingerprint": "52f7975429d167d36ed64ea144d967ae5550a19c9e3c0329a5721fb198c034cb",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_occurred_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "52fbaee093249066e4bc24e3c48ce84cad29ebc8c3d66c03ebd8716e7be4e39d",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "5306e1dd8e3689ec640cd5ff81dccb31157edeef163b2c6489a641b8c28b7ed6",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_entitlement_key_idx:keyset",
+      "owner": "app.models.entitlement",
+      "fingerprint": "54816a13db4c4903addffbe04579cd7cc20065f97b88df4157a2c0e17b745b6c",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_path_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "548610b0a2f58fabc2a58ccbeb02dec51de14d3d82865e9d218efb0093feeeb5",
+      "required": false
+    },
+    {
+      "logical_id": "View:node_view_context_track_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "54950d0b32fc983a3e26248850e6719a58aa38a832f697b82c26736912ac8756",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_idempotency_key_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "54d2d5931ae2eabfaecd309d687cea2ffdb1e384c9142c0c7c3f57913529bd3b",
+      "required": false
+    },
+    {
+      "logical_id": "Notification:node_notification_context_user_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "5576db15e650945276eb22113618e3140305886b2161407cb5ec221abf42e273",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_log_data__b48960837f_idx:delivery-order",
+      "owner": "core.events",
+      "fingerprint": "56145ba460683df5f6e2a786f7c8d465d5e294ec86f26232b1d741a126f36d94",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelCredential:object_usermodelcredential_context_provider_idx:keyset",
+      "owner": "app.models.credentials",
+      "fingerprint": "56875cb5e60168bcd25aa36022ef29955b93070b84adbb7c6c9e834495ca60ec",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_su_cb30b455df_idx:keyset",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "56cf9486128e224c7c5de4f6c9484d5add8f6b21a49b866a07826d945f6edb95",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_path_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "57596b45e2a5a02d01f40d50390496b18b25b515a4de839a3ed27b449300e749",
+      "required": false
+    },
+    {
+      "logical_id": "EventTriggerDeclaration:object_eventtriggerdeclaration_context_trigger_key_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "5852dca2b29dca8a528bd4472933918a97915d0b17dfcce24a477611ecd57673",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "58539dcea6d437e7b8f20ce81e0292a04a6397f061d1014146cf85cc1bbb69cc",
+      "required": false
+    },
+    {
+      "logical_id": "Invitation:node_invitation_context_email_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "59bdd3605979dcd771e1385076fe24cb0ae1df576b9f7043bf687a91ddd32a1f",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_path_cont_05b0114156_idx",
+      "owner": "core.events",
+      "fingerprint": "5a4f3238068d1181a1a6a47c9d456b6ae1fe8d2b4a47c65a3c8f94b3457b2451",
+      "required": false
+    },
+    {
+      "logical_id": "RoutineTask:node_context_status_context_next_run_at_idx",
+      "owner": "app.agentive.nodes",
+      "fingerprint": "5a793b77699abb9ad197efd0027fa94df9e00aaada08d4d2f80f76e531ad9bd5",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_available_at_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "5ab75bb33555a0091cfb7b79f76edcdf1be9f3a34025fb86f3459ab9c3b4bc20",
+      "required": false
+    },
+    {
+      "logical_id": "Workspace:node_workspace_context_kind_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "5b35ec2694612266b359c63340ef7e5289dab9e6b41f2705674ba6ad36d8aca3",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_run_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "5c21956d771c032179cb294667268084fd89ac878417dd457663fec8d0819ef8",
+      "required": false
+    },
+    {
+      "logical_id": "node:tenant",
+      "owner": "core.storage",
+      "fingerprint": "5c3b27ba2b89e5d4b7b67fb4f9fd67b872e48a65cf2409bf5c3fb9292b7bb25c",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "5c598f2a98bc7d2ff1ccb2dfce413a8c889368b3b0923aff8983a58f969c34d7",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "5d9351029303cb22edacd5b95151d2d9304237965c66bbd3d2febe118858ba36",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_app_id_idx",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "5f26c47f2678c1c549dc1358650664fda75c40e2809c4f5e40d6c3922538877d",
+      "required": false
+    },
+    {
+      "logical_id": "Invitation:node_invitation_context_target_resource_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "5f5d2470477ca0a757523eb12b532cc8057a6a6dbc2c8c5c4bd8f8502d3dbbb3",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_run_id_idx",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "5f756474cad4b956ced79f1d1fc3a5ad55d48cde953496416ecf70d9a88ec126",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_c_bf4c7b7011_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "5fbc5fa26d6e2981de65b7bf1b9634f467e3c23a221d34fe800dde0b99856adc",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_track_id_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "5fdbfd0db0ca507d1e7f5db6939e66488c171de7839b29667f4cade4ceb52a95",
+      "required": false
+    },
+    {
+      "logical_id": "entry-index-job:due-filter",
+      "owner": "core.search",
+      "fingerprint": "60f6a20932db93aa34a68bd30f914af60eef162106e0c8d27e30776f055931aa",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "625c34d9955767bcca8e09a38e6832226307125988acc82e829d8df3ecb13a81",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_status_idx:keyset",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "62b4b080b07e752c6b92edf948dc47b59860be761cb8126135dae266e572ff67",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelCredential:object_entity_context_user_id_uniq",
+      "owner": "app.models.credentials",
+      "fingerprint": "632629efc269c3498a578621d749a7315878806745fa9c9cd443839c8946a80a",
+      "required": true
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_s_b2c552a1ac_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "6326960f418ec5105ae48afed7927064a00ddde5b9576875423f2b6eb951c07a",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_app_id_idx:keyset",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "6370f53a36944657bcbe4d930041e4d92180fd061c172450b4a7a9b574e092d0",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_next_attempt_at_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "6375fbb4323023c82c45e8754846141cbc69925a3876351304a4fdf0e4ff1081",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_entity_context_capability_hash_uniq",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "63cc58c12d457861e745938f495d3599fc87d758cf577a09f248ef63b8c6f970",
+      "required": true
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_outcome_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "641f693680796483ffce00fb7368e925df15c31719bb763ab88dde280ba45909",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding_passage:type",
+      "owner": "core.search",
+      "fingerprint": "642d758f45e9ba739f12246fdb6e062e7535a3a32b35506f8a0735d3389d8f16",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_outbox_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "65894ff171af0f39be82a507dcc2eaa919f844458540f2f234337cab177799ee",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_actor_id_idx",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "65db89ffa73628252d35939731a78264d84ec8b6bd8563b4fcecb79fae6bfb6c",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_operation_key_idx:keyset",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "669d641b76093bdab2ef377e42ce0c9383da09c227386993aa19bbeaac849e70",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_track_id_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "67895229d6ed5c917fc6b2a3c5886edcc8a32d2607cac5e73966705d916b8a84",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_status_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "67b18ce4d50779e4005c1c4608e3bd02561a629f0c1a886a2ba4b6798b773ead",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_status_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "68aff58b63c865fa5974bbb4ab19573c89cd5bca5a42d9148b75f09e7d64250a",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_status_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "68d5aa55c79fb1555c19cc6f5d49a918647b9e575f1ae46246fe9730c8ee6589",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_capability_hash_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "697a214e41b838f2155513b76dc5d68ccb2fbf681abdb0428d9efefcaa6cb055",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_status_code_context_logged_at_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "69ebc29df1324a910d608ca8a7c720065b59fc644fa3eb8d9eadf01f91a1a128",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_log_level_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "6a5f8d480b9087973697d6b32bee888e51c61bda7ce61323a61ebb5a06413f31",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_context_type_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "6b33cdd07c40c5ce393d025c5df53e0108d9e929df3357e5e50670ea937666b9",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_event_code_context_logged_at_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "6b88118d077ee8abf26df029ed0fcf17d24eebea58d50feadfd1997edbe6283f",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_client_request_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "6bbc6eddda292d2f47fba8a0e116f0f2b249c8bb8d73dca1826130dc63ae8673",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_track_id_context_updated_at_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "6c10e772c772a2eadf83fb6f10577a1096e7dd6f71ba647665d902d4e5bea16c",
+      "required": false
+    },
+    {
+      "logical_id": "Tag:node_tag_context_parent_tag_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "6c50ff48582d4f15c7f4b5833f43c6f9d279256ca692e2e12440e8a72d39ea29",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_su_7f63bc5ff1_idx:keyset",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "6c694a843b9c070ba36192bfaf242e6cde1a092a5a3b5ab1f4a434d1d0628e6d",
+      "required": false
+    },
+    {
+      "logical_id": "Edge:edge_target_entity_idx",
+      "owner": "jvspatial.core.entities.edge",
+      "fingerprint": "6f19e80eb0a04edc3ccd0a82f98fe8a898e90f8b00e1b643ebb2adc55fdb2831",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_event_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "6f71afa94b86bad904b5f5014834eb30e74f419183a525d1cf208e0465e9b490",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_manifest_fingerprint_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "6f7c6a034202221826e3c6060fb42e7491aed065e002f2651ac5eb93b2d8c311",
+      "required": false
+    },
+    {
+      "logical_id": "ShareLink:node_entity_context_token_hash_uniq",
+      "owner": "app.models.nodes",
+      "fingerprint": "705ebe862813192ad34576411146531b38f4bc2da9d5d1acdba0bd17d24980d5",
+      "required": true
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_su_cb30b455df_idx",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "71df828cc117fcd63c4f469b7259c2e8231646f1ff35d89a2eb4d5302de139f7",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_app_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "722b5bcf5ef8270135c80b27842fd0a8a7bc7d8a56a40ac03a5da87393f145b6",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_status_idx",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "724fef8aa1fd77fbee8f65c92f209a28463c6b80d129befdf69d35910a884b5a",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessPlanState:object_harnessplanstate_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "729b23c507e3329b53efaeb3637c25a3615b9a966e91ca796106496711010e12",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_staging_token_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "72bc7f7c44563ff38605286b2d329ed91b85a26988cf270471bec76d143321c7",
+      "required": false
+    },
+    {
+      "logical_id": "Edge:edge_entity_source_idx:keyset",
+      "owner": "jvspatial.core.entities.edge",
+      "fingerprint": "73272f071e00fd8fe1cc721ad96acff56173491faec0b435e80e46432161c1c3",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_event_code_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "7392a8bd8ea173f9896e459890853eb8c2426f4642844795eadd71f9fa14d5d9",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_record_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "73c24df962994c38dcdc800e245b59bb507c31daf4a1d7dc6e71223871ee1c5a",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_principal_id_idx",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "74f266f774e88a3f51b026859413b2f01791f300c451a1d5aeb355418151044a",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_template_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "757c2b2e9f138113c9e725e05ff5a4d6c86d071cfaf6bc2b92d55e73af2960fd",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_idempotency_key_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "76c797b8e7016839d32585d92cc4253c20b0a014544d3439700a9eb5cf4f675e",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_principal_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "772131a0d5e5c216f316be47ccb60c89433a4cd7a8bc6edd9647bd1dab147da2",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelConnection:object_usermodelconnection_context_user_id_idx",
+      "owner": "app.models.credentials",
+      "fingerprint": "786024b440958f108595a2e3d39530242e90d1bb2d67de625934ac00f7a6264d",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_result_set_id_idx:keyset",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "790ca2bb21cc41de22cf012198050867508de6c6f7182b1eeff0ec74ecc7e1b8",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_manifest_fingerprint_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "792ad35b58bb8d9b5bddfed8924aad806c930f128efcf272465af24614ab86cb",
+      "required": false
+    },
+    {
+      "logical_id": "ChangeEventTriggerCheckpoint:object_changeeventtriggercheckpoint_context_consumer_name_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "79310bb90e3f548bf54b4073b892a23414dd67ee2b1023452d999b96a42d2164",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_email_norm_idx",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "7a4814cbc02b8aa1018cc5cbb19d9f0a32c90f13930e04befae30a871cf75920",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_occurred_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "7a689b1a15c0111dac5c4ab70b138897b878f84eeeaf20d877d4354462626f16",
+      "required": false
+    },
+    {
+      "logical_id": "OpenBuildBatch:object_openbuildbatch_context_user_id_idx:keyset",
+      "owner": "app.models.open_build_batch",
+      "fingerprint": "7b83b67305cc4eeeb46a26b02f9b955406b7c3593429fefa1101bdd48dbe80fe",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_accepted_message_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "7bbc610bd8f442ea32bcff6c5eb85c7c2c070a4e8db5bd9778dcb33199f1603f",
+      "required": false
+    },
+    {
+      "logical_id": "Edge:edge_entity_target_idx:keyset",
+      "owner": "jvspatial.core.entities.edge",
+      "fingerprint": "7c2a4f4d972e27fd4346a4d3840c13066ec7413d4514dba8019f01c1cc4d5768",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_step_idx:keyset",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "7cbacab75b40af47332b10eaddb517cb1b8e91c2d9a03311c893c381cf96b47b",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_workspace_id_idx",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "7cce658d9c7f54c30e03aa0036070d5e8d187f311beaca6016f9c67183f82ce2",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_track_id_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "7d72cbaecb4a04cfaa4db8d987ff58049287b2d91c3945fd857847b51a428c11",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_definition_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "7d7d7aa0ea6c6a7bce59e719be391d119ed964302409f7b0d6ff22b7ecd9ae16",
+      "required": false
+    },
+    {
+      "logical_id": "integral_index_migrations:primary",
+      "owner": "core.storage",
+      "fingerprint": "7e85f51c958a96d0ef0cb31717b1ea1caec45b9d8976a8d5f7eded6e6646d128",
+      "required": true
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_work_item_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "7ee0180a839d7199b89a77f9ee935312b27322b5048bedf7fa7363a3c6e3b63d",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_next_attempt_at_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "7ef2be404c18e4f5b5377ae6ef7a40faf5cd15d3c2337b4e4ec924ca3149cd71",
+      "required": false
+    },
+    {
+      "logical_id": "Dashboard:node_dashboard_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "8066b07ce79e5fe26ec9f2893a50b1026bda657fe3ca1381e453ea72f7f0e86d",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_work_item_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "8169ab8cadc4641d3efa0466bf7c5d41e661f36dcdbaa3d2a264461b0e4710de",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding:primary",
+      "owner": "core.search",
+      "fingerprint": "81ded591e86c2827407a6e9c99923581042061f6d181598e3058ac510ff81784",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_purpose_idx:keyset",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "821f6e346de5ebd16ae4c961a58ee4f460bcace29a8347f9ccc6e8b57b45001a",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_request_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "82582f45d7709593dd52176080e8c72ea54a7517ef680800b3ba837740dbb62e",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_run_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "82892b81a3ee00b67ddba2265d9c005228c3a1c7b0592d832163b0c03cd79f2b",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_workspace_id_idx",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "83f2acb31437ba2eda741dc8f08a93f10d6673f897b1d8ab04d4a4d792a4cb29",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_created_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "847c8920aa17c2e9022f8e8b59e830f4ed7714ad7dad7832b1ddb0a45bbc6ddf",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSteeringInbox:object_harnesssteeringinbox_context_expires_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "8513cfb3ed4459d89494dd225a0d8b9f96c50ffdaeecd2b504645e4e150dbdbf",
+      "required": false
+    },
+    {
+      "logical_id": "Track:node_track_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "85c8beaba51e670215912499497e259152b41eaef0f908b689412f83511328d1",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_run_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "8660d50592f1bc1359f29528828525e205c8102105092830004331a540437e41",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "867df43f55041df4f253cb5117a1737a6e4076ae84c05274b5f20732adef81cc",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_app_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "86f316f10f941a00ae62c943a94bb846e03d649e6ab4c2c986c3c89784fcd820",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_state_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "88429cd6296147a0d08aa04e299ba673272558a4c872e60045a2f4f09de1bb11",
+      "required": false
+    },
+    {
+      "logical_id": "WorkspaceModelConfiguration:node_workspacemodelconfiguration_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "887df174fee898a6a9f34905a896acb6710492d6dd2cf3034c477936dfef9c67",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventCursor:object_harnesschateventcursor_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "8a8beb7a29e4d7fbc1b22cf31987b3ad2dffa42ef30ef5038ca78d137a2ff60d",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "8aad8551156b10e17b3802a4f3e8ad9315051fe40a7276b3def418c92271e72c",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_status_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "8b1a8523edff132e108019b413aa04211d8f3334dff679061f248dbab2246552",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_event_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "8b7028037f510f9e4fdc9edbddd5f8d877a51146ecf100ca572d461560cdf245",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding_lexical:attachment",
+      "owner": "core.search",
+      "fingerprint": "8c9e60fde4379a2d1a20f27108427cef2faeccdc5bc1d88a474d5c99fefe78ca",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_workspace_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "8d0abfcd52e41d71650f8769e456b0be6fe120c84f4ab9d3693d87df7ebb28ee",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_share_link_id_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "8df3291b89bd055f853611701ef135978f158eb2c531432ec3586b4db184cce8",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_form_id_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "8f5c21607f1e23f69e0cb11af7c95226c68d3882ee30a2251f4e451db72ec6e5",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_idempotency_key_idx:keyset",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "8f667e6a54a608db4b59baae941f849eeb689cd46eb0782dcb65bf1d6c8ab4cc",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_work_item_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "9006d608ce8fde38ea1fb53223f93b7b77fba72363b8f1a90d0a8c04c04d1e4e",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "904547512f2d09919522e9f0cf5bf6283918ca954535ca8c8bb5ed3ac63c31e1",
+      "required": false
+    },
+    {
+      "logical_id": "edge:tenant",
+      "owner": "core.storage",
+      "fingerprint": "91a568ac7b62e594dd27b4ddcbe22be9f98a6c5f99c79d03b335a501e044a66d",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_lease_expires_at_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "91b397a6e11d801949480c2f29c983cdf42fa4ac92371e12d603e619f27b47a9",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_workspace_id_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "91c39cebba0abf043bfd11efbb13918e9dac97a2d52a593a04a918894656c95f",
+      "required": false
+    },
+    {
+      "logical_id": "OpenBuildBatch:object_openbuildbatch_context_session_id_idx:keyset",
+      "owner": "app.models.open_build_batch",
+      "fingerprint": "91e91088f6281a50b3b198b6a5ca441ac53e9acaa1eac4b3ef71fae22309e818",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_thread_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "92df55457c8af62d58023b107396adcd6d6386c61d5eac32d180b25fddaafede",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_purpose_idx",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "9381cb55f0d265b120ab45d578bf6ce0bf4b550e23135ce17bc77a0b24472ae5",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_thread_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "93bafa4f43a247cac3175ff937b6a90fa66661264ceb6b764abac672f136f79f",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_status_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "940cf8b15c7bea6170e587ccb15a03dfae06f3e3c9cabba6fa77b0c83ca05f06",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_workspace_id_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "942581d89ab9f2d9c93f2227c0332a11365cccfccc7962e911254f6b098e230d",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_workspace_id_idx:keyset",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "95e226ea0e96e74ee9706356893255ed256abeb77c4bde60646ac9dbef5884fb",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_tool_call_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "97335419ef07c300afd70a2f18500e8e2ffa978df2db71377395ab2fbb5ff6b4",
+      "required": false
+    },
+    {
+      "logical_id": "DefinitionVector:object_definitionvector_context_created_at_idx:keyset",
+      "owner": "app.models.definition_vector",
+      "fingerprint": "97588485067b4ba8d097f1b27751a648283d5292eea7afbbf5bae84a4b7864d8",
+      "required": false
+    },
+    {
+      "logical_id": "AgentRun:object_agentrun_context_run_id_idx:keyset",
+      "owner": "app.agentive.services.execution_runs",
+      "fingerprint": "97644fe52863b003bfbeeea96be7f6b143b02881d3b7f584c9a2f61fb41a6c9d",
+      "required": false
+    },
+    {
+      "logical_id": "Dashboard:node_dashboard_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "981d273f04cf47e650549b610245303d3973dea67b26527a128c7850b0749801",
+      "required": false
+    },
+    {
+      "logical_id": "WorkBudgetReservation:object_workbudgetreservation_context_root_work_item_id_idx",
+      "owner": "app.agentive.work_budget_models",
+      "fingerprint": "993c22db29b139307be73cba8d3cc4f6717d5d3dca3ac7f2ce510ba8e04e3940",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_logged_at_id_idx",
+      "owner": "core.events",
+      "fingerprint": "99e4a3936a8176c4f69c47f05056e547d8c5d827cdfe9852b8bdd7c34e47dd64",
+      "required": false
+    },
+    {
+      "logical_id": "Tag:node_tag_context_app_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "9ab31ab904f3d3178488b24c0334df87c879daecb5687f3734414d746c6a5d59",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_thread_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "9bc821cf832659c433700eb38238a01dabb34011be7737026aab7078401d6671",
+      "required": false
+    },
+    {
+      "logical_id": "legacy-track",
+      "owner": "core.search",
+      "fingerprint": "9dffc3b94a556a1d0444027be45b540e4c7ee78e3d642f532a1068bb183c1e28",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_operation_key_idx",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "9efb4bf73d0ece10d3d075d3a130f942f4e23f08712a3047852323dbe6032d81",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "9f57b6459e8ddfc3c5ec38fba60bc2c69d72c5a015926a5dd6d1d6e1b9b16f4c",
+      "required": false
+    },
+    {
+      "logical_id": "ResourceMetadataProjection:object_resourcemetadataprojection_context_workspace_id_idx:keyset",
+      "owner": "app.models.resource_metadata",
+      "fingerprint": "9f86dcb6665766231bb61ff6d316d401151ea8ae092c11da2256871b8d2f1e0f",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_su_68e4b241ca_idx",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "9fd9c3683ad4d63dd2a629ae6ee2c889c7836459d9933686b7021d1d24a1fc9d",
+      "required": false
+    },
+    {
+      "logical_id": "Workspace:node_workspace_context_kind_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "a049426ba9a6cecadd154f03cd71146104b86b76b3ac54381846f3a52942a6c9",
+      "required": false
+    },
+    {
+      "logical_id": "object:entity",
+      "owner": "core.storage",
+      "fingerprint": "a061752c5709fb92c556a14d6c2574e826951da49571bc4c708ee4758e7d158b",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_occurred_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "a0f6d36767cb2aef9fde5af4ef434696dd37146cda9bdbde94d78b84def329a3",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_su_68e4b241ca_idx:keyset",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "a2b126f9c4c99948bb114a7d947d2e8b7230d83d651cc76a065476eb7d46306c",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_work_item_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "a3bb138e455b39b7124cc505391f410cd3e995baff9db2ab9c4f4544e550fdc5",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_c_bf4c7b7011_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "a3dcc8a417a43bbaed9dc68e21818897535f48ec1263b3aaf625aa9823f85422",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_status_code_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "a3ea59cf3ffaa6937bd48b793d1b781c460ee4e2f8d9241020631e4a9b15d377",
+      "required": false
+    },
+    {
+      "logical_id": "ResourceMetadataProjection:object_resourcemetadataprojection_context_workspace_id_idx",
+      "owner": "app.models.resource_metadata",
+      "fingerprint": "a41299dfe7bdb639d3234c5d3638c35cbc0ce1f3591c7a571fc4ea28f7a22d7a",
+      "required": false
+    },
+    {
+      "logical_id": "EntryType:node_entrytype_context_track_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "a4f93d79e845f7e0b7c7eef2cfd6bb419665b422f2f42e57fafd652507844d97",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_status_idx",
+      "owner": "app.models.entitlement",
+      "fingerprint": "a655cfc107ff2113bff52b2aabff18c7fb9679745e3acd25b83e67685beb10e3",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_workspace_id_idx:keyset",
+      "owner": "app.models.entitlement",
+      "fingerprint": "a6b0901f6d139f30d420ae07c0c3c96efd4eb7a7d1214cace9eef6fc9e1d2877",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_created_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "a70a8402bb74233483d9b5819f4da7898143f0132ce1c86030bd40d36c0f7249",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_status_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "a715ad1c73cf3d83eca95d3d52edc6f6f3dfbd5617a7a4bae8b188df288b2f3b",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_package_slug_idx:keyset",
+      "owner": "app.models.entitlement",
+      "fingerprint": "a7ba4d4add2af35390336e99f512205d633b69b2a5c954fce2d848bde96cc6f9",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_work_item_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "a81cf24a296b0dae4fbad7c761b81726030e5acf4fac4cc2ecebeb8b8e8b8ab6",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_status_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "a81f8244d71d88629b151db9fb5cc4cfa8fe629db10ece119f180f17d4619646",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelCredential:object_usermodelcredential_context_user_id_idx",
+      "owner": "app.models.credentials",
+      "fingerprint": "a8e539d8a979ccc1c0f7cd05c97fa870e80b33f2e6050c50d374ec9ad8d9267b",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_workspace_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "a9152316f22932e4c82fcc03dcf5c4ed61a597f478d7617f397dce5fc8394c13",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_principal_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "a93fca4c3af92a0d89ce45f2a1fefa780f7fa31af04f0b2bf9d73b715a898d41",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_author_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "a996c4a3d2d03a0572fc64bd79561895688796ac32092e5c78aace047cc3eb2c",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_thread_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "a9de8b3c16e4f3122389c84b64eccd284603d88ce64a804f10ea0d260c58c4fa",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_logged_at_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "a9dee827b6ebd4b4ecf3be8ce3f61a74213639e3b325bd78f721bb92063091af",
+      "required": false
+    },
+    {
+      "logical_id": "Edge:edge_target_entity_idx:keyset",
+      "owner": "jvspatial.core.entities.edge",
+      "fingerprint": "aa92af7cdea7392096de2d5db4fab98bcc8fb0c77b5e0746d50a63e8f129b3f8",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "aabb341db41600c2176ad12a8590d2f1ffcd71bafde2a1680b8d421242baa60f",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_available_at_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "aaccfcc2382f74b0f11f5c03d46ebf44e723f56944a03863e479557413422bd1",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_schema_version_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "ab4e2dc193e41ac222c37fa61a786002c116077d1fef6ad77ab67621302689c5",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_work_approval_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "ab6b4c9d4230d9efec181f84e5653c11f75870dc2cdb431f7266a2061e940c68",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_submission_id_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "abd19010f806b143b0edaf6867c3e3c100f791240256d5837d6c9a06c88be779",
+      "required": false
+    },
+    {
+      "logical_id": "Entitlement:object_entitlement_context_workspace_id_idx",
+      "owner": "app.models.entitlement",
+      "fingerprint": "abded491b6fbecf6bcaec6ffceb0787c72f2148f3f3b2e4e10974a00f3ca80a7",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_principal_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "ae2601583ea55166105897ddc379b7d1a40102e70c6171a980be35d3093291f1",
+      "required": false
+    },
+    {
+      "logical_id": "Root:node_entity_idx:keyset",
+      "owner": "jvspatial.core.entities.root",
+      "fingerprint": "aeccd42940c7fa7a0866f0999da61c3eed855c7f8324a70b2a08a9ddfce02c06",
+      "required": false
+    },
+    {
+      "logical_id": "Tag:node_tag_context_track_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "b0381b6cbde5b46781805b6b3abe6100c47cfc75d49918a1ce7f1d157730c3d1",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_created_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "b09bd79a3a4cb0977925a86c5e8ba60a7d127d13b09984880677ae92503e5bf8",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_kind_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "b0deec0dba2c5898513d0dfe6082d50032678b4b68c1656d775a54615c4f8fc7",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSession:node_harnesssession_context_session_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "b254991a4625d1d91d276285c43042992158f689622f84d0e09e28ec706057fa",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_app_id_idx:keyset",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "b32a5587fc646cc17211dc00d37792b77940650cb493d6b0b7cc5b7c25990cae",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_principal_id_idx:keyset",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "b35cbb34342ee296492756e35744793cbde397fc1f46c9dd6df4a8c9c2996798",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_package_slug_idx",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "b3954e3d1298d36ac073ca7f7091806177f2dc56fdecc98bf14973f0149b0f4f",
+      "required": false
+    },
+    {
+      "logical_id": "object:tenant",
+      "owner": "core.storage",
+      "fingerprint": "b48bf8d2d825b3b0ff5b600375d99ebc08f6dcfe2d4db68088887beceedcfcb2",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_expires_at_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "b58608e1fe79d9e0976bb680d19509becce161147389f570620ce21f25df7a00",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_work_item_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "b5a843fcafc7bc61c444c08205442d12698ff8c28ed594482b4520210760c61f",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_template_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "b5b69c05a6210c9aedbe90058cb551a28dbb1ee352a004bced7f8ffc1db58842",
+      "required": false
+    },
+    {
+      "logical_id": "Workspace:node_workspace_context_kind_context_created_at_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "b5f282920b714161b4d93632b559822f15908109624ec2e463df7694b28ceb4a",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_result_set_id_idx",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "b70bd6c92ca6635ab03c2a1dce3f3d069a2820a0b906c8f20c002c54dcdcc61c",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_run_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "b7d794deebb4ad2e515b946e5eabff847fbd3544bfb65f7f0faa93cf50b7780c",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_record_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "b85e43d7fdb661694c63761b19df137b89aad3edb5ba324a9ca236de7d319403",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessPlanState:object_harnessplanstate_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "b874f73bde3942d655814783c11dc0dff32adb927dc3419f1876fa1b54afecf6",
+      "required": false
+    },
+    {
+      "logical_id": "node:entity",
+      "owner": "core.storage",
+      "fingerprint": "b92df6eeaaca243c3b91ce37105435cee7965960ca8775119703a31379ad0d04",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_lease_expires_at_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "b9ad4a5d4265656af9cfbfdb2ca5cc5f82e3c4b57f04bf8645ce8def6cb0f4f7",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_app_id_idx",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "bae7ee1c3dc302b9f2d95b5a7dffd886769cef6ae9ae968d44ad593522366711",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_principal_id_idx",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "bb5a6d711c9ece603784a94a9cb303383578d54e28596059ff7baf66b8425e93",
+      "required": false
+    },
+    {
+      "logical_id": "RunStep:object_runstep_context_idempotency_key_idx",
+      "owner": "app.agentive.services.execution_runs",
+      "fingerprint": "bb698e2411ed7ba268022468c7181c2eafda5794058abbfde7bbf4938c656457",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_expires_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "bbec89ccaaae24d7d9f1b89a1d82cff63d710bd60f30cc9af45b2de8377b07f1",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_actor_id_idx:keyset",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "bcd96c6a0623b0d45cba39c03cb656b7659dbca84973edd1f3ca68695cbcbd6a",
+      "required": false
+    },
+    {
+      "logical_id": "WorkBudgetReservation:object_workbudgetreservation_context_reservation_id_idx:keyset",
+      "owner": "app.agentive.work_budget_models",
+      "fingerprint": "be84e30801533e2363ba5b5f424c07ca409943b044488b0f866cbbbbfaba962b",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_parent_run_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "bee6bde154faf4df1380c7f9c595cd4e08fbb326329a43efb183c6d36d4f13e7",
+      "required": false
+    },
+    {
+      "logical_id": "Invitation:node_invitation_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "bf356be4886ea83669adcd03270116c17609559de6848154b78003ea9161c90f",
+      "required": false
+    },
+    {
+      "logical_id": "EventTriggerDeclaration:object_eventtriggerdeclaration_context_trigger_key_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "bfd0786f240fbd48d3b75d7b4b5244fb4f8564697de22c442cd6129ac597eed0",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_event_code_context_logged_at_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "c1495e95a8a2ae5aab1f9a705f1f583edd5c7192633eefb6cb02468503a1fc03",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_context_type_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "c1dba3460d6bd05a7fa5f4836ba2b242e2a8c2604afbcf0c06bcc74cf8bb3fd5",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_run_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "c24e5076f49574e8c33909da0d4b1ee5d5f2e55dc0775dd56a24e9dc296c8f7f",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_work_approval_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "c2a05a6f4625393cb826591ded58fce9ed91137727c5d4817fbf907dd8b1c4a1",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationMailboxVerification:object_applicationmailboxverification_context_su_7f63bc5ff1_idx",
+      "owner": "app.models.mailbox_verification",
+      "fingerprint": "c36d0c18741541a98e886663bd0971afd86d51084dc9637dea2ab99769045767",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_track_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "c4ed8f5fb331f077724a88dfa9309708dff8e4b4be2ae645c7119fe1e25c399d",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_submis_1af6ebe4cc_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "c562052679b46f2a2c89c20dc20feb355304ecca861026eb7ffed49e21591cb1",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "c5e198087477f3be5453b514d3349ba4e314496e45a06c8eb3b712b225df1b8b",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_logged_at_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "c5e2449fc741a4614b3a7531fde10cf50397684662d708067d6309eb94805acc",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessCheckpointManifestRecord:object_harnesscheckpointmanifestrecord_context_s_b2c552a1ac_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "c62c9f48371d1bc936a834ae8048bdd6448429ddb3da18d6cd4b19d02905a0b0",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_workspace_id_idx",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "c647de6867203896d5527b14f4010ad869d3583b3454c41008db13985759526e",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_log_level_context_logged_at_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "c66a8a8992db173bc6a8da788e55ece19c3d185de470f951aeaf93ac6928c992",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_plan_fingerprint_idx",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "c80575e3e1c561cfa9893a24c92ae0653126c0fbf77dca01537f01f5eb96a926",
+      "required": false
+    },
+    {
+      "logical_id": "AgentRun:object_agentrun_context_run_id_idx",
+      "owner": "app.agentive.services.execution_runs",
+      "fingerprint": "cb4bf321ddb4aff01f6c3b5a918fd65d452391b89ef1232e1109dd52f6d8088f",
+      "required": false
+    },
+    {
+      "logical_id": "Tag:node_tag_context_parent_tag_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "cbf6e0a7151c9f96d1756a7eae5bc83f7c31005d2e5414db3f670af46292d3c1",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_policy_approval_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "cc8d5779afba16512e3e603fa154bd74f2d5bea97e5bf162c865f1f3f7cba483",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_created_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "ccdb99fdcfcc66d2d22e79f6490be5184e93e7a337f66da7476ba3eb96209726",
+      "required": false
+    },
+    {
+      "logical_id": "ShareLink:node_sharelink_context_resource_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "cd02259bc472cdcde21fd3b7dea4882118bcfe5679db1ff6ba417fd1797db53e",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventCursor:object_harnesschateventcursor_context_work_item_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "ce0318e41da0c171d9a3d52e2cd5e6eb9541b470d8699218d87e2ecc33ae9102",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_status_code_context_logged_at_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "ce4e4bdfe77345dc09654aaa1d58e3f2362fb852963e5df43734ac5c09ca537f",
+      "required": false
+    },
+    {
+      "logical_id": "RunStep:object_runstep_context_run_id_idx:keyset",
+      "owner": "app.agentive.services.execution_runs",
+      "fingerprint": "cec079b1e0d5b793c849aedc50613808b3c88b01058f0deaff13b515da8ed54f",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_track_id_context_created_at_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "cefe353c497d18ff152c50492012fa72e6b1ea60219f5ec24841002fd3ade21f",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSteeringInbox:object_harnesssteeringinbox_context_expires_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "cf29c8e477c1f61b84e9335a7ecfd17b62c3b63c3c9b921b32bcc0236900aabf",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSnapshotRecord:object_harnesssnapshotrecord_context_occurred_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "cffd77e7c73de71261bb929c67fdb0f6228bf7a48bbcaae5d4970e73fa319beb",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding_lexical:primary",
+      "owner": "core.search",
+      "fingerprint": "d049715e273137673d4102fb8cafb0ab98133bb5d3ea33c1427284f361f02ac0",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnInputRecord:object_harnessturninputrecord_context_schema_version_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "d0e09d86abf8650ebb71f24d5a38e5aaefd0a13faba922e5d6331d3675ba3ad1",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_occurred_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "d1050e29de94db16aba5fcf4ceac38e887bd6d3cee7c5450cde9760d77666e04",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_idempotency_key_idx",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "d207028165fc05c9cef5277d4402b0c4c9bda5487ab8f485e6fcf5c399d7239e",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "d2bbd3aa704397c2fc43876e1f491dc795ccf0572183342a8a4486eb036c9ae1",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventCursor:object_harnesschateventcursor_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "d2bdcaf6fd1bd9211361d4045704c259123ae6a167db7dd4b0e3ff9f18295c3c",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_logged_at_id_idx",
+      "owner": "core.events",
+      "fingerprint": "d37450f41abd6874b84f68774b36e980c90dd10c4dfd02efcf538235f07fe31f",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSteeringInbox:object_harnesssteeringinbox_context_scope_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "d3b279266e969453acf18c071cb101d8fc9e7d18b0fec446665e3f3834e7409c",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_author_id_context_created_at_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "d486f91867509939c3d6dcbab332f22b5e5ee0d815531c8560c177cf0a4e8384",
+      "required": false
+    },
+    {
+      "logical_id": "object_operationeventoutbox_context_status_conte_4331999024_idx",
+      "owner": "core.events",
+      "fingerprint": "d5e131dece2434fec1c81faee92be9b46c33e5e22366e69bb36b775ec3c4cc58",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_occurred_at_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "d790980f7f99d933d893e9c2054cc601689ef57764b6b28c1cd077c683067148",
+      "required": false
+    },
+    {
+      "logical_id": "Invitation:node_invitation_context_target_resource_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "d829d9b8b6b3141419c26c281d8fe4cd06fb27f1c0cf685b00ac59dc1dbd5483",
+      "required": false
+    },
+    {
+      "logical_id": "OperationIdempotencyRecord:object_operationidempotencyrecord_context_idempotency_key_idx",
+      "owner": "app.models.operation_idempotency",
+      "fingerprint": "d9156d107132756219ecd651e3fcb82795b21d97ea1e80c64df9f9ccc8b6b9cd",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_outcome_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "db08b02c8e81ceb2293b0cc78f2df67da8d68072c7042825dfa42062fdcbfd3c",
+      "required": false
+    },
+    {
+      "logical_id": "WorkOutboxEntry:object_workoutboxentry_context_topic_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "db8a051beedf559e5db1e70ad57162d5d84440f58f1106473ae0e456b427c6d4",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_occurred_at_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "dbcdb7a52e7fe7700f3f95714425f156b4ef0bc101ab033e4b937d381e8dff58",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_track_id_context_created_at_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "dcb9a74312df50702938877be7e9142d302163983940da790fb9f48cc1f3714b",
+      "required": false
+    },
+    {
+      "logical_id": "CatalogueGeneration:object_cataloguegeneration_context_workspace_id_idx:keyset",
+      "owner": "app.models.catalogue_generation",
+      "fingerprint": "dd48440d3eaa5082c5ca25be6e3f1f71dd9286334f434ed8c9a75bef684681aa",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_entry__979a7c3763_idx:keyset",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "de3a97c1847f4c7116187a1c2075f13f55f8abfc24187509b0a8bcbc2b3fc3e2",
+      "required": false
+    },
+    {
+      "logical_id": "WorkBudgetReservation:object_workbudgetreservation_context_reservation_id_idx",
+      "owner": "app.agentive.work_budget_models",
+      "fingerprint": "de49b808b85b682dc05e176951568bb8aa745e8f433e0229e28ae4ff7030a6a0",
+      "required": false
+    },
+    {
+      "logical_id": "Edge:edge_source_target_entity_uniq",
+      "owner": "jvspatial.core.entities.edge",
+      "fingerprint": "defbfa75cf6486a5fc1c9c8987a7e04473bf98e1695d5bf79eeef206d57c258c",
+      "required": true
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_expires_at_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "df1135313798b683ca84e4de84d0b6b7d1f4aee0e4a6bc1432cad97efcc46418",
+      "required": false
+    },
+    {
+      "logical_id": "OpenBuildBatch:object_openbuildbatch_context_user_id_idx",
+      "owner": "app.models.open_build_batch",
+      "fingerprint": "df630b8851b7f204a0a337135731580384bc51b3bfabdbc367331aa7c554ca30",
+      "required": false
+    },
+    {
+      "logical_id": "User:node_user_context_user_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "df634c21e6664c63b1b7e103710c50f737a4d0af94a6f7abe2c39de58e7eb396",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_run_id_idx:keyset",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "e0264c7f835859376e79dc3f9e46c0a520bee64278a16de9955d07774cd68860",
+      "required": false
+    },
+    {
+      "logical_id": "RunStep:object_runstep_context_run_id_idx",
+      "owner": "app.agentive.services.execution_runs",
+      "fingerprint": "e0e9c2ac312f29bfa382b43ffe847c56aa6ec80a2ed7c7a1ed5edfa329d8c2fa",
+      "required": false
+    },
+    {
+      "logical_id": "object_dblog_context_log_level_context_log_data__b48960837f_idx",
+      "owner": "core.events",
+      "fingerprint": "e16bb7204f45a18d8da8e8f3592b876fc5e38cd173634843ce9e8febe6cc0350",
+      "required": false
+    },
+    {
+      "logical_id": "PublicSubmissionCapability:object_publicsubmissioncapability_context_entry_id_idx",
+      "owner": "app.models.public_submission_capability",
+      "fingerprint": "e229b8cae5324e6740cdec5169d83aaac6b899cea65f870189a64201a07b0ded",
+      "required": false
+    },
+    {
+      "logical_id": "Tag:node_tag_context_track_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "e2470c3287c27b40c8ba85df776131aef7f5384e9f23e1a44c2280f6ea0011d5",
+      "required": false
+    },
+    {
+      "logical_id": "Invitation:node_invitation_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "e28cde7ec3edac652aa9b8eef222e9ea6dff810ede6bcc55b3e4178cc0f1f261",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessModelRequestRecord:object_harnessmodelrequestrecord_context_transition_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "e2b7ce993da3115ce8064c7f662bba0ce6621240e5bee5e2cb322f5b7e56083d",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_work_item_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "e2f8da4dfd3c516d8fb15aa7bb552c7d48e95af149b69428d3ff4cba0101d9d9",
+      "required": false
+    },
+    {
+      "logical_id": "InstallAttempt:object_installattempt_context_workspace_id_idx",
+      "owner": "app.models.install_attempt",
+      "fingerprint": "e3d4f0daa0ff8b990ad9d2ffa973676c13679bf8e2d9e08c70b1669b6114c27b",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_run_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "e3ecbc7702fc495355c7937d17c61b4d39f5dd02a5f9919a5acc3703d0b2028e",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_template_version_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "e4f3c3b5b134dc0188d8acef192a3cc1f070bf9ca3898a209e99b3d4fddb408b",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessRunRecord:object_harnessrunrecord_context_conversation_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "e518c3646c567eedf3b3cc4b4f0a93d0271ea03d7a4058f42d9f564640d69677",
+      "required": false
+    },
+    {
+      "logical_id": "Notification:node_notification_context_user_id_context_read_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "e594102179d27a2caf6be03ee47e41ee50939b4928609b8572dcbc667a9201fb",
+      "required": false
+    },
+    {
+      "logical_id": "ShareLink:node_sharelink_context_workspace_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "e63812245bb3507bddd7e0e2e0ccc1d38f3331824a2c89b8d04e7a59dfeed860",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_policy_approval_id_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "e72dd42ab9645df2d493f04306c474a12b4ab6f9d02ecff55bc251227a97414c",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_status_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "e74e4fe8864fef99238dea6b77f13a6fb11e81c8cd95cac9c8a5d7b6f86d5c21",
+      "required": false
+    },
+    {
+      "logical_id": "EventTriggerDeclaration:object_eventtriggerdeclaration_context_action_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "e809ef377da344e5d57587db4c7b1d412933d4d2dc311f568ae52f2605da9c74",
+      "required": false
+    },
+    {
+      "logical_id": "QueryResultSet:object_queryresultset_context_plan_fingerprint_idx:keyset",
+      "owner": "app.models.query_result_set",
+      "fingerprint": "e8a97c13c77b3a4e2a79b2dd43e6a74d228ee5aaa1340a291fcd74d27d6b8053",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_log_level_context_logged_at_idx",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "e93329b2b4cb81f4c015dd523724308888245b5397f0b5101f502db11772ee44",
+      "required": false
+    },
+    {
+      "logical_id": "CatalogueGeneration:object_cataloguegeneration_context_status_idx:keyset",
+      "owner": "app.models.catalogue_generation",
+      "fingerprint": "e9be959b736f715a69a0caaad6e79764402cda010567f3c98c7f5aa013dee39a",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_workspace_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "ea6bd90464843ced3a7a1c77ea81c01b834cd197c9100f10386a156284008c96",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "eb60ed07604dbb6b884728139b30e0c68528f24b7c5b4f28f5822ba407c91021",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_principal_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "eb8f1ee19627f783d14b62908b1e8713430498b519c804ffee1bb693e3538f3a",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_author_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "ebaf741201b46bfd2dc96de01a3958995263b71dd901f9fe200645413f570dd9",
+      "required": false
+    },
+    {
+      "logical_id": "Dashboard:node_dashboard_context_app_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "ecb78d85a69d35c2b2754a4807ade82ae98b08a0f326fce060fb52112af43f13",
+      "required": false
+    },
+    {
+      "logical_id": "WorkItem:object_workitem_context_work_item_id_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "ecfa4af50506d2320a156d0bdd5f286383b8677bbfcec291d820c5aa25192db9",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessEventRecord:object_harnesseventrecord_context_record_key_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "ed3a5c66c5cbde938a2cdc071c3b713201950f96a81f0a8fa1b9de3081616cc2",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessSteeringInbox:object_harnesssteeringinbox_context_scope_key_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "eeac0025b1a030b06ce8c3269e5ab5fc51c40289c70b000557d51d3955dad559",
+      "required": false
+    },
+    {
+      "logical_id": "entry_embedding_passage:primary",
+      "owner": "core.search",
+      "fingerprint": "eeb0d368f184c4fd8d6b1426e9bb066c3ddf135399027afe2ad77d7662d00ab4",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_track_id_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "ef3152abac390dfc10c64027575396a6a19c25ac0e2d158dcb5bd4f92e343041",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_principal_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "ef8218756fdc7218c356a5d1812b3981864d338151c5109072d56a193da72aee",
+      "required": false
+    },
+    {
+      "logical_id": "ApplicationDefinition:node_applicationdefinition_context_status_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "efa604ed0d56f3b148c5667df917c4809a15d2d63bc78f4e4a56d8da0ff657a7",
+      "required": false
+    },
+    {
+      "logical_id": "Track:node_track_context_workspace_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "f015006eebaeac4710d325d4672c31130773d33ebe4b91980d18aa448cf0b39f",
+      "required": false
+    },
+    {
+      "logical_id": "CatalogueGeneration:object_cataloguegeneration_context_generation_id_idx",
+      "owner": "app.models.catalogue_generation",
+      "fingerprint": "f068090dbccb8a838822d433c6e812882c3d530493c88a44f5bd80287d03d01a",
+      "required": false
+    },
+    {
+      "logical_id": "DBLog:object_dblog_context_log_level_idx:keyset",
+      "owner": "jvspatial.logging.models",
+      "fingerprint": "f076e993558475f72c93dda4cd9579019cdb59e1d24e89f8baf5776891b06715",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventRecord:object_harnesschateventrecord_context_thread_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "f123b2ea36442b66960c6fb84142999bf643a7080216d9056e8e89c872ec1ae8",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessToolEffectRecord:object_harnesstooleffectrecord_context_status_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "f12d961adf1a1a27c83c50d7583e1d6391b6a7834e31c40c217e008ca2eb1246",
+      "required": false
+    },
+    {
+      "logical_id": "GeneratedDocument:node_generateddocument_context_context_entry_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "f27acdd39763da35358ceefe2af2babf320a270eeb721871e24f7a055c7a2d81",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_expires_at_idx:keyset",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "f2f6e55635e4261c3b74663834c7af54f3b53d1870cef17a247db67f6afeeb87",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelCredential:object_usermodelcredential_context_user_id_idx:keyset",
+      "owner": "app.models.credentials",
+      "fingerprint": "f30c0cb32b11917292efb8b26bbd1f958fb1ca62e0fd8b8cc8957cb0ac0bfb95",
+      "required": false
+    },
+    {
+      "logical_id": "event-outbox:delivery-order",
+      "owner": "core.events",
+      "fingerprint": "f34e3c8c56333581038594717bf88e714f7ab3c9b9ed97fa00cb51d21d2d4137",
+      "required": false
+    },
+    {
+      "logical_id": "Dashboard:node_dashboard_context_app_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "f3a79d0a77443a297554bb8a29c94e387dd83da7ed7e0659630a3ef02085d569",
+      "required": false
+    },
+    {
+      "logical_id": "object_operationeventoutbox_context_status_conte_053925a2fb_idx",
+      "owner": "core.events",
+      "fingerprint": "f44cd0c79de28b6d2828f8a6f2a74a0df3f0c1eb05e9ebcba2f75540aea7f850",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelCredential:object_usermodelcredential_context_provider_idx",
+      "owner": "app.models.credentials",
+      "fingerprint": "f4870cf2c54e8b752ddcfbb7df60fccc19f55df4eec3597f6ec5b8aab6acf38a",
+      "required": false
+    },
+    {
+      "logical_id": "Tag:node_tag_context_app_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "f679f785daf450a72108ee5115cf717eb5bbcfcaf6b5b07126a8417efb5e1a14",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_thread_id_idx",
+      "owner": "app.models.harness_records",
+      "fingerprint": "f78da035ac5a781e185f4bc7d331961e3cf670f63863f32f4385e83c402e53d7",
+      "required": false
+    },
+    {
+      "logical_id": "UserModelProfile:object_usermodelprofile_context_user_id_idx:keyset",
+      "owner": "app.models.credentials",
+      "fingerprint": "f8e7decc090bac32e239949b7206d7bb6531e03d3f346c7220894982ab4fdae7",
+      "required": false
+    },
+    {
+      "logical_id": "WorkApproval:object_workapproval_context_staging_token_idx",
+      "owner": "app.agentive.work_models",
+      "fingerprint": "f98edc05e4bac6216373e5aeb8ea743bb8a667b09a81ef7d87bc609715adebc2",
+      "required": false
+    },
+    {
+      "logical_id": "CatalogueGeneration:object_cataloguegeneration_context_workspace_id_idx",
+      "owner": "app.models.catalogue_generation",
+      "fingerprint": "fc5f2f1cf02bb95d951d1b8f6c029c4fe74685bd7eed2deb4be3d74caa51d363",
+      "required": false
+    },
+    {
+      "logical_id": "Entry:node_entry_context_track_id_context_updated_at_id_idx:keyset",
+      "owner": "app.models.nodes",
+      "fingerprint": "fd0bbaccb983fe615ff2707f821f417e683e1daa85aaa5b4eac943b36f7fb112",
+      "required": false
+    },
+    {
+      "logical_id": "ShareLink:node_sharelink_context_resource_id_idx",
+      "owner": "app.models.nodes",
+      "fingerprint": "fd876db8b6bf3f05dab53dff6f783f33cc0da09e295362dc682c095cf52848e2",
+      "required": false
+    },
+    {
+      "logical_id": "HarnessChatEventCursor:object_harnesschateventcursor_context_thread_id_idx:keyset",
+      "owner": "app.models.harness_records",
+      "fingerprint": "fd98f210fb9a6ebf01cd4f6331d1e83f8981028b3b3cd3e6d6bcbefb76ade01b",
+      "required": false
+    },
+    {
+      "logical_id": "legacy-ann",
+      "owner": "core.search",
+      "fingerprint": "fef63849670888701ecd1f76d845d2981cc7ee56c69fed6739c0bb37a3caf8fa",
+      "required": false
+    }
+  ]
+}

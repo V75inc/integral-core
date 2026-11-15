@@ -226,7 +226,7 @@ For a failed upgrade, inspect the schema and effect state before reverting an im
 
 ## jvspatial compatibility release gate
 
-Current metadata pins `jvspatial==0.2.9` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
+Current metadata pins `jvspatial==0.2.10` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
 
 jvspatial 0.2.4 keeps shallow node deletion within the selected node and its incident edges. Qualify App deletion with nested comments and linked content through both the manual dialog and chat approval. Verify atomic graph cleanup and execution receipts, retained shared resources, rollback on failure, and refusal of malformed discussion graphs.
 
@@ -303,3 +303,14 @@ public signed webhooks, queue behavior and the explicit legacy migration are
 specified in [workspace email](../platform/workspace-email.md). Configure a real
 platform provider for account recovery; console delivery is DEBUG-only. Run the
 migration before upgrading existing Business Email Log configuration surfaces.
+
+## Independent event delivery
+
+Deploy the same Core artifact as `integral worker events` beside the API. Configure the same prime/logging PostgreSQL stores and monitor heartbeat, pending age and dead letters. See [the event-worker contract](../backend/event-worker.md); audit/feed visibility is eventual after record saves.
+
+## Governed physical storage
+
+PostgreSQL API and ordinary workers use verify-only managed storage with a
+versioned catalog, reviewed provisioning artifacts and separate runtime roles.
+See [governed index lifecycle](../backend/governed-indexes.md) for commands, ownership, recovery and
+qualification. Transitional `constraints` configuration is not the final boundary.

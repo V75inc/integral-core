@@ -244,6 +244,8 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
       'feed',
       'entries',
       'entryTypes',
+      'relation-options',
+      'related-record-operations',
       'skills',
       'connectors',
     ] as const;

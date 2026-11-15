@@ -140,6 +140,8 @@ class RequiresAppsEntry(BaseModel):
     key: str
     min_version: str = "0.0.0"
     optional: bool = False
+    #: The declaring App's screens may read this App's records (read-only).
+    read: bool = False
     reason: str = ""
 
     model_config = {"extra": "forbid"}

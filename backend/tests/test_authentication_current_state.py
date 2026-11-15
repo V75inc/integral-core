@@ -280,3 +280,73 @@ async def test_activity_collision_still_rejects_changed_authority(
         await identity.save()
     stored = await service.context.database.find_one("object", {"id": identity.id})
     assert stored["context"][field] == value
+
+
+async def _stored_stamp(service, identity):
+    row = await service.context.database.find_one("object", {"id": identity.id})
+    return row["context"].get("last_accessed")
+
+
+async def test_last_seen_touch_inside_the_window_is_not_written(
+    identity_service, monkeypatch
+):
+    from datetime import timedelta
+
+    monkeypatch.delenv("INTEGRAL_ACTIVITY_TOUCH_SECONDS", raising=False)
+    service, identity, _ = identity_service
+    first = await service._get_user_by_id(identity.id)
+    first.last_accessed = datetime.now(timezone.utc)
+    await first.save()
+    written = await _stored_stamp(service, identity)
+    assert written
+    again = await service._get_user_by_id(identity.id)
+    again.last_accessed = datetime.now(timezone.utc) + timedelta(seconds=5)
+    await again.save()
+    assert await _stored_stamp(service, identity) == written
+
+
+async def test_last_seen_touch_after_the_window_is_written(
+    identity_service, monkeypatch
+):
+    from datetime import timedelta
+
+    monkeypatch.delenv("INTEGRAL_ACTIVITY_TOUCH_SECONDS", raising=False)
+    service, identity, _ = identity_service
+    first = await service._get_user_by_id(identity.id)
+    first.last_accessed = datetime.now(timezone.utc)
+    await first.save()
+    written = await _stored_stamp(service, identity)
+    later = await service._get_user_by_id(identity.id)
+    later.last_accessed = datetime.now(timezone.utc) + timedelta(seconds=120)
+    await later.save()
+    assert await _stored_stamp(service, identity) != written
+
+
+async def test_throttle_can_be_switched_off(identity_service, monkeypatch):
+    from datetime import timedelta
+
+    monkeypatch.setenv("INTEGRAL_ACTIVITY_TOUCH_SECONDS", "0")
+    service, identity, _ = identity_service
+    first = await service._get_user_by_id(identity.id)
+    first.last_accessed = datetime.now(timezone.utc)
+    await first.save()
+    written = await _stored_stamp(service, identity)
+    again = await service._get_user_by_id(identity.id)
+    again.last_accessed = datetime.now(timezone.utc) + timedelta(seconds=5)
+    await again.save()
+    assert await _stored_stamp(service, identity) != written
+
+
+async def test_disabled_account_is_refused_even_when_the_touch_is_skipped(
+    identity_service, monkeypatch
+):
+    monkeypatch.delenv("INTEGRAL_ACTIVITY_TOUCH_SECONDS", raising=False)
+    service, identity, token = identity_service
+    assert await service.validate_token(token) is not None
+    assert (
+        await service.validate_token(token) is not None
+    )  # touch now inside the window
+    await service.context.database.find_one_and_update(
+        "object", {"id": identity.id}, {"$set": {"context.is_active": False}}
+    )
+    assert await service.validate_token(token) is None

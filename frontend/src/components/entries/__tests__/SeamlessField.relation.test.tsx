@@ -58,6 +58,14 @@ const choices = [
 ];
 
 describe('single relation display and editing', () => {
+  it('closes the remote lifecycle when selection replaces the editor', () => {
+    const onOpen = vi.fn();
+    const view = render(<SeamlessField field={field} value="" onChange={vi.fn()} relationChoices={choices} onRelationOpen={onOpen} searchable />);
+    fireEvent.focus(screen.getByRole('combobox'));
+    expect(onOpen).toHaveBeenLastCalledWith(true);
+    view.rerender(<SeamlessField field={field} value="current" onChange={vi.fn()} relationChoices={choices} onRelationOpen={onOpen} searchable />);
+    expect(onOpen).toHaveBeenLastCalledWith(false);
+  });
   it('uses a configured default label when clearing an optional relation', () => {
     const change = vi.fn();
     const optional = { ...field, required: false, placeholder: 'Use default' };

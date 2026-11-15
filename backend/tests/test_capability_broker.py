@@ -220,6 +220,33 @@ def _inv(**overrides: Any) -> CapabilityInvocation:
     return CapabilityInvocation(**fields)
 
 
+@pytest.mark.asyncio
+async def test_domain_result_marker_waits_for_an_authorized_app_read(run_store):
+    from app.services.chat_latency import TurnLatency, current_latency
+
+    run_store["runs"]["run-1"] = _run()
+    timing = TurnLatency()
+    token = current_latency.set(timing)
+    try:
+        result = await broker.invoke(_inv())
+        assert result.ok
+        assert "firstDomainResultMs" not in timing.markers
+        result = await broker.invoke(
+            _inv(
+                capability_key="recent_open",
+                source="app",
+                app_id="app-1",
+            )
+        )
+        assert result.ok
+        assert (
+            timing.markers["firstDomainResultMs"]
+            >= timing.markers["firstToolStartedMs"]
+        )
+    finally:
+        current_latency.reset(token)
+
+
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_unknown_capability_fails_before_adapter(

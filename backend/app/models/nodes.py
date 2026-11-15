@@ -7,9 +7,9 @@ Entity class names match persisted ``entity`` (no ``Node`` suffix).
 from typing import Any, Dict, List, Literal, Optional
 
 from jvspatial.core import Node
-from jvspatial.core.annotations import attribute, compound_index
 from pydantic import Field, PrivateAttr
 
+from app.models.indexing import attribute, compound_index
 from app.schemas.provenance import Provenance
 
 # --- Fixed graph singleton ids (app shell) ---
@@ -590,6 +590,10 @@ class Track(Node):
         "private"  # private | workspace | public | inherit (legacy read compatibility)
     )
     template_id: Optional[str] = None
+    # The description (``purpose``) last written from the App manifest. An update
+    # replaces the description only while it still equals this (or the previous
+    # package's text), so a description a person edited is never overwritten.
+    purpose_from_manifest: str = ""
     # Stable relation identity for ad-hoc Tracks. Display renames do not change
     # which Track type a declared relation accepts. Template identity wins.
     relation_type_key: str = ""

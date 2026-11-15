@@ -163,13 +163,13 @@ async def _record_change(
 
 async def _deliver(outbox_id: str | None) -> None:
     """Deliver only committed intent, leaving sink failures recoverable."""
-    from app.services.app_operations.event_outbox import deliver_operation_event
+    from app.services.app_operations.event_outbox import request_event_delivery
 
     database = get_default_context().database
     if outbox_id is None or is_postgres_entry_transaction(database):
         return
     try:
-        await deliver_operation_event(outbox_id=outbox_id, database=database)
+        await request_event_delivery(outbox_id=outbox_id, database=database)
     except Exception:
         logger.exception("Workspace member audit delivery pending: %s", outbox_id)
 

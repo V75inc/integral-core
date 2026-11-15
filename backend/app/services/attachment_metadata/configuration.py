@@ -61,8 +61,8 @@ async def save(user_id: str, workspace_id: str, body: AttachmentAnalysisWrite) -
     from jvspatial.core.context import get_default_context
 
     from app.services.app_operations.event_outbox import (
-        deliver_operation_event,
         insert_revision_event,
+        request_event_delivery,
     )
     from app.services.change_event import emit_change_event
     from app.services.entry_write_scope import (
@@ -134,7 +134,7 @@ async def save(user_id: str, workspace_id: str, body: AttachmentAnalysisWrite) -
             await emit_change_event(**event)
     if outbox and graph is not caller:
         try:
-            await deliver_operation_event(outbox_id=outbox)
+            await request_event_delivery(outbox_id=outbox)
         except Exception:
             import logging
 

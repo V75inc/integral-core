@@ -12,7 +12,8 @@ Start with a core view for the collection, then use supported regions for focuse
 | Summarize an App | Declared Home widget or dashboard projection |
 | Run a domain action | Declared operation with policy/staging |
 | Configure an App | Standard App settings dialog via `app.settings_schema` |
-| Package a special interface | Declared iframe extension view |
+| Reviewed native custom interface | Declared React SDK component with shared App patterns |
+| Unreviewed or external interface | Isolated iframe extension view |
 
 Use the live manifests for exact keys and configuration; this table describes intent rather than a substitute schema. Compose only supported primitives, and reject cycles or invalid configuration.
 
@@ -25,3 +26,5 @@ Typed reference fields resolve names and destinations consistently. Handle narro
 screens, keyboard interaction, empty results, errors, and restricted records.
 
 Validate browser results against underlying queries and records. Compilation alone does not prove the interface works. See [palette](VIEW_PALETTE.md), [regions](REGION_SYSTEM.md), and [qualification](../ops/QUALIFICATION.md).
+
+For native App UI, use the package-shipped [React App UI guide](../../sdk/react/APP_UI_GUIDE.md). SDK 1.2 adds host-backed presentation patterns; domain behavior stays in the owning App.

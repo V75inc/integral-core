@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 from app.config import settings
 
@@ -69,6 +69,7 @@ class ChangeEventEnvelope:
     details: Optional[Dict[str, Any]] = None
     id: str = ""
     workspace_id: Optional[str] = None
+    delivery_ts: str = ""
 
     def to_wire(self) -> Dict[str, Any]:
         """Serialize for the WS broadcast — nested ``actor`` shape (ChangeEventResponse)."""
@@ -124,7 +125,8 @@ def envelope_from_dblog(log: Any) -> ChangeEventEnvelope:
         ts = ""
     return ChangeEventEnvelope(
         id=getattr(log, "id", "") or "",
-        ts=ts,
+        ts=data.get("ts") or ts,
+        delivery_ts=ts,
         actor_kind=data.get("actor_kind", "system"),
         actor_id=data.get("actor_id", ""),
         actor_capability=data.get("actor_capability"),
@@ -214,6 +216,10 @@ class ChangeEventLogger:
         """Ensure DBLog indexes exist on the routed logging database."""
         from jvspatial.logging.models import DBLog
 
+        from app.services.storage_indexes.runtime import managed
+
+        if managed():
+            return  # Provisioned and verified by the catalog lifecycle.
         ctx = self._get_log_context()
         if ctx is None:
             return
@@ -237,11 +243,36 @@ class ChangeEventLogger:
                     ("id", -1),
                 ],
             )
+            # The event feed (/api/events) reads oldest first. jvspatial sorts
+            # ascending keys NULLS LAST, which a backward scan of the newest-
+            # first index above cannot serve, so it gets its own ordered index,
+            # limited to DBLog rows.
+            await ctx.database.create_index(
+                "object",
+                [
+                    ("context.log_level", 1),
+                    ("context.log_data.workspace_id", 1),
+                    ("context.logged_at", 1),
+                    ("id", 1),
+                ],
+                entity="DBLog",
+                partial_by_entity=True,
+            )
             # Legacy/null attribution has its own ordered stream, instead of
             # forcing a bitmap OR and sort of every workspace candidate.
             await ctx.database.create_index(
                 "object",
                 [("context.log_level", 1), ("context.logged_at", -1), ("id", -1)],
+                entity="DBLog",
+                partial_by_entity=True,
+                index_partial_filter_expression={
+                    "context.log_data.workspace_id": {"$exists": False}
+                },
+            )
+            # Oldest-first twin of the unattributed stream, for the event feed.
+            await ctx.database.create_index(
+                "object",
+                [("context.log_level", 1), ("context.logged_at", 1), ("id", 1)],
                 entity="DBLog",
                 partial_by_entity=True,
                 index_partial_filter_expression={
@@ -257,11 +288,7 @@ class ChangeEventLogger:
 
         ctx = self._get_log_context()
         if ctx is None:
-            return None
-        try:
-            await ctx.ensure_indexes(DBLog)
-        except Exception as e:
-            logger.warning("change_event_logger: ensure_indexes failed: %s", e)
+            raise RuntimeError("Audit logging database unavailable")
 
         try:
             ts_dt = datetime.fromisoformat(envelope.ts)
@@ -275,14 +302,25 @@ class ChangeEventLogger:
         # Legacy/deleted scope facts remain unattributed and need live read gates.
         from app.services.event_history import event_workspace_id
 
-        try:
-            envelope.workspace_id = await event_workspace_id(envelope.scope)
-        except Exception:
-            logger.warning(
-                "change_event_logger: workspace attribution unavailable", exc_info=True
-            )
-            envelope.workspace_id = None
+        if envelope.workspace_id is None:
+            try:
+                envelope.workspace_id = await event_workspace_id(envelope.scope)
+            except Exception:
+                logger.warning(
+                    "change_event_logger: workspace attribution unavailable",
+                    exc_info=True,
+                )
+                envelope.workspace_id = None
+        import hashlib
+
+        fact_id = (envelope.details or {}).get("event_fact_id")
+        identity = (
+            {"id": "o.DBLog." + hashlib.sha256(str(fact_id).encode()).hexdigest()}
+            if fact_id
+            else {}
+        )
         log_entry = DBLog(
+            **identity,
             status_code=None,
             event_code=envelope.action,
             log_level=CHANGE_EVENT_LOG_LEVEL,
@@ -292,7 +330,64 @@ class ChangeEventLogger:
             log_data=_envelope_log_data(envelope),
         )
         await log_entry.set_context(ctx)
-        await log_entry.save()
+        # Serialize persistence order, not event occurrence order. Forward cursors
+        # must see a late retry even after newer business events were delivered.
+        from jvspatial.db.transaction import transaction_context
+
+        from app.services.app_operations.transaction_scope import _transaction_database
+
+        db = _transaction_database(ctx.database)
+        if not getattr(db, "supports_transactions", False):
+            if (envelope.details or {}).get("event_fact_id"):
+                raise RuntimeError("Durable audit delivery requires transactions")
+            await log_entry.save()
+            envelope.id = log_entry.id
+            envelope.delivery_ts = envelope.ts
+            return log_entry
+        async with transaction_context(db) as transaction:
+            if transaction is None:
+                raise RuntimeError("Audit transactions unavailable")
+            clock_id = "o.EventDeliveryClock.global"
+            await transaction.insert_if_absent(
+                "object",
+                {"id": clock_id, "entity": "EventDeliveryClock", "context": {"ts": ""}},
+            )
+            clock = await transaction.find_one_and_update(
+                "object", {"id": clock_id}, {"$set": {"context.locked": True}}
+            )
+            existing = (
+                await transaction.get("object", log_entry.id) if fact_id else None
+            )
+            if existing is not None:
+                envelope.id = log_entry.id
+                envelope.delivery_ts = existing["context"]["logged_at"]
+                return DBLog(id=log_entry.id, **existing["context"])
+            previous = clock["context"].get("ts") or ""
+            if not previous:
+                historical = await transaction.find(
+                    "object",
+                    {"entity": "DBLog", "context.log_level": CHANGE_EVENT_LOG_LEVEL},
+                    limit=1,
+                    sort=[("context.logged_at", -1), ("id", -1)],
+                )
+                if historical:
+                    previous = historical[0]["context"].get("logged_at") or ""
+            delivered_at = datetime.now(timezone.utc)
+            if previous:
+                delivered_at = max(
+                    delivered_at,
+                    datetime.fromisoformat(previous) + timedelta(microseconds=1),
+                )
+            log_entry.logged_at = delivered_at
+            envelope.delivery_ts = delivered_at.isoformat()
+            # Export stays bound to the logging context, never the prime graph.
+            document = await log_entry.export()
+            await transaction.save("object", document)
+            await transaction.find_one_and_update(
+                "object",
+                {"id": clock_id},
+                {"$set": {"context.ts": envelope.delivery_ts}},
+            )
         envelope.id = log_entry.id
         return log_entry
 
@@ -363,12 +458,25 @@ class ChangeEventLogger:
             page_limit = min(max(1, limit), 200)
             if workspace_id:
                 rows = []
+                # Oldest-first reads (the /api/events feed) use plain equality:
+                # the translator then emits the JSONB equality that leads the
+                # ascending (log_level, workspace_id, logged_at, id) index, so a
+                # page is an index range read. The one-item ``$in`` emits only
+                # the text form, and Postgres sorted every event in the
+                # workspace for each oldest-first page (about 2.4 s on 434k
+                # events). Newest-first keeps ``$in``: it is already an index
+                # walk (about 13 ms) and its tied-continuation plan is gated by
+                # tests/contract/test_event_history_load_postgres.py.
+                attributed: Any = (
+                    {"$in": [workspace_id]} if descending else workspace_id
+                )
                 for attribution in (
-                    {"context.log_data.workspace_id": {"$in": [workspace_id]}},
+                    {"context.log_data.workspace_id": attributed},
                     {"context.log_data.workspace_id": {"$exists": False}},
                 ):
                     stream_query = dict(clauses[0])
-                    if "$in" in attribution["context.log_data.workspace_id"]:
+                    marker = attribution["context.log_data.workspace_id"]
+                    if isinstance(marker, dict) and "$in" in marker:
                         # Singleton membership avoids redundant text/JSONB
                         # equality predicates in the native query translator.
                         stream_query["context.log_level"] = {
@@ -621,74 +729,16 @@ class ChangeEventLogger:
         returns the earliest bounded page. Does not advance any checkpoint —
         the work-events consumer owns that.
         """
-        from jvspatial.logging.models import DBLog
+        from app.services.pagination import encode_cursor
 
-        if limit <= 0:
-            return []
-        ctx = self._get_log_context()
-        if ctx is None:
-            return []
-        query: Dict[str, Any] = {
-            "entity": "DBLog",
-            "context.log_level": CHANGE_EVENT_LOG_LEVEL,
-        }
-        cursor_logged = (last_logged_at or "").strip()
-        cursor_id = (last_event_id or "").strip()
-        if cursor_logged:
-            # Coarse filter: logged_at >= cursor. Strict after-check below.
-            query["context.logged_at"] = {"$gte": cursor_logged}
-        try:
-            raw = await ctx.database.find("object", query)
-        except Exception as e:
-            logger.warning("change_event_logger: find_after_checkpoint failed: %s", e)
-            return []
-
-        results: List[DBLog] = []
-        for row in raw:
-            try:
-                context_data = row.get("context", {}).copy()
-                row_id = row.get("id", "")
-                if "logged_at" in context_data and isinstance(
-                    context_data["logged_at"], str
-                ):
-                    try:
-                        context_data["logged_at"] = datetime.fromisoformat(
-                            context_data["logged_at"].replace("Z", "+00:00")
-                        )
-                    except (ValueError, AttributeError):
-                        context_data["logged_at"] = datetime.now(timezone.utc)
-                entry = DBLog(id=row_id, **context_data)
-                await entry.set_context(ctx)
-                results.append(entry)
-            except Exception as e:
-                logger.warning(
-                    "change_event_logger: skipping unparseable DBLog row %s: %s",
-                    row.get("id"),
-                    e,
-                )
-
-        def _sort_key(r: Any) -> Tuple[datetime, str]:
-            logged = getattr(r, "logged_at", None)
-            if not isinstance(logged, datetime):
-                logged = datetime.min.replace(tzinfo=timezone.utc)
-            elif logged.tzinfo is None:
-                logged = logged.replace(tzinfo=timezone.utc)
-            return (logged, str(getattr(r, "id", "") or ""))
-
-        results.sort(key=_sort_key)
-        out: List[DBLog] = []
-        for entry in results:
-            logged_iso = _sort_key(entry)[0].isoformat()
-            eid = str(getattr(entry, "id", "") or "")
-            if cursor_logged:
-                if logged_iso < cursor_logged:
-                    continue
-                if logged_iso == cursor_logged and eid <= cursor_id:
-                    continue
-            out.append(entry)
-            if len(out) >= limit:
-                break
-        return out
+        cursor = (
+            encode_cursor(last_event_id or "0", last_logged_at)
+            if last_logged_at
+            else None
+        )
+        return await self.find_page(
+            cursor=cursor, limit=min(limit, 100), descending=False
+        )
 
     async def patch_event_details(self, event_id: str, patch: Dict[str, Any]) -> bool:
         """Merge ``patch`` into an existing row's ``log_data.details``."""

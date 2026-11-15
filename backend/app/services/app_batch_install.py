@@ -159,6 +159,26 @@ def default_settings_for_canonical(canonical: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def default_settings_for_library_model(library_cp_id: str) -> Dict[str, Any]:
+    """The declared defaults of a library App, for an install that sends no settings.
+
+    Lets the single-App install do what the batch install and workspace setup do with
+    ``use_default_settings``: activate at once instead of pausing at
+    ``awaiting_settings`` (and being reaped after an hour if nobody answers). A required
+    setting without a default is left out, so the install still fails schema validation
+    with a clear message instead of silently mis-configuring the App.
+    """
+    cp = await OperationalModel.get(library_cp_id)
+    if cp is None or not getattr(cp, "library_package", False):
+        raise BadRequestError(
+            message=f"library bundle {library_cp_id!r} not found or not a library package"
+        )
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=cp.manifest or {}
+    )
+    return default_settings_for_canonical(canonical)
+
+
 async def _expand_with_dependencies(
     items: List[Dict[str, Any]],
     *,

@@ -29,6 +29,10 @@ on:
       - "agent/**"
       - "examples/**"
       - "Makefile"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "APP_UI_GUIDE.md"
+      - ".cursor/**"
   push:
     branches:
       - main
@@ -395,7 +399,7 @@ jobs:
             context: .
             file: backend/Dockerfile
           - target: web
-            context: frontend
+            context: .
             file: frontend/Dockerfile
     steps:
       - uses: actions/checkout@v4

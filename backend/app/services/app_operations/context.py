@@ -38,6 +38,7 @@ class OperationContext(ToolContext):
             "get",
             "query",
             "find_entries",
+            "find_entry_values",
             "read_entry_records",
             "find_entries_in_track_type",
             "find_track_id_by_title",
@@ -48,12 +49,14 @@ class OperationContext(ToolContext):
             "get_app_settings",
             "read_entry_file",
             "document_render",
+            "for_app",
         }
         typed_effects = {
             "enqueue_workspace_transactional_email",
             "create_entry",
             "update_entry_fields",
             "conditional_update_entry_fields",
+            "track_write_scope",
             "emit_audit",
         }
         # These existing adapters themselves refuse read-only contexts.
@@ -106,6 +109,37 @@ class OperationContext(ToolContext):
 
             return guarded_read
         return value
+
+    async def for_app(self, app_key: str) -> "OperationContext":
+        """A read-only context bound to a required App this App declared ``read: true``.
+
+        ``requires_apps: [{key: human-resources, read: true}]`` in the manifest is the
+        only way to obtain one. Every read made through the returned context runs
+        under the target App's own scope and the viewer's own roles, exactly as if
+        a screen of that App made it; nothing can be written through it. Humans
+        only: agent and connector actors are refused. Raises when the App is not
+        declared, not installed and active in this workspace, or ambiguous.
+        """
+        import copy
+
+        from app.api.errors import InsufficientPermissionsError
+        from app.services.declared_app_reads import resolve_declared_read_app
+
+        denied = InsufficientPermissionsError(
+            message="That App is not declared for reads by this App"
+        )
+        if self.actor_kind != "human" or not str(self.app_id or "").strip():
+            raise denied
+        target_id = await resolve_declared_read_app(
+            self.workspace_id, self.app_id, app_key
+        )
+        if not target_id:
+            raise denied
+        bound = copy.copy(self)
+        bound.app_id = target_id
+        bound.read_only = True
+        bound.deferred_change_events = None
+        return bound
 
     async def emit_audit(self, action: str, details: Dict[str, Any]) -> None:
         """Preserve original actor provenance and defer audit with command effects."""
@@ -509,6 +543,86 @@ class OperationContext(ToolContext):
             return False
         finally:
             reset_operation_write_active(write_token)
+
+    async def delete_entry(
+        self, entry_id: str, *, expected_record_revision: int
+    ) -> bool:
+        """Delete a currently authorized owning-App record at an observed revision.
+
+        Human operations retain ordinary entry.delete authority. Read-only and
+        delegated adapters cannot acquire deletion authority through this facade.
+        The canonical deletion command and outer operation own rollback/cleanup.
+        """
+        from app.api.errors import ResourceConflictError
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.models.nodes import Entry
+        from app.schemas.policy import Resource, Subject
+        from app.services.change_event import emit_change_event
+        from app.services.entry_deletion import delete_entry_fast
+        from app.services.entry_write_scope import entry_write_scope
+        from app.services.policy_engine import evaluate
+        from app.services.resource_location import ACTIVE_APP_STATES, locate_resource
+        from app.services.workspace_governance import ordinary_authority_only
+
+        if self.read_only or self.actor_kind != "human" or not self.app_id:
+            return False
+        if (
+            not self.operation_key
+            or not self.idempotency_key
+            or self.deferred_change_events is None
+        ):
+            return False
+        if type(expected_record_revision) is not int or expected_record_revision < 1:
+            return False
+        try:
+            async with entry_write_scope(entry_id):
+                with ordinary_authority_only(), isolated_permissions_cache():
+                    location = await locate_resource(
+                        "entry", entry_id, allowed_app_states=ACTIVE_APP_STATES
+                    )
+                    if (
+                        location is None
+                        or location.workspace_id != self.workspace_id
+                        or location.app_id != self.app_id
+                    ):
+                        return False
+                    entry = await Entry.find_one({"id": entry_id})
+                    if entry is None:
+                        return False
+                    decision = await evaluate(
+                        subject=Subject(kind="human", id=self.user_id),
+                        action="entry.delete",
+                        resource=Resource(
+                            kind="entry", id=entry_id, scope=f"entry:{entry_id}"
+                        ),
+                    )
+                    if not decision.allowed:
+                        return False
+                    before = await entry.export(flat=True)
+                    track_id = entry.track_id
+                    await delete_entry_fast(
+                        entry,
+                        actor_user_id=self.user_id,
+                        actor_kind="human",
+                        expected_record_revision=expected_record_revision,
+                    )
+                    event = {
+                        "actor_kind": "human",
+                        "actor_id": self.user_id,
+                        "action": "entry.delete",
+                        "resource_type": "Entry",
+                        "resource_id": entry_id,
+                        "before": before,
+                        "after": None,
+                        "scope": f"track:{track_id}",
+                    }
+                    if self.deferred_change_events is not None:
+                        self.deferred_change_events.append(event)
+                    else:
+                        await emit_change_event(**event)
+                    return True
+        except ResourceConflictError:
+            return False
 
     async def conditional_update_entry_fields(
         self,

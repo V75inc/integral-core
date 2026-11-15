@@ -1,5 +1,6 @@
 """Notification delivery requires its actual current recipient, never snapshot claims."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -91,6 +92,28 @@ async def test_notification_rejects_another_recipient_even_when_snapshot_claims_
     )
 
 
+async def _relay_persisted_events_since(started: str) -> None:
+    """Deliver pending event facts and broadcast what was persisted, as the worker and relay do."""
+    from app.services.app_operations.event_outbox import (
+        deliver_pending_operation_events,
+    )
+    from app.services.change_event import BROADCAST_SKIP_ACTIONS
+    from app.services.change_event_logger import (
+        envelope_from_dblog,
+        get_change_event_logger,
+    )
+    from app.services.event_subscription_registry import broadcast_change_event
+
+    await deliver_pending_operation_events()
+    rows = await get_change_event_logger().find_after_checkpoint(
+        last_logged_at=started, last_event_id="", limit=100
+    )
+    for row in rows:
+        event = envelope_from_dblog(row)
+        if event.action not in BROADCAST_SKIP_ACTIONS:
+            await broadcast_change_event(event)
+
+
 @pytest.mark.asyncio
 async def test_live_notification_and_alias_replay_update_recipient_only(
     authenticated_client, test_user, test_user2
@@ -105,6 +128,7 @@ async def test_live_notification_and_alias_replay_update_recipient_only(
 
     owner_socket = AsyncMock()
     outsider_socket = AsyncMock()
+    started = datetime.now(timezone.utc).isoformat()
     await register_subscription(test_user.user_id, owner_socket)
     await register_subscription(test_user2.user_id, outsider_socket)
     try:
@@ -117,6 +141,8 @@ async def test_live_notification_and_alias_replay_update_recipient_only(
             channels=["in_app"],
         )
         notified_id = result["notification_id"]
+        # Live delivery runs outbox -> event worker -> API relay -> socket; run that path once here.
+        await _relay_persisted_events_since(started)
         delivered = [
             json.loads(call.args[0])["payload"]
             for call in owner_socket.send_text.await_args_list

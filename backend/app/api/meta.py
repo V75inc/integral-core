@@ -2,8 +2,9 @@
 
 import asyncio
 import logging
+from functools import lru_cache
 from importlib import metadata
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import Request
 from jvspatial.api import endpoint
@@ -40,10 +41,22 @@ async def readiness() -> Dict[str, Any]:
 
     try:
         db = get_database_manager().get_prime_database()
-        await asyncio.wait_for(
-            db.count("__readiness_probe__", {}),
-            timeout=_READINESS_DB_TIMEOUT_SECONDS,
-        )
+        from app.services.storage_indexes.runtime import managed, state
+
+        if managed():
+            if not state()["ready"]:
+                raise RuntimeError("Managed storage is not ready")
+            pool = await db._ensure_pool()
+            async with pool.acquire() as connection:
+                await asyncio.wait_for(
+                    connection.fetchval("SELECT 1"),
+                    timeout=_READINESS_DB_TIMEOUT_SECONDS,
+                )
+        else:
+            await asyncio.wait_for(
+                db.count("__readiness_probe__", {}),
+                timeout=_READINESS_DB_TIMEOUT_SECONDS,
+            )
     except asyncio.TimeoutError:
         logger.warning(
             "Readiness probe timed out after %.1fs", _READINESS_DB_TIMEOUT_SECONDS
@@ -71,6 +84,16 @@ async def readiness() -> Dict[str, Any]:
     }
 
 
+@lru_cache(maxsize=1)
+def _core_version() -> Optional[str]:
+    """The installed package version never changes inside a running process, and looking it up
+    searches every sys.path entry for package metadata (about 10 ms), so do it once."""
+    try:
+        return metadata.version("integral-core")
+    except metadata.PackageNotFoundError:
+        return None
+
+
 @endpoint("/meta/build", methods=["GET"], auth=False, tags=["Meta"])
 async def build_meta() -> Dict[str, Any]:
     """Public asset-version probe for stale SPA tabs.
@@ -81,14 +104,9 @@ async def build_meta() -> Dict[str, Any]:
     """
     from app.config import settings
 
-    try:
-        core_version = metadata.version("integral-core")
-    except metadata.PackageNotFoundError:
-        core_version = None
-
     return {
         "asset_version": settings.WEB_ASSET_VERSION,
-        "core_version": core_version,
+        "core_version": _core_version(),
     }
 
 

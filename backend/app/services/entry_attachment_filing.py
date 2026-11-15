@@ -226,10 +226,10 @@ async def file_chat_attachment(
                 )
     if is_postgres_entry_transaction(graph.database):
         if outbox and graph is not caller_context:
-            from app.services.app_operations.event_outbox import deliver_operation_event
+            from app.services.app_operations.event_outbox import request_event_delivery
 
             try:
-                await deliver_operation_event(outbox_id=outbox)
+                await request_event_delivery(outbox_id=outbox)
             except Exception:
                 logger.exception("Attachment filing event awaits recovery")
     elif event is not None:

@@ -184,10 +184,10 @@ async def configure_index(
     if outbox_id and graph is not caller:
         import logging
 
-        from app.services.app_operations.event_outbox import deliver_operation_event
+        from app.services.app_operations.event_outbox import request_event_delivery
 
         try:
-            await deliver_operation_event(outbox_id=outbox_id)
+            await request_event_delivery(outbox_id=outbox_id)
         except Exception:
             logging.getLogger(__name__).exception(
                 "Search configuration audit awaits recovery"

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from jvspatial.core import Edge
 from jvspatial.core.context import get_default_context
 
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.edges import (
     ANCHORS,
     CATALOGS,
@@ -535,6 +536,7 @@ async def _delete_node_and_edges(node: Any) -> None:
         raise RuntimeError(f"Failed to delete {type(node).__name__} {node.id}")
 
 
+@invalidates_job_facts
 async def merge_tracks(
     *, user_id: str, payload: Dict[str, Any], workspace_id: str = ""
 ) -> Dict[str, Any]:
@@ -964,6 +966,7 @@ async def prepare_track_split(
     }
 
 
+@invalidates_job_facts
 async def split_track(
     *, user_id: str, payload: Dict[str, Any], workspace_id: str = ""
 ) -> Dict[str, Any]:

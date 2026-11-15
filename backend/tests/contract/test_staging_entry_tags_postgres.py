@@ -244,7 +244,7 @@ async def test_tag_event_is_offered_only_after_effect_and_receipt_commit(
         auth, _, _, _, change = await tag_proposal("add_entry_tag")
         offered = []
 
-        async def deliver(*, outbox_id):
+        async def deliver(*, outbox_id, database=None):
             with pytest.raises(OperationTransactionUnavailable):
                 current_graph_transaction_database()
             receipt = await postgres_raw_db.get(
@@ -253,12 +253,21 @@ async def test_tag_event_is_offered_only_after_effect_and_receipt_commit(
             assert receipt["context"]["state"] == "applied"
             offered.append(outbox_id)
 
-        monkeypatch.setattr(event_outbox, "deliver_operation_event", deliver)
+        monkeypatch.setattr(event_outbox, "request_event_delivery", deliver)
         result = await staging_apply.bless_and_execute(
             user_id=auth.id, token=change.token
         )
         assert result["consumed"], result
         assert len(offered) == 1
+        outbox_id = offered[0]
+        object_id = event_outbox.event_outbox_object_id(outbox_id)
+        queued = await postgres_raw_db.get("object", object_id)
+        assert queued["context"]["status"] == "pending"
+        assert await event_outbox.deliver_operation_event(
+            outbox_id=outbox_id, database=postgres_raw_db
+        )
+        delivered = await postgres_raw_db.get("object", object_id)
+        assert delivered["context"]["status"] == "delivered"
 
 
 @pytest.mark.parametrize("same_approval", [False, True])

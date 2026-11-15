@@ -61,13 +61,15 @@ def verify_bundle_signature(
 ) -> SignatureResult:
     """Verify the Ed25519 signature attached to ``bundle_dir``.
 
-    Dev mode (no ``pubkey_b64``) and Python-free bundles short-circuit
+    Dev mode (no ``pubkey_b64``) and packages without Python/native UI short-circuit
     to ``verified=True`` per Spec §11; everything else requires a
     valid ``signature.bin``.
     """
     if not pubkey_b64:
         return SignatureResult(True, "dev_mode")
-    if not _bundle_ships_python(bundle_dir):
+    if not _bundle_ships_python(bundle_dir) and not any(
+        (bundle_dir / "ui").rglob("*.mjs")
+    ):
         return SignatureResult(True, "no_python")
     sig_path = bundle_dir / _SIGNATURE_FILENAME
     if not sig_path.exists():

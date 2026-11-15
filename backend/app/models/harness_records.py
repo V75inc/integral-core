@@ -7,7 +7,8 @@ stable scalar keys and do not participate in graph traversal or permissions.
 from __future__ import annotations
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
+
+from app.models.indexing import attribute
 
 
 class HarnessRunRecord(Object):

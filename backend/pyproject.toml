@@ -15,6 +15,7 @@ exclude = ["app.packages", "app.packages.*"]
 "app.connectors" = ["catalog/*.yaml"]
 "app.views" = ["contracts/*.json"]
 "app.services" = ["model_reasoning_catalog.json"]
+"app.services.storage_indexes" = ["approved.json"]
 "app.plugins" = ["*/pack.yaml"]
 "app.web" = ["static/**/*"]
 "app" = ["resident_harness/**/*"]
@@ -24,7 +25,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc62"
+version = "0.1.1rc63"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 license-files = ["LICENSE", "NOTICE"]
@@ -70,7 +71,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     # IANA tz database for zoneinfo on minimal images.
     "tzdata>=2024.1",
-    "jvspatial==0.2.9",
+    "jvspatial==0.2.10",
     # jvspatial depends on PyJWT without an upper bound; keep the resolved
     # version above releases flagged by the backend dependency audit.
     "PyJWT>=2.14.0",
@@ -79,7 +80,9 @@ dependencies = [
     "authlib>=1.9.1",
     # Reject joserfc releases flagged by the release dependency audit.
     "joserfc>=1.7.6",
-    "dnspython>=2.9.0",
+    "dnspython>=2.9.2",
+    # Enforce the patched tracing API for transitive runtime consumers too.
+    "opentelemetry-api>=1.45.2,<2",
     "pymongo>=4.18.3",
     "httpx>=0.24.0",
     # LiteLLM HTTP transport: exclude versions flagged by the release audit.
@@ -123,9 +126,9 @@ dependencies = [
     # Shared provider routing and immutable usage observations.
     "litellm>=1.101.0,<1.102",
     # HTML extraction for the native standard skill library.
-    # CVE-2026-126190: patched CSS selector parsing requires Python 3.11.5+.
-    "soupsieve>=4.0",
     "beautifulsoup4>=4.12,<5",
+    # CVE-2026-126190: bound selector matching work on untrusted documents.
+    "soupsieve>=4.0,<5",
     "markdownify>=0.13,<2",
     # openai stays for the SDK's own use elsewhere in the tree (embeddings,
     # the chat provider surface) -- LiteLLM does not replace it. Same
@@ -152,6 +155,11 @@ dependencies = [
 integral = "app.cli:main"
 
 [project.optional-dependencies]
+observability = [
+    "opentelemetry-api>=1.45.2,<2",
+    "opentelemetry-sdk>=1.20,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.20,<2",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",
@@ -170,6 +178,7 @@ dev = [
     "pre-commit>=3.0.0",
 ]
 test = [
+    "opentelemetry-sdk>=1.20,<2",
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",

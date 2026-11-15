@@ -1,3 +1,4 @@
+import { BacklinkList } from './BacklinkList';
 import { useEntryHostRefresh } from '../../hooks/useEntryHostRefresh';
 import { errorMessageFromAxios } from '../../api/helpers';
 import { tagFilterHref } from '../../utils/tagFilters';
@@ -314,7 +315,7 @@ export function EntryDetail({
     try {
       let toTrack: string | undefined;
       try {
-        const tracks = await tracksApi.list();
+        const tracks = await tracksApi.list({ skipEntryCounts: true });
         // Prefer Customer Projects (CRM handoff). Title used to be "Projects";
         // template_id stays ``projects``. Never pick Internal Projects.
         const ranked = (tracks || [])
@@ -711,13 +712,15 @@ export function EntryDetail({
     <EntryContributionSlot
       ref={editContributionApiRef}
       placement="entry_detail"
-      appId={track?.app?.id || entry.track?.app?.id || editForm.appId}
+      appId={track?.app?.id || trackContext?.app?.id || entry.app?.id || entry.track?.app?.id || editForm.appId}
       formSchema={editForm.entryTypeFormSchema || entryTypeFormSchema}
       trackId={entry.track_id}
       entryId={entry.id}
       entryTypeKey={entry.type}
       mode="edit"
       customFields={editForm.fieldValues}
+      fieldErrors={editForm.problems}
+      onFieldDataOwnerChange={editForm.setFieldDataOwner}
       onDraftPatch={patch => editForm.applyContributionPatch(patch)}
     />
   );
@@ -822,11 +825,18 @@ export function EntryDetail({
     );
   }, [anchoredEntryTypes]);
 
+  // A record opened from a list on a full page (a payslip on its pay run) opens in a dialog over that page; the page
+  // keeps its place. In a dialog host the record still replaces the content, with a way back.
+  const [previewEntry, setPreviewEntry] = useState<Entry | null>(null);
   const handleEmbeddedEntryOpen = useCallback((task: Entry) => {
+    if (variant === 'page') {
+      setPreviewEntry(task);
+      return;
+    }
     setParentEntry(entry);
     setEntry(task);
     setIsEditing(false);
-  }, [entry]);
+  }, [entry, variant]);
 
   const handleBackToParent = useCallback(() => {
     if (!parentEntry) return;
@@ -1219,7 +1229,7 @@ export function EntryDetail({
       {entry.created_at ? (
         <span className="tabular-nums">{formatRelativeTime(entry.created_at)}</span>
       ) : null}
-      {entry.app?.id ? (
+      {entry.app?.id && (entry.app.name || 'App') !== entry.track?.title ? (
         <Link
           to={appPath(entry.app.id)}
           className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-fast"
@@ -1229,6 +1239,10 @@ export function EntryDetail({
         </Link>
       ) : null}
       {entry.track?.id ? (
+        <>
+          {entry.app?.id && (entry.app.name || 'App') !== entry.track.title ? (
+            <span aria-hidden className="text-[var(--text-subtle)]">›</span>
+          ) : null}
         <Link
           to={`/tracks/${entry.track.id}`}
           className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-fast"
@@ -1239,6 +1253,7 @@ export function EntryDetail({
         >
           {entry.track.title}
         </Link>
+        </>
       ) : null}
       <WatchersControl
         entryId={entry.id}
@@ -1284,42 +1299,7 @@ export function EntryDetail({
     refs: typeof referencedBy,
     label: string,
     totalHint?: number
-  ) => {
-    const total = totalHint ?? refs.length;
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5 text-[var(--text-subtle)]">
-          <ArrowUpRight
-            size={12}
-            strokeWidth={LINE_ICON_STROKE}
-            aria-hidden
-          />
-          <span>
-            {label} ({total}
-            {total > refs.length ? `; showing ${refs.length}` : ''})
-          </span>
-        </div>
-        <ul className="ml-[18px] flex flex-wrap gap-x-3 gap-y-1">
-          {refs.map(ref => (
-            <li key={ref.id} className="inline-flex items-center gap-1">
-              <Link
-                to={`/tracks/${ref.track_id}?entry=${encodeURIComponent(ref.id)}`}
-                className="text-[var(--link)] hover:underline"
-                onClick={e => e.stopPropagation()}
-              >
-                {ref.title || 'Untitled'}
-              </Link>
-              {ref.track_title ? (
-                <span className="text-[var(--text-subtle)]">
-                  · {ref.track_title}
-                </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  };
+  ) => <BacklinkList refs={refs} label={label} total={totalHint} />;
   const backlinksRow =
     anchorSource ||
     referencedBy.length > 0 ||
@@ -1730,6 +1710,11 @@ export function EntryDetail({
                   setEntry(updated);
                   onUpdate?.(updated);
                 }}
+                onFileSaved={(updated, file) => {
+                  setEntry(updated);
+                  setAttachments(prev => [file, ...prev.filter(a => a.id !== file.id)]);
+                  onUpdate?.(updated);
+                }}
               />
             ),
           }
@@ -2001,6 +1986,22 @@ export function EntryDetail({
           entryId={entry.id}
           appId={track?.app?.id || entry.track?.app?.id}
           entryTypeKey={entry.type}
+        />
+      ) : null}
+      {previewEntry ? (
+        <EntryDetail
+          key={`preview:${previewEntry.id}`}
+          entry={previewEntry}
+          variant="modal"
+          onClose={() => setPreviewEntry(null)}
+          onUpdate={updated => {
+            setPreviewEntry(updated);
+            onUpdateRef.current?.(entry);
+          }}
+          onDelete={() => {
+            setPreviewEntry(null);
+            void refreshHostEntry();
+          }}
         />
       ) : null}
     </>

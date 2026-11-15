@@ -11,14 +11,18 @@ import asyncio
 import hashlib
 import json
 import logging
+import threading
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
 from jvspatial.core import Object
-from jvspatial.core.annotations import attribute
 from pydantic import Field
 
+from app.models.indexing import attribute
+from app.services.perf_trace import perf_traced
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,16 @@ _STEP_TERMINAL = frozenset(
     {"succeeded", "failed", "cancelled", "denied", "waiting_for_human"}
 )
 _OBSERVABILITY_VERSION = "v1"
+_MANIFEST_VERSION_LOCK = threading.Lock()
+
+
+@lru_cache(maxsize=8)
+def _core_manifest_version(path: str, _source_identity: tuple) -> str:
+    """Cache immutable source metadata, never caller authority or declarations."""
+    import yaml
+
+    manifest = yaml.safe_load(Path(path).read_text()) or {}
+    return str(manifest.get("manifest_version") or "unknown")
 
 
 def _elapsed_ms(started_at: str, finished_at: Optional[str]) -> Optional[float]:
@@ -170,12 +184,23 @@ def build_core_capability_snapshot() -> Dict[str, Any]:
     capability declarations will join it after their registries become
     persisted sources of truth rather than process-local maps.
     """
-    import yaml
-
     from app.agentive.tooling.catalogue import build_tool_catalogue
     from app.agentive.tooling.manifest import DEFAULT_MANIFEST_PATH
 
-    manifest_raw = yaml.safe_load(DEFAULT_MANIFEST_PATH.read_text()) or {}
+    source = Path(DEFAULT_MANIFEST_PATH)
+    metadata = source.stat()
+    # The browser probe found repeated parsing of 2,800 lines just to read the
+    # version. The actual dispatchable catalogue retains its existing builder.
+    with _MANIFEST_VERSION_LOCK:
+        version = _core_manifest_version(
+            str(source),
+            (
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+                metadata.st_size,
+                metadata.st_ino,
+            ),
+        )
     capabilities = [
         {
             "name": item["name"],
@@ -185,7 +210,6 @@ def build_core_capability_snapshot() -> Dict[str, Any]:
         for item in build_tool_catalogue()
     ]
     capabilities.sort(key=lambda item: str(item["name"]))
-    version = manifest_raw.get("manifest_version") or "unknown"
     return {"manifest_version": str(version), "capabilities": capabilities}
 
 
@@ -269,6 +293,7 @@ def _connector_tool_keys(connector: Any, discovered: Any) -> list:
     return sorted(keys)
 
 
+@perf_traced("capabilities.discovery")
 async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     """Record persisted App and connector declarations available to a run.
 

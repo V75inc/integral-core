@@ -21,6 +21,164 @@ _live_permissions_var: ContextVar[bool] = ContextVar(
 )
 
 
+# Facts about an App that every write inside one long-running App job re-reads, such as which
+# fields its definition protects. Ordinary requests never reuse them. A job opts in with
+# ``app_job_fact_scope()``, and an answer is reused for at most _APP_JOB_FACT_TTL seconds
+# and only until the next application definition change.
+_APP_JOB_FACT_TTL = 5.0
+_app_job_facts_var: ContextVar[
+    Optional[Dict[Tuple[str, ...], Tuple[float, int, Any]]]
+] = ContextVar("integral_app_job_facts", default=None)
+_computation_scope_var: ContextVar[bool] = ContextVar(
+    "computation_scope_owns_facts", default=False
+)
+_definition_generation = 0
+
+
+def note_definition_changed() -> None:
+    """Make every job's remembered App facts unusable.
+
+    Call when something they describe changes: an application definition, or where a record
+    lives (moved, deleted, its App paused or removed).
+    """
+    global _definition_generation
+    _definition_generation += 1
+    # Also forget the verified full manifests (access_delegation): the next definition
+    # check re-verifies in full. Lazy import: access_delegation imports this module.
+    try:
+        from app.services.access_delegation import invalidate_verified_definitions
+
+        invalidate_verified_definitions()
+    except ImportError:  # pragma: no cover - during start-up import cycles
+        pass
+
+
+def invalidates_job_facts(function):
+    """Mark an async function that changes what jobs remember about Apps and record locations.
+
+    Facts are dropped before the change starts and again after it ends, so a read that races
+    the change cannot leave a stale answer behind.
+    """
+    import functools
+
+    @functools.wraps(function)
+    async def wrapper(*args: Any, **kwargs):
+        note_definition_changed()
+        try:
+            return await function(*args, **kwargs)
+        finally:
+            note_definition_changed()
+
+    return wrapper
+
+
+_app_job_events_var: ContextVar[Optional[list]] = ContextVar(
+    "integral_app_job_events", default=None
+)
+
+
+@contextmanager
+def app_job_fact_scope() -> Iterator[None]:
+    """Let one App job reuse an App's unchanged facts for a few seconds."""
+    token = _app_job_facts_var.set({})
+    events_token = _app_job_events_var.set([])
+    try:
+        yield
+    finally:
+        _app_job_events_var.reset(events_token)
+        _app_job_facts_var.reset(token)
+
+
+@contextmanager
+def computation_fact_scope() -> Iterator[None]:
+    """Let ONE computation reuse facts it has just read, and nothing outlives it.
+
+    The access inventory behind the tracks and apps lists asks the same questions many
+    times in a row (where does this track live, what is this user's role on it, who is
+    this user). Inside this scope those answers are remembered for at most
+    _APP_JOB_FACT_TTL seconds and only until the next ACL invalidation, exactly as in an
+    App job, and the memo is discarded when the computation ends. Nothing is shared
+    across requests or work items, so the result is as fresh as without the scope.
+    A caller already inside a job scope keeps that scope.
+    """
+    if _app_job_facts_var.get() is not None:
+        yield
+        return
+    token = _app_job_facts_var.set({})
+    own = _computation_scope_var.set(True)
+    try:
+        yield
+    finally:
+        _computation_scope_var.reset(own)
+        _app_job_facts_var.reset(token)
+
+
+def computation_scope_owns_facts() -> bool:
+    """True only inside a ``computation_fact_scope`` that is not part of an App job.
+
+    A loaded graph node keeps the database context (and so the transaction) it was read in.
+    An App job runs many transactions one after another, so a node remembered across the job
+    would be read through a transaction that has already ended. Only a single short
+    computation, which never outlives its transaction, may remember nodes.
+    """
+    return bool(_computation_scope_var.get())
+
+
+def defer_job_event(outbox_id: str) -> Optional[int]:
+    """Hold a committed event fact for batched delivery; None outside a job scope.
+
+    The fact is already durable (status ``pending``), so a job that dies before the batch is
+    flushed leaves it for the recovery sweep. Returns how many are now waiting.
+    """
+    pending = _app_job_events_var.get()
+    if pending is None:
+        return None
+    pending.append(outbox_id)
+    return len(pending)
+
+
+def take_deferred_job_events() -> list:
+    """Drain the current job's pending event identifiers for delivery."""
+    pending = _app_job_events_var.get()
+    if not pending:
+        return []
+    taken = list(pending)
+    pending.clear()
+    return taken
+
+
+def app_job_fact_active() -> bool:
+    """Whether the caller is inside an App job that may remember facts."""
+    return _app_job_facts_var.get() is not None
+
+
+def app_job_fact_get(key: Tuple[str, ...]) -> Any:
+    """The remembered fact, or None outside a job scope, when old, or after a definition change."""
+    import time as _time
+
+    facts = _app_job_facts_var.get()
+    hit = facts.get(key) if facts is not None else None
+    if hit is None:
+        return None
+    stamped, generation, value = hit
+    if (
+        generation != _definition_generation
+        or _time.monotonic() - stamped > _APP_JOB_FACT_TTL
+    ):
+        facts.pop(key, None)
+        return None
+    return value
+
+
+def app_job_fact_put(key: Tuple[str, ...], value: Any) -> None:
+    """Store a fact with its timestamp and current invalidation generation."""
+    import time as _time
+
+    facts = _app_job_facts_var.get()
+    if facts is not None:
+        facts[key] = (_time.monotonic(), _definition_generation, value)
+
+
 def live_permissions_required() -> bool:
     """Whether this authorization boundary must bypass process TTL snapshots."""
     return _live_permissions_var.get()

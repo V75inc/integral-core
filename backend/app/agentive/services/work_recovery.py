@@ -55,8 +55,13 @@ async def run_recovery_pass(
     *,
     reclaim_worker_id: str = "recovery",
     lease_seconds: float = work_items.DEFAULT_LEASE_SECONDS,
+    reconcile_updated_since: Optional[str] = None,
 ) -> RecoveryReport:
-    """Apply monotonic recovery rules. Safe to run repeatedly."""
+    """Apply monotonic recovery rules. Safe to run repeatedly.
+
+    ``reconcile_updated_since`` limits the outbox backfill to recently changed
+    work items (see ``reconcile_missing_outbox_facts``); None checks them all.
+    """
     report = RecoveryReport()
     now = datetime.now(timezone.utc)
 
@@ -114,7 +119,9 @@ async def run_recovery_pass(
     # claim paths; recovery does not reopen terminal authority.
 
     # 5 + 7. Backfill missing deterministic outbox facts (dev gaps).
-    report.outbox_backfilled = await reconcile_missing_outbox_facts()
+    report.outbox_backfilled = await reconcile_missing_outbox_facts(
+        updated_since=reconcile_updated_since
+    )
 
     return report
 

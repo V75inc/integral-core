@@ -1,9 +1,9 @@
 """Single emission path for ChangeEvent (D-05).
 
-Every mutation handler in app/api/*.py and app/agentive/api/*.py calls
-``emit_change_event`` AFTER the resource write succeeds and BEFORE the HTTP
-response is returned. Per D-06: row persist is sync (durable before 2xx); WS
-broadcast rides on async best-effort (recoverable via EVT-02 polling on cursor).
+Mutation handlers capture durable intent in their graph transaction. The
+independent event worker persists audit rows after commit. API relays and
+server consumers follow persisted delivery order independently. Standalone
+forensic refusals retain independent logging-store persistence.
 
 Storage shape: ChangeEvents are persisted as ``DBLog`` rows with
 ``log_level="CHANGE_EVENT"`` in jvspatial's secondary logging database (see
@@ -85,13 +85,15 @@ async def emit_change_event(
     # future code path that itself calls policy_engine.evaluate. NEVER
     # persisted to the DBLog row — in-process control flow only.
     _internal_actor: Optional["Subject"] = None,
+    _occurred_at: Optional[str] = None,
+    _persist_only: bool = False,
+    _workspace_id: Optional[str] = None,
 ) -> ChangeEventEnvelope:
-    """Persist a ChangeEvent (as a DBLog row) and return its envelope.
+    """Capture a change intent in its write transaction, or persist a standalone audit.
 
-    Caller invariant: call AFTER the resource mutation succeeds, BEFORE the
-    HTTP response is returned. The CI grep gate
-    (``tests/test_change_event_no_bypass.py``) enforces this for every mutation
-    handler.
+    Resource commands capture durable intent before commit. The independent
+    worker persists their audit rows; relays and consumers have their own
+    checkpoints. Forensic refusals remain independent of rejected writes.
 
     When ``CHANGE_EVENT_ENABLED`` is False, returns an envelope that was never
     persisted and never broadcast — treat the return value as fire-and-forget.
@@ -128,24 +130,10 @@ async def emit_change_event(
     for key, value in provenance_details().items():
         if key not in enriched_details and value is not None:
             enriched_details[key] = value
-    if (
-        actor_kind == "human"
-        and actor_id
-        and "actor_display_name" not in enriched_details
-    ):
-        try:
-            from app.services.permissions import get_user_node
-
-            actor_user = await get_user_node(actor_id)
-            if actor_user is not None:
-                display_name = getattr(actor_user, "display_name", "") or ""
-                if display_name:
-                    enriched_details["actor_display_name"] = display_name
-        except Exception:  # noqa: BLE001 — enrichment is best-effort, never raise
-            pass
 
     envelope = ChangeEventEnvelope(
-        ts=utc_now_iso(),
+        ts=_occurred_at or utc_now_iso(),
+        workspace_id=_workspace_id,
         actor_kind=actor_kind,
         actor_id=actor_id or "",
         actor_capability=actor_capability,
@@ -194,6 +182,43 @@ async def emit_change_event(
     ):
         return envelope
 
+    if not _persist_only:
+        from app.services.app_operations.event_outbox import capture_transaction_event
+
+        if await capture_transaction_event(
+            {
+                "actor_kind": actor_kind,
+                "actor_id": actor_id or "",
+                "actor_capability": actor_capability,
+                "action": action,
+                "resource_type": resource_type,
+                "resource_id": resource_id or "",
+                "before": before,
+                "after": after,
+                "scope": scope,
+                "details": enriched_details or None,
+            }
+        ):
+            return envelope
+
+    if (
+        actor_kind == "human"
+        and actor_id
+        and "actor_display_name" not in enriched_details
+    ):
+        try:
+            from app.services.permissions import get_user_node
+
+            actor_user = await get_user_node(actor_id)
+            if actor_user is not None:
+                display_name = getattr(actor_user, "display_name", "") or ""
+                if display_name:
+                    enriched_details["actor_display_name"] = display_name
+        except Exception:  # noqa: BLE001 — enrichment is best-effort, never raise
+            pass
+
+    envelope.details = enriched_details or None
+
     if resource_type in {"app", "track"} and resource_id:
         try:
             from app.services.resource_metadata_index import refresh_resource_metadata
@@ -205,48 +230,14 @@ async def emit_change_event(
             logger.exception("Resource metadata projection will reconcile")
 
     if not is_change_event_enabled():
+        if _persist_only:
+            raise RuntimeError("Audit event delivery is disabled")
         return envelope
 
     ce_logger = get_change_event_logger()
     await ce_logger.persist(envelope)
+    if _persist_only:
+        return envelope
 
-    # Async WS broadcast — best-effort. Failure does NOT roll back the row.
-    # Phase 3 Plan 03-05 — policy.deny events are forensic audit records, NOT
-    # subscriber-relevant change feeds. Skipping the WS broadcast for these
-    # events (a) preserves the persisted audit trail in the DBLog row, (b)
-    # prevents a denial-emit cascade where every per-subscriber permission
-    # check that returns Decision(allowed=False) inside _user_permitted_for_scope
-    # would otherwise re-enter broadcast_change_event with the denial event,
-    # producing O(N^2) broadcast amplification. See T-03-05-E01 mitigation —
-    # the _internal_actor recursion guard handles a future case where the
-    # subscriber check itself recurses; this skip is the broadcast-fan-out
-    # safeguard. Audit visibility is unaffected (GET /api/audit-log still
-    # surfaces the DBLog row).
-    if action not in BROADCAST_SKIP_ACTIONS:
-        try:
-            from app.services.event_subscription_registry import (  # type: ignore[import-not-found]
-                broadcast_change_event,
-            )
-
-            await broadcast_change_event(envelope)
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.warning("emit_change_event: WS broadcast failed: %s", e)
-
-    # Full Sweep R4 — best-effort in-process wake for routines / proactive.
-    try:
-        from app.services.event_wake import notify_substrate_change
-
-        await notify_substrate_change(
-            action=str(action),
-            resource_type=resource_type,
-            resource_id=resource_id or "",
-            actor_id=actor_id or None,
-            workspace_id=None,
-            extra={"scope": scope},
-        )
-    except Exception as e:
-        logger.debug("emit_change_event: event_wake failed: %s", e)
-
+    # WebSocket fan-out and durable consumers advance independent checkpoints.
     return envelope

@@ -836,6 +836,7 @@ async def _execute_chat_turn(
                             "firstToolRequestedMs",
                             "firstToolStartedMs",
                             "firstOperationalToolMs",
+                            "firstDomainResultMs",
                             "heavyStartedMs",
                             "lightResponseMs",
                             "heavyFirstTokenMs",
@@ -1251,7 +1252,14 @@ async def _handle_app_tool(
             )
         except InsufficientPermissionsError as exc:
             raise WorkError("work.policy_denied", exc.message) from exc
-        return await run_tool(spec, dict(payload.get("input") or {}), ctx)
+        from app.middleware.permissions_cache import app_job_fact_scope
+        from app.services.app_operations.event_outbox import flush_deferred_job_events
+
+        with app_job_fact_scope():
+            try:
+                return await run_tool(spec, dict(payload.get("input") or {}), ctx)
+            finally:
+                await flush_deferred_job_events()
 
     try:
         result = await _with_supervised_heartbeat(
@@ -1331,11 +1339,23 @@ async def execute_claimed_work(
 ) -> WorkItem:
     """Execute one item with a fresh, task-local authorization memo."""
     from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.performance import worker_trace
 
-    with isolated_permissions_cache():
-        return await _execute_claimed_work(
+    with (
+        worker_trace(
+            (item.input_payload or {}).get("performance_traceparent")
+        ) as diagnostics,
+        isolated_permissions_cache(),
+    ):
+        result = await _execute_claimed_work(
             item, worker_id=worker_id, lease_seconds=lease_seconds
         )
+        if diagnostics is not None:
+            diagnostics["outcome"] = getattr(result, "status", "completed")
+            failure = getattr(result, "failure", None)
+            if isinstance(failure, dict):
+                diagnostics["error_code"] = failure.get("code")
+        return result
 
 
 async def _execute_claimed_work(

@@ -136,12 +136,40 @@ async def read_app_records(ctx, raw):
     filters = {_field(key): value for key, value in data.filters.items()}
     group = _field(data.group_by) if data.group_by else ""
     sort = _field(data.sort_by) if data.sort_by else ""
+    search_fields = (
+        [_field(key) for key in data.text_search.fields] if data.text_search else []
+    )
     with ordinary_authority_only(), isolated_permissions_cache():
-        query, tracks = await select_app_record_sources(
-            ctx, data.track, data.entry_type
-        )
-        if not tracks:
-            return {"ok": False, "reason": "Selected Track is unavailable"}
+        if data.track_key:
+            selection, capped = await _candidate_ids(
+                ctx, data.track_key, data.entry_type or None, None, metadata_only=True
+            )
+            if capped:
+                raise BadRequestError(message="Narrow the Track/type selection")
+            selectors = []
+            track_ids = []
+            type_known = not data.entry_type
+            for track_id, types in selection.items():
+                track_ids.append(track_id)
+                type_known = type_known or bool(types)
+                selector = {"context.track_id": track_id}
+                if types is not None:
+                    selector["context.type_id"] = {"$in": types}
+                selectors.append(selector)
+            if not track_ids:
+                return {"ok": False, "reason": "Selected Track is unavailable"}
+            if not type_known:
+                raise BadRequestError(
+                    message="That entry type is not defined in the selected Track. Use its current schema; this is not evidence of zero records."
+                )
+            query = {"$or": selectors}
+        else:
+            query, tracks = await select_app_record_sources(
+                ctx, data.track, data.entry_type
+            )
+            if not tracks:
+                return {"ok": False, "reason": "Selected Track is unavailable"}
+            track_ids = [track.id for track in tracks]
         query = merge_queries(
             query,
             *[
@@ -157,6 +185,33 @@ async def read_app_records(ctx, raw):
                         "$regex": re.escape(data.title_contains),
                         "$options": "i",
                     }
+                },
+            )
+        if data.ids is not None:
+            query = merge_queries(query, {"id": {"$in": data.ids}})
+        for key, values in data.exclude_values.items():
+            if len(values) > 10 or any(len(str(value)) > 120 for value in values):
+                raise BadRequestError(
+                    message="Excluded values must be short bounded scalars"
+                )
+            query = merge_queries(
+                query, {"context.custom_fields." + _field(key): {"$nin": values}}
+            )
+        if data.text_search and data.text_search.value.strip():
+            term = re.escape(data.text_search.value.strip())
+            query = merge_queries(
+                query,
+                {
+                    "$or": [
+                        {
+                            (
+                                "context.title"
+                                if key == "title"
+                                else "context.custom_fields." + _field(key)
+                            ): {"$regex": term, "$options": "i"}
+                        }
+                        for key in search_fields
+                    ]
                 },
             )
         # Cursor is an opaque continuation of this exact caller/selection, never
@@ -188,6 +243,21 @@ async def read_app_records(ctx, raw):
             "app_id": ctx.app_id,
             "allowed_app_states": ACTIVE_APP_STATES,
         }
+        if fields and not data.count_only:
+            # Explicit projections need no Entry construction. Include only the
+            # output and local matching/ranking fields; iter_records adds the
+            # canonical authority envelope and rechecks it on every page.
+            common["projection"] = [
+                "context.title",
+                "context.track_id",
+                *[
+                    "context.custom_fields." + key
+                    for key in dict.fromkeys(
+                        fields + list(filters) + ([sort] if sort else [])
+                    )
+                    if key not in {"id", "title"}
+                ],
+            ]
         coverage = (
             "current caller-visible records in the owning App and selected Track/type"
         )
@@ -227,7 +297,7 @@ async def read_app_records(ctx, raw):
                 ),
                 "group_count": len(groups),
                 "groups_truncated": len(groups) > 50,
-                "source_urls": [f"/tracks/{track.id}" for track in tracks],
+                "source_urls": [f"/tracks/{track_id}" for track_id in track_ids],
                 "coverage": coverage,
             }
 
@@ -335,10 +405,25 @@ async def read_app_records(ctx, raw):
                 else None
             )
         has_more = len(selected) > data.limit
-        rows = await hydrate_records(selected[: data.limit])
+        rows = (
+            selected[: data.limit]
+            if fields
+            else [
+                {
+                    "id": row.id,
+                    "context": {
+                        "title": row.title,
+                        "track_id": row.track_id,
+                        "custom_fields": row.custom_fields,
+                    },
+                }
+                for row in await hydrate_records(selected[: data.limit])
+            ]
+        )
         output = []
         for row in rows:
-            cf = row.custom_fields or {}
+            context = row.get("context") or {}
+            cf = context.get("custom_fields") or {}
             selected = (
                 fields
                 or [
@@ -351,14 +436,14 @@ async def read_app_records(ctx, raw):
                 ][:8]
             )
             item = {
-                "id": row.id,
-                "title": row.title,
-                "track_id": row.track_id,
-                "url": f"/entries/{row.id}",
+                "id": row["id"],
+                "title": context.get("title", ""),
+                "track_id": context.get("track_id", ""),
+                "url": f"/entries/{row['id']}",
             }
             item.update(
                 {
-                    key: _short(cf.get(key))
+                    key: cf.get(key) if data.full_values else _short(cf.get(key))
                     for key in selected
                     if key not in _SKIP | _IDENTITY
                 }
@@ -382,5 +467,5 @@ async def read_app_records(ctx, raw):
             "truncated": has_more,
             "next_cursor": cursor,
             "coverage": coverage,
-            "source_urls": [f"/tracks/{track.id}" for track in tracks],
+            "source_urls": [f"/tracks/{track_id}" for track_id in track_ids],
         }

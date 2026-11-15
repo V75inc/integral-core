@@ -23,6 +23,7 @@ export interface QueryResponse<T> {
 }
 export interface OperationReceipt { id: string; status: 'succeeded'; replayed: boolean }
 export type OperationResponse<T> = {
+  operation_class?: 'read' | 'execute' | null;
   output_disposition?: 'available'; output: T; operation_receipt?: OperationReceipt | null;
   object_refs?: Array<Record<string, unknown>>; evidence?: Record<string, unknown>;
 } | { output_disposition: 'withheld'; current_state_verified: false; operation_receipt: OperationReceipt };

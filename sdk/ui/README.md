@@ -20,7 +20,8 @@ const home = defineHome({title: 'Home', renderer: 'native',
 ```
 
 Compose stack/grid, cards, text/markdown, data components, forms/actions,
-tabs/accordions. Reusable developer functions emit data, not an embedded page or
+tabs/accordions. A `react_component` leaf may reference an operator-admitted
+package component through the separate [React SDK](../react/README.md). Reusable developer functions emit data, not an embedded page or
 arbitrary JavaScript running in Core. The resident edits the same composition
 contract with preview, ordinary approval and revision guards. Serialize the
 result into `app.home` or use the public Home API. See

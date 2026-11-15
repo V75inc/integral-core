@@ -511,11 +511,11 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
             stats[outcome] += 1
             if outbox_id:
                 from app.services.app_operations.event_outbox import (
-                    deliver_operation_event,
+                    request_event_delivery,
                 )
 
                 try:
-                    await deliver_operation_event(outbox_id=outbox_id)
+                    await request_event_delivery(outbox_id=outbox_id)
                 except Exception:
                     logger.exception("Connector change event awaits recovery")
             elif events:

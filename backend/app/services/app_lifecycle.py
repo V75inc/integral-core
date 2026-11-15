@@ -46,9 +46,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from copy import deepcopy
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-from app.api.errors import InsufficientPermissionsError
+from app.api.errors import InsufficientPermissionsError, ResourceConflictError
 from app.api.utils import export_node
 from app.exceptions import (
     AppInstallError,
@@ -56,6 +57,7 @@ from app.exceptions import (
     AppUninstallBlockedError,
     BadRequestError,
 )
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.nodes import (
     App,
     Entry,
@@ -269,26 +271,77 @@ async def enqueue_finalize_install_work(
     *, app_node: App, actor_id: str, install_token: str, settings: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Queue the settings-gated final installation transition."""
-    from app.agentive.services.work_items import enqueue_work_item
+    from app.agentive.services.work_items import enqueue_work_item, work_item_object_id
+    from app.agentive.work_models import WorkItem
+    from app.schemas.agentive.work import WorkError
 
-    work = await enqueue_work_item(
-        kind="app_lifecycle",
-        origin="app_lifecycle",
-        principal_id=actor_id,
-        workspace_id=app_node.workspace_id,
-        app_id=app_node.id,
-        definition_id=app_node.active_definition_id or None,
-        idempotency_key=f"finalize_install:{app_node.id}:{app_node.active_definition_revision}",
-        input_payload={
-            "action": "finalize_install",
-            "install_token": install_token,
-            "settings": dict(settings),
-        },
-        plan={"action": "finalize_install", "app_id": app_node.id},
-        remaining_obligations=[
-            {"kind": "lifecycle_completion", "action": "finalize_install"}
-        ],
+    # Reject invalid submissions before reserving the revision's durable key.
+    # The worker repeats these checks against current state before any effects.
+    verify_install_token(install_token, expected_app_id=app_node.id)
+    effective_settings = _apply_schema_defaults(
+        settings, app_node.settings_schema or {}
     )
+    _validate_settings_against_schema(
+        effective_settings, app_node.settings_schema or {}
+    )
+
+    key = f"finalize_install:{app_node.id}:{app_node.active_definition_revision}"
+    for _ in range(32):
+        previous = await WorkItem.get(
+            work_item_object_id(
+                kind="app_lifecycle",
+                origin="app_lifecycle",
+                principal_id=actor_id,
+                workspace_id=app_node.workspace_id,
+                idempotency_key=key,
+            )
+        )
+        failure = (previous.failure or {}) if previous is not None else {}
+        # Older workers reserved the key before validating settings. Only a
+        # confirmed pre-effect settings rejection permits a corrected submission.
+        # In-flight work and failures with uncertain effects retain their key.
+        if not (
+            previous is not None
+            and app_node.lifecycle_state == "awaiting_settings"
+            and previous.status == "failed"
+            and previous.app_id == app_node.id
+            and previous.definition_id == (app_node.active_definition_id or "")
+            and failure.get("code") == "operational_model_validation_error"
+            and str(failure.get("message") or "").startswith(
+                "Settings failed schema validation:"
+            )
+        ):
+            break
+        key = f"{key}:retry:{previous.work_item_id}"
+
+    try:
+        work = await enqueue_work_item(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id=actor_id,
+            workspace_id=app_node.workspace_id,
+            app_id=app_node.id,
+            definition_id=app_node.active_definition_id or None,
+            idempotency_key=key,
+            input_payload={
+                "action": "finalize_install",
+                "install_token": install_token,
+                "settings": dict(settings),
+            },
+            plan={"action": "finalize_install", "app_id": app_node.id},
+            remaining_obligations=[
+                {"kind": "lifecycle_completion", "action": "finalize_install"}
+            ],
+        )
+    except WorkError as exc:
+        if exc.code != "work.idempotency_conflict":
+            raise
+        raise ResourceConflictError(
+            message=(
+                "An install settings submission already exists for this App revision. "
+                "Check its Background Task before submitting different settings."
+            ),
+        ) from exc
     return {"status": work.status, "work_item_id": work.work_item_id}
 
 
@@ -415,6 +468,7 @@ _delete_tracks = app_install.delete_tracks
 # ---------------------------------------------------------------------------
 
 
+@invalidates_job_facts
 async def install_app(
     *,
     workspace_id: str,
@@ -651,7 +705,9 @@ async def install_app(
             name_fold=app_name.casefold(),
             owner_user_id=actor_id,
             description=app_description,
-            icon=validate_app_icon(icon_override),
+            # A person's choice wins; otherwise the package's own icon (already checked when the manifest compiled).
+            icon=validate_app_icon(icon_override)
+            or validate_app_icon(str(canonical_app.get("icon") or "")),
             visibility=resolved_visibility,
             workspace_id=workspace_id,
             lifecycle_state="installing",
@@ -1215,6 +1271,7 @@ async def _safe_unregister_agents(app_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+@invalidates_job_facts
 async def finalize_install(
     *,
     app_id: str,
@@ -1274,15 +1331,24 @@ async def finalize_install(
             },
         )
 
-    # Fetch the canonical manifest from the attached OperationalModel.
+    # The immutable definition is the installed execution contract. The
+    # attached profile may contain authoring edits or materialized defaults;
+    # registering it can invalidate the governed-operation fingerprint.
     attached_cp = await get_app_attached_operational_model(app_node)
     if not attached_cp:
         raise AppInstallError(
             message="App attached OperationalModel missing on finalize",
             details={"app_id": app_id},
         )
-    canonical = await asyncio.to_thread(
-        compile_canonical_manifest, manifest=attached_cp.manifest or {}
+    definition = await get_active_application_definition(
+        app_node, repair_legacy_pointer=False
+    )
+    canonical = (
+        deepcopy(definition.canonical_manifest)
+        if definition is not None and definition.canonical_manifest
+        else await asyncio.to_thread(
+            compile_canonical_manifest, manifest=attached_cp.manifest or {}
+        )
     )
 
     from app.services.entitlements import require_installed_app_entitlement
@@ -1486,6 +1552,7 @@ async def _check_app_dependencies_active(app_node: App) -> None:
     await _check_requires_apps(canonical, app_node.workspace_id)
 
 
+@invalidates_job_facts
 async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     """Set App.lifecycle_state to ``paused``.
 
@@ -1530,6 +1597,7 @@ async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     return {"app_id": app_id, "status": "paused"}
 
 
+@invalidates_job_facts
 async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     """Set App.lifecycle_state back to ``active`` and re-register hooks/tools."""
     app_node = await App.get(app_id)
@@ -1665,6 +1733,27 @@ async def _update_app_from_library(
             message=f"App {app_id!r} has no installed_from_library_id",
             details={"app_id": app_id},
         )
+    # The catalog copy of the package is only synced from disk at boot or by an admin
+    # rescan: refresh just this package first so Update from library sees its current
+    # files (a package that cannot be read or validated is merged as it was).
+    package_slug = (
+        getattr(app_node, "installed_package_slug", None)
+        or getattr(app_node, "source_operational_model_slug", None)
+        or ""
+    )
+    if package_slug:
+        try:
+            from app.services.operational_model_library_sync import (
+                refresh_library_package_from_disk,
+            )
+
+            await refresh_library_package_from_disk(str(package_slug))
+        except Exception:  # noqa: BLE001 - never fail an update over the refresh
+            logger.warning(
+                "update_app_from_library: could not refresh package %s from disk",
+                package_slug,
+                exc_info=True,
+            )
     library_cp = await OperationalModel.get(lib_id)
     if not library_cp:
         raise BadRequestError(
@@ -1785,6 +1874,17 @@ async def _update_app_from_library(
                 "update_app_from_library: rematerialize EntryTypes failed for %s",
                 t.id,
             )
+        try:
+            from app.services.operational_model_runtime import (
+                resync_track_view_constraints_from_tier,
+            )
+
+            await resync_track_view_constraints_from_tier(t)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "update_app_from_library: view entry-type re-sync failed for %s",
+                t.id,
+            )
         await synchronize_track_view_default_flags(t)
     await run_bundle_post_seed(app_node, actor_id)
     # Operational layer follows the library package (source of truth on update).
@@ -1827,6 +1927,10 @@ async def _update_app_from_library(
         app_node.name = str(library_cp.name)
     if library_cp.description is not None:
         app_node.description = str(library_cp.description)
+    # The package's icon is a default: an App that already has one (chosen by a person) keeps it.
+    package_icon = str((canonical.get("app") or {}).get("icon") or "")
+    if package_icon and not (getattr(app_node, "icon", "") or ""):
+        app_node.icon = package_icon
     app_node.updated_at = utc_now_iso()
     await app_node.save()
     definition = await compile_application_definition(

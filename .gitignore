@@ -196,3 +196,10 @@ backups/
 *.dump
 *.dump.part
 .qualification-evidence/
+
+# Ship the portable App UI rule; other editor state stays local.
+!.cursor/
+.cursor/*
+!.cursor/rules/
+.cursor/rules/*
+!.cursor/rules/app-ui.mdc

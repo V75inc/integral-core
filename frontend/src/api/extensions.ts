@@ -29,6 +29,7 @@ export interface ExtensionViewHandshakeResponse {
 export interface AppOperationAvailableResponse {
   app_id: string;
   operation_key: string;
+  operation_class?: 'read' | 'execute' | null;
   output: Record<string, unknown>;
   receipt?: Record<string, unknown> | null;
   object_refs?: Array<Record<string, unknown>>;
@@ -84,8 +85,10 @@ export function requireOperationOutput(result: AppOperationInvokeResponse): AppO
 export type ExtensionNavigationTarget = { kind: 'app' | 'track' | 'entry' | 'dashboard'; id: string };
 
 export const extensionsApi = {
-  async listOperations(appId: string): Promise<{ operations: Array<{ key: string; allowed?: boolean }> }> {
-    const { data } = await apiClient.get(`/extensions/${appId}/operations`);
+  async listOperations(appId: string, operationKey?: string): Promise<{ operations: Array<{ key: string; allowed?: boolean }> }> {
+    const { data } = await apiClient.get(`/extensions/${appId}/operations`, {
+      params: operationKey ? { operation_key: operationKey } : undefined,
+    });
     return data;
   },
   async resolveNavigation(appId: string, target: ExtensionNavigationTarget): Promise<{ path: string }> {

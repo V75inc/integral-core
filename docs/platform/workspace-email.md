@@ -35,6 +35,10 @@ changes also require operational care for messages already queued.
 Password reset, email verification and alternate-credential verification remain
 immediate platform-only sends. They never appear in workspace history or App
 email hooks. Immediate legacy boolean APIs retain provider-acceptance semantics.
+Core's root and local Compose stacks honor `EMAIL_PROVIDER` from the shell or
+selected `--env-file`, defaulting to `console` when unset or empty. Recreate the
+API container after changing environment settings; restarting it retains the
+previous environment.
 The durable enqueue API returns `message_id` and `status: queued`, without
 claiming successful delivery. A retry returns the original enqueue receipt,
 not current delivery state; retained WorkItems bind its content hash after

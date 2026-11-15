@@ -16,6 +16,7 @@ LATENCY_FIELDS = frozenset(
         "firstToolRequestedMs",
         "firstToolStartedMs",
         "firstOperationalToolMs",
+        "firstDomainResultMs",
         "firstTokenMs",
         "totalMs",
         "modelPassMs",
@@ -121,6 +122,19 @@ class TurnLatency:
         self.physical_requests += 1
 
     def observe_usage(self, observation: Any) -> None:
+        from app.services.performance import observe_interval
+
+        if getattr(observation, "observed_at", None) is not None:
+            observe_interval(
+                "model.request",
+                observation.dispatched_at,
+                observation.observed_at,
+                {
+                    "model.attempt": observation.attempt,
+                    "model.outcome": observation.outcome,
+                    "model.role": observation.model_role or "unknown",
+                },
+            )
         usage = observation.usage
         if usage is not None:
             count = (usage.input_tokens or 0) + (usage.output_tokens or 0)
@@ -132,6 +146,11 @@ class TurnLatency:
         if name not in LATENCY_FIELDS:
             raise ValueError("Unknown chat latency marker")
         self.markers.setdefault(name, (time.monotonic() - self.started) * 1000)
+        from app.services.performance import enabled, trace_span
+
+        if enabled():
+            with trace_span(f"chat.marker.{name}", {"elapsed_ms": self.markers[name]}):
+                pass
 
 
 current_latency: ContextVar[TurnLatency | None] = ContextVar(
@@ -151,8 +170,11 @@ def measure_latency_phase(name: str):
         raise ValueError("Unknown model latency phase")
     timing = current_latency.get()
     began = time.monotonic()
+    from app.services.performance import phase
+
     try:
-        yield
+        with phase(f"chat.{name}"):
+            yield
     finally:
         if timing is not None:
             timing.phase_totals[name] = (

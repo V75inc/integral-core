@@ -179,7 +179,7 @@ async def read_event_history(
         missing = await _missing_primary_events(candidates)
         for event in candidates:
             scanned += 1
-            position = encode_cursor(event.id, event.ts)
+            position = encode_cursor(event.id, event.delivery_ts or event.ts)
             if (
                 str(event.resource_type).casefold(),
                 event.resource_id,

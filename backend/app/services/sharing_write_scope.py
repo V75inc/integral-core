@@ -76,11 +76,11 @@ async def sharing_write_scope(
     # by the normal outbox consumer. Never emit facts from its open transaction.
     if is_postgres_entry_transaction(get_default_context().database):
         return
-    from app.services.app_operations.event_outbox import deliver_operation_event
+    from app.services.app_operations.event_outbox import request_event_delivery
 
     for outbox_id in unit.outbox_ids:
         try:
-            await deliver_operation_event(
+            await request_event_delivery(
                 outbox_id=outbox_id, database=get_default_context().database
             )
         except Exception:

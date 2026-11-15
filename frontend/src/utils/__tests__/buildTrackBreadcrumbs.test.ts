@@ -20,9 +20,18 @@ function baseTrack(over: Partial<Track> = {}): Track {
 
 describe('buildTrackBreadcrumbs', () => {
   it('keeps Tracks › App › title for ordinary tracks', () => {
-    const crumbs = buildTrackBreadcrumbs(baseTrack());
-    expect(crumbs.map(c => c.label)).toEqual(['Tracks', 'Projects', 'Projects']);
+    const crumbs = buildTrackBreadcrumbs(baseTrack({ title: 'Boards' }));
+    expect(crumbs.map(c => c.label)).toEqual(['Tracks', 'Projects', 'Boards']);
     expect(crumbs[0].to).toBe('/tracks');
+  });
+
+  it('shows one crumb when the App and its Track share a name', () => {
+    const crumbs = buildTrackBreadcrumbs(baseTrack());
+    expect(crumbs.map(c => c.label)).toEqual(['Tracks', 'Projects']);
+  });
+
+  it('says only Loading while the Track is not known yet', () => {
+    expect(buildTrackBreadcrumbs(null).map(c => c.label)).toEqual(['Tracks', 'Loading…']);
   });
 
   it('inserts parent track and project for anchored details', () => {

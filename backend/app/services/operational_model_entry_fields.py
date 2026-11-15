@@ -671,7 +671,61 @@ async def _validate_relation_values(
     target_track_types = {str(x) for x in relation.get("target_track_types") or []}
     allow_cross_track = relation_allows_cross_track(relation)
     validated = []
+
+    async def _require_target_read(target_id: str, target_track_id: str) -> None:
+        if viewer_subject is None or not enforce_target_read:
+            return
+        from app.services.policy_engine import evaluate
+
+        decision = await evaluate(
+            subject=viewer_subject,
+            action="entry.read",
+            resource=Resource(
+                kind="entry", id=target_id, scope=f"track:{target_track_id}"
+            ),
+        )
+        from app.services.install_seed_authority import may_read_install_seed_relation
+
+        if not decision.allowed and not await may_read_install_seed_relation(
+            decision,
+            viewer_subject,
+            source_track_id=source_track.id,
+            target_kind="entry",
+            target_id=target_id,
+        ):
+            raise BadRequestError(
+                message=f"Relation field '{field_key}' requires target read access"
+            )
+
+    # Inside one App job the same target is validated for every record it writes (a pay run links each line to its
+    # employee and pay record). What is remembered is only the structural answer (the target sits in this
+    # workspace, in the Track and App the relation allows, of an allowed type), for a few seconds and only until a
+    # definition or location change, exactly as the job's other facts. Ordinary requests never reuse it, and the
+    # live read-permission check below runs every time.
+    from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
+
+    fingerprint = (
+        source_track.id,
+        viewer_subject is not None,
+        str(relation.get("target_app") or ""),
+        bool(allow_cross_track),
+        tuple(sorted(target_entry_types)),
+        tuple(sorted(target_track_types)),
+    )
+    # Within this one validation the source Track and each distinct target Track resolve to the
+    # same App every time; ask once per Track, not once per relation value.
+    track_apps: dict[str, Any] = {}
     for rid in raw_ids:
+        fact_key = ("relation_target", rid, *map(str, fingerprint))
+        remembered = app_job_fact_get(fact_key)
+        if remembered is not None:
+            remembered_track_id, remembered_app_id = remembered
+            if resolved_target_apps is not None and remembered_app_id:
+                resolved_target_apps[rid] = remembered_app_id
+            await _require_target_read(rid, remembered_track_id)
+            validated.append(rid)
+            continue
+        found_app_id = ""
         target = await Entry.get(rid)
         if not target:
             raise BadRequestError(
@@ -700,8 +754,12 @@ async def _validate_relation_values(
             )
 
             await assert_relation_entry_containment(target, target_track)
-            source_app = await canonical_relation_app(source_track)
-            target_app = await canonical_relation_app(target_track)
+            if source_track.id not in track_apps:
+                track_apps[source_track.id] = await canonical_relation_app(source_track)
+            if target_track.id not in track_apps:
+                track_apps[target_track.id] = await canonical_relation_app(target_track)
+            source_app = track_apps[source_track.id]
+            target_app = track_apps[target_track.id]
             if relation.get("target_app"):
                 if source_app is None:
                     raise BadRequestError(
@@ -712,36 +770,14 @@ async def _validate_relation_values(
                     relation_spec=relation,
                     target_entry_id=target.id,
                 )
+                found_app_id = str(app_id or "")
                 if resolved_target_apps is not None:
                     resolved_target_apps[target.id] = app_id
             elif source_app and target_app and source_app.id != target_app.id:
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' requires a declared target App"
                 )
-            if viewer_subject is not None and enforce_target_read:
-                from app.services.policy_engine import evaluate
-
-                decision = await evaluate(
-                    subject=viewer_subject,
-                    action="entry.read",
-                    resource=Resource(
-                        kind="entry", id=target.id, scope=f"track:{target.track_id}"
-                    ),
-                )
-                from app.services.install_seed_authority import (
-                    may_read_install_seed_relation,
-                )
-
-                if not decision.allowed and not await may_read_install_seed_relation(
-                    decision,
-                    viewer_subject,
-                    source_track_id=source_track.id,
-                    target_kind="entry",
-                    target_id=target.id,
-                ):
-                    raise BadRequestError(
-                        message=f"Relation field '{field_key}' requires target read access"
-                    )
+            await _require_target_read(target.id, target.track_id)
         if target_entry_types:
             target_et = await EntryType.get(target.type_id) if target.type_id else None
             # Relation declarations can come from either an Operational Model
@@ -771,6 +807,7 @@ async def _validate_relation_values(
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' target track type is not allowed"
                 )
+        app_job_fact_put(fact_key, (target.track_id, found_app_id))
         validated.append(rid)
     return validated
 
@@ -809,6 +846,19 @@ async def validate_and_materialize_entry_custom_fields(
     """
     spec = resolve_entry_type_spec(entry_type, runtime_tier)
     fields = _as_list(spec.get("fields"), where="entry_type.fields")
+    # A type can require its title (its name) on a new record: the form marks it and a create without one is refused.
+    title_base = _as_dict(
+        (spec.get("base_fields") or {}).get("title"),
+        where="entry_type.base_fields.title",
+    )
+    if (
+        entry is None
+        and bool(title_base.get("required"))
+        and not str(source_entry_title or "").strip()
+    ):
+        raise BadRequestError(
+            message=f"{str(title_base.get('label') or 'Title')} is required"
+        )
     incoming = dict(custom_fields or {})
     out = {
         k: v
@@ -840,7 +890,10 @@ async def validate_and_materialize_entry_custom_fields(
         composite = fd.get("composite") if isinstance(fd, dict) else None
         if isinstance(composite, dict) and composite.get("base"):
             ftype = str(composite.get("base") or ftype)
-        required = bool(fd.get("required", False))
+        # ``required_on_create`` applies to a new record only (no ``entry`` yet): old records are not held to it.
+        required = bool(fd.get("required", False)) or (
+            entry is None and bool(fd.get("required_on_create", False))
+        )
         value = incoming.get(key, _resolve_field_default(fd.get("default")))
         validation = _as_dict(
             fd.get("validation") or {}, where=f"field '{key}' validation"

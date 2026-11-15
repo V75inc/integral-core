@@ -14,9 +14,33 @@ broadcast_change_event uses, but skips the WS subscriber overhead.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
+
+
+async def _run_registered_consumers(cursor=None):
+    """Drive explicit test delivery rather than waiting for inline save hooks."""
+    import os
+
+    from app.services.change_event_logger import (
+        envelope_from_dblog,
+        get_change_event_logger,
+    )
+    from app.services.event_subscription_registry import registered_consumer_hooks
+
+    if os.environ.get("INTEGRAL_TEST_DB") == "postgres":
+        from app.services.app_operations.event_outbox import (
+            deliver_pending_operation_events,
+        )
+
+        await deliver_pending_operation_events()
+    last_ts, last_id = cursor or (None, None)
+    rows = await get_change_event_logger().find_after_checkpoint(
+        last_logged_at=last_ts, last_event_id=last_id, limit=100
+    )
+    for row in rows:
+        for hook in registered_consumer_hooks():
+            await hook(envelope_from_dblog(row))
+    return (rows[-1].logged_at.isoformat(), rows[-1].id) if rows else cursor
 
 
 async def _authorize_consumer(owner, track_id, monkeypatch):
@@ -78,7 +102,7 @@ async def test_consumer_enabled_drafts_summary(
     )
     assert track_resp.status_code == 200, track_resp.text
     track_id = track_resp.json()["track"]["id"]
-    consumer_actor_id = await _authorize_consumer(test_user, track_id, monkeypatch)
+    await _authorize_consumer(test_user, track_id, monkeypatch)
 
     entry_resp = await authenticated_client.post(
         "/api/entries",
@@ -94,7 +118,7 @@ async def test_consumer_enabled_drafts_summary(
     src_entry_id = entry_resp.json()["entry"]["id"]
 
     # Allow the in-process hook to run.
-    await asyncio.sleep(0.1)
+    await _run_registered_consumers()
 
     list_resp = await authenticated_client.get(f"/api/entries?track_id={track_id}")
     assert list_resp.status_code == 200, list_resp.text
@@ -140,7 +164,7 @@ async def test_consumer_ignores_non_trigger_tag(
         "/api/tracks", json={"title": "Consumer Wrong Tag"}
     )
     track_id = track_resp.json()["track"]["id"]
-    consumer_actor_id = await _authorize_consumer(test_user, track_id, monkeypatch)
+    await _authorize_consumer(test_user, track_id, monkeypatch)
     await authenticated_client.post(
         "/api/entries",
         json={
@@ -149,7 +173,7 @@ async def test_consumer_ignores_non_trigger_tag(
             "tags": [await _declared_tag(authenticated_client, track_id, "other")],
         },
     )
-    await asyncio.sleep(0.1)
+    await _run_registered_consumers()
 
     list_resp = await authenticated_client.get(f"/api/entries?track_id={track_id}")
     entries = list_resp.json()["entries"]
@@ -173,7 +197,7 @@ async def test_consumer_no_recursion(authenticated_client, test_user, monkeypatc
         "/api/tracks", json={"title": "Consumer No Recursion"}
     )
     track_id = track_resp.json()["track"]["id"]
-    consumer_actor_id = await _authorize_consumer(test_user, track_id, monkeypatch)
+    await _authorize_consumer(test_user, track_id, monkeypatch)
     await authenticated_client.post(
         "/api/entries",
         json={
@@ -185,7 +209,8 @@ async def test_consumer_no_recursion(authenticated_client, test_user, monkeypatc
         },
     )
     # Allow consumer write + any recursive hook dispatches a chance to run.
-    await asyncio.sleep(0.5)
+    cursor = await _run_registered_consumers()
+    await _run_registered_consumers(cursor)
 
     list_resp = await authenticated_client.get(f"/api/entries?track_id={track_id}")
     entries = list_resp.json()["entries"]
@@ -224,7 +249,7 @@ async def test_consumer_emit_appears_in_audit_log(
             ],
         },
     )
-    await asyncio.sleep(0.2)
+    await _run_registered_consumers()
 
     audit_resp = await authenticated_client.get(
         f"/api/audit-log?scope=track:{track_id}"
@@ -320,7 +345,7 @@ async def test_unconfigured_consumer_cannot_borrow_track_owner(
             json={"track_id": track_id, "title": "Source only", "tags": [tag_id]},
         )
         assert source.status_code in (200, 201)
-        await asyncio.sleep(0.1)
+        await _run_registered_consumers()
         listing = await authenticated_client.get(f"/api/entries?track_id={track_id}")
         assert [entry["id"] for entry in listing.json()["entries"]] == [
             source.json()["entry"]["id"]

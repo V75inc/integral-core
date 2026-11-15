@@ -28,7 +28,7 @@ function mount({ entries = [], restricted = false, active = true }: {
     onEntryOpen: noop, onEntryDelete: noop, onEntryDeleteFailed: noop,
     onEntryEdit: noop, onEntryUpdate: noop, onEntryPersist: async () => {},
     onViewUpdate: noop, onKanbanColumnEnumSync: async () => {}, onEntryCreate: noop,
-    entryTypes: [], trackEntryTypeFields: [], hasNextPage: false,
+    entryTypes: [], trackEntryTypeFields: [], fieldFilters: [], setFieldFilters: vi.fn(), hasNextPage: false,
     isFetchingNextPage: false, fetchNextPage: noop,
     emptyStateContent: <div>Page fallback: no entries yet</div>,
     recordReadBoundaryNotice: restricted ? <RecordReadBoundaryNotice searching appId="known-app" /> : undefined,

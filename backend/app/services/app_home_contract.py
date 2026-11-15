@@ -19,6 +19,7 @@ def normalize_app_home(
     raw: Any,
     queries: List[Dict[str, Any]],
     operations: Optional[List[Dict[str, Any]]] = None,
+    components: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Validate bounded home content; no graph writes or inferred data sources."""
     if raw is None or raw == {}:
@@ -29,7 +30,12 @@ def normalize_app_home(
         mode="json", exclude_none=True
     )
     if raw["renderer"] == "native":
-        validate_home_components(raw, queries=queries, operations=operations or [])
+        validate_home_components(
+            raw,
+            queries=queries,
+            operations=operations or [],
+            components=components or [],
+        )
         return raw
     widgets = raw["widgets"]
     declarations = {item["key"]: item for item in queries}
@@ -98,7 +104,9 @@ def normalize_app_home(
         occupied.update(cells)
         normalized.append(widget)
     raw["widgets"] = normalized
-    validate_home_components(raw, queries=queries, operations=operations or [])
+    validate_home_components(
+        raw, queries=queries, operations=operations or [], components=components or []
+    )
     return raw
 
 
@@ -107,10 +115,18 @@ def validate_home_components(
     *,
     queries: Optional[List[Dict[str, Any]]] = None,
     operations: Optional[List[Dict[str, Any]]] = None,
+    components: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """Compatibility entry point for definition-upgrade presentation checks."""
     from app.services.home_native import validate_native_home
 
     validate_native_home(
-        home, {"app": {"queries": queries or [], "operations": operations or []}}
+        home,
+        {
+            "app": {
+                "queries": queries or [],
+                "operations": operations or [],
+                "ui_components": components or [],
+            }
+        },
     )

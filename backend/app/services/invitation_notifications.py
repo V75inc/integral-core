@@ -201,10 +201,10 @@ async def respond_to_invitation_notification(
     await notice.set_context(caller_context)
     await _deliver_invitation_audit(current)
     if outbox_id and not is_postgres_entry_transaction(get_default_context().database):
-        from app.services.app_operations.event_outbox import deliver_operation_event
+        from app.services.app_operations.event_outbox import request_event_delivery
 
         try:
-            await deliver_operation_event(
+            await request_event_delivery(
                 outbox_id=outbox_id, database=get_default_context().database
             )
         except Exception:

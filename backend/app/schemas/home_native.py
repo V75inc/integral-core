@@ -32,7 +32,10 @@ class HomeElement(BaseModel):
         "action",
         "tabs",
         "accordion",
+        "react_component",
     ]
+    component_key: Optional[str] = Field(default=None, max_length=80)
+    props: Optional[Dict[str, Any]] = None
     title: str = Field(default="", max_length=200)
     text: str = Field(default="", max_length=10000)
     children: List[HomeElement] = Field(default_factory=list, max_length=128)
@@ -52,6 +55,8 @@ class HomeElement(BaseModel):
 
     @model_validator(mode="after")
     def coherent(self) -> HomeElement:
+        if self.type == "react_component" and not self.component_key:
+            raise ValueError("React component requires a component key")
         if (
             self.type in {"heading", "text", "markdown"}
             and not (self.text or self.title).strip()

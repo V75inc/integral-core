@@ -8,6 +8,7 @@ import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from app.exceptions import BadRequestError
+from app.middleware.permissions_cache import invalidates_job_facts
 from app.models.edges import (
     ANCHORS,
     CONTAINS,
@@ -498,6 +499,7 @@ async def prepare_bulk_move(
     }
 
 
+@invalidates_job_facts
 async def move_entries(
     *,
     user_id: str,

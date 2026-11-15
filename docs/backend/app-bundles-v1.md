@@ -36,6 +36,14 @@ on restart. See `backend/tests/test_application_definitions.py` for both cases.
 
 States include installing, awaiting_settings, active, paused, uninstalled, and failed. Installation uses recorded compensation for partial steps; failed compensations must not prevent earlier cleanup. Signed setting-completion tokens and abandonment cleanup protect paused installations.
 
+Install settings submissions validate the token and schema before reserving a
+durable work key. A legacy failed settings-validation task permits a corrected
+submission through a deterministic retry key; repeated identical submissions
+reuse that task. In-flight work, successful work and failures with uncertain
+effects retain their identity. Conflicting submissions return HTTP 409 rather
+than an unhandled work error. Workers still recheck token, state and validation
+before effects; a queued receipt does not confirm installation completion.
+
 Pause withdraws active behavior as required. Uninstall checks dependencies and references; a forced path is explicitly destructive and emits its own audit action. Upgrades consider schema, definitions, requirements, and instance customizations rather than blindly replacing all state.
 
 ## Scheduled workflows
@@ -51,6 +59,17 @@ preserving owner controls and write grants. It must not replace custom task text
 revive cancelled work or duplicate schedules when persistence is unavailable.
 See [resident chat and scheduling](ai-chat.md#scheduled-reports-and-literal-reminders)
 for native skill references, approval boundaries, run limits and delivery.
+
+## Entry UI compatibility
+
+Entry-type `ui_contributions` may select an App React `component_key`, with an
+explicit saved `fallback_view` for operator-disabled native execution. The compiler
+retains the component declaration; mounting still requires current App access,
+active-definition proof and operator admission. `owns_field_data` lets the admitted
+App use scoped declared queries while suppressing duplicate host field preloads;
+the explicit fallback restores host initialization. See the
+[React SDK contract](../platform/react-app-ui.md). This supersedes the earlier
+fallback-only compiler shim and does not itself activate stored installations.
 
 ## Boundary
 

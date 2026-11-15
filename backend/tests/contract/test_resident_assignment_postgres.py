@@ -360,6 +360,21 @@ async def test_assignment_serializes_revision_and_rolls_back_with_outbox(
         }
 
         monkeypatch.setattr("app.services.change_event.emit_change_event", emit_audit)
+        from datetime import datetime, timedelta
+
+        from app.services.app_operations import event_outbox
+
+        pending = await postgres_raw_db.get(
+            "object", event_outbox.event_outbox_object_id(facts[3])
+        )
+        deadline = datetime.fromisoformat(pending["context"]["next_attempt_at"])
+        monkeypatch.setattr(
+            event_outbox,
+            "utc_now_iso",
+            lambda: (deadline - timedelta(microseconds=1)).isoformat(),
+        )
+        assert not await deliver(3)
+        monkeypatch.setattr(event_outbox, "utc_now_iso", lambda: deadline.isoformat())
         assert await deliver(3)
         assert not await deliver(3)
         assert await deliver(1)

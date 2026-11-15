@@ -23,6 +23,7 @@ when the TTL is set to 0.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -96,9 +97,13 @@ def invalidate_user(user_id: str) -> None:
     affecting them). Safe to call when disabled or when the user has no entry.
     """
     if user_id:
-        if _ENABLED:
+        from app.middleware.permissions_cache import note_definition_changed
+
+        note_definition_changed()
+        if _ENABLED or _NAV_ENABLED:
             _generations[user_id] = generation(user_id) + 1
         _store.pop(user_id, None)
+        clear_nav_snapshots(user_id)
 
 
 def invalidate_user_aliases(user: Any) -> None:
@@ -147,5 +152,130 @@ def set_resolve_role_cached(
 
 def clear_all() -> None:
     """Drop the entire cache (test helper / coarse reset)."""
+    from app.middleware.permissions_cache import note_definition_changed
+
+    note_definition_changed()
     _store.clear()
     _generations.clear()
+
+
+# ---------------------------------------------------------------------------
+# Navigation snapshots
+#
+# The sidebar, app list and menus ask "which tracks and apps can this user see?"
+# several times per page load. ``get_user_accessible_tracks`` and
+# ``get_user_accessible_apps`` wrap their work in ``isolated_permissions_cache()``,
+# which marks the call as a live-permission boundary, so the TTL cache above is
+# skipped and every call recomputes the whole inventory (about 80,000 SQL
+# statements and 3 to 17 seconds for a workspace with ~290 tracks).
+#
+# A navigation snapshot is a separate, opt-in cache for LISTING endpoints only.
+# It is off unless ``INTEGRAL_NAV_SNAPSHOT_TTL`` is a positive number of seconds.
+# It never grants access: opening a record, writing, and every
+# ``resolve_role`` check stay live. It is dropped on the same invalidations as the
+# cache above (``invalidate_user``), is fenced by the per-user generation, and
+# concurrent identical computations share one in-flight task.
+# ---------------------------------------------------------------------------
+
+_NAV_TTL_SECONDS = float(os.getenv("INTEGRAL_NAV_SNAPSHOT_TTL", "0") or 0)
+_NAV_ENABLED = os.getenv("TESTING", "") != "1" and _NAV_TTL_SECONDS > 0
+# Optional stale-while-revalidate window (seconds past the TTL). Within it an expired
+# snapshot is returned immediately and refreshed in the background, so a listing is
+# only slow the first time. Off unless INTEGRAL_NAV_SNAPSHOT_STALE is positive.
+_NAV_STALE_SECONDS = float(os.getenv("INTEGRAL_NAV_SNAPSHOT_STALE", "0") or 0)
+# {user_id: {key: (fresh_until, stale_until, value)}}
+_nav_store: Dict[str, Dict[str, Tuple[float, float, Any]]] = {}
+_nav_inflight: Dict[Tuple[str, str], "asyncio.Task[Any]"] = {}
+
+
+def nav_snapshot_enabled() -> bool:
+    """True when listing endpoints may serve a short-lived snapshot."""
+    return _NAV_ENABLED
+
+
+def get_nav_snapshot(user_id: str, key: str) -> Optional[Any]:
+    """Return a fresh navigation snapshot for (user, key), or None."""
+    if not _NAV_ENABLED or not user_id:
+        return None
+    hit = (_nav_store.get(user_id) or {}).get(key)
+    if hit is None:
+        return None
+    fresh_until, stale_until, value = hit
+    now = time.monotonic()
+    if now < fresh_until:
+        return value
+    if now >= stale_until:
+        _nav_store.get(user_id, {}).pop(key, None)
+    return None
+
+
+def get_nav_snapshot_stale(user_id: str, key: str) -> Optional[Any]:
+    """Return an expired snapshot that is still inside the stale window, or None."""
+    if not _NAV_ENABLED or _NAV_STALE_SECONDS <= 0 or not user_id:
+        return None
+    hit = (_nav_store.get(user_id) or {}).get(key)
+    if hit is None:
+        return None
+    _fresh_until, stale_until, value = hit
+    if time.monotonic() < stale_until:
+        return value
+    _nav_store.get(user_id, {}).pop(key, None)
+    return None
+
+
+def set_nav_snapshot(
+    user_id: str, key: str, value: Any, *, expected_generation: Optional[int] = None
+) -> None:
+    """Store a snapshot unless an invalidation raced its computation."""
+    if not _NAV_ENABLED or not user_id:
+        return
+    if expected_generation is not None and generation(user_id) != expected_generation:
+        return
+    now = time.monotonic()
+    _nav_store.setdefault(user_id, {})[key] = (
+        now + _NAV_TTL_SECONDS,
+        now + _NAV_TTL_SECONDS + max(_NAV_STALE_SECONDS, 0.0),
+        value,
+    )
+
+
+def clear_nav_snapshots(user_id: str) -> None:
+    """Drop one user's navigation snapshots (called from ``invalidate_user``)."""
+    _nav_store.pop(user_id, None)
+
+
+def refresh_in_background(user_id: str, key: str, factory: Any) -> None:
+    """Start ``factory()`` for (user, key) unless one is already running; do not wait."""
+    flight = (user_id, key)
+    if flight in _nav_inflight:
+        return
+    task = asyncio.ensure_future(factory())
+    _nav_inflight[flight] = task
+
+    def _done(_t: "asyncio.Task[Any]") -> None:
+        if _nav_inflight.get(flight) is _t:
+            _nav_inflight.pop(flight, None)
+        if not _t.cancelled() and _t.exception() is not None:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "navigation snapshot refresh failed for %s: %s", key, _t.exception()
+            )
+
+    task.add_done_callback(_done)
+
+
+async def single_flight(user_id: str, key: str, factory: Any) -> Any:
+    """Run ``factory()`` once for concurrent callers with the same (user, key)."""
+    flight = (user_id, key)
+    task = _nav_inflight.get(flight)
+    if task is None:
+        task = asyncio.ensure_future(factory())
+        _nav_inflight[flight] = task
+
+        def _done(_t: "asyncio.Task[Any]") -> None:
+            if _nav_inflight.get(flight) is _t:
+                _nav_inflight.pop(flight, None)
+
+        task.add_done_callback(_done)
+    return await asyncio.shield(task)

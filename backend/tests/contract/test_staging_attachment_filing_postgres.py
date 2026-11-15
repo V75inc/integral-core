@@ -324,7 +324,7 @@ async def test_cancellation_after_filing_commit_recovers_without_refiling(
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         auth, _, entry_id, attachment, change = await filing_proposal()
         entered = asyncio.Event()
-        delivery = event_outbox.deliver_operation_event
+        delivery = event_outbox.request_event_delivery
 
         async def blocked(**kwargs):
             with pytest.raises(OperationTransactionUnavailable):
@@ -336,7 +336,7 @@ async def test_cancellation_after_filing_commit_recovers_without_refiling(
             entered.set()
             await asyncio.Event().wait()
 
-        monkeypatch.setattr(event_outbox, "deliver_operation_event", blocked)
+        monkeypatch.setattr(event_outbox, "request_event_delivery", blocked)
         applying = asyncio.create_task(
             staging_apply.bless_and_execute(user_id=auth.id, token=change.token)
         )
@@ -350,7 +350,7 @@ async def test_cancellation_after_filing_commit_recovers_without_refiling(
         file_before = await postgres_raw_db.get("node", attachment.id)
         edges = await postgres_raw_db.find("edge", {}, sort=[("id", 1)])
         staging._tokens.clear()
-        monkeypatch.setattr(event_outbox, "deliver_operation_event", delivery)
+        monkeypatch.setattr(event_outbox, "request_event_delivery", delivery)
         recovered = await staging_apply.bless_and_execute(
             user_id=auth.id, token=change.token
         )

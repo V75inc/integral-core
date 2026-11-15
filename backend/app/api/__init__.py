@@ -26,6 +26,7 @@ for _mod in (
     "entries_public_share",  # Phase 30 Wave D (DR-30-02) — generic public-share + legacy adapter
     "entries_transform",  # Phase 30 Wave D (DR-30-02) — generic entry.transform endpoint
     "entry_relations",  # Phase 30 Wave D (DR-30-02) — generic /entries/{id}/related
+    "relation_options",
     "entry_lookup",  # Batch relation-target label lookup (POST /entry-lookup)
     "entry_types",
     "entitlements",  # F3 Phase One — manual grant/revoke/list

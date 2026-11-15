@@ -43,9 +43,9 @@ subsequent ``upsert`` clears ``deleted_at`` (re-embed un-deletes).
 ``hard_delete`` removes the row outright (reserved for offline backfill /
 TTL — entry deletes route through ``soft_delete`` per I-RET-03).
 
-``ensure_schema`` is idempotent (``CREATE EXTENSION/TABLE/INDEX IF NOT
-EXISTS``) and runs at most once per process, guarded by an asyncio lock so
-concurrent first-callers do not race the DDL.
+In managed storage, ``ensure_schema`` verifies provisioned relations without DDL.
+Legacy adapters retain their compatibility initialization. Verification is cached
+per store and protected by an asyncio lock.
 """
 
 from __future__ import annotations
@@ -132,6 +132,41 @@ class PgVectorEmbeddingStore:
 
     async def _ensure_schema(self, pool: Any) -> None:
         """Idempotently provision the extension, table, and indexes."""
+
+        from app.services.storage_indexes.runtime import managed, verify_relation
+
+        if managed():
+            from jvspatial import ManagedSchemaError
+
+            try:
+                async with pool.acquire() as conn:
+                    await verify_relation(
+                        conn,
+                        self._table,
+                        {
+                            "entry_id": "text",
+                            "track_id": "text",
+                            "vector": f"vector({self._dim})",
+                        },
+                    )
+                    from app.services.storage_indexes.runtime import (
+                        verify_search_indexes,
+                    )
+                    from app.services.storage_indexes.search import search_specs
+
+                    await verify_search_indexes(
+                        conn,
+                        [
+                            s
+                            for s in search_specs(table=self._table)
+                            if s.table == self._table
+                        ],
+                    )
+            except ManagedSchemaError as exc:
+                raise EmbeddingStoreUnavailable(
+                    "Search storage requires reviewed provisioning"
+                ) from exc
+            return
 
         # HNSW index name is derived from the table so a test-scoped table
         # gets its own (distinct) index names without colliding.

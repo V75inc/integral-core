@@ -459,9 +459,11 @@ def load_library_operational_models_with_issues(
 
                 sig_result = SignatureResult(True, "dev_mode")
 
-            if not sig_result.verified and ships_python:
+            if not sig_result.verified and (
+                ships_python or bool((raw.get("app") or {}).get("ui_components"))
+            ):
                 logger.error(
-                    "bundle %s signature verification failed (%s) and ships python — skipping",
+                    "bundle %s signature verification failed (%s) and ships executable code — skipping",
                     slug,
                     sig_result.reason,
                 )
@@ -470,7 +472,7 @@ def load_library_operational_models_with_issues(
                     slug=slug,
                     code="signature_verification_failed",
                     message=(
-                        f"signature verification failed ({sig_result.reason}) for python-shipping bundle"
+                        f"signature verification failed ({sig_result.reason}) for executable bundle"
                     ),
                     model_path=str(model_path),
                 )
