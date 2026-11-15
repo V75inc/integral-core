@@ -1069,6 +1069,11 @@ async def merge_library_manifest_into_operational_model(
 
     entry_specs: List[Dict[str, Any]] = list(tier.get("entry_types") or [])
     view_specs: List[Dict[str, Any]] = list(tier.get("views") or [])
+    previous_views = {
+        slug_manifest_key(str(spec.get("key") or "")): spec
+        for spec in ((target_cp.manifest or {}).get("track") or {}).get("views") or []
+        if isinstance(spec, dict) and spec.get("key")
+    }
     taxonomy = tier.get("taxonomy") or {}
     tag_specs: List[Dict[str, Any]] = []
     for group in list(taxonomy.get("tag_groups") or []):
@@ -1243,6 +1248,28 @@ async def merge_library_manifest_into_operational_model(
         if existing_view is not None:
             ev = existing_view
             normalized_config = keep_person_tab_order(ev.config, normalized_config)
+            previous_spec = previous_views.get(spec_key)
+            if (
+                view_type == "table"
+                and ev.type == "table"
+                and previous_spec is not None
+                and str(
+                    previous_spec.get("view_type")
+                    or previous_spec.get("type")
+                    or "feed"
+                )
+                == "table"
+                and "columns" in (ev.config or {})
+            ):
+                previous_config = normalize_view_config(
+                    "table", materialize_view_config_from_spec(previous_spec)
+                )
+                if ev.config["columns"] != previous_config.get("columns"):
+                    # Compare with the prior package defaults, not the new
+                    # columns: untouched views follow upgrades while a saved
+                    # personal column choice survives both upgrade and retry.
+                    normalized_config["columns"] = copy.deepcopy(ev.config["columns"])
+                    normalize_view_config("table", normalized_config)
             dirty = False
             was_manifest_hidden = bool((ev.config or {}).get("_manifest_hidden", False))
             if (
