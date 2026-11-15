@@ -96,14 +96,21 @@ integral upgrade --wheel /artifacts/integral_core-VERSION-py3-none-any.whl
 
 The reviewed Core wheel contains its native harness binding and skills; normal dependencies resolve from PyPI. A successful upgrade selects its isolated interpreter for subsequent launches. A failed candidate leaves the pre-upgrade backup available; use the previous release to restore into a fresh directory. Core does not blindly roll back a database that may have undergone migrations.
 
+For a legacy `desktop_single_user` home without managed serving credentials,
+follow the reviewed [offline native storage upgrade](NATIVE-STORAGE-UPGRADES.md)
+while the runtime is stopped. Retain the matching previous wheel and a verified
+whole-home cold snapshot. This explicit adoption step is not a normal-startup
+migration; an already managed home requires a separately reviewed catalog upgrade.
+Hosted database operators instead use the `integral indexes` plan/apply workflow.
+
 ## Runtime and client contract
 
 The CLI's JSON descriptor has `contract_version: 1`, installation identity, state, home, API and web URLs, version, supervisor PID and process creation time, database kind, `default_harness_provider_id: integral_native`, and `harness_provider_id` for the running supervisor. It contains no tokens or encryption keys. `up` also returns `started`, determined while holding the installation lock. Clients wait for `state: ready`, consume `web_url`, and claim shutdown ownership only when `started` is true. Pass both `--if-pid` and `--if-created` to `stop` to avoid shutting down a replacement supervisor.
 
 Core owns the database helper, API, durable event worker, workspace and their supervisor. Lifecycle operations are locked per installation. PID checks include process creation time. A private authenticated readiness handshake verifies the served installation rather than trusting any process listening on a port.
 
-The PostgreSQL helper is pinned to pgserver 0.1.4 in a separate Python 3.12 environment. Available native wheels cover macOS Intel/Apple Silicon, Linux x86-64, and Windows x86-64. Linux ARM and other architectures are not qualified by this launcher. First-launch provisioning and native installers must be tested on each advertised platform before release.
+The PostgreSQL helper is pinned to pgserver 0.1.4 in a separate Python 3.12 environment. The helper has native wheels for macOS Intel/Apple Silicon, Linux x86-64, and Windows x86-64; that is not proof that the complete Core dependency set or client installer supports each platform. In particular, the pinned ONNX runtime dependency must be independently resolved and exercised on Intel macOS before advertising that target. Linux ARM and other architectures are not qualified by this launcher. First-launch provisioning and native installers must be tested on each advertised platform before release.
 
-Electron belongs in Integral Business. It calls this public launcher contract and loads the same Core workspace over loopback HTTP; Core contains no Electron or commercial App imports. See [deployment](DEPLOY.md) for hosted environments and [qualification](QUALIFICATION.md) for the separate release gates.
+The Integral One desktop host owns Electron and its installers. It calls this public launcher contract and loads the same Core workspace over loopback HTTP; Core contains no Electron or commercial App imports. See [deployment](DEPLOY.md) for hosted environments and [qualification](QUALIFICATION.md) for the separate release gates.
 
-The packaged workspace serves HTML with `Cache-Control: no-store`, so upgrades do not reuse an old interface that names removed JavaScript assets. Business also clears its HTTP cache before opening a managed local workspace; account settings and saved model configuration remain in the installation.
+The packaged workspace serves HTML with `Cache-Control: no-store`, so upgrades do not reuse an old interface that names removed JavaScript assets. Desktop hosts must avoid stale HTTP assets when opening an upgraded managed workspace; account settings and saved model configuration remain in the installation.

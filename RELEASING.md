@@ -29,12 +29,52 @@ is enough to start this sequence. Pushing a tag alone does not publish it.
 - A manual tag or a workflow-dispatch tag must match `pyproject.toml`.
   A push to `main` publishes the version already in that file.
 
-When a candidate spans stacked PRs, put the single version bump on the final PR
-and merge its base PR first. Qualify each exact head; a green base does not
-qualify its follow-on. Verify the actual CI workflow run when a stacked target
-is outside the pull-request branch filters. The final `main` revision must pass
+When a candidate spans stacked PRs, qualify the assembled result locally as well
+as each exact head; a green base does not qualify its follow-on. Put the version
+bump on the final PR where practical, but do not treat that alone as a publication
+hold: any successful `main` CI can publish an unpublished version already present
+in its metadata, even when that commit did not change the version. Before merging
+intermediate revisions, obtain authorization for a publisher hold and inspect all
+publication workflows on the actual target branch. Keep the relevant publishers
+held until intermediate CI and queued publication runs are drained, the final SHA
+is qualified, and the release is authorized. Do not enable a publisher while an
+older successful CI event can still publish the candidate version.
+
+After each predecessor lands, retarget its successor to `main` before merging;
+otherwise a stacked PR can merge into its predecessor's feature branch instead
+of the release branch. Check the new base, resulting diff and exact-head checks
+after every retarget. Preserve the reviewed ancestry when choosing a merge
+method, and qualify the resulting final source rather than relying on PR numbers.
+
+Verify the actual CI workflow run when a stacked target is outside the
+pull-request branch filters. The final `main` revision must pass
 its own CI before publication. Preparation, a version declaration and a passing
 PR run do not establish that the candidate has been uploaded or deployed.
+
+## Documentation acceptance checklist
+
+Documentation is a release gate, not follow-up work. Before TestPyPI promotion:
+
+- Match install and configuration instructions to the candidate's package metadata,
+  CLI help and actual clean-wheel installation. Download only the selected Core
+  candidate from TestPyPI; resolve ordinary dependencies from PyPI.
+- Explain required migrations, backup, interrupted-upgrade recovery and rollback
+  limits for both fresh and populated installations. Link the reviewed
+  [offline native storage workflow](docs/ops/NATIVE-STORAGE-UPGRADES.md) where
+  applicable; never substitute a database wipe for upgrade qualification.
+- Update canonical guides, the changelog and any affected generated API/capability
+  references. Release notes must include all changes in the assembled candidate,
+  not only its version-bump PR.
+- State supported-platform and dependency limits accurately. Dependency resolution,
+  native startup, signed installers and hosted qualification are separate checks.
+- Record exact source/artifact identity, commands, results, skips and blockers in
+  CI/review evidence. Do not commit raw logs, credentials or recovery snapshots.
+  Recheck affected instructions after the candidate changes.
+
+Before stable PyPI promotion, repeat affected checks against the final artifact and
+review the TestPyPI candidate's Core, Integral One and Integral Business acceptance
+results. Their application-specific documentation and version pins remain in their
+own repositories. A candidate upload alone is not stable-release acceptance.
 
 ## One-time setup
 
@@ -105,8 +145,8 @@ PR run do not establish that the candidate has been uploaded or deployed.
    integral web --help
    ```
 
-   Do not add TestPyPI as a general extra index. Pip will then prefer a
-   unrelated packages published there. Download only the Core candidate
+   Do not add TestPyPI as a general extra index: pip can select unrelated
+   packages published there. Download only the Core candidate
    wheel and resolve its runtime dependencies from PyPI. Substitute an actually
    published candidate above; a locally built version is not publication proof. `integral init` is on the wheel from `0.1.1rc4` (that cut writes
    a starter App). From `0.1.1rc5`, `integral init` is blank unless
