@@ -161,6 +161,23 @@ These rules bind any AI agent working in this repo. They are not optional.
    repository before cleanup. Do not leave task reports or recovery dumps in
    tracked documentation.
 
+### Documentation is part of the release gate
+
+Keep relevant documentation current in the same change as behavior, contracts,
+configuration, dependencies or supported-platform changes. Update the canonical
+user/developer guide and release notes, rather than adding a competing guide;
+regenerate affected source-derived references. If no documentation changes are
+needed, record why in the review evidence.
+
+Before a TestPyPI candidate or PyPI release, verify documented install commands,
+configuration, upgrade/migration and recovery steps against the exact candidate.
+Record platform coverage, skipped/blocked checks and artifact provenance in the
+release evidence. Distinguish implemented, tested, published and deployed states;
+do not advertise an unqualified platform or imply data can be reset to upgrade.
+Stale or materially unverified release instructions block promotion. Keep Core
+contracts generic and document One/Business product behavior in their own repos.
+See [RELEASING.md](RELEASING.md) for the documentation acceptance checklist.
+
 ### Chat identity and first-time guidance
 
 - Resolve chat identity through the shared authenticated profile resolver; an

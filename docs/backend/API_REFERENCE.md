@@ -126,6 +126,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | Methods | Declared path | Handler |
 |---|---|---|
 | GET | `/agentive/routines` | [list_routines](../../backend/app/agentive/api/routines.py) |
+| POST | `/agentive/routines/opportunities/{message_id}/{entry_id}/{action}` | [set_routine_opportunity_disposition](../../backend/app/agentive/api/routines.py) |
 | DELETE | `/agentive/routines/{routine_id}` | [delete_routine](../../backend/app/agentive/api/routines.py) |
 | GET | `/agentive/routines/{routine_id}` | [get_routine](../../backend/app/agentive/api/routines.py) |
 | PATCH | `/agentive/routines/{routine_id}` | [patch_routine](../../backend/app/agentive/api/routines.py) |
@@ -154,6 +155,8 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | POST | `/agentive/staging/rollback-token` | [rollback_token_endpoint](../../backend/app/agentive/api/staging.py) |
 | POST | `/agentive/staging/text-approve` | [text_approve_endpoint](../../backend/app/agentive/api/staging.py) |
 | GET | `/agentive/staging/token/{token}` | [token_state_endpoint](../../backend/app/agentive/api/staging.py) |
+| GET | `/agentive/staging/token/{token}/entry-form` | [entry_proposal_form_endpoint](../../backend/app/agentive/api/staging.py) |
+| POST | `/agentive/staging/token/{token}/revise-entry` | [revise_entry_proposal_endpoint](../../backend/app/agentive/api/staging.py) |
 
 ## status
 
@@ -275,12 +278,27 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | PATCH | `/chat/threads/{thread_id}` | [rename_thread](../../backend/app/api/ai_chat.py) |
 | GET | `/chat/threads/{thread_id}/activity` | [thread_activity](../../backend/app/api/ai_chat.py) |
 | POST | `/chat/threads/{thread_id}/agent-turn` | [agent_turn](../../backend/app/api/ai_chat.py) |
+| GET | `/chat/threads/{thread_id}/artifacts/{key}/download` | [download_document_draft](../../backend/app/api/ai_chat.py) |
+| GET | `/chat/threads/{thread_id}/artifacts/{key}/preview` | [preview_document_draft](../../backend/app/api/ai_chat.py) |
+| GET | `/chat/threads/{thread_id}/attachments/{attachment_id}/review` | [review_chat_attachment](../../backend/app/api/ai_chat.py) |
 | POST | `/chat/threads/{thread_id}/cancel` | [cancel_thread](../../backend/app/api/ai_chat.py) |
+| GET | `/chat/threads/{thread_id}/follow-ups` | [get_thread_follow_ups](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/follow-ups` | [post_thread_follow_up](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/follow-ups/resume` | [resume_thread_follow_ups](../../backend/app/api/ai_chat.py) |
+| DELETE | `/chat/threads/{thread_id}/follow-ups/{client_request_id}` | [delete_thread_follow_up](../../backend/app/api/ai_chat.py) |
 | GET | `/chat/threads/{thread_id}/harness-sessions/{session_id}/export` | [export_harness_session_for_thread](../../backend/app/api/ai_chat.py) |
+| GET | `/chat/threads/{thread_id}/mandate-reviews` | [list_chat_mandate_reviews](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/mandate-reviews` | [propose_chat_mandate_review](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/mandate-reviews/entry-read` | [propose_chat_entry_read_mandate](../../backend/app/api/ai_chat.py) |
 | POST | `/chat/threads/{thread_id}/messages` | [send_message](../../backend/app/api/ai_chat.py) |
 | POST | `/chat/threads/{thread_id}/system-message` | [append_system_message](../../backend/app/api/ai_chat.py) |
 | POST | `/chat/threads/{thread_id}/work-items/{work_item_id}/cancel` | [cancel_chat_turn](../../backend/app/api/ai_chat.py) |
 | GET | `/chat/threads/{thread_id}/work-items/{work_item_id}/events` | [replay_chat_turn_events](../../backend/app/api/ai_chat.py) |
+| GET | `/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review` | [get_chat_mandate_review](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/approve` | [approve_chat_mandate_review](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/reject` | [reject_chat_mandate_review](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/run` | [run_chat_mandate_review](../../backend/app/api/ai_chat.py) |
+| POST | `/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/stop` | [stop_chat_mandate_review](../../backend/app/api/ai_chat.py) |
 | GET | `/chat/threads/{thread_id}/work-items/{work_item_id}/stream` | [stream_chat_turn_events](../../backend/app/api/ai_chat.py) |
 
 ## ai_configuration
@@ -311,12 +329,14 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | Methods | Declared path | Handler |
 |---|---|---|
 | GET | `/extension-view-frame` | [extension_view_frame_route](../../backend/app/api/app_extensions.py) |
+| POST | `/extensions/{app_id}/components/{component_key}/mount` | [mount_ui_component](../../backend/app/api/app_extensions.py) |
 | POST | `/extensions/{app_id}/navigate` | [resolve_view_navigation](../../backend/app/api/app_extensions.py) |
 | GET | `/extensions/{app_id}/operations` | [list_operations](../../backend/app/api/app_extensions.py) |
 | POST | `/extensions/{app_id}/operations/{operation_key}` | [invoke_operation](../../backend/app/api/app_extensions.py) |
 | GET | `/extensions/{app_id}/views` | [list_extension_views_route](../../backend/app/api/app_extensions.py) |
 | GET | `/extensions/{app_id}/views/{view_key}/handshake` | [extension_view_handshake_route](../../backend/app/api/app_extensions.py) |
 | GET | `/extensions/{app_id}/views/{view_key}/{asset_path:path}` | [serve_extension_view_asset_route](../../backend/app/api/app_extensions.py) |
+| GET | `/ui-artifacts/{slug}/{digest}/index.mjs` | [ui_component_artifact](../../backend/app/api/app_extensions.py) |
 
 ## approvals
 
@@ -431,6 +451,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 
 | Methods | Declared path | Handler |
 |---|---|---|
+| POST | `/auth/activate-account` | [activate_account](../../backend/app/api/auth.py) |
 | POST | `/auth/complete-assigned-form` | [complete_assigned_form](../../backend/app/api/auth.py) |
 | POST | `/auth/complete-onboarding-form` | [complete_onboarding_form](../../backend/app/api/auth.py) |
 | POST | `/auth/credentials-delivery/resend` | [resend_credentials_delivery](../../backend/app/api/auth.py) |
@@ -495,12 +516,19 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 |---|---|---|
 | GET | `/entries` | [list_entries](../../backend/app/api/entries.py) |
 | POST | `/entries` | [create_entry](../../backend/app/api/entries.py) |
+| POST | `/entries/check` | [check_entry](../../backend/app/api/entries.py) |
 | DELETE | `/entries/{entry_id}` | [delete_entry](../../backend/app/api/entries.py) |
 | GET | `/entries/{entry_id}` | [get_entry](../../backend/app/api/entries.py) |
 | PUT | `/entries/{entry_id}` | [update_entry](../../backend/app/api/entries.py) |
 | POST | `/entries/{entry_id}/reactions` | [add_reaction](../../backend/app/api/entries.py) |
 | PUT | `/entries/{entry_id}/reactions` | [select_reaction](../../backend/app/api/entries.py) |
 | DELETE | `/entries/{entry_id}/reactions/{emoji}` | [remove_reaction](../../backend/app/api/entries.py) |
+| GET | `/entries/{entry_id}/resident-assignment` | [read_resident_assignment](../../backend/app/api/entries.py) |
+| PUT | `/entries/{entry_id}/resident-assignment` | [update_resident_assignment](../../backend/app/api/entries.py) |
+| POST | `/entries/{entry_id}/resident-assignment/placement` | [propose_resident_assignment_placement](../../backend/app/api/entries.py) |
+| GET | `/entries/{entry_id}/resident-assignment/review` | [read_resident_assignment_review](../../backend/app/api/entries.py) |
+| POST | `/entries/{entry_id}/resident-assignment/review` | [request_entry_resident_assignment_review](../../backend/app/api/entries.py) |
+| PUT | `/entries/{entry_id}/resident-assignment/review` | [decide_resident_assignment_review](../../backend/app/api/entries.py) |
 | POST | `/entries/{entry_id}/tags` | [add_tag_to_entry](../../backend/app/api/entries.py) |
 | DELETE | `/entries/{entry_id}/tags/{tag_id}` | [remove_tag_from_entry](../../backend/app/api/entries.py) |
 | POST | `/entries/{entry_id}/unwatch` | [unwatch_entry](../../backend/app/api/entries.py) |
@@ -692,11 +720,25 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/policies/{policy_id}` | [get_policy_by_id](../../backend/app/api/policies.py) |
 | PATCH | `/policies/{policy_id}` | [patch_policy](../../backend/app/api/policies.py) |
 
+## portable_transfer
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| POST | `/portable/export` | [export_portable_resources](../../backend/app/api/portable_transfer.py) |
+| POST | `/portable/import` | [import_portable_resources](../../backend/app/api/portable_transfer.py) |
+| POST | `/portable/preview` | [preview_portable_resources](../../backend/app/api/portable_transfer.py) |
+
 ## query_spec
 
 | Methods | Declared path | Handler |
 |---|---|---|
 | POST | `/query-spec` | [execute_query_spec_endpoint](../../backend/app/api/query_spec.py) |
+
+## relation_options
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| GET | `/relation-options` | [get_relation_options](../../backend/app/api/relation_options.py) |
 
 ## retrieval_config
 
@@ -784,6 +826,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/tracks/{track_id}/entries` | [get_track_entries](../../backend/app/api/tracks.py) |
 | POST | `/tracks/{track_id}/exclusions` | [add_exclusion](../../backend/app/api/tracks.py) |
 | DELETE | `/tracks/{track_id}/exclusions/{user_id_to_restore}` | [remove_exclusion](../../backend/app/api/tracks.py) |
+| GET | `/tracks/{track_id}/facets` | [get_track_facets](../../backend/app/api/tracks.py) |
 | GET | `/tracks/{track_id}/mention-candidates` | [list_mention_candidates](../../backend/app/api/tracks.py) |
 | GET | `/tracks/{track_id}/operational-model` | [get_track_operational_model](../../backend/app/api/tracks.py) |
 | PATCH | `/tracks/{track_id}/operational-model` | [patch_track_operational_model](../../backend/app/api/tracks.py) |
@@ -865,6 +908,19 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 |---|---|---|
 | GET | `/work-items` | [get_work_items](../../backend/app/api/work_items.py) |
 | GET | `/work-items/{work_item_id}` | [get_work_item](../../backend/app/api/work_items.py) |
+| POST | `/work-items/{work_item_id}/steering` | [post_work_item_steering](../../backend/app/api/work_items.py) |
+
+## workspace_email
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| GET | `/workspace/email` | [get_email_configuration](../../backend/app/api/workspace_email.py) |
+| POST | `/workspace/email/activate` | [activate_email_configuration](../../backend/app/api/workspace_email.py) |
+| POST | `/workspace/email/disable` | [disable_email_configuration](../../backend/app/api/workspace_email.py) |
+| PUT | `/workspace/email/draft` | [save_email_draft](../../backend/app/api/workspace_email.py) |
+| GET | `/workspace/email/history` | [email_delivery_history](../../backend/app/api/workspace_email.py) |
+| POST | `/workspace/email/test` | [test_email_draft](../../backend/app/api/workspace_email.py) |
+| POST | `/workspace/email/webhooks/{connection_id}` | [email_provider_webhook](../../backend/app/api/workspace_email.py) |
 
 ## workspaces
 
@@ -885,7 +941,11 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | POST | `/workspaces/{workspace_id}/members/provision` | [provision_workspace_member_route](../../backend/app/api/workspaces.py) |
 | DELETE | `/workspaces/{workspace_id}/members/{member_user_id}` | [remove_workspace_member](../../backend/app/api/workspaces.py) |
 | PATCH | `/workspaces/{workspace_id}/members/{member_user_id}` | [patch_workspace_member](../../backend/app/api/workspaces.py) |
+| GET | `/workspaces/{workspace_id}/members/{member_user_id}/activation-delivery` | [get_member_activation_delivery_status](../../backend/app/api/workspaces.py) |
+| POST | `/workspaces/{workspace_id}/members/{member_user_id}/activation-delivery/retry` | [retry_member_activation_delivery](../../backend/app/api/workspaces.py) |
 | DELETE | `/workspaces/{workspace_id}/membership` | [leave_workspace](../../backend/app/api/workspaces.py) |
+| GET | `/workspaces/{workspace_id}/resident-assignment-settings` | [read_resident_assignment_settings](../../backend/app/api/workspaces.py) |
+| PUT | `/workspaces/{workspace_id}/resident-assignment-settings` | [update_resident_assignment_settings](../../backend/app/api/workspaces.py) |
 | GET | `/workspaces/{workspace_id}/storage-usage` | [get_workspace_storage_usage](../../backend/app/api/workspaces.py) |
 | POST | `/workspaces/{workspace_id}/storage-usage/recalculate` | [recalculate_workspace_storage_usage](../../backend/app/api/workspaces.py) |
 | GET | `/workspaces/{workspace_id}/tracks` | [list_workspace_tracks](../../backend/app/api/workspaces.py) |

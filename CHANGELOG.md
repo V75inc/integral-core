@@ -4,9 +4,15 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
-## Unreleased
+## 0.1.1rc63 — 2026-11-15
 
-## 0.1.1rc63 — 2026-11-13
+- Require meaningful App and Track descriptions during package provisioning and scaffolding.
+- Restore advertised action-bar and editable-table widget registration in packaged and cold-start workspaces.
+- Recover workspace views across navigation, remounts and native session renewal without discarding drafts or attachments.
+- Add explicit, reviewed offline native storage adoption with restricted serving credentials and interrupted-operation retry.
+- Restore governed inline Entry editing, including Assignee changes, with explicit save/cancel and stale-record protection.
+- Permit compatible populated App upgrades whose tracks are declared through templates, preserving existing records and customized views.
+- Make documentation accuracy, migration guidance and platform qualification explicit release gates.
 
 - Preserve approved designs and uploaded source context through scaffolding and reviewed document filing.
 - Save original attachments with their project records and bound long attachment names inside chat bubbles.

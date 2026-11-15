@@ -4,13 +4,18 @@ Qualification applies to an exact source, artifact and configuration. Read the
 package version from `backend/pyproject.toml`; verify publication and deployment
 independently. Merged source, a healthy preview and green CI are separate facts.
 
-## Candidate under review
+## Candidate evidence
 
-PR #171 bounds resident model working context across restored runs and exposes
-the running Core version. The [context lifecycle evidence](qualification/harness-context-lifecycle.md)
-records its reproduction, deterministic limits, cloud-model browser checks and
-qualification scope. Source and dependency updates require fresh checks; earlier
-results do not qualify a later revision automatically.
+The active candidate is identified by its assembled source revision, package
+metadata and built artifact, not by a historical PR number. Keep its exact-head
+CI, local aggregate, installed-wheel smoke, migration/recovery and downstream
+acceptance results in the release's CI/review evidence. Do not carry a previous
+candidate's passing status forward after source or dependency changes.
+
+The [context lifecycle evidence](qualification/harness-context-lifecycle.md)
+remains scoped to that feature's tested revision; it is not the current release
+record. Apply the [documentation acceptance checklist](../../RELEASING.md#documentation-acceptance-checklist)
+before promoting any candidate.
 
 ## Promotion record
 
