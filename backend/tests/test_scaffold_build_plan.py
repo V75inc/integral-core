@@ -40,11 +40,18 @@ def approved(monkeypatch):
 
 def _operations():
     return [
-        {"tool": "integral_create_app", "args": {"name": "Bicycle Repair Management"}},
+        {
+            "tool": "integral_create_app",
+            "args": {
+                "name": "Bicycle Repair Management",
+                "description": "Coordinates customer bookings and bicycle repair work.",
+            },
+        },
         {
             "tool": "integral_create_app_track",
             "args": {
                 "name": "Customers",
+                "description": "Stores customer contact details for coordinating repair bookings.",
                 "app_id": "{{app.id}}",
                 "entry_types": [
                     {"name": "Customer", "fields": [{"key": "name", "type": "text"}]}
@@ -477,7 +484,7 @@ async def test_stages_and_commits_once_with_bound_identity(
         if with_blueprint
         else {
             "layout": "quick_start",
-            "introduction": "Bicycle Repair Management",
+            "introduction": "Coordinates customer bookings and bicycle repair work.",
             "steps": ["Open Customers to work with its records."],
             "track_shortcuts": ["Customers"],
         }
@@ -537,6 +544,7 @@ async def test_approved_existing_app_wiki_builds_without_duplicate_or_second_app
             "args": {
                 "app_id": "n.WorkspaceApp.existing",
                 "track_name": "Wiki",
+                "description": "Organizes operational knowledge as linked pages for the rental team.",
                 "entry_types": [
                     {
                         "name": "Wiki Page",
@@ -1429,3 +1437,29 @@ async def test_legacy_open_decision_requires_clarification_before_plan_repair(ap
     assert not result.next_tool
     assert approved.design_proposed == before
     assert not is_batch_open("user-1", "session-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", [0, 1])
+@pytest.mark.parametrize("description", [None, "", "   ", "TBD"])
+async def test_missing_description_refuses_before_staging(
+    approved, monkeypatch, operation, description
+):
+    from app.agentive.tooling import dispatch
+
+    async def must_not_stage(*args, **kwargs):
+        pytest.fail("An incomplete description must fail before any staged writes")
+
+    monkeypatch.setattr(dispatch, "dispatch_tool", must_not_stage)
+    monkeypatch.setattr(dispatch, "_dispatch_batch_control", must_not_stage)
+    operations = _operations()
+    operations[operation]["args"]["description"] = description
+    result = await scaffold_build.build_approved_design(
+        {"operations": operations},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "invalid_scaffold_plan"
+    assert "meaningful description" in result.message

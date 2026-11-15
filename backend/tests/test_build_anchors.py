@@ -25,11 +25,16 @@ _NOTE_FIELDS = [{"key": "body", "name": "Body", "type": "text"}]
 
 def _blueprint() -> Dict[str, Any]:
     return {
-        "app": {"id": "app", "name": "Studio"},
+        "app": {
+            "id": "app",
+            "name": "Studio",
+            "description": "Coordinates client projects and their related working notes.",
+        },
         "tracks": [
             {
                 "id": "track.projects",
                 "name": "Projects",
+                "description": "Records each client project and links its individual detail workspace.",
                 "entry_types": [
                     {"name": "Project", "fields": copy.deepcopy(_PROJECT_FIELDS)}
                 ],
@@ -39,6 +44,7 @@ def _blueprint() -> Dict[str, Any]:
             {
                 "id": "tpl.details",
                 "name": "Project Details",
+                "description": "Stores notes for one parent project so its working context stays together.",
                 "entry_types": [
                     {"name": "Note", "fields": copy.deepcopy(_NOTE_FIELDS)}
                 ],
@@ -72,12 +78,19 @@ def _plan_project_fields() -> list:
 
 def _plan() -> list:
     return [
-        {"tool": "integral_create_app", "args": {"name": "Studio"}},
+        {
+            "tool": "integral_create_app",
+            "args": {
+                "name": "Studio",
+                "description": "Coordinates client projects and their related working notes.",
+            },
+        },
         {
             "tool": "integral_register_track_template",
             "args": {
                 "app_id": "{{app.id}}",
                 "name": "Project Details",
+                "description": "Stores notes for one parent project so its working context stays together.",
                 "entry_types": [
                     {"name": "Note", "fields": copy.deepcopy(_NOTE_FIELDS)}
                 ],
@@ -87,6 +100,7 @@ def _plan() -> list:
             "tool": "integral_create_app_track",
             "args": {
                 "name": "Projects",
+                "description": "Records each client project and links its individual detail workspace.",
                 "app_id": "{{app.id}}",
                 "entry_types": [{"name": "Project", "fields": _plan_project_fields()}],
             },
@@ -133,6 +147,7 @@ def test_blueprint_template_is_anchored_and_not_also_a_track() -> None:
         {
             "id": "track.details",
             "name": "Project Details",
+            "description": "Stores notes for one parent project so its working context stays together.",
             "entry_types": [{"name": "Note", "fields": copy.deepcopy(_NOTE_FIELDS)}],
         }
     )
@@ -244,7 +259,13 @@ def test_register_template_stager_normalizes_the_in_batch_app_ref() -> None:
     assert "- **Entry types:** Note" in staged["diff_human"]
     validate_batch_references(
         [
-            {"kind": "create_app", "payload": {"name": "Studio"}},
+            {
+                "kind": "create_app",
+                "payload": {
+                    "name": "Studio",
+                    "description": "Coordinates client projects and their related working notes.",
+                },
+            },
             {"kind": "register_track_template", "payload": staged["payload"]},
         ]
     )
@@ -343,6 +364,8 @@ async def test_two_parents_get_distinct_detail_tracks_from_one_template(
     for detail_id in detail_ids.values():
         detail = await Track.get(detail_id)
         assert detail is not None and detail.workspace_id == ws
+        assert detail.purpose == _blueprint()["track_templates"][0]["description"]
+        assert detail.purpose_from_manifest == detail.purpose
 
 
 @pytest.mark.asyncio

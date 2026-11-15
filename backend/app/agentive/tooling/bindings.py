@@ -59,6 +59,7 @@ from app.agentive.tooling.stagers_scheduling import (
     stage_schedule_task,
     stage_update_routine,
 )
+from app.schemas.creation_description import creation_description
 from app.services.view_scope import get_scoped_view
 
 # Principal bound by :func:`dispatch._dispatch_propose` for the duration of an
@@ -1412,9 +1413,10 @@ def _stage_create_app(args: Dict[str, Any]) -> Dict[str, Any]:
     if not name:
         raise ValueError("create_app: name is required")
 
-    payload: Dict[str, Any] = {"name": name}
-    if src.get("description"):
-        payload["description"] = src["description"]
+    payload: Dict[str, Any] = {
+        "name": name,
+        "description": creation_description(src.get("description"), name),
+    }
     if src.get("visibility"):
         payload["visibility"] = src["visibility"]
     if src.get("type_hint"):
@@ -1455,7 +1457,9 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("create_track: title is required")
     visibility = src.get("visibility") or "private"
     app_id = src.get("app_id") or src.get("space_id") or None
-    description = src.get("description") or src.get("purpose") or None
+    description = creation_description(
+        src.get("description", src.get("purpose")), title
+    )
 
     payload: Dict[str, Any] = {"title": title, "visibility": visibility}
     if app_id:
@@ -3713,8 +3717,9 @@ def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
         "name": str(args["name"]).strip(),
         "entry_types": entry_types,
     }
-    if args.get("description"):
-        payload["description"] = str(args["description"])
+    payload["description"] = creation_description(
+        args.get("description"), payload["name"]
+    )
     type_names = ", ".join(
         str(et.get("name") or et.get("key") or "") for et in entry_types
     )
@@ -3723,6 +3728,7 @@ def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
         "summary": f"Register track template '{payload['name']}'",
         "diff_human": (
             f"**Register track template** *{payload['name']}*\n\n"
+            f"> {payload['description']}\n\n"
             f"- **Entry types:** {type_names}\n"
             "- One detail Track is created per parent entry, when that entry is created."
         ),

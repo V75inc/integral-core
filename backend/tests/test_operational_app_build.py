@@ -438,6 +438,7 @@ def test_inline_schema_rejected_before_track_creation():
         _stage_create_track(
             {
                 "name": "Invalid",
+                "description": "Exercises rejection of an unsupported record field type.",
                 "entry_types": [
                     {
                         "name": "Record",
@@ -491,11 +492,16 @@ async def test_car_rental_build_through_tools_and_approval(
         "integral_propose_design",
         summary="Car rental",
         blueprint={
-            "app": {"id": "app", "name": "Car rental"},
+            "app": {
+                "id": "app",
+                "name": "Car rental",
+                "description": "Coordinates fleet availability, renters and rental bookings.",
+            },
             "tracks": [
                 {
                     "id": "track.cars",
                     "name": "Cars",
+                    "description": "Records each rental vehicle and its availability and servicing dates.",
                     "entry_types": [{"name": "Car", "fields": []}],
                 }
             ],

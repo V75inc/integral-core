@@ -705,3 +705,15 @@ schema/query tools. Hand off with link and operating notes.
 
 Leave domain naming, track count, and which palette keys fit to judgment
 guided by the user’s need and the weave contracts above.
+
+## Required creation descriptions
+
+Every new App, Track, and detail-Track template must carry a meaningful
+`description` in both the design blueprint and the build operation. Explain the
+purpose, what it holds (for a Track, what one record represents), and how people
+will use it. Include these descriptions in the design preview; retain the
+approved wording in the build. A name repeated as a description, empty text,
+or TBD/placeholder boilerplate is not acceptable. Derive descriptions from the
+user's requirements, not invented business facts. If a build reports missing
+description metadata, repair the plan before any creation; do not repeat the
+approval of an unchanged design. Existing records are not rewritten or migrated.

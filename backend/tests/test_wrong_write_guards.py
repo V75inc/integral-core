@@ -48,7 +48,11 @@ def test_single_add_track_uses_the_focused_app_instead_of_the_batch_token():
     token = current_focused_app_id.set(_APP)
     try:
         staged = _stage_create_app_track(
-            {"app_id": "{{app.id}}", "name": "Maintenance"}
+            {
+                "app_id": "{{app.id}}",
+                "name": "Maintenance",
+                "description": "Records vehicle servicing tasks so staff can schedule and track maintenance.",
+            }
         )
     finally:
         current_focused_app_id.reset(token)

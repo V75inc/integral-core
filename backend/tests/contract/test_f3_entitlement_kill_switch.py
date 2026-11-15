@@ -47,6 +47,7 @@ def _community_sibling_manifest() -> Dict[str, Any]:
                 {
                     "key": "notes",
                     "name": "Notes",
+                    "description": "Stores team notes for reviewing the community application workflow.",
                     "provision_on_create": True,
                     "entry_types": [
                         {

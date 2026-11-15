@@ -377,6 +377,16 @@ async def materialize_anchor_track(
             },
         )
 
+    from app.schemas.creation_description import creation_description
+
+    try:
+        template_description = creation_description(
+            template_spec.get("description"),
+            str(template_spec.get("name") or template_key),
+        )
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+
     # 3) Resolve-or-materialize the template OperationalModel node. The template
     # is identified by (app_id, template_key); a per-App CP node is
     # created the first time and reused thereafter (by-reference semantics).
@@ -410,7 +420,8 @@ async def materialize_anchor_track(
         title=track_title,
         title_fold=track_title.strip().casefold(),
         owner_id=getattr(source_track, "owner_id", None) or "",
-        purpose="",
+        purpose=template_description,
+        purpose_from_manifest=template_description,
         icon=str(template_spec.get("icon") or ""),
         visibility="private",
         template_id=template_key,

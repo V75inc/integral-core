@@ -49,6 +49,7 @@ app:
   tracks:
   - key: items
     name: Items
+    description: Stores starter items and their summaries so you can explore and adapt the App.
     provision_on_create: true
     entry_types:
     - key: item

@@ -1718,7 +1718,7 @@ domains:
         params:
           app_id: {type: string, required: true, desc: "App id, or '{{app.id}}' inside an integral_build_approved_design plan."}
           name: {type: string, required: true, desc: "Template name, e.g. 'Project Details'. Its key is the slug ('project_details'); the parent's relation field sets target_track_template to that key."}
-          description: {type: string, optional: true}
+          description: {type: string, required: true, desc: "Meaningful description: explain purpose, what it contains, and how it is used. Never omit, repeat the name, or use a placeholder."}
           entry_types: {type: array, required: true, items: {type: object}, desc: "Entry types of each detail Track, same shape as integral_create_app_track.entry_types."}
         returns: { staged_token: str }
       - name: integral_list_workspace_tools
@@ -2231,7 +2231,7 @@ domains:
           name: {type: string, required: true, desc: "Title of the new track."}
           app_id: {type: string, optional: true, desc: "Attach the track to this app (from integral_list_apps). Omit to create it at workspace level."}
           visibility: {type: string, optional: true, enum: [private, workspace, public], desc: "Access scope (default 'private'). Only set 'workspace'/'public' when the user explicitly asks."}
-          description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
+          description: {type: string, required: true, desc: "Meaningful description: explain purpose, what it contains, and how it is used. Never omit, repeat the name, or use a placeholder."}
           entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_model: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library Operational Model when building a custom track from field specs. Omit only when applying a library package via integral_apply_model_to_track."}
         returns: { staged_token: str, preview: object }
       - name: integral_create_app
@@ -2260,7 +2260,7 @@ domains:
         staging_kind: create_app   # T5b: stages via create_app handler on bless
         params:
           name: {type: string, required: true, desc: "Name of the new app."}
-          description: {type: string, optional: true, desc: "Optional short description of what the app is for."}
+          description: {type: string, required: true, desc: "Meaningful description: explain purpose, what it contains, and how it is used. Never omit, repeat the name, or use a placeholder."}
           initial_home: {type: object, optional: true, desc: "Approved Home layout, introduction, workflow paragraphs, and Track shortcuts."}
           visibility: {type: string, optional: true, enum: [private, workspace, public], desc: "Access scope (default 'private'). Only set 'workspace'/'public' when the user explicitly asks."}
         returns: { staged_token: str, preview: object }
@@ -2283,7 +2283,7 @@ domains:
           app_id: {type: string, required: true, desc: "Identifier of the app to create the track inside (from integral_list_apps)."}
           name: {type: string, required: true, desc: "Title of the new track."}
           visibility: {type: string, optional: true, enum: [private, workspace, public], desc: "Access scope (default 'private'). Only set 'workspace'/'public' when the user explicitly asks."}
-          description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
+          description: {type: string, required: true, desc: "Meaningful description: explain purpose, what it contains, and how it is used. Never omit, repeat the name, or use a placeholder."}
           entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_model: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library Operational Model when building a custom track from field specs. Omit only when applying a library package via integral_apply_model_to_track."}
           taxonomy: {type: object, optional: true, desc: "Optional tag vocabulary created with the track: {tag_groups: [{name: 'Priority', tags: ['Urgent', 'Routine']}]}. A tag may be {name, color?, parent?} where parent names an earlier tag of the same group. Tag names are unique per track. Use tags for cross-cutting classification and a select field for workflow state."}
         returns: { staged_token: str }

@@ -176,6 +176,7 @@ async def test_full_install_validates_manifest_and_required_hook_relations(
         {
             "key": "records",
             "name": "Records",
+            "description": "Stores seeded records and their related entries for the installed application.",
             "entry_types": [
                 {
                     "key": "record",

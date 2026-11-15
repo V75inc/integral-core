@@ -63,6 +63,7 @@ def _make_space_cp_manifest_with_template(template_key: str, template_name: str)
                 {
                     "key": template_key,
                     "name": template_name,
+                    "description": "Stores notes belonging to one parent record so its detail history remains together.",
                     "entry_types": [
                         {
                             "key": "note",

@@ -25,11 +25,16 @@ _PURPOSE = (
 )
 
 _BLUEPRINT = {
-    "app": {"id": "app", "name": "Asset Register"},
+    "app": {
+        "id": "app",
+        "name": "Asset Register",
+        "description": "Manages shared assets, their availability and custody assignments.",
+    },
     "tracks": [
         {
             "id": "assets",
             "name": "Assets",
+            "description": "Records available and checked-out assets to coordinate custody.",
             "entry_types": [
                 {
                     "name": "Asset",

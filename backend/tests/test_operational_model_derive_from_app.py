@@ -95,15 +95,22 @@ class TestDeriveLibraryFromSpace:
         assert prov.get("derived_by"), "derived_by missing"
 
     async def test_from_app_snapshots_live_tracks_and_entries(
-        self, authenticated_client: AsyncClient, test_user
+        self, authenticated_client: AsyncClient, test_user, monkeypatch
     ):
+        from app.services import url_safety
+
+        monkeypatch.setattr(url_safety, "_resolve_host_ips", lambda _host: ["8.8.8.8"])
         app_id = await _seed_space_with_library(authenticated_client)
         app = (await authenticated_client.get(f"/api/apps/{app_id}")).json()["app"]
         ws_id = app["workspace_id"]
         headers = {"X-Integral-Scope": f"ws:{ws_id}"}
         track_resp = await authenticated_client.post(
             "/api/tracks",
-            json={"title": "Live project track", "app_id": app_id},
+            json={
+                "title": "Live project track",
+                "app_id": app_id,
+                "purpose": "Preserve project records and their attachments in reusable App snapshots.",
+            },
             headers=headers,
         )
         assert track_resp.status_code == 200, track_resp.text

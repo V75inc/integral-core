@@ -303,6 +303,7 @@ async def _build_space_with_template(
                 {
                     "key": template_key,
                     "name": template_name,
+                    "description": "Stores notes and supporting details for the linked parent record.",
                     "entry_types": [
                         {
                             "key": "note",

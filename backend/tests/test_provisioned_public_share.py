@@ -45,6 +45,7 @@ _MANIFEST = {
             {
                 "key": "public_intake",
                 "name": "Public Intake",
+                "description": "Collects intake records for review before any public sharing is enabled.",
                 "provision_on_create": True,
                 "public_share": {"enabled": True, "permissions": _DECLARED_PERMS},
             }

@@ -20,11 +20,16 @@ _PROPOSAL = (
 )
 
 _BLUEPRINT = {
-    "app": {"id": "app", "name": "Orders"},
+    "app": {
+        "id": "app",
+        "name": "Orders",
+        "description": "Coordinates customer orders, payment status and delivery due dates.",
+    },
     "tracks": [
         {
             "id": "orders",
             "name": "Orders",
+            "description": "Stores orders and their status and due dates for fulfillment tracking.",
             "entry_types": [
                 {
                     "name": "Order",

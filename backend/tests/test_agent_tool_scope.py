@@ -163,7 +163,10 @@ async def test_create_track_inherits_active_workspace(authenticated_client):
 
     r = await dispatch_tool(
         "integral_create_track",
-        {"title": "Agent-Created Track"},
+        {
+            "title": "Agent-Created Track",
+            "description": "Stores scoped agent-created records for workspace coordination.",
+        },
         principal_id=user_id,
         scope=workspace_id,
     )

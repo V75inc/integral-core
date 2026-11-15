@@ -14,6 +14,7 @@ app:
   tracks:
   - key: records
     name: Records
+    description: Stores submissions, reviewer decisions, and editor notes for governed approval workflows.
     entry_types:
     - key: submission
       name: Submission

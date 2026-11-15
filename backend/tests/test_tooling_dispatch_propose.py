@@ -263,7 +263,11 @@ async def test_create_track_propose_returns_staged_token(
 
     r = await dispatch_tool(
         "integral_create_track",
-        {"title": "Proposed Track", "visibility": "private"},
+        {
+            "title": "Proposed Track",
+            "description": "Holds proposed records for review before the workspace creation is approved.",
+            "visibility": "private",
+        },
         principal_id=auth_user_id,
         scope=workspace_id,
     )
@@ -287,7 +291,11 @@ async def test_create_app_track_propose_carries_app_id(
 
     r = await dispatch_tool(
         "integral_create_app_track",
-        {"app_id": "n.WorkspaceApp.zzz", "title": "Track in App"},
+        {
+            "app_id": "n.WorkspaceApp.zzz",
+            "title": "Track in App",
+            "description": "Organizes records under the chosen App for its members to review.",
+        },
         principal_id=auth_user_id,
         scope=workspace_id,
     )
@@ -591,7 +599,11 @@ async def test_create_app_drops_icon_arg(bind_fresh_graph_context_for_async_test
 
     r = await dispatch_tool(
         "integral_create_app",
-        {"name": "Iconic", "icon": "rocket"},
+        {
+            "name": "Iconic",
+            "description": "Groups records for the proposed app while checking supported creation metadata.",
+            "icon": "rocket",
+        },
         principal_id=auth_user_id,
         scope=workspace_id,
     )
@@ -1098,7 +1110,14 @@ async def test_deferred_orchestrations_fail_closed(
 @pytest.mark.parametrize(
     ("tool_name", "kind", "args"),
     [
-        ("integral_create_track", "create_track", {"title": "Identity check"}),
+        (
+            "integral_create_track",
+            "create_track",
+            {
+                "title": "Identity check",
+                "description": "Holds scoped records to exercise authenticated creation without identity injection.",
+            },
+        ),
         (
             "integral_add_comment",
             "add_comment",
@@ -1107,7 +1126,11 @@ async def test_deferred_orchestrations_fail_closed(
         (
             "integral_create_app",
             "create_app",
-            {"user_id": "ATTACKER", "name": "Sneaky App"},
+            {
+                "user_id": "ATTACKER",
+                "name": "Sneaky App",
+                "description": "Groups scoped records to test that caller-supplied ownership is ignored.",
+            },
         ),
         (
             "integral_draft_new_model",
@@ -1183,7 +1206,10 @@ async def test_propose_resets_scope_contextvar(
     assert current_scope_workspace_id.get() is None
     r = await dispatch_tool(
         "integral_create_track",
-        {"title": "Scope check"},
+        {
+            "title": "Scope check",
+            "description": "Holds records for testing isolation of the acting workspace scope.",
+        },
         principal_id=auth_user_id,
         scope=workspace_id,
     )

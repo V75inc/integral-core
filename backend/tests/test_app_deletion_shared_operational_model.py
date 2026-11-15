@@ -48,6 +48,7 @@ def _make_space_cp_manifest_with_template(template_key: str, template_name: str)
                 {
                     "key": template_key,
                     "name": template_name,
+                    "description": "Stores notes and supporting details for the linked parent record.",
                     "entry_types": [
                         {
                             "key": "note",

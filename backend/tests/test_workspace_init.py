@@ -150,6 +150,7 @@ async def test_init_creates_apps_and_writes_applied_profiles(monkeypatch):
                                             {
                                                 "key": "contacts",
                                                 "name": "Contacts",
+                                                "description": "Stores customer contact details for the workspace CRM.",
                                                 "entry_types": [],
                                             }
                                         ]
@@ -284,6 +285,7 @@ async def test_init_handles_cross_app_relations(monkeypatch):
                                             {
                                                 "key": "src_t",
                                                 "name": "ST",
+                                                "description": "Stores source records with references to related target records.",
                                                 "provision_on_create": True,
                                                 "entry_types": [
                                                     {"key": "src_e", "name": "src_e"}
@@ -303,6 +305,7 @@ async def test_init_handles_cross_app_relations(monkeypatch):
                                             {
                                                 "key": "tgt_t",
                                                 "name": "TT",
+                                                "description": "Stores target records referenced by the source application.",
                                                 "provision_on_create": True,
                                                 "entry_types": [
                                                     {"key": "tgt_e", "name": "tgt_e"}

@@ -1543,6 +1543,14 @@ async def build_approved_design(
                     "plan_differs_from_design",
                     f"Operation {index + 1} names an App or Track absent from the approved preview.",
                 )
+            from app.schemas.creation_description import creation_description
+
+            try:
+                params["description"] = creation_description(
+                    params.get("description"), name
+                )
+            except ValueError as exc:
+                return _invalid("invalid_scaffold_plan", str(exc))
             if tool == "integral_create_app_track":
                 track_count += 1
                 missing_fields = sorted(
