@@ -540,6 +540,10 @@ Install steps record reverse-order compensation, and one failed compensation can
 
 Authorized relation labels pass through `relation_runtime.read_cross_app_label`. A restricted stub contains only kind, relation field key, and target kind, never source field contents. The compile/schema/edge declaration whitelist in `test_app_bundles_invariants.py` constrains other label-field references.
 
+Callers pass compiled relation declarations unchanged to that resolver. It
+interprets their label selector only after target Entry read permission passes;
+existing explicit-selector callers retain the same permission gate.
+
 ### I-APP-04 — Dependency and reference gates
 
 Required absent/unsatisfied dependencies block install. Inbound hard dependencies and blocking REFERENCES prevent normal uninstall. Force overrides are explicit, audited, and leave references to render safely rather than leak data. Preserve structured blocker/override results.

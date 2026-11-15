@@ -2913,11 +2913,14 @@ async def test_attachment_workflow_cannot_stage_plain_record_write(
     """Real skill declarations enforce compound filing, not upload heuristics."""
     import shutil
 
+    from app.agentive.resident_root import resident_agent_root
+
+    skills_root = resident_agent_root() / "skills"
     for skill in ("integral-attachments", "integral-entries"):
         destination = tmp_path / skill
         destination.mkdir()
         shutil.copy(
-            Path("app/resident_harness/skills") / skill / "SKILL.md",
+            skills_root / skill / "SKILL.md",
             destination / "SKILL.md",
         )
     calls = []
