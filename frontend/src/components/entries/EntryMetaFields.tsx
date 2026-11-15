@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Pencil } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MarkdownContent } from '../ui';
 import { HtmlSandboxPreview } from './HtmlSandboxPreview';
@@ -29,6 +30,7 @@ import {
   sprintLinkedToProject,
 } from './relationChoiceLoaders';
 import { isVisible } from '../views/regionConditions';
+import { IconButton } from '../../ui';
 
 /** Field types that support hover-to-reveal inline editing in the detail panel. */
 const INLINE_EDITABLE_TYPES = new Set(['text', 'number', 'markdown']);
@@ -79,6 +81,14 @@ export interface EntryMetaFieldsProps {
    * attach to the entry). Omit for read-only rows or unsaved entries.
    */
   entryId?: string;
+  /** Explicit field editing keeps the reading surface static until requested. */
+  fieldActions?: {
+    canEdit: (field: OperationalModelFieldSpec) => boolean;
+    onEdit: (field: OperationalModelFieldSpec) => void;
+    editingKey?: string;
+    editor?: ReactNode;
+    disabled?: boolean;
+  };
 }
 
 /**
@@ -103,6 +113,7 @@ export function EntryMetaFields({
   trackId,
   anchorProjectId = '',
   entryId,
+  fieldActions,
 }: EntryMetaFieldsProps) {
   const ordered = sortFieldsByOrder(fields);
   const activeTrackId = trackId || navContext?.fromTrackId || '';
@@ -403,6 +414,7 @@ export function EntryMetaFields({
       !isInlineEditable &&
       !isSeamlessEditable &&
       !isFileEditable &&
+      !fieldActions?.canEdit(field) &&
       isEmptyCustomFieldValue(raw)
     ) {
       continue;
@@ -453,7 +465,9 @@ export function EntryMetaFields({
       continue;
     }
 
-    if (!shouldRenderMetaField(field, raw, variant)) continue;
+    const explicitEditable = variant === 'detail' && !readOnly &&
+      !readOnlyKeys.includes(field.key) && fieldActions?.canEdit(field);
+    if (!shouldRenderMetaField(field, raw, variant) && !explicitEditable) continue;
 
     // Relation / member fields skip the text rendering path — dedicated
     // resolvers hydrate ids to labels asynchronously in the JSX branch below.
@@ -471,10 +485,10 @@ export function EntryMetaFields({
     }
 
     const text = formatCustomFieldValue(field, raw, workflowEnumLabels?.[field.key]);
-    if (!text.trim()) continue;
+    if (!text.trim() && !explicitEditable) continue;
     rows.push({
       field,
-      text,
+      text: text || '—',
       raw,
       group: (field.group || '').trim() || undefined,
       inlineEditable: false,
@@ -525,6 +539,9 @@ export function EntryMetaFields({
       maxLines > 0 &&
       (clampText.split('\n').length > maxLines || clampText.length > 400);
     const isOpen = Boolean(openFields[row.field.key]);
+    const explicitEditable = variant === 'detail' && !readOnly &&
+      !readOnlyKeys.includes(row.field.key) && fieldActions?.canEdit(row.field);
+    const explicitEditing = explicitEditable && fieldActions?.editingKey === row.field.key;
 
     return (
       <Fragment key={row.field.key}>
@@ -540,12 +557,20 @@ export function EntryMetaFields({
           </div>
         ) : null}
         <div className={`min-w-0 [overflow-wrap:anywhere] ${fullBleed ? 'sm:col-span-2' : ''}`.trim()}>
-          <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+          <div className="flex items-center gap-1 text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
             {row.field.name}
+            {explicitEditable && !explicitEditing ? (
+              <IconButton
+                label={`Edit ${row.field.name}`}
+                size="sm"
+                disabled={fieldActions?.disabled}
+                onClick={() => fieldActions?.onEdit(row.field)}
+              ><Pencil size={12} aria-hidden /></IconButton>
+            ) : null}
           </div>
           <div
             style={
-              canClamp && !isOpen && !row.inlineEditable
+              canClamp && !isOpen && !row.inlineEditable && !explicitEditing
                 ? ({
                     display: '-webkit-box',
                     WebkitBoxOrient: 'vertical',
@@ -555,7 +580,7 @@ export function EntryMetaFields({
                 : undefined
             }
           >
-          {row.inlineEditable && onCommitField ? (
+          {explicitEditing ? fieldActions?.editor : row.inlineEditable && onCommitField ? (
             <div className="mt-0.5">
               <InlineFieldEditor
                 field={row.field}
@@ -677,7 +702,7 @@ export function EntryMetaFields({
             </div>
           )}
           </div>
-          {canClamp ? (
+          {canClamp && !explicitEditing ? (
             <button
               type="button"
               onClick={e => {

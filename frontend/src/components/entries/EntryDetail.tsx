@@ -64,7 +64,7 @@ import { EntrySocialActions } from './EntrySocialActions';
 import { AttachmentRowList } from './attachments';
 import type { AttachmentRecord } from '../../api/attachments';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
-import { EntryMetaFields } from './EntryMetaFields';
+import { EntryInlineFields } from './EntryInlineFields';
 import { EntryComposeModal, type EntryComposeSeed } from './EntryComposer';
 import {
   isViewDesignerEnabled,
@@ -1796,9 +1796,17 @@ export function EntryDetail({
                 {Object.values(entry.read_time_fields?.status || {}).includes('unavailable') ? (
                   <div role="status"><Text as="p" variant="body-sm" tone="muted">Some live fields could not be checked. Their values are unknown.</Text></div>
                 ) : null}
-                <EntryMetaFields
+                <EntryInlineFields
+                  entry={entry}
+                  onSaved={saved => {
+                    setEntry(saved);
+                    onUpdateRef.current?.(saved);
+                  }}
                   fields={dynamicFields}
-                  readOnlyKeys={Object.keys(entry.read_time_fields?.values || {})}
+                  readOnlyKeys={Array.from(new Set([
+                    ...Object.keys(entry.read_time_fields?.values || {}),
+                    ...Object.keys(entry.read_time_fields?.status || {}),
+                  ]))}
                   values={{
                     ...((entry.custom_fields || {}) as Record<string, unknown>),
                     ...(entry.read_time_fields?.values || {}),
@@ -1821,10 +1829,8 @@ export function EntryDetail({
                     fromTrackId: entry.track_id,
                     fromTitle: entry.title || 'Untitled',
                   }}
-                  // Read-only body: values are static here. Editing is the
-                  // explicit Edit button, which swaps to the form. Passing
-                  // onCommitField/entryId turned text, number, relation and
-                  // file rows into inline editors on hover.
+                  // Keep the reading surface static (#232). Editing a field
+                  // requires its explicit Edit action and a separate Save.
                 />
               </div>
               ) : null}
