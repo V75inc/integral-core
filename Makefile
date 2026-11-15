@@ -196,6 +196,11 @@ test-postgres:
 test-postgres-ci:
 	@echo "==> CI-faithful Postgres lane (spikes + contract postgres markers)"
 	@mkdir -p "$(TEST_REPORT_DIR)"
+	@cd backend && $(POSTGRES_TEST_ENV) \
+		STORAGE_INDEX_TEST_DSN="$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core}" \
+		$(PY) -m pytest -q --tb=short $(POSTGRES_TEST_ARGS) \
+		--junitxml="$(TEST_REPORT_DIR)/postgres-storage.xml" \
+		tests/test_storage_index_lifecycle.py tests/test_storage_index_proposals.py tests/test_model_credentials_service.py
 	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
 		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-spikes.xml" tests/spikes/ -m postgres
 	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \

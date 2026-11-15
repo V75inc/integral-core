@@ -404,9 +404,14 @@ async def _limit_build_workspace(
     )
     if remaining < 0:
         raise PlanError("Temporary build-space budget exceeded")
-    if not await conn.fetchval(
+    # Parameter ACLs were introduced in PostgreSQL 15. Older servers allow
+    # only superusers to set this limit; keep that requirement on their path.
+    privilege_query = (
         "SELECT has_parameter_privilege(current_user,'temp_file_limit','SET')"
-    ):
+        if conn.get_server_version().major >= 15
+        else "SELECT rolsuper FROM pg_roles WHERE rolname=current_user"
+    )
+    if not await conn.fetchval(privilege_query):
         raise PlanError("Migration role requires SET privilege on temp_file_limit")
     await conn.execute(f"SET temp_file_limit='{remaining // 1024}kB'")
 
