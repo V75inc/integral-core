@@ -330,7 +330,22 @@ def _candidate_track_tier(
     if compiled.get("scope") == "track":
         return compiled.get("track") or {}
     if compiled.get("scope") == "app":
-        tracks = (compiled.get("app") or {}).get("tracks") or []
+        app = compiled.get("app") or {}
+        tracks = app.get("tracks") or []
+        template_id = str(track.template_id or "").strip()
+        if template_id:
+            # Both prescribed and anchored Tracks persist the declared key.
+            # Keys can contain hyphens: slugifying them changes identity. A
+            # missing explicit key must not borrow an unrelated track's schema
+            # and thereby hide a real removal from the migration safety gate.
+            matches = [
+                tier
+                for tier in [*tracks, *(app.get("track_templates") or [])]
+                if str(tier.get("key") or "") == template_id
+            ]
+            if len(matches) > 1:
+                raise BadRequestError(message="Ambiguous candidate track identity")
+            return dict(matches[0]) if matches else {}
         if not tracks:
             return {}
         candidates = [
