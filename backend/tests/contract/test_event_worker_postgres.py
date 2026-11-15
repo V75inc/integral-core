@@ -388,16 +388,31 @@ async def test_missing_log_store_never_acknowledges_delivery(
     assert (await row(postgres_raw_db, oid))["context"]["status"] == "pending"
 
 
-async def test_stalled_consumer_does_not_block_audit_delivery(postgres_raw_db):
+async def test_stalled_consumer_does_not_block_audit_delivery(
+    postgres_raw_db, tmp_path
+):
     """A separate process keeps delivering audits while a callback is suspended."""
     import sys
 
     env, maintenance, runtime_role = await managed_worker_environment(postgres_raw_db)
     first = await enqueue(postgres_raw_db, "before-stall")
+    acknowledgement_gate = tmp_path / "allow-audit-acknowledgement"
     script = """
 import asyncio
+import sys
+from pathlib import Path
+from app.services import change_event
 from app.services.event_subscription_registry import register_consumer_hook
 from app.services.event_worker import main
+acknowledgement_gate = Path(sys.argv[1])
+emit_change_event = change_event.emit_change_event
+async def persist_before_acknowledgement(**kwargs):
+    result = await emit_change_event(**kwargs)
+    # Expose the committed-audit / pending-acknowledgement window deterministically.
+    while not acknowledgement_gate.exists():
+        await asyncio.sleep(0.01)
+    return result
+change_event.emit_change_event = persist_before_acknowledgement
 async def stalled(event):
     print("CONSUMER_BLOCKED", flush=True)
     await asyncio.Event().wait()
@@ -408,6 +423,7 @@ asyncio.run(main())
         sys.executable,
         "-c",
         script,
+        str(acknowledgement_gate),
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -439,17 +455,22 @@ asyncio.run(main())
                 "Consumer did not start: "
                 + b"".join(diagnostics).decode(errors="replace")[-3000:]
             ) from exc
-        assert (await row(postgres_raw_db, first))["context"]["status"] == "delivered"
-        second = await enqueue(postgres_raw_db, "during-stall")
 
-        async def delivered():
-            while (await row(postgres_raw_db, second))["context"][
+        async def delivered(outbox_id):
+            while (await row(postgres_raw_db, outbox_id))["context"][
                 "status"
             ] != "delivered":
                 await asyncio.sleep(0.05)
 
-        await asyncio.wait_for(delivered(), 10)
+        # Consumers can read the committed audit before its separate outbox
+        # acknowledgement. Starting a consumer is not an acknowledgement barrier.
+        assert (await row(postgres_raw_db, first))["context"]["status"] == "delivering"
+        acknowledgement_gate.touch()
+        await asyncio.wait_for(delivered(first), 10)
+        second = await enqueue(postgres_raw_db, "during-stall")
+        await asyncio.wait_for(delivered(second), 10)
     finally:
+        acknowledgement_gate.touch()
         diagnostic_task.cancel()
         await asyncio.gather(diagnostic_task, return_exceptions=True)
         if process.returncode is None:
