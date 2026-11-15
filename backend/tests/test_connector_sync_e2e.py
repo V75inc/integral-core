@@ -199,12 +199,15 @@ async def test_03_connector_sync_round_trip(
     test_user,
     fake_source,
     test_workspace_track_connector,
+    monkeypatch,
 ):
     """TEST-03 — stage fake source → sync → provenance + dedup + actor →
     re-sync → zero duplicates → retrieval round-trip."""
     ctx = test_workspace_track_connector
     connector_id = ctx["connector_id"]
     track_id = ctx["track_id"]
+    # A legitimate server page cap must not make a complete sync look partial.
+    monkeypatch.setenv("AUDIT_LOG_PAGE_SIZE_MAX", "3")
 
     # === First sync ===
     r1 = await authenticated_client.post(f"/api/connectors/{connector_id}/sync")
@@ -253,14 +256,25 @@ async def test_03_connector_sync_round_trip(
     assert seen_ext == {"ext-1", "ext-2"}
 
     # === Assert: ChangeEvents with connector-as-actor ===
-    # GET /api/audit-log?actor_kind=connector returns all connector-actor events.
-    # We filter on action client-side because the endpoint does not (yet).
-    al_resp = await authenticated_client.get(
-        "/api/audit-log",
-        params={"actor_kind": "connector", "limit": 200},
-    )
-    assert al_resp.status_code == 200, al_resp.text
-    events = al_resp.json()["events"]
+    # Audit responses are bounded pages, including when a scan budget expires.
+    # Read the complete authorized connector history before checking the pair.
+    events = []
+    cursor = None
+    for _ in range(10):
+        params = {"actor_kind": "connector", "limit": 200}
+        if cursor:
+            params["cursor"] = cursor
+        al_resp = await authenticated_client.get("/api/audit-log", params=params)
+        assert al_resp.status_code == 200, al_resp.text
+        page = al_resp.json()
+        events.extend(page["events"])
+        if not page["has_more"]:
+            break
+        next_cursor = page["next_cursor"]
+        assert next_cursor and next_cursor != cursor
+        cursor = next_cursor
+    else:
+        pytest.fail("Connector audit history did not exhaust within ten pages")
     by_action: Dict[str, list] = {}
     for ev in events:
         by_action.setdefault(ev["action"], []).append(ev)

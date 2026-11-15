@@ -37,6 +37,26 @@ async def test_populated_history_keysets_and_query_plan(
     logger = ChangeEventLogger()
     monkeypatch.setattr(logger, "_get_log_context", lambda: context)
     await logger.ensure_indexes()
+    # The graph fixture deliberately uses constraints-only serving. Provision
+    # performance declarations through the reviewed offline lifecycle instead
+    # of assuming runtime ensure_indexes may create optional indexes.
+    from app.services.storage_indexes import lifecycle
+    from app.services.storage_indexes.catalog import event_specs
+
+    specs = list(event_specs(postgres_raw_db.schema_name))
+    async with postgres_raw_db._acquire_conn() as connection:
+        artifact = await lifecycle.plan(
+            connection,
+            specs,
+            schema=postgres_raw_db.schema_name,
+            max_indexes=100,
+            max_index_bytes=1_000_000_000,
+            max_build_bytes=2_000_000_000,
+            include_search=False,
+        )
+        await lifecycle.apply(
+            connection, artifact, approved_hash=artifact["hash"], expected_specs=specs
+        )
     epoch = datetime(2026, 10, 14, tzinfo=timezone.utc)
     expected = {}
     records = []

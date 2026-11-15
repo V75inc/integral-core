@@ -54,11 +54,22 @@ Polling cursors use storage delivery time rather than public occurrence time;
 late retries cannot fall behind a forward cursor. Response fields and confidential
 principal/workspace/filter cursor bindings remain unchanged. Public timestamps
 are therefore not guaranteed to increase across late-delivered events.
+Both history directions use scalar equality for the workspace prefix so queries
+can use the provisioned native ordering indexes. Slow query-plan fixtures must
+provision that unchanged catalog through the reviewed maintenance lifecycle;
+constraints-only serving does not create optional indexes at runtime.
 
 The API relay reads bounded persisted pages every 500 ms and enqueues events to
 local sockets. Each client has a 100-event queue, fresh send-time permission
 checks and bounded authorization/send waits. Overflow or stalled clients
-reconnect and catch up through the authorized polling API. Relays never execute
+reconnect and catch up through the authorized polling API. Relays do not send
+an unauthorized resource's frame: an explicit admission denial withholds only
+that event and leaves the subscription available for later authorized events.
+Authorization/store failures still fail closed and require reconnect. The UI's
+safety poll reads permission-filtered history for its selected workspace, without
+an own-user resource filter that would omit App and Track mutations. Its protected
+cursor resets when the principal or selected workspace changes; access-token
+renewal alone retains progress. Relays never execute
 server consumer hooks. Durable work triggers and registered hooks advance their
 own checkpoints in independent worker tasks; a stalled consumer cannot block
 audit delivery or other consumers. Successful consumer stages do not rerun merely

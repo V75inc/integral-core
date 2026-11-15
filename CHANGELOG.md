@@ -4,6 +4,13 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## Unreleased
+
+- Recover missed App and Track changes from the permission-filtered selected-workspace feed.
+- Withhold explicitly denied events without disconnecting healthy subscribers; retain fail-closed disconnects for unavailable authorization and backpressure.
+- Match descending event-history filters to the existing managed ordering indexes, retaining bounded keyset pagination.
+- Restore native turn input from current primary thread/message facts across serving processes, preserving scope and accepted-input fingerprint checks.
+
 ## 0.1.1rc63 — 2026-11-15
 
 - Centralize relation-picker label configuration in the permission-checked cross-App resolver.

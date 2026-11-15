@@ -481,6 +481,12 @@ lease CAS, dependency, deadline and cancellation checks still decide each claim.
 Claims compare observed attempt and lease-fence generations as well as status,
 so a raced retry cannot reuse an earlier generation.
 This keeps App-job backlogs out of chat-worker candidate reads.
+Claimed native input restores its thread and accepted message through fresh
+primary reads, rather than process-local entity-cache hits. A secondary process
+that read the thread before acceptance must see the committed active WorkItem.
+Current principal, workspace, provider, message role/content, capsule fingerprint,
+canonical attachment and host-control checks still decide admission; cached
+formerly valid facts cannot authorize a changed primary record.
 Deferred discovery reuses immutable description embeddings keyed by document
 hash and embedding model. Current authorized candidates, query embeddings,
 ranking and tool results are not cached across runs. A combined search embeds

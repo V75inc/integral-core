@@ -98,13 +98,12 @@ export async function openEventStream(scope: string): Promise<WebSocket> {
  */
 export async function fetchEventsPage(params: {
   since?: string | null;
-  scope: string;
+  scope?: string;
   actor_kind?: string;
   limit?: number;
 }): Promise<EventsPage> {
-  const query: Record<string, string | number> = {
-    scope: params.scope,
-  };
+  const query: Record<string, string | number> = {};
+  if (params.scope) query.scope = params.scope;
   if (params.since) query.since = params.since;
   if (params.actor_kind) query.actor_kind = params.actor_kind;
   if (params.limit !== undefined) query.limit = params.limit;
