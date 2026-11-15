@@ -1,4 +1,4 @@
-"""Inside an App job, the Track role an Entry inherits is worked out once, not once per Entry."""
+"""Inherited roles must be checked anew for every entry, including inside App jobs."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _count_track_resolutions(monkeypatch):
     return calls
 
 
-async def test_a_job_resolves_the_track_role_once_for_many_entries(monkeypatch):
+async def test_a_job_resolves_the_track_role_fresh_for_each_entry(monkeypatch):
     from app.middleware.permissions_cache import app_job_fact_scope
     from app.services.permissions import resolve_role
 
@@ -46,7 +46,7 @@ async def test_a_job_resolves_the_track_role_once_for_many_entries(monkeypatch):
     with app_job_fact_scope():
         roles = [await resolve_role(user_id, "entry", e.id) for e in entries]
     assert roles[0] == roles[1] and roles[0] in ("owner", "editor", "admin")
-    assert [c for c in calls if c == ("track", track.id)] == [("track", track.id)]
+    assert [c for c in calls if c == ("track", track.id)] == [("track", track.id)] * 2
 
 
 async def test_outside_a_job_every_entry_reads_the_track_role_afresh(monkeypatch):

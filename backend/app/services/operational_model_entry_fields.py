@@ -233,7 +233,6 @@ async def _resolve_or_create_labeled_relation(
         workspace_id=workspace_id,
         actor_kind=actor_kind or "agent",
         authorization_subject=subject,
-        skip_profanity=True,
     )
     return str(created.id) if created is not None else None
 
@@ -697,11 +696,8 @@ async def _validate_relation_values(
                 message=f"Relation field '{field_key}' requires target read access"
             )
 
-    # Inside one App job the same target is validated for every record it writes (a pay run links each line to its
-    # employee and pay record). What is remembered is only the structural answer (the target sits in this
-    # workspace, in the Track and App the relation allows, of an allowed type), for a few seconds and only until a
-    # definition or location change, exactly as the job's other facts. Ordinary requests never reuse it, and the
-    # live read-permission check below runs every time.
+    # Compatibility fact APIs always miss; containment/type and read-access checks
+    # must observe current target state even inside a long-running job.
     from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
 
     fingerprint = (

@@ -35,6 +35,9 @@ def test_init_writes_env_readme_and_matching_slug(tmp_path: Path) -> None:
     assert len(env.split("JVSPATIAL_JWT_SECRET_KEY=", 1)[1].splitlines()[0]) >= 32
     readme = (dest / "README.md").read_text()
     assert "integral web" in readme
+    assert "integral worker events" in readme
+    assert "load the same configuration" in readme
+    assert "In a third terminal" in readme
     assert (
         dest / "integral-apps" / "studio-equipment" / "tools" / ".gitkeep"
     ).is_file()

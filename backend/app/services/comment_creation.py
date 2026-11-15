@@ -48,7 +48,6 @@ async def create_comment_record(
         graph_transaction_available,
     )
     from app.services.change_event import emit_change_event
-    from app.services.content_moderation import validate_no_profanity
     from app.services.membership_write_scope import membership_write_scope
     from app.services.permissions import get_user_node
     from app.services.policy_engine import evaluate
@@ -105,7 +104,6 @@ async def create_comment_record(
             parent = await context._deserialize_entity(Comment, parent_row)
             if (await comment_parent_entry(parent)).id != entry_id:
                 raise ResourceNotFoundError(message="Parent comment not found")
-        validate_no_profanity(text, "comment")
         async with staged_command_effect(
             user_id=user_id,
             workspace_id=current.workspace_id,
@@ -168,7 +166,6 @@ async def mutate_comment_record(
         graph_transaction_available,
     )
     from app.services.change_event import emit_change_event
-    from app.services.content_moderation import validate_no_profanity
     from app.services.membership_write_scope import membership_write_scope
     from app.services.permissions import get_user_node
     from app.services.policy_engine import evaluate
@@ -242,7 +239,6 @@ async def mutate_comment_record(
             raise InsufficientPermissionsError(message="Access denied")
         targets = {"comment_id": comment_id}
         if not delete:
-            validate_no_profanity(text or "", "comment")
             targets["text"] = text or ""
         async with staged_command_effect(
             user_id=user_id,

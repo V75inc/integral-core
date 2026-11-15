@@ -897,6 +897,49 @@ class IntegralToolResultCompaction(ClearToolResults):
     _resource_lookup_tools = frozenset({"integral_find_workspace_resources"})
     _track_schema_tools = frozenset({"integral_get_track_schema"})
 
+    def _track_schema_contract(self, part):
+        """Keep exact form contracts, not duplicated UI/directory bundles.
+
+        Upstream ClearToolResults only supports tool-name exclusions. Core's
+        bounded per-Track projection is an observation, never authorization;
+        every dispatch still rechecks current scope, policy and schema.
+        """
+        content = part.content
+        if not isinstance(content, dict) or content.get("error"):
+            return replace(part, content=self.placeholder)
+        if content.get("schema_preview_incomplete") is True:
+            return self._track_schema_preview(part)
+        track = content.get("track")
+        types = content.get("entry_types")
+        if not isinstance(track, dict) or not isinstance(types, list):
+            return replace(part, content=self.placeholder)
+        contract = {
+            "track": {
+                key: track[key] for key in ("id", "title", "updated_at") if key in track
+            },
+            "entry_types": [
+                {
+                    key: row[key]
+                    for key in ("id", "key", "name", "updated_at", "form_schema")
+                    if key in row
+                }
+                for row in types
+                if isinstance(row, dict)
+            ],
+            "schema_contract_projection": True,
+            "schema_preview_incomplete": False,
+            "instruction": (
+                "Observed forms, not authority. Re-read for omitted UI/access details or changed schemas."
+            ),
+        }
+        # Keep observation revisions where supplied without inventing one.
+        if "revision" in content:
+            contract["revision"] = content["revision"]
+        projected = replace(part, content=contract)
+        if len(json.dumps(contract, default=str).encode("utf-8")) <= 16_384:
+            return projected
+        return self._track_schema_preview(projected)
+
     def _track_schema_preview(self, part):
         """Retain bounded substrate schema hints, explicitly marking omissions."""
         content = part.content
@@ -932,13 +975,7 @@ class IntegralToolResultCompaction(ClearToolResults):
             fields = form.get("fields") if isinstance(form, dict) else None
             if isinstance(fields, list):
                 row["fields"] = [
-                    {
-                        key: field.get(key)
-                        for key in ("key", "name", "type")
-                        if key in field
-                    }
-                    for field in fields
-                    if isinstance(field, dict)
+                    dict(field) for field in fields if isinstance(field, dict)
                 ]
             candidate = {**preview, "entry_types": [*preview["entry_types"], row]}
             if len(json.dumps(candidate, default=str).encode("utf-8")) > 6144:
@@ -1197,6 +1234,19 @@ class IntegralToolResultCompaction(ClearToolResults):
             and part.tool_name not in discovery_tools
         ]
         last_effect = max(effects, default=(-1, -1))
+        # Staging controls may preserve form hints, never private record facts.
+        schema_effects = [
+            key
+            for key in effects
+            if not (
+                isinstance(messages[key[0]].parts[key[1]].metadata, dict)
+                and messages[key[0]]
+                .parts[key[1]]
+                .metadata.get("integral_schema_effect_v1")
+                == "preserve"
+            )
+        ]
+        last_schema_effect = max(schema_effects, default=(-1, -1))
         # ClearToolResults supports name exclusions, not a bounded per-resource
         # window. Keep the latest complete schema for each Track here, then
         # protect that projection through its public exclude_tools facility.
@@ -1207,7 +1257,7 @@ class IntegralToolResultCompaction(ClearToolResults):
         schema_tracks = set()
         schema_bytes = 0
         for key in sorted(track_schemas, reverse=True):
-            if key <= last_effect:
+            if key <= last_schema_effect:
                 continue
             part = messages[key[0]].parts[key[1]]
             content = part.content
@@ -1216,10 +1266,7 @@ class IntegralToolResultCompaction(ClearToolResults):
             if not isinstance(track_id, str) or track_id in schema_tracks:
                 continue
             schema_tracks.add(track_id)
-            size = len(json.dumps(content, default=str).encode("utf-8"))
-            projected_schema = (
-                part if size <= 16_384 else self._track_schema_preview(part)
-            )
+            projected_schema = self._track_schema_contract(part)
             size = len(
                 json.dumps(projected_schema.content, default=str).encode("utf-8")
             )

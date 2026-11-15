@@ -65,7 +65,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
 GUARDS += module_boundary_check
 GUARDS += module_import_cycle_check
 
-.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts test-backend test-frontend test-postgres test-postgres-ci types lint guards \
+.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts verify-distribution test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc capability-map
 
 help:
@@ -138,6 +138,10 @@ build-asset-register:
 capability-map:
 	@cd backend && $(PY) scripts/generate_capability_map.py
 
+verify-distribution:
+	@command -v node >/dev/null && command -v npm >/dev/null
+	@python3 scripts/test_distribution.py
+
 verify-artifact:
 	@.ci/verify_artifact_baseline.sh
 
@@ -155,7 +159,7 @@ verify-external-asset-register:
 
 ## C1/C4 — release-grade boundary proof. This intentionally resolves public
 ## dependencies and is kept out of the offline-friendly local `verify` target.
-verify-independent-artifacts: verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register
+verify-independent-artifacts: verify-distribution verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register
 	@echo "==> Independent Core, SDK, and external App artifact proofs passed"
 
 verify-contract:
@@ -289,7 +293,7 @@ audit:
 ## runs with the same no-dotenv/DEBUG=false environment and xdist file grouping.
 ## Do not execute that overlapping smoke selection a second time here. The
 ## independent verify-ci/verify-pr targets and PR CI retain their smoke lane.
-verify: guards precommit format-check lint types verify-artifact test-frontend test-backend
+verify: guards precommit format-check lint types verify-distribution verify-artifact test-frontend test-backend
 	@echo ""
 	@echo "verify: all checks passed"
 

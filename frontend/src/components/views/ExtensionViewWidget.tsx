@@ -72,7 +72,7 @@ export function ExtensionViewWidget(props: ViewWidgetProps) {
   const lifecycle = useContributionLifecycle();
   // A related view on a record's page has no form lifecycle: its record arrives as the first entry (or in the
   // bindings), the same sources the iframe host reads.
-  const entryId = String(bindings.entryId || lifecycle?.entryId || props.entries?.[0]?.id || '').trim();
+  const entryId = String(bindings.entryId || lifecycle?.entryId || (props.viewContext === 'track-list' ? '' : props.entries?.[0]?.id) || '').trim();
   const trackId = String(props.track?.id || bindings.trackId || lifecycle?.trackId || props.view.track_id || '').trim();
   const legacy = <ExtensionViewSession key={identity} {...props} appId={appId} viewKey={viewKey} workspaceId={workspaceId} />;
   if (!componentKey) return legacy;

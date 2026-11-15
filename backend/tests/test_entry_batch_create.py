@@ -1,4 +1,4 @@
-"""Batch creation preserves the current admission and per-item moderation contract."""
+"""Batch creation preserves the current admission and per-item authored content contract."""
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, create_autospec
 
 import pytest
 
-from app.api.errors import BadRequestError, InsufficientPermissionsError
+from app.api.errors import InsufficientPermissionsError
 from app.services import entry_create, entry_effect_scope, entry_write_scope
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
@@ -33,8 +33,6 @@ def batch_runtime(monkeypatch):
         yield "admitted-user"
 
     async def write(**kwargs):
-        if kwargs["moderation_error"] is not None:
-            raise kwargs["moderation_error"]
         result = SimpleNamespace(
             id=f"entry-{len(returned)}",
             title=kwargs["title"],
@@ -86,33 +84,20 @@ async def test_batch_uses_current_admission_and_write_signatures(batch_runtime):
 
 
 @pytest.mark.parametrize("field", ["title", "body"])
-async def test_batch_keeps_each_items_moderation_verdict(batch_runtime, field):
+async def test_batch_preserves_each_items_authored_language(batch_runtime, field):
     track, writer, admitted, _, _ = batch_runtime
-    with pytest.raises(BadRequestError):
-        await entry_create.create_entries_in_track(
-            track=track,
-            user_id="caller",
-            items=[{"title": "First"}, {field: "fucking"}],
-        )
-    assert len(admitted) == 1
-    assert writer.await_count == 2
-    assert writer.await_args_list[0].kwargs["moderation_error"] is None
-    assert isinstance(writer.await_args.kwargs["moderation_error"], BadRequestError)
-
-
-async def test_batch_retains_explicit_moderation_bypass(batch_runtime):
-    track, writer, _, _, _ = batch_runtime
     result = await entry_create.create_entries_in_track(
         track=track,
         user_id="caller",
-        items=[{"title": "fucking"}],
-        skip_profanity=True,
+        items=[{"title": "First"}, {field: "fucking dummy record"}],
     )
-    assert len(result) == 1
-    assert writer.await_args.kwargs["moderation_error"] is None
+    assert len(result) == 2
+    assert len(admitted) == 1
+    assert writer.await_count == 2
+    assert writer.await_args.kwargs[field] == "fucking dummy record"
 
 
-async def test_batch_refuses_unauthorized_content_before_reporting_moderation(
+async def test_batch_refuses_unauthorized_content_regardless_of_language(
     batch_runtime, monkeypatch
 ):
     track, writer, _, _, _ = batch_runtime

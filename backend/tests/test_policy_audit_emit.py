@@ -594,60 +594,79 @@ async def test_policy_deny_does_not_trigger_ws_broadcast(monkeypatch):
     broadcast_change_event with the denial event, producing O(N^2) broadcast
     amplification. The skip preserves audit visibility (GET /api/audit-log
     still surfaces the DBLog row) and breaks the cascade. Verified by
-    monkeypatching broadcast_change_event to record invocations.
+    observing the independent relay queue after both real audit rows are persisted.
     """
-    broadcast_calls: list = []
+    import asyncio
 
-    async def stub_broadcast(envelope):
+    from app.services.event_relay import event_relay_loop
+
+    broadcast_calls: list = []
+    relay_read = asyncio.Event()
+    relay_started = asyncio.Event()
+    log = get_change_event_logger()
+    original_find = log.find_after_checkpoint
+
+    async def observe_checkpoint(**kwargs):
+        rows = await original_find(**kwargs)
+        relay_started.set()
+        if any(
+            envelope_from_dblog(row).action == "policy.deny"
+            and envelope_from_dblog(row).actor_id == "a-deny-no-broadcast"
+            for row in rows
+        ):
+            relay_read.set()
+        return rows
+
+    def record_queue(envelope):
         broadcast_calls.append((envelope.action, envelope.actor_id))
 
-    # Patch the function the emit module imports lazily — emit_change_event
-    # does `from app.services.event_subscription_registry import broadcast_change_event`
-    # inside its body, so the target lives on that module.
+    # Fan-out now belongs to the independent persisted-event relay, not emit.
+    # Read real audit rows and exercise the relay's actual skip-action filter.
+    monkeypatch.setattr(log, "find_after_checkpoint", observe_checkpoint)
     monkeypatch.setattr(
-        "app.services.event_subscription_registry.broadcast_change_event",
-        stub_broadcast,
+        "app.services.change_event_logger.get_change_event_logger", lambda: log
     )
-
-    # Emit a normal entry.create — broadcast MUST be called.
-    await emit_change_event(
-        actor_kind="human",
-        actor_id="u-broadcast-check",
-        action="entry.create",
-        resource_type="Entry",
-        resource_id="e-broadcast-1",
-        before=None,
-        after={"id": "e-broadcast-1"},
-        scope="track:t-broadcast",
+    monkeypatch.setattr(
+        "app.services.event_subscription_registry.queue_change_event", record_queue
     )
-    normal_calls = [
-        c for c in broadcast_calls if c == ("entry.create", "u-broadcast-check")
-    ]
-    assert (
-        len(normal_calls) == 1
-    ), f"normal entry.create event should broadcast: {broadcast_calls}"
-
-    # Emit a policy.deny — broadcast MUST be skipped.
-    broadcast_calls.clear()
-    await emit_change_event(
-        actor_kind="agent",
-        actor_id="a-deny-no-broadcast",
-        action="policy.deny",
-        resource_type="entry",
-        resource_id="e-deny-bc",
-        before=None,
-        after=None,
-        scope="track:t-deny-bc",
-        details={
-            "failed_action": "entry.create",
-            "decision_reason": "fail_closed_no_policy",
-        },
-    )
-    deny_calls = [c for c in broadcast_calls if c[0] == "policy.deny"]
-    assert deny_calls == [], (
-        f"policy.deny events MUST NOT broadcast (T-03-05-E01 cascade safeguard); "
-        f"got: {deny_calls}"
-    )
+    relay = asyncio.create_task(event_relay_loop())
+    try:
+        await asyncio.wait_for(relay_started.wait(), timeout=5)
+        normal = await emit_change_event(
+            actor_kind="human",
+            actor_id="u-broadcast-check",
+            action="entry.create",
+            resource_type="Entry",
+            resource_id="e-broadcast-1",
+            before=None,
+            after={"id": "e-broadcast-1"},
+            scope="track:t-broadcast",
+        )
+        deny = await emit_change_event(
+            actor_kind="agent",
+            actor_id="a-deny-no-broadcast",
+            action="policy.deny",
+            resource_type="entry",
+            resource_id="e-deny-bc",
+            before=None,
+            after=None,
+            scope="track:t-deny-bc",
+            details={
+                "failed_action": "entry.create",
+                "decision_reason": "fail_closed_no_policy",
+            },
+        )
+        assert await log.get(normal.id) is not None
+        row = await log.get(deny.id)
+        assert row is not None
+        assert envelope_from_dblog(row).action == "policy.deny"
+        await asyncio.wait_for(relay_read.wait(), timeout=5)
+        assert broadcast_calls.count(("entry.create", "u-broadcast-check")) == 1
+        assert not [call for call in broadcast_calls if call[0] == "policy.deny"]
+    finally:
+        relay.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await relay
 
 
 @pytest.mark.asyncio

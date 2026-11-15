@@ -22,7 +22,6 @@ from app.schemas.policy import Subject
 from app.schemas.provenance import Provenance
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
-from app.services.content_moderation import validate_no_profanity
 from app.services.entry_effect_scope import ExclusiveEntryCreateRequired
 from app.services.entry_type_service import materialize_entry_types_from_tier
 from app.services.hooks.entry_save_runtime import (
@@ -152,7 +151,6 @@ async def _create_entry_in_track(
     authorization_subject: Optional[Subject] = None,
     provenance: Optional[Provenance] = None,
     idempotency_key: str = "",
-    moderation_error: BadRequestError | None = None,
     shared_create: bool = False,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
@@ -365,9 +363,6 @@ async def _create_entry_in_track(
         entry_type=resolved_type,
     )
 
-    if moderation_error is not None:
-        raise moderation_error
-
     now = utc_now_iso()
     if provenance is not None and provenance.source == "connector":
         provenance = provenance.model_copy(
@@ -500,7 +495,6 @@ async def create_entry_in_track(
     authorization_subject: Optional[Subject] = None,
     provenance: Optional[Provenance] = None,
     idempotency_key: str = "",
-    skip_profanity: bool = False,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
     """Canonical create; graph edges and its event fact share the PG commit."""
@@ -511,15 +505,6 @@ async def create_entry_in_track(
         is_postgres_entry_transaction,
     )
 
-    moderation_error = None
-    if not skip_profanity:
-        try:
-            validate_no_profanity(title, "title")
-            validate_no_profanity(body, "body")
-        except BadRequestError as exc:
-            # Prepare the verdict before opening the transaction, but report it
-            # after admission and schema validation at the existing boundary.
-            moderation_error = exc
     caller_context = get_default_context()
     from app.services.approved_effect import (
         approved_capture_active,
@@ -611,7 +596,6 @@ async def create_entry_in_track(
                     authorization_subject=authorization_subject,
                     provenance=provenance,
                     idempotency_key=idempotency_key,
-                    moderation_error=moderation_error,
                     shared_create=shared_create,
                     change_event_sink=change_event_sink or events.append,
                 )
@@ -673,7 +657,6 @@ async def create_entries_in_track(
     actor_kind: str = "human",
     actor_id: Optional[str] = None,
     authorization_subject: Optional[Subject] = None,
-    skip_profanity: bool = False,
 ) -> List[Entry]:
     """Create many Entries of one type in one Track as ONE command (LOCAL PERF PROTOTYPE).
 
@@ -717,23 +700,9 @@ async def create_entries_in_track(
                 actor_kind=actor_kind,
                 actor_id=actor_id,
                 authorization_subject=authorization_subject,
-                skip_profanity=skip_profanity,
             )
             for item in items
         ]
-
-    # Match single-entry creation: prepare moderation before the transaction,
-    # then let the admitted write report it after authorization and validation.
-    moderation_errors: list[BadRequestError | None] = []
-    for item in items:
-        moderation_error = None
-        if not skip_profanity:
-            try:
-                validate_no_profanity(str(item.get("title") or ""), "title")
-                validate_no_profanity(str(item.get("body") or ""), "body")
-            except BadRequestError as exc:
-                moderation_error = exc
-        moderation_errors.append(moderation_error)
 
     created: List[Entry] = []
     outbox_ids: List[str] = []
@@ -788,7 +757,7 @@ async def create_entries_in_track(
             payload=actual_payload,
             authorization_subject=authorization_subject,
         ) as admitted_principal_id:
-            for item, moderation_error in zip(items, moderation_errors, strict=True):
+            for item in items:
                 events: List[Dict[str, Any]] = []
                 entry = await _create_entry_in_track(
                     track=fresh_track,
@@ -804,7 +773,6 @@ async def create_entries_in_track(
                     actor_kind=actor_kind,
                     actor_id=actor_id,
                     authorization_subject=authorization_subject,
-                    moderation_error=moderation_error,
                     change_event_sink=events.append,
                 )
                 created.append(entry)

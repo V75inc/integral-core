@@ -34,21 +34,23 @@ historical prototype, not qualification of the current implementation.
 
 PostgreSQL coverage for the retained implementation is in
 [`test_shared_entry_admission_postgres.py`](../backend/tests/contract/test_shared_entry_admission_postgres.py), including
-concurrent writes, revocation ordering and refused lock upgrades. The job-cache merge risks below remain separate.
+concurrent writes, revocation ordering and refused lock upgrades. The removed job-cache experiment below is not a retained optimization.
 
-## 2. Job-scoped authority and location caches (implemented)
+## 2. Job-scoped authority and location caches (removed for safety)
 
 **What Core did.** One write runs several independent checks, each reading the database again: `resolve_role`, `get_user_node`,
 `policy_engine.evaluate`, `permits_mutation`, `locate_resource` (graph walks through `parent_rows`, `read_node`,
 `check_workspace_root`), `authority_facts.primary_node_record` and `primary_auth_record`, and the relation checks
 `canonical_relation_app` and `assert_relation_entry_containment`. A Payroll finalize made about 290 of these per employee.
 
-**What changed.** Inside one job (`app_job_fact_scope`) the results of these lookups are remembered for a short TTL.
+**Current behavior.** Job and computation fact APIs always miss and do not store values.
+Roles, identity, locations, active definitions, protected fields and relation targets are read
+fresh at each boundary. Event batching remains enabled. Process-local invalidation and TTLs
+could not guarantee immediate cross-process revocation and allowed stale in-flight cache fills.
+No replacement revision protocol is claimed.
 
-**Measured effect (rc41).** SQL statements 445,495 to 325,914 (-27%), finalize 10 to 21% faster.
-
-**Not yet safe to merge.** The TTL keys must become the authorization revision (`WorkspaceAuthorizationState.revision`), so a
-revoke is visible to the next lookup rather than after the TTL.
+**Historical measured effect (rc41).** SQL statements 445,495 to 325,914 (-27%), finalize
+10 to 21% faster. These cache-dependent gains do not describe the retained implementation.
 
 ## 3. to 5. Smaller write-path changes (implemented)
 
@@ -144,12 +146,10 @@ The profile of a cold `GET /api/tracks` shows the main event loop 100% busy, wit
 questions for every track, several times each (role, listable check, admission), and each `locate_resource` call builds a new
 walker with empty caches.
 
-`app_job_fact_*` already memoizes location and role facts inside an App job. `computation_fact_scope()`
-(`middleware/permissions_cache.py`) opens the same kind of memo for ONE computation and discards it when the computation ends:
-`get_user_accessible_tracks` and `get_user_accessible_apps` run inside it. Facts live at most `_APP_JOB_FACT_TTL` seconds and
-only until the next ACL invalidation (`note_definition_changed`, called by `invalidate_user`). Nothing is shared across requests
-or work items, so the result is as fresh as without the scope. An enclosing job scope is kept. `get_user_node` is also
-memoized inside a scope (found users only).
+The historical prototype memoized facts within `computation_fact_scope()`. This reuse is
+now disabled for the same authority-freshness reasons as section 2. Scope nesting remains for
+compatibility, but no user, role or location facts are retained. The following measurements
+and equivalence checks describe the removed prototype, not current performance or security.
 
 | Benchmark stack, snapshot off | Before | After |
 | --- | --- | --- |
@@ -253,7 +253,7 @@ runs, before and after) and did not clearly improve: it is dominated by
 
 | Finding | Evidence | Change | Result (9106, alone) |
 |---|---|---|---|
-| Every iframe view's data query took 1.1-2.9 s | py-spy from a ptrace sidecar: about 92% of `pay_formula_state` in Payroll's `org_link.settings_entries`, i.e. `ToolContext.find_entries_in_track_type` -> `select_app_record_sources` / `_tracks_by_title`, the live authority chain re-resolved per lookup. The query's own policy preamble is 0.1 s. | `invoke_app_query` now runs inside `computation_fact_scope()` (read-only call, scope ends with the call, any access change drops it) | `pay_formula_state` 2.2-2.9 s to 0.6-1.1 s; `payroll_setup_status` 2.3 s to 0.8 s; `pay_setup_catalog` 1.1 s to 0.55 s; outputs identical. Iframe content ready 2.3-3.1 s to 0.65-1.0 s |
+| Every iframe view's data query took 1.1-2.9 s | py-spy from a ptrace sidecar: about 92% of `pay_formula_state` in Payroll's `org_link.settings_entries`, i.e. `ToolContext.find_entries_in_track_type` -> `select_app_record_sources` / `_tracks_by_title`, the live authority chain re-resolved per lookup. The query's own policy preamble is 0.1 s. | Historical `invoke_app_query` computation memo (now disabled; authority facts stay live) | `pay_formula_state` 2.2-2.9 s to 0.6-1.1 s; `payroll_setup_status` 2.3 s to 0.8 s; `pay_setup_catalog` 1.1 s to 0.55 s; outputs identical. Iframe content ready 2.3-3.1 s to 0.65-1.0 s |
 | The live `/api/events` socket never connected in the Docker dev stacks and retried every 1 s with a fresh ticket | `VITE_BACKEND_URL=http://api:4000` was used as the browser's WebSocket host (not resolvable from a browser); backoff reset on construction instead of on open | same-origin URL under `vite dev`; reset backoff in `onopen` | socket opens; the extra `POST /auth/ws-ticket` per second is gone |
 | `load_library_operational_models_with_issues_cached` costs 0.25 s per call | stats every library file to validate its cache, under a global lock | seed view index reuse for 60 s (commit 1ad543ca); other callers left as they are because that check is a documented trust boundary | tracked as a follow-up |
 | Multi-worker breaks websockets | `ws_ticket._TICKETS` is a per-process dict; with 3 workers 4 of 6 test connects were rejected with 4001 | local env restored to 1 worker | needs a shared ticket store (with the chat registry) before more than one worker is usable |

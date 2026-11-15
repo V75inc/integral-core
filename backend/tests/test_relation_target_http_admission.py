@@ -88,7 +88,6 @@ async def _fixture(editor, owner, many):
         workspace_id=workspace.id,
         title="Shared HTTP source",
         custom_fields={},
-        skip_profanity=True,
     )
     await add_collaborator(
         owner.user_id, "app", apps["consumer"].id, editor.id, "editor"

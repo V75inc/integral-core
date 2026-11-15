@@ -228,13 +228,7 @@ async def _read_canonical_protected_state(
 async def _canonical_protected_state(
     workspace_id: str, track_id: str, entry_id: str
 ) -> Dict[str, Any]:
-    """Protected-field state for a write, reused for a few seconds inside an App job.
-
-    Creates in one track by the same job ask the same question hundreds of times; each ask
-    re-locates the track and rereads the App and its definition. A job that opts in with
-    ``app_job_fact_scope`` reuses the answer for a few seconds, and never past a definition
-    change. Updates (which name an entry) and ordinary requests always read fresh.
-    """
+    """Read current protected-field state for every write, including job creates."""
     from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
 
     if entry_id:

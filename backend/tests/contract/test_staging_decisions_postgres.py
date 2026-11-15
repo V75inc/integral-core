@@ -280,20 +280,37 @@ async def age_proposal(database, sc):
     )
 
 
-async def test_pending_expiry_has_atomic_terminal_marker(postgres_raw_db):
+@pytest.mark.parametrize("blessed", [False, True])
+async def test_pending_expiry_has_atomic_terminal_marker(
+    postgres_raw_db, monkeypatch, blessed
+):
+    from unittest.mock import AsyncMock
+
     from app.agentive import staging_store
+
+    pushed = AsyncMock()
+    monkeypatch.setattr(staging, "_push_state_event", pushed)
 
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         auth, _, _, sc = await proposal()
+        if blessed:
+            await staging.bless_token(user_id=auth.id, token=sc.token)
+        pushed.reset_mock()
         await age_proposal(postgres_raw_db, sc)
         observed = await staging.get_token(sc.token)
         assert observed.state == "expired"
+        assert pushed.await_count == 1
+        for _ in range(3):
+            assert (await staging.get_token(sc.token)).state == "expired"
+        assert pushed.await_count == 1
         assert await staging_store.load_current(sc.token) is None
         marker = await staging_store.load_decision_state(sc.token, auth.id)
         assert marker["state"] == "expired"
 
 
-async def test_expiry_preserves_dispatched_unknown_outcome_on_restart(postgres_raw_db):
+async def test_expiry_preserves_dispatched_unknown_outcome_on_restart(
+    postgres_raw_db, monkeypatch
+):
     from app.agentive import staging_store
     from app.agentive.services.staging_execution import (
         claim_staging_execution,
@@ -325,6 +342,26 @@ async def test_expiry_preserves_dispatched_unknown_outcome_on_restart(postgres_r
         assert observed.last_error["application_state"] == "reconciliation_required"
         assert await staging_store.load_current(sc.token) is not None
         assert await staging_store.load_decision_state(sc.token, auth.id) is None
+        from unittest.mock import AsyncMock
+
+        pushed = AsyncMock()
+        monkeypatch.setattr(staging, "_push_state_event", pushed)
+        writes = []
+        original_update = postgres_raw_db.find_one_and_update
+
+        async def track_update(collection, query, update, **kwargs):
+            if "context.last_error" in update.get("$set", {}):
+                writes.append(update)
+            return await original_update(collection, query, update, **kwargs)
+
+        monkeypatch.setattr(postgres_raw_db, "find_one_and_update", track_update)
+        for _ in range(3):
+            staging._tokens.clear()  # Also quiet after worker cache loss.
+            again = await staging.get_token(sc.token)
+            assert again.state == "blessed"
+            assert again.last_error == observed.last_error
+        pushed.assert_not_awaited()
+        assert writes == []
         await staging_store.remove(sc.token)
         assert await staging_store.load_current(sc.token) is not None
 
@@ -357,6 +394,14 @@ async def test_expiry_after_commit_preserves_evidence_and_allows_completion(
             assert observed.state == "blessed"
             assert observed.last_error["application_state"] == "reconciliation_required"
             assert observed.last_error["applied"] is True
+            from unittest.mock import AsyncMock
+
+            pushed = AsyncMock()
+            monkeypatch.setattr(staging, "_push_state_event", pushed)
+            for _ in range(3):
+                again = await staging.get_token(sc.token)
+                assert again.last_error == observed.last_error
+            pushed.assert_not_awaited()
             assert await staging_store.load_current(sc.token) is not None
             assert await staging_store.load_decision_state(sc.token, auth.id) is None
         finally:

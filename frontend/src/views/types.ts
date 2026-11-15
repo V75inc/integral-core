@@ -12,6 +12,8 @@ export interface EntryCreateInput {
 
 export interface ViewWidgetProps {
   entries: Entry[];
+  /** A track's changing list is not an implicit record selection. */
+  viewContext?: 'track-list';
   view: SavedView;
   isLoading: boolean;
   /** ``forceModal`` opens the record in the dialog even when its type opts into a full page (``open_as_page``). */

@@ -336,7 +336,10 @@ async def desktop_readiness(request: Request) -> Dict[str, Any]:
     try:
         logging_db = get_database_manager().get_database(settings.DB_LOGGING_DB_NAME)
         await asyncio.wait_for(
-            logging_db.count("__readiness_probe__", {}),
+            # Probe the actual provisioned audit relation, never create a new
+            # collection from the least-privileged serving process. A fixed
+            # primary-key lookup stays bounded as the audit log grows.
+            logging_db.get("object", "o.DBLog.__readiness_probe__"),
             timeout=_READINESS_DB_TIMEOUT_SECONDS,
         )
     except Exception as exc:

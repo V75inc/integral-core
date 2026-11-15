@@ -192,6 +192,10 @@ async def test_cancel_all_keeps_approved(monkeypatch):
     q = cancelled["queue"]
     approved = [i for i in q["items"] if i.get("token") == "tok-keep"]
     assert approved and approved[0]["status"] == "approved"
+    assert approved[0]["staged_state"] == "consumed"
+    assert approved[0]["terminal_reason"] == "consumed"
+    assert approved[0]["can_edit_entries"] is False
+    assert approved[0]["last_error"] is None
     pending_left = [i for i in q["items"] if i.get("status") == "pending"]
     assert not pending_left
 
@@ -772,3 +776,106 @@ def test_approval_episode_multiple_entries_links_parent_once():
     text = pq.build_resume_summary(queue)
     assert text.count("[Tasks](/tracks/t)") == 1
     assert "?entry=" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("receipt", [False, True])
+async def test_reconcile_repairs_approved_snapshot_from_canonical_completion(
+    monkeypatch, receipt
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    thread = await ChatThread.create(
+        user_id="u-terminal",
+        workspace_id="ws-1",
+        provider_id="integral_native",
+        provider_session_id="terminal",
+        title="t",
+    )
+    thread.prompt_queue = {
+        "status": "open",
+        "items": [
+            {
+                "id": "done",
+                "kind": "staged_write",
+                "status": "approved",
+                "token": "done-token",
+                "write_kind": "batch",
+                "staged_state": "blessed",
+                "can_edit_entries": True,
+                "last_error": {"message": "stale failure"},
+                "resolved_at": "original",
+                "consumed_nav": {"entry_id": "saved-entry"},
+            },
+            {"id": "question", "kind": "question", "status": "pending"},
+        ],
+    }
+    await thread.save()
+    monkeypatch.setattr(
+        "app.agentive.staging.get_token",
+        AsyncMock(return_value=None if receipt else SimpleNamespace(state="consumed")),
+    )
+    marker = AsyncMock(return_value={"state": "consumed", "kind": "batch"})
+    monkeypatch.setattr("app.agentive.staging_store.load_decision_state", marker)
+    result = await pq.reconcile_staged_write_items(
+        user_id=thread.user_id, thread=thread
+    )
+    item = result["queue"]["items"][0]
+    assert result["reconciled"] is True
+    assert item["staged_state"] == item["terminal_reason"] == "consumed"
+    assert item["status"] == "approved"
+    assert item["can_edit_entries"] is False
+    assert item["last_error"] is None
+    assert item["resolved_at"] == "original"
+    assert item["consumed_nav"] == {"entry_id": "saved-entry"}
+    if receipt:
+        marker.assert_awaited_once_with("done-token", thread.user_id)
+    again = await pq.reconcile_staged_write_items(user_id=thread.user_id, thread=thread)
+    assert again["reconciled"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", [None, "blessed"])
+async def test_approved_queue_status_alone_does_not_prove_completion(
+    monkeypatch, state
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    thread = await ChatThread.create(
+        user_id="u-unproven",
+        workspace_id="ws-1",
+        provider_id="integral_native",
+        provider_session_id="unproven",
+        title="t",
+    )
+    thread.prompt_queue = {
+        "status": "open",
+        "items": [
+            {
+                "id": "done",
+                "kind": "staged_write",
+                "status": "approved",
+                "token": "done-token",
+                "write_kind": "batch",
+                "staged_state": "blessed",
+                "consumed_nav": {"entry_id": "saved-entry"},
+            },
+            {"id": "question", "kind": "question", "status": "pending"},
+        ],
+    }
+    await thread.save()
+    monkeypatch.setattr(
+        "app.agentive.staging.get_token",
+        AsyncMock(return_value=SimpleNamespace(state=state) if state else None),
+    )
+    monkeypatch.setattr(
+        "app.agentive.staging_store.load_decision_state",
+        AsyncMock(return_value={"state": "consumed", "kind": "different-kind"}),
+    )
+    result = await pq.reconcile_staged_write_items(
+        user_id=thread.user_id, thread=thread
+    )
+    assert result["reconciled"] is False
+    assert result["queue"]["items"][0]["staged_state"] == "blessed"

@@ -114,7 +114,6 @@ async def test_update_refuses_foreign_workspace_without_changing_record_or_edges
         user_id=test_user.user_id,
         workspace_id=source.workspace_id,
         custom_fields={"related": initial},
-        skip_profanity=True,
     )
     graph = await entry.get_context()
     original_edges = await graph.find_edges_between(
@@ -155,7 +154,6 @@ async def test_create_refuses_foreign_workspace_before_creating_entry(test_user)
             user_id=test_user.user_id,
             workspace_id=source.workspace_id,
             custom_fields={"related": foreign.id},
-            skip_profanity=True,
         )
     after = await source.nodes(edge=[CONTAINS], node=["Entry"])
     assert {e.id for e in after} == {e.id for e in before}

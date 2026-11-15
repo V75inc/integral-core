@@ -530,9 +530,7 @@ async def locate_resource(
     }.get(kind)
     if model is None or not resource_id:
         return None
-    # Inside an App job (see ``app_job_fact_scope``) the same record is located by its event,
-    # hook, indexing and effect checks within moments. Reuse that answer briefly; callers that
-    # need the walked records, and everything outside a job, always walk fresh.
+    # Compatibility fact APIs always miss, so location is walked fresh at each boundary.
     from app.middleware.permissions_cache import app_job_fact_get, app_job_fact_put
 
     fact_key = ("location", kind, resource_id, tuple(sorted(allowed_app_states)))

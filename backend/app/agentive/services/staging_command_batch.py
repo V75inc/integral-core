@@ -51,6 +51,32 @@ def _digest(payload: Any) -> str:
     ).hexdigest()
 
 
+def _batch_step_failure(
+    *, index: int, total: int, result: dict[str, Any], results: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Keep the canonical child's refusal visible on the parent approval card."""
+    detail = result.get("message") or result.get("detail")
+    message = (
+        f"Batch stopped at step {index + 1} of {total}: {detail}"
+        if isinstance(detail, str) and detail.strip()
+        else "Batch stopped at the first unresolved step."
+    )
+    return {
+        "error": True,
+        "error_code": result.get("error_code") or "batch_partial_failure",
+        "application_state": (
+            "partially_applied"
+            if index and result.get("application_state") in (None, "not_applied")
+            else result.get("application_state") or "not_applied"
+        ),
+        "status_code": result.get("status_code"),
+        "completed": index,
+        "total": total,
+        "results": results,
+        "message": message + " Committed steps will not replay.",
+    }
+
+
 async def _assert_current(
     sc: StagedChange, claim: Any, *, recovery: bool = False
 ) -> None:
@@ -223,16 +249,9 @@ async def apply_command_batch_once(*, sc: StagedChange, request: Any) -> dict[st
                 if claim is not None:
                     await release_unapplied_staging_claim(claim)
                     claim = None
-                return {
-                    "error": True,
-                    "error_code": result.get("error_code") or "batch_partial_failure",
-                    "application_state": result.get("application_state")
-                    or "partially_applied",
-                    "completed": index,
-                    "total": len(operations),
-                    "results": results,
-                    "message": "Batch stopped at the first unresolved step. Committed steps will not replay.",
-                }
+                return _batch_step_failure(
+                    index=index, total=len(operations), result=result, results=results
+                )
             reference_result = result
             reference_kind = {
                 "create_entry": "entry",

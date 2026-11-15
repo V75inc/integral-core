@@ -78,7 +78,6 @@ async def test_create_refuses_unreadable_same_workspace_target(
             workspace_id=ws.id,
             title="Refused",
             custom_fields={"related": [target.id] if many else target.id},
-            skip_profanity=True,
         )
     after = await source.nodes(edge=[CONTAINS], node=["Entry"], limit=10)
     assert {e.id for e in before} == {e.id for e in after}
@@ -104,7 +103,6 @@ async def test_update_rechecks_revoked_target_before_revision_or_edges(
         workspace_id=ws.id,
         title="Retained",
         custom_fields={"related": [target.id] if many else target.id},
-        skip_profanity=True,
     )
     graph = await entry.get_context()
     old_edges = await graph.find_edges_between(entry.id, None, edge_class=REFERENCES)
@@ -188,7 +186,6 @@ async def test_shared_create_enforces_declared_app_not_just_type_or_workspace(
             workspace_id=ws.id,
             title="Wrong provider",
             custom_fields={"related": target.id},
-            skip_profanity=True,
         )
 
 
@@ -220,7 +217,6 @@ async def test_authorized_cross_app_write_stamps_canonical_target_app(
         workspace_id=ws.id,
         title="Authorized",
         custom_fields={"related": target.id},
-        skip_profanity=True,
         actor_kind="agent",
         actor_id="delegated-provenance",
         authorization_subject=Subject(kind="human", id=test_user.user_id),
@@ -271,7 +267,6 @@ async def test_independent_actor_does_not_borrow_human_target_grant(
             workspace_id=ws.id,
             title="Independent denied",
             custom_fields={"related": target.id},
-            skip_profanity=True,
             actor_kind=kind,
             authorization_subject=Subject(kind=kind, id=actor.id),
         )
@@ -291,7 +286,6 @@ async def test_explicit_system_subject_still_requires_canonical_scope(
         workspace_id=ws.id,
         title="System job",
         custom_fields={"related": target.id},
-        skip_profanity=True,
         actor_kind="system",
         authorization_subject=Subject(kind="system", id="qualified-job"),
     )
@@ -331,7 +325,6 @@ async def test_mixed_many_target_denial_preserves_existing_record(
         workspace_id=ws.id,
         title="Retained many",
         custom_fields={"related": [allowed.id]},
-        skip_profanity=True,
     )
     old_fields, old_revision = dict(entry.custom_fields), entry.record_revision
     graph = await entry.get_context()
@@ -377,7 +370,6 @@ async def test_operation_facade_cannot_link_an_unreadable_target(
         workspace_id=ws.id,
         title="Operation record",
         custom_fields={},
-        skip_profanity=True,
     )
     fields, revision = dict(entry.custom_fields), entry.record_revision
     context = OperationContext(
@@ -464,7 +456,6 @@ async def test_labeled_relation_does_not_create_before_declared_target_admission
             workspace_id=ws.id,
             title="Refused inferred link",
             custom_fields={"name": "New bound record"},
-            skip_profanity=True,
         )
     after = await target_track.nodes(edge=[CONTAINS], node=["Entry"], limit=10)
     assert {e.id for e in after} == {e.id for e in before}
@@ -548,7 +539,6 @@ async def test_failed_source_create_rolls_back_inferred_target_and_retry(
             workspace_id=ws.id,
             title="Transactional source record",
             custom_fields=payload,
-            skip_profanity=True,
         )
     assert len(inferred_ids) == 1, "the test must reach real nested target creation"
     assert await Entry.get(inferred_ids[0]) is None
@@ -576,7 +566,6 @@ async def test_failed_source_create_rolls_back_inferred_target_and_retry(
         workspace_id=ws.id,
         title="Transactional source record",
         custom_fields=payload,
-        skip_profanity=True,
     )
     inferred = await Entry.get(created.custom_fields["related"])
     assert inferred is not None and inferred.id != inferred_ids[0]
@@ -629,7 +618,6 @@ async def test_readonly_relation_app_write_keeps_target_admission(
         workspace_id=ws.id,
         title="Computed link",
         custom_fields={},
-        skip_profanity=True,
     )
     context = OperationContext(
         user_id=test_user.user_id,

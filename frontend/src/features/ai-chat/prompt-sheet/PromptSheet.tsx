@@ -261,7 +261,17 @@ function WritePage({
   onReject: () => Promise<void>;
   onRevised: () => void;
 }) {
-  const pending = item.status === 'pending';
+  const terminal = ['consumed', 'expired', 'revoked'].includes(item.staged_state ?? '');
+  const pending = item.status === 'pending' && !terminal;
+  const heading = item.staged_state === 'consumed'
+    ? 'This change was applied'
+    : item.staged_state === 'expired'
+      ? 'This proposal expired'
+      : item.staged_state === 'revoked' || item.status === 'rejected' || item.status === 'cancelled'
+        ? 'This change was cancelled'
+        : busy ? 'Applying this change…'
+          : item.last_error ? 'This change needs attention'
+            : item.staged_state === 'blessed' ? 'Your change is being applied' : 'Allow this change?';
   const errorCode = item.last_error?.error_code;
   const staleProposal = errorCode === 'record_revision_conflict' || errorCode === 'schema_revision_conflict';
   const unmetGoal = errorCode === 'goal_criteria_unmet';
@@ -287,7 +297,7 @@ function WritePage({
         weight="medium"
         className="mb-3"
       >
-        {busy ? 'Applying this change…' : item.last_error ? 'This change needs attention' : item.staged_state === 'blessed' ? 'Your change is being applied' : 'Allow this change?'}
+        {heading}
       </Text>
       {item.last_error && (
         <div role="alert" className="mb-2">

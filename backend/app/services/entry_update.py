@@ -24,7 +24,6 @@ from app.schemas.policy import Subject
 from app.schemas.provenance import Provenance
 from app.services.app_invariant_guards import enforce_protected_field_write
 from app.services.change_event import emit_change_event
-from app.services.content_moderation import validate_no_profanity
 from app.services.entry_write_scope import (
     entry_write_scope,
     is_postgres_entry_transaction,
@@ -219,14 +218,6 @@ async def update_entry_in_track(
                 )
 
             before = await entry.export(flat=True)
-            for value, label in (
-                (title, "title"),
-                (body, "body"),
-                (description, "body"),
-            ):
-                if value is not None:
-                    validate_no_profanity(value, label)
-
             # A type change cannot evade protections on the source schema.
             if type_changed:
                 await enforce_protected_field_write(

@@ -126,7 +126,21 @@ python -m app.main
 The API listens on port 4000. Set `JVSPATIAL_PORT` in `.env` when that port
 is taken. Start from this directory so `.env` is loaded.
 
-In a second terminal, from the same Python environment:
+In a second terminal, from the same distro directory and Python environment,
+load the same configuration and run the durable event worker:
+
+```bash
+set -a
+. ./.env
+set +a
+integral worker events
+```
+
+Keep this worker running alongside the API. It delivers durable change events,
+including live workspace refresh after agent writes. The API alone is not a
+complete independently managed deployment.
+
+In a third terminal, from the same distro directory and Python environment:
 
 ```bash
 integral web
@@ -327,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
         elif command == "logs":
             lifecycle.add_argument(
                 "--service",
-                choices=("supervisor", "database", "api", "web"),
+                choices=("supervisor", "database", "api", "events", "web"),
                 default="api",
             )
             lifecycle.add_argument("--lines", type=int, default=60)

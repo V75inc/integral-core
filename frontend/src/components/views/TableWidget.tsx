@@ -239,7 +239,6 @@ function TableWidgetInner({
   commentCounts,
   columnFilters,
   onColumnFiltersChange,
-  totalCount,
   sort,
   onSortChange,
   track
@@ -446,12 +445,6 @@ function TableWidgetInner({
 
   // Filters: one per filterable column, opened from its heading or from "Add filter"; the server applies them.
   const filters = columnFilters ?? [];
-  const filterSpecs = useMemo<ColumnFilterSpec[]>(
-    () => onColumnFiltersChange
-      ? columns.map(c => columnFilterSpec(c, fields ?? [], track?.id)).filter((x): x is ColumnFilterSpec => x !== null)
-      : [],
-    [columns, fields, onColumnFiltersChange, track?.id],
-  );
   const specByColumn = useMemo(
     () => new Map(columns.map(c => [c.field, onColumnFiltersChange ? columnFilterSpec(c, fields ?? [], track?.id) : null])),
     [columns, fields, onColumnFiltersChange, track?.id],

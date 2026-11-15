@@ -28,7 +28,7 @@ import { getSessionPolicy } from './sessionPolicy';
 import { isPublicAuthPath } from './sessionRoutes';
 import { getHostSession } from '../host/session';
 import { isHostManagedSession } from './sessionRuntime';
-import { setSessionConnection } from './sessionConnection';
+import { getSessionConnection, markHostSessionRecovered, setSessionConnection } from './sessionConnection';
 import { normalizeUserMe } from './helpers';
 
 const ACCESS_TOKEN_KEY = 't75_token';
@@ -491,9 +491,11 @@ function renewHostSession(force = false): Promise<string | null> {
       const verified = normalizeUserMe(response.data);
       if (generation !== sessionGeneration || !hostSessionEnabled) return null;
       if (!verified.id || (account && verified.id !== account) || storedAccountId() !== account) throw new LocalSessionIdentityError('The local owner identity changed.');
+      const recovered = getSessionConnection() !== null;
       hostFailures = hostRetryAt = 0;
       setTokens(payload, { preserveActivity: true });
       setSessionConnection(null);
+      if (recovered) markHostSessionRecovered();
       return payload.access_token;
     } catch (error) {
       if (generation !== sessionGeneration || !hostSessionEnabled) return null;

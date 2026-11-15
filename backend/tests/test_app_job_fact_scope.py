@@ -1,4 +1,4 @@
-"""App jobs may reuse an App's unchanged facts for a few seconds; nothing else does."""
+"""Job scopes batch events without retaining authority facts."""
 
 import pytest
 
@@ -13,10 +13,10 @@ def test_nothing_is_reused_outside_a_job_scope():
     assert pc.app_job_fact_get(KEY) is None
 
 
-def test_a_fact_is_reused_inside_the_scope_and_forgotten_after_it():
+def test_a_fact_is_never_reused_even_inside_the_scope():
     with pc.app_job_fact_scope():
         pc.app_job_fact_put(KEY, {"x": 1})
-        assert pc.app_job_fact_get(KEY) == {"x": 1}
+        assert pc.app_job_fact_get(KEY) is None
     assert pc.app_job_fact_get(KEY) is None
     with pc.app_job_fact_scope():
         assert pc.app_job_fact_get(KEY) is None  # a new job starts empty
@@ -29,21 +29,8 @@ def test_a_definition_change_makes_remembered_facts_unusable():
         assert pc.app_job_fact_get(KEY) is None
 
 
-def test_an_old_fact_expires(monkeypatch):
-    import time
-
-    clock = [1000.0]
-    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
-    with pc.app_job_fact_scope():
-        pc.app_job_fact_put(KEY, {"x": 1})
-        clock[0] += pc._APP_JOB_FACT_TTL - 0.1
-        assert pc.app_job_fact_get(KEY) == {"x": 1}
-        clock[0] += 0.2
-        assert pc.app_job_fact_get(KEY) is None
-
-
 @pytest.mark.asyncio
-async def test_protected_state_is_read_once_per_track_inside_a_job_and_always_for_updates(
+async def test_protected_state_is_read_fresh_inside_a_job(
     monkeypatch,
 ):
     reads = []
@@ -62,10 +49,10 @@ async def test_protected_state_is_read_once_per_track_inside_a_job_and_always_fo
         for _ in range(5):
             await guards._canonical_protected_state("ws", "track", "")
         await guards._canonical_protected_state("ws", "other-track", "")
-        assert len(reads) == 2  # one per track
+        assert len(reads) == 6  # every check reads current state
         await guards._canonical_protected_state("ws", "track", "entry-1")
         await guards._canonical_protected_state("ws", "track", "entry-1")
-        assert len(reads) == 4  # updates name an entry and are never reused
+        assert len(reads) == 8  # updates also remain current
 
 
 @pytest.mark.asyncio
@@ -78,7 +65,7 @@ async def test_functions_that_move_or_delete_things_drop_remembered_facts():
 
     with pc.app_job_fact_scope():
         pc.app_job_fact_put(KEY, {"x": 1})
-        assert pc.app_job_fact_get(KEY) == {"x": 1}
+        assert pc.app_job_fact_get(KEY) is None
         assert await delete_something() == "deleted"
         assert pc.app_job_fact_get(KEY) is None
 
@@ -135,7 +122,7 @@ def test_every_known_move_delete_and_lifecycle_path_is_marked():
 
 
 @pytest.mark.asyncio
-async def test_a_record_is_located_once_inside_a_job_and_fresh_everywhere_else(
+async def test_a_record_is_located_fresh_even_inside_a_job(
     monkeypatch,
 ):
     from app.services import resource_location as rl
@@ -172,9 +159,87 @@ async def test_a_record_is_located_once_inside_a_job_and_fresh_everywhere_else(
         for _ in range(4):
             await rl.locate_resource("entry", "e1")
         await rl.locate_resource("entry", "e2")
-        assert len(walks) == 2  # once per record
+        assert len(walks) == 5  # every check walks fresh
         await rl.locate_resource("entry", "e1", records_out={})
-        assert len(walks) == 3  # callers wanting the walked records walk fresh
+        assert len(walks) == 6  # records callers also walk fresh
         pc.note_definition_changed()
         await rl.locate_resource("entry", "e1")
-        assert len(walks) == 4  # a structural change forgets everything
+        assert len(walks) == 7  # no generation needed for freshness
+
+
+@pytest.mark.asyncio
+async def test_inflight_read_cannot_repopulate_after_invalidation():
+    import asyncio
+
+    started, resume = asyncio.Event(), asyncio.Event()
+
+    async def read_then_put():
+        stale = ("editor",)
+        started.set()
+        await resume.wait()
+        pc.app_job_fact_put(("role", "u", "track", "t"), stale)
+
+    with pc.app_job_fact_scope():
+        reader = asyncio.create_task(read_then_put())
+        await started.wait()
+        pc.note_definition_changed()
+        resume.set()
+        await reader
+        assert pc.app_job_fact_get(("role", "u", "track", "t")) is None
+
+
+def test_other_process_invalidation_is_not_needed_for_freshness():
+    import subprocess
+    import sys
+
+    with pc.app_job_fact_scope():
+        key = ("role", "u", "track", "t")
+        pc.app_job_fact_put(key, ("editor",))
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from app.middleware import permissions_cache as p; p.note_definition_changed()",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        assert pc.app_job_fact_get(key) is None
+
+
+def test_job_event_batching_survives_disabled_fact_cache():
+    assert pc.defer_job_event("outside") is None
+    with pc.app_job_fact_scope():
+        assert pc.defer_job_event("event-1") == 1
+        with pc.computation_fact_scope():
+            assert pc.defer_job_event("event-2") == 2
+            pc.app_job_fact_put(KEY, {"stale": True})
+            assert pc.app_job_fact_get(KEY) is None
+        assert pc.take_deferred_job_events() == ["event-1", "event-2"]
+        assert pc.take_deferred_job_events() == []
+    assert pc.defer_job_event("outside") is None
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    [
+        "role",
+        "inherited_role",
+        "user_node",
+        "location",
+        "track_location",
+        "current_definition",
+        "protected_state",
+        "relation_target",
+    ],
+)
+@pytest.mark.parametrize("scope", [pc.app_job_fact_scope, pc.computation_fact_scope])
+def test_all_authority_fact_namespaces_are_disabled_in_normal_runtime(
+    namespace, scope, monkeypatch
+):
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    with scope():
+        key = (namespace, "synthetic")
+        pc.app_job_fact_put(key, ("stale",))
+        assert pc.app_job_fact_get(key) is None

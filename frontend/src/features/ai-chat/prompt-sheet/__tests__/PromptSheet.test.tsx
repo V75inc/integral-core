@@ -137,3 +137,16 @@ it.each([
   expect(screen.queryByRole('button', { name: 'Retry application' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled();
 });
+
+
+it.each([
+  ['consumed', 'This change was applied'],
+  ['expired', 'This proposal expired'],
+  ['revoked', 'This change was cancelled'],
+])('shows authoritative terminal state %s without allowing another write', (staged_state, heading) => {
+  renderPendingWrite(false, { staged_state });
+  expect(screen.getByText(heading)).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+  expect(screen.queryByText('Allow this change?')).toBeNull();
+});

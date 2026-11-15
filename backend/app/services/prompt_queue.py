@@ -1010,6 +1010,10 @@ async def mark_write_item(
                 "staged_state": actual,
             }
         item["status"] = status
+        item["staged_state"] = actual
+        item["terminal_reason"] = actual
+        item["can_edit_entries"] = False
+        item["last_error"] = None
         item["resolved_at"] = utc_now_iso()
         item["decision_source"] = _verified_decision_source(
             sc, user_id=user_id, thread=thread
@@ -1167,14 +1171,28 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
 
     changed = False
     for item in queue["items"]:
-        if (
-            item.get("kind") != ITEM_STAGED_WRITE
-            or item.get("status") != STATUS_PENDING
-        ):
+        if item.get("kind") != ITEM_STAGED_WRITE:
             continue
         token = str(item.get("token") or "")
         staged = await get_token(token) if token else None
         state = getattr(staged, "state", None) if staged is not None else None
+        if state is None and token:
+            # Completed proposal rows may have been retired after restart.
+            # Use the principal-bound decision receipt, never a UI status or
+            # navigation link, as evidence of a terminal staging state.
+            from app.agentive import staging_store
+
+            marker = await staging_store.load_decision_state(token, user_id)
+            if marker and marker.get("kind") == item.get("write_kind"):
+                state = marker.get("state")
+        if item.get("status") != STATUS_PENDING and state not in {
+            "consumed",
+            "revoked",
+            "expired",
+        }:
+            # An approved snapshot alone cannot prove execution or authorize
+            # reopening/replaying an already resolved queue item.
+            continue
         terminal = {
             "consumed": (STATUS_APPROVED, "consumed"),
             "revoked": (STATUS_REJECTED, "revoked"),
@@ -1202,8 +1220,17 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
             # ``pending`` and ``blessed`` remain actionable. An unfamiliar
             # non-terminal state is safer left visible than guessed at.
             continue
-        item["status"], item["terminal_reason"] = terminal
-        item["resolved_at"] = utc_now_iso()
+        terminal_snapshot = {
+            "status": terminal[0],
+            "terminal_reason": terminal[1],
+            "staged_state": state,
+            "can_edit_entries": False,
+            "last_error": None,
+        }
+        if all(item.get(key) == value for key, value in terminal_snapshot.items()):
+            continue
+        item.update(terminal_snapshot)
+        item["resolved_at"] = item.get("resolved_at") or utc_now_iso()
         item["decision_source"] = _verified_decision_source(
             staged, user_id=user_id, thread=thread
         )

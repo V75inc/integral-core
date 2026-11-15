@@ -144,6 +144,28 @@ def _resource_links_for_model(
     return enriched
 
 
+def _schema_preserving_result(source: str, name: str, result: dict[str, Any]) -> bool:
+    """Classify only Core's proven non-schema effects, never App/model claims.
+
+    This affects remembered form hints only. It does not classify writes as
+    reads, retain record facts, or bypass live admission or approval.
+    """
+    if source != "core":
+        return False
+    if name == "integral_create_entry":
+        if result.get("error") is True:
+            return result.get("error_code") in {"invalid_arguments", "missing_argument"}
+        return (
+            result.get("_kind") == "batched_op" and result.get("kind") == "create_entry"
+        )
+    if result.get("error"):
+        return False
+    return (name, result.get("_kind")) in {
+        ("integral_begin_batch", "batch_opened"),
+        ("integral_cancel_batch", "batch_cancelled"),
+    }
+
+
 def _idempotency_key(run_id: str, tool_call_id: str | None, tool_name: str) -> str:
     identity = "\0".join((run_id, tool_call_id or "", tool_name))
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
@@ -278,6 +300,10 @@ def _make_handler(
                 # Framework metadata is checkpointed, never sourced from model
                 # arguments or an App payload. Classify calls, not tool names.
                 return ToolReturn(result, metadata={"integral_effect_v1": "read"})
+            if _schema_preserving_result(capability_source, capability_name, result):
+                return ToolReturn(
+                    result, metadata={"integral_schema_effect_v1": "preserve"}
+                )
             return result
 
     async def invoke_current_tool(

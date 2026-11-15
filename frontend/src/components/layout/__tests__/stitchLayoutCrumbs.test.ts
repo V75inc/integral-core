@@ -11,8 +11,18 @@ describe('stitchLayoutCrumbs', () => {
       '/workspaces/ws-1/members',
       { id: 'ws-1', name: 'Acme Org' },
     );
-    expect(trail.map(c => c.label)).toEqual(['Home', 'Acme Org', 'Members']);
-    expect(trail[1].to).toBe('/workspaces/ws-1');
+    expect(trail.map(c => c.label)).toEqual(['Home', 'Workspaces', 'Acme Org', 'Members']);
+    expect(trail[1].to).toBe('/workspaces');
+    expect(trail[2].to).toBe('/workspaces/ws-1');
+  });
+
+  it('links to Workspaces from a workspace detail but does not duplicate the list page', () => {
+    expect(stitchLayoutCrumbs([{ label: 'Acme' }], '/workspaces/ws-1')).toEqual([
+      { label: 'Home', to: '/' }, { label: 'Workspaces', to: '/workspaces' }, { label: 'Acme' },
+    ]);
+    expect(stitchLayoutCrumbs([{ label: 'Workspaces' }], '/workspaces')).toEqual([
+      { label: 'Home', to: '/' }, { label: 'Workspaces' },
+    ]);
   });
 
   it('dedupes workspace name only when Layout injects a workspace prefix', () => {

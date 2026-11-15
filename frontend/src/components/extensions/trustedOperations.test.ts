@@ -44,6 +44,11 @@ describe('trusted UI commands', () => {
     await expect(invokeTrustedOperation(['u'], 'save', {}, dispatch, () => true)).rejects.toThrow('completed earlier');
     expect(sessionStorage.length).toBe(0);
   });
+  it('reports the legacy broker replay marker as unavailable without inventing an operation receipt', async () => {
+    const dispatch = vi.fn().mockResolvedValue({app_id: 'a', operation_key: 'list', operation_class: 'read', output_disposition: 'available', output: {replayed: true, result_unavailable: true}, receipt: {status: 'succeeded'}});
+    await expect(invokeTrustedOperation(['u'], 'list', {}, dispatch, () => true)).rejects.toMatchObject({outcome: 'withheld', message: expect.stringMatching(/result.*unavailable/i), operationReceipt: undefined});
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
   it('works on a page without SubtleCrypto (plain HTTP) and keeps the same key for the same action', async () => {
     vi.stubGlobal('crypto', {getRandomValues: (a: Uint8Array) => a.fill(7)});
     const dispatch = vi.fn().mockRejectedValueOnce(new AxiosError('Network failed')).mockResolvedValue(success);
