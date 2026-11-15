@@ -465,7 +465,17 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         help="Explicit reviewed embedding profile JSON",
     )
+    from app.services.storage_indexes import native_upgrade
+
+    native_upgrade.configure_parser(
+        sub.add_parser(
+            "storage-upgrade",
+            help="Review or apply an offline native storage/role upgrade",
+        )
+    )
     args = parser.parse_args(argv)
+    if args.cmd == "storage-upgrade":
+        return native_upgrade.run_cli(args)
     if args.cmd == "indexes":
         import asyncio
 
