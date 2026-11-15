@@ -476,6 +476,7 @@ async def read_cross_app_label(
     target_entry_id: str,
     target_app_id: str,
     label_field: str = "title",
+    relation_spec: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """SINGLE safe entry point for cross-App relation label rendering.
 
@@ -484,6 +485,10 @@ async def read_cross_app_label(
     field content — Architectural Decision 8 Option A). On allow returns the
     ``CrossAppRelationLabel`` shape with the rendered label + provenance
     pointers.
+
+    Callers with a compiled relation declaration pass it unchanged so selector
+    interpretation stays here, after admission. The explicit selector remains
+    supported for existing callers and as the declaration's default.
 
     Risk 4 / Pitfall 5: ANY direct read of ``label_field`` content outside
     this function is forbidden. The grep-gate test enforces this.
@@ -519,7 +524,8 @@ async def read_cross_app_label(
 
     # Allowed: read label_field. This is the ONLY safe label_field read site.
     # Grep gate enforces no other call site exists in backend/app/.
-    label_value = _read_dotted_label(target_entry, label_field)
+    selector = (relation_spec or {}).get("label_field", label_field)
+    label_value = _read_dotted_label(target_entry, selector)
     target_app = await App.get(target_app_id)
     target_app_name = target_app.name if target_app else ""
     return CrossAppRelationLabel(

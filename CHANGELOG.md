@@ -6,6 +6,7 @@ bump does not establish that a release is available on a package index.
 
 ## 0.1.1rc63 — 2026-11-15
 
+- Centralize relation-picker label configuration in the permission-checked cross-App resolver.
 - Require meaningful App and Track descriptions during package provisioning and scaffolding.
 - Restore advertised action-bar and editable-table widget registration in packaged and cold-start workspaces.
 - Recover workspace views across navigation, remounts and native session renewal without discarding drafts or attachments.

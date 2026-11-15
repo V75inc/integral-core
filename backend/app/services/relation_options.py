@@ -222,7 +222,7 @@ async def relation_options(
                 relation_field_key=params.field_key,
                 target_entry_id=entry.id,
                 target_app_id=target_app_id,
-                label_field=relation.get("label_field", "title"),
+                relation_spec=relation,
             )
             if rendered.get("kind") == "restricted_relation":
                 continue
