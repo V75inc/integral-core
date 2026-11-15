@@ -76,6 +76,7 @@ def _manifest(
                 {
                     "key": f"{pkg_slug}_track",
                     "name": f"{name} Track",
+                    "description": f"Stores {name} entries for reviewing and managing this application’s records.",
                     "entry_types": [
                         {"key": f"{pkg_slug}_entry", "name": f"{name} Entry"}
                     ],

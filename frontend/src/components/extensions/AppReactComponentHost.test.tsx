@@ -28,7 +28,10 @@ function Widget() {
 function shell(preview = false) {
   return <QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><MemoryRouter><AppReactComponentHost appId="app" componentKey="editor" placement="track" preview={preview} fallback={<p>Legacy view</p>} /></MemoryRouter></QueryClientProvider>;
 }
-beforeEach(() => {
+beforeEach(async () => {
+  const moduleName = 'node:crypto';
+  const {webcrypto} = await import(moduleName);
+  vi.stubGlobal('crypto', webcrypto);
   state.workspace = 'ws'; state.principal = 'user'; state.enabled = true;
   vi.mocked(loadReactArtifact).mockReset().mockResolvedValue({default: Widget});
   vi.mocked(api.post).mockReset().mockImplementation(async () => ({data: {enabled: state.enabled, artifact_url: `/api/ui-artifacts/sample/${digest}/index.mjs`, component: {digest, export_name: 'default', sdk_range: '^1.0.0'}}}));
@@ -66,13 +69,24 @@ it('keeps concurrent read results valid when a matching descriptor refresh follo
   await act(async () => {finish.list_assets({data: {operation_class: 'read', output: {rows: []}}});});
   expect(await screen.findByText('list_drafts,list_assets')).toBeInTheDocument();
 });
-it('fences an in-flight read when an explicitly bound entry changes', async () => {
+it.each(['before', 'after'] as const)('fences an old entry read that settles %s its replacement view is ready', async order => {
   let finish!: (result: unknown) => void;
+  const outcome = vi.fn();
   function Reader() {
     const ui = useAppUI();
     const [result, setResult] = useState('waiting');
-    useEffect(() => { void ui.invoke('list_drafts', {}).then(() => setResult('loaded'), error => setResult(error.message)); }, []);
-    return <p>{result}</p>;
+    useEffect(() => {
+      // Observe the old request itself. Its component is deliberately unmounted
+      // by the entry switch, so its error cannot be asserted in the new DOM.
+      // A new request with the same intent could join it or dispatch after it
+      // settles; neither ordering is the stale-mount fencing contract.
+      if (ui.context?.entryId !== 'first') return;
+      void ui.invoke('list_drafts', {}).then(
+        () => { outcome('loaded'); setResult('loaded'); },
+        error => { outcome(error); setResult(error.message); },
+      );
+    }, []);
+    return <p>{String(ui.context?.entryId)}: {result}</p>;
   }
   vi.mocked(loadReactArtifact).mockResolvedValue({default: Reader});
   const mount = vi.mocked(api.post).getMockImplementation()!;
@@ -82,9 +96,14 @@ it('fences an in-flight read when an explicitly bound entry changes', async () =
   const rendered = render(page('first'));
   await waitFor(() => expect(finish).toBeDefined());
   rendered.rerender(page('second'));
-  await screen.findByText('waiting');
-  await act(async () => { finish({data: {operation_class: 'read', output: {rows: []}}}); });
-  expect(await screen.findByText('Result unconfirmed. Check current records before retrying the same action.')).toBeInTheDocument();
+  if (order === 'after') await screen.findByText('second: waiting');
+  await act(async () => {finish({data: {operation_class: 'read', output: {rows: []}}});});
+  await waitFor(() => expect(outcome).toHaveBeenCalledWith(expect.objectContaining({
+    outcome: 'unconfirmed', message: 'Result unconfirmed. Check current records before retrying the same action.',
+  })));
+  expect(await screen.findByText('second: waiting')).toBeInTheDocument();
+  expect(screen.queryByText('second: loaded')).not.toBeInTheDocument();
+  expect(vi.mocked(api.post).mock.calls.filter(([url]) => String(url).endsWith('/operations/list_drafts'))).toHaveLength(1);
 });
 it('keeps a track view and its in-flight read when list entries arrive or reorder', async () => {
   let finish!: (result: unknown) => void;

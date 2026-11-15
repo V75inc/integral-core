@@ -1396,6 +1396,13 @@ async def merge_library_into_app_operational_model(
     migration_safety = await assert_package_upgrade_migration_safe(
         attached_profile=sacp, library_profile=lib, user_id=user_id
     )
+    from app.services.app_lifecycle import validate_package_creation_descriptions
+
+    await validate_package_creation_descriptions(
+        migration_safety["candidate_manifest"],
+        app_node=sp,
+        prior_manifest=sacp.manifest or {},
+    )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
         lib, sacp, track=None, for_space=True, user_id=user_id
@@ -1525,6 +1532,13 @@ async def apply_app_operational_model_library(
 
     migration_safety = await assert_package_upgrade_migration_safe(
         attached_profile=sacp, library_profile=lib, user_id=user_id
+    )
+    from app.services.app_lifecycle import validate_package_creation_descriptions
+
+    await validate_package_creation_descriptions(
+        migration_safety["candidate_manifest"],
+        app_node=sp,
+        prior_manifest=sacp.manifest or {},
     )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(

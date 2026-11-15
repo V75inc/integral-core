@@ -22,11 +22,16 @@ _FIELDS = [
 
 def _blueprint() -> Dict[str, Any]:
     return {
-        "app": {"id": "app", "name": "Bike Repair"},
+        "app": {
+            "id": "app",
+            "name": "Bike Repair",
+            "description": "Coordinates customer bicycle repairs from booking through completion.",
+        },
         "tracks": [
             {
                 "id": "track.jobs",
                 "name": "Jobs",
+                "description": "Records each repair job so staff can track customer needs, status and due dates.",
                 "entry_types": [{"name": "Job", "fields": copy.deepcopy(_FIELDS)}],
                 "tag_groups": [{"name": "Priority", "tags": ["Urgent", "Routine"]}],
             }
@@ -61,11 +66,18 @@ def _blueprint() -> Dict[str, Any]:
 
 def _plan() -> list:
     return [
-        {"tool": "integral_create_app", "args": {"name": "Bike Repair"}},
+        {
+            "tool": "integral_create_app",
+            "args": {
+                "name": "Bike Repair",
+                "description": "Coordinates customer bicycle repairs from booking through completion.",
+            },
+        },
         {
             "tool": "integral_create_app_track",
             "args": {
                 "name": "Jobs",
+                "description": "Records each repair job so staff can track customer needs, status and due dates.",
                 "app_id": "{{app.id}}",
                 "entry_types": [{"name": "Job", "fields": copy.deepcopy(_FIELDS)}],
                 "taxonomy": {
@@ -223,7 +235,13 @@ def test_inline_tags_are_named_batch_references() -> None:
     )
     assert "- **Tags (Priority):** Urgent, Routine" in track["diff_human"]
     ops = [
-        {"kind": "create_app", "payload": {"name": "Bike Repair"}},
+        {
+            "kind": "create_app",
+            "payload": {
+                "name": "Bike Repair",
+                "description": "Coordinates customer bicycle repairs from booking through completion.",
+            },
+        },
         {"kind": "create_app_track", "payload": track["payload"]},
         {
             "kind": "save_view",

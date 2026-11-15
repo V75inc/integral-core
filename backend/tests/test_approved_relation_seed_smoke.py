@@ -53,11 +53,13 @@ def scenario():
         {
             "id": "businesses",
             "name": "Businesses",
+            "description": "Records businesses referenced by expenses and other personal records.",
             "entry_types": [{"name": "Business", "fields": []}],
         },
         {
             "id": "expenses",
             "name": "Expenses",
+            "description": "Tracks spending amounts and the businesses associated with each expense.",
             "entry_types": [
                 {
                     "name": "Expense",
@@ -71,6 +73,7 @@ def scenario():
         {
             "id": "contacts",
             "name": "Contacts",
+            "description": "Maintains people and organization contact records for personal follow-up.",
             "entry_types": [{"name": "Contact", "fields": []}],
         },
     ]
@@ -98,19 +101,32 @@ def scenario():
     ]
     blueprint, error = validate_blueprint(
         {
-            "app": {"id": "app.personal", "name": "Personal Life Manager"},
+            "app": {
+                "id": "app.personal",
+                "name": "Personal Life Manager",
+                "description": "Organizes businesses, expenses and contacts for personal administration.",
+            },
             "tracks": tracks,
             "seeds": seeds,
         }
     )
     assert error is None
-    plan = [{"tool": "integral_create_app", "args": {"name": blueprint["app"]["name"]}}]
+    plan = [
+        {
+            "tool": "integral_create_app",
+            "args": {
+                "name": blueprint["app"]["name"],
+                "description": blueprint["app"]["description"],
+            },
+        }
+    ]
     plan += [
         {
             "tool": "integral_create_app_track",
             "args": {
                 "app_id": "{{app.id}}",
                 "name": t["name"],
+                "description": t["description"],
                 "entry_types": deepcopy(t["entry_types"]),
             },
         }

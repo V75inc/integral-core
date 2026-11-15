@@ -15,11 +15,16 @@ pytestmark = pytest.mark.smoke
 
 def blueprint():
     return {
-        "app": {"id": "app", "name": "Task Tracking"},
+        "app": {
+            "id": "app",
+            "name": "Task Tracking",
+            "description": "Organizes tasks and their progress for day-to-day work planning.",
+        },
         "tracks": [
             {
                 "id": "tasks",
                 "name": "Tasks",
+                "description": "Records each task and its status so unfinished work can be followed up.",
                 "entry_types": [
                     {
                         "id": "task",
@@ -61,7 +66,13 @@ def test_valid_required_seed_accepted():
 
 def partial():
     operations = [
-        {"kind": "create_app", "payload": {"name": "Task Tracking"}},
+        {
+            "kind": "create_app",
+            "payload": {
+                "name": "Task Tracking",
+                "description": "Organizes tasks and their progress for day-to-day work planning.",
+            },
+        },
         {
             "kind": "create_entry",
             "payload": {

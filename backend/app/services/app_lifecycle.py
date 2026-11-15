@@ -468,6 +468,41 @@ _delete_tracks = app_install.delete_tracks
 # ---------------------------------------------------------------------------
 
 
+async def validate_package_creation_descriptions(
+    canonical: Dict[str, Any],
+    *,
+    app_node: Optional[App] = None,
+    prior_manifest: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Reject incomplete new container metadata before install/upgrade writes.
+
+    Existing tracks and template declarations are grandfathered for metadata
+    updates; this does not rewrite legacy data or manufacture descriptions.
+    """
+    from app.schemas.creation_description import validate_new_package_track_descriptions
+
+    existing_keys = set()
+    if app_node is not None:
+        existing = await app_node.nodes(edge=["CONTAINS"], node=["Track"])
+        existing_keys = {
+            str(track.template_id)
+            for track in existing
+            if getattr(track, "template_id", None)
+        }
+    existing_template_keys = {
+        str(spec.get("key"))
+        for spec in ((prior_manifest or {}).get("app") or {}).get("track_templates")
+        or []
+        if isinstance(spec, dict) and spec.get("key")
+    }
+    try:
+        validate_new_package_track_descriptions(
+            canonical, existing_keys, existing_template_keys=existing_template_keys
+        )
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+
+
 @invalidates_job_facts
 async def install_app(
     *,
@@ -581,6 +616,18 @@ async def install_app(
             canonical=canonical,
         )
         if existing_install.lifecycle_state == "active":
+            existing_profile = await get_app_attached_operational_model(
+                existing_install
+            )
+            if existing_profile is not None and existing_profile.manifest:
+                existing_canonical = await asyncio.to_thread(
+                    compile_canonical_manifest, manifest=existing_profile.manifest
+                )
+                await validate_package_creation_descriptions(
+                    existing_canonical,
+                    app_node=existing_install,
+                    prior_manifest=existing_canonical,
+                )
             await wire_app_owner(
                 existing_install,
                 actor_id,
@@ -646,6 +693,8 @@ async def install_app(
                     getattr(existing_install, "settings_schema", None) or {}
                 ),
             }
+
+    await validate_package_creation_descriptions(canonical)
 
     # ---- Transaction begins ----
     txn = InstallTransaction(
@@ -1796,6 +1845,11 @@ async def _update_app_from_library(
         raise BadRequestError(
             message="Reconcile this App's customized Home before upgrading its components"
         ) from exc
+    await validate_package_creation_descriptions(
+        migration_safety["candidate_manifest"],
+        app_node=app_node,
+        prior_manifest=attached_cp.manifest or {},
+    )
     version_before = app_node.version
     fingerprint_before = getattr(app_node, "installed_artifact_fingerprint", None)
     manifest_snapshot = dict(getattr(attached_cp, "manifest", None) or {})

@@ -1479,11 +1479,15 @@ async def refresh_app_track_template_materialization(
     # Tracks already spawned from this template follow its list visibility too (an update reaches old records).
     desired_nav = bool(template_spec.get("nav_visible", True))
     for spawned in await app_node.nodes(edge=["CONTAINS"], node=["Track"]):
-        if (
-            str(getattr(spawned, "template_id", "") or "") == template_key
-            and bool(getattr(spawned, "nav_visible", True)) != desired_nav
-        ):
+        if str(getattr(spawned, "template_id", "") or "") != template_key:
+            continue
+        dirty = sync_track_description_from_manifest(
+            spawned, str(template_spec.get("description") or "")
+        )
+        if bool(getattr(spawned, "nav_visible", True)) != desired_nav:
             spawned.nav_visible = desired_nav
+            dirty = True
+        if dirty:
             await spawned.save()
     template_icon = str(template_spec.get("icon") or "")
     if template_icon:
@@ -1606,6 +1610,12 @@ async def provision_prescribed_tracks_from_app_manifest(
     used_template_keys = {
         str(t.template_id) for t in existing if getattr(t, "template_id", None)
     }
+    from app.schemas.creation_description import validate_new_package_track_descriptions
+
+    try:
+        validate_new_package_track_descriptions(canonical, used_template_keys)
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
     previous_descriptions = await _previous_track_descriptions(app_node)
     for raw_spec in (canonical.get("app") or {}).get("tracks") or []:
         spec = raw_spec if isinstance(raw_spec, dict) else {}

@@ -31,12 +31,17 @@ _PROPOSAL = (
 
 def _blueprint() -> Dict[str, Any]:
     return {
-        "app": {"id": "app", "name": "Bike Repair"},
+        "app": {
+            "id": "app",
+            "name": "Bike Repair",
+            "description": "Coordinates customer bicycle repairs from booking through completion.",
+        },
         "goals": [{"id": "goal.turnaround", "text": "Repair bikes on time"}],
         "tracks": [
             {
                 "id": "track.jobs",
                 "name": "Jobs",
+                "description": "Records each repair job so staff can track customer needs, status and due dates.",
                 "entry_types": [
                     {
                         "id": "type.job",
@@ -90,7 +95,14 @@ def _canonical() -> Dict[str, Any]:
 
 def test_explicit_blank_app_blueprint_has_no_invented_structure():
     blueprint, error = validate_blueprint(
-        {"app": {"id": "app", "name": "QATesting"}, "tracks": []}
+        {
+            "app": {
+                "id": "app",
+                "name": "QATesting",
+                "description": "Provides an empty workspace area for testing future workflows.",
+            },
+            "tracks": [],
+        }
     )
     assert error is None
     assert blueprint["tracks"] == []
@@ -98,7 +110,15 @@ def test_explicit_blank_app_blueprint_has_no_invented_structure():
     assert (
         plan_fidelity_errors(
             blueprint,
-            [("integral_create_app", {"name": "QATesting"})],
+            [
+                (
+                    "integral_create_app",
+                    {
+                        "name": "QATesting",
+                        "description": "Provides an empty workspace area for testing future workflows.",
+                    },
+                )
+            ],
             new_app=True,
         )
         == []
@@ -106,7 +126,15 @@ def test_explicit_blank_app_blueprint_has_no_invented_structure():
 
 
 def test_missing_track_list_does_not_silently_propose_a_blank_app():
-    blueprint, error = validate_blueprint({"app": {"id": "app", "name": "QATesting"}})
+    blueprint, error = validate_blueprint(
+        {
+            "app": {
+                "id": "app",
+                "name": "QATesting",
+                "description": "Provides an empty workspace area for testing future workflows.",
+            }
+        }
+    )
     assert blueprint is None
     assert "tracks" in error
 
@@ -141,11 +169,18 @@ def test_design_capture_rejects_unbuildable_view_config_before_approval():
 
 def _plan() -> list:
     return [
-        {"tool": "integral_create_app", "args": {"name": "Bike Repair"}},
+        {
+            "tool": "integral_create_app",
+            "args": {
+                "name": "Bike Repair",
+                "description": "Coordinates customer bicycle repairs from booking through completion.",
+            },
+        },
         {
             "tool": "integral_create_app_track",
             "args": {
                 "name": "Jobs",
+                "description": "Records each repair job so staff can track customer needs, status and due dates.",
                 "app_id": "{{app.id}}",
                 "entry_types": [
                     {
@@ -264,11 +299,16 @@ def test_observed_model_blueprint_derives_schema_ids_and_accepts_enum() -> None:
     """Shape gpt-4.1 sent in the W1.3 browser smoke: no field ids, ``enum``."""
     raw = {
         "schema_version": 1,
-        "app": {"id": "bike_repair", "name": "Bike Repair"},
+        "app": {
+            "id": "bike_repair",
+            "name": "Bike Repair",
+            "description": "Coordinates customer bicycle repairs from booking through completion.",
+        },
         "tracks": [
             {
                 "id": "jobs",
                 "name": "Jobs",
+                "description": "Records each repair job so staff can track customer needs, status and due dates.",
                 "entry_types": [
                     {
                         "id": "job",
@@ -802,7 +842,14 @@ async def test_exact_blueprint_plan_builds_without_prose_extras(
 
     if blank:
         approved.design_proposed["blueprint"], error = validate_blueprint(
-            {"app": {"id": "app", "name": "Bike Repair"}, "tracks": []}
+            {
+                "app": {
+                    "id": "app",
+                    "name": "Bike Repair",
+                    "description": "Coordinates customer bicycle repairs from booking through completion.",
+                },
+                "tracks": [],
+            }
         )
         assert error is None
     staged, commits = [], []
@@ -875,7 +922,11 @@ def test_plan_fidelity_rejects_renaming_an_approved_field_key():
 def test_approved_dashboard_cannot_silently_drop_the_monthly_chart():
     blueprint, error = validate_blueprint(
         {
-            "app": {"id": "app", "name": "Test App"},
+            "app": {
+                "id": "app",
+                "name": "Test App",
+                "description": "Displays income totals and monthly payment trends for review.",
+            },
             "tracks": [],
             "dashboard": {
                 "id": "board",
@@ -903,7 +954,13 @@ def test_approved_dashboard_cannot_silently_drop_the_monthly_chart():
         "widgets": [{"title": "Received", "type": "metric_card"}],
     }
     operations = [
-        ("integral_create_app", {"name": "Test App"}),
+        (
+            "integral_create_app",
+            {
+                "name": "Test App",
+                "description": "Displays income totals and monthly payment trends for review.",
+            },
+        ),
         ("integral_create_dashboard", dashboard),
     ]
     errors = plan_fidelity_errors(blueprint, operations, new_app=True)

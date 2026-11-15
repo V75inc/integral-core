@@ -44,6 +44,15 @@ def validate_blueprint(raw: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str
     from app.views import operational_model_view_types as view_type_registry
 
     canonical = blueprint.model_dump(mode="json")
+    from app.schemas.creation_description import creation_description
+
+    for item in [canonical["app"], *canonical["tracks"], *canonical["track_templates"]]:
+        try:
+            item["description"] = creation_description(
+                item.get("description"), item["name"]
+            )
+        except ValueError as exc:
+            return None, str(exc)
     for view in canonical["views"]:
         kind = _canonical_view_type(view["type"])
         view["config"] = adapt_view_config(kind, view["config"])
@@ -318,6 +327,23 @@ def plan_fidelity_errors(
             approved_templates[name]["entry_types"],
             planned_templates[name],
         )
+
+    for tool, approved_items in (
+        ("integral_create_app", [blueprint["app"]] if new_app else []),
+        ("integral_create_app_track", blueprint["tracks"]),
+        ("integral_register_track_template", blueprint.get("track_templates", [])),
+    ):
+        by_name = {item["name"].casefold(): item for item in approved_items}
+        for params in by_tool.get(tool, []):
+            approved = by_name.get(str(params.get("name") or "").casefold())
+            if approved and approved.get("description"):
+                if (
+                    str(params.get("description") or "").strip()
+                    != approved["description"].strip()
+                ):
+                    errors.append(
+                        f"The plan must retain the approved description for {approved['name']!r}."
+                    )
 
     app_name = blueprint["app"]["name"].casefold()
     if new_app:

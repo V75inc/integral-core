@@ -3,7 +3,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { Table } from '@tiptap/extension-table';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { RepeatSection, RepeatTableRow } from '../extensions';
 
@@ -32,11 +32,21 @@ const payslipTable = {
 type Node = { type: string; attrs?: Record<string, unknown>; content?: Node[] };
 const asNode = (n: unknown) => n as Node;
 
+const editors = new Set<Editor>();
+afterEach(() => {
+  // ProseMirror observes DOM changes asynchronously. Destroy every standalone
+  // test editor before jsdom removes its document and pending observers flush.
+  for (const editor of editors) editor.destroy();
+  editors.clear();
+});
+
 function editorFor(content: unknown) {
-  return new Editor({
+  const editor = new Editor({
     extensions: [StarterKit, Table, RepeatTableRow, TableHeader, TableCell, RepeatSection],
     content: content as Record<string, unknown>,
   });
+  editors.add(editor);
+  return editor;
 }
 
 describe('repeating table rows', () => {

@@ -9,11 +9,16 @@ from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
 
 _BLUEPRINT = {
-    "app": {"id": "app", "name": "Demo"},
+    "app": {
+        "id": "app",
+        "name": "Demo",
+        "description": "Organizes contact information for a demonstration of customer management.",
+    },
     "tracks": [
         {
             "id": "track.contacts",
             "name": "Contacts",
+            "description": "Stores each contact and their email address for communication.",
             "entry_types": [
                 {
                     "name": "Contact",
@@ -213,7 +218,10 @@ async def test_dispatch_create_app_requires_recorded_design_in_chat(
 
     result = await dispatch_tool(
         "integral_create_app",
-        {"name": "Vehicle Maintenance"},
+        {
+            "name": "Vehicle Maintenance",
+            "description": "Coordinates vehicle maintenance tasks and servicing records.",
+        },
         principal_id="u1",
         scope="ws1",
         session_id="sess-design-required",
@@ -259,7 +267,10 @@ async def test_dispatch_create_app_recovers_an_affirmed_visible_design(
 
     result = await dispatch_tool(
         "integral_create_app",
-        {"name": "Facilities Inspection"},
+        {
+            "name": "Facilities Inspection",
+            "description": "Coordinates inspections and follow-up work for managed facilities.",
+        },
         principal_id="u1",
         scope="ws1",
         session_id="sess-visible-design",

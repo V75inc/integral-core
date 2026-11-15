@@ -14,6 +14,7 @@ def _minimal_app_manifest(*, nav_visible=None):
     track = {
         "key": "invoice_lines",
         "name": "Invoice lines",
+        "description": "Stores individual invoice line items for itemized billing.",
         "provision_on_create": True,
         "entry_types": [{"name": "Line", "fields": []}],
         "views": [],

@@ -251,6 +251,18 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
         # to pass admission and were then silently omitted by the dispatcher.
         schema["additionalProperties"] = False
         blueprint_schema = DesignBlueprint.model_json_schema()
+        # Stored legacy blueprints remain readable; newly proposed containers
+        # must describe their purpose before approval and creation.
+        for model in ("BlueprintApp", "BlueprintTrack", "BlueprintTrackTemplate"):
+            item = blueprint_schema["$defs"].get(model)
+            if item is not None:
+                item.setdefault("required", []).append("description")
+                item["properties"]["description"] = {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "description": "Explain purpose, contents, and use; never a placeholder or repeated name.",
+                }
         # ``#/$defs/...`` refs resolve against the document root.
         schema["$defs"] = blueprint_schema.pop("$defs", {})
         blueprint_schema.pop("title", None)

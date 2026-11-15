@@ -20,6 +20,16 @@ def test_init_writes_env_readme_and_matching_slug(tmp_path: Path) -> None:
     env = (dest / ".env").read_text()
     assert "slug: studio-equipment" in manifest
     assert "name: Studio Desk" in manifest
+    import yaml
+
+    from app.schemas.creation_description import validate_new_package_track_descriptions
+    from app.services.operational_model_loader import _assemble_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
+
+    canonical = compile_canonical_manifest(
+        manifest=_assemble_manifest(yaml.safe_load(manifest))
+    )
+    validate_new_package_track_descriptions(canonical, set(), set())
     assert f"INTEGRAL_PACKAGE_PATHS={dest / 'integral-apps'}" in env
     assert "INTEGRAL_CORE_ONLY=0" in env
     assert "JVSPATIAL_TEXT_NORMALIZATION_ENABLED=false" in env

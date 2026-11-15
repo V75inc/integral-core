@@ -7,13 +7,16 @@ import re
 
 async def inventory(conn, schema="public"):
     """Inspect actual physical definitions, validity, ordering and storage cost."""
+    # PostgreSQL 15 added indnullsnotdistinct. Earlier catalogs always use
+    # distinct NULLs; reading the optional key preserves both versions' semantics.
     rows = await conn.fetch(
         """
         SELECT t.relname AS table_name, x.relname AS name,
                pg_get_indexdef(i.indexrelid) AS definition,
                pg_get_expr(i.indpred,i.indrelid) AS predicate,
                am.amname AS method, i.indisunique AS unique, i.indisprimary AS primary,
-               i.indnullsnotdistinct AS nulls_not_distinct, i.indnatts-i.indnkeyatts AS included_columns,
+               COALESCE((to_jsonb(i)->>'indnullsnotdistinct')::boolean, false) AS nulls_not_distinct,
+               i.indnatts-i.indnkeyatts AS included_columns,
                i.indisvalid AS valid, i.indisready AS ready,
                EXISTS(SELECT 1 FROM pg_constraint c WHERE c.conindid=i.indexrelid) AS constraint_backed,
                ARRAY(SELECT pg_get_indexdef(i.indexrelid,k,true) FROM generate_series(1,i.indnkeyatts) k) AS keys,

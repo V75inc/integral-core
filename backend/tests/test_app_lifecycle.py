@@ -95,6 +95,7 @@ def _minimal_app_manifest(
                 {
                     "key": "demo_track",
                     "name": "Demo Track",
+                    "description": "Collects notes and supporting markdown content for the installed application.",
                     "provision_on_create": True,
                     "entry_types": [
                         {

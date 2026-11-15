@@ -314,3 +314,8 @@ PostgreSQL API and ordinary workers use verify-only managed storage with a
 versioned catalog, reviewed provisioning artifacts and separate runtime roles.
 See [governed index lifecycle](../backend/governed-indexes.md) for commands, ownership, recovery and
 qualification. Transitional `constraints` configuration is not the final boundary.
+
+Existing native desktop homes use the separate
+[offline native storage upgrade](NATIVE-STORAGE-UPGRADES.md) command with an
+exact wheel, whole-file approval and retained cold snapshot. Ordinary startup
+does not migrate a populated legacy database automatically.

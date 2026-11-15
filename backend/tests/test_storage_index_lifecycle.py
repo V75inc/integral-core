@@ -82,6 +82,30 @@ async def test_plan_is_read_only_and_hash_bound(storage_pg):
         lifecycle.validate_plan(artifact)
 
 
+async def test_inventory_preserves_null_uniqueness_across_server_versions(storage_pg):
+    import asyncpg
+
+    conn, schema, _ = storage_pg
+    await conn.execute(f'CREATE TABLE "{schema}".nullable_values(value text)')
+    await conn.execute(
+        f'CREATE UNIQUE INDEX distinct_nulls ON "{schema}".nullable_values(value)'
+    )
+    await conn.execute(f'INSERT INTO "{schema}".nullable_values VALUES (NULL), (NULL)')
+    rows = {row["name"]: row for row in await inventory(conn, schema)}
+    assert rows["distinct_nulls"]["nulls_not_distinct"] is False
+
+    if int(await conn.fetchval("SHOW server_version_num")) >= 150000:
+        await conn.execute(f'TRUNCATE "{schema}".nullable_values')
+        await conn.execute(
+            f'CREATE UNIQUE INDEX equal_nulls ON "{schema}".nullable_values(value) NULLS NOT DISTINCT'
+        )
+        rows = {row["name"]: row for row in await inventory(conn, schema)}
+        assert rows["equal_nulls"]["nulls_not_distinct"] is True
+        await conn.execute(f'INSERT INTO "{schema}".nullable_values VALUES (NULL)')
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await conn.execute(f'INSERT INTO "{schema}".nullable_values VALUES (NULL)')
+
+
 async def test_apply_rejects_transaction_before_any_storage_changes(storage_pg):
     conn, schema, _ = storage_pg
     artifact = await make_plan(conn, schema)
@@ -227,13 +251,18 @@ async def test_runtime_role_cannot_create_indexes(storage_pg):
 
     conn, schema, dsn = storage_pg
     role = "index_runtime_" + uuid.uuid4().hex[:12]
-    await conn.execute(f'CREATE ROLE "{role}" LOGIN')
+    password = uuid.uuid4().hex
+    await conn.execute(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}'")
     artifact = await make_plan(conn, schema, runtime_role=role)
     try:
         await lifecycle.apply(conn, artifact, approved_hash=artifact["hash"])
         parsed = urlsplit(dsn)
         runtime = await asyncpg.connect(
-            host=parsed.hostname, port=parsed.port, database=parsed.path[1:], user=role
+            host=parsed.hostname,
+            port=parsed.port,
+            database=parsed.path[1:],
+            user=role,
+            password=password,
         )
         try:
             assert (
