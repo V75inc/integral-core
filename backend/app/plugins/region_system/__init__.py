@@ -1,6 +1,7 @@
 """Operational Model plugin: the "apex region system" bundle. Registers a
 small catalog of Oracle-APEX-style generic "region" view types —
-``form_region``, ``layout_container``, ``static_content``, ``tree_region``,
+``action_bar``, ``editable_table``, ``form_region``, ``layout_container``,
+``static_content``, ``tree_region``,
 ``chart_region``, ``summary_tiles``, ``reverse_relation_list``,
 ``modal_region``, ``popover_region``, ``drawer_region`` — PLUS the
 ``create_wizard`` primitive's step kinds (``form``, ``entry_checklist``,
@@ -27,6 +28,11 @@ directory scan of ``backend/app/plugins/`` at server startup (see
 All view types below are generic, config-driven primitives, not tied to any
 one app:
 
+  - ``action_bar``: entry-bound buttons invoking workspace tools through the
+    existing authorized tool endpoint. Config: ``buttons``; related-view
+    bindings can supply the same button declarations for each entry.
+  - ``editable_table``: inline row editing through the existing entry APIs,
+    either as a track view or embedded for a related track. Config: ``columns``.
   - ``form_region``: subset-of-fields form bound to the current entry, a
     related entry (via a workspace tool), or an anchored track's entry.
     Config: ``fields`` (ordered field keys), ``title?``, ``columns?``.
@@ -97,6 +103,34 @@ def register(
     wizard_step_registry: Any = None,
 ) -> None:
     for spec in (
+        view_type_registry.ViewTypeSpec(
+            type="editable_table",
+            label="Editable Table",
+            description="Inline row editing in a track or an embedded related view.",
+            config_schema={
+                "columns": {
+                    "type": "array",
+                    "description": "Ordered field keys or conditional column declarations.",
+                }
+            },
+            source="plugin",
+            scope="both",
+            palette_group="core",
+        ),
+        view_type_registry.ViewTypeSpec(
+            type="action_bar",
+            label="Action Bar",
+            description="Entry-bound buttons invoking configured workspace tools.",
+            config_schema={
+                "buttons": {
+                    "type": "array",
+                    "description": "Button declarations; entry bindings may override them.",
+                }
+            },
+            source="plugin",
+            scope="entry",
+            palette_group="core",
+        ),
         view_type_registry.ViewTypeSpec(
             type="operations-ui/settings-hub",
             label="Settings Hub",
