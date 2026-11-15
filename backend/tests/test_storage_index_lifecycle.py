@@ -251,13 +251,18 @@ async def test_runtime_role_cannot_create_indexes(storage_pg):
 
     conn, schema, dsn = storage_pg
     role = "index_runtime_" + uuid.uuid4().hex[:12]
-    await conn.execute(f'CREATE ROLE "{role}" LOGIN')
+    password = uuid.uuid4().hex
+    await conn.execute(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}'")
     artifact = await make_plan(conn, schema, runtime_role=role)
     try:
         await lifecycle.apply(conn, artifact, approved_hash=artifact["hash"])
         parsed = urlsplit(dsn)
         runtime = await asyncpg.connect(
-            host=parsed.hostname, port=parsed.port, database=parsed.path[1:], user=role
+            host=parsed.hostname,
+            port=parsed.port,
+            database=parsed.path[1:],
+            user=role,
+            password=password,
         )
         try:
             assert (
