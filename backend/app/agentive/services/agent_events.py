@@ -25,6 +25,9 @@ async def register_agent_event_connection(user_id: str, websocket) -> None:
 
 async def unregister_agent_event_connection(user_id: str, websocket) -> None:
     """Unregister a WebSocket connection."""
+    from app.services.chat_thread_event_delivery import stop_chat_event_delivery
+
+    stop_chat_event_delivery(websocket)
     if user_id in _agent_event_connections:
         _agent_event_connections[user_id] = [
             ws for ws in _agent_event_connections[user_id] if ws is not websocket

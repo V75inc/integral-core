@@ -466,3 +466,83 @@ async def test_resume_drop_after_concurrent_cancellation(storage_pg):
                 pass
         await reader.close()
         await observer.close()
+
+
+async def test_signature_cleanup_index_upgrade_preserves_populated_objects_and_is_retryable(
+    storage_pg,
+):
+    """Add the two declared queue indexes without rewriting records or old indexes."""
+    from dataclasses import replace
+
+    from app.models.user_signature_cleanup import UserSignatureCleanupFact
+    from app.services.storage_indexes.catalog import (
+        baseline_specs,
+        build_catalog,
+        compile_models,
+    )
+
+    conn, schema, dsn = storage_pg
+    baseline = list(baseline_specs(schema))
+    initial = await make_plan(conn, schema, specs=baseline)
+    await lifecycle.apply(
+        conn, initial, approved_hash=initial["hash"], expected_specs=baseline
+    )
+    await conn.execute(
+        f"""INSERT INTO "{schema}".object(id,entity,data)
+        SELECT 'o.UserSignatureCleanupFact.fixture-'||value,
+               'UserSignatureCleanupFact',
+               jsonb_build_object('id','o.UserSignatureCleanupFact.fixture-'||value,
+                                  'entity','UserSignatureCleanupFact',
+                                  'context',jsonb_build_object('status',CASE WHEN value % 1000 = 0 THEN 'pending' ELSE 'delivered' END))
+        FROM generate_series(1,20000) AS value"""
+    )
+    before = await conn.fetchval(
+        f"""SELECT md5(string_agg(id||data::text,',' ORDER BY id)) FROM "{schema}".object"""
+    )
+    old_indexes = snapshot(await inventory(conn, schema))
+    additions = compile_models([UserSignatureCleanupFact], schema=schema)
+    approved = {spec.fingerprint for spec in build_catalog(include_search=False)}
+    assert len(additions) == 2 and all(
+        not spec.unique and not spec.required for spec in additions
+    )
+    assert all(
+        replace(spec, schema="public").fingerprint in approved for spec in additions
+    )
+    specs = baseline + additions
+    plan = await make_plan(conn, schema, specs=specs)
+    assert (
+        await conn.fetchval(
+            f"""SELECT md5(string_agg(id||data::text,',' ORDER BY id)) FROM "{schema}".object"""
+        )
+        == before
+    )
+    assert snapshot(await inventory(conn, schema)) == old_indexes
+    await lifecycle.apply(conn, plan, approved_hash=plan["hash"], expected_specs=specs)
+    after_indexes = snapshot(await inventory(conn, schema))
+    assert len(after_indexes) == len(old_indexes) + 2
+    assert all(
+        spec.name in after_indexes
+        and after_indexes[spec.name]["valid"]
+        and after_indexes[spec.name]["ready"]
+        for spec in additions
+    )
+    assert all(
+        after_indexes.get(name) == definition
+        for name, definition in old_indexes.items()
+    )
+    assert await conn.fetchval(f'SELECT count(*) FROM "{schema}".object') == 20000
+    assert (
+        await conn.fetchval(
+            f"""SELECT md5(string_agg(id||data::text,',' ORDER BY id)) FROM "{schema}".object"""
+        )
+        == before
+    )
+    assert snapshot(await inventory(conn, schema)) == after_indexes
+    await lifecycle.apply(conn, plan, approved_hash=plan["hash"], expected_specs=specs)
+    assert snapshot(await inventory(conn, schema)) == after_indexes
+    assert (
+        await conn.fetchval(
+            f"""SELECT md5(string_agg(id||data::text,',' ORDER BY id)) FROM "{schema}".object"""
+        )
+        == before
+    )

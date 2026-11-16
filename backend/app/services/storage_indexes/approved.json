@@ -1508,6 +1508,12 @@
       "required": false
     },
     {
+      "logical_id": "UserSignatureCleanupFact:object_usersignaturecleanupfact_context_status_idx",
+      "owner": "app.models.user_signature_cleanup",
+      "fingerprint": "91e926b0e5e909543c5606ad2766ca93884799a17cc821001c7024000a2a6318",
+      "required": false
+    },
+    {
       "logical_id": "HarnessTurnAdmissionSlot:object_harnessturnadmissionslot_context_thread_id_idx:keyset",
       "owner": "app.models.harness_records",
       "fingerprint": "92df55457c8af62d58023b107396adcd6d6386c61d5eac32d180b25fddaafede",
@@ -2501,6 +2507,12 @@
       "logical_id": "event-outbox:delivery-order",
       "owner": "core.events",
       "fingerprint": "f34e3c8c56333581038594717bf88e714f7ab3c9b9ed97fa00cb51d21d2d4137",
+      "required": false
+    },
+    {
+      "logical_id": "UserSignatureCleanupFact:object_usersignaturecleanupfact_context_status_idx:keyset",
+      "owner": "app.models.user_signature_cleanup",
+      "fingerprint": "f365a8f679515f5b1a850410780346f4d2862986ab1542fdeddf428b17be1ba5",
       "required": false
     },
     {

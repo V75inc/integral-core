@@ -16,6 +16,7 @@ async def event_relay_loop() -> None:
         envelope_from_dblog,
         get_change_event_logger,
     )
+    from app.services.chat_thread_event_delivery import queue_committed_chat_event
     from app.services.event_subscription_registry import queue_change_event
 
     log = get_change_event_logger()
@@ -32,6 +33,7 @@ async def event_relay_loop() -> None:
                 event = envelope_from_dblog(row)
                 if event.action not in BROADCAST_SKIP_ACTIONS:
                     queue_change_event(event)
+                    queue_committed_chat_event(event)
                 position, event_id = event.delivery_ts or event.ts, event.id
         except Exception:
             logger.warning("Event relay will retry", exc_info=False)

@@ -69,6 +69,34 @@ transaction support. WebSocket notifications are best effort and can repeat on
 retry; the durable chat message, not a notification, is the delivery record.
 This bridge is not the scheduled-work kernel or an autonomous mandate.
 
+## Committed message updates across sessions
+
+On PostgreSQL, each persisted chat message captures a `chat.message.create`
+invalidation in the same graph transaction. This explicit audit/policy Literal
+is classified under the existing `records` runtime ceiling for both local and
+hosted compositions. The classification grants no thread access or mutation
+authority; existing owned-thread admission remains required. The event worker delivers committed
+facts, and each API process relays them to its local agent-event sockets. Run
+`integral worker events` alongside serving processes. A rollback releases no
+message or invalidation. Notifications contain scoped thread/message IDs, the
+current thread revision and event ID; they never contain transcript text or
+historical message snapshots.
+
+Every frame requires current identity, workspace access, thread ownership and
+matching named graph parents. Local development stores still check current
+workspace access, but do not provide PostgreSQL's distributed ordering or
+rollback guarantee. A denied frame is withheld without destroying an otherwise
+healthy connection. Each socket has a bounded queue; overflow or a stalled
+sender closes that connection for authoritative catch-up. Unregistering a socket
+cancels its sender and removes queue state.
+
+Clients refresh the durable thread after an invalidation or reconnect; events
+can repeat, so they are not independent transcript records. This repairs
+committed-message visibility across API sessions. It does not mirror another
+session's token stream or remote busy indicator. Existing persisted-state
+recovery remains available when a live notification is missed. No stored-data
+migration or model/provider call is introduced by this relay.
+
 ## Image input
 
 Native chat accepts PNG, JPEG, WebP and GIF through the ordinary persisted

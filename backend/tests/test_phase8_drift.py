@@ -1,8 +1,9 @@
 """Phase 8 cross-cutting drift gate (Plan 08-06 Task 1 Step 3).
 
 Asserts that Phase 8 introduced ZERO new APIRouter / HTTPException /
-inline BaseModel patterns AND ZERO new PolicyAction / ChangeEventAction /
-ActorKind Literal members. Tighter scoping than the project-wide
+inline BaseModel patterns AND ZERO new ActorKind Literal members.
+Fast PolicyAction and ChangeEventAction vocabulary guards live in
+``test_action_vocabulary_contract.py`` so they also run in PR smoke CI. Tighter scoping than the project-wide
 ``test_jvspatial_convention_compliance.py`` — the gates below run against
 the 8 Phase 8 backend files specifically, so a regression in one of
 them fails this file even if the project-wide gate is silent for other
@@ -23,8 +24,6 @@ import subprocess
 from pathlib import Path
 from typing import get_args
 
-import pytest
-
 # Repo root — backend/tests/test_phase8_drift.py is 2 levels under root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND = REPO_ROOT / "backend"
@@ -44,11 +43,6 @@ PHASE_8_FILES: list[str] = [
     "app/api/shared_with_me.py",
 ]
 
-# Reviewed additions after Phase 8 cover access lifecycle, model
-# configuration, routines and governed operations (9251cc2c, 0d5a65aa,
-# e0405cb2, 18292f01, e07271cd, 76e502ab, 51e796dc and 56d9c7c1).
-POLICY_ACTION_BASELINE = 174
-CHANGE_EVENT_ACTION_BASELINE = 146
 # ActorKind is a Phase 1 D-09 / D-10 single-Literal invariant — locked at 4.
 ACTOR_KIND_BASELINE = 4
 
@@ -164,56 +158,6 @@ def test_no_inline_basemodel_in_phase8_api_files() -> None:
     assert not offending, (
         "Phase 8 drift — inline BaseModel in api/ module. Extract to "
         "backend/app/schemas/:\n" + "\n".join(offending)
-    )
-
-
-# ---------------------------------------------------------------------------
-# Case 4 — PolicyAction Literal member count is unchanged.
-# ---------------------------------------------------------------------------
-
-
-def test_policy_action_unchanged() -> None:
-    """PolicyAction Literal must match the reviewed action count.
-
-    A1 of plan 08-06 — Settings panels are READ proxies (I-SET-01), so no
-    new ``settings.*`` / ``retrieval.*`` / ``binding.*`` action members
-    should have appeared.
-
-    To intentionally add a member, bump the baseline here AND document the
-    new member in the relevant plan's SUMMARY — this test's failure is the
-    review gate.
-    """
-    from app.schemas.policy import PolicyAction
-
-    members = set(get_args(PolicyAction))
-    assert len(members) == POLICY_ACTION_BASELINE, (
-        f"PolicyAction Literal count changed: expected "
-        f"{POLICY_ACTION_BASELINE}, got {len(members)}. "
-        f"Bump the baseline in test_phase8_drift.py only if the new "
-        f"member is intentional and documented in a plan SUMMARY."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Case 5 — ChangeEventAction Literal member count is unchanged.
-# ---------------------------------------------------------------------------
-
-
-def test_change_event_action_unchanged() -> None:
-    """ChangeEventAction Literal must match the reviewed audit action count.
-
-    Phase 8 added zero new audit event types — Connector CRUD reuses the
-    existing ``connector.create/update/delete`` members, resource-level
-    invitation revoke reuses ``workspace.invitation_revoke`` (08-05 §A4).
-    """
-    from app.schemas.audit import ChangeEventAction
-
-    members = set(get_args(ChangeEventAction))
-    assert len(members) == CHANGE_EVENT_ACTION_BASELINE, (
-        f"ChangeEventAction Literal count changed: expected "
-        f"{CHANGE_EVENT_ACTION_BASELINE}, got {len(members)}. "
-        f"Bump the baseline in test_phase8_drift.py only if the new "
-        f"member is intentional and documented in a plan SUMMARY."
     )
 
 

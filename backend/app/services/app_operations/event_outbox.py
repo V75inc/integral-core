@@ -525,6 +525,8 @@ async def deliver_pending_cleanup_events() -> None:
     """Cleanup retains API recovery ownership independently of audit delivery."""
     from app.services.bundle_cleanup_outbox import deliver_bundle_cleanup
     from app.services.entry_cleanup_outbox import deliver_pending_cleanup
+    from app.services.signature_cleanup import deliver_pending_signature_cleanup
 
     await deliver_pending_cleanup()
     await deliver_bundle_cleanup()
+    await deliver_pending_signature_cleanup()

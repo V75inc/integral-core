@@ -4,7 +4,7 @@ The backend provides the domain-neutral graph substrate, access model, schema an
 
 ## Local launcher
 
-An installed wheel with the built UI supports `integral up`, `status`, `logs`, `stop`, `backup`, `restore` and `upgrade`. The launcher runs PostgreSQL in an isolated Python 3.12 helper environment and serves the workspace with real auth on loopback. `integral up --profile desktop_single_user` selects the persisted profile for a new managed installation; existing installations remain on their recorded profile and require a reviewed migration to change. See [local installation](../docs/ops/LOCAL_INSTALLATION.md). Electron and commercial distribution remain in Integral Business.
+An installed wheel with the built UI supports `integral up`, `status`, `logs`, `stop`, `backup`, `restore` and `upgrade`. The launcher runs PostgreSQL in an isolated Python 3.12 helper environment and serves the workspace with real auth on loopback. `integral up --profile desktop_single_user` selects the persisted profile for a new managed installation; existing installations remain on their recorded profile and require a reviewed migration to change. See [local installation](../docs/ops/LOCAL_INSTALLATION.md). The Integral One desktop host owns Electron and its installers; Core contains no Electron or commercial App imports.
 
 ## Develop
 
@@ -188,7 +188,7 @@ and receives no additional session startup option.
 
 ## Event worker
 
-Run `integral worker events` beside the API to deliver durable audit facts. See [the worker contract](../docs/backend/event-worker.md) for configuration, recovery and performance qualification.
+Run `integral worker events` beside the API to deliver durable audit facts and committed chat-message invalidations to each API process. See [the worker contract](../docs/backend/event-worker.md) for configuration, recovery and performance qualification.
 
 ### Link preview outbound connections
 
@@ -202,3 +202,24 @@ that require an outbound proxy must leave previews unavailable until a proxy wit
 an equivalent destination-validation contract is supported. Operator-trusted
 internal MCP/model hosts do not grant link-preview access to private addresses.
 This change requires no stored-data migration.
+
+
+## Saved signature recovery
+
+Core's personal signature vault stores and roots a replacement before retiring
+its previous attachment. PostgreSQL serializes replacements/deletes for one
+profile and commits the graph swap and file-cleanup intent together; an aborted
+transaction retains the original signature. Local development stores serialize
+writes but do not claim PostgreSQL rollback or distributed ordering.
+
+`integral worker events` retries retired signature-file cleanup after commit.
+A live or restored attachment prevents deletion; provider failures retain pending
+intent. Cleanup has a bounded pass budget and never removes the replacement's
+file. Keep the worker running, preserve backups and reconcile stale cleanup facts
+before an operator restores a retired attachment. Conflicting current signature
+edges require review; Core does not arbitrarily delete or merge them. Additive
+cleanup-status indexing participates in the existing reviewed storage-upgrade
+plan; follow the [offline migration and recovery guide](../docs/ops/NATIVE-STORAGE-UPGRADES.md)
+for managed stores rather than resetting data. An uncommitted new binary can
+remain after an outer caller aborts; reconcile unreferenced uploads from a backup
+copy rather than deleting files by filename alone.

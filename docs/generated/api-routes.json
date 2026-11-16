@@ -3291,7 +3291,7 @@
     ],
     "source": "backend/app/api/link_preview.py",
     "handler": "get_link_preview",
-    "line": 180
+    "line": 117
   },
   {
     "path": "/health/ready",
