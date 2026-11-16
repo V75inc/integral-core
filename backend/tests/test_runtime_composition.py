@@ -189,3 +189,16 @@ def test_local_transport_prerequisites_and_hosted_independence(select, monkeypat
     )
     with pytest.raises(RuntimeError, match="managed loopback"):
         validate_process(1)
+
+
+@pytest.mark.parametrize("preset", ["local", "hosted"])
+def test_committed_chat_fact_is_classified_without_widening_other_groups(
+    select, preset
+):
+    select(preset)
+    assert OPERATION_GROUPS["chat.message.create"] == "records"
+    assert runtime().supports_action("chat.message.create")
+    assert not runtime().supports_action("chat.message.future")
+    if preset == "local":
+        assert not runtime().supports_action("workspace.member_add")
+        assert not runtime().supports_action("track.public_share")

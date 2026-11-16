@@ -180,9 +180,9 @@ async def validate_public_http_url(url: str) -> None:
 #      hostile resolver cannot answer public-then-private (DNS rebinding);
 #   3. a port allowlist, so a "public" host cannot be walked on :22 / :6379.
 #
-# These helpers are the shared implementation for those three. ``link_preview``
-# has an equivalent urllib-flavoured pair (``_ValidatingRedirectHandler`` /
-# ``_pinned_dns``); this is the httpx/async flavour.
+# These helpers serve the httpx/async consumers. Link preview separately uses
+# redirect validation and connection-local public-only urllib sockets in
+# ``link_preview_transport``; it retains its existing public-port policy.
 # ---------------------------------------------------------------------------
 
 PUBLIC_HTTP_PORTS: frozenset = frozenset({80, 443})
@@ -245,10 +245,8 @@ async def validate_outbound_http_url(url: str) -> None:
 # --- DNS pinning -----------------------------------------------------------
 #
 # A refcounted, per-host pin table with ONE permanent patch of
-# ``socket.getaddrinfo``. link_preview's variant swaps the global function per
-# fetch under a lock, which serializes every lookup in the process; that is
-# fine for a cached, rate-limited preview endpoint but not for MCP sessions
-# that stay open for the length of a tool call. Here, concurrent pins for
+# ``socket.getaddrinfo`` for httpx/MCP sessions that stay open for the length
+# of a tool call. Link preview does not use this override. Concurrent pins for
 # different hosts never collide, and concurrent pins for the SAME host are
 # both sets of addresses this module already validated as public — so
 # whichever answers, the socket connects somewhere that was checked.

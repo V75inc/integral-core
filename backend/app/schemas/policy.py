@@ -33,6 +33,7 @@ from app.schemas.provenance import (  # D-10 single source of truth — DO NOT r
 )
 
 PolicyAction = Literal[
+    "chat.message.create",
     # ---- Mutation actions — strict-superset of ChangeEventAction (Phase 2 D-09) ----
     # Core resource mutations
     "entry.create",

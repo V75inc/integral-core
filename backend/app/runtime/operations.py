@@ -41,6 +41,7 @@ OPERATION_GROUPS = MappingProxyType(
         "channel_identity.delete": "records",
         "channel_identity.update": "records",
         "channel_identity.verify": "records",
+        "chat.message.create": "records",
         "chat_turn.cancel": "records",
         "comment.create": "records",
         "comment.delete": "records",

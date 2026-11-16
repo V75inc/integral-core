@@ -76,6 +76,7 @@ from pydantic import BaseModel
 from app.schemas.provenance import ActorKind  # D-10 shared Literal
 
 ChangeEventAction = Literal[
+    "chat.message.create",
     # Core resource mutations
     "entry.create",
     "entry.update",

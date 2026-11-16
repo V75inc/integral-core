@@ -388,8 +388,9 @@ async def test_missing_log_store_never_acknowledges_delivery(
     assert (await row(postgres_raw_db, oid))["context"]["status"] == "pending"
 
 
+@pytest.mark.parametrize("stalled_kind", ["event_hook", "signature_cleanup"])
 async def test_stalled_consumer_does_not_block_audit_delivery(
-    postgres_raw_db, tmp_path
+    postgres_raw_db, tmp_path, stalled_kind
 ):
     """A separate process keeps delivering audits while a callback is suspended."""
     import sys
@@ -408,6 +409,7 @@ acknowledgement_gate = Path(sys.argv[1])
 emit_change_event = change_event.emit_change_event
 async def persist_before_acknowledgement(**kwargs):
     result = await emit_change_event(**kwargs)
+    print("AUDIT_COMMITTED", flush=True)
     # Expose the committed-audit / pending-acknowledgement window deterministically.
     while not acknowledgement_gate.exists():
         await asyncio.sleep(0.01)
@@ -416,7 +418,14 @@ change_event.emit_change_event = persist_before_acknowledgement
 async def stalled(event):
     print("CONSUMER_BLOCKED", flush=True)
     await asyncio.Event().wait()
-register_consumer_hook(stalled)
+if sys.argv[2] == "signature_cleanup":
+    from app.services import signature_cleanup
+    async def stalled_cleanup():
+        print("CONSUMER_BLOCKED", flush=True)
+        await asyncio.Event().wait()
+    signature_cleanup.deliver_pending_signature_cleanup = stalled_cleanup
+else:
+    register_consumer_hook(stalled)
 asyncio.run(main())
 """
     process = await asyncio.create_subprocess_exec(
@@ -424,6 +433,7 @@ asyncio.run(main())
         "-c",
         script,
         str(acknowledgement_gate),
+        stalled_kind,
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -441,9 +451,14 @@ asyncio.run(main())
     try:
 
         async def blocked():
+            seen = set()
             while True:
                 line = await process.stdout.readline()
                 if b"CONSUMER_BLOCKED" in line:
+                    seen.add("consumer")
+                if b"AUDIT_COMMITTED" in line:
+                    seen.add("audit")
+                if seen == {"consumer", "audit"}:
                     return
                 if not line:
                     raise AssertionError("consumer process exited before delivery")
@@ -478,6 +493,65 @@ asyncio.run(main())
         try:
             await asyncio.wait_for(process.communicate(), 10)
         except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+        await maintenance.execute(f'DROP OWNED BY "{runtime_role}"')
+        await maintenance.execute(f'DROP ROLE "{runtime_role}"')
+        await maintenance.close()
+
+
+async def test_cli_worker_retires_committed_signature_file(
+    postgres_raw_db, tmp_path, monkeypatch
+):
+    """The actual restricted worker CLI retires a file without API startup."""
+    import sys
+
+    from jvspatial.storage import create_storage
+
+    from app.services import signature_cleanup
+    from app.services.attachment_storage import AttachmentStorageService
+
+    files = tmp_path / "signature-files"
+    store = AttachmentStorageService(
+        create_storage("local", root_dir=str(files), create_root=True)
+    )
+    monkeypatch.setattr(
+        signature_cleanup, "get_attachment_storage_service", lambda: store
+    )
+    user_id, attachment_id = (
+        "n.User.worker-fixture",
+        "n.Attachment.worker-retired-fixture",
+    )
+    key = store.build_storage_key(user_id, attachment_id, "signature.png")
+    path = files / key
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"private disposable signature fixture")
+    await signature_cleanup.retain_signature_cleanup(
+        user_id=user_id,
+        attachment_id=attachment_id,
+        filename="signature.png",
+        storage_key=key,
+    )
+    env, maintenance, runtime_role = await managed_worker_environment(postgres_raw_db)
+    env["JVSPATIAL_FILES_ROOT_PATH"] = str(files)
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import sys; from app.cli import main; assert main(['worker','events','--once']) == 0; assert 'app.main' not in sys.modules",
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), 120)
+        assert process.returncode == 0, stderr.decode()[-3000:]
+        assert not path.exists()
+        record = await postgres_raw_db.get(
+            "object", signature_cleanup._identity(user_id, attachment_id, key)
+        )
+        assert record["context"]["status"] == "delivered"
+    finally:
+        if process.returncode is None:
             process.kill()
             await process.communicate()
         await maintenance.execute(f'DROP OWNED BY "{runtime_role}"')

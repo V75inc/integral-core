@@ -3,22 +3,19 @@
 import asyncio
 import html
 import re
-import socket
-import threading
 import time
 from collections import OrderedDict
-from contextlib import contextmanager
 from typing import Any, Dict
 from urllib.parse import urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from fastapi import Request as FastAPIRequest
 from jvspatial.api import endpoint
 
 from app.api.errors import BadRequestError, MissingAuthenticationError
 from app.api.utils import resolve_principal_id
+from app.services.link_preview_transport import PublicHTTPHandler, PublicHTTPSHandler
 from app.services.url_safety import (
-    _is_disallowed_ip,
     validate_public_http_url,
     validate_public_http_url_sync,
 )
@@ -49,72 +46,11 @@ class _ValidatingRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_opener = build_opener(_ValidatingRedirectHandler)
-
-
-# Serializes the pinned section below. `socket.getaddrinfo` is process-global
-# and `_fetch_preview` runs under `asyncio.to_thread`, so without this two
-# concurrent previews would race: one request's pin would answer the other
-# request's lookups, and the `finally` restore of whichever finished first
-# would unpin the one still in flight. Serializing is acceptable here — the
-# endpoint is rate-limited and results are cached — and is much easier to
-# reason about than a per-thread override. Revisit only if link preview
-# becomes hot enough for the lock to matter.
-_DNS_PIN_LOCK = threading.Lock()
-
-
-@contextmanager
-def _pinned_dns(url: str):
-    """Pin hostname->IP for the duration of a fetch, closing the rebinding gap.
-
-    ``validate_public_http_url`` resolves the host to decide whether it is
-    public, then ``urlopen`` resolves it AGAIN when it connects. A hostile
-    resolver can answer with a public address for the first lookup and a
-    private one for the second (DNS rebinding), so the check and the connection
-    end up pointing at different places.
-
-    This resolves once, re-validates every address it got, and holds
-    ``socket.getaddrinfo`` to that answer for the request, so the socket
-    connects to an address that was actually checked.
-    """
-    host = (urlparse(url).hostname or "").lower()
-    if not host:
-        yield
-        return
-
-    real_getaddrinfo = socket.getaddrinfo
-    try:
-        pinned = real_getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    except OSError:
-        yield
-        return
-
-    # Re-check the exact addresses being pinned. The earlier validation
-    # resolved separately; this asserts the records we are about to force are
-    # themselves public, so pinning can never lock the fetch onto a private
-    # address that a racing resolver returned.
-    for _fam, _st, _pr, _canon, sa in pinned:
-        if sa and isinstance(sa[0], str) and _is_disallowed_ip(sa[0]):
-            raise BadRequestError(
-                message="Refusing to fetch: host resolves to a private address"
-            )
-
-    def _pinning_getaddrinfo(h, port, family=0, type=0, proto=0, flags=0):
-        if isinstance(h, str) and h.lower() == host:
-            # Re-emit the validated records with the caller's port/family.
-            return [
-                (fam, socktype, prot, canon, (sa[0], port) + tuple(sa[2:]))
-                for fam, socktype, prot, canon, sa in pinned
-                if not family or fam == family
-            ] or real_getaddrinfo(h, port, family, type, proto, flags)
-        return real_getaddrinfo(h, port, family, type, proto, flags)
-
-    with _DNS_PIN_LOCK:
-        socket.getaddrinfo = _pinning_getaddrinfo  # type: ignore[assignment]
-        try:
-            yield
-        finally:
-            socket.getaddrinfo = real_getaddrinfo  # type: ignore[assignment]
+# A proxy would resolve/connect outside the checked transport. This endpoint
+# deliberately connects directly, independent of environment proxy settings.
+_opener = build_opener(
+    ProxyHandler({}), PublicHTTPHandler, PublicHTTPSHandler, _ValidatingRedirectHandler
+)
 
 
 def _extract_meta(content: str, key: str, *, use_property: bool = True) -> str:
@@ -142,6 +78,7 @@ def _extract_title(content: str) -> str:
 
 
 def _fetch_preview(url: str) -> Dict[str, str]:
+    validate_public_http_url_sync(url)
     req = Request(
         url,
         headers={
@@ -149,7 +86,7 @@ def _fetch_preview(url: str) -> Dict[str, str]:
             "Accept": "text/html,application/xhtml+xml",
         },
     )
-    with _pinned_dns(url), _opener.open(req, timeout=4) as response:
+    with _opener.open(req, timeout=4) as response:
         content_type = str(response.headers.get("Content-Type") or "")
         if "text/html" not in content_type:
             return {

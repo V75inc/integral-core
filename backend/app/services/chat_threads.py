@@ -356,6 +356,21 @@ async def append_message(
             thread.prompt_queue = current.prompt_queue
     await thread.connect(message, edge=CONTAINS, added_at=now)
     await touch_last_message(thread)
+    # Capture only an invalidation fact, never transcript contents. An active
+    # graph transaction puts this in its outbox; rollback exposes no event.
+    from app.services.change_event import emit_change_event
+
+    await emit_change_event(
+        actor_kind="human" if role == "user" else "agent",
+        actor_id=thread.user_id,
+        action="chat.message.create",
+        resource_type="ChatThread",
+        resource_id=thread.id,
+        before=None,
+        after=None,
+        scope=f"user:{thread.user_id}",
+        details={"message_id": message.id},
+    )
     return message
 
 

@@ -55,12 +55,14 @@ async def initialise(*, ensure_indexes=True) -> None:
         from jvspatial.core.context import get_default_context
 
         from app.agentive import work_models
+        from app.models.user_signature_cleanup import UserSignatureCleanupFact
 
         for model in (
             work_models.WorkItem,
             work_models.WorkOutboxEntry,
             work_models.EventTriggerDeclaration,
             work_models.ChangeEventTriggerCheckpoint,
+            UserSignatureCleanupFact,
         ):
             await get_default_context().ensure_indexes(model)
         await db.create_index(
@@ -186,6 +188,7 @@ async def run(*, once=False) -> None:
         deliver_pending_operation_events,
     )
     from app.services.app_operations.transaction_scope import postgres_graph_transaction
+    from app.services.signature_cleanup import deliver_pending_signature_cleanup
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -217,6 +220,13 @@ async def run(*, once=False) -> None:
             consumers.append(
                 asyncio.create_task(_consumer_loop(partial(_consume_hook, hook), stop))
             )
+    if not once:
+        consumers.append(
+            asyncio.create_task(
+                _consumer_loop(deliver_pending_signature_cleanup, stop),
+                name="signature-file-cleanup",
+            )
+        )
     try:
         while not stop.is_set():
             if managed() and not state()["ready"]:
@@ -253,6 +263,7 @@ async def run(*, once=False) -> None:
                     )
                 if once:
                     await consume_registered_hooks()
+                    await deliver_pending_signature_cleanup()
             except Exception:
                 logger.warning("Event worker pass failed; retrying", exc_info=False)
                 if once:
