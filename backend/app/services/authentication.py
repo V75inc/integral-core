@@ -11,9 +11,10 @@ from __future__ import annotations
 import asyncio
 import copy
 import weakref
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
+from typing import Any, AsyncIterator
 from weakref import WeakValueDictionary
 
 from jvspatial.api.auth.models import RefreshToken, TokenBlacklist
@@ -32,6 +33,65 @@ _OBSERVED_TYPES = (AuthUser, RefreshToken)
 _USER_GUARDS = ("is_active", "email", "password_hash", "roles", "permissions")
 _TOKEN_GUARDS = ("is_active", "token_hash", "token_lookup", "user_id", "expires_at")
 _token_validation_touch = ContextVar("integral_token_validation_touch", default=False)
+_account_creation_held: ContextVar[tuple | None] = ContextVar(
+    "integral_account_creation_held", default=None
+)
+_ACCOUNT_CREATION_LOCK_TIMEOUT_SECONDS = 30
+
+
+@asynccontextmanager
+async def account_creation_scope(database: Any) -> AsyncIterator[Any]:
+    """Serialize cooperating account creators and their bootstrap graph effects.
+
+    PostgreSQL uses the pinned framework's transaction/advisory-lock facility.
+    Development stores retain a reentrant, process-local lock only; it is not a
+    distributed identity guarantee. No account is selected, merged or granted
+    permissions by this scope.
+    """
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
+    if graph_transaction_available(database):
+        async with postgres_graph_transaction(database) as transaction:
+            try:
+                async with asyncio.timeout(_ACCOUNT_CREATION_LOCK_TIMEOUT_SECONDS):
+                    await transaction.advisory_lock(
+                        "integral:account-creation", "accounts"
+                    )
+            except TimeoutError as exc:
+                raise AuthorizationUnavailableError() from exc
+            yield transaction
+        return
+    concrete = database
+    seen: set[int] = set()
+    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
+        seen.add(id(concrete))
+        concrete = concrete.inner
+    key = (
+        "account-creation",
+        str(getattr(concrete, "base_path", id(concrete))),
+        id(asyncio.get_running_loop()),
+    )
+    owner = (asyncio.current_task(), key)
+    if _account_creation_held.get() == owner:
+        yield database
+        return
+    lock = _local_identity_locks.setdefault(key, asyncio.Lock())
+    try:
+        async with asyncio.timeout(_ACCOUNT_CREATION_LOCK_TIMEOUT_SECONDS):
+            await lock.acquire()
+    except TimeoutError as exc:
+        raise AuthorizationUnavailableError() from exc
+    try:
+        token = _account_creation_held.set(owner)
+        try:
+            yield database
+        finally:
+            _account_creation_held.reset(token)
+    finally:
+        lock.release()
 
 
 def _recent_activity_touch(row: dict, proposed: dict) -> bool:
@@ -308,19 +368,51 @@ class IntegralAuthenticationService(AuthenticationService):
         from app.runtime.composition import require_capability
 
         require_capability("identity_admission")
-        return await super().register_user(user_data)
+        async with account_creation_scope(self.context.database) as database:
+            service = copy.copy(self)
+            service.context = AuthenticationContext(database)
+            return await AuthenticationService.register_user(service, user_data)
 
     async def create_user_with_roles(self, user_data: Any) -> Any:
         from app.runtime.composition import require_capability
 
         require_capability("identity_admission")
-        return await super().create_user_with_roles(user_data)
+        async with account_creation_scope(self.context.database) as database:
+            service = copy.copy(self)
+            service.context = AuthenticationContext(database)
+            return await AuthenticationService.create_user_with_roles(
+                service, user_data
+            )
 
     async def bootstrap_admin(self, email: str, password: str, name: str = "") -> Any:
         from app.runtime.composition import require_capability
 
         require_capability("identity_admission")
-        return await super().bootstrap_admin(email, password, name)
+        async with account_creation_scope(self.context.database) as database:
+            service = copy.copy(self)
+            service.context = AuthenticationContext(database)
+            return await AuthenticationService.bootstrap_admin(
+                service, email, password, name
+            )
+
+    async def _find_user_by_email(self, email: str) -> AuthUser | None:
+        # The framework's first-match lookup can select a different identity
+        # after restart when a legacy store contains duplicate mailbox rows.
+        await self.context.ensure_indexes(AuthUser)
+        collection, query = await AuthUser._build_database_query(
+            self.context, {"context.email": email}, {}
+        )
+        rows = await self.context.database.find(collection, query, limit=2)
+        if len(rows) > 1:
+            raise AuthenticationStateConflict(
+                "Ambiguous account email; operator recovery required"
+            )
+        if not rows:
+            return None
+        user = await self.context._deserialize_entity(AuthUser, rows[0])
+        if user is None:
+            raise AuthorizationUnavailableError()
+        return user
 
     async def _is_token_blacklisted_by_jti(self, token_id: str) -> bool:
         # Presence remains authoritative even if optional audit/expiry metadata
@@ -375,7 +467,11 @@ class IntegralAuthenticationService(AuthenticationService):
         from app.runtime.composition import require_capability
 
         require_capability("identity_admission")
-        response = await super().login_user(login_data, **kwargs)
+        try:
+            response = await super().login_user(login_data, **kwargs)
+        except AuthenticationStateConflict as exc:
+            # Do not expose duplicate-account diagnostics through public login.
+            raise AuthenticationStateConflict("Invalid email or password") from exc
         current = await self._get_user_by_id(response.user.id)
         if current is None or not current.is_active:
             raise AuthenticationStateConflict("Invalid email or password")

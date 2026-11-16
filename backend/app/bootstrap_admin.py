@@ -16,7 +16,17 @@ from typing import Optional
 from jvspatial.api.auth.models import User as AuthUser
 
 from app.config import settings
-from app.models.nodes import User
+from app.models.nodes import (
+    USERS_REGISTRY_ID,
+    WORKSPACES_REGISTRY_ID,
+    User,
+    Users,
+    Workspaces,
+)
+from app.services.authentication import (
+    AuthenticationStateConflict,
+    account_creation_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +66,30 @@ def _is_transient_db_error(exc: BaseException) -> bool:
 
 async def _ensure_graph_profile(auth_user_id: str, display_name: str) -> User:
     """Create or return the graph User linked to an AuthUser id."""
-    matches = await User.find({"context.user_id": auth_user_id})
+    from jvspatial.core.context import get_default_context
+
+    matches = await get_default_context().database.find(
+        "node",
+        {
+            "entity": User._entity_name(),
+            "$or": [
+                {"context.user_id": auth_user_id},
+                {"user_id": auth_user_id},
+            ],
+        },
+        limit=2,
+    )
+    if len(matches) > 1:
+        raise AuthenticationStateConflict(
+            "Ambiguous bootstrap graph profile; operator recovery required"
+        )
     if matches:
-        return matches[0]
+        profile = await User.find_one({"id": matches[0]["id"]})
+        if profile is None or profile.user_id != auth_user_id:
+            raise AuthenticationStateConflict(
+                "Invalid bootstrap graph profile; operator recovery required"
+            )
+        return profile
 
     user_node = await User.create(
         user_id=auth_user_id,
@@ -85,8 +116,17 @@ async def _promote_auth_user_to_admin(auth_user: AuthUser, auth_service) -> None
 
 
 async def _bootstrap_admin_once() -> None:
+    from jvspatial.core.context import get_default_context
+
+    # Account creation, rooted profile and workspace share the same lock and
+    # commit. A second serving process must not observe a half-built identity.
+    async with account_creation_scope(get_default_context().database):
+        await _bootstrap_admin_locked()
+
+
+async def _bootstrap_admin_locked() -> None:
     from app.api.auth import _get_auth_service
-    from app.services.app_graph import catalog_user
+    from app.services.app_graph import catalog_user, catalog_workspace
     from app.services.personal_workspace import ensure_personal_workspace
 
     email = (settings.ADMIN_EMAIL or "").strip()
@@ -96,7 +136,27 @@ async def _bootstrap_admin_once() -> None:
     auth_service = _get_auth_service()
     existing = await auth_service._find_user_by_email(email)
 
+    # Existing accounts retain their credential even when the configured
+    # bootstrap password is short. A new account must pass before any writes.
+    if existing is None and len(password) < 12:
+        raise ValueError(
+            "ADMIN_PASSWORD must be at least 12 characters; "
+            "admin bootstrap cannot complete"
+        )
+    # Graph initialization can have failed before this startup stage. Catalog
+    # helpers intentionally skip missing registries; bootstrap cannot report a
+    # complete identity after silently creating floating profile/workspace Nodes.
+    if (
+        await Users.find_one({"id": USERS_REGISTRY_ID}) is None
+        or await Workspaces.find_one({"id": WORKSPACES_REGISTRY_ID}) is None
+    ):
+        raise RuntimeError("Admin bootstrap graph registries are unavailable")
+
     if existing:
+        if not existing.is_active:
+            raise AuthenticationStateConflict(
+                "Bootstrap account is inactive; operator recovery required"
+            )
         await _promote_auth_user_to_admin(existing, auth_service)
         auth_user_id = existing.id
         logger.info(
@@ -105,14 +165,6 @@ async def _bootstrap_admin_once() -> None:
             auth_user_id,
         )
     else:
-        # Length gate only when minting a new account — an existing admin
-        # keeps its stored hash, and a short ADMIN_PASSWORD in .env must not
-        # abort the rest of startup (resident harness, chat, …).
-        if len(password) < 12:
-            raise ValueError(
-                "ADMIN_PASSWORD must be at least 12 characters; "
-                "admin bootstrap cannot complete"
-            )
         created = await auth_service.bootstrap_admin(email, password, display_name)
         if created is None:
             logger.info(
@@ -127,7 +179,10 @@ async def _bootstrap_admin_once() -> None:
     user_node = await _ensure_graph_profile(auth_user_id, display_name)
 
     await catalog_user(user_node)
-    await ensure_personal_workspace(user_node)
+    workspace = await ensure_personal_workspace(user_node)
+    # The general lazy helper logs catalog failures; startup must propagate
+    # them so the complete bootstrap is rolled back instead of reporting ready.
+    await catalog_workspace(workspace)
 
 
 async def bootstrap_admin_if_needed() -> None:

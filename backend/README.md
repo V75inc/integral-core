@@ -50,6 +50,12 @@ hashing. These parsing limits do not grant package publication authority.
 
 Metadata pins jvspatial 0.2.10 and pydantic-ai-harness 0.59.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
 
+PostgreSQL account creation and admin/profile/workspace bootstrap serialize
+across serving processes and commit together. Ambiguous legacy account emails
+or bootstrap profiles require an explicit, data-preserving operator review;
+startup never selects or deletes a duplicate. See the
+[concurrent-bootstrap recovery procedure](../docs/ops/DEPLOY.md#concurrent-account-bootstrap-and-existing-duplicates).
+
 PostgreSQL token validation coalesces the advisory `last_accessed` timestamp
 within one minute. It still locks and checks the current identity row on every
 validation, rereads current account authority and checks token revocation. A
