@@ -6,6 +6,22 @@ The product chat API discovers providers and their agents, creates scoped thread
 
 Core derives principal, workspace, binding, and route authority. ChatThread and ChatMessage are product records; HarnessSession is rooted beneath its thread. Provider session handles cannot choose tenancy. Current access is checked for subsequent tools and resumed work.
 
+Full transcript and revision-aware reads require both thread ownership and
+current access to the conversation's canonical workspace, for every provider.
+A matching revision never bypasses that admission. Reads recheck authority
+before releasing captured history; a membership revocation during capture
+withholds the response. PostgreSQL uses the shared release-admission fence;
+local stores recheck current access without claiming distributed ordering.
+Revocation denies access without deleting history, so restored membership can
+read the unchanged conversation. A supplied conflicting workspace is refused.
+Location is the unique named graph path
+`Workspace —CONTAINS→ ChatThreads —CATALOGS→ ChatThread`; present workspace
+caches must agree. A request header cannot relocate retained history.
+Unstamped rows recover their existing graph location without rewriting caches.
+Missing, ambiguous or conflicting location withholds the read. Any genuinely
+older ownership-only topology needs a reviewed, backed-up migration; a read
+never reattaches or silently assigns it to the caller's personal workspace.
+
 One thread's active binding and session generation determine continuation. Changing a binding preserves historical sessions but cannot silently execute under a mismatched scope. The product transcript remains distinct from private model history, traces, checkpoints, and effect receipts.
 
 ## Scheduled reports and literal reminders

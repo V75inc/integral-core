@@ -457,6 +457,9 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
     from app.models.nodes import ChatThread
     from app.schemas.agentive.work import ChatTurnSubmissionReceipt
 
+    # Initialize captured dependency aliases before replacing the shared store.
+    from app.services import chat_turn_submissions
+
     workspace_id, thread_id = await _owned_native_thread(authenticated_client)
     thread = await ChatThread.get(thread_id)
     thread.provider_id = "integral_native"
@@ -485,7 +488,7 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
             status="queued",
         )
     )
-    monkeypatch.setattr("app.services.chat_turn_submissions.submit_chat_turn", submit)
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
 
     async def saved_stream(*_args):
         return StreamingResponse(
