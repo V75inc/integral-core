@@ -531,12 +531,19 @@ async def _resolve_turn_workspace(
       the header-driven resolution.
     """
     from app.services.request_scope import resolve_workspace_id_from_request
-    from app.services.scope_header import parse_scope_header
-    from app.services.workspace_permissions import user_in_workspace_member_pool
 
     thread_ws = str(getattr(thread, "workspace_id", "") or "").strip()
     if not thread_ws:
         return await resolve_workspace_id_from_request(request, user_id)
+    return await _validate_chat_workspace(request, user_id, thread.id, thread_ws)
+
+
+async def _validate_chat_workspace(
+    request: Request, user_id: str, thread_id: str, thread_ws: str
+) -> str:
+    """Validate the supplied header and current membership for a proven scope."""
+    from app.services.scope_header import parse_scope_header
+    from app.services.workspace_permissions import user_in_workspace_member_pool
 
     header_scope = parse_scope_header(request.headers.get("X-Integral-Scope"))
     header_ws = (
@@ -549,7 +556,7 @@ async def _resolve_turn_workspace(
                 "one selected. Switch workspaces to continue it."
             ),
             details={
-                "thread_id": thread.id,
+                "thread_id": thread_id,
                 "thread_workspace_id": thread_ws,
                 "requested_workspace_id": header_ws,
                 "reason": "thread.workspace_mismatch",
@@ -564,7 +571,7 @@ async def _resolve_turn_workspace(
     if not await user_in_workspace_member_pool(user_id, thread_ws):
         raise InsufficientPermissionsError(
             message="You no longer have access to this conversation's workspace",
-            details={"thread_id": thread.id, "workspace_id": thread_ws},
+            details={"thread_id": thread_id, "workspace_id": thread_ws},
         )
     return thread_ws
 
@@ -1311,13 +1318,28 @@ async def create_thread(
     return chat_store.thread_to_dict(thread, message_count=0)
 
 
-async def _chat_continuation_workspace(request: Request, thread: Any) -> str | None:
-    if thread.provider_id != "integral_native" or not thread.workspace_id:
-        return None
-    try:
-        return await _resolve_turn_workspace(request, thread.user_id, thread)
-    except (InsufficientPermissionsError, ResourceConflictError):
-        return None
+async def _admit_chat_history_read(
+    request: Request, user_id: str, thread_id: str, workspace_id: str
+) -> str:
+    """Recheck current authority before releasing a captured response."""
+    from app.services.chat_history_authority import chat_history_workspace
+    from app.services.release_admission import release_admission
+    from app.services.workspace_permissions import can_access_workspace
+
+    async with release_admission(user_id, workspace_id):
+        # Legacy request-scope resolution may be memoized; it cannot authorize
+        # release, including on local adapters without distributed fences.
+        if await can_access_workspace(user_id, workspace_id) == "none":
+            raise InsufficientPermissionsError(message="Workspace access revoked")
+        current = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+        current_workspace = await chat_history_workspace(user_id, thread_id)
+        if current_workspace != workspace_id:
+            raise InsufficientPermissionsError(
+                message="Conversation workspace changed during the read"
+            )
+        await _validate_chat_workspace(request, user_id, thread_id, current_workspace)
+        # Never return a graph entity tied to the short admission transaction.
+        return str(current.updated_at or "")
 
 
 @endpoint("/chat/threads/{thread_id}", methods=["GET"], auth=True, tags=["AI Chat"])
@@ -1325,24 +1347,33 @@ async def get_thread(
     request: Request, thread_id: str, known_revision: Optional[str] = None
 ) -> Dict[str, Any]:
     """Return one thread + full transcript for the caller."""
+    from app.services.chat_history_authority import chat_history_workspace
     from app.services.chat_turn_streaming import find_parked_chat_stream_id
     from app.services.chat_turn_transcript import project_chat_approval_receipts
 
     user_id, _ = _resolve_principal(request)
-    thread = await _resolve_owned_thread(
-        thread_id,
-        user_id,
-        fresh=known_revision is not None
-        or settings.INTEGRAL_NATIVE_DEFERRED_APPROVALS_ENABLED,
+    # Ownership alone does not retain access to workspace-bound history.
+    # Full/remount and revision reads must use the same current authority.
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    workspace_id = await chat_history_workspace(user_id, thread_id)
+    workspace_id = await _validate_chat_workspace(
+        request, user_id, thread_id, workspace_id
     )
-    if known_revision is not None:
-        workspace_id = await _resolve_turn_workspace(request, user_id, thread)
-        if not workspace_id:
-            raise ResourceNotFoundError(message="Thread not found")
-        if known_revision and known_revision == thread.updated_at:
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Thread not found")
+    admission_workspace_id = workspace_id
+    if known_revision and known_revision == thread.updated_at:
+        current_revision = await _admit_chat_history_read(
+            request, user_id, thread_id, admission_workspace_id
+        )
+        if known_revision == current_revision:
             return {"unchanged": True}
-    else:
-        workspace_id = await _chat_continuation_workspace(request, thread)
+        thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    # Approval continuation remains a native, workspace-stamped contract.
+    if known_revision is None and (
+        thread.provider_id != "integral_native" or not thread.workspace_id
+    ):
+        workspace_id = None
     parked_work_item_id = None
     if (
         workspace_id
@@ -1364,11 +1395,13 @@ async def get_thread(
         messages = await project_chat_approval_receipts(
             thread=thread, messages=messages
         )
-    return {
+    response = {
         **chat_store.thread_to_dict(thread, message_count=len(messages)),
         **({"parked_work_item_id": parked_work_item_id} if parked_work_item_id else {}),
         "messages": messages,
     }
+    await _admit_chat_history_read(request, user_id, thread_id, admission_workspace_id)
+    return response
 
 
 @endpoint(

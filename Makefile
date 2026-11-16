@@ -212,7 +212,7 @@ test-postgres-ci:
 	@cd backend && $(POSTGRES_TEST_ENV) $(PY) -m pytest -q --tb=short \
 		$(POSTGRES_TEST_ARGS) --junitxml="$(TEST_REPORT_DIR)/postgres-authority.xml" \
 		tests/test_credentials_delivery.py tests/test_authentication_current_state.py tests/test_member_provision_authority.py \
-		tests/test_chat_committed_delivery.py tests/test_user_signature_recovery.py \
+		tests/test_chat_committed_delivery.py tests/test_user_signature_recovery.py tests/test_chat_history_authority.py \
 		tests/test_mailbox_verification.py tests/test_member_provision_verified_mailbox.py \
 		tests/test_public_submission_capability.py tests/test_public_submission_capability_routes.py \
 		tests/test_verified_mailbox_activation_retry.py tests/test_password_reset.py \

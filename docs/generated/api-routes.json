@@ -1320,7 +1320,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_providers",
-    "line": 1055
+    "line": 1062
   },
   {
     "path": "/chat/providers/{provider_id}/agents",
@@ -1329,7 +1329,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_provider_agents",
-    "line": 1141
+    "line": 1148
   },
   {
     "path": "/chat/runs/{run_id}/qualification-export",
@@ -1338,7 +1338,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "export_qualification_run",
-    "line": 1067
+    "line": 1074
   },
   {
     "path": "/chat/threads",
@@ -1347,7 +1347,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_threads",
-    "line": 1166
+    "line": 1173
   },
   {
     "path": "/chat/threads",
@@ -1356,7 +1356,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "create_thread",
-    "line": 1270
+    "line": 1277
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1365,7 +1365,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "delete_thread",
-    "line": 1649
+    "line": 1682
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1374,7 +1374,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "get_thread",
-    "line": 1324
+    "line": 1346
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1383,7 +1383,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "rename_thread",
-    "line": 1634
+    "line": 1667
   },
   {
     "path": "/chat/threads/{thread_id}/activity",
@@ -1392,7 +1392,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "thread_activity",
-    "line": 1377
+    "line": 1410
   },
   {
     "path": "/chat/threads/{thread_id}/agent-turn",
@@ -1401,7 +1401,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "agent_turn",
-    "line": 3413
+    "line": 3446
   },
   {
     "path": "/chat/threads/{thread_id}/artifacts/{key}/download",
@@ -1410,7 +1410,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "download_document_draft",
-    "line": 1581
+    "line": 1614
   },
   {
     "path": "/chat/threads/{thread_id}/artifacts/{key}/preview",
@@ -1419,7 +1419,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "preview_document_draft",
-    "line": 1539
+    "line": 1572
   },
   {
     "path": "/chat/threads/{thread_id}/attachments/{attachment_id}/review",
@@ -1428,7 +1428,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "review_chat_attachment",
-    "line": 1499
+    "line": 1532
   },
   {
     "path": "/chat/threads/{thread_id}/cancel",
@@ -1437,7 +1437,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "cancel_thread",
-    "line": 3687
+    "line": 3720
   },
   {
     "path": "/chat/threads/{thread_id}/follow-ups",
@@ -1446,7 +1446,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "get_thread_follow_ups",
-    "line": 1423
+    "line": 1456
   },
   {
     "path": "/chat/threads/{thread_id}/follow-ups",
@@ -1455,7 +1455,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "post_thread_follow_up",
-    "line": 1441
+    "line": 1474
   },
   {
     "path": "/chat/threads/{thread_id}/follow-ups/resume",
@@ -1464,7 +1464,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "resume_thread_follow_ups",
-    "line": 1464
+    "line": 1497
   },
   {
     "path": "/chat/threads/{thread_id}/follow-ups/{client_request_id}",
@@ -1473,7 +1473,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "delete_thread_follow_up",
-    "line": 1478
+    "line": 1511
   },
   {
     "path": "/chat/threads/{thread_id}/harness-sessions/{session_id}/export",
@@ -1482,7 +1482,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "export_harness_session_for_thread",
-    "line": 1099
+    "line": 1106
   },
   {
     "path": "/chat/threads/{thread_id}/mandate-reviews",
@@ -1491,7 +1491,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_chat_mandate_reviews",
-    "line": 613
+    "line": 620
   },
   {
     "path": "/chat/threads/{thread_id}/mandate-reviews",
@@ -1500,7 +1500,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "propose_chat_mandate_review",
-    "line": 643
+    "line": 650
   },
   {
     "path": "/chat/threads/{thread_id}/mandate-reviews/entry-read",
@@ -1509,7 +1509,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "propose_chat_entry_read_mandate",
-    "line": 656
+    "line": 663
   },
   {
     "path": "/chat/threads/{thread_id}/messages",
@@ -1518,7 +1518,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "send_message",
-    "line": 2414
+    "line": 2447
   },
   {
     "path": "/chat/threads/{thread_id}/system-message",
@@ -1527,7 +1527,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "append_system_message",
-    "line": 3738
+    "line": 3771
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/cancel",
@@ -1536,7 +1536,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "cancel_chat_turn",
-    "line": 985
+    "line": 992
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/events",
@@ -1545,7 +1545,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "replay_chat_turn_events",
-    "line": 895
+    "line": 902
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review",
@@ -1554,7 +1554,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "get_chat_mandate_review",
-    "line": 737
+    "line": 744
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/approve",
@@ -1563,7 +1563,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "approve_chat_mandate_review",
-    "line": 786
+    "line": 793
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/reject",
@@ -1572,7 +1572,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "reject_chat_mandate_review",
-    "line": 771
+    "line": 778
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/run",
@@ -1581,7 +1581,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "run_chat_mandate_review",
-    "line": 801
+    "line": 808
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/mandate-review/stop",
@@ -1590,7 +1590,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "stop_chat_mandate_review",
-    "line": 814
+    "line": 821
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/stream",
@@ -1599,7 +1599,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "stream_chat_turn_events",
-    "line": 938
+    "line": 945
   },
   {
     "path": "/users/me/ai-configuration",
