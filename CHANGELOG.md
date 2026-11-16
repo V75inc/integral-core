@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc64 — 2026-11-16
+
 - Require current canonical-workspace access for full and revision-aware transcript reads, including unstamped rows and final admission before release; retain conversations through revocation and restored membership without rewriting their location.
 
 - Preserve the previous saved signature until replacement storage and graph writes succeed; serialize replacements and retire old files only from committed cleanup facts.

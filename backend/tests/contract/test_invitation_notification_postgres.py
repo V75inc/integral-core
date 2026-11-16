@@ -17,7 +17,7 @@ from app.services.grant_history import read_grant_history
 from app.services.invitation_grants import _current_grant
 from tests.contract.test_invitation_lifecycle_postgres import resource_invitation
 
-pytestmark = pytest.mark.contract
+pytestmark = [pytest.mark.contract, pytest.mark.postgres]
 
 
 async def delivery():
