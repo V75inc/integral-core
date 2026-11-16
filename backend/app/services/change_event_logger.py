@@ -458,30 +458,14 @@ class ChangeEventLogger:
             page_limit = min(max(1, limit), 200)
             if workspace_id:
                 rows = []
-                # Oldest-first reads (the /api/events feed) use plain equality:
-                # the translator then emits the JSONB equality that leads the
-                # ascending (log_level, workspace_id, logged_at, id) index, so a
-                # page is an index range read. The one-item ``$in`` emits only
-                # the text form, and Postgres sorted every event in the
-                # workspace for each oldest-first page (about 2.4 s on 434k
-                # events). Newest-first keeps ``$in``: it is already an index
-                # walk (about 13 ms) and its tied-continuation plan is gated by
-                # tests/contract/test_event_history_load_postgres.py.
-                attributed: Any = (
-                    {"$in": [workspace_id]} if descending else workspace_id
-                )
+                # Both directions use scalar equality so the native JSONB
+                # ordering index can satisfy the fixed workspace prefix.
+                attributed: Any = workspace_id
                 for attribution in (
                     {"context.log_data.workspace_id": attributed},
                     {"context.log_data.workspace_id": {"$exists": False}},
                 ):
                     stream_query = dict(clauses[0])
-                    marker = attribution["context.log_data.workspace_id"]
-                    if isinstance(marker, dict) and "$in" in marker:
-                        # Singleton membership avoids redundant text/JSONB
-                        # equality predicates in the native query translator.
-                        stream_query["context.log_level"] = {
-                            "$in": [CHANGE_EVENT_LOG_LEVEL]
-                        }
                     rows.extend(
                         await ctx.database.find(
                             "object",

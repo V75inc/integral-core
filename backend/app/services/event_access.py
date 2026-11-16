@@ -92,6 +92,7 @@ async def prepare_event_payload(
     include_snapshots: bool = True,
 ) -> dict[str, Any] | None:
     """Authorize and project one recipient's payload in the same admission."""
+    from app.api.errors import InsufficientPermissionsError
     from app.services.app_operations.transaction_scope import (
         graph_transaction_available,
     )
@@ -102,71 +103,84 @@ async def prepare_event_payload(
     workspace_id = await event_release_workspace(event)
     if native and workspace_id is None and not event.scope.startswith("user:"):
         return None
-    async with release_admission(user_id, workspace_id):
-        if (
-            native
-            and workspace_id is not None
-            and (await event_release_workspace(event) != workspace_id)
-        ):
-            return None
-        if not await _can_release_event_current(
-            user_id, event, action=action, evaluate=evaluate
-        ):
-            return None
-        payload = event.to_wire_flat() if flat else event.to_wire()
-        if str(event.resource_type).casefold() == "notification":
-            # The event is an invalidation signal, not permission to replay
-            # arbitrary historical notification content or embedded resource IDs.
-            notification = await _notification_audience(user_id, event)
-            if notification is None:
+    try:
+        async with release_admission(user_id, workspace_id):
+            if (
+                native
+                and workspace_id is not None
+                and (await event_release_workspace(event) != workspace_id)
+            ):
                 return None
-            payload.update(before=None, details=None, after=None)
-            if include_snapshots:
-                payload["after"] = {
-                    "id": notification.id,
-                    "type": notification.type,
-                    "read": notification.read,
-                }
-                metadata = (notification.metadata or {}).get("payload")
-                entry_id = (
-                    metadata.get("entry_id") if isinstance(metadata, dict) else None
-                )
-                if notification.type == "mention" and isinstance(entry_id, str):
-                    from app.services.authorization_scope import authorization_scope
-                    from app.services.resource_location import locate_resource
+            if not await _can_release_event_current(
+                user_id, event, action=action, evaluate=evaluate
+            ):
+                return None
+            payload = event.to_wire_flat() if flat else event.to_wire()
+            if str(event.resource_type).casefold() == "notification":
+                # The event is an invalidation signal, not permission to replay
+                # arbitrary historical notification content or embedded resource IDs.
+                notification = await _notification_audience(user_id, event)
+                if notification is None:
+                    return None
+                payload.update(before=None, details=None, after=None)
+                if include_snapshots:
+                    payload["after"] = {
+                        "id": notification.id,
+                        "type": notification.type,
+                        "read": notification.read,
+                    }
+                    metadata = (notification.metadata or {}).get("payload")
+                    entry_id = (
+                        metadata.get("entry_id") if isinstance(metadata, dict) else None
+                    )
+                    if notification.type == "mention" and isinstance(entry_id, str):
+                        from app.services.authorization_scope import authorization_scope
+                        from app.services.resource_location import locate_resource
 
-                    location = await locate_resource("entry", entry_id)
-                    if location is not None:
-                        # The account notification may outlive resource access.
-                        # Order this optional reference with workspace revocations
-                        # inside the already-open identity/graph admission. A
-                        # denied read is data, not a nested transaction failure.
-                        guard = (
-                            authorization_scope(location.workspace_id)
-                            if native
-                            else nullcontext()
-                        )
-                        async with guard:
-                            current = await locate_resource("entry", entry_id)
-                            decision = await evaluate(
-                                subject=Subject(kind="human", id=user_id),
-                                action="entry.read",
-                                resource=Resource(
-                                    kind="entry", id=entry_id, scope=f"entry:{entry_id}"
-                                ),
-                                _dry_run=True,
+                        location = await locate_resource("entry", entry_id)
+                        if location is not None:
+                            # The account notification may outlive resource access.
+                            # Order this optional reference with workspace revocations
+                            # inside the already-open identity/graph admission. A
+                            # denied read is data, not a nested transaction failure.
+                            guard = (
+                                authorization_scope(location.workspace_id)
+                                if native
+                                else nullcontext()
                             )
-                            if current == location and decision.allowed:
-                                payload["after"]["entry_id"] = entry_id
-            return payload
-        if include_snapshots:
-            payload = await project_event_snapshots(
-                user_id, event, payload, evaluate=evaluate, workspace_id=workspace_id
-            )
-        else:
-            for key in ("before", "after", "details"):
-                payload[key] = None
-        return scrub_event_credentials(payload)
+                            async with guard:
+                                current = await locate_resource("entry", entry_id)
+                                decision = await evaluate(
+                                    subject=Subject(kind="human", id=user_id),
+                                    action="entry.read",
+                                    resource=Resource(
+                                        kind="entry",
+                                        id=entry_id,
+                                        scope=f"entry:{entry_id}",
+                                    ),
+                                    _dry_run=True,
+                                )
+                                if current == location and decision.allowed:
+                                    payload["after"]["entry_id"] = entry_id
+                return payload
+            if include_snapshots:
+                payload = await project_event_snapshots(
+                    user_id,
+                    event,
+                    payload,
+                    evaluate=evaluate,
+                    workspace_id=workspace_id,
+                )
+            else:
+                for key in ("before", "after", "details"):
+                    payload[key] = None
+            return scrub_event_credentials(payload)
+
+    except InsufficientPermissionsError:
+        # A current explicit denial withholds this event. Catch outside the
+        # admission so its transaction and authority locks unwind first. Store
+        # failures and unavailable authority still propagate to the transport.
+        return None
 
 
 async def _can_release_event_current(

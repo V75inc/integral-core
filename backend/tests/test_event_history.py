@@ -137,9 +137,9 @@ async def test_logger_pushes_keyset_sort_and_limit_into_store(monkeypatch):
         ]
     }
     assert db.find.await_count == 2
-    # Newest first keeps the one-item ``$in`` (its continuation plan is gated).
+    # Both directions retain equality compatible with native ordering indexes.
     assert db.find.await_args_list[0].args[1]["$and"][1] == {
-        "context.log_data.workspace_id": {"$in": ["bound"]}
+        "context.log_data.workspace_id": "bound"
     }
     assert db.find.await_args_list[1].args[1]["$and"][1] == {
         "context.log_data.workspace_id": {"$exists": False}

@@ -92,3 +92,30 @@ async def test_overflow_disconnects_even_before_sender_starts(monkeypatch):
         socket.close.assert_awaited()
     finally:
         await registry.unregister_subscription("overflow", socket)
+
+
+async def test_unavailable_authority_still_disconnects_without_releasing_data(
+    monkeypatch,
+):
+    from app.exceptions import AuthorizationUnavailableError
+
+    closed = asyncio.Event()
+
+    async def close(**kwargs):
+        assert kwargs["code"] == 1013
+        closed.set()
+
+    socket = type("Socket", (), {})()
+    socket.send_text, socket.close = AsyncMock(), close
+    monkeypatch.setattr(
+        registry,
+        "prepare_event_payload",
+        AsyncMock(side_effect=AuthorizationUnavailableError()),
+    )
+    await registry.register_subscription("unavailable", socket)
+    try:
+        registry.queue_change_event(event())
+        await asyncio.wait_for(closed.wait(), 1)
+        socket.send_text.assert_not_awaited()
+    finally:
+        await registry.unregister_subscription("unavailable", socket)

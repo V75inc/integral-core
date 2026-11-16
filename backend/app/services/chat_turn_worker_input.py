@@ -80,8 +80,11 @@ async def load_claimed_chat_turn_input(
     ):
         raise WorkError("work.policy_denied", "chat turn input scope mismatch")
 
-    thread = await ChatThread.get(thread_id)
-    message = await ChatMessage.get(accepted_message_id)
+    # A serving process may have cached these Nodes before another process
+    # accepted the turn. Admission must read current primary rows; stale
+    # cached scope or content cannot authorize (or falsely refuse) execution.
+    thread = await ChatThread.find_one({"id": thread_id})
+    message = await ChatMessage.find_one({"id": accepted_message_id})
     from app.services.permissions import get_user_node
 
     # HTTP principals use AuthUser IDs; resolve their linked graph User using

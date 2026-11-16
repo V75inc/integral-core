@@ -74,7 +74,8 @@ export function useChangeEventInvalidation(): void {
         const previousCursor = pollCursorRef.current;
         const page = await fetchEventsPage({
           since: pollCursorRef.current,
-          scope: `user:${principalId}`,
+          // The authenticated scope header selects the workspace. A user:
+          // filter would exclude App/Track events that the socket missed.
           limit: 50,
         });
         if (generation !== generationRef.current) return;
