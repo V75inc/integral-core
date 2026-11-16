@@ -189,3 +189,16 @@ and receives no additional session startup option.
 ## Event worker
 
 Run `integral worker events` beside the API to deliver durable audit facts. See [the worker contract](../docs/backend/event-worker.md) for configuration, recovery and performance qualification.
+
+### Link preview outbound connections
+
+The authenticated link-preview endpoint follows at most five redirects. Each
+HTTP or HTTPS connection resolves and validates all destination addresses, then
+connects directly to a validated numeric address. Private, loopback, link-local,
+mixed public/private, empty and malformed answers are refused. HTTPS keeps the
+original hostname for SNI and certificate verification. Link previews do not
+modify the process-wide DNS resolver or use environment HTTP proxies; deployments
+that require an outbound proxy must leave previews unavailable until a proxy with
+an equivalent destination-validation contract is supported. Operator-trusted
+internal MCP/model hosts do not grant link-preview access to private addresses.
+This change requires no stored-data migration.

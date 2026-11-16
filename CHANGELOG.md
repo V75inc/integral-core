@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Validate every link-preview connection against its exact public DNS addresses, including redirects, without changing the process-wide resolver.
+
 - Serialize PostgreSQL account creation and complete admin/profile/workspace bootstrap atomically across serving processes; refuse ambiguous identities without merging or deleting data.
 - Recover missed App and Track changes from the permission-filtered selected-workspace feed.
 - Withhold explicitly denied events without disconnecting healthy subscribers; retain fail-closed disconnects for unavailable authorization and backpressure.
