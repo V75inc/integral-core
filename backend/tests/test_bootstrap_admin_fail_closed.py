@@ -12,6 +12,7 @@ from app.services import app_graph, personal_workspace
 
 @pytest.mark.asyncio
 async def test_bootstrap_rejects_short_configured_password(monkeypatch):
+    """Refuse readiness when a configured new credential is invalid."""
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.delenv("TESTING", raising=False)
     monkeypatch.setattr(settings, "ADMIN_EMAIL", "admin@example.com")
@@ -26,10 +27,12 @@ async def test_bootstrap_rejects_short_configured_password(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failed_step", ["catalog", "workspace"])
 async def test_bootstrap_propagates_profile_setup_failure(monkeypatch, failed_step):
+    """Propagate a failed profile or workspace step instead of reporting ready."""
+    await app_graph.ensure_integral_app_graph(include_library=False)
     monkeypatch.setattr(settings, "ADMIN_EMAIL", "admin@example.com")
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", "strong-password-123")
     existing = SimpleNamespace(
-        id="auth-admin", email="admin@example.com", roles=["admin"]
+        id="auth-admin", email="admin@example.com", roles=["admin"], is_active=True
     )
 
     async def find_user(_email):

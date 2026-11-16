@@ -224,6 +224,51 @@ Build and identify the candidate, run source and artifact gates, back up, and re
 
 For a failed upgrade, inspect the schema and effect state before reverting an image. A schema migration or external effect may make a blind rollback unsafe. Reconcile pending work and use the reviewed restore or compatibility path.
 
+### Concurrent account bootstrap and existing duplicates
+
+On PostgreSQL, Core account creation and configured admin bootstrap share a
+transaction-scoped logical lock. Bootstrap commits the AuthUser, rooted graph
+profile and personal workspace together. Another serving process must observe
+that completed identity rather than create an independent account. A lock wait
+is bounded to 30 seconds; unavailable admission fails instead of reporting
+readiness. Nontransactional development stores have process-local ordering only;
+this is not a multi-process identity guarantee for those adapters.
+
+The pinned framework does not provide atomic admin bootstrap or a unique email
+constraint. Core's cooperating creation paths use its public transaction and
+advisory-lock facilities; arbitrary direct database writers and restored data
+still require validation. No email index or automatic deduplication migration is
+introduced. Missing graph registries, exact-email duplicates and ambiguous or
+malformed graph profiles for the selected bootstrap principal refuse startup.
+Public login refuses an ambiguous email
+with the ordinary invalid-credentials response rather than choosing a row.
+
+For an affected store, stop every API and background worker and retain a verified
+cold database/file/key backup before any repair. Record all matching AuthUser
+IDs, graph profile/workspace IDs, current authority and owned record/attachment
+evidence. The operator must identify the intended principal from trusted
+pre-incident identity or ownership evidence; query order or creation time alone
+is insufficient. Never delete one identity, reassign its graph edges, or merge
+its workspaces to make login succeed.
+
+An explicitly reviewed offline repair may retain the chosen account's existing
+ID, credentials and graph, and quarantine a confirmed duplicate by its exact ID:
+assign a distinct non-deliverable recovery email and set that account inactive.
+Use the current-state conditional authentication context inside
+`account_creation_scope`; do not issue a whole-object stale save or bypass
+authentication through an HTTP endpoint. Retain both principals and all graph,
+record, attachment and credential rows. The inactive account's tokens must be
+refused. This is a deliberate operator recovery action, not an automatic
+startup operation or a general-purpose merge command. Preserve the original
+backup for rollback; do not apply a guessed identity choice to live data.
+
+Before resuming service, repeat bootstrap and login using a fresh process,
+verify that the chosen principal/profile/workspace IDs remain stable, confirm
+record access and attachment hashes, and verify that the quarantined principal
+cannot authenticate. The PostgreSQL bootstrap regression covers a synthetic
+reviewed quarantine and unchanged graphs; each affected deployed store still
+needs its own reviewed identity choice and recovery acceptance.
+
 ## jvspatial compatibility release gate
 
 Current metadata pins `jvspatial==0.2.10` and `pydantic-ai-harness[skills]==0.59.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
