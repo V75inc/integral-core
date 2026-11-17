@@ -135,8 +135,45 @@ describe('AppDashboardPanel drill-through dialog', () => {
         { id: 'default', name: 'Default', app_id: 'app-1', widgets: [], is_default: false },
       ]);
     });
+    // Query notifications are batched: ensure the changed list has rendered
+    // before checking that its new default did not replace our selection.
+    await screen.findByRole('option', { name: 'First · Default' });
     expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('default');
     expect(dataMock).toHaveBeenCalledExactlyOnceWith('app-1', 'default');
+  });
+
+  it('retains the scoped selection after changing Apps or removing the active dashboard', async () => {
+    const first = { id: 'first-2', name: 'First', app_id: 'app-2', widgets: [], is_default: false };
+    const second = { id: 'default-2', name: 'Default', app_id: 'app-2', widgets: [], is_default: true };
+    listMock.mockImplementation((appId: string) => Promise.resolve(appId === 'app-2'
+      ? [first, second]
+      : [{ id: 'default-1', name: 'Original', app_id: 'app-1', widgets: [], is_default: true }]));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = (appId: string) => <MemoryRouter><QueryClientProvider client={queryClient}>
+      <AppDashboardPanel appId={appId} canEdit={false} />
+    </QueryClientProvider></MemoryRouter>;
+    const { rerender } = render(panel('app-1'));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('default-1'));
+    rerender(panel('app-2'));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('default-2'));
+
+    await act(async () => {
+      queryClient.setQueryData(['dashboards', 'app-2'], [
+        { ...first, is_default: true }, { ...second, is_default: false },
+      ]);
+    });
+    await screen.findByRole('option', { name: 'First · Default' });
+    expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('default-2');
+    expect(dataMock.mock.calls).toEqual([['app-1', 'default-1'], ['app-2', 'default-2']]);
+
+    await act(async () => { queryClient.setQueryData(['dashboards', 'app-2'], [first]); });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('first-2'));
+    await act(async () => { queryClient.setQueryData(['dashboards', 'app-2'], [first, second]); });
+    await screen.findByRole('option', { name: 'Default · Default' });
+    expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('first-2');
+    expect(dataMock.mock.calls).toEqual([
+      ['app-1', 'default-1'], ['app-2', 'default-2'], ['app-2', 'first-2'],
+    ]);
   });
 
   it('defers widget choices until editing and offers a retry when that read fails', async () => {

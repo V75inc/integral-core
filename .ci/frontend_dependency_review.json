@@ -3,13 +3,13 @@
     "decision": "approved",
     "owner": "Eldon Marks",
     "approved_on": "2026-11-17",
-    "evidence": "Explicit session approval: \"Approve the bounded exception\" in response to call_e834c344a8b8437980a8ec26e8f4de34; exact reviewed dependency graph and build inputs, expiring November 24, all other audit and release checks retained."
+    "evidence": "Explicit session approval: \"Approve the bounded exception\" in response to call_e834c344a8b8437980a8ec26e8f4de34; exact reviewed dependency graph and build inputs, expiring November 24, all other audit and release checks retained. Same approved candidate and expiry: November 17 independent engineering re-review covers the dashboard selection race correction and regression tests; dependency graph, build recipes, input trust and advisory risk are unchanged."
   },
   "reviewed_on": "2026-11-17",
   "expires": "2026-11-24",
   "advisory": "GHSA-fc5q-39xc-vjpf",
   "lock_sha256": "67cfd3367fa8e8cb27b9e11c831e89cf44a6d8ec82e7f8f9f058cd0df80c7246",
-  "build_inputs_sha256": "61e6c78b78edea7f13287ed1ca2fa2b0d50785af69f0264f098af601b8054eb9",
+  "build_inputs_sha256": "bd499cdcded947f4c86a594a8a74e12aecfdfe91585ddcaa23b013cf004dafdf",
   "high_packages": [
     "@typescript-eslint/typescript-estree",
     "@vitejs/plugin-react",

@@ -121,11 +121,12 @@ export function AppDashboardPanel({
   const activeDashboardId = activeDashboard?.id ?? null;
   const activeDashboardName = activeDashboard?.name ?? null;
 
-  useEffect(() => {
-    // Resolve the correct default on the first render, then retain that
-    // selection when a later list refresh changes which dashboard is default.
-    if (!activeId && activeDashboardId) setActiveId(activeDashboardId);
-  }, [activeId, activeDashboardId]);
+  // Retain the resolved selection before committing it. An effect's queued
+  // update can be overtaken by a query refresh and select/fetch a new default.
+  // Also retain the scoped fallback when the previous dashboard disappears.
+  if (activeDashboardId && activeDashboardId !== activeId) {
+    setActiveId(activeDashboardId);
+  }
 
   useEffect(() => {
     if (!activeDashboardId) return;
