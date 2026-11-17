@@ -68,6 +68,14 @@ from app.services.workspace_resolver import resolve_workspace_id
 from app.utils.time import utc_now_iso
 
 
+async def _track_source_icon(model: OperationalModel) -> str:
+    """Read a validated Track-tier default without making it a user override."""
+    canonical = await asyncio.to_thread(
+        compile_canonical_manifest, manifest=dict(model.manifest or {})
+    )
+    return str((canonical.get("track") or {}).get("icon") or "")
+
+
 @canonical_creation(kind="create_track")
 async def create_track_in_space(
     user_id: str,
@@ -240,7 +248,12 @@ async def create_track_in_space(
         title_fold=title_fold,
         owner_id=user_id,
         purpose=purpose or "",
-        icon=icon or "",
+        icon=(
+            icon
+            if icon is not None
+            else str((space_track_spec or {}).get("icon") or "")
+        ),
+        icon_overridden=icon is not None,
         accent_color=normalize_track_accent_color(accent_color),
         visibility=resolved_vis,
         template_id=effective_template_ref,
@@ -280,6 +293,9 @@ async def create_track_in_space(
             app_id, app_track_template_operational_model_id
         )
         await merge_template_operational_model_into_track(tpl, track)
+        if icon is None:
+            track.icon = await _track_source_icon(tpl)
+            await track.save()
 
     if library_operational_model_id:
         lib = await OperationalModel.get(library_operational_model_id)
@@ -292,6 +308,8 @@ async def create_track_in_space(
             lib, tcp, track, for_space=False, user_id=user_id
         )
         track.library_merge_source_id = library_operational_model_id
+        if icon is None:
+            track.icon = await _track_source_icon(lib)
         await track.save()
 
     if space_track_spec is not None:

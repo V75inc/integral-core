@@ -86,8 +86,8 @@ async def test_home_update_persists_separately_from_dashboards(
     cleared = await authenticated_client.put(f"/api/apps/{app_id}", json={"home": {}})
     assert cleared.status_code == 200
     assert (await authenticated_client.get(f"/api/apps/{app_id}/home")).json()[
-        "home"
-    ] is None
+        "source"
+    ] == "default"
 
 
 @pytest.mark.asyncio
@@ -152,7 +152,7 @@ async def test_resident_home_proposal_approval_and_readback(
     token = result.data["token"]
     assert (await get_token(token)).state == "pending"
     before = await authenticated_client.get(f"/api/apps/{app_id}/home")
-    assert before.json()["home"] is None
+    assert before.json()["source"] == "default"
     applied = await bless_and_execute(user_id=principal, token=token)
     assert applied["consumed"] is True, applied
     read = await authenticated_client.get(f"/api/apps/{app_id}/home")
@@ -208,3 +208,27 @@ async def test_suggested_home_does_not_offer_denied_sources(monkeypatch):
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_default_home_opt_out_and_reset(authenticated_client, test_user):
+    """New Apps inherit Home; authorized opt-out persists until reset."""
+    created = await authenticated_client.post(
+        "/api/apps", json={"name": "Default Home"}
+    )
+    app_id = created.json()["app"]["id"]
+    path = f"/api/apps/{app_id}"
+    assert (await authenticated_client.get(f"{path}/home")).json()[
+        "source"
+    ] == "default"
+    disabled = await authenticated_client.put(path, json={"home": {"enabled": False}})
+    assert disabled.status_code == 200, disabled.text
+    for _ in range(2):
+        read = (await authenticated_client.get(f"{path}/home")).json()
+        assert read["home"] is None
+        assert read["disabled"] is True
+    reset = await authenticated_client.put(path, json={"home": {}})
+    assert reset.status_code == 200, reset.text
+    assert (await authenticated_client.get(f"{path}/home")).json()[
+        "source"
+    ] == "default"

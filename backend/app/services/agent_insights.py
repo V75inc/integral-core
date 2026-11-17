@@ -386,6 +386,21 @@ def _unknown_custom_filter_fields(
     return {"fields": unknown, "entry_type_keys": type_keys}
 
 
+async def _can_offer_track_recovery(
+    user_id: str, track: Any, workspace_id: str
+) -> bool:
+    """Track metadata recovery requires current Track access in canonical scope."""
+    from app.services.permissions import can_view_track
+    from app.services.resource_location import locate_resource
+
+    location = await locate_resource("track", track.id)
+    return bool(
+        location is not None
+        and location.workspace_id == workspace_id
+        and await can_view_track(user_id, track.id)
+    )
+
+
 async def query_entries(
     *,
     user_id: str,
@@ -446,7 +461,12 @@ async def query_entries(
                 "offset": offset,
             }
 
-    accessible_tracks = await get_user_accessible_tracks(user_id)
+    # An exact target is a candidate selector, never an authority grant. Its
+    # canonical workspace and every returned Entry are still admitted below.
+    # Discovering unrelated Tracks here made each dashboard widget repeat the
+    # entire user's inventory even when it already held an exact Track id.
+    exact_track = bool(track_id and track_id.startswith("n.Track."))
+    accessible_tracks = [] if exact_track else await get_user_accessible_tracks(user_id)
     # B-AGENT-03 workspace gate — narrow the accessible track universe
     # to the active workspace BEFORE name/id resolution + entry fetch.
     if workspace_id:
@@ -504,7 +524,13 @@ async def query_entries(
         if (
             named_block.code == "app_domain"
             and workspace_id
-            and named in accessible_tracks
+            and (
+                named in accessible_tracks
+                or (
+                    exact_track
+                    and await _can_offer_track_recovery(user_id, named, workspace_id)
+                )
+            )
         ):
             from app.services.workspace_tools import track_read_tool_hint
 
@@ -1416,7 +1442,8 @@ async def count_entries_grouped(
     # This keeps status/tag/type/custom-field groupings bounded as well.
     from app.models.nodes import Track as TrackNode
 
-    accessible_tracks = await get_user_accessible_tracks(user_id)
+    exact_track = bool(track_id and track_id.startswith("n.Track."))
+    accessible_tracks = [] if exact_track else await get_user_accessible_tracks(user_id)
     if workspace_id:
         accessible_tracks = [
             track
@@ -1443,14 +1470,32 @@ async def count_entries_grouped(
         )
         if matched:
             track_id = matched.id
-    accessible_tracks, readable_track_ids = await _entry_read_tracks(
-        user_id, accessible_tracks, workspace_id
-    )
-    selected_tracks = (
-        [track for track in accessible_tracks if track.id == track_id]
-        if track_id
-        else accessible_tracks
-    )
+    if exact_track:
+        # A direct Entry grant does not imply Track metadata access. Discover
+        # only the selected Track and let the bounded Entry executor admit rows.
+        named_track = await TrackNode.get(track_id)
+        if named_track is not None and workspace_id:
+            from app.services.resource_location import locate_resource
+
+            location = await locate_resource("track", track_id)
+            if location is None or location.workspace_id != workspace_id:
+                named_track = None
+        selected_tracks = [named_track] if named_track is not None else []
+        readable_track_ids = set()
+        if named_track is not None and group_by == "track":
+            from app.services.permissions import can_view_track
+
+            if await can_view_track(user_id, track_id):
+                readable_track_ids.add(track_id)
+    else:
+        accessible_tracks, readable_track_ids = await _entry_read_tracks(
+            user_id, accessible_tracks, workspace_id
+        )
+        selected_tracks = (
+            [track for track in accessible_tracks if track.id == track_id]
+            if track_id
+            else accessible_tracks
+        )
     if all(isinstance(track, TrackNode) for track in selected_tracks):
         from app.services.permissions import iter_user_accessible_entry_batches
         from app.services.query_boundary import generic_entry_read

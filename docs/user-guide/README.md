@@ -33,6 +33,13 @@ Start with a simple collection you actually need: notes, requests, decisions, or
 5. Open an Entry and inspect its fields, comments, relations, and attachments.
 6. Ask the resident AI to summarize these records, then open the records it cites.
 
+When creating or editing a Track, choose its **Track icon** from the built-in
+symbols, or select **Dot (default)**. The icon appears in Track navigation,
+lists and its heading. Templates can supply their own icon; choose Dot to clear
+it. An explicit Dot choice survives later template updates. Existing package
+icons remain until explicitly changed; missing or unrecognized values display as a dot. Saving an icon uses the same
+Track edit permissions and confirmation as other Track details.
+
 A second view is a second perspective on the same information. It is not a second copy to keep synchronized.
 
 For a first AI request, be concrete:

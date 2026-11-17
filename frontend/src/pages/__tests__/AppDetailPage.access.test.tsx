@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mocks = vi.hoisted(() => ({
@@ -150,4 +150,71 @@ it('hides App settings for an owner when there are no options, function roles or
   await screen.findByRole('button',{name:'Edit app'});
   await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('/apps/app/action-bindings',expect.anything()));
   expect(screen.queryByRole('button',{name:'App settings'})).toBeNull();
+});
+
+
+function HistoryControls() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return <><button onClick={() => navigate(-1)}>Back</button><button onClick={() => navigate(1)}>Forward</button><output data-testid="location">{location.search}</output></>;
+}
+
+function mountHomePage(url = '/apps/app', home: unknown = { title: 'Home' }, denied = false) {
+  mocks.get.mockImplementation(async (path: string) => {
+    if (path === '/apps/app') return { data: { app: { id: 'app', name: 'Existing app', workspace_id: 'ws' } } };
+    if (path.includes('/home')) {
+      if (denied) throw { response: { status: 403 } };
+      return { data: { home, source: 'default' } };
+    }
+    return { data: { tracks: [], dashboards: [], collaborators: [], caller_role: 'viewer' } };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[url]}><HistoryControls /><Routes><Route path="/apps/:appId" element={<AppDetailPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  return client;
+}
+
+it('defaults to exactly one Home and restores repeated tab navigation through browser history', async () => {
+  localStorage.removeItem('integral:app-section:app');
+  mountHomePage();
+  await screen.findByTestId('app-home');
+  expect(screen.getAllByRole('tab', { name: 'Home' })).toHaveLength(1);
+  for (let i = 0; i < 2; i++) {
+    fireEvent.click(screen.getByRole('tab', { name: /Tracks/ }));
+    expect(screen.getByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Home' }));
+    expect(screen.getAllByTestId('app-home')).toHaveLength(1);
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  await waitFor(() => expect(screen.getByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true'));
+  fireEvent.click(screen.getByRole('button', { name: 'Forward' }));
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true'));
+});
+
+it.each(['home', 'tracks', 'dashboards'])('honors direct %s links over saved preference', async section => {
+  mountHomePage(`/apps/app?section=${section}&keep=1`);
+  await screen.findByRole('tab', { name: 'Home' });
+  expect(screen.getByRole('tab', { name: new RegExp(section, 'i') })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByTestId('location')).toHaveTextContent('keep=1');
+});
+
+it.each([false, true])('falls back safely for disabled/denied Home (%s)', async denied => {
+  mountHomePage('/apps/app?section=home', null, denied);
+  await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('/apps/app/home', expect.anything()));
+  expect(screen.queryByRole('tab', { name: 'Home' })).not.toBeInTheDocument();
+  expect(screen.queryByTestId('app-home')).not.toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.queryByText('Start here')).not.toBeInTheDocument();
+});
+
+
+it('restores the initial Home after Back from the first Tracks navigation', async () => {
+  localStorage.removeItem('integral:app-section:app');
+  mountHomePage();
+  await screen.findByTestId('app-home');
+  fireEvent.click(screen.getByRole('tab', { name: /Tracks/ }));
+  expect(localStorage.getItem('integral:app-section:app')).toBe('tracks');
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true'));
+  fireEvent.click(screen.getByRole('button', { name: 'Forward' }));
+  await waitFor(() => expect(screen.getByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true'));
 });

@@ -135,6 +135,35 @@ These changes preserve the root/typed-entry graph boundary, server scope,
 ordinary resource/action authority, revision/approval checks and idempotency.
 Diagnostic context and metadata never grant access or prove a business outcome.
 
+## Scoped Entry and App discovery
+
+An exact `n.Track.*` selector narrows candidate discovery before entry reads or
+grouped charts. It does not grant Track or Entry access. Canonical containment,
+workspace scope, App lifecycle/query boundaries and current per-Entry admission
+still apply. A direct Entry grant beneath an unreadable Track remains usable;
+Track labels and recovery hints require separate current Track access. Names
+and unscoped queries retain their existing discovery and matching behavior.
+
+Scoped App listings resolve the requested workspace before candidate discovery
+and request App inventory only. Final canonical admission, active lifecycle,
+ordering, cursor pagination and exact totals remain in the listing path. These
+changes introduce no caller-authority cache or retained cross-widget grants.
+Each widget performs its own live reads, including after another worker revokes
+access. Unfiltered count widgets ask the shared query executor for an exact
+total with a one-row `created_at` window, avoiding the two `updated_at`
+fallback partitions; typed profile filters retain their existing canonical
+evaluation. Refused, failed or unavailable totals remain visible errors with
+the original refusal/error code, rather than zero or a partial aggregate.
+
+Run `tests/test_scoped_query_budget.py` against disposable PostgreSQL to compare
+authenticated ten-widget dashboard and App-list HTTP requests before and after
+adding 1,000 unrelated rooted Tracks with attached Operational Models. Record the imported source paths, logical adapter operations, driver statements,
+pool wait, summed database duration and elapsed request duration. Summed
+concurrent durations are not elapsed time. This fixture measures the HTTP serving
+path; browser and deployed-product acceptance remain separate gates. Larger
+filtered `query_all_entries` scans still use the existing offset-page contract;
+this change does not claim a shared cross-page snapshot or authorization cache.
+
 ## Reproducible qualification
 
 Use a disposable PostgreSQL service, never a production database. Core's test

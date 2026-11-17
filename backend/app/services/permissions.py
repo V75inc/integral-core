@@ -393,10 +393,12 @@ def invalidate_user_accessible_caches(user_id: str) -> None:
                 cache.pop(key, None)
 
 
-async def get_user_accessible_apps(user_id: str) -> List[App]:
+async def get_user_accessible_apps(
+    user_id: str, *, workspace_id: str | None = None
+) -> List[App]:
     """List current data access, including protected workspace stewardship."""
     with isolated_permissions_cache(), computation_fact_scope():
-        return await _get_current_accessible_apps(user_id)
+        return await _get_current_accessible_apps(user_id, workspace_id=workspace_id)
 
 
 async def _navigation_listing(user_id: str, key: str, compute_live: Any) -> Any:
@@ -433,19 +435,31 @@ async def get_user_accessible_tracks_for_navigation(user_id: str) -> List[Track]
     return await _navigation_listing(user_id, "nav_tracks", get_user_accessible_tracks)
 
 
-async def get_user_accessible_apps_for_navigation(user_id: str) -> List[App]:
+async def get_user_accessible_apps_for_navigation(
+    user_id: str, *, workspace_id: str | None = None
+) -> List[App]:
     """Apps for a listing endpoint (see ``_navigation_listing``)."""
+    if workspace_id:
+        # Scope is a candidate selector; live canonical admission still decides.
+        # Do not reuse an unscoped navigation snapshot for a scoped request.
+        return await get_user_accessible_apps(user_id, workspace_id=workspace_id)
     return await _navigation_listing(user_id, "nav_apps", get_user_accessible_apps)
 
 
-async def _get_current_accessible_apps(user_id: str) -> List[App]:
+async def _get_current_accessible_apps(
+    user_id: str, *, workspace_id: str | None = None
+) -> List[App]:
     """Apps via ownership, collaboration, staff inventory, and visibility grants.
 
     Org workspace members additionally see apps with ``visibility`` workspace
     or public (ARCHITECTURE §9.5). Guests require explicit ``COLLABORATES_ON``.
     Direct grants are pruned against live workspace membership before listing.
     """
-    cache = permissions_cache_get() if _permission_memo_enabled() else None
+    cache = (
+        permissions_cache_get()
+        if not workspace_id and _permission_memo_enabled()
+        else None
+    )
     ck = ("accessible_apps", user_id)
     if cache is not None and ck in cache:
         return cache[ck]
@@ -453,7 +467,7 @@ async def _get_current_accessible_apps(user_id: str) -> List[App]:
     from app.services import permissions_process_cache as _ppc
 
     cache_generation = _ppc.generation(user_id)
-    _pc = _ppc.get_cached(user_id, "accessible_apps")
+    _pc = _ppc.get_cached(user_id, "accessible_apps") if not workspace_id else None
     if _pc is not None:
         if cache is not None:
             cache[ck] = _pc
@@ -484,19 +498,27 @@ async def _get_current_accessible_apps(user_id: str) -> List[App]:
         workspaces = await _list_current_accessible_workspaces(
             user, roles_out=workspace_roles
         )
+        if workspace_id:
+            workspaces = [ws for ws in workspaces if ws.id == workspace_id]
+            workspace_roles = {ws.id: workspace_roles[ws.id] for ws in workspaces}
         accessible_workspace_ids = {ws.id for ws in workspaces}
+        app_selector = (
+            [{"WorkspaceApp": {"context.workspace_id": workspace_id}}]
+            if workspace_id
+            else ["WorkspaceApp"]
+        )
 
         direct_apps: List[App] = []
-        direct_apps.extend(await user.nodes(edge=["OWNS"], node=["WorkspaceApp"]))
+        direct_apps.extend(await user.nodes(edge=["OWNS"], node=app_selector))
         direct_apps.extend(
-            await user.nodes(edge=["COLLABORATES_ON"], node=["WorkspaceApp"])
+            await user.nodes(edge=["COLLABORATES_ON"], node=app_selector)
         )
         outside_apps: List[App] = []
         for sp in direct_apps:
-            workspace_id = str(getattr(sp, "workspace_id", "") or "")
-            if workspace_id in accessible_workspace_ids:
+            candidate_workspace_id = str(getattr(sp, "workspace_id", "") or "")
+            if candidate_workspace_id in accessible_workspace_ids:
                 _add(sp)
-            elif workspace_id:
+            elif candidate_workspace_id:
                 outside_apps.append(sp)
         if outside_apps:
             # A public App can remain readable after membership revocation,
@@ -513,7 +535,9 @@ async def _get_current_accessible_apps(user_id: str) -> List[App]:
         for ws in workspaces:
             ws_role = workspace_roles[ws.id]
             if ws_role in ("owner", "admin"):
-                staff_apps, _ = await collect_org_workspace_staff_inventory(ws)
+                staff_apps, _ = await collect_org_workspace_staff_inventory(
+                    ws, include_tracks=False
+                )
                 for sp in staff_apps:
                     if (
                         ws_role != "owner"
@@ -523,7 +547,7 @@ async def _get_current_accessible_apps(user_id: str) -> List[App]:
                     _add(sp)
             elif ws_role == "member":
                 vis_apps, _ = await collect_org_workspace_member_visibility_inventory(
-                    ws
+                    ws, include_tracks=False
                 )
                 pending_apps = [sp for sp in vis_apps if sp.id not in seen]
                 if pending_apps:
@@ -539,12 +563,13 @@ async def _get_current_accessible_apps(user_id: str) -> List[App]:
         )
         if cache is not None:
             cache[ck] = result
-        _ppc.set_cached(
-            user_id,
-            "accessible_apps",
-            result,
-            expected_generation=cache_generation,
-        )
+        if not workspace_id:
+            _ppc.set_cached(
+                user_id,
+                "accessible_apps",
+                result,
+                expected_generation=cache_generation,
+            )
         return result
     except Exception as exc:
         logger.warning("Error getting accessible apps for %s: %s", user_id, exc)

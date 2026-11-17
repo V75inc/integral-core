@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, AsyncIterator, Dict, List, Optional, Protocol
 
 from jvspatial.api.exceptions import ResourceNotFoundError
 
@@ -1459,7 +1460,66 @@ def _track_spec_to_library_manifest_dict(
     }
 
 
+@asynccontextmanager
+async def _template_refresh_scope(workspace_id: str) -> AsyncIterator[None]:
+    """Order schema/presentation copies against exclusive metadata writers.
+
+    Refresh does not change grants, visibility, roles or the active definition.
+    Keep an admitted command's existing mode; never upgrade a shared holder.
+    Track provisioning, which creates ownership grants, remains exclusive.
+    """
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    if graph_transaction_available():
+        from app.services.authorization_scope import authorization_scope
+
+        async with authorization_scope(
+            workspace_id, authority_mutation=False, shared=None
+        ):
+            yield
+    else:
+        from app.services.entry_write_scope import entry_write_scope
+
+        async with entry_write_scope(f"workspace-membership:{workspace_id}"):
+            yield
+
+
 async def refresh_app_track_template_materialization(
+    app_node: App,
+    template_key: str,
+) -> Optional[OperationalModel]:
+    """Refresh a template under the same fence as Track metadata edits."""
+    async with _template_refresh_scope(app_node.workspace_id):
+        current = await _current_materialization_app(app_node)
+        result = await _refresh_app_track_template_materialization(
+            current, template_key
+        )
+    if result is not None:
+        from jvspatial.core.context import get_default_context
+
+        await result.set_context(get_default_context())
+    return result
+
+
+async def _current_materialization_app(app_node: App) -> App:
+    """Rebind current primary data after entering a task-owned write fence."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.authority_facts import primary_node_record
+
+    graph = get_default_context()
+    row = await primary_node_record(graph.database, App, app_node.id)
+    if row is None:
+        raise ResourceNotFoundError(message="App not found")
+    current = await graph._deserialize_entity(App, row)
+    if current.workspace_id != app_node.workspace_id:
+        raise ResourceNotFoundError(message="App scope changed")
+    return current
+
+
+async def _refresh_app_track_template_materialization(
     app_node: App,
     template_key: str,
 ) -> Optional[OperationalModel]:
@@ -1519,8 +1579,10 @@ async def refresh_app_track_template_materialization(
     template_icon = str(template_spec.get("icon") or "")
     if template_icon:
         for spawned in await app_node.nodes(edge=["CONTAINS"], node=["Track"]):
-            if str(getattr(spawned, "template_id", "") or "") == template_key and not (
-                getattr(spawned, "icon", "") or ""
+            if (
+                str(getattr(spawned, "template_id", "") or "") == template_key
+                and not (getattr(spawned, "icon", "") or "")
+                and not getattr(spawned, "icon_overridden", False)
             ):
                 spawned.icon = template_icon
                 await spawned.save()
@@ -1621,6 +1683,19 @@ async def _previous_track_descriptions(app_node: Any) -> Dict[str, str]:
 async def provision_prescribed_tracks_from_app_manifest(
     app_node: App, owner_user_id: str
 ) -> None:
+    """Serialize package defaults with explicit Track metadata choices."""
+    from app.services.membership_write_scope import membership_write_scope
+
+    async with membership_write_scope(
+        app_node.workspace_id, principal_ids=(owner_user_id,)
+    ):
+        current = await _current_materialization_app(app_node)
+        await _provision_prescribed_tracks_from_app_manifest(current, owner_user_id)
+
+
+async def _provision_prescribed_tracks_from_app_manifest(
+    app_node: App, owner_user_id: str
+) -> None:
     """Create tracks from ``app.tracks`` when package flags allow (app_node apply only)."""
     from app.api.validators import validate_track_visibility_workspace
 
@@ -1684,7 +1759,11 @@ async def provision_prescribed_tracks_from_app_manifest(
                     existing_track.nav_visible = desired_nav
                     dirty = True
                 # The package's icon is a default: a Track that already has one (set by a person) keeps it.
-                if spec.get("icon") and not (getattr(existing_track, "icon", "") or ""):
+                if (
+                    spec.get("icon")
+                    and not (getattr(existing_track, "icon", "") or "")
+                    and not getattr(existing_track, "icon_overridden", False)
+                ):
                     existing_track.icon = str(spec["icon"])
                     dirty = True
                 if sync_track_description_from_manifest(

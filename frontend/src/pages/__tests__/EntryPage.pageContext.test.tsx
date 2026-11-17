@@ -109,8 +109,11 @@ describe('EntryPage page context', () => {
     expect(screen.queryByText('Wrong track destination')).not.toBeInTheDocument();
     if (allowed) {
       await screen.findByTestId('entry-detail');
-      expect(seen?.focusedEntryId).toBe('n.Entry.abc');
-      expect(seen?.focusedTrackId).toBe('n.Track.actual');
+      // Rendering the page and publishing its context are separate effects.
+      await waitFor(() => {
+        expect(seen?.focusedEntryId).toBe('n.Entry.abc');
+        expect(seen?.focusedTrackId).toBe('n.Track.actual');
+      });
     } else {
       await screen.findByText('Entry not found or you no longer have access.');
       expect(screen.queryByTestId('entry-detail')).not.toBeInTheDocument();

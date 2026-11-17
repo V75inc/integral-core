@@ -291,6 +291,8 @@ async def _staff_implicit_role_for_user(user: User, workspace_id: str) -> Option
 
 async def collect_org_workspace_staff_inventory(
     workspace: Workspace,
+    *,
+    include_tracks: bool = True,
 ) -> Tuple[list[App], list[Track]]:
     """Discover bounded primary candidates; final canonical checks admit each.
 
@@ -306,7 +308,7 @@ async def collect_org_workspace_staff_inventory(
         return [], []
     context = get_default_context()
     inventories = []
-    for model in (App, Track):
+    for model in (App, Track) if include_tracks else (App,):
         rows = await context.database.find(
             "node",
             {
@@ -335,11 +337,13 @@ async def collect_org_workspace_staff_inventory(
                 raise AuthorizationUnavailableError()
             candidates.append(candidate)
         inventories.append(candidates)
-    return inventories[0], inventories[1]
+    return inventories[0], inventories[1] if include_tracks else []
 
 
 async def collect_org_workspace_member_visibility_inventory(
     workspace: Workspace,
+    *,
+    include_tracks: bool = True,
 ) -> Tuple[list[App], list[Track]]:
     """Apps/tracks with non-private effective visibility in an org workspace.
 
@@ -359,9 +363,10 @@ async def collect_org_workspace_member_visibility_inventory(
         if await effective_resource_visibility("app", app) != "private":
             apps_by_id[app.id] = app
 
-    for track in await Track.find({"workspace_id": workspace.id}):
-        if await effective_resource_visibility("track", track) != "private":
-            tracks_by_id[track.id] = track
+    if include_tracks:
+        for track in await Track.find({"workspace_id": workspace.id}):
+            if await effective_resource_visibility("track", track) != "private":
+                tracks_by_id[track.id] = track
 
     return list(apps_by_id.values()), list(tracks_by_id.values())
 

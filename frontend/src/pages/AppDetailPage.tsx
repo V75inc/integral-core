@@ -82,7 +82,8 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { useChatPageFocus } from '../context/ChatPageFocusContext';
 import { AppDashboardPanel } from '../features/app-dashboards/AppDashboardPanel';
 import { AppHomePanel } from '../features/app-dashboards/AppHomePanel';
-import { dashboardsApi } from '../api/dashboards';
+import { readHomeQuery } from '../features/app-dashboards/homeQuery';
+import { dashboardsApi, isHomeAccessDenied } from '../api/dashboards';
 import { useScope } from '../context/ScopeContext';
 import { useWorkspaceCrumbPrefix } from '../hooks/useWorkspaceCrumbPrefix';
 import { useRecents } from '../hooks/useRecents';
@@ -152,30 +153,7 @@ export function AppDetailPage() {
   const [sectionParams, setSectionParams] = useSearchParams();
   const requestedSection = sectionParams.get('section');
   const explicitSection = requestedSection === 'home' || requestedSection === 'tracks' || requestedSection === 'dashboards' ? requestedSection : null;
-  const [appSection, setAppSection] = useState<AppDetailSection>(() =>
-    explicitSection ?? (appId ? readAppDetailSection(appId) : 'tracks')
-  );
   const { setPageContext, clearPageContext } = useChatPageFocus();
-
-  const selectAppSection = useCallback(
-    (section: AppDetailSection) => {
-      setAppSection(section);
-      setSectionParams(previous => {
-        const next = new URLSearchParams(previous);
-        next.set('section', section);
-        if (section !== 'dashboards') next.delete('dashboard_id');
-        return next;
-      }, { replace: true });
-      if (appId) writeAppDetailSection(appId, section);
-    },
-    [appId, setSectionParams]
-  );
-
-  // Restore last section when navigating between apps without remounting.
-  useEffect(() => {
-    if (!appId) return;
-    setAppSection(explicitSection ?? readAppDetailSection(appId));
-  }, [appId, explicitSection]);
 
   const dashboardsQuery = useQuery({
     queryKey: ['dashboards', appId],
@@ -185,14 +163,37 @@ export function AppDetailPage() {
   const dashboardCount = dashboardsQuery.data?.length ?? 0;
   const homeQuery = useQuery({
     queryKey: ['app-home-definition', appId, activeHomeScope?.workspaceId],
-    queryFn: () => dashboardsApi.home(appId!, false),
+    queryFn: () => readHomeQuery(queryClient, appId!, activeHomeScope?.workspaceId, false),
     refetchInterval: 15_000,
     enabled: Boolean(appId && app?.id === appId && app.workspace_id === activeHomeScope?.workspaceId),
   });
-  const hasHome = Boolean(homeQuery.data?.home);
-  useEffect(() => {
-    if (appId && homeQuery.data) setAppSection(explicitSection === 'home' && !hasHome ? 'tracks' : explicitSection ?? readAppDetailSection(appId, hasHome ? 'home' : 'tracks'));
-  }, [appId, homeQuery.data, hasHome, explicitSection]);
+  const hasHome = Boolean(app?.id === appId && app?.workspace_id === activeHomeScope?.workspaceId && homeQuery.data?.home && !isHomeAccessDenied(homeQuery.error));
+  const preferredSection = explicitSection ?? (appId ? readAppDetailSection(appId, hasHome ? 'home' : 'tracks') : 'tracks');
+  const appSection = preferredSection === 'home' && !hasHome ? 'tracks' : preferredSection;
+
+  const selectAppSection = useCallback(
+    (section: AppDetailSection) => {
+      if (section === appSection) return;
+      // Preserve the initial section in this history entry before changing the
+      // device preference. Otherwise Back to an unqualified URL reads the new preference.
+      if (!explicitSection) {
+        setSectionParams(previous => {
+          const current = new URLSearchParams(previous);
+          current.set('section', appSection);
+          return current;
+        }, { replace: true });
+      }
+      setSectionParams(previous => {
+        const next = new URLSearchParams(previous);
+        next.set('section', section);
+        if (section !== 'dashboards') next.delete('dashboard_id');
+        return next;
+      });
+      if (appId) writeAppDetailSection(appId, section);
+    },
+    [appId, appSection, explicitSection, setSectionParams]
+  );
+
 
   // Publish breadcrumb trail to the TopBar.
   // When the App is workspace-scoped, lead the trail with the {WorkspaceName}
@@ -284,7 +285,7 @@ export function AppDetailPage() {
     const defaults = appDefinition?.defaults as Record<string, unknown> | undefined;
     const defaultTrackKey = String(defaults?.default_track || '').trim();
     if (!defaultTrackKey) return null;
-    return tracks.find(track => track.template_id === defaultTrackKey) || null;
+    return tracks.find(track => track.template_id === defaultTrackKey && isTrackNavVisible(track)) || null;
   }, [appOperationalModel, tracks]);
 
   const tracksAvailableToLink = useMemo(
@@ -820,31 +821,6 @@ export function AppDetailPage() {
             {app.description}
           </PageMeta>
         ) : null}
-        {defaultTrack && !hasHome ? (
-          <div className="mt-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-            <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-subtle)]">
-                Start here
-              </p>
-              <p className="mt-1 text-sm font-medium text-[var(--text)]">
-                {defaultTrack.title}
-              </p>
-              {defaultTrack.description?.trim() ? (
-                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-[var(--text-muted)]">
-                  {defaultTrack.description}
-                </p>
-              ) : null}
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => navigate(`/tracks/${defaultTrack.id}`)}
-              className="shrink-0"
-            >
-              Open {defaultTrack.title}
-            </Button>
-          </div>
-        ) : null}
         {Array.isArray(app.operations) && app.operations.length > 0 ? (
           <div className="mt-4 max-w-2xl rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2.5">
             <Text variant="label" tone="muted" as="div" className="mb-1.5">
@@ -912,7 +888,7 @@ export function AppDetailPage() {
 
       {appSection === 'home' && hasHome ? (
         <PageSection className={filterBar.sectionTop}>
-          <AppHomePanel appId={appId} workspaceId={app?.workspace_id || ''} tracks={tracks.filter(isTrackNavVisible)} hasDashboards={dashboardCount > 0} />
+          <AppHomePanel appId={appId} workspaceId={app?.workspace_id || ''} tracks={tracks.filter(isTrackNavVisible)} defaultTrack={defaultTrack ?? undefined} hasDashboards={dashboardCount > 0} />
         </PageSection>
       ) : appSection === 'tracks' ? (
       <PageSection className={filterBar.sectionTop}>

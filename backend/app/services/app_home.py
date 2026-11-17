@@ -93,9 +93,25 @@ async def read_app_home(
         if not home and definition is not None:
             home = (definition.canonical_manifest.get("app") or {}).get("home")
     if not home:
-        if definition is None:
-            return {"home": None, **metadata}
-        home = (definition.canonical_manifest.get("app") or {}).get("home")
+        if definition_id and definition is None:
+            return {"home": None, **metadata, "error": "home_definition_unavailable"}
+        home = active_contract.get("home")
+        if not home:
+            # Presentation only: no persisted migration or inferred query authority.
+            home = {
+                "title": "Home",
+                "renderer": "native",
+                "content": {
+                    "id": "default-home",
+                    "type": "text",
+                    "text": "Browse this App's Tracks to find and continue your work.",
+                },
+                "widgets": [],
+            }
+            if preview_home is None:
+                metadata["source"] = "default"
+    if isinstance(home, dict) and home.get("enabled") is False:
+        return {"home": None, **metadata, "disabled": True}
     if not isinstance(home, dict) or not home:
         return {"home": None, **metadata}
     result = copy.deepcopy(home)

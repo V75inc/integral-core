@@ -664,3 +664,183 @@ async def test_native_session_is_not_a_record_permission_grant():
     with isolated_permissions_cache():
         response = await get_feed(request, entry_ids=world.packaged_entry.id)
         assert response["entries"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filtered", [False, True])
+async def test_exact_track_query_never_discovers_unrelated_inventory(
+    monkeypatch, filtered
+):
+    """Exact candidate reads keep row admission without an all-Track listing."""
+    world = await _world()
+
+    async def inventory_forbidden(_user_id):
+        raise AssertionError("An exact Track query must not enumerate inventories")
+
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_tracks", inventory_forbidden
+    )
+    result = await agent_insights.query_entries(
+        user_id=world.user.id,
+        track_id=world.open_track.id,
+        workspace_id=world.workspace.id,
+        **({"status": "active"} if filtered else {}),
+    )
+    assert {row["id"] for row in result["entries"]} == {
+        world.open_entry.id,
+        world.other_open.id,
+    }
+    assert result["total"] == 2
+    grouped = await agent_insights.count_entries_grouped(
+        user_id=world.user.id,
+        track_id=world.open_track.id,
+        workspace_id=world.workspace.id,
+        group_by="status",
+    )
+    assert grouped["total_matched"] == 2
+    missing = await agent_insights.query_entries(
+        user_id=world.user.id,
+        track_id="n.Track.missing",
+        workspace_id=world.workspace.id,
+    )
+    assert missing["entries"] == [] and missing["total"] == 0
+    outside = await agent_insights.query_entries(
+        user_id=world.user.id,
+        track_id=world.open_track.id,
+        workspace_id="n.Workspace.not-the-parent",
+    )
+    assert outside["entries"] == [] and outside["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_exact_track_entry_only_grant_and_live_revocation(monkeypatch):
+    from app.services.app_graph import catalog_user
+    from app.services.permissions import can_view_track
+
+    world = await _world()
+    reader = await User.create(user_id="entry-only-reader", display_name="Reader")
+    await catalog_user(reader)
+    await reader.connect(
+        world.workspace, edge=IS_MEMBER_OF, role="guest", joined_at=utc_now_iso()
+    )
+    await reader.connect(
+        world.open_entry, edge=COLLABORATES_ON, role="viewer", granted_at=utc_now_iso()
+    )
+    assert not await can_view_track(reader.id, world.open_track.id)
+
+    async def inventory_forbidden(_user_id):
+        raise AssertionError("Exact Entry reads must not require Track inventory")
+
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_tracks", inventory_forbidden
+    )
+
+    async def read():
+        return await agent_insights.query_entries(
+            user_id=reader.id,
+            track_id=world.open_track.id,
+            workspace_id=world.workspace.id,
+        )
+
+    admitted = await read()
+    assert [row["id"] for row in admitted["entries"]] == [world.open_entry.id]
+    grouped = await agent_insights.count_entries_grouped(
+        user_id=reader.id,
+        track_id=world.open_track.id,
+        workspace_id=world.workspace.id,
+        group_by="track",
+    )
+    assert grouped["total_matched"] == 1
+    assert grouped["groups"][0]["label"] == "Shared records"
+    # Mutate the graph directly, bypassing process invalidators: the next read
+    # must see the revocation just as it would from another API worker.
+    await reader.disconnect(world.open_entry, edge_type=COLLABORATES_ON)
+    revoked = await read()
+    assert revoked["entries"] == [] and revoked["total"] == 0
+    grouped = await agent_insights.count_entries_grouped(
+        user_id=reader.id,
+        track_id=world.open_track.id,
+        workspace_id=world.workspace.id,
+        group_by="status",
+    )
+    assert grouped["total_matched"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("created", [None, "", "non-ISO date", "__missing__"])
+async def test_count_window_keeps_nullable_timestamps_and_update_date_filters(
+    monkeypatch, created
+):
+    from app.services import permissions
+
+    world = await _world()
+    context = await world.open_track.get_context()
+    for entry, created_at, updated_at in (
+        (world.open_entry, created, "2026-05-15T00:00:00+00:00"),
+        (world.other_open, "2026-04-15T00:00:00+00:00", None),
+    ):
+        row = await context.database.get("node", entry.id)
+        if created_at == "__missing__":
+            row["context"].pop("created_at", None)
+        else:
+            row["context"]["created_at"] = created_at
+        row["context"]["updated_at"] = updated_at
+        await context.database.save("node", row)
+    pages = []
+    original = permissions.get_user_accessible_entry_page
+
+    async def observed(*args, **kwargs):
+        pages.append(kwargs)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(permissions, "get_user_accessible_entry_page", observed)
+    plain = await _resolve_count(
+        user_id=world.user.id,
+        app_id=world.open_app.id,
+        workspace_id=world.workspace.id,
+        data_source={"track_id": world.open_track.id},
+    )
+    assert plain == {"value": 2, "total_matched": 2}
+    assert len(pages) == 1
+    assert pages[0]["limit"] == 1
+    assert pages[0]["sort"] == [("context.created_at", -1)]
+    windowed = await _resolve_count(
+        user_id=world.user.id,
+        app_id=world.open_app.id,
+        workspace_id=world.workspace.id,
+        data_source={
+            "track_id": world.open_track.id,
+            "status": "active",
+            "since": "2026-05-01T00:00:00+00:00",
+            "until": "2026-06-01T00:00:00+00:00",
+        },
+    )
+    assert windowed == {"value": 1, "total_matched": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_track", [True, False])
+async def test_count_preserves_refusal_when_source_pauses_during_read(
+    monkeypatch, explicit_track
+):
+    from app.services import dashboard_service as service
+
+    world = await _world()
+    original = service.query_entries
+
+    async def pause_before_query(**kwargs):
+        world.open_app.lifecycle_state = "paused"
+        await world.open_app.save()
+        return await original(**kwargs)
+
+    monkeypatch.setattr(service, "query_entries", pause_before_query)
+    result = await service._resolve_count(
+        user_id=world.user.id,
+        app_id=world.open_app.id,
+        workspace_id=world.workspace.id,
+        data_source={"track_id": world.open_track.id} if explicit_track else {},
+    )
+    assert result["value"] is None
+    assert result["total_matched"] == 0
+    assert result["refused"]["code"] == "app_unavailable"
+    assert result["error_code"] == "app_unavailable"

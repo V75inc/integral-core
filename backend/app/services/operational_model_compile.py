@@ -4215,6 +4215,7 @@ def _compile_canonical_manifest(
             )
             out["track"] = _ensure_feed_view_fallback(
                 {
+                    **_track_icon_part(track, "track"),
                     "entry_types": [
                         _normalize_entry_type_spec(
                             _as_dict(e, where="track.entry_types[]")

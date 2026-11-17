@@ -24,6 +24,10 @@ def normalize_app_home(
     """Validate bounded home content; no graph writes or inferred data sources."""
     if raw is None or raw == {}:
         return None
+    if isinstance(raw, dict) and "enabled" in raw:
+        from app.schemas.app_home import AppHomeDisabled
+
+        return AppHomeDisabled.model_validate(raw).model_dump()
     from app.schemas.app_home import AppHomeComposition
 
     raw = AppHomeComposition.model_validate(raw).model_dump(

@@ -6,6 +6,12 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Plan exact-Track entry reads and grouped charts without discovering unrelated Track inventories, retaining current canonical workspace and per-Entry admission.
+- Discover only Apps in the requested workspace for scoped App listings; avoid loading Track inventories and keep current access checks, ordering and pagination.
+- Count dashboard records with an exact-total query and a bounded row window instead of materializing every matching record.
+- Choose built-in Track icons when creating or editing a Track, with a dot fallback in navigation, lists and headings. Preserve existing package icons until explicitly changed.
+- Show Home by default for existing and new Apps, preserve explicit opt-out and authorization, and move the former “Start here” Track shortcut into Home without changing saved data. Preserve section deep links and browser tab-navigation history.
+
 ## 0.1.1rc64 — 2026-11-16
 
 - Require current canonical-workspace access for full and revision-aware transcript reads, including unstamped rows and final admission before release; retain conversations through revocation and restored membership without rewriting their location.

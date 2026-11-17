@@ -220,7 +220,8 @@ test-postgres-ci:
 		tests/test_native_entry_counts_postgres.py tests/test_permission_decision_cost.py \
 		tests/test_app_passage_candidates.py \
 		tests/test_resource_metadata_index.py tests/test_resource_metadata_scale.py \
-		tests/test_resource_schema_preview.py tests/test_definition_vector_reuse.py tests/test_app_record_read.py
+		tests/test_resource_schema_preview.py tests/test_definition_vector_reuse.py tests/test_app_record_read.py \
+		tests/test_scoped_query_budget.py tests/test_query_boundary.py tests/test_workspace_staff_inventory.py
 
 ## Reproduce backend test lanes, frontend tests and Postgres before pushing.
 ## Artifact CI checks have separate targets above. Catches black/isort

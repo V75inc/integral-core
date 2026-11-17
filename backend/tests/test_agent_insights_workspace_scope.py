@@ -102,6 +102,11 @@ def patched_permissions(monkeypatch):
         "app.services.permissions.get_user_accessible_entries", fake_entries
     )
     monkeypatch.setattr("app.services.resource_location.locate_resource", fake_location)
+
+    async def fake_track_get(track_id):
+        return next((row for row in ALL_TRACKS if row.id == track_id), None)
+
+    monkeypatch.setattr("app.models.nodes.Track.get", fake_track_get)
     yield
 
 

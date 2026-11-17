@@ -103,6 +103,13 @@ whole-home cold snapshot. This explicit adoption step is not a normal-startup
 migration; an already managed home requires a separately reviewed catalog upgrade.
 Hosted database operators instead use the `integral indexes` plan/apply workflow.
 
+Track icon choices use an additive `icon_overridden` field; existing records
+need no reset or bulk rewrite. The field preserves an explicit Dot choice when
+package defaults are reapplied. Older Core versions can read the visible icon,
+but their whole-record writes can discard this new marker. A rollback that must
+preserve those choices therefore uses the matching pre-upgrade snapshot in a
+fresh directory, rather than running old writers against the upgraded store.
+
 ## Runtime and client contract
 
 The CLI's JSON descriptor has `contract_version: 1`, installation identity, state, home, API and web URLs, version, supervisor PID and process creation time, database kind, `default_harness_provider_id: integral_native`, and `harness_provider_id` for the running supervisor. It contains no tokens or encryption keys. `up` also returns `started`, determined while holding the installation lock. Clients wait for `state: ready`, consume `web_url`, and claim shutdown ownership only when `started` is true. Pass both `--if-pid` and `--if-created` to `stop` to avoid shutting down a replacement supervisor.

@@ -1041,6 +1041,7 @@ async def split_track(
                 owner_id=user_id,
                 purpose=source.purpose,
                 icon=source.icon,
+                icon_overridden=source.icon_overridden,
                 accent_color=source.accent_color,
                 visibility=source.visibility,
                 workspace_id=source.workspace_id,
