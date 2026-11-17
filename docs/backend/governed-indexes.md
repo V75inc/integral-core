@@ -104,9 +104,11 @@ credentials are persisted in local private configuration. Existing homes lacking
 these credentials must migrate explicitly rather than silently adopt ownership.
 Use a reviewed plan with `--runtime-role`, configure that role/password as the
 serving DSN, and retain the owner credential only in the maintenance secret source.
-Business cell provisioning uses the selected API artifact in a separate one-off
-container and retains its plan/runtime secret in the control-plane-only storage
-volume. Swarm deployment applies an explicitly supplied plan before serving.
+Hosted deployments must provision with the selected API artifact and trusted
+host providers in a separate maintenance process. Each rollout, including Swarm,
+must explicitly apply the approved plan before starting serving processes. Retain
+that plan and its progress for recovery; configure only the restricted runtime
+credentials in the API and worker.
 
 For existing databases: verify a restorable backup; inventory and adopt an inspected
 baseline; build replacements on a disposable populated copy first. Unknown indexes
