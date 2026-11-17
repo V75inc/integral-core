@@ -84,9 +84,18 @@ fi
 if [ "$TARGET" = "frontend" ] || [ "$TARGET" = "all" ]; then
 echo "dependency-audit: frontend (npm audit)..."
 if [ -d "$REPO_ROOT/frontend/node_modules" ]; then
+  # npm 10 and 11 report different transitive severities/remediation metadata
+  # for the same lock. Use the auditor that produced the reviewed inventory;
+  # do not relax the exception or change the project's install/build toolchain.
+  NPM_AUDIT=(npm exec --yes --package=npm@11.6.2 -- npm)
+  if ! AUDITOR_VERSION=$(cd "$REPO_ROOT/frontend" && "${NPM_AUDIT[@]}" --version) \
+      || [ "$AUDITOR_VERSION" != "11.6.2" ]; then
+    echo "  FAILED: could not select the required npm 11.6.2 auditor." >&2
+    FAILED=1
+  else
   AUDIT_JSON_FILE="$(mktemp)"
   AUDIT_ERR_FILE="$(mktemp)"
-  (cd "$REPO_ROOT/frontend" && npm audit --json >"$AUDIT_JSON_FILE" 2>"$AUDIT_ERR_FILE")
+  (cd "$REPO_ROOT/frontend" && "${NPM_AUDIT[@]}" audit --json >"$AUDIT_JSON_FILE" 2>"$AUDIT_ERR_FILE")
   NPM_STATUS=$?
   if [ -s "$AUDIT_ERR_FILE" ]; then
     cat "$AUDIT_ERR_FILE" >&2
@@ -115,6 +124,7 @@ if [ -d "$REPO_ROOT/frontend/node_modules" ]; then
         echo "  passed (no unreviewed high/critical advisories)."
       fi
     fi
+  fi
   fi
 else
   echo "  FAILED: frontend/node_modules not installed (run npm ci first)" >&2

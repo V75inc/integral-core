@@ -81,6 +81,10 @@ exception for [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc
 It expires at the start of November 24 UTC. The audit policy binds the exact lock
 graph, advisory/remediation metadata and frontend/SDK/build-script fingerprints
 in `.ci/frontend_dependency_review.json`; changes or expiry require a new review.
+The audit wrapper selects and verifies npm 11.6.2 for its audit process so local
+and CI inventories use the same reporting semantics. This does not change the
+project's npm install/build commands. Auditor selection failure blocks the gate;
+there is no fallback to the ambient npm version.
 Only npm's equivalent boolean/Tailwind 4.3.5 remediation hints for four explicitly
 reviewed transitive packages are normalized; root/direct fix changes still block.
 The previous October exception remains expired. This is risk acceptance for

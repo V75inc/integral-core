@@ -13,6 +13,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 AUDIT_SCRIPT = REPO_ROOT / ".ci" / "dependency_audit.sh"
 pytestmark = pytest.mark.unit
 
+NPM_FIXTURE_HEADER = """#!/bin/sh
+case "$*" in
+  'exec --yes --package=npm@11.6.2 -- npm --version')
+    printf '%s\\n' "${AUDIT_NPM_VERSION-11.6.2}"
+    exit "${AUDIT_VERSION_EXIT:-0}"
+    ;;
+  'exec --yes --package=npm@11.6.2 -- npm audit --json') ;;
+  *) echo 'unexpected auditor invocation' >&2; exit 64 ;;
+esac
+"""
+
 
 @pytest.fixture
 def frontend_audit(tmp_path):
@@ -45,8 +56,7 @@ def test_frontend_audit_error_or_malformed_output_fails_closed(
     fake_bin.mkdir()
     npm = fake_bin / "npm"
     npm.write_text(
-        "#!/bin/sh\n"
-        'printf "%s\\n" called >> "$AUDIT_CALL_LOG"\n'
+        NPM_FIXTURE_HEADER + 'printf "%s\\n" called >> "$AUDIT_CALL_LOG"\n'
         "printf '%s' \"$AUDIT_FIXTURE\"\n"
         'exit "${AUDIT_EXIT:-1}"\n'
     )
@@ -77,8 +87,7 @@ def test_successful_frontend_audit_document_is_accepted(tmp_path, frontend_audit
     fake_bin.mkdir()
     npm = fake_bin / "npm"
     npm.write_text(
-        "#!/bin/sh\n"
-        'printf "%s\\n" called >> "$AUDIT_CALL_LOG"\n'
+        NPM_FIXTURE_HEADER + 'printf "%s\\n" called >> "$AUDIT_CALL_LOG"\n'
         "printf '%s' '{\"metadata\":{},\"vulnerabilities\":{}}'\n"
         "exit 0\n"
     )
@@ -99,6 +108,42 @@ def test_successful_frontend_audit_document_is_accepted(tmp_path, frontend_audit
     assert result.returncode == 0, result.stderr
     assert "passed (no unreviewed" in result.stdout
     assert calls.read_text() == "called\n"
+
+
+@pytest.mark.parametrize(
+    ("version", "version_exit"),
+    [("10.8.2", "0"), ("11.6.3", "0"), ("", "0"), ("11.6.2", "7")],
+)
+def test_frontend_auditor_selection_fails_without_ambient_fallback(
+    tmp_path, frontend_audit, version, version_exit
+):
+    script, root, calls = frontend_audit
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    npm = fake_bin / "npm"
+    npm.write_text(
+        NPM_FIXTURE_HEADER
+        + 'printf "%s\\n" called >> "$AUDIT_CALL_LOG"\n'
+        + "printf '%s' '{\"metadata\":{},\"vulnerabilities\":{}}'\n"
+    )
+    npm.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(script), "frontend"],
+        cwd=root,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "AUDIT_NPM_VERSION": version,
+            "AUDIT_VERSION_EXIT": version_exit,
+            "AUDIT_CALL_LOG": str(calls),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "required npm 11.6.2 auditor" in result.stderr
+    assert not calls.exists()
 
 
 @pytest.mark.parametrize("audit_exit", [0, 7])
@@ -179,7 +224,7 @@ def test_unreviewed_high_or_new_direct_patch_is_not_implicitly_accepted(
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     npm = fake_bin / "npm"
-    npm.write_text('#!/bin/sh\nprintf "%s" "$AUDIT_FIXTURE"\nexit 1\n')
+    npm.write_text(NPM_FIXTURE_HEADER + 'printf "%s" "$AUDIT_FIXTURE"\nexit 1\n')
     npm.chmod(0o755)
     result = subprocess.run(
         ["bash", str(script), "frontend"],
@@ -257,7 +302,7 @@ def test_candidate_review_is_enforced_by_real_audit_wrapper(
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     npm = fake_bin / "npm"
-    npm.write_text('#!/bin/sh\nprintf "%s" "$AUDIT_FIXTURE"\nexit 1\n')
+    npm.write_text(NPM_FIXTURE_HEADER + 'printf "%s" "$AUDIT_FIXTURE"\nexit 1\n')
     npm.chmod(0o755)
     result = subprocess.run(
         ["bash", str(script), "frontend"],
