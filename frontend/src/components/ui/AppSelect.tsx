@@ -36,6 +36,8 @@ export type AppSelectProps = {
   /** `field` matches `.app-input`; `pill` matches compact composer controls */
   variant?: 'field' | 'pill';
   className?: string;
+  /** Stretch the entire control, including its wrapper in flex rows. Field controls default to fluid. */
+  fluid?: boolean;
   /** When `value` is missing from `options`, trigger shows this (or raw `value`) */
   placeholder?: string;
   /** Opt-in type-ahead: a search box inside the open list filters the options. */
@@ -58,6 +60,7 @@ export function AppSelect({
   disabled,
   variant = 'field',
   className = '',
+  fluid = variant === 'field',
   placeholder,
   searchable = false,
   onSearchChange, remoteSearch = false, selectedLabel: selectedLabelOverride,
@@ -300,7 +303,7 @@ export function AppSelect({
     : selectedLabelOverride || '';
 
   return (
-    <div className="min-w-0">
+    <div className={fluid ? 'min-w-0 w-full flex-1' : 'min-w-0'}>
       {searchable ? (
         <div className="relative">
           <input
@@ -344,7 +347,7 @@ export function AppSelect({
               if (!open) setOpen(true);
             }}
             onKeyDown={handleSearchKeyDown}
-            className={`${variant === 'field' ? fieldTrigger : pillTrigger} ${className} pr-7`}
+            className={`${variant === 'field' ? fieldTrigger : pillTrigger} ${className} ${fluid ? 'w-full' : ''} pr-7`}
           />
           <ChevronDown
             size={variant === 'pill' ? 14 : 16}
@@ -365,7 +368,7 @@ export function AppSelect({
           aria-haspopup="listbox"
           aria-controls={listboxId}
           disabled={disabled}
-          className={`${variant === 'field' ? fieldTrigger : pillTrigger} ${className}`}
+          className={`${variant === 'field' ? fieldTrigger : pillTrigger} ${className} ${fluid ? 'w-full' : ''}`}
           onClick={() => {
             if (disabled) return;
             // Reset the type-ahead filter each time the list opens.

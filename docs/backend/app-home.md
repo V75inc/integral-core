@@ -1,4 +1,22 @@
-# Package-owned App Home
+# App Home
+
+Existing and new Apps receive a read-only Core Home when no instance or active
+package composition exists. It requires current App access and matching workspace
+scope, and creates no stored data. The former “Start here” card moves into Home:
+its authorized, navigation-visible default Track keeps its title, description,
+Open link and original records. Core Home also offers visible Track shortcuts.
+
+Resolution order is instance, active package, then Core default. Set
+`home: {"enabled": false}` through the authorized App update, or `app.home` in a
+package, to opt out. An instance declaration overrides the package. `{}` keeps
+its reset meaning (inherit package/Core Home); missing/null content also inherits.
+Native edits retain revision checks. Invalid installed definitions, inactive Apps,
+unavailable native content and permission errors do not become a default Home.
+No migration, deletion or reseeding is required.
+
+Explicit section URLs and saved Tracks/Dashboards preferences still win. Tab
+navigation adds browser history entries, so back/forward restores the URL section.
+An unavailable Home deep link shows Tracks without rewriting the URL or preference.
 
 `app.home` gives an installed App a package-defined entry experience under its active ApplicationDefinition. Home is the default App section unless an explicit preference selects another section. Dashboards remain separate, mutable instance projections.
 

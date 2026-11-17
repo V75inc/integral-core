@@ -13,6 +13,11 @@ The workspace selector tells you where you are working. Your personal workspace 
 
 An App groups related work. A Track collects records, and an Entry is one record. The App's Operational Model determines which record types, fields, and views are available. You may also encounter a standalone Track in a workspace.
 
+Breadcrumbs follow the resource you opened: App-owned Tracks appear under
+**Apps → App → Track**, while standalone Tracks appear under **Tracks**.
+Related collections retain their parent record in the path. Each breadcrumb
+opens its named destination, including resources that happen to share a name.
+
 Choose the workspace intentionally before creating or asking the AI to change information. Opening an accessible resource in another workspace may cause the interface to switch scope. Check the selected workspace when moving between teams.
 
 If a resource is unavailable, you may have the wrong workspace, insufficient access, a revoked grant, or an old link. Ask the owner for access rather than assuming the item has been deleted.
@@ -32,6 +37,13 @@ Start with a simple collection you actually need: notes, requests, decisions, or
 4. Open another available view of the same Track.
 5. Open an Entry and inspect its fields, comments, relations, and attachments.
 6. Ask the resident AI to summarize these records, then open the records it cites.
+
+When creating or editing a Track, choose its **Track icon** from the built-in
+symbols, or select **Dot (default)**. The icon appears in Track navigation,
+lists and its heading. Templates can supply their own icon; choose Dot to clear
+it. An explicit Dot choice survives later template updates. Existing package
+icons remain until explicitly changed; missing or unrecognized values display as a dot. Saving an icon uses the same
+Track edit permissions and confirmation as other Track details.
 
 A second view is a second perspective on the same information. It is not a second copy to keep synchronized.
 
@@ -88,6 +100,12 @@ Use the body for explanatory content and typed fields for values you want to val
 
 When editing, check that the save completes. If another person or process changed the record, a revision conflict may require reloading and reconciling your changes. A stale tab is not authority to overwrite newer work.
 
+When a record is opened from a supported list, **Previous** and **Next** move
+through that list's current order and filters. Opening the next page happens
+when you navigate; each destination is checked against your current access.
+If it cannot be opened, the current record remains visible. Save or cancel an
+edit before moving to another record.
+
 Comments let collaborators discuss a record without replacing its content. Reactions and comments require the corresponding access. Editing your own comment and moderating another person's comment are different permissions.
 
 Provenance identifies the source of a record where available: human, agent, connector, or system. Inspect supporting detail when it matters to your decision. Provenance describes origin; it does not guarantee that the content is correct.
@@ -107,6 +125,14 @@ If a shared record would contain information for different audiences, separate t
 Use the views declared by your Track or App. Feeds suit reading and recent activity. Tables suit comparison. Boards suit grouping by a state or other supported field. Calendars suit dated work. Other registered or package-owned views can provide a more specific presentation.
 
 A view may define its own filters, sorting, grouping, and record-type selection. If a record appears missing, clear the applicable filters and check your access. Changing a view does not change the security boundary.
+
+With permission to configure the Track, you can make an existing saved view
+its default. Opening the Track without an explicit view then selects that view,
+including after a reload. Choosing a default does not rename or redesign it.
+Hiding the default promotes another visible view; selecting a hidden view as
+default makes it visible. Tracks that share an Operational Model retain their
+own saved choices without changing sibling Tracks or the shared definition.
+AI-proposed changes still require your review.
 
 Search only uses information you can currently access. On installations with semantic search enabled, you can ask in everyday words and follow the source links to check the answer. New or changed records may take a little time to become searchable. A missing result does not always mean the information is absent.
 
@@ -170,6 +196,13 @@ The assistant can also use your profile name naturally during later chats.
 
 Inline chat errors stay brief. Click the error or its arrow to expand the full
 message; click again to collapse it. You can also use the keyboard to open it.
+An unsuccessful approval uses the same disclosure instead of repeating its
+error in several places. Check the result and receipts before retrying a write.
+
+You can continue with a new question in the same conversation. Earlier work
+provides context, but the answer should address the current request. After a
+capability or installation changes, explicitly ask the resident to retry so it
+checks the currently available tools instead of relying on an earlier refusal.
 
 The resident uses available capabilities and current permissions. It may need clarification, approval, credentials, or a capability your installation does not expose. A skill describes a procedure; it cannot grant the resident access to restricted data.
 

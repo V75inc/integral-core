@@ -37,9 +37,11 @@ export function stitchLayoutCrumbs(
   // page's: naming it would show the wrong workspace for several seconds. Say nothing
   // until the page publishes its real trail (it also switches the scope then).
   const loading = crumbs.length > 0 && crumbs[crumbs.length - 1].label === LOADING_LABEL;
+  const hasPublishedWorkspace = crumbs.some(c => /^\/workspaces\/[^/]+$/.test(c.to ?? ''));
   const showWorkspace =
     !isHomePath &&
     !loading &&
+    !hasPublishedWorkspace &&
     !WORKSPACE_EXEMPT.has(top) &&
     Boolean(activeWorkspace?.id) &&
     Boolean(activeWorkspace?.name);
@@ -51,12 +53,12 @@ export function stitchLayoutCrumbs(
   }
 
   const tail = crumbs.filter(c => {
-    if (c.label === 'Home') return false;
+    if (c.to === '/' || (isHomePath && c.label === 'Home')) return false;
     // Only drop a page-published workspace name when we already injected one.
     if (
       showWorkspace &&
       activeWorkspace?.name &&
-      c.label === activeWorkspace.name
+      c.to === `/workspaces/${activeWorkspace.id}`
     ) {
       return false;
     }

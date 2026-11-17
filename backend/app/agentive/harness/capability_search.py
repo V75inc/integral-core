@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import logging
 import math
 import re
 from collections import Counter, OrderedDict
 from pathlib import Path
-from typing import Annotated, Any, Sequence
+from typing import Annotated, Any, Mapping, Sequence
 
 import yaml
 from pydantic import Field
@@ -676,6 +677,7 @@ def build_search_capabilities_tool(
     catalogue: Sequence[dict[str, Any]],
     immediately_available_tools: Sequence[str] = (),
     run_state: dict[str, Any] | None = None,
+    protected_tool_skills: Mapping[str, Sequence[str]] | None = None,
 ) -> Tool[Any, Any]:
     """Build a model-callable search surface over one run's authorized catalog."""
     skills = _load_skills(skill_library)
@@ -781,6 +783,52 @@ def build_search_capabilities_tool(
         semantic.sort(key=lambda item: (-item[1], item[0]))
         return semantic
 
+    def disclose(result: dict[str, Any]) -> ToolReturn:
+        result = copy.deepcopy(result)
+        # A search hit is not a loaded workflow. Keep discovery consistent
+        # with the native tool prepare hook: protected writes must load their
+        # owning skill before Pydantic can expose their schemas.
+        available_tools = []
+        for item in result["results"]:
+            if item["kind"] != "tool":
+                continue
+            item.pop("discover_with", None)
+            owners = sorted((protected_tool_skills or {}).get(item["name"], ()))
+            saved_design_tool = (
+                item["name"] == "integral_build_approved_design"
+                and bool(
+                    state.get("approved_design_ready") or state.get("pending_design")
+                )
+            ) or (
+                item["name"] == "integral_verify_build"
+                and state.get("build_succeeded") is True
+            )
+            if owners and not saved_design_tool:
+                item["requires_any_skill"] = owners
+                item["load_with"] = [
+                    {"tool": "load_capability", "id": owner} for owner in owners
+                ]
+                item["instruction"] = (
+                    "If none is already active, load one listed owning skill "
+                    "with load_capability first, "
+                    "then call this Core tool directly. It is not an App tool "
+                    "key for integral_call_workspace_tool. Loading retains "
+                    "normal permissions and user approval."
+                )
+            else:
+                available_tools.append(item["name"])
+        result["available_tools"] = available_tools
+        result["recommendation"]["instruction"] += (
+            " Only available_tools schemas are disclosed by this search. For a "
+            "tool with requires_any_skill, use an already loaded owning skill "
+            "or load one listed skill first; do not "
+            "invoke it through integral_call_workspace_tool. Call the "
+            "selected tool directly when available; no second tool search is "
+            "needed. Search again only if observed results require a different "
+            "capability."
+        )
+        return ToolReturn(return_value=result, tools=available_tools)
+
     async def search_capabilities(
         query: Annotated[str, Field(min_length=2, max_length=_MAX_QUERY_CHARS)],
         limit: Annotated[int, Field(ge=1, le=_MAX_RESULTS)] = 8,
@@ -790,7 +838,7 @@ def build_search_capabilities_tool(
         cache_key = (normalized_query, limit)
         if cache_key in cached_results:
             result = cached_results[cache_key]
-            return ToolReturn(return_value=result, tools=result["available_tools"])
+            return disclose(result)
         state["capability_search_completed"] = True
         query_vector = None
         if skills or tool_documents:
@@ -854,21 +902,8 @@ def build_search_capabilities_tool(
         state["recommended_tool_id"] = (
             recommended_tool.get("name") if isinstance(recommended_tool, dict) else None
         )
-        available_tools = [
-            item["name"] for item in result["results"] if item["kind"] == "tool"
-        ]
-        for item in result["results"]:
-            if item["kind"] == "tool":
-                item.pop("discover_with", None)
-        result["available_tools"] = available_tools
-        result["recommendation"]["instruction"] += (
-            " The returned tool schemas are disclosed by this search. Call the "
-            "selected tool directly when available; no second tool search is "
-            "needed. Search again only if observed results require a different "
-            "capability."
-        )
         cached_results[cache_key] = result
-        return ToolReturn(return_value=result, tools=available_tools)
+        return disclose(result)
 
     return Tool(
         search_capabilities,

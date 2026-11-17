@@ -943,3 +943,88 @@ def test_small_search_retains_alternative_workflows_without_loading_them():
         r["name"] in {"charts", "build", "records", "add_chart"}
         for r in result["results"]
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name,flag",
+    [
+        ("integral_build_approved_design", "approved_design_ready"),
+        ("integral_build_approved_design", "pending_design"),
+        ("integral_verify_build", "build_succeeded"),
+    ],
+)
+async def test_search_reprojects_saved_design_disclosure_on_cached_rank(
+    name, flag, monkeypatch
+):
+    from app.agentive.harness import capability_search
+
+    async def offline(_query):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(capability_search, "_embed_text_for_capability_search", offline)
+    state = {}
+    tool = build_search_capabilities_tool(
+        skill_library=None,
+        catalogue=[
+            {
+                "name": name,
+                "description": "Build and verify approved design",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+        protected_tool_skills={name: ("integral-scaffold",)},
+        run_state=state,
+    )
+    first = await tool.function(query=name)
+    assert name not in first.tools
+    state[flag] = True
+    permitted = await tool.function(query=name)
+    assert name in permitted.tools
+    hit = next(
+        item for item in permitted.return_value["results"] if item["name"] == name
+    )
+    assert "requires_any_skill" not in hit
+    state[flag] = False
+    revoked = await tool.function(query=name)
+    assert name not in revoked.tools
+    assert name not in first.tools
+
+
+@pytest.mark.asyncio
+async def test_search_multiple_skill_owners_and_unowned_tools(monkeypatch):
+    from app.agentive.harness import capability_search
+
+    async def offline(_query):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(capability_search, "_embed_text_for_capability_search", offline)
+    catalogue = [
+        {
+            "name": name,
+            "description": "Saved view",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+        for name in ("integral_save_view", "integral_list_views")
+    ]
+    tool = build_search_capabilities_tool(
+        skill_library=None,
+        catalogue=catalogue,
+        protected_tool_skills={
+            "integral_save_view": ("integral-review", "integral-model")
+        },
+    )
+    result = await tool.function(query="integral_save_view integral_list_views")
+    hit = next(
+        item
+        for item in result.return_value["results"]
+        if item["name"] == "integral_save_view"
+    )
+    assert hit["requires_any_skill"] == ["integral-model", "integral-review"]
+    assert "integral_save_view" not in result.tools
+    assert "integral_list_views" in result.tools
+    unowned = build_search_capabilities_tool(skill_library=None, catalogue=catalogue)
+    assert (
+        "integral_save_view"
+        in (await unowned.function(query="integral_save_view")).tools
+    )

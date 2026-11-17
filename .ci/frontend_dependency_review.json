@@ -1,0 +1,577 @@
+{
+  "approval": {
+    "decision": "approved",
+    "owner": "Eldon Marks",
+    "approved_on": "2026-11-17",
+    "evidence": "Explicit session approval: \"Approve the bounded exception\" in response to call_e834c344a8b8437980a8ec26e8f4de34; exact reviewed dependency graph and build inputs, expiring November 24, all other audit and release checks retained. Same approved candidate and expiry: November 17 independent engineering re-review covers the dashboard selection race correction and regression tests; dependency graph, build recipes, input trust and advisory risk are unchanged."
+  },
+  "reviewed_on": "2026-11-17",
+  "expires": "2026-11-24",
+  "advisory": "GHSA-fc5q-39xc-vjpf",
+  "lock_sha256": "67cfd3367fa8e8cb27b9e11c831e89cf44a6d8ec82e7f8f9f058cd0df80c7246",
+  "build_inputs_sha256": "bd499cdcded947f4c86a594a8a74e12aecfdfe91585ddcaa23b013cf004dafdf",
+  "high_packages": [
+    "@typescript-eslint/typescript-estree",
+    "@vitejs/plugin-react",
+    "anymatch",
+    "chokidar",
+    "fast-glob",
+    "fdir",
+    "micromatch",
+    "picomatch",
+    "readdirp",
+    "sucrase",
+    "tailwindcss",
+    "tinyglobby",
+    "vite",
+    "vitest"
+  ],
+  "graph": {
+    "@typescript-eslint/typescript-estree": {
+      "severity": "high",
+      "via": [
+        "minimatch",
+        "tinyglobby"
+      ],
+      "nodes": [
+        "node_modules/@typescript-eslint/typescript-estree"
+      ],
+      "fixAvailable": true
+    },
+    "@vitejs/plugin-react": {
+      "severity": "high",
+      "via": [
+        "vite"
+      ],
+      "nodes": [
+        "node_modules/@vitejs/plugin-react"
+      ],
+      "fixAvailable": {
+        "name": "@vitejs/plugin-react",
+        "version": "5.2.0",
+        "isSemVerMajor": true
+      }
+    },
+    "@vitest/mocker": {
+      "severity": "moderate",
+      "via": [
+        {
+          "source": 1242767,
+          "name": "@vitest/mocker",
+          "dependency": "@vitest/mocker",
+          "title": "Vitest: Code injection via unauthenticated manual mock registration",
+          "url": "https://github.com/advisories/GHSA-qxg6-89mg-rqv8",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-94",
+            "CWE-116",
+            "CWE-306"
+          ],
+          "cvss": {
+            "score": 4.7,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N"
+          },
+          "range": ">=2.1.0-beta.7 <4.1.12"
+        },
+        {
+          "source": 1242769,
+          "name": "@vitest/mocker",
+          "dependency": "@vitest/mocker",
+          "title": "Vitest: Windows backslash traversal bypasses the @vitest/mocker redirect allowlist fix",
+          "url": "https://github.com/advisories/GHSA-xp26-3454-mjgp",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-22"
+          ],
+          "cvss": {
+            "score": 5.9,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+          },
+          "range": ">=4.1.11 <4.1.12"
+        }
+      ],
+      "nodes": [
+        "node_modules/@vitest/mocker"
+      ],
+      "fixAvailable": true
+    },
+    "anymatch": {
+      "severity": "high",
+      "via": [
+        "picomatch"
+      ],
+      "nodes": [
+        "node_modules/anymatch"
+      ],
+      "fixAvailable": true
+    },
+    "chokidar": {
+      "severity": "high",
+      "via": [
+        "anymatch",
+        "readdirp"
+      ],
+      "nodes": [
+        "node_modules/chokidar"
+      ],
+      "fixAvailable": {
+        "name": "tailwindcss",
+        "version": "4.3.5",
+        "isSemVerMajor": true
+      }
+    },
+    "fast-glob": {
+      "severity": "high",
+      "via": [
+        "micromatch"
+      ],
+      "nodes": [
+        "node_modules/fast-glob"
+      ],
+      "fixAvailable": true
+    },
+    "fdir": {
+      "severity": "high",
+      "via": [
+        "picomatch"
+      ],
+      "nodes": [
+        "node_modules/tinyglobby/node_modules/fdir"
+      ],
+      "fixAvailable": true
+    },
+    "micromatch": {
+      "severity": "high",
+      "via": [
+        "picomatch"
+      ],
+      "nodes": [
+        "node_modules/micromatch"
+      ],
+      "fixAvailable": {
+        "name": "tailwindcss",
+        "version": "4.3.5",
+        "isSemVerMajor": true
+      }
+    },
+    "minimatch": {
+      "severity": "moderate",
+      "via": [
+        {
+          "source": 1244623,
+          "name": "minimatch",
+          "dependency": "minimatch",
+          "title": "minimatch has potential denial of service via globparts amplification",
+          "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-405"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=7.0.0 <11.0.1"
+        }
+      ],
+      "nodes": [
+        "node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch"
+      ],
+      "fixAvailable": true
+    },
+    "picomatch": {
+      "severity": "high",
+      "via": [
+        {
+          "source": 1247710,
+          "name": "picomatch",
+          "dependency": "picomatch",
+          "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+          "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+          "severity": "high",
+          "cwe": [
+            "CWE-1333"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<=4.0.7"
+        }
+      ],
+      "nodes": [
+        "node_modules/picomatch",
+        "node_modules/tinyglobby/node_modules/picomatch",
+        "node_modules/vite/node_modules/picomatch",
+        "node_modules/vitest/node_modules/picomatch"
+      ],
+      "fixAvailable": {
+        "name": "vite",
+        "version": "6.2.7",
+        "isSemVerMajor": true
+      }
+    },
+    "readdirp": {
+      "severity": "high",
+      "via": [
+        "picomatch"
+      ],
+      "nodes": [
+        "node_modules/readdirp"
+      ],
+      "fixAvailable": {
+        "name": "tailwindcss",
+        "version": "4.3.5",
+        "isSemVerMajor": true
+      }
+    },
+    "sucrase": {
+      "severity": "high",
+      "via": [
+        "tinyglobby"
+      ],
+      "nodes": [
+        "node_modules/sucrase"
+      ],
+      "fixAvailable": true
+    },
+    "tailwindcss": {
+      "severity": "high",
+      "via": [
+        "chokidar",
+        "fast-glob",
+        "micromatch"
+      ],
+      "nodes": [
+        "node_modules/tailwindcss"
+      ],
+      "fixAvailable": {
+        "name": "tailwindcss",
+        "version": "4.3.5",
+        "isSemVerMajor": true
+      }
+    },
+    "tinyglobby": {
+      "severity": "high",
+      "via": [
+        "fdir",
+        "picomatch"
+      ],
+      "nodes": [
+        "node_modules/tinyglobby"
+      ],
+      "fixAvailable": true
+    },
+    "vite": {
+      "severity": "high",
+      "via": [
+        "picomatch",
+        "tinyglobby"
+      ],
+      "nodes": [
+        "node_modules/vite"
+      ],
+      "fixAvailable": {
+        "name": "vite",
+        "version": "6.2.7",
+        "isSemVerMajor": true
+      }
+    },
+    "vitest": {
+      "severity": "high",
+      "via": [
+        "@vitest/mocker",
+        "picomatch",
+        "tinyglobby"
+      ],
+      "nodes": [
+        "node_modules/vitest"
+      ],
+      "fixAvailable": true
+    }
+  },
+  "alternate_report": {
+    "approval": {
+      "decision": "approved",
+      "owner": "Eldon Marks",
+      "approved_on": "2026-11-17",
+      "evidence": "Eldon replied \u201cYes go ahead\u201d to the request to extend the RC65 exception to this exact GitHub report through the start of November 24 UTC, retaining every other security check. Confirmed by the coordinating thread. Report: GitHub Actions run 44186455795, jobs 134404179272 and 134410980397."
+    },
+    "reviewed_on": "2026-11-17",
+    "expires": "2026-11-24",
+    "advisory": "GHSA-fc5q-39xc-vjpf",
+    "lock_sha256": "67cfd3367fa8e8cb27b9e11c831e89cf44a6d8ec82e7f8f9f058cd0df80c7246",
+    "build_inputs_sha256": "bd499cdcded947f4c86a594a8a74e12aecfdfe91585ddcaa23b013cf004dafdf",
+    "high_packages": [
+      "@typescript-eslint/typescript-estree",
+      "@vitejs/plugin-react",
+      "anymatch",
+      "chokidar",
+      "fast-glob",
+      "fdir",
+      "micromatch",
+      "picomatch",
+      "readdirp",
+      "sucrase",
+      "tailwindcss",
+      "tailwindcss-animate",
+      "tinyglobby",
+      "vite",
+      "vitest"
+    ],
+    "graph": {
+      "@typescript-eslint/typescript-estree": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/@typescript-eslint/typescript-estree"
+        ],
+        "severity": "high",
+        "via": [
+          "minimatch",
+          "tinyglobby"
+        ]
+      },
+      "@vitejs/plugin-react": {
+        "fixAvailable": {
+          "isSemVerMajor": true,
+          "name": "@vitejs/plugin-react",
+          "version": "5.2.0"
+        },
+        "nodes": [
+          "node_modules/@vitejs/plugin-react"
+        ],
+        "severity": "high",
+        "via": [
+          "vite"
+        ]
+      },
+      "@vitest/mocker": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/@vitest/mocker"
+        ],
+        "severity": "moderate",
+        "via": [
+          {
+            "cvss": {
+              "score": 4.7,
+              "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N"
+            },
+            "cwe": [
+              "CWE-94",
+              "CWE-116",
+              "CWE-306"
+            ],
+            "dependency": "@vitest/mocker",
+            "name": "@vitest/mocker",
+            "range": ">=2.1.0-beta.7 <4.1.12",
+            "severity": "moderate",
+            "source": 1242767,
+            "title": "Vitest: Code injection via unauthenticated manual mock registration",
+            "url": "https://github.com/advisories/GHSA-qxg6-89mg-rqv8"
+          },
+          {
+            "cvss": {
+              "score": 5.9,
+              "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+            },
+            "cwe": [
+              "CWE-22"
+            ],
+            "dependency": "@vitest/mocker",
+            "name": "@vitest/mocker",
+            "range": ">=4.1.11 <4.1.12",
+            "severity": "moderate",
+            "source": 1242769,
+            "title": "Vitest: Windows backslash traversal bypasses the @vitest/mocker redirect allowlist fix",
+            "url": "https://github.com/advisories/GHSA-xp26-3454-mjgp"
+          }
+        ]
+      },
+      "anymatch": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/anymatch"
+        ],
+        "severity": "high",
+        "via": [
+          "picomatch"
+        ]
+      },
+      "chokidar": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/chokidar"
+        ],
+        "severity": "high",
+        "via": [
+          "anymatch",
+          "readdirp"
+        ]
+      },
+      "fast-glob": {
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/fast-glob"
+        ],
+        "severity": "high",
+        "via": [
+          "micromatch"
+        ]
+      },
+      "fdir": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/tinyglobby/node_modules/fdir"
+        ],
+        "severity": "high",
+        "via": [
+          "picomatch"
+        ]
+      },
+      "micromatch": {
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/micromatch"
+        ],
+        "severity": "high",
+        "via": [
+          "picomatch"
+        ]
+      },
+      "minimatch": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch"
+        ],
+        "severity": "moderate",
+        "via": [
+          {
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "cwe": [
+              "CWE-405"
+            ],
+            "dependency": "minimatch",
+            "name": "minimatch",
+            "range": ">=7.0.0 <11.0.1",
+            "severity": "moderate",
+            "source": 1244623,
+            "title": "minimatch has potential denial of service via globparts amplification",
+            "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
+          }
+        ]
+      },
+      "picomatch": {
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/picomatch",
+          "node_modules/tinyglobby/node_modules/picomatch",
+          "node_modules/vite/node_modules/picomatch",
+          "node_modules/vitest/node_modules/picomatch"
+        ],
+        "severity": "high",
+        "via": [
+          {
+            "cvss": {
+              "score": 7.5,
+              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            },
+            "cwe": [
+              "CWE-1333"
+            ],
+            "dependency": "picomatch",
+            "name": "picomatch",
+            "range": "<=4.0.7",
+            "severity": "high",
+            "source": 1247710,
+            "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+            "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
+          }
+        ]
+      },
+      "readdirp": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/readdirp"
+        ],
+        "severity": "high",
+        "via": [
+          "picomatch"
+        ]
+      },
+      "sucrase": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/sucrase"
+        ],
+        "severity": "high",
+        "via": [
+          "tinyglobby"
+        ]
+      },
+      "tailwindcss": {
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/tailwindcss"
+        ],
+        "severity": "high",
+        "via": [
+          "chokidar",
+          "fast-glob",
+          "micromatch"
+        ]
+      },
+      "tailwindcss-animate": {
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/tailwindcss-animate"
+        ],
+        "severity": "high",
+        "via": [
+          "tailwindcss"
+        ]
+      },
+      "tinyglobby": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/tinyglobby"
+        ],
+        "severity": "high",
+        "via": [
+          "fdir",
+          "picomatch"
+        ]
+      },
+      "vite": {
+        "fixAvailable": {
+          "isSemVerMajor": true,
+          "name": "vite",
+          "version": "6.2.7"
+        },
+        "nodes": [
+          "node_modules/vite"
+        ],
+        "severity": "high",
+        "via": [
+          "picomatch",
+          "tinyglobby"
+        ]
+      },
+      "vitest": {
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/vitest"
+        ],
+        "severity": "high",
+        "via": [
+          "@vitest/mocker",
+          "picomatch",
+          "tinyglobby"
+        ]
+      }
+    }
+  }
+}

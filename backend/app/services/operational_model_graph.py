@@ -48,6 +48,78 @@ def is_space_track_template_profile(operational_model: OperationalModel) -> bool
     return str(mat.get("kind") or "") == "space_track_template"
 
 
+async def is_shared_track_profile(operational_model: OperationalModel) -> bool:
+    """Whether one Track's saved Views must not rewrite this shared model.
+
+    Anchor templates are shared specifications even before their second Track
+    exists. Ordinary models can also have multiple named attachments; inspect
+    those current edges without hydrating other Tracks or their saved Views.
+    This classification does not confer authority to update the model.
+    """
+    return is_space_track_template_profile(operational_model) or (
+        await operational_model.count_nodes(
+            edge=[HAS_OPERATIONAL_MODEL], direction="in"
+        )
+        > 1
+    )
+
+
+async def shared_track_profile_ids_for_navigation(
+    profiles: List[OperationalModel],
+) -> set[str]:
+    """Classify one read-only page without counting every dedicated model.
+
+    A complete bounded edge projection proves which models have at most one
+    named attachment. Possible shared models still use the exact distinct
+    neighbour count, including duplicate/dangling-edge handling. On overflow,
+    count every unresolved model rather than infer from an incomplete page.
+    These ephemeral presentation facts never authorize a read or mutation.
+    """
+    from jvspatial.core.context import get_default_context
+
+    by_id = {profile.id: profile for profile in profiles}
+    shared = {
+        pid
+        for pid, profile in by_id.items()
+        if is_space_track_template_profile(profile)
+    }
+    remaining = {pid: profile for pid, profile in by_id.items() if pid not in shared}
+    if not remaining:
+        return shared
+    if len(remaining) == 1:
+        profile = next(iter(remaining.values()))
+        if await is_shared_track_profile(profile):
+            shared.add(profile.id)
+        return shared
+    context = get_default_context()
+    limit = 2 * len(remaining) + 1
+    rows = await context.database.find_projected(
+        "edge",
+        {
+            "entity": HAS_OPERATIONAL_MODEL._entity_name(),
+            "target": {"$in": list(remaining)},
+        },
+        fields=["target"],
+        limit=limit,
+    )
+    counts = dict.fromkeys(remaining, 0)
+    complete = len(rows) < limit
+    for row in rows:
+        target = row.get("target") if isinstance(row, dict) else None
+        if not isinstance(target, str) or target not in counts:
+            complete = False
+            continue
+        counts[target] += 1
+    possible = [
+        profile for pid, profile in remaining.items() if not complete or counts[pid] > 1
+    ]
+    checks = await asyncio.gather(
+        *(is_shared_track_profile(profile) for profile in possible)
+    )
+    shared.update(profile.id for profile, result in zip(possible, checks) if result)
+    return shared
+
+
 def _entry_type_manifest_key(et: EntryType) -> str:
     fs = et.form_schema or {}
     mk = str(fs.get("_manifest_entry_type_key") or "").strip()
@@ -465,10 +537,19 @@ async def materialize_anchor_track(
         provisioned_at=now,
     )
 
+    from app.services.entry_type_service import materialize_entry_types_from_tier
     from app.services.operational_model_runtime import (
         ensure_track_views_materialized_from_tier,
+        resolve_track_runtime_profile,
     )
 
+    # Provision schema/taxonomy explicitly at creation. Missing-view repairs
+    # on later reads are view-only and must not acquire these side effects.
+    await materialize_entry_types_from_tier(anchor_track)
+    _, anchor_tier, _ = await resolve_track_runtime_profile(anchor_track)
+    await seed_taxonomy_for_track(
+        track=anchor_track, operational_model=template_cp, runtime_tier=anchor_tier
+    )
     await ensure_track_views_materialized_from_tier(anchor_track)
 
     # 8) Single anchor.create ChangeEvent. Phase 3.1 Plan 03.1-03 switched
@@ -1000,6 +1081,7 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
                     "name": str(v.name or ""),
                     "view_type": str(v.type or "feed"),
                     "is_default": bool(v.is_default),
+                    "hidden": bool(v.hidden),
                     "entry_types": list(getattr(v, "entry_type_keys", None) or []),
                     "default_entry_type": str(
                         getattr(v, "default_entry_type_key", "") or ""
@@ -1079,6 +1161,15 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
                     defaults["default_entry_type"] = sorted(entry_keys)[0]
                 else:
                     defaults.pop("default_entry_type", None)
+        # The persisted selection is an explicit customization. Carry it into
+        # the canonical default key as well as each view's is_default flag;
+        # retaining an older valid key made bare-track navigation disagree
+        # with the saved view list and could undo the choice on recompile.
+        selected_keys = [
+            key for key, view in v_by_key.items() if view.is_default and not view.hidden
+        ]
+        if len(selected_keys) == 1:
+            defaults["default_view"] = selected_keys[0]
         dv = defaults.get("default_view")
         if dv is not None and str(dv).strip():
             want = _slug(str(dv))

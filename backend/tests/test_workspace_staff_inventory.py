@@ -292,3 +292,43 @@ async def test_shared_app_does_not_expose_new_private_track_to_admin():
     assert {track.id for track in await get_user_accessible_tracks(admin.id)} == {
         standalone.id
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["owner", "admin", "member", "guest"])
+async def test_scoped_apps_match_filtered_union_without_track_discovery(
+    monkeypatch, role
+):
+    """Workspace selection narrows discovery, never the authorization contract."""
+    from app.services.permissions import get_user_accessible_apps_for_navigation
+
+    await ensure_integral_app_graph(include_library=False)
+    owner = await User.create(user_id="scoped-inventory-owner", display_name="Owner")
+    ws, app, _, _ = await _org_workspace_with_inventory(
+        owner=owner, visibility="workspace", nested_visibility="workspace"
+    )
+    other_ws, _, _, _ = await _org_workspace_with_inventory(owner=owner)
+    actor = owner
+    if role != "owner":
+        actor = await User.create(
+            user_id="scoped-inventory-reader", display_name="Reader"
+        )
+        await actor.connect(
+            ws, edge=IS_MEMBER_OF, role=role, joined_at=datetime.now().isoformat()
+        )
+    expected = {
+        node.id
+        for node in await get_user_accessible_apps(actor.id)
+        if node.workspace_id == ws.id
+    }
+    original_find = Track.find
+
+    async def unrelated_tracks_forbidden(*_args, **_kwargs):
+        raise AssertionError("An App-only listing must not load Track inventory")
+
+    monkeypatch.setattr(Track, "find", unrelated_tracks_forbidden)
+    actual = await get_user_accessible_apps_for_navigation(actor.id, workspace_id=ws.id)
+    assert {node.id for node in actual} == expected
+    assert {node.id for node in actual} == ({app.id} if role != "guest" else set())
+    assert all(node.workspace_id != other_ws.id for node in actual)
+    monkeypatch.setattr(Track, "find", original_find)

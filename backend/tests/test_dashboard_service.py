@@ -1196,3 +1196,137 @@ async def test_dashboard_contributors_include_platform_filter_values(monkeypatch
     )
     assert "status" in spec.select
     assert "created_at" in spec.select
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_track", [True, False])
+@pytest.mark.parametrize("kind", ["refused", "error", "missing_total"])
+async def test_count_query_failure_is_not_zero_or_partial(
+    monkeypatch, explicit_track, kind
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as service
+
+    failed = {"entries": [], "total": None}
+    if kind == "refused":
+        failed.update(refused={"code": "app_unavailable"}, recovery={"tool": "fixture"})
+    elif kind == "error":
+        failed.update(error="schema_drift", detail="The source schema changed.")
+    query = AsyncMock(
+        side_effect=(
+            [failed]
+            if explicit_track
+            else [
+                {"entries": [], "total": 4},
+                failed,
+            ]
+        )
+    )
+    monkeypatch.setattr(service, "query_entries", query)
+    monkeypatch.setattr(
+        service,
+        "_get_app_or_none",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="fixture-app",
+                lifecycle_state="active",
+                installed_package_slug="",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_data_source_track_ids",
+        AsyncMock(
+            return_value=[
+                "n.Track.first",
+                "n.Track.unavailable",
+            ]
+        ),
+    )
+    result = await service._resolve_count(
+        user_id="fixture-user",
+        app_id="fixture-app",
+        workspace_id="fixture-ws",
+        data_source={"track_id": "n.Track.unavailable"} if explicit_track else {},
+    )
+    assert all(call.kwargs["count_only"] is True for call in query.call_args_list)
+    assert result["value"] is None
+    assert result["total_matched"] == 0
+    assert result["error"]
+    assert (
+        result["error_code"]
+        == {
+            "refused": "app_unavailable",
+            "error": "schema_drift",
+            "missing_total": "incomplete_query",
+        }[kind]
+    )
+    if kind == "refused":
+        assert result["refused"] == failed["refused"]
+        assert result["recovery"] == failed["recovery"]
+    if kind == "error":
+        assert result["detail"] == failed["detail"]
+    assert all(
+        call.kwargs["limit"] == 1 and call.kwargs["sort_by"] == "created_at"
+        for call in query.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("refusal_only", [True, False])
+async def test_metric_row_propagates_failure_without_partial_metrics(
+    monkeypatch, refusal_only
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as service
+
+    failed = {"value": None, "total_matched": 0, "refused": {"code": "app_unavailable"}}
+    if not refusal_only:
+        failed.update(
+            error="Source unavailable.",
+            error_code="source_unavailable",
+            detail="Try again later.",
+            recovery={"tool": "fixture"},
+        )
+    counter = AsyncMock(side_effect=[{"value": 4, "total_matched": 4}, failed])
+    monkeypatch.setattr(service, "_resolve_count", counter)
+    monkeypatch.setattr(
+        service,
+        "_get_app_or_none",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                lifecycle_state="active",
+                installed_package_slug="",
+            )
+        ),
+    )
+    result = await service.resolve_widget_data(
+        user_id="fixture-user",
+        app_id="fixture-app",
+        workspace_id="fixture-ws",
+        widget={
+            "type": "metric_row",
+            "data_source": {
+                "metrics": [
+                    {"label": "First"},
+                    {"label": "Unavailable"},
+                    {"label": "Not read"},
+                ]
+            },
+        },
+    )
+    assert "metrics" not in result
+    assert result["value"] is None
+    assert result["error"]
+    assert result["refused"] == failed["refused"]
+    assert result["error_code"] == (
+        "app_unavailable" if refusal_only else "source_unavailable"
+    )
+    if not refusal_only:
+        assert result == failed
+    assert counter.await_count == 2

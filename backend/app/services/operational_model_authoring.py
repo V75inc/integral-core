@@ -1188,6 +1188,7 @@ async def describe_substrate() -> Dict[str, Any]:
 
     from app.schemas.policy import PolicyAction
     from app.services import operational_model_field_types as ftr
+    from app.services.agent_profile_patches import supported_ops
     from app.services.operational_model_plugins import discovered_plugins
     from app.services.template_var_resolvers import get_registered_tokens
     from app.views import operational_model_view_types as vtr
@@ -1216,6 +1217,7 @@ async def describe_substrate() -> Dict[str, Any]:
 
     return {
         # ---- EXISTING keys preserved verbatim (Phase 3 + earlier) ----
+        "patch_operations": supported_ops(),
         "field_types": [_f(s) for s in ftr.iter_specs()],
         "view_types": [_v(s) for s in vtr.iter_specs()],
         "plugins": discovered_plugins(),

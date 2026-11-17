@@ -8,6 +8,7 @@ proof for arbitrary changes to the application's source or build inputs.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -37,7 +38,205 @@ PACKAGES = {
 }
 
 
-def analyze(document: dict, lock: dict, *, today: date | None = None) -> list[str]:
+def canonical_digest(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def build_inputs_digest(root: Path) -> str:
+    """Bind the exception to reviewed application and executable build inputs."""
+
+    def require_local_path(path: Path) -> None:
+        current = root
+        for component in path.relative_to(root).parts:
+            current /= component
+            if current.is_symlink():
+                raise ValueError("symlink in reviewed build input ancestry")
+
+    files: set[Path] = set()
+    for relative in (
+        "frontend/src",
+        "frontend/plugins",
+        "frontend/public",
+        "frontend/scripts",
+        "sdk/react/src",
+        "sdk/react/bin",
+    ):
+        directory = root / relative
+        require_local_path(directory)
+        if not directory.is_dir() or directory.is_symlink():
+            raise ValueError("missing or linked reviewed build input directory")
+        entries = list(directory.rglob("*"))
+        if any(path.is_symlink() for path in entries):
+            raise ValueError("symlink in reviewed build inputs")
+        files.update(path for path in entries if path.is_file())
+    for relative in ("frontend", "sdk/react"):
+        directory = root / relative
+        if directory.is_symlink():
+            raise ValueError("linked build root")
+        files.update(
+            path
+            for path in directory.iterdir()
+            if path.is_file()
+            and path.suffix in {".json", ".ts", ".js", ".mjs", ".cjs", ".html", ".css"}
+        )
+    files.update(
+        root / relative
+        for relative in (
+            ".ci/bundle_web_assets.sh",
+            ".ci/reproducible_build_env.sh",
+            ".github/workflows/ci.yml",
+            ".github/workflows/publish-testpypi.yml",
+            ".github/workflows/publish-pypi.yml",
+        )
+    )
+    for path in files:
+        require_local_path(path)
+    return canonical_digest(
+        {
+            str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(files)
+        }
+    )
+
+
+def same_reviewed_remediation(name: str, actual: object, expected: object) -> bool:
+    """Keep exact fix identities apart from four proven npm reporting aliases."""
+    if type(actual) is type(expected) and canonical_digest(actual) == canonical_digest(
+        expected
+    ):
+        return True
+    # npm 11.6.2 / Arborist 9.1.6 propagates fixAvailable through an
+    # asynchronously populated via Set. Identical audits alternated these
+    # four transitive rows between True and this same known major migration.
+    # The exact dependency/advisory graph is checked separately; never apply
+    # this equivalence to picomatch itself or any other/direct remediation.
+    if name not in {"anymatch", "chokidar", "fast-glob", "readdirp"}:
+        return False
+    migration = {"name": "tailwindcss", "version": "4.3.5", "isSemVerMajor": True}
+
+    def is_migration(value: object) -> bool:
+        return (
+            isinstance(value, dict)
+            and value == migration
+            and value.get("isSemVerMajor") is True
+        )
+
+    return (actual is True and is_migration(expected)) or (
+        expected is True and is_migration(actual)
+    )
+
+
+def reviewed_picomatch_packages(
+    document: dict,
+    lock: dict,
+    *,
+    review: dict | None,
+    build_digest: str | None,
+    today: date,
+    exact_remediation: bool = False,
+) -> set[str]:
+    """A separately approved, exact candidate review; never renew October's waiver."""
+    if not review or not review.get("approval") or not build_digest:
+        return set()
+    try:
+        approval = review["approval"]
+        if not isinstance(approval, dict) or set(approval) != {
+            "decision",
+            "owner",
+            "approved_on",
+            "evidence",
+        }:
+            return set()
+        if approval["decision"] != "approved":
+            return set()
+        if not all(
+            isinstance(approval[key], str) and approval[key].strip()
+            for key in ("owner", "approved_on", "evidence")
+        ):
+            return set()
+        if approval["approved_on"] != review["reviewed_on"]:
+            return set()
+        approved_on = date.fromisoformat(review["reviewed_on"])
+        expires = date.fromisoformat(review["expires"])
+        if (
+            not approved_on <= today < expires
+            or not 0 < (expires - approved_on).days <= 7
+        ):
+            return set()
+        if review["advisory"] != "GHSA-fc5q-39xc-vjpf":
+            return set()
+        if canonical_digest(lock) != review["lock_sha256"]:
+            return set()
+        if build_digest != review["build_inputs_sha256"]:
+            return set()
+        expected = review["graph"]
+        actual = document["vulnerabilities"]
+        high = set(review["high_packages"])
+        if not high or high != {
+            name for name, row in expected.items() if row["severity"] == "high"
+        }:
+            return set()
+        checked: set[str] = set()
+
+        def visit(name: str, seen: frozenset[str] = frozenset()) -> bool:
+            if name in seen or len(seen) >= 32:
+                raise ValueError("cyclic reviewed advisory chain")
+            if name in checked:
+                return True
+            if name not in expected or name not in actual:
+                return False
+            row = actual[name]
+            if any(
+                row[key] != expected[name][key] for key in ("severity", "via", "nodes")
+            ):
+                return False
+            fix = row["fixAvailable"]
+            expected_fix = expected[name]["fixAvailable"]
+            if exact_remediation:
+                if canonical_digest(fix) != canonical_digest(expected_fix):
+                    return False
+            elif not same_reviewed_remediation(name, fix, expected_fix):
+                return False
+            if not row["via"] or not row["nodes"]:
+                return False
+            for node in row["nodes"]:
+                if lock["packages"][node].get("dev") is not True:
+                    return False
+            for source in row["via"]:
+                if isinstance(source, str):
+                    if not visit(source, seen | {name}):
+                        return False
+                elif not isinstance(source, dict):
+                    return False
+                elif source.get("severity") in {"high", "critical"} and (
+                    name != "picomatch"
+                    or source.get("name") != "picomatch"
+                    or source.get("severity") != "high"
+                    or source.get("range") != "<=4.0.7"
+                    or source.get("url")
+                    != ("https://github.com/advisories/GHSA-fc5q-39xc-vjpf")
+                ):
+                    return False
+            checked.add(name)
+            return True
+
+        if not all(visit(name) for name in high) or checked != set(expected):
+            return set()
+        return high
+    except (KeyError, TypeError, AttributeError):
+        return set()
+
+
+def analyze(
+    document: dict,
+    lock: dict,
+    *,
+    today: date | None = None,
+    review: dict | None = None,
+    build_digest: str | None = None,
+) -> list[str]:
     """Return complete inventory lines; unreviewed high/critical are actionable."""
     today = today or datetime.now(timezone.utc).date()
     if not isinstance(document, dict) or not isinstance(
@@ -119,11 +318,35 @@ def analyze(document: dict, lock: dict, *, today: date | None = None) -> list[st
                 raise ValueError("invalid transitive advisory")
         return True
 
+    reviewed = set()
+    matched_review = None
+    if isinstance(review, dict):
+        # Evaluate complete reports independently. A row from one report must
+        # never grant an exception to a row in a different report.
+        for profile, exact in ((review, False), (review.get("alternate_report"), True)):
+            if not isinstance(profile, dict):
+                continue
+            reviewed = reviewed_picomatch_packages(
+                document,
+                lock,
+                review=profile,
+                build_digest=build_digest,
+                today=today,
+                exact_remediation=exact,
+            )
+            if reviewed:
+                matched_review = profile
+                break
     lines = []
     for name, item in sorted(vulns.items()):
         severity = item["severity"]
         if severity not in {"high", "critical"}:
             lines.append(f"NOTICE {severity} {name} (outside blocking severity policy)")
+        elif matched_review is not None and name in reviewed:
+            lines.append(
+                f"ACCEPTED {severity} {name} (approved exact build inputs; "
+                f"GHSA-fc5q-39xc-vjpf; expires {matched_review['expires']})"
+            )
         elif reviewed_chain(name):
             lines.append(
                 f"ACCEPTED {severity} {name} (reviewed build graph; expires {REVIEW_EXPIRES})"
@@ -146,7 +369,16 @@ def main() -> int:
             raise ValueError("nonzero audit status without findings")
         lock = json.loads(Path(sys.argv[3]).read_text()) if findings else {}
         today = datetime.now(timezone.utc).date()
-        lines = analyze(document, lock, today=today)
+        review_path = Path(__file__).with_name("frontend_dependency_review.json")
+        review = json.loads(review_path.read_text()) if review_path.is_file() else None
+        build_digest = (
+            build_inputs_digest(Path(__file__).resolve().parents[1])
+            if review and review.get("approval") and findings
+            else None
+        )
+        lines = analyze(
+            document, lock, today=today, review=review, build_digest=build_digest
+        )
         for line in lines:
             print(line)
         if any(line.startswith("ACTIONABLE") for line in lines):

@@ -30,6 +30,7 @@ import { getHostSession } from '../host/session';
 import { isHostManagedSession } from './sessionRuntime';
 import { getSessionConnection, markHostSessionRecovered, setSessionConnection } from './sessionConnection';
 import { normalizeUserMe } from './helpers';
+import { clearAllSingleFlights } from './singleFlight';
 
 const ACCESS_TOKEN_KEY = 't75_token';
 const REFRESH_TOKEN_KEY = 't75_refresh_token';
@@ -105,6 +106,7 @@ export function getRefreshToken(): string | null {
 
 export function setTokens(payload: TokenPayload, { preserveActivity = false } = {}): void {
   if (!payload.access_token) return;
+  if (localStorage.getItem(ACCESS_TOKEN_KEY) !== payload.access_token) clearAllSingleFlights();
   if (!preserveActivity) {
     hostSessionEnabled = true;
     sessionGeneration += 1;
@@ -143,6 +145,7 @@ export function setTokens(payload: TokenPayload, { preserveActivity = false } = 
  * Device-level prefs (theme) are deliberately preserved.
  */
 export function clearTokens(): void {
+  clearAllSingleFlights();
   sessionGeneration += 1;
   hostSessionEnabled = false;
   hostRetryAt = hostFailures = 0;

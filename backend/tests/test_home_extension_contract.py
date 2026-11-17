@@ -224,9 +224,9 @@ async def test_preview_http_accepts_flat_body_and_never_saves(
     assert result.status_code == 200, result.text
     assert result.json()["preview"] and not result.json()["live_data"]
     assert result.json()["home"]["title"] == "Preview only"
-    assert (await authenticated_client.get(f"/api/apps/{app_id}/home")).json()[
-        "home"
-    ] is None
+    persisted = (await authenticated_client.get(f"/api/apps/{app_id}/home")).json()
+    assert persisted["source"] == "default"
+    assert persisted["home"]["title"] == "Home"
     navigation = await authenticated_client.post(
         f"/api/extensions/{app_id}/navigate", json={"kind": "app", "id": app_id}
     )

@@ -101,12 +101,6 @@ async def list_apps(
         # answer 200 with {apps: []} for a consistency failure.
         raise MissingAuthenticationError(message="Authentication required")
 
-    result = await get_user_accessible_apps_for_navigation(user_id)
-    result = [
-        s
-        for s in result
-        if str(getattr(s, "lifecycle_state", "") or "active") == "active"
-    ]
     # W5: server-enforce the active workspace scope from
     # X-Integral-Scope (fail-closed → user's Personal Workspace).
     from app.services.request_scope import (
@@ -115,6 +109,14 @@ async def list_apps(
     )
 
     target_ws = await resolve_workspace_id_from_request(request, user_id)
+    result = await get_user_accessible_apps_for_navigation(
+        user_id, workspace_id=target_ws
+    )
+    result = [
+        s
+        for s in result
+        if str(getattr(s, "lifecycle_state", "") or "active") == "active"
+    ]
     if target_ws:
         result = [s for s in result if matches_workspace(s, target_ws)]
     # Phase 36 — workspace-scoped order: sort by App.position (asc,

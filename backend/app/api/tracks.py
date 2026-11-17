@@ -14,23 +14,16 @@ from app.api.errors import (
     ResourceNotFoundError,
 )
 from app.api.utils import export_node, public_user_view, resolve_principal_id
-from app.api.validators import (
-    validate_id,
-)
-from app.models.edges import (
-    COLLABORATES_ON,
-    EXCLUDED_FROM,
-    WATCHES,
-)
+from app.api.validators import validate_id
+from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, WATCHES
 from app.models.nodes import OperationalModel, Track
 from app.schemas.policy import Resource, Subject
-from app.services.app_graph import (
-    get_track_attached_operational_model,
-)
+from app.services.app_graph import get_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.entry_context import (
     attach_anchor_source_to_track_data,
     attach_operational_model_defaults_to_track_data,
+    attach_operational_model_defaults_to_tracks_data,
     attach_parent_app_to_track_data,
     attach_track_and_space,
 )
@@ -167,10 +160,9 @@ async def list_tracks(
     )
     response["scope_workspace_id"] = target_ws
 
-    # I-PERF: enrichment was 4 sequential awaits per track (export_node +
-    # count + parent_app + operational_model + anchor). Lift to per-track
-    # parallel: each track's 4 attaches run together (asyncio.gather),
-    # and all N tracks run in parallel against the now-indexed substrate.
+    # Export and parent/anchor enrichment run concurrently across the page.
+    # Model-default metadata is enriched as a bounded page below, avoiding
+    # one sharing-count query per dedicated model.
     # Entry counts walk every admitted entry of every track on the page (the
     # largest track in a payroll workspace has ~18,000). With navigation
     # snapshots on, counts are reused for the snapshot TTL; otherwise this is
@@ -204,23 +196,20 @@ async def list_tracks(
         data = await export_node(t)
         # anchor_source is cheap and screens use it to tell entry-spawned Tracks (pay runs,
         # line items) from curated ones, so it is always attached.
-        if include_details:
-            await asyncio.gather(
-                attach_parent_app_to_track_data(data, t),
-                attach_operational_model_defaults_to_track_data(data, t),
-                attach_anchor_source_to_track_data(data, t),
-            )
-        else:
-            await asyncio.gather(
-                attach_parent_app_to_track_data(data, t),
-                attach_anchor_source_to_track_data(data, t),
-            )
+        await asyncio.gather(
+            attach_parent_app_to_track_data(data, t),
+            attach_anchor_source_to_track_data(data, t),
+        )
         if include_entry_counts:
             data["entry_count"] = counts[t.id]
         data["action_url"] = resolve_resource_action_url("track", t.id)
         return data
 
     enriched = await asyncio.gather(*(_enrich_one(t) for t in page_tracks))
+    if include_details:
+        await attach_operational_model_defaults_to_tracks_data(
+            list(zip(enriched, page_tracks))
+        )
     response["tracks"] = list(enriched)
     return response
 

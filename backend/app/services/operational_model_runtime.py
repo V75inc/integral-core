@@ -320,6 +320,54 @@ async def _try_refresh_anchor_template_cp(
     return refreshed
 
 
+async def effective_track_navigation_defaults(
+    track: Track,
+    profile: Optional[OperationalModel],
+    tier: Dict[str, Any],
+    *,
+    views: Optional[List[View]] = None,
+    shared_profile: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Project a scoped saved selection without mutating a shared template.
+
+    Dedicated manifests are reconciled on writes. Shared models cannot be
+    rewritten for one track, so their effective tier overlays only a unique,
+    visible materialized selection from that track's canonical HAS_VIEW scope.
+    This is a read-only projection, not materialization or manifest sync.
+    """
+    from app.services.operational_model_graph import is_shared_track_profile
+    from app.services.view_scope import list_scoped_track_views
+
+    if profile is None:
+        return tier
+    if shared_profile is None:
+        shared_profile = await is_shared_track_profile(profile)
+    if not shared_profile:
+        return tier
+    scoped_views = (
+        views if views is not None else await list_scoped_track_views(track.id)
+    )
+    selected = [
+        view
+        for view in scoped_views
+        if view.is_default
+        and not view.hidden
+        and view.track_id == track.id
+        and not view.is_template
+    ]
+    if len(selected) != 1:
+        return tier
+    key = str((selected[0].config or {}).get("_manifest_view_key") or "").strip()
+    defaults = dict(tier.get("defaults") or {})
+    if key:
+        defaults["default_view"] = key
+    else:
+        # An unkeyed local saved view has no template default key. Omitting
+        # the template preference lets consumers use its authoritative flag.
+        defaults.pop("default_view", None)
+    return {**tier, "defaults": defaults}
+
+
 async def resolve_track_runtime_profile(
     track: Track,
 ) -> Tuple[Optional[OperationalModel], Dict[str, Any], Optional[str]]:
@@ -496,20 +544,37 @@ async def ensure_track_views_materialized_from_tier(track: Track) -> bool:
 
             await refresh_app_track_template_materialization(app_node, template_key)
 
+    from app.services.operational_model_graph import is_shared_track_profile
     from app.services.operational_model_merge import (
         _InMemoryLibraryManifest,
         merge_library_manifest_into_operational_model,
     )
 
+    shared_template = await is_shared_track_profile(cp)
+    # Effective defaults are per-track presentation, not a new shared template
+    # specification. Materialize from the unchanged template and preserve the
+    # local winner through a view-only merge that cannot save that template.
+    materialization_tier = (
+        (await asyncio.to_thread(compile_canonical_manifest, manifest=cp.manifest)).get(
+            "track"
+        )
+        or {}
+        if shared_template
+        else tier
+    )
     shim = _InMemoryLibraryManifest(
         {
             "operational_model_schema_version": SCHEMA_VERSION,
             "scope": "track",
-            "track": tier,
+            "track": materialization_tier,
         }
     )
     await merge_library_manifest_into_operational_model(
-        shim, cp, track, for_space=False
+        shim,
+        cp,
+        track,
+        for_space=False,
+        _materialize_shared_track_only=shared_template,
     )
     await synchronize_track_view_default_flags(track)
     return True
@@ -585,7 +650,8 @@ async def pick_default_view_id_for_track(
     """Choose the single canonical default view id for a track (manifest + DB flags)."""
     if not views:
         return None
-    _, tier, _ = await resolve_track_runtime_profile(track)
+    profile, tier, _ = await resolve_track_runtime_profile(track)
+    tier = await effective_track_navigation_defaults(track, profile, tier, views=views)
     defaults = (tier.get("defaults") or {}) if isinstance(tier, dict) else {}
     dv_raw = str(defaults.get("default_view") or "").strip()
     want_key = _slug(dv_raw) if dv_raw else ""

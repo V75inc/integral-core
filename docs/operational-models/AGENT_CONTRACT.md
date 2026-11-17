@@ -17,4 +17,14 @@ The template authoring service is deterministic catalog matching and structured 
 
 Apply modifications through the declared patch allowlist and draft/publish lifecycle. Validate fields, relations, views, and impacts before proposing publication. Supported migrations handle old records; forcing publication is a separate destructive authority.
 
+Read the current `patch_operations` returned by substrate
+introspection before proposing model patches. Unsupported operations fail
+before a review card is staged. A saved-view default is selected through
+`integral_save_view` with the existing `view_id` and `is_default=true`; preserve
+that target's exact name, type and complete normalized configuration. A label
+or layout edit is a separate proposal without `is_default`. Tool discovery
+does not grant execution authority: protected writes retain staging, current
+target permissions and approval. On an explicit retry, refresh capability
+evidence before carrying forward a historical unavailable-tool result.
+
 Skills provide guidance, while Core supplies validation, policy, staging, and receipts. A design-only request must remain a design until implementation is intended. See the [resident delivery flow](../product/RESIDENT_DELIVERY_FLOW.md).

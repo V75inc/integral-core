@@ -3000,3 +3000,56 @@ def test_schema_preserving_evidence_is_narrowly_core_owned(
     from app.agentive.harness.broker_tools import _schema_preserving_result
 
     assert _schema_preserving_result(source, name, result) is expected
+
+
+@pytest.mark.asyncio
+async def test_search_respects_protected_write_skill_loading(tmp_path, monkeypatch):
+    from app.agentive.harness import capability_search
+
+    async def unavailable(_query):
+        raise RuntimeError("offline encoder")
+
+    monkeypatch.setattr(
+        capability_search, "_embed_text_for_capability_search", unavailable
+    )
+    folder = tmp_path / "integral-model"
+    folder.mkdir()
+    (folder / "SKILL.md").write_text(
+        "---\nname: integral-model\ndescription: Manage saved track views.\n"
+        "allowed-tools: integral_save_view integral_list_views\n---\n"
+        "List views, then stage the requested change.\n"
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        catalogue=[
+            item
+            for item in build_tool_catalogue()
+            if item["name"] in {"integral_save_view", "integral_list_views"}
+        ],
+    )
+    search = next(tool for tool in tools if tool.name == "search_capabilities")
+    returned = await search.function(query="integral_save_view default view")
+    hit = next(
+        item
+        for item in returned.return_value["results"]
+        if item["name"] == "integral_save_view"
+    )
+    assert hit["requires_any_skill"] == ["integral-model"]
+    assert hit["load_with"] == [{"tool": "load_capability", "id": "integral-model"}]
+    assert "integral_save_view" not in returned.tools
+    assert "integral_save_view" not in returned.return_value["available_tools"]
+    save = next(tool for tool in tools if tool.name == "integral_save_view")
+    definition = save.tool_def
+    assert (
+        save.prepare(SimpleNamespace(active_capability_ids=set()), definition) is None
+    )
+    assert (
+        save.prepare(
+            SimpleNamespace(active_capability_ids={"integral-model"}), definition
+        )
+        is not None
+    )
+    # A second search must not falsely advertise the protected write either.
+    again = await search.function(query="integral_save_view default view")
+    assert again.return_value == returned.return_value

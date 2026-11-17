@@ -112,10 +112,11 @@ function PromptSheetView({
           onApprove={sheet.approveWrite}
           onReject={sheet.rejectWrite}
           onRevised={() => void sheet.refresh()}
+          error={sheet.error}
         />
       )}
 
-      {sheet.error ? (
+      {sheet.error && sheet.current.kind === 'question' ? (
         <ExpandableChatError summary={<Text as="span" variant="body-sm" tone="danger">{sheet.error}</Text>} className="mt-2">
           <Text as="p" variant="body-sm" tone="danger">{sheet.error}</Text>
         </ExpandableChatError>
@@ -254,12 +255,14 @@ function WritePage({
   onApprove,
   onReject,
   onRevised,
+  error,
 }: {
   item: PromptStagedWriteItem;
   busy: boolean;
   onApprove: () => Promise<void>;
   onReject: () => Promise<void>;
   onRevised: () => void;
+  error: string | null;
 }) {
   const terminal = ['consumed', 'expired', 'revoked'].includes(item.staged_state ?? '');
   const pending = item.status === 'pending' && !terminal;
@@ -291,21 +294,26 @@ function WritePage({
 
   return (
     <div>
-      <Text
+      {!item.last_error && !error && <Text
         as="p"
         variant="heading-sm"
         weight="medium"
         className="mb-3"
       >
         {heading}
-      </Text>
-      {item.last_error && (
+      </Text>}
+      {/* One failure surface owns both the immediate response and durable card.
+          Keep distinct diagnostics in disclosure instead of another error banner. */}
+      {(item.last_error || error) && (
         <div role="alert" className="mb-2">
-          <ExpandableChatError summary={<Text as="span" variant="meta" tone="danger">{failureSummary}</Text>}>
+          <ExpandableChatError summary={<Text as="span" variant="meta" tone="danger">{item.last_error ? failureSummary : error}</Text>}>
             <Text as="p" variant="meta" tone="danger">
-              {item.last_error.message || 'The change could not be applied.'}
+              {item.last_error?.message || error || 'The change could not be applied.'}
               {item.completed_operations ? ` ${item.completed_operations} changes were already saved.${needsFreshProposal ? '' : " Trying again continues with what's left."}` : ''}
             </Text>
+            {error && item.last_error && error !== item.last_error.message && (
+              <Text as="p" variant="meta" tone="danger">{error}</Text>
+            )}
           </ExpandableChatError>
         </div>
       )}

@@ -18,9 +18,9 @@ from copy import deepcopy
 
 import pytest
 
-from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, OWNS
+from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, IS_MEMBER_OF, OWNS
 from app.models.nodes import App, OperationalModel, ShareLink, Track, User, Workspace
-from app.services.app_graph import catalog_app, catalog_user, catalog_workspace
+from app.services.app_graph import catalog_app, catalog_workspace
 from app.services.operational_model_compile import compile_canonical_manifest
 from app.services.operational_model_merge import (
     provision_prescribed_tracks_from_app_manifest,
@@ -56,10 +56,8 @@ _MANIFEST = {
 }
 
 
-async def _provisioned_track() -> Track:
+async def _provisioned_track(*, user: User, icon: str = "") -> Track:
     now = utc_now_iso()
-    user = await User.create(user_id="auth-pubshare-prov", display_name="Owner")
-    await catalog_user(user)
     ws = await Workspace.create(
         kind="organization",
         workspace_type="company",
@@ -69,11 +67,15 @@ async def _provisioned_track() -> Track:
         updated_at=now,
     )
     await catalog_workspace(ws)
+    await user.connect(ws, edge=OWNS, role="owner", added_at=now)
+    await user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     app_node = await App.create(
         name="Provision App", owner_id=user.id, workspace_id=ws.id
     )
     await user.connect(app_node, edge=OWNS, added_at=now)
-    cp = await OperationalModel.create(name="Provision CP", manifest=_MANIFEST)
+    manifest = deepcopy(_MANIFEST)
+    manifest["app"]["tracks"][0]["icon"] = icon
+    cp = await OperationalModel.create(name="Provision CP", manifest=manifest)
     await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL, added_at=now)
     app_node.attached_operational_model_id = cp.id
     await app_node.save()
@@ -89,8 +91,8 @@ async def _provisioned_track() -> Track:
 
 
 @pytest.mark.asyncio
-async def test_provisioning_leaves_no_live_public_share_link():
-    track = await _provisioned_track()
+async def test_provisioning_leaves_no_live_public_share_link(test_user):
+    track = await _provisioned_track(user=test_user)
 
     links = await ShareLink.find(
         {
@@ -121,7 +123,7 @@ def test_compiler_carries_public_share_onto_track_specs():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("component_fallback", [False, True])
 async def test_declared_intent_is_offered_as_the_enable_default(
-    monkeypatch, component_fallback
+    monkeypatch, component_fallback, test_user
 ):
     """The owner is offered the app author's permissions, not the UI defaults.
 
@@ -147,8 +149,56 @@ async def test_declared_intent_is_offered_as_the_enable_default(
         ]
         monkeypatch.setitem(globals(), "_MANIFEST", manifest)
 
-    track = await _provisioned_track()
+    track = await _provisioned_track(user=test_user)
     declared = await declared_public_share(track)
     assert declared is not None, "manifest declaration did not reach the track"
     assert declared["permissions"] == _DECLARED_PERMS
     assert declared["permissions"]["read_entries"] is False
+
+
+@pytest.mark.asyncio
+async def test_explicit_dot_survives_reprovisioning_from_stale_app(test_user):
+    from jvspatial.core.context import get_default_context
+
+    from app.services.authority_facts import primary_node_record
+    from app.services.resource_metadata_update import update_track_metadata
+
+    track = await _provisioned_track(icon="briefcase", user=test_user)
+    assert track.icon == "briefcase"
+    assert track.icon_overridden is False
+    parents = await track.nodes(edge=[CONTAINS], node=[App], direction="in")
+    app_node = parents[0]
+    await update_track_metadata(user_id=track.owner_id, track_id=track.id, icon="")
+    await provision_prescribed_tracks_from_app_manifest(app_node, track.owner_id)
+    graph = get_default_context()
+    row = await primary_node_record(graph.database, Track, track.id)
+    assert row["context"]["icon"] == ""
+    assert row["context"]["icon_overridden"] is True
+
+
+@pytest.mark.asyncio
+async def test_provisioning_admits_owner_for_canonical_post_seed_write(
+    test_user, monkeypatch
+):
+    from app.services import bundle_post_seed
+    from app.services.entry_create import create_entry_in_track
+
+    created = []
+
+    async def post_seed(app_node, actor_id):
+        tracks = await app_node.nodes(edge=[CONTAINS], node=[Track])
+        entry = await create_entry_in_track(
+            track=tracks[0],
+            user_id=actor_id,
+            workspace_id=app_node.workspace_id,
+            title="Seeded fixture",
+        )
+        created.append(entry.id)
+        return 1
+
+    manifest = deepcopy(_MANIFEST)
+    manifest["app"]["tracks"][0]["entry_types"] = [{"key": "post", "name": "Post"}]
+    monkeypatch.setitem(globals(), "_MANIFEST", manifest)
+    monkeypatch.setattr(bundle_post_seed, "run_bundle_post_seed", post_seed)
+    await _provisioned_track(user=test_user)
+    assert len(created) == 1

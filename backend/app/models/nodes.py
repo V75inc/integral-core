@@ -580,6 +580,9 @@ class Track(Node):
     search_index: Dict[str, Any] = Field(default_factory=dict)
     search_index_revision: int = Field(default=0, ge=0)
     icon: str = ""
+    # Explicit presentation choice, including an empty/default dot. Older
+    # records remain source-managed only where their icon is also blank.
+    icon_overridden: bool = False
     accent_color: str = ""  # #RGB / #RRGGBB; empty = client theme default
     # Effective visibility resolves via parent App when "inherit" (ARCHITECTURE
     # §9.5). Standalone tracks with inherit and no parent App are private.

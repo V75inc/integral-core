@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 
 def _mock_library(monkeypatch, load):
@@ -167,7 +167,9 @@ async def test_init_creates_apps_and_writes_applied_profiles(monkeypatch):
         ],
     )
     ws = await make_org_workspace(name="Z-ws", kind="organization")
-    result = await init_workspace_from_profile(ws, "z", actor_id="u1")
+    result = await init_workspace_from_profile(
+        ws, "z", actor_id=await workspace_owner_id(ws)
+    )
     assert len(result.apps_created) == 1
     ws2 = await Workspace.get(ws.id)
     assert ws2 is not None
@@ -232,10 +234,12 @@ async def test_init_rollback_does_not_attribute_error(monkeypatch):
     import app.services.operational_model_workspace_init as wsinit
 
     call_count = {"n": 0}
+    created_app_ids = []
     orig_apply = wsinit._apply_app_submanifest
 
     async def fail_second(*args, **kwargs):
         call_count["n"] += 1
+        created_app_ids.append(kwargs["app"].id)
         if call_count["n"] == 2:
             raise RuntimeError("synthetic mid-write failure")
         return await orig_apply(*args, **kwargs)
@@ -243,10 +247,15 @@ async def test_init_rollback_does_not_attribute_error(monkeypatch):
     monkeypatch.setattr(wsinit, "_apply_app_submanifest", fail_second)
 
     ws = await make_org_workspace(name="rollback-test", kind="organization")
-    with pytest.raises(WorkspaceInitFailed):
-        await init_workspace_from_profile(ws, "r", actor_id="u1")
-    # Must NOT raise AttributeError. The fact that we got WorkspaceInitFailed
-    # means rollback ran without crashing.
+    with pytest.raises(WorkspaceInitFailed, match="synthetic mid-write failure") as exc:
+        await init_workspace_from_profile(
+            ws, "r", actor_id=await workspace_owner_id(ws)
+        )
+    assert call_count["n"] == 2
+    assert isinstance(exc.value.__cause__, RuntimeError)
+    from app.models.nodes import App
+
+    assert all([await App.get(app_id) is None for app_id in created_app_ids])
 
 
 @pytest.mark.asyncio
@@ -342,7 +351,9 @@ async def test_init_handles_cross_app_relations(monkeypatch):
     )
 
     ws = await make_org_workspace(name="cross-test", kind="organization")
-    result = await init_workspace_from_profile(ws, "x", actor_id="u1")
+    result = await init_workspace_from_profile(
+        ws, "x", actor_id=await workspace_owner_id(ws)
+    )
     assert len(result.apps_created) == 2
     # Relation was materialized — by key.
     assert (

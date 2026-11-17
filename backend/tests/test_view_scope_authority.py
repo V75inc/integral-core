@@ -425,3 +425,194 @@ async def test_app_model_view_authoring_checks_exact_catalog_membership():
         user_id=owner.id, app_id=app.id, action="remove_view", view_id=view_id
     )
     assert removed.get("action") == "remove_view"
+
+
+@pytest.mark.parametrize("unkeyed", [False, True])
+@pytest.mark.parametrize("shared_kind", ["template", "attachments"])
+@pytest.mark.parametrize("include_config", [False, True])
+async def test_shared_model_default_selection_is_local_in_navigation_metadata(
+    unkeyed,
+    shared_kind,
+    include_config,
+):
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    from app.api.views import _track_views_payload, update_view
+    from app.models.nodes import EntryType, OperationalModel
+    from app.services.entry_context import (
+        attach_operational_model_defaults_to_track_data,
+        attach_operational_model_defaults_to_tracks_data,
+    )
+    from app.services.model_authority import model_action_authorized
+
+    _, workspace, app, track, initial = await saved_graph()
+    caller, _, _, _, _ = await graph()
+    await caller.connect(workspace, edge=IS_MEMBER_OF, role="guest")
+    await caller.connect(track, edge=COLLABORATES_ON, role="admin")
+    model = await OperationalModel.get(track.attached_operational_model_id)
+    model.manifest = {
+        "operational_model_schema_version": 2,
+        "scope": "track",
+        "materialization": {
+            "kind": "space_track_template",
+            "template_key": "details",
+            "app_id": app.id,
+        },
+        "track": {
+            "entry_types": [
+                {"key": "member", "name": "Member", "fields": []},
+                {"key": "partner", "name": "Partner", "fields": []},
+            ],
+            "taxonomy": {
+                "tag_groups": [
+                    {"key": "state", "tags": [{"key": "active", "name": "Active"}]}
+                ]
+            },
+            "views": [
+                {
+                    "key": "records",
+                    "name": "Records",
+                    "view_type": "table",
+                    "is_default": True,
+                },
+                {
+                    "key": "profiles",
+                    "name": "Profiles",
+                    "view_type": "gallery",
+                    "entry_types": ["member"],
+                    "default_entry_type": "member",
+                },
+            ],
+            "defaults": {"default_view": "records"},
+        },
+    }
+    if shared_kind == "attachments":
+        model.manifest.pop("materialization")
+    await model.save()
+    for name in ("Member", "Partner"):
+        entry_type = await EntryType.create(name=name)
+        await model.connect(entry_type, edge=CONTAINS)
+    sibling = await Track.create(
+        title="Other details",
+        workspace_id=workspace.id,
+        attached_operational_model_id=model.id,
+    )
+    await sibling.connect(model, edge=HAS_OPERATIONAL_MODEL)
+    await app.connect(sibling, edge=CONTAINS)
+    await catalog_track(sibling)
+    assert not await model_action_authorized(
+        caller.id,
+        "operational_model.update",
+        Resource(
+            kind="operational_model", id=model.id, scope=f"operational_model:{model.id}"
+        ),
+    )
+    for row in (track, sibling):
+        await create_track_view(
+            row,
+            name="Records",
+            type="table",
+            is_default=True,
+            config={"_manifest_view_key": "records"},
+        )
+        await create_track_view(
+            row,
+            name="Profiles",
+            type="gallery",
+            config={"_manifest_view_key": "profiles"},
+        )
+    before_model = deepcopy(model.manifest)
+    before_model_updated_at = model.updated_at
+    before_schema_edges = {node.id for node in await model.nodes(edge=[CONTAINS])}
+    before_sibling = (await _track_views_payload(sibling))["views"]
+    target = next(
+        v
+        for v in (await _track_views_payload(track))["views"]
+        if v["name"] == "Profiles"
+    )
+    if unkeyed:
+        target = {"id": initial.id, "name": initial.name, "config": initial.config}
+    assert await can_edit_view(caller.id, target["id"])
+    assert not await can_edit_view(caller.id, before_sibling[0]["id"])
+    request = SimpleNamespace(state=SimpleNamespace(user=caller), headers={})
+    updates = (
+        {
+            "name": "My roster",
+            "view_type": "table",
+            "config": {**target["config"], "layout": {"density": "compact"}},
+            "entry_type_keys": ["partner"],
+            "default_entry_type_key": "partner",
+        }
+        if include_config
+        else {}
+    )
+    await update_view(request, target["id"], is_default=True, **updates)
+    saved_views = (await _track_views_payload(track))["views"]
+    saved = next(v for v in saved_views if v["id"] == target["id"])
+    if include_config:
+        assert saved["name"] == "My roster"
+        assert saved["type"] == "table"
+        assert saved["config"]["layout"] == {"density": "compact"}
+        assert saved["entry_type_keys"] == ["partner"]
+        assert saved["default_entry_type_key"] == "partner"
+    own = await attach_operational_model_defaults_to_track_data({}, track)
+    other = await attach_operational_model_defaults_to_track_data({}, sibling)
+    assert own.get("operational_model_defaults", {}).get("default_view") == (
+        None if unkeyed else "profiles"
+    )
+    assert other["operational_model_defaults"]["default_view"] == "records"
+    assert (await OperationalModel.get(model.id)).manifest == before_model
+    assert (await OperationalModel.get(model.id)).updated_at == before_model_updated_at
+    assert {
+        node.id for node in await model.nodes(edge=[CONTAINS])
+    } == before_schema_edges
+    assert (await _track_views_payload(sibling))["views"] == before_sibling
+
+    # Force lazy materialization by removing a non-selected local template view.
+    records = next(
+        v for v in await list_scoped_track_views(track.id) if v.name == "Records"
+    )
+    await records.delete()
+    rebuilt = (await _track_views_payload(track))["views"]
+    assert next(v for v in rebuilt if v["is_default"])["id"] == target["id"]
+    for saved in saved_views:
+        if saved["id"] != records.id:
+            assert next(v for v in rebuilt if v["id"] == saved["id"]) == saved
+    assert (await OperationalModel.get(model.id)).manifest == before_model
+    assert (await OperationalModel.get(model.id)).updated_at == before_model_updated_at
+    assert {
+        node.id for node in await model.nodes(edge=[CONTAINS])
+    } == before_schema_edges
+    assert (await _track_views_payload(sibling))["views"] == before_sibling
+    # Entry/schema resolution must not acquire navigation-specific collections.
+    from app.services.operational_model_runtime import resolve_track_runtime_profile
+
+    with patch(
+        "app.services.view_scope.list_scoped_track_views",
+        side_effect=AssertionError("schema view read"),
+    ):
+        _, raw_tier, _ = await resolve_track_runtime_profile(track)
+        assert raw_tier["defaults"]["default_view"] == "records"
+    # Effective-default projection is read-only even on repeated metadata reads.
+    from unittest.mock import AsyncMock
+
+    with (
+        patch.object(
+            View, "save", new=AsyncMock(side_effect=AssertionError("view write"))
+        ),
+        patch.object(
+            OperationalModel,
+            "save",
+            new=AsyncMock(side_effect=AssertionError("template write")),
+        ),
+    ):
+        for _ in range(2):
+            again = await attach_operational_model_defaults_to_track_data({}, track)
+            assert again == own
+            page_own, page_other = {}, {}
+            await attach_operational_model_defaults_to_tracks_data(
+                [(page_own, track), (page_other, sibling)]
+            )
+            assert page_own == own
+            assert page_other == other

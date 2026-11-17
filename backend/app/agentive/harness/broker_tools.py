@@ -947,6 +947,7 @@ def build_brokered_tools(
 
     tools: list[Tool[Any]] = []
     seen_names: set[str] = set()
+    protected_tool_skills: dict[str, tuple[str, ...]] = {}
     call_state = run_state if run_state is not None else {}
     call_state.setdefault("turn_progress", TurnProgress())
     call_state.setdefault("attempted", 0)
@@ -1156,6 +1157,19 @@ def build_brokered_tools(
         # its catalogue on dispatch. This framework validator enforces only
         # that the top-level arguments are an object; it deliberately avoids a
         # second, potentially divergent interpretation of nested JSON Schema.
+        protected_owners = (
+            (_REQUIRED_SKILLS_BY_TOOL[name],)
+            if name in _REQUIRED_SKILLS_BY_TOOL
+            else (
+                tuple(sorted(skill_owners.get(name, ())))
+                if op_class != "read"
+                and name
+                not in {"integral_invoke_app_operation", "integral_call_workspace_tool"}
+                else ()
+            )
+        )
+        if protected_owners:
+            protected_tool_skills[name] = protected_owners
         tool = build_integral_json_schema_tool(
             function=invoke_tool,
             name=name,
@@ -1203,6 +1217,7 @@ def build_brokered_tools(
                     name for name in immediately_available if name in seen_names
                 ),
                 run_state=call_state,
+                protected_tool_skills=protected_tool_skills,
             )
         )
     return tools

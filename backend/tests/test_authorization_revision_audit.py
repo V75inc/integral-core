@@ -54,7 +54,6 @@ UNSCOPED_WRITERS = {
     "services/personal_workspace.py": "creates a brand new personal workspace",
     "services/agent_scratch.py": "OWNS edge for a new scratch resource, no grant change",
     "services/app_graph.py": "OWNS edge for a new app node, no grant change",
-    "services/operational_model_merge.py": "OWNS edge for merged models, no grant change",
     "services/track_restructuring.py": "OWNS edge moved inside a caller membership scope",
     "services/track_service.py": "OWNS edge for a new track inside track_writer scope",
     "services/ownership_transfer.py": "called by workspace_departure inside its member scope",
@@ -153,6 +152,9 @@ def test_non_bumping_scope_callers_are_only_fences_and_content_writes():
         "services/resident_assignment.py",  # outer admission; actual opt-in change nests a bump
         "services/filing_facet.py",  # evidence-backed content filing under current authority
         "services/resident_opportunity_actions.py",  # prepare/accept review admission fence
+        # Template refresh changes schema/presentation only. Track provisioning
+        # creates OWNS edges separately inside its bumping membership_write_scope.
+        "services/operational_model_merge.py",
     }
     found = set()
     for path in _app_files():

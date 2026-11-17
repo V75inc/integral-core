@@ -18,6 +18,13 @@ from app.schemas.dashboards import DashboardWidgetSpec, GridPlacement
 from app.schemas.home_native import HomeElement
 
 
+class AppHomeDisabled(BaseModel):
+    """Explicit opt-out, distinct from an empty reset to inherited Home."""
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: Literal[False]
+
+
 class HomeNativeWidget(DashboardWidgetSpec):
     @field_validator("type")
     @classmethod

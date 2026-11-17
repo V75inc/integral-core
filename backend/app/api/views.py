@@ -23,7 +23,7 @@ from app.services.app_graph import (
     get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.operational_model_graph import is_space_track_template_profile
+from app.services.operational_model_graph import is_shared_track_profile
 from app.services.operational_model_runtime import (
     backfill_view_entry_type_constraints_from_manifest,
     normalize_view_config,
@@ -42,8 +42,8 @@ logger = logging.getLogger(__name__)
 
 
 async def _maybe_sync_attached_manifest(cp) -> None:
-    """Rebuild attached CP manifest unless it is a shared anchor-track template."""
-    if cp and not is_space_track_template_profile(cp):
+    """Rebuild only a dedicated model from a Track's local saved Views."""
+    if cp and not await is_shared_track_profile(cp):
         await sync_attached_manifest(cp)
 
 
@@ -527,21 +527,10 @@ async def update_view(
     view.updated_at = utc_now_iso()
     await view.save()
 
-    # Sync the attached operational model manifest — but SKIP when the only change is
-    # is_default or hidden: sync_attached_manifest runs
-    # synchronize_track_view_default_flags which re-derives defaults from the
-    # manifest, overriding the user's explicit assignment. Skip sync for
-    # flag-only updates so node values remain authoritative.
-    _is_flag_only_update = (
-        (is_default is not None or hidden is not None)
-        and name is None
-        and type is None
-        and view_type is None
-        and config is None
-        and entry_type_keys is None
-        and default_entry_type_key is None
-    )
-    if view.track_id and not _is_flag_only_update:
+    # Persist the selection in both the materialized node and its canonical
+    # track-local manifest, including flag-only changes. Any shared model remains
+    # excluded: configuring one Track does not authorize rewriting its siblings.
+    if view.track_id:
         t = await Track.get(view.track_id)
         if t:
             cp = await get_track_attached_operational_model(t)

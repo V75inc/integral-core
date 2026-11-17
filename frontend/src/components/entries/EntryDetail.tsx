@@ -1,3 +1,5 @@
+import { useRecordNavigationDraftGuard, type RecordNavigation } from '../../hooks/useRecordNavigation';
+import { RecordNavigationControls } from './RecordNavigationControls';
 import { BacklinkList } from './BacklinkList';
 import { useEntryHostRefresh } from '../../hooks/useEntryHostRefresh';
 import { errorMessageFromAxios } from '../../api/helpers';
@@ -120,6 +122,7 @@ function slug(value: string): string {
 
 interface EntryDetailProps {
   entry: Entry;
+  recordNavigation?: RecordNavigation;
   onClose(): void;
   onUpdate?(e: Entry): void;
   /** Optimistically remove the entry from the parent list (feed / track cache). */
@@ -157,6 +160,7 @@ const PANEL_TABS: { key: PanelTabKey; label: string }[] = [
 
 export function EntryDetail({
   entry: initialEntry,
+  recordNavigation,
   onClose,
   onUpdate,
   onDelete,
@@ -1610,8 +1614,15 @@ export function EntryDetail({
     });
   }
 
+  const recordDraftOpen = isEditing || postToFeedOpen || Boolean(commentText.trim())
+    || Boolean(replyingToId) || Boolean(editingCommentId);
+  // A draft may begin while an adjacent record read is still in flight.
+  // Cancel synchronously on commit so its eventual response cannot discard it.
+  useRecordNavigationDraftGuard(recordNavigation, recordDraftOpen);
+
   const headerActions = (
     <div className="flex flex-wrap items-center gap-1.5">
+      {recordNavigation ? <RecordNavigationControls navigation={recordNavigation} disabled={recordDraftOpen} /> : null}
       {!isEditing && activeWorkspace?.id ? (
         <ResidentAssignmentControl entryId={entry.id} workspaceId={activeWorkspace.id} />
       ) : null}
@@ -1619,6 +1630,7 @@ export function EntryDetail({
         <Button
           variant="outline"
           size="sm"
+          disabled={recordNavigation?.busy}
           aria-label={isEditing ? 'Cancel edit' : 'Edit entry'}
           icon={isEditing ? <X size={14} strokeWidth={LINE_ICON_STROKE} /> : <Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />}
           onClick={() => setIsEditing(editing => !editing)}

@@ -6,6 +6,20 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Plan exact-Track entry reads and grouped charts without discovering unrelated Track inventories, retaining current canonical workspace and per-Entry admission.
+- Discover only Apps in the requested workspace for scoped App listings; avoid loading Track inventories and keep current access checks, ordering and pagination.
+- Count plain dashboard records through the admitted count executor without selecting, sorting or hydrating a display row; retain the canonical executor for filtered sources.
+- Discover only the selected App/Track candidates for exact activity summaries and dashboard Track breakdowns, preserving listable parent metadata, independently shared records and current admission.
+- Choose built-in Track icons when creating or editing a Track, with a dot fallback in navigation, lists and headings. Preserve existing package icons until explicitly changed.
+- Show Home by default for existing and new Apps, preserve explicit opt-out and authorization, and move the former “Start here” Track shortcut into Home without changing saved data. Preserve section deep links and browser tab-navigation history.
+- Reduce duplicate bootstrap and navigation reads, share slow pending reads within the current identity/workspace, and avoid repeated confirmed scope writes. Fetch track-link choices and dashboard editor metadata on demand.
+- Render readable App content while access details load, withholding edits until authority resolves. Keep temporary-outage retries separate, clear content and outward context on explicit denial, and preserve the selected dashboard across default changes.
+- Reconcile paginated event catch-up once per bounded burst, reducing repeated dashboard and list reads. Preserve completed pages through partial failures, hidden tabs and credential renewal, and retire pending replay on account/workspace changes.
+- Keep App-owned breadcrumbs in their App hierarchy, preserve linked parent-record paths, and provide Previous/Next record navigation within the current authorized list.
+- Honor saved Track default-view selections on navigation and reload. Preserve hidden-view choices and keep shared-model Track overrides local, including when missing template views are repaired.
+- Discover protected write capabilities under their current review contract, reject unsupported model operations before staging, and validate that default selection identifies the existing saved view without rewriting its layout.
+- Keep chat answers focused on the current request, refresh capability evidence on explicit retries, and show a failed approval once with expandable error detail.
+
 ## 0.1.1rc64 — 2026-11-16
 
 - Require current canonical-workspace access for full and revision-aware transcript reads, including unstamped rows and final admission before release; retain conversations through revocation and restored membership without rewriting their location.

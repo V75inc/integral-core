@@ -20,6 +20,7 @@ from app.services.agent_insights import (
     activity_digest,
     count_entries_grouped,
     query_all_entries,
+    query_entries,
 )
 from app.services.app_graph import (
     ensure_catalog_edge,
@@ -909,6 +910,35 @@ async def _resolve_activity_digest(
     return _combine_track_digests(digests, period=period, workspace_id=workspace_id)
 
 
+def _count_query_failure(result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Keep unavailable sources distinct from an exact count of zero."""
+    refused = result.get("refused")
+    if result.get("error") or refused:
+        decision = refused if isinstance(refused, dict) else {}
+        failure = {
+            "value": None,
+            "total_matched": 0,
+            "error": result.get("detail")
+            or decision.get("message")
+            or "This data source is unavailable.",
+            "error_code": result.get("error")
+            or decision.get("code")
+            or "query_refused",
+        }
+        for key in ("refused", "detail", "recovery"):
+            if key in result:
+                failure[key] = result[key]
+        return failure
+    if result.get("total") is None:
+        return {
+            "value": None,
+            "total_matched": 0,
+            "error": "An exact count is unavailable.",
+            "error_code": "incomplete_query",
+        }
+    return None
+
+
 async def _resolve_count(
     *,
     user_id: str,
@@ -939,8 +969,13 @@ async def _resolve_count(
         return {"value": len(entries), "total_matched": len(entries)}
     track_id = data_source.get("track_id")
     if track_id:
-        result = await query_all_entries(
+        result = await query_entries(
             user_id=user_id,
+            count_only=True,
+            # Count ordering is immaterial. Avoid updated_at's two fallback
+            # partitions while retaining the executor's exact admitted total.
+            limit=1,
+            sort_by="created_at",
             track_id=track_id,
             status=data_source.get("status"),
             statuses=data_source.get("statuses"),
@@ -950,9 +985,12 @@ async def _resolve_count(
             until=data_source.get("until"),
             workspace_id=workspace_id,
         )
+        failure = _count_query_failure(result)
+        if failure is not None:
+            return failure
         return {
-            "value": result.get("total", 0),
-            "total_matched": result.get("total", 0),
+            "value": result["total"],
+            "total_matched": result["total"],
         }
 
     app = await _get_app_or_none(app_id)
@@ -960,8 +998,13 @@ async def _resolve_count(
         return {"value": 0, "total_matched": 0}
     total = 0
     for tid in await _data_source_track_ids(app, data_source):
-        result = await query_all_entries(
+        result = await query_entries(
             user_id=user_id,
+            count_only=True,
+            # Count ordering is immaterial. Avoid updated_at's two fallback
+            # partitions while retaining the executor's exact admitted total.
+            limit=1,
+            sort_by="created_at",
             track_id=tid,
             status=data_source.get("status"),
             statuses=data_source.get("statuses"),
@@ -971,7 +1014,10 @@ async def _resolve_count(
             until=data_source.get("until"),
             workspace_id=workspace_id,
         )
-        total += int(result.get("total", 0))
+        failure = _count_query_failure(result)
+        if failure is not None:
+            return failure
+        total += int(result["total"])
     return {"value": total, "total_matched": total}
 
 
@@ -1678,6 +1724,10 @@ async def resolve_widget_data(
                 workspace_id=workspace_id,
                 data_source=dict(m),
             )
+            if row.get("error") or row.get("refused"):
+                # A partial metric row is not an exact dashboard result.
+                # Refusal-only legacy adapters still need a readable error.
+                return row if row.get("error") else (_count_query_failure(row) or row)
             metrics_out.append(
                 {
                     "label": m.get("label") or "",

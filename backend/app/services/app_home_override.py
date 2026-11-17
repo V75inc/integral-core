@@ -20,6 +20,10 @@ async def validate_home_composition(
     if home == {}:
         return {}
     try:
+        if "enabled" in home:
+            from app.schemas.app_home import AppHomeDisabled
+
+            return AppHomeDisabled.model_validate(home).model_dump()
         normalized = AppHomeComposition.model_validate(home).model_dump(
             mode="json", exclude_none=True
         )

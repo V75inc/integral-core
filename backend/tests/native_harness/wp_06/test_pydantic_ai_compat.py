@@ -491,6 +491,49 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     assert "only when it serves the latest request" in active
 
 
+def test_current_question_does_not_reopen_previous_filing_task():
+    history = [
+        ModelRequest(
+            parts=[UserPromptPart("Please file this in the appropriate place")]
+        ),
+        ModelResponse(parts=[TextPart("I have staged the document for approval.")]),
+        ModelRequest(
+            parts=[UserPromptPart("What is the process to induct a new member?")]
+        ),
+    ]
+    before = list(history)
+    result = build_integral_run_instructions("Resident")(
+        SimpleNamespace(active_capability_ids=set(), messages=history)
+    )
+    assert "Answer the current question directly" in result
+    assert "Do not prepend a completion update" in result
+    assert "unless the user asks about it" in result
+    assert "materially blocks the current request" in result
+    assert history == before
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Can you make the Member Profiles view the default view for this track?",
+        "Let's try again",
+        "Could you set that as the default now?",
+    ],
+)
+def test_natural_retry_requires_current_capability_evidence(prompt):
+    history = [
+        ModelResponse(parts=[TextPart("The view-save action is not callable here.")]),
+        ModelRequest(parts=[UserPromptPart(prompt)]),
+    ]
+    result = build_integral_run_instructions("Resident")(
+        SimpleNamespace(active_capability_ids=set(), messages=history)
+    )
+    assert "not evidence of current availability" in result
+    assert "check current discovery and load the indicated owning skill" in result
+    assert "Respect current denials and approval requirements" in result
+    assert "do not replay an earlier mutation" in result
+
+
 def test_run_instructions_use_server_utc_date_and_refresh_for_new_invocations(
     monkeypatch,
 ) -> None:

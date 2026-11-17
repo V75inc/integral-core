@@ -1861,7 +1861,11 @@ domains:
         summary: >-
           Apply one or more patch-DSL operations to a profile draft — add_entry_type,
           add_field, add_view, add_relation, and so on — to evolve a profile's
-          structure. Use this for richer, multi-step schema edits on a draft you
+          structure. Discover supported operations with integral_describe_substrate;
+          never invent op names. Changing a track default is not a schema patch:
+          use integral_save_view with the existing view_id and is_default=true,
+          preserving its name, view_type and config for user review.
+          Use this for richer, multi-step schema edits on a draft you
           opened with integral_get_model_draft; for a single discrete add/remove of
           one EntryType/View/Tag, integral_modify_model is simpler. Only propose
           field/view types that integral_describe_substrate confirms are supported.
@@ -2076,7 +2080,11 @@ domains:
           calendar, gallery, wiki). Use when the user wants to keep a particular slice or
           layout they just saw — "save this as a board", "make a calendar view of
           due dates". To change an existing view, first list views and pass
-          that view's `view_id`; do not create a second view. The `config` should roughly re-create what the user saw
+          that view's `view_id`; do not create a second view. To make an existing
+          view the default, list views and select the requested view's ID, not the
+          currently default view's ID. With is_default=true preserve its exact
+          name, type and complete configuration. Stage layout edits separately.
+          The `config` should roughly re-create what the user saw
           (filters, group_by, entry_type_keys); the exact config schema varies by
           view_type and can be refined later in the UI. This STAGES the saved view
           the user approves in Integral — there is no separate execute step.

@@ -246,22 +246,24 @@ async def test_unresponsive_storage_respects_cleanup_pass_budget(vault, monkeypa
     user, store, db = vault
     await sig.save_user_signature(user.id, png_bytes=b"original")
     await sig.save_user_signature(user.id, png_bytes=b"replacement")
-    delete = store.delete_attachment
     waiting = asyncio.Event()
 
     async def unavailable(key):
         await waiting.wait()
 
-    monkeypatch.setattr(cleanup, "_CLEANUP_PASS_SECONDS", 0.05)
-    monkeypatch.setattr(store, "delete_attachment", unavailable)
-    assert (
-        await asyncio.wait_for(
-            cleanup.deliver_pending_signature_cleanup(database=db), 2
+    # The tiny budget belongs to the unresponsive-storage probe only. The
+    # successful retry uses the production budget: graph/file I/O can exceed
+    # 50ms on a loaded worker without indicating a cleanup failure.
+    with monkeypatch.context() as probe:
+        probe.setattr(cleanup, "_CLEANUP_PASS_SECONDS", 0.05)
+        probe.setattr(store, "delete_attachment", unavailable)
+        assert (
+            await asyncio.wait_for(
+                cleanup.deliver_pending_signature_cleanup(database=db), 2
+            )
+            == 0
         )
-        == 0
-    )
     assert await sig.read_user_signature_png(user.id) == b"replacement"
-    monkeypatch.setattr(store, "delete_attachment", delete)
     assert await cleanup.deliver_pending_signature_cleanup(database=db) == 1
 
 

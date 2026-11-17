@@ -4,7 +4,7 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 import { beginInteraction, finishInteraction, type Interaction } from '../lib/performance';
-import { clearAllSingleFlights, dedupeConcurrentGets } from './singleFlight';
+import { clearAllSingleFlights, configureSingleFlightContext, dedupeConcurrentGets } from './singleFlight';
 import { isDeferrableStartupGet, waitForStartupWindow } from './startupGate';
 import { getApiBaseURL } from '../config';
 import { normalizeDeepStrings } from '../utils/textEncoding';
@@ -56,8 +56,12 @@ const apiClient = axios.create({
 // caller's active workspace without each call site re-stating it.
 let _activeScopeHeader: string | null = null;
 export function setActiveScopeHeader(value: string | null): void {
+  if (_activeScopeHeader !== value) clearAllSingleFlights();
   _activeScopeHeader = value;
 }
+// Outer API flights execute before the axios adapter. Partition them at the
+// same boundary, including credential changes received through another tab.
+configureSingleFlightContext(() => JSON.stringify([getAccessToken(), _activeScopeHeader]));
 // Live source of truth for the active workspace scope header (``ws:<id>``),
 // kept in sync by ScopeContext. Non-axios callers (e.g. the chat SSE stream,
 // which bypasses this client) should read it here rather than re-deriving from

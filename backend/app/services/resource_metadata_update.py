@@ -241,9 +241,15 @@ async def update_track_metadata(
         workspace_id,
         native,
     ):
-        track = await Track.get(track_id)
-        if track is None:
+        from app.services.authority_facts import primary_node_record
+
+        graph = get_default_context()
+        row = await primary_node_record(graph.database, Track, track_id)
+        if row is None:
             raise ResourceNotFoundError(message="Track not found")
+        track = await graph._deserialize_entity(Track, row)
+        if track.workspace_id != workspace_id:
+            raise ResourceNotFoundError(message="Track scope changed")
         prior_snapshot = await export_node(track)  # D-03 before-snapshot
 
         if title is not None:
@@ -274,6 +280,7 @@ async def update_track_metadata(
             track.purpose = purpose
         if icon is not None:
             track.icon = icon
+            track.icon_overridden = True
         if visibility is not None:
             explicit_vis = normalize_track_visibility_input(visibility)
             if explicit_vis is None:

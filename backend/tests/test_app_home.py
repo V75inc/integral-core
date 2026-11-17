@@ -202,3 +202,100 @@ async def test_home_query_failure_is_unknown_and_redacted(home_runtime):
     result = await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")
     assert result["home"]["widgets"][0]["data"] == {"error": "home_query_unavailable"}
     assert "private diagnostic" not in str(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("installed", [False, True])
+@pytest.mark.parametrize("stored", [None, {}])
+async def test_existing_apps_receive_read_only_default(home_runtime, installed, stored):
+    """Absent legacy content defaults without writing or querying records."""
+    app, definition, _, resolve = home_runtime
+    app.home_composition = stored
+    app.active_definition_id = "d1" if installed else ""
+    definition.canonical_manifest = {"app": {}}
+    before = copy.deepcopy(vars(app))
+    for _ in range(2):
+        result = await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")
+        assert result["source"] == "default"
+        assert result["home"]["title"] == "Home"
+    assert vars(app) == before
+    resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("instance", [False, True])
+async def test_explicit_opt_out_wins_without_querying(home_runtime, instance):
+    app, definition, _, resolve = home_runtime
+    if instance:
+        app.home_composition = {"enabled": False}
+    else:
+        definition.canonical_manifest["app"]["home"] = {"enabled": False}
+    result = await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")
+    assert result["home"] is None
+    assert result["disabled"] is True
+    resolve.assert_not_awaited()
+
+
+def test_disabled_home_compiles_idempotently_and_reset_stays_distinct():
+    manifest = {
+        "operational_model_schema_version": 2,
+        "scope": "app",
+        "app": {"home": {"enabled": False}},
+    }
+    canonical = compile_canonical_manifest(manifest=manifest)
+    assert canonical["app"]["home"] == {"enabled": False}
+    assert compile_canonical_manifest(manifest=canonical)["app"]["home"] == {
+        "enabled": False
+    }
+    assert normalize_app_home({}, []) is None
+    with pytest.raises(ValueError):
+        normalize_app_home({"enabled": False, "widgets": []}, [])
+
+
+@pytest.mark.asyncio
+async def test_default_does_not_mask_inactive_or_invalid_native_home(home_runtime):
+    app, definition, _, resolve = home_runtime
+    definition.canonical_manifest = {"app": {}}
+    app.lifecycle_state = "paused"
+    result = await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")
+    assert result["home"] is None
+    assert result["error"] == "app_not_active"
+    app.lifecycle_state = "active"
+    definition.canonical_manifest["app"]["home"] = {
+        "renderer": "native",
+        "content": {"id": "bad", "type": "text", "query_key": "undeclared"},
+    }
+    result = await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")
+    assert result["home"] is None
+    assert result["error"] == "home_extension_unavailable"
+    resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_default_home_still_requires_current_access_and_scope(home_runtime):
+    app, definition, permission, resolve = home_runtime
+    app.active_definition_id = ""
+    definition.canonical_manifest = {"app": {}}
+    with pytest.raises(PermissionError):
+        await read_app_home(user_id="u1", app_id="a1", workspace_id="other")
+    permission.return_value = False
+    with pytest.raises(PermissionError):
+        await read_app_home(user_id="u1", app_id="a1", workspace_id="ws1")
+    resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reset_preview_inherits_package_without_overwriting_opt_out(home_runtime):
+    app, definition, _, resolve = home_runtime
+    app.home_composition = {"enabled": False}
+    result = await read_app_home(
+        user_id="u1",
+        app_id="a1",
+        workspace_id="ws1",
+        preview_home={},
+        include_data=False,
+    )
+    assert result["home"] == definition.canonical_manifest["app"]["home"]
+    assert result["source"] == "preview"
+    assert app.home_composition == {"enabled": False}
+    resolve.assert_not_awaited()

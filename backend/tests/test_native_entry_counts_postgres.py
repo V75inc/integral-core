@@ -178,8 +178,9 @@ async def test_inherited_editor_uses_complete_native_count(
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("scalar_query", [False, True])
 async def test_entry_exception_created_during_aggregate_refuses_total(
-    native_database, monkeypatch
+    native_database, monkeypatch, scalar_query
 ):
     from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
     from app.models.nodes import User
@@ -192,6 +193,20 @@ async def test_entry_exception_created_during_aggregate_refuses_total(
     await reader.connect(track, edge=COLLABORATES_ON, role="editor")
     original = native_database.summarize_graph_bindings
 
+    async def count():
+        if scalar_query:
+            from app.services.agent_insights import query_entries
+
+            result = await query_entries(
+                user_id=reader.id,
+                track_id=track.id,
+                workspace_id=workspace.id,
+                count_only=True,
+            )
+            assert result["entries"] == []
+            return result["total"]
+        return await count_user_accessible_entries(reader.id, track.id)
+
     async def revoke(*args, **kwargs):
         result = await original(*args, **kwargs)
         await reader.connect(entry, edge=EXCLUDED_FROM)
@@ -199,19 +214,32 @@ async def test_entry_exception_created_during_aggregate_refuses_total(
 
     monkeypatch.setattr(native_database, "summarize_graph_bindings", revoke)
     with pytest.raises(AuthorizationUnavailableError):
-        await count_user_accessible_entries(reader.id, track.id)
-    assert await count_user_accessible_entries(reader.id, track.id) == 0
+        await count()
+    assert await count() == 0
 
 
-async def test_native_source_failure_is_not_zero(native_database, monkeypatch):
-    owner, _, _, track, _ = await graph()
+@pytest.mark.parametrize("scalar_query", [False, True])
+async def test_native_source_failure_is_not_zero(
+    native_database, monkeypatch, scalar_query
+):
+    owner, workspace, _, track, _ = await graph()
 
     async def unavailable(*args, **kwargs):
         raise RuntimeError("native source failed")
 
     monkeypatch.setattr(native_database, "summarize_graph_bindings", unavailable)
     with pytest.raises(AuthorizationUnavailableError):
-        await count_user_accessible_entries(owner.id, track.id)
+        if scalar_query:
+            from app.services.agent_insights import query_entries
+
+            await query_entries(
+                user_id=owner.id,
+                track_id=track.id,
+                workspace_id=workspace.id,
+                count_only=True,
+            )
+        else:
+            await count_user_accessible_entries(owner.id, track.id)
 
 
 async def test_ownership_changed_during_aggregate_cannot_return_a_total(
