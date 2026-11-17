@@ -135,6 +135,7 @@ def reviewed_picomatch_packages(
     review: dict | None,
     build_digest: str | None,
     today: date,
+    exact_remediation: bool = False,
 ) -> set[str]:
     """A separately approved, exact candidate review; never renew October's waiver."""
     if not review or not review.get("approval") or not build_digest:
@@ -191,9 +192,12 @@ def reviewed_picomatch_packages(
                 row[key] != expected[name][key] for key in ("severity", "via", "nodes")
             ):
                 return False
-            if not same_reviewed_remediation(
-                name, row["fixAvailable"], expected[name]["fixAvailable"]
-            ):
+            fix = row["fixAvailable"]
+            expected_fix = expected[name]["fixAvailable"]
+            if exact_remediation:
+                if canonical_digest(fix) != canonical_digest(expected_fix):
+                    return False
+            elif not same_reviewed_remediation(name, fix, expected_fix):
                 return False
             if not row["via"] or not row["nodes"]:
                 return False
@@ -314,18 +318,34 @@ def analyze(
                 raise ValueError("invalid transitive advisory")
         return True
 
-    reviewed = reviewed_picomatch_packages(
-        document, lock, review=review, build_digest=build_digest, today=today
-    )
+    reviewed = set()
+    matched_review = None
+    if isinstance(review, dict):
+        # Evaluate complete reports independently. A row from one report must
+        # never grant an exception to a row in a different report.
+        for profile, exact in ((review, False), (review.get("alternate_report"), True)):
+            if not isinstance(profile, dict):
+                continue
+            reviewed = reviewed_picomatch_packages(
+                document,
+                lock,
+                review=profile,
+                build_digest=build_digest,
+                today=today,
+                exact_remediation=exact,
+            )
+            if reviewed:
+                matched_review = profile
+                break
     lines = []
     for name, item in sorted(vulns.items()):
         severity = item["severity"]
         if severity not in {"high", "critical"}:
             lines.append(f"NOTICE {severity} {name} (outside blocking severity policy)")
-        elif name in reviewed:
+        elif matched_review is not None and name in reviewed:
             lines.append(
                 f"ACCEPTED {severity} {name} (approved exact build inputs; "
-                f"GHSA-fc5q-39xc-vjpf; expires {review['expires']})"
+                f"GHSA-fc5q-39xc-vjpf; expires {matched_review['expires']})"
             )
         elif reviewed_chain(name):
             lines.append(

@@ -269,5 +269,59 @@ class ReviewTests(unittest.TestCase):
                 policy.build_inputs_digest(root)
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "missing_approval",
+        "hybrid",
+        "alias",
+        "direct_fix",
+        "path",
+        "dev",
+        "version",
+        "new_high",
+        "expiry",
+        "build",
+    ],
+)
+def test_alternate_report_is_separately_approved_and_exact(change):
+    review, lock = copy.deepcopy((REVIEW, LOCK))
+    alternate = review["alternate_report"]
+    audit = {"vulnerabilities": copy.deepcopy(alternate["graph"])}
+    rows = audit["vulnerabilities"]
+    plugin = "node_modules/tailwindcss-animate"
+    today = date.fromisoformat(alternate["reviewed_on"])
+    digest = alternate["build_inputs_sha256"]
+    if change == "missing_approval":
+        alternate["approval"] = None
+    elif change == "hybrid":
+        rows["picomatch"]["fixAvailable"] = review["graph"]["picomatch"]["fixAvailable"]
+    elif change == "alias":
+        rows["chokidar"]["fixAvailable"] = review["graph"]["chokidar"]["fixAvailable"]
+    elif change == "direct_fix":
+        rows["picomatch"]["fixAvailable"] = {
+            "name": "picomatch",
+            "version": "4.0.8",
+            "isSemVerMajor": False,
+        }
+    elif change == "path":
+        rows["tailwindcss-animate"]["nodes"] = ["node_modules/unreviewed"]
+    elif change == "dev":
+        lock["packages"][plugin]["dev"] = False
+    elif change == "version":
+        lock["packages"][plugin]["version"] = "1.0.8"
+    elif change == "new_high":
+        rows["unreviewed"] = copy.deepcopy(rows["picomatch"])
+    elif change == "expiry":
+        today = date.fromisoformat(alternate["expires"])
+    elif change == "build":
+        digest = "unreviewed inputs"
+    lines = policy.analyze(audit, lock, review=review, build_digest=digest, today=today)
+    assert any(line.startswith("ACTIONABLE") for line in lines) == (change != "none")
+    if change == "none":
+        assert sum(line.startswith("ACCEPTED") for line in lines) == 15
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
