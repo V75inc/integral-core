@@ -971,6 +971,7 @@ async def _resolve_count(
     if track_id:
         result = await query_entries(
             user_id=user_id,
+            count_only=True,
             # Count ordering is immaterial. Avoid updated_at's two fallback
             # partitions while retaining the executor's exact admitted total.
             limit=1,
@@ -999,6 +1000,7 @@ async def _resolve_count(
     for tid in await _data_source_track_ids(app, data_source):
         result = await query_entries(
             user_id=user_id,
+            count_only=True,
             # Count ordering is immaterial. Avoid updated_at's two fallback
             # partitions while retaining the executor's exact admitted total.
             limit=1,

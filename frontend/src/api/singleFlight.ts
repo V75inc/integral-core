@@ -13,20 +13,41 @@ import axios, { type AxiosInstance, type AxiosResponse, type InternalAxiosReques
 type Entry<T> = { promise: Promise<T>; expires: number };
 
 const registry = new Set<Map<string, Entry<unknown>>>();
+let readContextKey = () => '';
+
+/** The canonical API client supplies the current credential/workspace context. */
+export function configureSingleFlightContext(getKey: () => string): void {
+  readContextKey = getKey;
+  clearAllSingleFlights();
+}
 
 export function createSingleFlight<T>(ttlMs: number) {
   const store = new Map<string, Entry<T>>();
+  let previousContext: string | undefined;
   registry.add(store as Map<string, Entry<unknown>>);
   return {
     run(key: string, fn: () => Promise<T>): Promise<T> {
+      const context = readContextKey();
+      if (context !== previousContext) {
+        // Outer API flights must not bypass the adapter's auth/scope partition.
+        // Read dynamically too: another tab can change the stored credentials.
+        store.clear();
+        previousContext = context;
+      }
       const now = Date.now();
       const hit = store.get(key);
       if (hit && hit.expires > now) return hit.promise;
-      const promise = fn().catch(err => {
+      const promise = fn().then(value => {
+        const entry = store.get(key);
+        if (entry?.promise === promise) entry.expires = Date.now() + ttlMs;
+        return value;
+      }, err => {
         if (store.get(key)?.promise === promise) store.delete(key);
         throw err;
       });
-      store.set(key, { promise, expires: now + ttlMs });
+      // A slow request must not expire while callers are still waiting for it.
+      // The freshness window starts on completion; invalidation still wins.
+      store.set(key, { promise, expires: Number.POSITIVE_INFINITY });
       return promise;
     },
     clear() {
@@ -101,7 +122,7 @@ export function dedupeConcurrentGets(client: AxiosInstance, options: SharedGetOp
     const keep = reuseMs > 0 && Boolean(options.reusable?.(path));
     const promise = base(config);
     // In flight: always shareable. After it settles it is kept only for reusable URLs.
-    const entry: SharedEntry = { promise, expires: keep ? now + reuseMs : Number.POSITIVE_INFINITY };
+    const entry: SharedEntry = { promise, expires: Number.POSITIVE_INFINITY };
     store.set(key, entry);
     promise.then(
       () => {

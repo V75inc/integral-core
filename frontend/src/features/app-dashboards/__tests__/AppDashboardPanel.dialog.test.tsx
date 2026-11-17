@@ -1,6 +1,6 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
@@ -115,6 +115,42 @@ describe('AppDashboardPanel drill-through dialog', () => {
     fireEvent.change(picker, { target: { value: 'd1' } });
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('dashboard_id=d1'));
     expect(picker).toHaveValue('d1');
+  });
+
+  it('reads only the default dashboard on initial mount, even when it is listed second', async () => {
+    listMock.mockResolvedValue([
+      { id: 'first', name: 'First', app_id: 'app-1', widgets: [], is_default: false },
+      { id: 'default', name: 'Default', app_id: 'app-1', widgets: [], is_default: true },
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<MemoryRouter><QueryClientProvider client={queryClient}>
+      <AppDashboardPanel appId="app-1" canEdit={false} />
+    </QueryClientProvider></MemoryRouter>);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('default'));
+    expect(dataMock).toHaveBeenCalledExactlyOnceWith('app-1', 'default');
+    expect(substrateMock).not.toHaveBeenCalled();
+    await act(async () => {
+      queryClient.setQueryData(['dashboards', 'app-1'], [
+        { id: 'first', name: 'First', app_id: 'app-1', widgets: [], is_default: true },
+        { id: 'default', name: 'Default', app_id: 'app-1', widgets: [], is_default: false },
+      ]);
+    });
+    expect(screen.getByRole('combobox', { name: 'Dashboard' })).toHaveValue('default');
+    expect(dataMock).toHaveBeenCalledExactlyOnceWith('app-1', 'default');
+  });
+
+  it('defers widget choices until editing and offers a retry when that read fails', async () => {
+    substrateMock.mockRejectedValueOnce(new Error('offline'));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><MemoryRouter>
+      <AppDashboardPanel appId="app-1" canEdit />
+    </MemoryRouter></QueryClientProvider>);
+    await screen.findByRole('button', { name: 'Edit layout' });
+    expect(substrateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit layout' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry widget choices' }));
+    await waitFor(() => expect(screen.queryByText('Could not load widget choices.')).not.toBeInTheDocument());
+    expect(substrateMock).toHaveBeenCalledTimes(2);
   });
 
   it('uses the standard padded Modal.Body for chart record results', async () => {

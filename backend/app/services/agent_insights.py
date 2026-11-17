@@ -30,7 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 async def _entry_read_tracks(
-    user_id: str, tracks: List[Any], workspace_id: Optional[str]
+    user_id: str,
+    tracks: List[Any],
+    workspace_id: Optional[str],
+    *,
+    candidate_track_ids: Optional[Set[str]] = None,
+    app_id: Optional[str] = None,
 ) -> tuple[List[Any], Set[str]]:
     """Add directly admitted leaf sources without granting parent metadata.
 
@@ -46,6 +51,8 @@ async def _entry_read_tracks(
     from app.services.resource_location import ACTIVE_APP_STATES
 
     readable_ids = {track.id for track in tracks}
+    if candidate_track_ids is not None and not candidate_track_ids:
+        return tracks, readable_ids
     user = await get_user_node(user_id)
     if user is None:
         return tracks, readable_ids
@@ -54,10 +61,18 @@ async def _entry_read_tracks(
         return tracks, readable_ids
     missing: Set[str] = set()
     for start in range(0, len(direct_ids), 200):
+        query = {"id": {"$in": direct_ids[start : start + 200]}}
+        if candidate_track_ids is not None:
+            from app.services.entry_access_projection import merge_queries
+
+            query = merge_queries(
+                query, {"context.track_id": {"$in": sorted(candidate_track_ids)}}
+            )
         async for rows in iter_records(
             user_id,
-            {"id": {"$in": direct_ids[start : start + 200]}},
+            query,
             workspace_id=workspace_id,
+            app_id=app_id,
             projection=["context.track_id"],
             allowed_app_states=ACTIVE_APP_STATES,
         ):
@@ -419,6 +434,7 @@ async def query_entries(
     offset: int = 0,
     workspace_id: Optional[str] = None,
     result_set_id: Optional[str] = None,
+    count_only: bool = False,
 ) -> Dict[str, Any]:
     """Filtered cross-track or track-scoped entry query.
 
@@ -426,6 +442,10 @@ async def query_entries(
     read, then applies the full canonical filter pipeline in-process. Other
     predicates remain in-process until their storage semantics can be proven
     equivalent.
+
+    Scalar consumers may request count_only: plain queries omit record-page
+    selection/hydration after the same scope and refusal checks. Other
+    predicates retain their canonical record/filter executor unchanged.
     """
     from app.services.permissions import (
         get_user_accessible_entries,
@@ -643,6 +663,16 @@ async def query_entries(
             entries: List[Any] = []
             total = 0
             for track in selected_tracks:
+                if count_only:
+                    from app.services.permissions import count_user_accessible_entries
+
+                    total += await count_user_accessible_entries(
+                        user_id,
+                        track.id,
+                        candidate_query=candidate_query,
+                        workspace_id=workspace_id,
+                    )
+                    continue
                 partitions = (
                     [
                         (sort_field, {"context.updated_at": {"$gt": ""}}),
@@ -1073,6 +1103,87 @@ async def query_entries(
 # ---------------------------------------------------------------------------
 
 
+async def _digest_scope_tracks(
+    user_id: str, scope: str, scope_id: Optional[str], workspace_id: Optional[str]
+) -> Optional[tuple[List[Any], Set[str]]]:
+    """Keep source outages unavailable rather than exposing driver diagnostics."""
+    from app.api.errors import BadRequestError
+    from app.exceptions import AuthorizationUnavailableError
+
+    try:
+        return await _discover_digest_scope_tracks(
+            user_id, scope, scope_id, workspace_id
+        )
+    except (AuthorizationUnavailableError, BadRequestError):
+        raise
+    except Exception as exc:
+        raise AuthorizationUnavailableError() from exc
+
+
+async def _discover_digest_scope_tracks(
+    user_id: str, scope: str, scope_id: Optional[str], workspace_id: Optional[str]
+) -> Optional[tuple[List[Any], Set[str]]]:
+    """Discover exact-target candidates before admitting parent metadata/leaves."""
+    from app.models.nodes import App, Track
+    from app.services.permissions import admit_track_inventory_candidates
+    from app.services.resource_location import DATA_APP_STATES, locate_resources
+
+    app_id = None
+    if scope == "track" and scope_id and scope_id.startswith("n.Track."):
+        target = await Track.get(scope_id)
+        if target is None:
+            return [], set()
+        if not isinstance(target, Track):  # Preserve lightweight adapter fixtures.
+            return None
+        candidates = [target]
+    elif scope == "app" and scope_id and scope_id.startswith("n.WorkspaceApp."):
+        app = await App.get(scope_id)
+        if app is None:
+            return None  # Preserve the documented unresolved-App fallback.
+        app_id = app.id
+        candidates = []
+        cursor = None
+        while True:
+            previous_cursor = cursor
+            page, cursor = await app.nodes_page(
+                edge=["CONTAINS"], node=["Track"], cursor=cursor, limit=200
+            )
+            candidates.extend(page)
+            if not cursor:
+                break
+            if cursor == previous_cursor:
+                from app.exceptions import AuthorizationUnavailableError
+
+                raise AuthorizationUnavailableError()
+    else:
+        return None
+    candidates = list({track.id: track for track in candidates}.values())
+    selected: List[Any] = []
+    for start in range(0, len(candidates), 200):
+        page = candidates[start : start + 200]
+        locations = await locate_resources(
+            "track",
+            [track.id for track in page],
+            workspace_hints=[workspace_id] if workspace_id else [],
+            allowed_app_states=DATA_APP_STATES,
+        )
+        selected.extend(
+            track
+            for track in page
+            if (location := locations.get(track.id)) is not None
+            and (not workspace_id or location.workspace_id == workspace_id)
+            and (not app_id or location.app_id == app_id)
+        )
+    readable = await admit_track_inventory_candidates(user_id, selected)
+    return await _entry_read_tracks(
+        user_id,
+        readable,
+        workspace_id,
+        candidate_track_ids={track.id for track in selected},
+        app_id=app_id,
+    )
+
+
 async def activity_digest(
     *,
     user_id: str,
@@ -1097,7 +1208,10 @@ async def activity_digest(
     )
 
     since = _period_to_since(period)
-    tracks = await get_user_accessible_tracks(user_id)
+    scoped_tracks = await _digest_scope_tracks(user_id, scope, scope_id, workspace_id)
+    tracks = (
+        [] if scoped_tracks is not None else await get_user_accessible_tracks(user_id)
+    )
 
     # B-AGENT-03: workspace gate (first layer). Filter the user-accessible
     # set down to the active workspace before any other scope-based
@@ -1105,7 +1219,12 @@ async def activity_digest(
     # (backend/app/models/nodes.py:409).
     if workspace_id:
         tracks = [t for t in tracks if getattr(t, "workspace_id", "") == workspace_id]
-    tracks, readable_track_ids = await _entry_read_tracks(user_id, tracks, workspace_id)
+    if scoped_tracks is None:
+        tracks, readable_track_ids = await _entry_read_tracks(
+            user_id, tracks, workspace_id
+        )
+    else:
+        tracks, readable_track_ids = scoped_tracks
 
     # Scope filter — ``scope_id`` narrows to one app's tracks or one track.
     # Same name-vs-id tolerance as ``query_entries``: the agent often
@@ -1128,7 +1247,7 @@ async def activity_digest(
                 and hint_fold in (t.title or "").casefold()
             ]
             tracks = substr[:1] if substr else []
-    elif scope == "app" and scope_id:
+    elif scope == "app" and scope_id and scoped_tracks is None:
         # B-AGENT-05: scope=app + scope_id narrows to the App's child
         # tracks (App —CONTAINS→ Track). Accepts either an Object id
         # (``n.WorkspaceApp.*``) or a fuzzy name match — same
@@ -1197,7 +1316,14 @@ async def activity_digest(
                 get_user_accessible_entry_page,
             )
 
-            entry_count = await count_user_accessible_entries(user_id, t.id)
+            entry_count = await count_user_accessible_entries(
+                user_id,
+                t.id,
+                workspace_id=workspace_id,
+                app_id=(
+                    scope_id if scope == "app" and scoped_tracks is not None else None
+                ),
+            )
             if not entry_count and t.id not in readable_track_ids:
                 continue
             recent_queries = [
@@ -1233,6 +1359,11 @@ async def activity_digest(
                     ],
                     candidate_query=candidate_query,
                     workspace_id=workspace_id,
+                    app_id=(
+                        scope_id
+                        if scope == "app" and scoped_tracks is not None
+                        else None
+                    ),
                 )
                 recent_count += int(page["total"])
                 recent_entries.extend(page["entries"])

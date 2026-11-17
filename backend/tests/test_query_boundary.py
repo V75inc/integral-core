@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -136,6 +137,299 @@ async def _world():
 
 def _blob(payload) -> str:
     return json.dumps(payload, default=str)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direct_only", [False, True])
+async def test_plain_count_uses_current_audience_without_selecting_a_page(
+    monkeypatch, direct_only
+):
+    from app.services import permissions
+    from tests.test_entry_projection_authority import reader_in
+    from tests.test_resource_location import graph
+
+    owner, workspace, _, track, entry = await graph()
+    principal = await reader_in(workspace) if direct_only else owner
+    grant = (
+        await principal.connect(entry, edge=COLLABORATES_ON, role="viewer")
+        if direct_only
+        else None
+    )
+    args = dict(
+        user_id=principal.id,
+        track_id=track.id,
+        workspace_id=workspace.id,
+        sort_by="created_at",
+        limit=1,
+    )
+    page = await agent_insights.query_entries(**args)
+    assert page["total"] == 1
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("Plain scalar counts must not select/hydrate a record page")
+
+    monkeypatch.setattr(permissions, "get_user_accessible_entry_page", forbidden)
+    result = await agent_insights.query_entries(**args, count_only=True)
+    assert result["total"] == page["total"]
+    assert result["entries"] == []
+    foreign = await agent_insights.query_entries(
+        **{**args, "workspace_id": "n.Workspace.foreign"}, count_only=True
+    )
+    assert foreign["total"] == 0
+    if grant is not None:
+        await grant.delete()
+        assert (await agent_insights.query_entries(**args, count_only=True))[
+            "total"
+        ] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["packaged_track", "paused_track"])
+async def test_plain_count_keeps_generic_read_refusals(source):
+    world = await _world()
+    result = await agent_insights.query_entries(
+        user_id=world.user.id,
+        track_id=getattr(world, source).id,
+        workspace_id=world.workspace.id,
+        count_only=True,
+    )
+    assert result["total"] is None
+    assert result["refused"]
+    assert not result.get("records_read")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"status": "active"},
+        {"tags": ["absent"]},
+        {"since": "2100-01-01"},
+        {"query": "note"},
+        {"filters": [{"field": "title", "op": "eq", "value": "Open note"}]},
+    ],
+)
+async def test_filtered_count_keeps_canonical_query_results(filters):
+    world = await _world()
+    args = dict(
+        user_id=world.user.id,
+        track_id=world.open_track.id,
+        workspace_id=world.workspace.id,
+        limit=1,
+        **filters,
+    )
+    page = await agent_insights.query_entries(**args)
+    counted = await agent_insights.query_entries(**args, count_only=True)
+    assert counted == page
+
+
+@pytest.mark.asyncio
+async def test_plain_count_counts_admitted_entity_without_rendering_its_payload():
+    from tests.test_resource_location import graph
+
+    owner, workspace, _, track, entry = await graph()
+    context = await entry.get_context()
+    await context.database.find_one_and_update(
+        "node", {"id": entry.id}, {"$set": {"context.title": {"invalid": "display"}}}
+    )
+    result = await agent_insights.query_entries(
+        user_id=owner.id,
+        track_id=track.id,
+        workspace_id=workspace.id,
+        count_only=True,
+    )
+    assert result["total"] == 1
+    assert result["entries"] == []
+
+
+@pytest.mark.asyncio
+async def test_scoped_count_helper_keeps_candidate_and_parent_scope():
+    from app.services.permissions import count_user_accessible_entries
+    from tests.test_resource_location import graph
+
+    owner, workspace, app, track, _ = await graph()
+    args = dict(workspace_id=workspace.id, app_id=app.id)
+    assert await count_user_accessible_entries(owner.id, track.id, **args) == 1
+    assert (
+        await count_user_accessible_entries(
+            owner.id, track.id, **{**args, "app_id": "n.App.foreign"}
+        )
+        == 0
+    )
+    assert (
+        await count_user_accessible_entries(
+            owner.id, track.id, **args, candidate_query={"id": "n.Entry.absent"}
+        )
+        == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_plain_count_refuses_ambiguous_binding():
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.permissions import count_user_accessible_entries
+    from tests.test_resource_location import graph
+
+    owner, workspace, _, track, entry = await graph()
+    _, _, _, foreign_track, _ = await graph()
+    await foreign_track.connect(entry, edge=CONTAINS)
+    args = dict(user_id=owner.id, track_id=track.id, workspace_id=workspace.id)
+    try:
+        total = await count_user_accessible_entries(**args)
+    except AuthorizationUnavailableError:
+        with pytest.raises(AuthorizationUnavailableError):
+            await agent_insights.query_entries(**args, count_only=True)
+    else:
+        assert total == 0  # Portable admission withholds the ambiguous entity.
+        result = await agent_insights.query_entries(**args, count_only=True)
+        assert result["total"] == 0 and result["entries"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["app", "track"])
+async def test_exact_digest_does_not_discover_unrelated_track_inventory(
+    monkeypatch, scope
+):
+    from app.services import permissions
+
+    world = await _world()
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("An exact digest must discover only its target candidates")
+
+    monkeypatch.setattr(permissions, "get_user_accessible_tracks", forbidden)
+    result = await agent_insights.activity_digest(
+        user_id=world.user.id,
+        scope=scope,
+        scope_id=world.open_app.id if scope == "app" else world.open_track.id,
+        workspace_id=world.workspace.id,
+    )
+    assert result["total_tracks"] == 1
+    assert result["total_entries"] == 2
+    assert {row["track_id"] for row in result["track_summaries"]} == {
+        world.open_track.id
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["app", "track"])
+async def test_exact_digest_preserves_direct_leaf_privacy_and_revocation(scope):
+    from tests.test_entry_projection_authority import reader_in
+    from tests.test_resource_location import graph
+
+    _, workspace, app, track, entry = await graph()
+    reader = await reader_in(workspace)
+    grant = await reader.connect(entry, edge=COLLABORATES_ON, role="viewer")
+    args = dict(
+        user_id=reader.id,
+        scope=scope,
+        scope_id=app.id if scope == "app" else track.id,
+        workspace_id=workspace.id,
+    )
+    result = await agent_insights.activity_digest(**args)
+    assert result["total_entries"] == 1
+    assert result["track_summaries"][0]["title"] == "Shared records"
+    assert result["track_summaries"][0]["action_url"] is None
+    await grant.delete()
+    result = await agent_insights.activity_digest(**args)
+    assert result["total_tracks"] == 0
+    assert result["track_summaries"] == []
+
+
+@pytest.mark.asyncio
+async def test_exact_digest_keeps_template_parent_listability_separate_from_leaves():
+    from tests.test_entry_projection_authority import reader_in
+    from tests.test_resource_location import graph
+
+    _, workspace, app, track, entry = await graph()
+    track.template_id = "template-only-identity"
+    await track.save()
+    reader = await reader_in(workspace)
+    await reader.connect(track, edge=COLLABORATES_ON, role="viewer")
+    args = dict(
+        user_id=reader.id, scope="app", scope_id=app.id, workspace_id=workspace.id
+    )
+    assert (await agent_insights.activity_digest(**args))["total_tracks"] == 0
+    await reader.connect(entry, edge=COLLABORATES_ON, role="viewer")
+    result = await agent_insights.activity_digest(**args)
+    assert result["total_entries"] == 1
+    assert result["track_summaries"][0]["title"] == "Shared records"
+    assert result["track_summaries"][0]["action_url"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source", ["track", "app_page", "template_parent", "stalled_page"]
+)
+async def test_exact_digest_normalizes_source_failure(monkeypatch, source):
+    from app.exceptions import AuthorizationUnavailableError
+    from tests.test_resource_location import graph
+
+    owner, workspace, app, track, _ = await graph()
+    track.template_id = "source-failure-template"
+    await track.save()
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("private-fixture-driver-diagnostic")
+
+    if source == "track":
+        monkeypatch.setattr(Track, "get", unavailable)
+    elif source == "app_page":
+        monkeypatch.setattr(App, "nodes_page", unavailable)
+    elif source == "stalled_page":
+
+        async def stalled(*args, **kwargs):
+            return [track], "same-cursor"
+
+        monkeypatch.setattr(App, "nodes_page", stalled)
+    else:
+        monkeypatch.setattr(Track, "nodes", unavailable)
+    with pytest.raises(AuthorizationUnavailableError) as error:
+        await agent_insights.activity_digest(
+            user_id=owner.id,
+            workspace_id=workspace.id,
+            scope="track" if source == "track" else "app",
+            scope_id=track.id if source == "track" else app.id,
+        )
+    assert "private-fixture-driver-diagnostic" not in str(error.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    os.getenv("INTEGRAL_TEST_DB") != "postgres", reason="PostgreSQL paging proof"
+)
+async def test_exact_digest_pages_all_children_and_deduplicates_candidates(monkeypatch):
+    from app.services.app_graph import catalog_track
+    from tests.test_resource_location import graph
+
+    owner, workspace, app, track, _ = await graph()
+    expected = {track.id}
+    for index in range(204):
+        child = await Track.create(
+            title=f"Empty child {index}", workspace_id=workspace.id
+        )
+        await app.connect(child, edge=CONTAINS)
+        await catalog_track(child)
+        expected.add(child.id)
+    original = App.nodes_page
+    calls = []
+
+    async def observed(self, *args, **kwargs):
+        page, cursor = await original(self, *args, **kwargs)
+        if self.id == app.id:
+            calls.append((len(page), cursor))
+            if len(calls) == 1:
+                page = page + page[:1]
+        return page, cursor
+
+    monkeypatch.setattr(App, "nodes_page", observed)
+    tracks, readable = await agent_insights._digest_scope_tracks(
+        owner.id, "app", app.id, workspace.id
+    )
+    assert {row.id for row in tracks} == readable == expected
+    assert len(tracks) == 205
+    assert len(calls) == 2 and calls[0][0] == 200 and calls[-1][1] is None
 
 
 @pytest.mark.asyncio
@@ -801,9 +1095,7 @@ async def test_count_window_keeps_nullable_timestamps_and_update_date_filters(
         data_source={"track_id": world.open_track.id},
     )
     assert plain == {"value": 2, "total_matched": 2}
-    assert len(pages) == 1
-    assert pages[0]["limit"] == 1
-    assert pages[0]["sort"] == [("context.created_at", -1)]
+    assert pages == []  # Scalar counts must not select or sort a display row.
     windowed = await _resolve_count(
         user_id=world.user.id,
         app_id=world.open_app.id,

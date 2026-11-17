@@ -1252,6 +1252,7 @@ async def test_count_query_failure_is_not_zero_or_partial(
         workspace_id="fixture-ws",
         data_source={"track_id": "n.Track.unavailable"} if explicit_track else {},
     )
+    assert all(call.kwargs["count_only"] is True for call in query.call_args_list)
     assert result["value"] is None
     assert result["total_matched"] == 0
     assert result["error"]

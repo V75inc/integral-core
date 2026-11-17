@@ -1,7 +1,40 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearAllSingleFlights, createSingleFlight } from '../singleFlight';
 
+afterEach(() => { vi.useRealTimers(); clearAllSingleFlights(); });
+
 describe('createSingleFlight', () => {
+  it('shares a slow read until it settles, then starts its freshness window', async () => {
+    vi.useFakeTimers();
+    const sf = createSingleFlight<number>(1000);
+    let resolve!: (value: number) => void;
+    const fn = vi.fn(() => new Promise<number>(done => { resolve = done; }));
+    const first = sf.run('slow', fn);
+    await vi.advanceTimersByTimeAsync(2000);
+    const overlapping = sf.run('slow', fn);
+    expect(fn).toHaveBeenCalledTimes(1);
+    resolve(7);
+    expect(await overlapping).toBe(7);
+    expect(await first).toBe(7);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await sf.run('slow', fn)).toBe(7);
+    expect(fn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(501);
+    void sf.run('slow', fn);
+    expect(fn).toHaveBeenCalledTimes(2);
+    resolve(8);
+  });
+
+  it('does not restore an invalidated pending read when it finishes', async () => {
+    const sf = createSingleFlight<number>(1000);
+    let resolve!: (value: number) => void;
+    const old = sf.run('key', () => new Promise<number>(done => { resolve = done; }));
+    clearAllSingleFlights();
+    expect(await sf.run('key', async () => 2)).toBe(2);
+    resolve(1);
+    expect(await old).toBe(1);
+    expect(await sf.run('key', async () => 3)).toBe(2);
+  });
   it('shares one call between concurrent callers', async () => {
     const sf = createSingleFlight<number>(1000);
     const fn = vi.fn().mockResolvedValue(1);
@@ -101,6 +134,24 @@ describe('dedupeConcurrentGets', () => {
 import { clearSharedGets } from '../singleFlight';
 
 describe('reusable navigation GETs', () => {
+  it('does not issue another network read while a slow reusable GET is pending', async () => {
+    vi.useFakeTimers();
+    const releases: Array<() => void> = [];
+    const adapter = vi.fn<AxiosAdapter>(config => new Promise(resolve => {
+      releases.push(() => resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config }));
+    }));
+    const client = axios.create({ adapter });
+    dedupeConcurrentGets(client, { reuseMs: 1000, reusable: () => true });
+    const first = client.get('/apps');
+    await vi.advanceTimersByTimeAsync(2000);
+    const overlapping = client.get('/apps');
+    expect(adapter).toHaveBeenCalledTimes(1);
+    releases.forEach(release => release());
+    await Promise.all([first, overlapping]);
+    await vi.advanceTimersByTimeAsync(500);
+    await client.get('/apps');
+    expect(adapter).toHaveBeenCalledTimes(1);
+  });
   function makeReusable() {
     let calls = 0;
     const adapter: AxiosAdapter = config => {

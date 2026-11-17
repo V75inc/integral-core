@@ -109,22 +109,23 @@ export function AppDashboardPanel({
 
   const substrateQuery = useQuery({
     queryKey: ['dashboard-widget-substrate'],
-    queryFn: () => dashboardsApi.getSubstrate()
+    queryFn: () => dashboardsApi.getSubstrate(),
+    enabled: canEdit && editMode,
   });
 
   const dashboards = useMemo(() => listQuery.data ?? [], [listQuery.data]);
   const activeDashboard = useMemo(
-    () => dashboards.find(d => d.id === (requestedDashboardId ?? activeId)) ?? dashboards.find(d => d.id === activeId) ?? dashboards[0] ?? null,
+    () => dashboards.find(d => d.id === (requestedDashboardId ?? activeId)) ?? dashboards.find(d => d.id === activeId) ?? dashboards.find(d => d.is_default) ?? dashboards[0] ?? null,
     [dashboards, activeId, requestedDashboardId],
   );
   const activeDashboardId = activeDashboard?.id ?? null;
   const activeDashboardName = activeDashboard?.name ?? null;
 
   useEffect(() => {
-    if (dashboards.length && !activeId) {
-      setActiveId(dashboards.find(d => d.is_default)?.id ?? dashboards[0].id);
-    }
-  }, [dashboards, activeId]);
+    // Resolve the correct default on the first render, then retain that
+    // selection when a later list refresh changes which dashboard is default.
+    if (!activeId && activeDashboardId) setActiveId(activeDashboardId);
+  }, [activeId, activeDashboardId]);
 
   useEffect(() => {
     if (!activeDashboardId) return;
@@ -489,6 +490,11 @@ export function AppDashboardPanel({
 
           {editMode && canEdit ? (
             <div className="dashboard-toolbar mb-4 flex flex-wrap gap-2">
+              {substrateQuery.isPending ? <Text as="p" role="status">Loading widget choices…</Text> : null}
+              {substrateQuery.isError ? <div role="alert">
+                <Text as="p">Could not load widget choices.</Text>
+                <Button variant="outline" onClick={() => void substrateQuery.refetch()}>Retry widget choices</Button>
+              </div> : null}
               {Object.entries(widgetTypeGroups).map(([group, specs]) => (
                 <div key={group} className="flex flex-wrap items-center gap-1">
                   <Text variant="meta" tone="muted" as="span" className="mr-1">

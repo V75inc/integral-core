@@ -7,6 +7,46 @@ strength of a slow spinner alone.
 
 ## Runtime fingerprint and local tracing
 
+Plain dashboard count cards use the shared entry-query planner's `count_only`
+execution hint. Canonical workspace, App lifecycle, generic-read boundaries and
+filter normalization run before the existing permission-aware count executor.
+Native aggregates recheck current authority; unsupported audiences retain bounded
+admitted-record scans. No authority result is shared between widgets. This
+removes page selection, sorting and display-row hydration from unfiltered counts.
+Status, tag, type, date, keyword, profile-filter and pinned-result-set queries
+keep their canonical evaluator; the hint does not promise empty `entries` for
+those fallback plans. Grouped charts and aggregate calculations keep their
+existing semantics.
+
+A scalar count measures admitted entities, not renderable display payloads.
+An authorized record with an invalid display field can still contribute to its
+count without constructing an Entry for display. Conflicting containment cannot
+contribute an entity; unavailable authority still refuses the read. Outages and incomplete
+sources must never become a successful zero or partial total. Query-budget
+regressions cover count-only and mixed-widget dashboards. Their server timings
+do not establish browser loading or deployed latency: retain separate waterfall,
+rendering, host-load and exact installed-artifact evidence before claiming a
+speedup.
+
+Exact App/Track activity summaries discover target candidates before inventory
+admission. App child discovery pages to exhaustion; canonical workspace/App
+containment is checked before candidates enter the digest. The same Track
+inventory listability rules decide which parent metadata is readable. Scoped,
+currently admitted direct Entry grants can add otherwise unreadable parents,
+whose titles/actions remain masked. Inaccessible children without admitted
+leaves do not affect summary counts or refusal output. Counts and recent reads
+remain independently admitted; no widget or request authority cache is added.
+User-wide/name-based discovery and the legacy unresolved-App fallback retain
+their previous behavior. Candidate selection is never a read grant.
+
+Track-list default metadata uses a bounded projection of named model attachments
+for the admitted page. A complete projection can establish that a model has at
+most one attachment without a separate count per Track. Possible shared models,
+overflow and malformed projection rows retain exact distinct-neighbour checks.
+Shared defaults still resolve from each Track's own saved Views. These facts are
+used only during that page's read projection; mutation checks remain fresh, and
+no permission decision or cross-request sharing cache is introduced.
+
 Run `backend/scripts/performance_snapshot.py` with the actual API interpreter
 (or stream it into `docker exec -i <api> python -`). Capture Core/Business/library
 commits, mounts and frontend source alongside its allowlisted output. Repeat
@@ -267,3 +307,41 @@ The evidence does not yet isolate a safe next optimization that closes the full
 gap. Live-provider chat budgets, complete integration gates and the under-5%
 instrumentation-overhead target remain outstanding. Keep diagnostic export
 optional and retain jvspatial while resolving these measured gaps.
+
+## Frontend bootstrap and App read scheduling
+
+Session boot and capability consumers share one public deployment-metadata read,
+outside authenticated renewal. A failed read can retry when a capability consumer
+remounts. Identical API reads stay shared while pending, even beyond their reuse
+window; freshness starts on completion. Both the API wrapper and transport layers
+observe credential/workspace boundaries. Scope changes and credential setters
+invalidate pending/recent sharing synchronously, and wrapper calls also detect
+credential changes made by another tab. Late responses cannot restore invalidated
+cache entries. Writes and live graph-change invalidation remain in force.
+
+Reasserting a confirmed or pending workspace does not send another scope PUT;
+failed writes remain retryable, and account changes discard confirmation. This
+avoids unnecessary write-triggered cache invalidation during App/Track navigation.
+
+App content reads proceed independently of the collaborator directory. Editing
+waits for current access details; transient failures leave readable content with
+a separate retry. Explicit authentication, authorization or missing-resource
+responses retire content, breadcrumbs, workspace publication and chat context,
+including during a failed retry or late primary response. App/account navigation
+also fences late responses. The backend continues to authorize each read/write.
+
+Track-link pickers fetch only when opened. Dashboard widget choices fetch only
+while editing, with loading/error/retry states. Initial dashboard data selects the
+default directly and retains that selection across background default changes.
+These request-budget and authority properties have regression coverage. Validate
+installed browser request counts and user-visible timings separately: a source
+build or fixture result does not establish a deployed latency improvement.
+
+Event-history catch-up coalesces up to ten pages into one reconciliation, rather
+than refetching dashboards and lists after each page. An older in-flight read
+still receives one trailing refresh. Completed pages reconcile even if a later
+page fails; hidden tabs defer the batch. Commit the protected history cursor
+only after reconciliation, share that completion through credential renewal,
+and discard pending replay when its principal/workspace subscription changes.
+Measure both initial rendering and the first safety-poll window: a fast initial
+render can conceal repeated aggregate reads several seconds later.

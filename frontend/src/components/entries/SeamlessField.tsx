@@ -508,6 +508,7 @@ function SeamlessSelectInner({
         <div className="py-0.5">
           <AppSelect
             variant="pill"
+            fluid
             className="w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
             value={String(value || '')}
             onValueChange={val => onChange(val)}
@@ -755,6 +756,7 @@ function SeamlessRelationSingleInner({
         <div className="flex min-w-0 items-center gap-2 py-0.5">
           <AppSelect
             variant="pill"
+            fluid
             className="min-w-0 w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
             value={currentId}
             onValueChange={val => { onChange(val || null); setEditing(false); }}

@@ -1401,6 +1401,47 @@ async def _resolve_role_for_user(
 # --- Bulk queries ---
 
 
+async def _inventory_track_listable(
+    user_id: str, track: Track, app_visibility_tasks: dict[str, asyncio.Task]
+) -> bool:
+    """Retain the inventory's parent-App metadata rule for template Tracks."""
+    if not str(getattr(track, "template_id", "") or "").strip():
+        return True
+    parents = await track.nodes(
+        edge=["CONTAINS"], direction="in", node=["WorkspaceApp"], limit=2
+    )
+    if not parents:
+        return True
+    for app in parents:
+        if str(getattr(app, "lifecycle_state", "") or "") == "uninstalled":
+            continue
+        task = app_visibility_tasks.get(app.id)
+        if task is None:
+            task = asyncio.create_task(can_view_app(user_id, app.id))
+            app_visibility_tasks[app.id] = task
+        if await task:
+            return True
+    return False
+
+
+async def admit_track_inventory_candidates(
+    user_id: str, candidates: List[Track]
+) -> List[Track]:
+    """Admit target-discovered metadata with the ordinary inventory rules.
+
+    These candidates are not Entry authority. Directly shared leaves retain
+    their independent admission even when their Track is not listable here.
+    """
+    with isolated_permissions_cache(), computation_fact_scope():
+        app_visibility_tasks: dict[str, asyncio.Task] = {}
+        listable = [
+            track
+            for track in candidates
+            if await _inventory_track_listable(user_id, track, app_visibility_tasks)
+        ]
+        return await _filter_canonical_resource_inventory(user_id, "track", listable)
+
+
 @perf_traced("permissions.get_user_accessible_tracks")
 async def get_user_accessible_tracks(user_id: str) -> List[Track]:
     """List current data access, including protected workspace stewardship."""
@@ -1457,26 +1498,7 @@ async def _get_current_accessible_tracks(user_id: str) -> List[Track]:
             return await task
 
         async def _check_track_listable(track: Track) -> bool:
-            """App-scoped tracks require a visible, non-uninstalled parent App."""
-            template_id = str(getattr(track, "template_id", "") or "").strip()
-            if not template_id:
-                return True
-            parent_apps = await track.nodes(
-                edge=["CONTAINS"], direction="in", node=["WorkspaceApp"]
-            )
-            if not parent_apps:
-                return True
-            for app_node in parent_apps:
-                lifecycle = str(getattr(app_node, "lifecycle_state", "") or "")
-                if lifecycle == "uninstalled":
-                    continue
-                task = app_visibility_tasks.get(app_node.id)
-                if task is None:
-                    task = asyncio.create_task(can_view_app(user_id, app_node.id))
-                    app_visibility_tasks[app_node.id] = task
-                if await task:
-                    return True
-            return False
+            return await _inventory_track_listable(user_id, track, app_visibility_tasks)
 
         from app.services.workspace_permissions import (
             _list_current_accessible_workspaces,
@@ -1899,17 +1921,30 @@ async def count_user_accessible_entries_for_tracks(
     return result
 
 
-async def count_user_accessible_entries(user_id: str, track_id: str) -> int:
+async def count_user_accessible_entries(
+    user_id: str,
+    track_id: str,
+    *,
+    candidate_query: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[str] = None,
+    app_id: Optional[str] = None,
+) -> int:
     """Count only Entries admitted by current canonical authority."""
+    from app.services.entry_access_projection import candidate_query as discover
     from app.services.entry_access_projection import (
-        candidate_query,
         count_accessible_records,
+        merge_queries,
     )
 
-    query = await candidate_query(user_id, track_id=track_id)
+    scope = {"track_id": track_id, "workspace_id": workspace_id}
+    if app_id:
+        scope["app_id"] = app_id
+    query = await discover(user_id, **scope)
     if query is None:
         return 0
-    return await count_accessible_records(user_id, query, track_id=track_id)
+    return await count_accessible_records(
+        user_id, merge_queries(query, candidate_query or {}), **scope
+    )
 
 
 async def get_user_accessible_entry_page(

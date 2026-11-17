@@ -2070,6 +2070,7 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
         "true",
     }
     from app.services import operational_model_field_types as ftr
+    from app.services.agent_profile_patches import supported_ops
     from app.services.operational_model_plugins import discovered_plugins
     from app.services.retrieval import semantic_retrieval_available
     from app.services.template_var_resolvers import get_registered_tokens
@@ -2117,6 +2118,7 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
             "wiki": ["parent_field", "title_field", "body_field"],
         }
         return {
+            "patch_operations": supported_ops(),
             "field_types": [
                 {"type": spec.type, "label": spec.label} for spec in ftr.iter_specs()
             ],
@@ -2132,6 +2134,7 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
         }
 
     return {
+        "patch_operations": supported_ops(),
         "field_types": [_field_payload(s) for s in ftr.iter_specs()],
         "view_types": [_view_payload(s) for s in vtr.iter_specs()],
         "plugins": discovered_plugins(),

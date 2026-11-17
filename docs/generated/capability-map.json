@@ -680,7 +680,7 @@
         "integral-organize",
         "integral-scaffold"
       ],
-      "intent": "Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.",
+      "intent": "Configure saved views and which view opens by default on an existing Track. Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.",
       "name": "integral-model",
       "source": "agent/skills/integral-model/SKILL.md",
       "unresolved_refs": []

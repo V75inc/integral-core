@@ -1,10 +1,20 @@
 ---
 name: integral-model
-description: 'Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.'
+description: 'Configure saved views and which view opens by default on an existing Track. Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.'
 allowed-tools: integral_find_workspace_resources integral_get_page_context integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_update_app integral_list_tracks integral_list_views integral_modify_model integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
 ---
 
 # Integral model — SOP
+
+## Set an existing Track's default view
+
+List the Track's saved views with `integral_list_views`. Identify the requested
+existing view and preserve its name, type and full configuration. Call
+`integral_save_view` directly with its `track_id`, `view_id`, `name`, `view_type`,
+`config`, and `is_default=true`. This stages a review; only user approval applies
+it. Do not create a duplicate view, replace its configuration with an empty object,
+or invent a `set_default_view` model-revision operation. Core tools are called
+directly, never through the registered App-tool wrapper. A failed proposal is not an applied change.
 
 Before changing existing Apps or Tracks, identify every source and destination.
 Use current-turn verified page context only when it and the user request clearly

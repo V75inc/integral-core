@@ -157,3 +157,12 @@ describe('select fields are searchable by default', () => {
     expect(screen.getByText('Pipeline status')).toBeTruthy();
   });
 });
+
+it('stretches the relation editor wrapper alongside its cancel control', () => {
+  render(<SeamlessField field={field} value="current" onChange={vi.fn()} relationChoices={choices} searchable />);
+  fireEvent.click(screen.getByRole('button', { name: 'Change Opportunity' }));
+  const combo = screen.getByRole('combobox', { name: 'Opportunity (required)' });
+  const wrapper = combo.parentElement!.parentElement!;
+  expect(wrapper).toHaveClass('w-full', 'flex-1', 'min-w-0');
+  expect(wrapper.parentElement).toContainElement(screen.getByRole('button', { name: 'Cancel editing Opportunity' }));
+});

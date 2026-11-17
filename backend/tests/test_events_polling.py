@@ -4,6 +4,7 @@ Mirrors test_audit_log_query.py shape but with ASC ordering (forward-stream)
 instead of DESC. Verifies:
 
 - empty cursor returns events from beginning (oldest first)
+- scan-budget continuation preserves complete, ordered, nonduplicated events
 - cursor round-trip with no overlap
 - page-size cap (EVENT_FEED_PAGE_SIZE, default 100)
 - timestamp tie ordering by id (stable (ts, id) pair)
@@ -19,6 +20,7 @@ conftest.py (added by Plan 02-03 Sub-task 2d).
 from __future__ import annotations
 
 import asyncio
+from itertools import count
 from typing import List
 
 import pytest
@@ -26,39 +28,78 @@ from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "force_scan_budget", [False, True], ids=["normal-budget", "exhausted-budget"]
+)
 async def test_events_polling_empty_cursor_returns_events_from_start(
-    authenticated_client: AsyncClient, test_user
+    authenticated_client: AsyncClient, test_user, monkeypatch, force_scan_budget
 ):
-    """Empty cursor → events from beginning of retention window (ASC, oldest first)."""
+    """Read the complete ASC stream even when the scan budget splits pages."""
     track_resp = await authenticated_client.post(
         "/api/tracks", json={"title": "Polling Empty Cursor"}
     )
     assert track_resp.status_code == 200, track_resp.text
     track_id = track_resp.json()["track"]["id"]
+    expected_events = [("track.create", track_id)]
 
     for i in range(3):
         resp = await authenticated_client.post(
             "/api/entries", json={"track_id": track_id, "title": f"E{i}"}
         )
         assert resp.status_code in (200, 201), resp.text
+        expected_events.append(("entry.create", resp.json()["entry"]["id"]))
 
     from app.services.app_operations.event_outbox import (
         deliver_pending_operation_events,
     )
 
     await deliver_pending_operation_events()
-    resp = await authenticated_client.get(f"/api/events?scope=track:{track_id}")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert "events" in body
-    assert "next_cursor" in body
-    assert "has_more" in body
-    actions = [e["action"] for e in body["events"]]
-    assert "track.create" in actions
-    assert "entry.create" in actions
+    if force_scan_budget:
+        from app.services import event_history
+
+        # Expire the budget after each candidate without sleeping or replacing
+        # persistence, HTTP routing, authority checks or cursor handling.
+        clock = count(step=event_history.MAX_SCAN_SECONDS + 0.001)
+        monkeypatch.setattr(event_history, "monotonic", lambda: next(clock))
+
+    events = []
+    pages = []
+    seen_cursors = set()
+    cursor = None
+    # Four visible events need at most four partial pages plus exhaustion.
+    # A cursor that repeats or fails to reach exhaustion must fail this test.
+    for _ in range(len(expected_events) + 1):
+        params = {"scope": f"track:{track_id}"}
+        if cursor is not None:
+            params["since"] = cursor
+        resp = await authenticated_client.get("/api/events", params=params)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        pages.append(body)
+        events.extend(body["events"])
+        if not body["has_more"]:
+            assert body["scan_complete"] is True
+            assert body["next_cursor"] is None
+            assert body["resume_cursor"]
+            break
+        assert body["scan_complete"] is False
+        cursor = body["next_cursor"]
+        assert cursor and cursor not in seen_cursors
+        seen_cursors.add(cursor)
+    else:
+        pytest.fail("Event polling did not reach exhaustion within the page bound")
+
+    assert [(event["action"], event["resource_id"]) for event in events] == (
+        expected_events
+    )
+    assert len({event["id"] for event in events}) == len(expected_events)
+    if force_scan_budget:
+        assert [len(page["events"]) for page in pages] == [1] * len(expected_events) + [
+            0
+        ]
 
     # ASC ordering — oldest first
-    timestamps = [e["ts"] for e in body["events"]]
+    timestamps = [e["ts"] for e in events]
     assert timestamps == sorted(timestamps), f"events not in ASC order: {timestamps}"
 
 

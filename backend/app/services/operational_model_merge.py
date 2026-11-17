@@ -745,8 +745,31 @@ async def merge_library_manifest_into_operational_model(
     _dry_run: bool = False,
     _scope_target: Optional[OperationalModel] = None,
     user_id: Optional[str] = None,
+    _materialize_shared_track_only: bool = False,
 ) -> None:
     """Apply ``library_cp.manifest`` tier into ``target_cp`` (never mutates library)."""
+    local_default_id = None
+    if _materialize_shared_track_only:
+        from app.services.operational_model_graph import is_shared_track_profile
+        from app.services.view_scope import list_scoped_track_views
+
+        if (
+            track is None
+            or for_space
+            or not isinstance(library_cp, _InMemoryLibraryManifest)
+            or not await is_shared_track_profile(target_cp)
+            or str(track.attached_operational_model_id) != str(target_cp.id)
+        ):
+            raise ValueError(
+                "Shared track materialization requires its attached template"
+            )
+        selected = [
+            v
+            for v in await list_scoped_track_views(track.id)
+            if v.is_default and not v.hidden
+        ]
+        if len(selected) == 1:
+            local_default_id = selected[0].id
     if isinstance(library_cp, OperationalModel):
         from app.api.errors import InsufficientPermissionsError
         from app.schemas.policy import Resource
@@ -1068,14 +1091,18 @@ async def merge_library_manifest_into_operational_model(
     tier = _tier_dict(canonical, for_space=for_space)
     now = datetime.now(timezone.utc).isoformat()
 
-    entry_specs: List[Dict[str, Any]] = list(tier.get("entry_types") or [])
+    # Lazy shared-track view repair must not materialize schema/taxonomy or
+    # add unrelated CONTAINS edges to the shared template.
+    entry_specs: List[Dict[str, Any]] = (
+        [] if _materialize_shared_track_only else list(tier.get("entry_types") or [])
+    )
     view_specs: List[Dict[str, Any]] = list(tier.get("views") or [])
     previous_views = {
         slug_manifest_key(str(spec.get("key") or "")): spec
         for spec in ((target_cp.manifest or {}).get("track") or {}).get("views") or []
         if isinstance(spec, dict) and spec.get("key")
     }
-    taxonomy = tier.get("taxonomy") or {}
+    taxonomy = {} if _materialize_shared_track_only else (tier.get("taxonomy") or {})
     tag_specs: List[Dict[str, Any]] = []
     for group in list(taxonomy.get("tag_groups") or []):
         gkey = str(group.get("key") or "default")
@@ -1201,6 +1228,7 @@ async def merge_library_manifest_into_operational_model(
             legacy_views_by_identity.setdefault(identity, ev)
 
     pending_view_updates: List[View] = []
+    created_track_views: List[View] = []
     for spec_index, spec in enumerate(view_specs):
         vname = spec.get("name") or "View"
         view_type = spec.get("view_type") or spec.get("type") or "feed"
@@ -1246,7 +1274,14 @@ async def merge_library_manifest_into_operational_model(
         # hide choice survives later updates. A view without the marker is
         # treated as previously shown by the manifest.
         normalized_config["_manifest_hidden"] = raw_hidden
+        if local_default_id is not None:
+            is_def = existing_view is not None and existing_view.id == local_default_id
         if existing_view is not None:
+            if _materialize_shared_track_only:
+                # A lazy repair fills missing template rows. Existing saved
+                # Views belong to this Track and retain all local choices;
+                # only an explicit model/package merge may update them.
+                continue
             ev = existing_view
             normalized_config = keep_person_tab_order(ev.config, normalized_config)
             previous_spec = previous_views.get(spec_key)
@@ -1318,6 +1353,7 @@ async def merge_library_manifest_into_operational_model(
                 updated_at=now,
             )
             await catalog_view_under_track(track, new_v)
+            created_track_views.append(new_v)
         else:
             new_v = await View.create(
                 name=vname,
@@ -1348,16 +1384,17 @@ async def merge_library_manifest_into_operational_model(
             runtime_tier=tier,
         )
 
-    target_cp.manifest = _merge_track_tier_into_manifest(
-        target_cp.manifest or {}, canonical, tier
-    )
-    target_cp.manifest = _append_applied_migrations(
-        target_cp.manifest,
-        canonical=canonical,
-        source_id=source_id or "track_merge",
-    )
-    target_cp.updated_at = now
-    await target_cp.save()
+    if not _materialize_shared_track_only:
+        target_cp.manifest = _merge_track_tier_into_manifest(
+            target_cp.manifest or {}, canonical, tier
+        )
+        target_cp.manifest = _append_applied_migrations(
+            target_cp.manifest,
+            canonical=canonical,
+            source_id=source_id or "track_merge",
+        )
+        target_cp.updated_at = now
+        await target_cp.save()
 
     if track:
         await synchronize_track_view_default_flags(track)
@@ -1368,7 +1405,11 @@ async def merge_library_manifest_into_operational_model(
         vreg = await get_or_create_views_registry_for_operational_model(
             target_cp, track=track
         )
-        views = await list_scoped_track_views(track.id)
+        views = (
+            created_track_views
+            if _materialize_shared_track_only
+            else await list_scoped_track_views(track.id)
+        )
         await write_view_entry_type_constraints_from_manifest(track, list(views or []))
 
 

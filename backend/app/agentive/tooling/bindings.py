@@ -1955,11 +1955,24 @@ def _stage_propose_profile_revision(args: Dict[str, Any]) -> Dict[str, Any]:
         raise BadRequestError(
             message="propose_profile_revision: a non-empty operations list is required"
         )
-    from app.services.agent_profile_patches import coerce_modify_field
+    from app.services.agent_profile_patches import coerce_modify_field, supported_ops
 
     normalized_ops: List[Dict[str, Any]] = []
-    for operation in operations:
-        if not isinstance(operation, dict) or operation.get("op") != "modify_field":
+    for index, operation in enumerate(operations):
+        if not isinstance(operation, dict):
+            raise BadRequestError(message=f"operations[{index}] must be an object")
+        if operation.get("op") not in supported_ops():
+            raise BadRequestError(
+                message=(
+                    f"operations[{index}] has an unsupported op. Supported: "
+                    + ", ".join(supported_ops())
+                    + ". This approval was not staged. Do not invent operations. "
+                    "To change a track default, list its views then use "
+                    "integral_save_view with the existing view_id, preserved "
+                    "name/type/config and is_default=true for a new review."
+                )
+            )
+        if operation.get("op") != "modify_field":
             normalized_ops.append(operation)
             continue
         coerced = coerce_modify_field(operation)
@@ -2969,6 +2982,27 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         target = await get_scoped_view(str(src["view_id"]))
         if target is None or target.track_id != track_id:
             raise ValueError("save_view: view_id must identify a view on this track")
+        if src.get("is_default"):
+            # Selecting an existing default must not redefine the selected View.
+            # A model can confuse the current default's ID with the requested
+            # destination; accepting that silently renames/retypes the wrong view.
+            existing_config = normalize_view_config(
+                str(target.type),
+                adapt_view_config(str(target.type), target.config or {}),
+            )
+            if (
+                name != target.name
+                or view_type != target.type
+                or config != existing_config
+            ):
+                raise ValueError(
+                    "save_view: choosing an existing default must preserve that "
+                    "view's name, type, and complete configuration. List the track's "
+                    "views and pass the requested view's own view_id and unchanged "
+                    "settings, not the current default's ID. Stage any requested "
+                    "layout edit separately without is_default."
+                )
+            payload["config"] = existing_config
         payload["view_id"] = target.id
     else:
         from app.api.views import _list_track_views

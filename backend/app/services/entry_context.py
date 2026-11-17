@@ -1,12 +1,13 @@
 """Attach track, parent app_node, and resolved tags to exported entry payloads."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.contracts.information import schema_revision_from_profile_version
 from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import REFERENCES, Anchors
-from app.models.nodes import App, Attachment, Entry, Tag, Track
+from app.models.nodes import App, Attachment, Entry, OperationalModel, Tag, Track
 from app.services.operational_model_runtime import resolve_track_runtime_profile
 from app.services.resource_location import (
     DATA_APP_STATES,
@@ -372,6 +373,76 @@ async def attach_operational_model_defaults_to_track_data(
     """Project runtime defaults and the current Entry write schema revision."""
     try:
         profile, tier, _ = await resolve_track_runtime_profile(track)
+        await _attach_resolved_operational_model_defaults(
+            track_data, track, profile, tier
+        )
+    except Exception:
+        pass
+    return track_data
+
+
+async def attach_operational_model_defaults_to_tracks_data(
+    items: List[Tuple[Dict[str, Any], Track]],
+) -> None:
+    """Enrich an admitted Track page with fresh bounded sharing facts."""
+    from app.services.operational_model_graph import (
+        shared_track_profile_ids_for_navigation,
+    )
+
+    async def resolve(item):
+        data, track = item
+        try:
+            profile, tier, _ = await resolve_track_runtime_profile(track)
+            return data, track, profile, tier
+        except Exception:
+            return None
+
+    resolved = [
+        item
+        for item in await asyncio.gather(*(resolve(item) for item in items))
+        if item is not None
+    ]
+    try:
+        shared = await shared_track_profile_ids_for_navigation(
+            [profile for _, _, profile, _ in resolved if profile is not None]
+        )
+    except Exception:
+        # Preserve per-track failure isolation if the adapter cannot project.
+        shared = None
+    await asyncio.gather(
+        *(
+            _attach_resolved_operational_model_defaults(
+                data,
+                track,
+                profile,
+                tier,
+                shared_profile=(
+                    profile.id in shared
+                    if profile is not None and shared is not None
+                    else None
+                ),
+            )
+            for data, track, profile, tier in resolved
+        )
+    )
+
+
+async def _attach_resolved_operational_model_defaults(
+    track_data: Dict[str, Any],
+    track: Track,
+    profile: Optional[OperationalModel],
+    tier: Dict[str, Any],
+    *,
+    shared_profile: Optional[bool] = None,
+) -> None:
+    try:
+        from app.services.operational_model_runtime import (
+            effective_track_navigation_defaults,
+        )
+
+        tier = await effective_track_navigation_defaults(
+            track, profile, tier, shared_profile=shared_profile
+        )
         track_data["schema_revision"] = schema_revision_from_profile_version(
             getattr(profile, "version_number", None)
         )
@@ -400,7 +471,6 @@ async def attach_operational_model_defaults_to_track_data(
             track_data["operational_model_defaults"] = out
     except Exception:
         pass
-    return track_data
 
 
 def _parent_navigation(node: Any, *, app: bool = False) -> Dict[str, Any]:

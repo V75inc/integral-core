@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from functools import wraps
 from pathlib import Path
 
 import pytest
@@ -18,13 +19,40 @@ pytestmark = [
 ]
 
 
+@pytest.mark.parametrize("widget_mix", ["counts", "mixed"])
 async def test_dashboard_exact_tracks_ignore_unrelated_inventory(
-    authenticated_client, monkeypatch, caplog
+    authenticated_client, monkeypatch, caplog, widget_mix
 ):
     from app.api import apps as apps_api
     from app.models.edges import CATALOGS
     from app.models.nodes import OperationalModel, Track
-    from app.services import agent_insights, dashboard_service
+    from app.services import (
+        agent_insights,
+        dashboard_service,
+        entry_access_projection,
+        permissions,
+    )
+    from app.services.performance import phase
+
+    def observed(function, name):
+        @wraps(function)
+        async def call(*args, **kwargs):
+            # Fixture-only, content-free phases. Never reuse an authority result.
+            with phase(name):
+                return await function(*args, **kwargs)
+
+        return call
+
+    for module, name in (
+        (permissions, "get_user_node"),
+        (permissions, "get_user_accessible_entry_page"),
+        (permissions, "count_user_accessible_entries"),
+        (entry_access_projection, "admit_records"),
+        (entry_access_projection, "_inherited_count_authority"),
+        (entry_access_projection, "locate_resources"),
+        (dashboard_service, "_get_app_or_none"),
+    ):
+        monkeypatch.setattr(module, name, observed(getattr(module, name), name))
 
     sources = {
         "query": str(Path(agent_insights.__file__).resolve()),
@@ -73,6 +101,23 @@ async def test_dashboard_exact_tracks_ignore_unrelated_inventory(
         }
         for i in range(10)
     ]
+    if widget_mix == "mixed":
+        # Representative public shapes only: three counts, one aggregate,
+        # five grouped charts and one App breakdown. No live data/config copied.
+        widgets[3]["data_source"] = {
+            "kind": "aggregate",
+            "op": "count",
+            "track_id": track["id"],
+        }
+        for widget in widgets[4:9]:
+            widget["type"] = "chart_bar"
+            widget["data_source"] = {
+                "kind": "grouped_count",
+                "group_by": "status",
+                "track_id": track["id"],
+            }
+        widgets[9]["type"] = "track_breakdown"
+        widgets[9]["data_source"] = {"kind": "track_breakdown"}
     created = await authenticated_client.post(
         f"/api/apps/{app['id']}/dashboards",
         json={"name": "Ten metrics", "widgets": widgets},
@@ -98,9 +143,14 @@ async def test_dashboard_exact_tracks_ignore_unrelated_inventory(
         else:
             values = response.json()["widget_data"]
             assert len(values) == 10
-            assert all(
-                row == {"value": 2, "total_matched": 2} for row in values.values()
-            )
+            for index, row in enumerate(values.values()):
+                assert not row.get("error") and not row.get("refused"), row
+                if widget_mix == "counts" or index < 3:
+                    assert row == {"value": 2, "total_matched": 2}
+                elif index < 9:
+                    assert row["total_matched"] == 2
+                else:
+                    assert sum(track["entry_count"] for track in row["tracks"]) == 2
         requests = [
             record.perf
             for record in caplog.records[record_start:]
@@ -115,6 +165,8 @@ async def test_dashboard_exact_tracks_ignore_unrelated_inventory(
             "elapsed_ms": elapsed * 1000,
             "summed_db_ms": float(response.headers.get("X-DB-Duration-Ms", "0")),
             **requests[0]["values"],
+            "phases_ms": requests[0].get("phases_ms", {}),
+            "phase_counts": requests[0].get("phase_counts", {}),
         }
 
     apps_before = await measure(app_listing=True)
@@ -190,6 +242,7 @@ async def test_dashboard_exact_tracks_ignore_unrelated_inventory(
         "SCOPED_QUERY_BUDGET "
         + json.dumps(
             {
+                "widget_mix": widget_mix,
                 "before": before,
                 "after_1000": after,
                 "repeated_after_1000": repeated,

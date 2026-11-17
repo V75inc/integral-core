@@ -1,3 +1,4 @@
+import { useRecordNavigation } from '../hooks/useRecordNavigation';
 import { useDeployment } from '../hooks/useDeployment';
 import { MAX_FIELD_FILTERS, toRequestFilters, type FieldFilter } from '../components/tracks/fieldFilters';
 import { PAGE_SIZES } from '../components/ui/ListPager';
@@ -268,7 +269,7 @@ export function TrackDetailPage() {
   const openEntryModal = useCallback(
     (
       entry: Entry,
-      opts?: { focusComments?: boolean; initialEditMode?: boolean }
+      opts?: { focusComments?: boolean; initialEditMode?: boolean; replace?: boolean }
     ) => {
       setEntryModal({
         entry,
@@ -285,7 +286,7 @@ export function TrackDetailPage() {
           n.delete('from_title');
           return n;
         },
-        { replace: false }
+        { replace: opts?.replace ?? false }
       );
     },
     [setSearchParams]
@@ -438,7 +439,7 @@ export function TrackDetailPage() {
   // Stable wrappers so memoized entry cards/rows don't re-render on every parent
   // state change (search typing, modal open, infinite-scroll appends).
   const handleEntryOpen = useCallback(
-    (entry: Entry, opts?: { focusComments?: boolean; forceModal?: boolean }) => {
+    (entry: Entry, opts?: { focusComments?: boolean; forceModal?: boolean; replace?: boolean }) => {
       // Opt-in per entry type (form_schema.open_as_page) to navigate to the
       // dedicated full page instead of the default modal overlay. A caller that
       // lives on this page (the Settings hub) can ask for the dialog anyway.
@@ -447,10 +448,10 @@ export function TrackDetailPage() {
         entryTypeMatchesSlug(et.name || '', entry.type || '')
       );
       if (matchingType?.form_schema?.open_as_page && !opts?.forceModal) {
-        navigate(entryPagePath(entry.id));
+        navigate(entryPagePath(entry.id), { replace: opts?.replace ?? false });
         return;
       }
-      openEntryModal(entry, { focusComments: opts?.focusComments });
+      openEntryModal(entry, { focusComments: opts?.focusComments, replace: opts?.replace });
     },
     [openEntryModal, entryTypesQuery.data, navigate]
   );
@@ -973,6 +974,40 @@ export function TrackDetailPage() {
     activeView?.entry_type_keys,
     dashboardFilters,
   ]);
+
+  const recordNavigation = useRecordNavigation({
+    enabled: pagedMode && !(semanticMode && retrievalQuery) && Boolean(entryModal) && !searchParams.get('from_entry'),
+    contextKey: `${scope?.workspaceId}|${user?.id}|${listShapeKey}|page:${page}|${filterType}|${filterTags.join(',')}|${trackSearch}`,
+    entryId: entryModal?.entry.id,
+    entries: filteredEntries,
+    page,
+    pageCount: Math.max(page, Math.ceil((entriesTotal ?? 0) / pageSize)),
+    loading: entriesFetching,
+    loadPage: async targetPage => {
+      if (!id) return [];
+      const result = await tracksApi.getEntriesPage(id, {
+        ...entryFilters, include_total: false, limit: pageSize, offset: (targetPage - 1) * pageSize,
+      });
+      if (result.appQueryRequired) throw new Error('Governed App query required');
+      let candidates = result.entries;
+      if (filterType) candidates = candidates.filter(entry => entry.type === filterType);
+      const keys = dashboardFilters ? undefined : activeView?.entry_type_keys;
+      if (keys?.length) {
+        const allowed = new Set(keys.map(key => key.toLowerCase().trim()));
+        candidates = candidates.filter(entry => allowed.has((entry.type || '').toLowerCase().trim()));
+      }
+      return entriesMatchingTags(candidates, filterTags);
+    },
+    readEntry: async targetId => {
+      const fresh = await entriesApi.get(targetId);
+      if (fresh.track_id !== id) throw new Error('Record moved outside this list');
+      return fresh;
+    },
+    // Adjacent records are one browsing session: Back closes the sheet instead
+    // of restoring an entry whose page no longer matches the visible table.
+    openEntry: (entry, targetPage) => { setPage(targetPage); handleEntryOpen(entry, { replace: true }); },
+    onError: message => showToast(message, 'error'),
+  });
 
   useEffect(() => {
     if (!id) {
@@ -2113,6 +2148,7 @@ export function TrackDetailPage() {
         <EntryDetail
           key={entryModal.entry.id}
           entry={entryModal.entry}
+          recordNavigation={recordNavigation}
           initialFocusComments={entryModal.focusComments}
           initialEditMode={entryModal.initialEditMode}
           track={track}

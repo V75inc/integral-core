@@ -76,6 +76,21 @@ review the TestPyPI candidate's Core, Integral One and Integral Business accepta
 results. Their application-specific documentation and version pins remain in their
 own repositories. A candidate upload alone is not stable-release acceptance.
 
+The November 17 candidate has an explicitly approved, temporary build-tool
+exception for [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
+It expires at the start of November 24 UTC. The audit policy binds the exact lock
+graph, advisory/remediation metadata and frontend/SDK/build-script fingerprints
+in `.ci/frontend_dependency_review.json`; changes or expiry require a new review.
+Only npm's equivalent boolean/Tailwind 4.3.5 remediation hints for four explicitly
+reviewed transitive packages are normalized; root/direct fix changes still block.
+The previous October exception remains expired. This is risk acceptance for
+trusted, finite Core build/test jobs: crafted glob inputs can still stall a Node
+worker. It does not cover exposed development servers or untrusted build services.
+The reviewed production module graph contains no affected modules; retain that
+artifact check, the production dependency audit and every normal release gate.
+No patched picomatch release was available at approval; npm's suggested major
+toolchain changes still left high findings in an isolated remediation trial.
+
 ## One-time setup
 
 ### TestPyPI (rc / pre-release)

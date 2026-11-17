@@ -1950,7 +1950,6 @@ export function EntryFormExpandedView({
     title,
     customFields: fieldValues,
   });
-  const dynamicFieldsCount = composerRows.filter(r => r.kind === 'field').length;
   const isWiki = layout === 'wiki';
   const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1972,7 +1971,7 @@ export function EntryFormExpandedView({
   }, [body, isWiki]);
 
   return (
-    <div className={isWiki ? 'space-y-6' : 'p-5 space-y-4'}>
+    <div className={isWiki ? 'space-y-6' : 'p-5 space-y-5'}>
       {isWiki ? (
         <details className="group/properties text-sm">
           <summary className="cursor-pointer list-none flex items-center gap-2 text-[var(--text-subtle)] hover:text-[var(--text)] transition-colors">
@@ -2118,9 +2117,10 @@ export function EntryFormExpandedView({
         if (row.kind === 'body') {
           const bodySlotLabel = String(bodyBase.label || '').trim() || CANONICAL_BODY_LABEL;
           return (
-            <FieldProblem key="body" fieldKey={BODY_PROBLEM_KEY} message={problems[BODY_PROBLEM_KEY]}>
+            <div key="body">
+            <FieldProblem fieldKey={BODY_PROBLEM_KEY} message={problems[BODY_PROBLEM_KEY]}>
             <div
-              className={`space-y-1.5 ${dynamicFieldsCount > 0 ? 'pt-3' : ''}`}
+              className="space-y-1.5"
             >
               {isWiki ? (
                 <Suspense
@@ -2194,6 +2194,7 @@ export function EntryFormExpandedView({
               )}
             </div>
             </FieldProblem>
+            </div>
           );
         }
         if (row.kind === 'attachments') {
