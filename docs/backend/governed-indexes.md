@@ -98,17 +98,30 @@ progress, plus index bytes/count and budget/readiness warnings in monitoring.
 
 ## Fresh installs and recovery
 
-`integral init`'s local supervisor provisions the release-reviewed catalog with
-its private PostgreSQL owner before launching serving processes. Generated runtime
-credentials are persisted in local private configuration. Existing homes lacking
-these credentials must migrate explicitly rather than silently adopt ownership.
-Use a reviewed plan with `--runtime-role`, configure that role/password as the
-serving DSN, and retain the owner credential only in the maintenance secret source.
-Hosted deployments must provision with the selected API artifact and trusted
-host providers in a separate maintenance process. Each rollout, including Swarm,
-must explicitly apply the approved plan before starting serving processes. Retain
-that plan and its progress for recovery; configure only the restricted runtime
-credentials in the API and worker.
+`integral up` provisions the release-reviewed catalog with its private
+PostgreSQL owner before launching serving processes. It persists generated
+runtime credentials in local private configuration. Existing native homes
+that lack those credentials require a reviewed native migration.
+
+For an empty independently managed PostgreSQL database, provision the initial
+catalog with the same installed Core artifact that will serve it. Supply
+these variables from the maintenance secret source and run the provisioner
+before starting the API or worker:
+
+```sh
+export INTEGRAL_MIGRATION_POSTGRES_DSN='<owner DSN>'
+export INTEGRAL_RUNTIME_POSTGRES_USER='<new serving role>'
+export INTEGRAL_RUNTIME_POSTGRES_PASSWORD='<generated password, at least 24 characters>'
+export INTEGRAL_INITIAL_INDEX_PLAN_PATH='<private path for the saved plan>'
+python -m app.services.storage_indexes.provision
+```
+
+Retain the plan and progress for recovery. In a separate serving environment,
+configure the restricted role and its password with `POSTGRES_USER` and
+`POSTGRES_PASSWORD`, or set the corresponding runtime DSN. The migration DSN
+belongs only in maintenance. For later hosted rollouts, including Swarm,
+use the selected API artifact and trust configuration to review and apply
+the appropriate plan before starting serving processes.
 
 For existing databases: verify a restorable backup; inventory and adopt an inspected
 baseline; build replacements on a disposable populated copy first. Unknown indexes

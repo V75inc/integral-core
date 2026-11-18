@@ -72,7 +72,7 @@ def _package_version() -> str:
     try:
         return version("integral-core")
     except PackageNotFoundError:
-        return "0.1.1rc65"
+        return "0.1.1rc66"
 
 
 def _readme(slug: str | None, name: str, core_version: str) -> str:
@@ -108,8 +108,11 @@ are needed. Operator settings for this managed installation live in its
 ## Independently managed services
 
 Use the same Python environment that provides the `integral` command.
-Postgres must already be running. This file's `.env` defaults match the
-Compose database published on host port 5433.
+PostgreSQL must already be running. The generated host and port match
+the Compose database published on host port 5433. Before starting the API
+or worker, [provision governed storage](https://github.com/V75inc/integral-core/blob/v{core_version}/docs/backend/governed-indexes.md#fresh-installs-and-recovery)
+and put the restricted serving user's credentials in `.env`. Keep the
+migration owner's credentials in a separate maintenance environment.
 
 `INTEGRAL_CREDENTIAL_ENC_KEY` is filled in so Settings → AI Models can save
 a key. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENROUTER_API_KEY` are
