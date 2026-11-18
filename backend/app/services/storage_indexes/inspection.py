@@ -159,6 +159,20 @@ async def target(conn, schema):
     return {**dict(row), "schema": schema}
 
 
+async def native_target(conn, schema):
+    """Bind a private native database across PostgreSQL listener restarts."""
+    row = await conn.fetchrow(
+        """
+        SELECT pg_catalog.current_database() AS database,
+               (SELECT oid::bigint FROM pg_catalog.pg_database
+                WHERE datname = pg_catalog.current_database()) AS oid,
+               system_identifier::text AS system_identifier
+        FROM pg_catalog.pg_control_system()
+        """
+    )
+    return {**dict(row), "schema": schema}
+
+
 def expression_sql(key):
     """Remove index-only syntax before read-only PostgreSQL expression comparison."""
     value = re.sub(r"\s+(ASC|DESC)(?:\s+NULLS\s+(FIRST|LAST))?$", "", key, flags=re.I)

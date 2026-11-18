@@ -82,6 +82,7 @@ async def prepare(
 ) -> dict[str, Any]:
     """Bind a read-only catalog plan to this home and the selected wheel."""
     from app.services.storage_indexes.catalog import build_catalog
+    from app.services.storage_indexes.inspection import native_target
     from app.services.storage_indexes.lifecycle import plan
 
     config = config_for_plan(home)
@@ -91,7 +92,12 @@ async def prepare(
     specs = build_catalog(include_search=include_search)
     role = "integral_runtime_" + secrets.token_hex(8)
     artifact = await plan(
-        conn, specs, runtime_role=role, include_search=include_search, **budgets
+        conn,
+        specs,
+        runtime_role=role,
+        include_search=include_search,
+        identify_target=native_target,
+        **budgets,
     )
     return {
         "version": 1,
@@ -157,12 +163,15 @@ async def apply_reviewed(
     from jvspatial.db.indexes import identifier
 
     from app.services.storage_indexes.catalog import build_catalog
-    from app.services.storage_indexes.lifecycle import apply
+    from app.services.storage_indexes.inspection import native_target
+    from app.services.storage_indexes.lifecycle import PlanError, apply
     from app.services.storage_indexes.provision import serving_dsn
     from app.services.storage_indexes.runtime import inspect
 
     config = validate(envelope, home, wheel_hash)
     artifact = envelope["plan"]
+    if await native_target(conn, artifact["target"]["schema"]) != artifact["target"]:
+        raise PlanError("Plan targets another database")
     role = artifact["runtime_role"]
     specs = build_catalog(include_search=artifact["include_search"])
     # Never adopt an unrelated role, rotate an existing credential, or put its
@@ -195,7 +204,13 @@ async def apply_reviewed(
         await conn.execute(
             f"CREATE ROLE {identifier(role)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '{password}'"
         )
-    await apply(conn, artifact, approved_hash=artifact["hash"], expected_specs=specs)
+    await apply(
+        conn,
+        artifact,
+        approved_hash=artifact["hash"],
+        expected_specs=specs,
+        identify_target=native_target,
+    )
     runtime = await asyncpg.connect(serving_dsn(dsn, role, password))
     try:
         result = await inspect(runtime, specs, enforce_runtime_role=True)

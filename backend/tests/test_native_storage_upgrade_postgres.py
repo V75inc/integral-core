@@ -181,6 +181,71 @@ class ManagedMigrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse((self.home / "storage-upgrade-credential.json").exists())
 
+    async def test_new_tcp_listener_preserves_reviewed_database_identity(self):
+        class Listener:
+            def __init__(self, conn, port):
+                self.conn = conn
+                self.port = port
+
+            def __getattr__(self, name):
+                return getattr(self.conn, name)
+
+            async def fetchrow(self, query, *args):
+                row = await self.conn.fetchrow(query, *args)
+                # Windows pgserver gives the same database a new TCP port
+                # whenever the private helper restarts.
+                if "inet_server_port()" in query:
+                    return {**dict(row), "host": "127.0.0.1", "port": self.port}
+                return row
+
+        original = self.conn
+        self.conn = Listener(original, 52000)
+        try:
+            envelope = await self.plan()
+            self.conn = Listener(original, 52001)
+            from app.services.storage_indexes.inspection import target
+
+            first = await target(Listener(original, 52000), "public")
+            second = await target(self.conn, "public")
+            self.assertNotEqual(first, second)
+            receipt = await migration.apply_reviewed(
+                self.conn, self.dsn, self.home, envelope, "a" * 64
+            )
+        finally:
+            self.conn = original
+        self.assertEqual(receipt["plan_hash"], envelope["plan"]["hash"])
+        self.assertEqual(
+            self.attachment.read_bytes(), b"\x00\xfforiginal attachment\x80"
+        )
+        self.assertEqual(
+            await self.conn.fetchval(
+                "SELECT count(*) FROM public.object WHERE id='retained'"
+            ),
+            1,
+        )
+
+    async def test_wrong_database_is_refused_before_creating_a_role(self):
+        from app.services.storage_indexes.lifecycle import PlanError
+
+        envelope = await self.plan()
+        with self.assertRaisesRegex(PlanError, "Plan targets another database"):
+            await migration.apply_reviewed(
+                self.admin,
+                os.environ["STORAGE_INDEX_TEST_DSN"],
+                self.home,
+                envelope,
+                "a" * 64,
+            )
+        self.assertFalse(
+            await self.admin.fetchval(
+                "SELECT 1 FROM pg_roles WHERE rolname=$1", self.role
+            )
+        )
+        self.assertFalse((self.home / "storage-upgrade-credential.json").exists())
+        self.assertEqual(
+            migration.read_private(self.home / "installation.json"), self.config
+        )
+
     async def test_duplicate_credentials_fail_without_removing_records(self):
         import asyncpg
 
