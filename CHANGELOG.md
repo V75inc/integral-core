@@ -4,7 +4,7 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
-## Unreleased
+## 0.1.1rc66 — 2026-11-18
 
 - Bind reviewed native storage plans to the PostgreSQL cluster and database so Windows can apply the same approved plan after its private listener changes ports. Reject a different database before creating serving credentials.
 
