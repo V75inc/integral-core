@@ -35,9 +35,12 @@ catalog planning itself is read-only and does not apply Core schema/index
 changes or introduce serving credentials.
 
 The private plan binds the canonical home, installation identity and configuration
-digest, wheel digest, database target, catalog/compiler identity, operations,
-generated role name and budgets. Review all of them. The printed SHA-256 covers
-the **whole plan file**, including the native envelope; this differs from
+digest, wheel digest, PostgreSQL cluster system identifier, database name and OID,
+schema, catalog/compiler identity, operations, generated role name and budgets.
+Review all of them. The private Windows database may bind a new loopback port
+between planning and apply. The cluster and database identity must still match.
+The printed SHA-256 covers the **whole plan file**, including the native
+envelope; this differs from
 `integral indexes apply`, whose approval names the inner catalog-plan hash.
 Existing plans are never overwritten. Plans contain no database passwords.
 

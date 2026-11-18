@@ -79,6 +79,7 @@ async def _plan(
     runtime_role=None,
     repairs=(),
     retirement_evidence=None,
+    identify_target=target,
 ):
     if any(
         not isinstance(n, int) or n <= 0
@@ -294,7 +295,7 @@ async def _plan(
         "source_versions": source_versions(),
         "control_schema": control_schema_sql(schema),
         "catalog_revision": catalog.revision(specs),
-        "target": await target(conn, schema),
+        "target": await identify_target(conn, schema),
         "specs": [s.to_dict() for s in specs],
         "include_search": include_search,
         "starting_inventory": snapshot(rows),
@@ -416,7 +417,9 @@ async def _limit_build_workspace(
     await conn.execute(f"SET temp_file_limit='{remaining // 1024}kB'")
 
 
-async def apply(conn, artifact, *, approved_hash, expected_specs=None):
+async def apply(
+    conn, artifact, *, approved_hash, expected_specs=None, identify_target=target
+):
     """Apply exactly one approved artifact with drift checks and resumable progress."""
     if conn.is_in_transaction():
         raise PlanError("Apply requires a dedicated autocommit connection")
@@ -429,7 +432,7 @@ async def apply(conn, artifact, *, approved_hash, expected_specs=None):
     ):
         raise PlanError("Source catalog changed after planning")
     schema, plan_hash = artifact["target"]["schema"], artifact["hash"]
-    if await target(conn, schema) != artifact["target"]:
+    if await identify_target(conn, schema) != artifact["target"]:
         raise PlanError("Plan targets another database")
     if not await conn.fetchval(
         "SELECT pg_try_advisory_lock(hashtext(current_database()),hashtext('integral:indexes'))"
