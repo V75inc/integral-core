@@ -4,7 +4,7 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
-## Unreleased
+## 0.1.1rc65 — 2026-11-17
 
 - Plan exact-Track entry reads and grouped charts without discovering unrelated Track inventories, retaining current canonical workspace and per-Entry admission.
 - Discover only Apps in the requested workspace for scoped App listings; avoid loading Track inventories and keep current access checks, ordering and pagination.

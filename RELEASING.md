@@ -88,8 +88,10 @@ there is no fallback to the ambient npm version.
 Only npm's equivalent boolean/Tailwind 4.3.5 remediation hints for four explicitly
 reviewed transitive packages are normalized; root/direct fix changes still block.
 The separately approved GitHub report includes the existing development-only
-`tailwindcss-animate` peer and its exact observed remediation values. Each report
-must match as a whole. The same lock, build inputs and expiry apply to both.
+`tailwindcss-animate` peer. For that report alone, the boolean remediation flags
+for `anymatch`, `chokidar`, `fast-glob`, and `readdirp` may be true or false.
+Each report must otherwise match as a whole. The same lock, build inputs and
+expiry apply to both.
 The previous October exception remains expired. This is risk acceptance for
 trusted, finite Core build/test jobs: crafted glob inputs can still stall a Node
 worker. It does not cover exposed development servers or untrusted build services.

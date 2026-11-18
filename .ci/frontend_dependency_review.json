@@ -295,7 +295,7 @@
       "decision": "approved",
       "owner": "Eldon Marks",
       "approved_on": "2026-11-17",
-      "evidence": "Eldon replied \u201cYes go ahead\u201d to the request to extend the RC65 exception to this exact GitHub report through the start of November 24 UTC, retaining every other security check. Confirmed by the coordinating thread. Report: GitHub Actions run 44186455795, jobs 134404179272 and 134410980397."
+      "evidence": "Eldon replied \u201cYes go ahead\u201d to the request to extend the RC65 exception to this exact GitHub report through the start of November 24 UTC, retaining every other security check. Confirmed by the coordinating thread. Report: GitHub Actions run 44186455795, jobs 134404179272 and 134410980397. Eldon replied “Yes” to allowing only the four literal boolean remediation flags for anymatch, chokidar, fast-glob and readdirp to vary in this alternate profile through November 24 UTC. Version PR 262 run 44199236377 reports the observed variation. All other review conditions are retained."
     },
     "reviewed_on": "2026-11-17",
     "expires": "2026-11-24",

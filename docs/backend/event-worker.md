@@ -25,9 +25,9 @@ Use `JVSPATIAL_DB_TYPE`, `JVSPATIAL_POSTGRES_DSN`, `JVSPATIAL_LOG_DB_TYPE` and
 `JVSPATIAL_LOG_POSTGRES_DSN`; use the deployment's established credential source.
 Do not put credential values in reports or command examples.
 
-Business Compose includes `events-worker`; the local-Core overlay selects the
-same mounted source and image build as its API. Standalone hosts must supervise
-this command beside their API. Starting only the API leaves events durably queued.
+Hosts must supervise this command beside the API with the same Core artifact
+and configured stores. A local-source overlay must select matching source and
+image builds for both processes. Starting only the API leaves events durably queued.
 The API's recovery loop retains entry and bundle cleanup, not audit delivery.
 
 ## Durability and ordering
@@ -84,9 +84,10 @@ and audit delivery continue. `--status` exposes `consumer_replay_ids`; pass one 
 
 `--status` reports pending count, oldest pending age, dead letters and the last
 heartbeat. The worker warns when pending age exceeds 30 seconds or any dead
-letters exist. Normal-load delivery target is two seconds. `--check` exits nonzero on a missing/stale (over 30 seconds) heartbeat, old
-pending events or dead letters; Compose uses it as the worker healthcheck. A dead
-worker cannot report itself, so supervision must monitor that check.
+letters exist. Normal-load delivery target is two seconds. `--check` exits
+nonzero on a missing/stale (over 30 seconds) heartbeat, old pending events or dead
+letters. Configure supervision to run and monitor this worker healthcheck; a dead
+worker cannot report itself.
 
 Enable `INTEGRAL_PERF_TRACE=1` for content-free save, authorization, validation,
 business-hook, enqueue and delivery spans plus existing database observations.

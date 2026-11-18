@@ -17,6 +17,9 @@ from pathlib import Path
 
 REVIEW_EXPIRES = date(2026, 11, 15)
 SEVERITIES = {"info", "low", "moderate", "high", "critical"}
+# Only these transitive rows in the separately approved report may vary
+# between the two literal boolean remediation indicators.
+ALTERNATE_BOOLEAN_REMEDIATION = {"anymatch", "chokidar", "fast-glob", "readdirp"}
 ROOTS = {
     "GHSA-vfj7-8cjw-p6xm": ("braces", "high", "<=3.0.3"),
     "GHSA-rj75-hqrm-r3gf": ("postcss-selector-parser", "moderate", "<7.1.6"),
@@ -195,7 +198,15 @@ def reviewed_picomatch_packages(
             fix = row["fixAvailable"]
             expected_fix = expected[name]["fixAvailable"]
             if exact_remediation:
-                if canonical_digest(fix) != canonical_digest(expected_fix):
+                boolean_variation = (
+                    name in ALTERNATE_BOOLEAN_REMEDIATION
+                    and type(fix) is bool
+                    and type(expected_fix) is bool
+                    and all(isinstance(source, str) for source in row["via"])
+                )
+                if not boolean_variation and canonical_digest(fix) != canonical_digest(
+                    expected_fix
+                ):
                     return False
             elif not same_reviewed_remediation(name, fix, expected_fix):
                 return False

@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from datetime import date
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -276,6 +277,9 @@ class ReviewTests(unittest.TestCase):
         "missing_approval",
         "hybrid",
         "alias",
+        "numeric_flag",
+        "named_transitive_fix",
+        "unreviewed_boolean",
         "direct_fix",
         "path",
         "dev",
@@ -299,6 +303,16 @@ def test_alternate_report_is_separately_approved_and_exact(change):
         rows["picomatch"]["fixAvailable"] = review["graph"]["picomatch"]["fixAvailable"]
     elif change == "alias":
         rows["chokidar"]["fixAvailable"] = review["graph"]["chokidar"]["fixAvailable"]
+    elif change == "numeric_flag":
+        rows["anymatch"]["fixAvailable"] = 1
+    elif change == "named_transitive_fix":
+        rows["fast-glob"]["fixAvailable"] = {
+            "name": "fast-glob",
+            "version": "3.3.4",
+            "isSemVerMajor": False,
+        }
+    elif change == "unreviewed_boolean":
+        rows["micromatch"]["fixAvailable"] = True
     elif change == "direct_fix":
         rows["picomatch"]["fixAvailable"] = {
             "name": "picomatch",
@@ -321,6 +335,23 @@ def test_alternate_report_is_separately_approved_and_exact(change):
     assert any(line.startswith("ACTIONABLE") for line in lines) == (change != "none")
     if change == "none":
         assert sum(line.startswith("ACCEPTED") for line in lines) == 15
+
+
+@pytest.mark.parametrize("flags", product((False, True), repeat=4))
+def test_alternate_report_accepts_only_reviewed_boolean_variations(flags):
+    alternate = REVIEW["alternate_report"]
+    rows = copy.deepcopy(alternate["graph"])
+    for name, flag in zip(("anymatch", "chokidar", "fast-glob", "readdirp"), flags):
+        rows[name]["fixAvailable"] = flag
+    lines = policy.analyze(
+        {"vulnerabilities": rows},
+        LOCK,
+        review=REVIEW,
+        build_digest=alternate["build_inputs_sha256"],
+        today=date.fromisoformat(alternate["reviewed_on"]),
+    )
+    assert sum(line.startswith("ACCEPTED") for line in lines) == 15
+    assert not any(line.startswith("ACTIONABLE") for line in lines)
 
 
 if __name__ == "__main__":
