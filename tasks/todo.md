@@ -64,15 +64,15 @@ Plan: `tasks/plan.md`
 **Description:** Add a thin httpx client that loads the phone bound to an API key, registers the Integral callback, and sends one text message. Map jvconnect’s HTTP errors, including 429, into a result the binding and ingress can store. Do not log the bearer token or webhook secret.
 
 **Acceptance criteria:**
-- [ ] `GET {base}/api/v1/meta/whatsapp/account` returns `phone_number_id` and display phone
-- [ ] `POST {base}/api/v1/meta/whatsapp/webhook/register` sends `callback_url` and returns `webhook_secret`
-- [ ] `POST {base}/api/v1/meta/whatsapp/messages` sends `Authorization: Bearer` and `{"message": {...}}` text
-- [ ] 4xx/5xx and transport errors return a structured failure and do not raise into the webhook response
+- [x] `GET {base}/api/v1/meta/whatsapp/account` returns `phone_number_id` and display phone
+- [x] `POST {base}/api/v1/meta/whatsapp/webhook/register` sends `callback_url` and returns `webhook_secret`
+- [x] `POST {base}/api/v1/meta/whatsapp/messages` sends `Authorization: Bearer` and `{"message": {...}}` text
+- [x] 4xx/5xx and transport errors return a structured failure and do not raise into the webhook response
 
 **Verification:**
-- [ ] Tests pass: `cd backend && uv run pytest tests/test_jvconnect_whatsapp_client.py -v`
-- [ ] Build succeeds: client module imports with httpx only
-- [ ] Manual check: tests assert the bearer header is set and never appear in captured log text
+- [x] Tests pass: `cd backend && uv run pytest tests/test_jvconnect_whatsapp_client.py -v`
+- [x] Build succeeds: client module imports with httpx only
+- [x] Manual check: tests assert the bearer header is set and never appear in captured log text
 
 **Dependencies:** None (client is pure; Task 5 wires it)
 
@@ -87,15 +87,15 @@ Plan: `tasks/plan.md`
 **Description:** Verify the jvconnect forward signature against the raw body, then parse the Meta envelope into phone number id, sender id, message id, and either text or non-text. This module performs no graph writes.
 
 **Acceptance criteria:**
-- [ ] A body signed the way jvconnect `signWebhookBody` signs (`sha256=` + HMAC-SHA256) verifies with `hmac.compare_digest`
-- [ ] A forged, missing, or truncated signature fails closed
-- [ ] A text message yields sender, phone number id, message id, and text; image, document, audio, and status callbacks yield a non-text or ignore classification
-- [ ] Parser tests cover an empty `messages` array without throwing
+- [x] A body signed the way jvconnect `signWebhookBody` signs (`sha256=` + HMAC-SHA256) verifies with `hmac.compare_digest`
+- [x] A forged, missing, or truncated signature fails closed
+- [x] A text message yields sender, phone number id, message id, and text; image, document, audio, and status callbacks yield a non-text or ignore classification
+- [x] Parser tests cover an empty `messages` array without throwing
 
 **Verification:**
-- [ ] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_ingress.py -v`
-- [ ] Build succeeds: module imports without network or graph clients
-- [ ] Manual check: failing-signature tests do not call a binding lookup
+- [x] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_ingress.py -v`
+- [x] Build succeeds: module imports without network or graph clients
+- [x] Manual check: failing-signature tests do not call a binding lookup
 
 **Dependencies:** None
 
@@ -110,17 +110,17 @@ Plan: `tasks/plan.md`
 **Description:** Accept `POST /api/agentive/channels/whatsapp/webhook` with no JWT. After a valid signature, resolve the binding by `phone_number_id`, ignore duplicate Meta ids, and send the text-only or link-your-number notice when policy allows. Register the webhook when a binding is saved and `PUBLIC_API_BASE_URL` is set.
 
 **Acceptance criteria:**
-- [ ] Invalid signatures return 401 and create no receipt, binding update, or chat message
-- [ ] A repeated Meta message id returns 200 and does not send a second notice
-- [ ] Non-text inbound stores a receipt and sends “Text only for now” when the binding can send; it does not enqueue a harness turn
-- [ ] An unknown or unverified sender does not enqueue a harness turn
-- [ ] Saving a binding with a reachable jvconnect (mocked) stores the encrypted webhook secret and sets `enabled` only after register succeeds
-- [ ] `WhatsAppInboundReceipt` indexes are ensured at boot the same way `OperationIdempotencyRecord` is
+- [x] Invalid signatures return 401 and create no receipt, binding update, or chat message
+- [x] A repeated Meta message id returns 200 and does not send a second notice
+- [x] Non-text inbound stores a receipt and sends “Text only for now” when the binding can send; it does not enqueue a harness turn
+- [x] An unknown or unverified sender does not enqueue a harness turn
+- [x] Saving a binding with a reachable jvconnect (mocked) stores the encrypted webhook secret and sets `enabled` only after register succeeds
+- [x] `WhatsAppInboundReceipt` indexes are ensured at boot the same way `OperationIdempotencyRecord` is
 
 **Verification:**
-- [ ] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_ingress.py tests/test_whatsapp_channel_binding.py -v`
-- [ ] Build succeeds: `cd backend && uv run python -c "import app.main"`
-- [ ] Manual check: endpoint is `auth=False` and the test client sends no bearer token
+- [x] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_ingress.py tests/test_whatsapp_channel_binding.py -v`
+- [x] Build succeeds: `cd backend && uv run python -c "import app.main"`
+- [x] Manual check: endpoint is `auth=False` and the test client sends no bearer token
 
 **Dependencies:** Tasks 2, 3, 4
 
@@ -135,9 +135,9 @@ Plan: `tasks/plan.md`
 
 ## Checkpoint: After Tasks 3-5
 
-- [ ] Forged signature test shows no graph writes
-- [ ] Valid text is not yet required to run the harness (Task 6)
-- [ ] Application imports cleanly
+- [x] Forged signature test shows no graph writes
+- [x] Valid text is not yet required to run the harness (Task 6)
+- [x] Application imports cleanly
 
 ## Task 6: Dedicated thread, approval short-circuit, and turn enqueue
 

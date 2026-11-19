@@ -481,6 +481,7 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
     from app.agentive.services.whatsapp_channel_binding import (
         create_whatsapp_channel_binding,
         public_binding_view,
+        register_saved_whatsapp_channel,
     )
     from app.api.errors import ServiceUnavailableError
     from app.schemas.agentive.whatsapp_channel import SaveWhatsAppChannelBindingRequest
@@ -506,6 +507,11 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
             raise
         raise ServiceUnavailableError(message=text) from exc
 
+    binding = await register_saved_whatsapp_channel(
+        binding,
+        request_base_url=str(request.base_url),
+        client=None,
+    )
     view = public_binding_view(binding)
     await emit_change_event(
         actor_kind="human",
@@ -549,3 +555,29 @@ async def disable_whatsapp_channel_binding_endpoint(
         scope=f"user:{user_id}",
     )
     return {"binding": view}
+
+
+_MAX_WHATSAPP_WEBHOOK_BYTES = 1_000_000
+
+
+def _whatsapp_signature_header(request: Request) -> str:
+    primary = (request.headers.get("x-jvconnect-signature") or "").strip()
+    if primary:
+        return primary
+    return (request.headers.get("x-hub-signature-256") or "").strip()
+
+
+@endpoint(
+    "/agentive/channels/whatsapp/webhook",
+    methods=["POST"],
+    auth=False,
+    tags=["Agentive"],
+)
+async def whatsapp_channel_webhook(request: Request) -> Dict[str, Any]:
+    """Accept a signed WhatsApp forward. No user JWT is required."""
+    raw = await request.body()
+    if len(raw) > _MAX_WHATSAPP_WEBHOOK_BYTES:
+        raise BadRequestError(message="Webhook body is too large")
+    from app.agentive.services.whatsapp_ingress import receive_whatsapp_webhook
+
+    return await receive_whatsapp_webhook(raw, _whatsapp_signature_header(request))

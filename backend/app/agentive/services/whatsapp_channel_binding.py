@@ -8,6 +8,7 @@ Ciphertext is bound to the binding id (GCM AAD). Public reads go through
 from __future__ import annotations
 
 import logging
+from typing import Any, Optional
 
 from app.agentive.edges import HAS_WHATSAPP_CHANNEL_BINDING
 from app.agentive.nodes import WhatsAppChannelBinding
@@ -127,6 +128,110 @@ async def create_whatsapp_channel_binding(
             )
         raise
     return binding
+
+
+def _public_callback_url(request_base_url: str) -> str:
+    from app.config import settings
+
+    configured = (settings.PUBLIC_API_BASE_URL or "").strip().rstrip("/")
+    if configured:
+        return f"{configured}/api/agentive/channels/whatsapp/webhook"
+    if settings.DEBUG:
+        base = (request_base_url or "").strip().rstrip("/")
+        if base:
+            return f"{base}/api/agentive/channels/whatsapp/webhook"
+    return ""
+
+
+def _safe_provider_error(message: str, api_key: str) -> str:
+    text = (message or "").strip() or "WhatsApp provider request failed"
+    if api_key and api_key in text:
+        return "WhatsApp provider request failed"
+    return text[:300]
+
+
+async def _disable_with_error(
+    binding: WhatsAppChannelBinding, message: str
+) -> WhatsAppChannelBinding:
+    binding.enabled = False
+    binding.last_error = message
+    binding.updated_at = utc_now_iso()
+    await binding.save()
+    return binding
+
+
+async def register_saved_whatsapp_channel(
+    binding: WhatsAppChannelBinding,
+    *,
+    request_base_url: str,
+    client: Optional[Any] = None,
+) -> WhatsAppChannelBinding:
+    """Register the jvconnect webhook. Failures leave the binding disabled."""
+    from app.agentive.clients.jvconnect_whatsapp import fetch_account, register_webhook
+
+    api_key = read_api_key(binding)
+    if not api_key:
+        return await _disable_with_error(binding, "Could not read the stored API key")
+
+    account = await fetch_account(binding.jvconnect_base_url, api_key, client=client)
+    if not account.ok:
+        return await _disable_with_error(
+            binding,
+            _safe_provider_error(
+                account.error or "Could not read the WhatsApp account",
+                api_key,
+            ),
+        )
+
+    phone = account.data.get("phone_number_id")
+    if not isinstance(phone, str) or not phone.strip():
+        return await _disable_with_error(
+            binding, "WhatsApp account did not include a phone number id"
+        )
+    phone = phone.strip()
+    display = account.data.get("display_phone_number")
+    display_phone = display.strip() if isinstance(display, str) else ""
+
+    others = await WhatsAppChannelBinding.find(phone_number_id=phone)
+    for other in others:
+        if other.id != binding.id and other.user_id != binding.user_id:
+            await _disable_with_error(
+                binding,
+                "This WhatsApp number is already linked to another user",
+            )
+            raise ResourceConflictError(
+                message="This WhatsApp number is already linked to another user"
+            )
+
+    callback = _public_callback_url(request_base_url)
+    if not callback:
+        return await _disable_with_error(binding, "PUBLIC_API_BASE_URL is required")
+
+    registered = await register_webhook(
+        binding.jvconnect_base_url,
+        api_key,
+        callback,
+        client=client,
+    )
+    if not registered.ok:
+        return await _disable_with_error(
+            binding,
+            _safe_provider_error(
+                registered.error or "Webhook registration failed",
+                api_key,
+            ),
+        )
+    secret = registered.data.get("webhook_secret")
+    if not isinstance(secret, str) or not secret:
+        return await _disable_with_error(
+            binding, "Webhook registration did not return a secret"
+        )
+
+    binding.phone_number_id = phone
+    binding.display_phone = display_phone
+    binding.enabled = True
+    binding.last_error = ""
+    return await store_webhook_secret(binding, secret)
 
 
 async def store_webhook_secret(

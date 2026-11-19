@@ -4,13 +4,41 @@ import json
 
 import pytest
 
+from app.agentive.clients.jvconnect_whatsapp import JvconnectResult
 from app.api.errors import ResourceConflictError
+from app.config import settings
 from app.services.credential_crypto import decrypt_secret_from_storage
 
 
 def _user_id(user) -> str:
     """Principal id stored on channel records."""
     return getattr(user, "user_id", None) or user.id
+
+
+def _stub_jvconnect_account_failure(monkeypatch) -> None:
+    """Account lookup fails closed so PUT does not open a socket."""
+
+    async def fetch_account(*args: object, **kwargs):
+        return JvconnectResult(
+            ok=False,
+            status_code=503,
+            data={},
+            error="account unavailable",
+        )
+
+    async def register_webhook(*args: object, **kwargs):
+        raise AssertionError("register_webhook must not be called")
+
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_account",
+        fetch_account,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.register_webhook",
+        register_webhook,
+    )
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "")
+    monkeypatch.setattr(settings, "DEBUG", False)
 
 
 @pytest.fixture
@@ -149,9 +177,10 @@ async def test_disable_keeps_ciphertext(enc_key, test_user):
 
 @pytest.mark.asyncio
 async def test_binding_api_returns_last4_and_hides_the_key(
-    enc_key, authenticated_client
+    enc_key, authenticated_client, monkeypatch
 ):
-    """PUT and GET expose the key's last four characters only."""
+    """A missing public URL or a failed account leaves the channel disabled."""
+    _stub_jvconnect_account_failure(monkeypatch)
     saved = await authenticated_client.put(
         "/api/agentive/channels/whatsapp/binding",
         json={
@@ -197,9 +226,10 @@ async def test_binding_api_rejects_non_https_and_non_jvconnect_keys(
 
 @pytest.mark.asyncio
 async def test_delete_binding_is_owner_only(
-    enc_key, authenticated_client, second_user_client
+    enc_key, authenticated_client, second_user_client, monkeypatch
 ):
     """Another user cannot disable this binding; the owner can."""
+    _stub_jvconnect_account_failure(monkeypatch)
     saved = await authenticated_client.put(
         "/api/agentive/channels/whatsapp/binding",
         json={
@@ -247,3 +277,143 @@ async def test_binding_save_fails_when_encryption_is_unavailable(
     assert "jvk_should_not_persist" not in saved.text
     fetched = await authenticated_client.get("/api/agentive/channels/whatsapp/binding")
     assert fetched.json()["binding"] is None
+
+
+def _stub_jvconnect_registration(
+    monkeypatch, *, secret="whsec_registered", phone="109876543210"
+):
+    """Account and webhook registration succeed without a socket."""
+    calls = {"register": []}
+
+    async def fetch_account(*args: object, **kwargs):
+        assert kwargs.get("client") is None
+        return JvconnectResult(
+            ok=True,
+            status_code=200,
+            data={
+                "phone_number_id": phone,
+                "display_phone_number": "+15550001111",
+            },
+            error="",
+        )
+
+    async def register_webhook(base_url, api_key, callback_url, *, client=None):
+        assert client is None
+        calls["register"].append(callback_url)
+        return JvconnectResult(
+            ok=True,
+            status_code=200,
+            data={"webhook_secret": secret},
+            error="",
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_account",
+        fetch_account,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.register_webhook",
+        register_webhook,
+    )
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_put_registers_webhook_and_hides_secrets(
+    enc_key, authenticated_client, monkeypatch
+):
+    """A mocked register stores the webhook secret and enables the channel."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        get_whatsapp_channel_binding,
+        read_webhook_secret,
+    )
+
+    calls = _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    monkeypatch.setattr(settings, "DEBUG", False)
+    saved = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_test_secret_value",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()["binding"]
+    assert body["enabled"] is True
+    assert body["phone_number_id"] == "109876543210"
+    assert body["display_phone"] == "+15550001111"
+    assert body["last_error"] == ""
+    assert "api_key" not in body
+    assert "webhook_secret" not in body
+    assert "whsec_registered" not in saved.text
+    assert "jvk_test_secret_value" not in saved.text
+    assert calls["register"] == [
+        "https://integral.example/api/agentive/channels/whatsapp/webhook"
+    ]
+
+    binding = await get_whatsapp_channel_binding(body["user_id"])
+    assert binding is not None
+    assert read_webhook_secret(binding) == "whsec_registered"
+
+    fetched = await authenticated_client.get("/api/agentive/channels/whatsapp/binding")
+    fetched_body = fetched.json()["binding"]
+    assert "api_key" not in fetched_body
+    assert "webhook_secret" not in fetched_body
+    assert "whsec_registered" not in fetched.text
+    assert "jvk_test_secret_value" not in fetched.text
+
+
+@pytest.mark.asyncio
+async def test_put_without_public_url_stays_disabled_outside_debug(
+    enc_key, authenticated_client, monkeypatch
+):
+    """An empty PUBLIC_API_BASE_URL outside DEBUG does not register a webhook."""
+    calls = _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "")
+    monkeypatch.setattr(settings, "DEBUG", False)
+    saved = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_test_secret_value",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()["binding"]
+    assert body["enabled"] is False
+    assert "PUBLIC_API_BASE_URL" in body["last_error"]
+    assert calls["register"] == []
+    assert "jvk_test_secret_value" not in saved.text
+
+
+@pytest.mark.asyncio
+async def test_put_rejects_a_phone_already_bound_to_another_user(
+    enc_key, authenticated_client, second_user_client, monkeypatch
+):
+    """A phone_number_id already stored for another user is a conflict."""
+    calls = _stub_jvconnect_registration(monkeypatch, phone="phone-shared")
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    monkeypatch.setattr(settings, "DEBUG", False)
+    first = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_first_owner",
+        },
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["binding"]["enabled"] is True
+
+    second = await second_user_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_second_owner",
+        },
+    )
+    assert second.status_code == 409
+    assert "jvk_second_owner" not in second.text
+    assert len(calls["register"]) == 1
+    fetched = await second_user_client.get("/api/agentive/channels/whatsapp/binding")
+    assert fetched.json()["binding"]["enabled"] is False

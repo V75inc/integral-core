@@ -27,12 +27,12 @@ Tasks are in `tasks/todo.md`.
 - [x] Binding tests pass; GET redacts secrets; graph edge exists
 
 ### Phase 2: Transport
-- [ ] Task 3: jvconnect Messaging client
-- [ ] Task 4: Signature verification and envelope parse
-- [ ] Task 5: Webhook endpoint, idempotency, and short notices
+- [x] Task 3: jvconnect Messaging client
+- [x] Task 4: Signature verification and envelope parse
+- [x] Task 5: Webhook endpoint, idempotency, and short notices
 
 ### Checkpoint: Transport
-- [ ] Forged signatures do not touch the graph; valid non-text and unknown senders do not enqueue a turn
+- [x] Forged signatures do not touch the graph; valid non-text and unknown senders do not enqueue a turn
 
 ### Phase 3: Chat bridge
 - [ ] Task 6: Dedicated thread, approval short-circuit, and turn enqueue
