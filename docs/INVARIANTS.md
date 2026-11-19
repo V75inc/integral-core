@@ -619,7 +619,18 @@ Provision the personal workspace idempotently at signup. Listing and scope reads
 
 ### I-SUBSTRATE-01 — No domain identity in Core
 
-Core services/APIs/models/schemas contain no domain slug/type/Track names except a specifically justified structural allowlist entry. Domain side effects belong to bundle tools/hooks. Drift guards and architecture review enforce this.
+Core runtime, services, APIs, models, schemas, hooks, frontend renderers, SDK and
+packaging contain no App-specific identity, inferred field semantics or legacy
+business compatibility rules. Domain side effects, aliases, defaults and stored
+state migrations belong to owning Apps. Neutral explicit configuration is not a
+substitute for current server authorization. Missing required host capability or
+policy fails closed. No named-App exception allowlist is permitted.
+
+Boundary changes require a generic fixture and independently configured host
+fixture, installed-state migration/readiness evidence and the same immutable Core
+artifact consumed by paired hosts. Run `.ci/app_boundary_guard.sh` and source
+review; the finite scanner is a regression barrier, not exhaustive proof. See
+[App-owned form behavior](architecture/form-host-contract.md).
 
 ### I-EXT-01 — No App-specific Core branching or imports
 

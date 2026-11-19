@@ -418,8 +418,8 @@ def _render_node(
         return _marks_wrap(inner, _node_marks(node))
 
     if ntype == "signaturePlaceholder":
-        role = str(attrs.get("role") or "employee_signature").strip()
-        safe_role = re.sub(r"[^a-zA-Z0-9_-]", "_", role) or "employee_signature"
+        role = str(attrs.get("role") or "signature").strip()
+        safe_role = re.sub(r"[^a-zA-Z0-9_-]", "_", role) or "signature"
         mode = str(attrs.get("mode") or "runtime").strip().lower()
         label = str(attrs.get("label") or role.replace("_", " ").title()).strip()
         width = int(attrs.get("width") or 220)

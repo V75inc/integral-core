@@ -310,12 +310,6 @@ async def resolve_field_value(
             target_entry=target_entry,
             anchor_entry=anchor,
         )
-        if val in (None, "") and input_values:
-            local = str(spec.get("local_field_key") or field_key.split(".")[-1])
-            if local == "work_email" or field_key.endswith("work_email"):
-                injected = input_values.get("work_email")
-                if injected not in (None, ""):
-                    return injected, None
         return val, None
 
     if kind == "relation_walk":

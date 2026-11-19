@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  LEGACY_MEMBER_ASSIGNED_FORM_PATH,
   MEMBER_ASSIGNED_FORM_PATH,
   isMemberAssignedFormPathname,
   resolveMemberAssignedFormNavigateTarget,
@@ -16,18 +15,18 @@ describe('resolveMemberAssignedFormNavigateTarget', () => {
     );
   });
 
-  it('rewrites legacy HR path to canonical route', () => {
+  it('preserves canonical assigned entry route', () => {
     expect(
       resolveMemberAssignedFormNavigateTarget(
-        `${LEGACY_MEMBER_ASSIGNED_FORM_PATH}?entry=n.Entry.xyz`,
+        `${MEMBER_ASSIGNED_FORM_PATH}?entry=n.Entry.xyz`,
       ),
     ).toBe(`${MEMBER_ASSIGNED_FORM_PATH}?entry=n.Entry.xyz`);
   });
 });
 
 describe('isMemberAssignedFormPathname', () => {
-  it('matches canonical and legacy routes', () => {
+  it('matches only the generic route', () => {
     expect(isMemberAssignedFormPathname('/me/assigned-form')).toBe(true);
-    expect(isMemberAssignedFormPathname('/hr/employee-onboarding')).toBe(true);
+    expect(isMemberAssignedFormPathname('/custom-app/assignment')).toBe(false);
   });
 });

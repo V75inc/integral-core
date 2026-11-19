@@ -453,7 +453,6 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 |---|---|---|
 | POST | `/auth/activate-account` | [activate_account](../../backend/app/api/auth.py) |
 | POST | `/auth/complete-assigned-form` | [complete_assigned_form](../../backend/app/api/auth.py) |
-| POST | `/auth/complete-onboarding-form` | [complete_onboarding_form](../../backend/app/api/auth.py) |
 | POST | `/auth/credentials-delivery/resend` | [resend_credentials_delivery](../../backend/app/api/auth.py) |
 | POST | `/auth/credentials-delivery/verify` | [verify_credentials_delivery](../../backend/app/api/auth.py) |
 | POST | `/auth/forgot-password` | [forgot_password](../../backend/app/api/auth.py) |
@@ -841,7 +840,6 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | Methods | Declared path | Handler |
 |---|---|---|
 | GET | `/public-share/track/{token}` | [get_public_track](../../backend/app/api/tracks_public_share.py) |
-| GET | `/public-share/track/{token}/apply` | [get_public_track_apply_context](../../backend/app/api/tracks_public_share.py) |
 | GET | `/public-share/track/{token}/entries` | [get_public_track_entries](../../backend/app/api/tracks_public_share.py) |
 | POST | `/public-share/track/{token}/entries` | [create_public_track_entry](../../backend/app/api/tracks_public_share.py) |
 | GET | `/public-share/track/{token}/entries/{entry_id}` | [get_public_track_entry](../../backend/app/api/tracks_public_share.py) |

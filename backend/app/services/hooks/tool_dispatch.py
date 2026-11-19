@@ -143,7 +143,10 @@ async def _run_tool(
         "read",
         "read_only",
     )
-    result = await fn(payload, ctx)
+    from app.services.host_hooks import bound_host_tool
+
+    with bound_host_tool(spec, payload, ctx):
+        result = await fn(payload, ctx)
     validate_output(result, out_schema)
     await ctx.emit_audit(
         action="tool.invoke",

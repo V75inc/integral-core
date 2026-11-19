@@ -55,6 +55,7 @@ type LayoutBanner = ComponentType;
 const settingsSections: SettingsSectionRegistration[] = [];
 const adminNav: AdminNavItem[] = [];
 const adminRoutes: AdminRouteRegistration[] = [];
+const workspaceRoutes: AdminRouteRegistration[] = [];
 const sidebarActions: SidebarAccountAction[] = [];
 const layoutBanners: LayoutBanner[] = [];
 let composerAccessory: ComponentType<{ workspaceId: string }> | null = null;
@@ -134,4 +135,46 @@ export function resolveInstallDenial(err: unknown): InstallDenialAction | null {
   } catch {
     return null;
   }
+}
+
+/** Host-owned routes rendered within Core's authenticated workspace layout.
+ * Hosts remain responsible for any additional per-resource authorization.
+ */
+export function registerWorkspaceRoute(route: AdminRouteRegistration): void {
+  const i = workspaceRoutes.findIndex(r => r.path === route.path);
+  if (i >= 0) workspaceRoutes[i] = route;
+  else workspaceRoutes.push(route);
+}
+
+export function getRegisteredWorkspaceRoutes(): AdminRouteRegistration[] {
+  return [...workspaceRoutes];
+}
+
+/** App presentation routes, evaluated only after Core has loaded an authorized track. */
+export type TrackNavigationRegistration = {
+  id: string;
+  href?: (track: import('../types').Track, app?: import('../types').App | null) => string | null;
+  redirect?: (track: import('../types').Track, search: URLSearchParams) => string | null;
+};
+const trackNavigation: TrackNavigationRegistration[] = [];
+export function registerTrackNavigation(resolver: TrackNavigationRegistration): void {
+  const i = trackNavigation.findIndex(item => item.id === resolver.id);
+  if (i >= 0) trackNavigation[i] = resolver;
+  else trackNavigation.push(resolver);
+}
+const localRoute = (value: string | null | undefined) =>
+  value?.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !Array.from(value).some(char => char.charCodeAt(0) <= 32) ? value : null;
+export function resolveHostTrackHref(track: import('../types').Track, app?: import('../types').App | null): string {
+  for (const resolver of trackNavigation) {
+    const path = localRoute(resolver.href?.(track, app));
+    if (path) return path;
+  }
+  return `/tracks/${track.id}`;
+}
+export function resolveHostTrackRedirect(track: import('../types').Track, search: URLSearchParams): string | null {
+  for (const resolver of trackNavigation) {
+    const path = localRoute(resolver.redirect?.(track, search));
+    if (path) return path;
+  }
+  return null;
 }

@@ -48,14 +48,29 @@ host's pending-record ID. All validation failures should be reported as a
 generic not-found response so a shared form token cannot enumerate protected
 submissions.
 
-## Public create-form presentation
+## Public form presentation
 
-Anonymous create forms group the published schema fields under their declared
-labels, with a neutral Details group for ungrouped fields. Questions remain
-visible above their controls. This does not change assigned-form review,
-prefilled fields, public permissions, upload restrictions or the existing
-sensitive-field exclusions. Those exclusions remain pending a separately
-qualified host-policy migration.
+Core renders schema fields without domain-name inference. Hosts declare optional
+string-valued `public_share.extensions`: `form_default_group`,
+`form_readonly_groups` (CSV), `form_hidden_field_keys` (CSV),
+`form_hidden_field_prefixes` (CSV), `form_hidden_groups` (CSV),
+`form_prefill_notice`, and `form_review_step_title`. Group matching for hidden
+and readonly groups is case-insensitive. Defaults are editable Details and
+Document Review. Schema-level readonly and approved-entry locks remain intact.
+
+Presentation is not authorization: server-side field and entry permissions must
+independently enforce the host's policy. Only expose an intentionally public
+intake schema. Existing host forms must be migrated to explicit declarations,
+or refused until migrated, before upgrading to this renderer. A missing policy
+must never silently relax legacy protected workflows.
+
+## Boundary release gate
+
+The runtime boundary guard detects a bounded set of named-App coupling signals;
+it does not prove every possible domain dependency has been eliminated. Named-App
+fallbacks and compatibility rules belong in the owning host, with migration and
+readiness proof before cutover. Core has no domain exception allowlist. Run the
+guard and paired regression tests on the exact candidate artifact.
 
 An EntryType may declare optional `confirmation` metadata with plain-text
 `title` (maximum 160 characters), `message` (maximum 2000 characters), and boolean

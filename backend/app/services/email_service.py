@@ -757,43 +757,14 @@ def render_public_form_email(
     safe_email = html_lib.escape(recipient_email)
     safe_url_attr = html_lib.escape(form_url, quote=True)
     safe_url_text = html_lib.escape(form_url)
-    title = form_title or "onboarding form"
+    title = form_title or "form"
     safe_title = html_lib.escape(title)
     greeting_text = f"Hi {recipient_name}," if recipient_name else "Hi,"
     greeting_html = f"Hi {safe_name}," if safe_name else "Hi,"
-    onboarding = "onboarding" in title.lower()
-    subject = (
-        "Welcome — complete your onboarding"
-        if onboarding
-        else f"Please complete your {title}"
-    )
-    headline = (
-        "You're hired — let's finish onboarding"
-        if onboarding
-        else f"Complete your {safe_title}"
-    )
-    cta = "Start onboarding" if onboarding else "Open form"
-    steps_html = ""
-    if onboarding:
-        steps_html = (
-            '<ul style="margin:0 0 20px 0;padding:0 0 0 18px;color:#4a4a52;font-size:14px;">'
-            "<li>Review and sign your employment contract</li>"
-            "<li>Confirm your personal details</li>"
-            "<li>Complete any remaining HR steps</li>"
-            "</ul>"
-        )
-
-    text = (
-        f"{greeting_text}\n\n"
-        + (
-            "Congratulations on joining the team. Use the link below to complete "
-            "your onboarding (contract, personal details, and HR steps):\n\n"
-            if onboarding
-            else f"Please complete your {title} using this link:\n\n"
-        )
-        + f"{form_url}\n\n"
-        f"— Integral\n"
-    )
+    subject = f"Please complete your {title}"
+    headline = f"Complete your {safe_title}"
+    cta = "Open form"
+    text = f"{greeting_text}\n\nPlease complete your {title} using this link:\n\n{form_url}\n\n— Integral\n"
 
     html = f"""<!doctype html>
 <html>
@@ -802,9 +773,8 @@ def render_public_form_email(
       <p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#ff5a1f;">Integral</p>
       <h1 style="font-size:20px;font-weight:600;letter-spacing:-0.018em;margin:0 0 16px 0;">{headline}</h1>
       <p style="margin:0 0 16px 0;color:#4a4a52;font-size:14px;">
-        {greeting_html} {"we're excited to have you on board. Use the button below to open your secure onboarding workspace." if onboarding else "please fill in the form using the button below."}
+        {greeting_html} please fill in the form using the button below.
       </p>
-      {steps_html}
       <p style="margin:0 0 24px 0;">
         <a href="{safe_url_attr}" style="display:inline-block;background:#ff5a1f;color:#ffffff;padding:10px 18px;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px;">
           {cta}

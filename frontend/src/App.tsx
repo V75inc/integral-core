@@ -17,7 +17,7 @@ import {
 } from './components/system';
 import { RequirePlatformAdmin } from './components/admin/RequirePlatformAdmin';
 import { AdminLayout } from './components/admin/AdminLayout';
-import { getRegisteredAdminRoutes } from './host/registry';
+import { getRegisteredAdminRoutes, getRegisteredWorkspaceRoutes } from './host/registry';
 
 const LoginPage = lazy(() =>
   import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })),
@@ -131,21 +131,6 @@ const AIChatPage = lazy(() =>
 );
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
-);
-const DocumentTemplateListPage = lazy(() =>
-  import('./features/documents').then(m => ({
-    default: m.DocumentTemplateListPage,
-  })),
-);
-const DocumentTemplateEditorPage = lazy(() =>
-  import('./features/documents').then(m => ({
-    default: m.DocumentTemplateEditorPage,
-  })),
-);
-const TemplateVersionHistoryPage = lazy(() =>
-  import('./features/documents').then(m => ({
-    default: m.TemplateVersionHistoryPage,
-  })),
 );
 const AdminOverviewPage = lazy(() =>
   import('./pages/admin/AdminOverviewPage').then((m) => ({
@@ -370,10 +355,9 @@ export default function App() {
         <Route index element={<MissionControlPage />} />
         <Route path="feed" element={<FeedPage />} />
         <Route path="me/assigned-form" element={<MemberAssignedFormPage />} />
-        <Route
-          path="hr/employee-onboarding"
-          element={<Navigate to="/me/assigned-form" replace />}
-        />
+        {getRegisteredWorkspaceRoutes().map(route => (
+          <Route key={route.path} path={route.path} element={route.element} />
+        ))}
         <Route path="mission-control" element={<Navigate to="/" replace />} />
         {/* B-SHARE-03: /shared retired. Auto-grant of guest membership
             on first cross-workspace share lifts the resource into the
@@ -391,18 +375,6 @@ export default function App() {
         <Route
           path="workspaces/:workspaceId/members"
           element={<WorkspaceMembersPage />}
-        />
-        <Route
-          path="workspaces/:workspaceId/document-templates"
-          element={<DocumentTemplateListPage />}
-        />
-        <Route
-          path="workspaces/:workspaceId/document-templates/:templateId/edit"
-          element={<DocumentTemplateEditorPage />}
-        />
-        <Route
-          path="workspaces/:workspaceId/document-templates/:templateId/versions"
-          element={<TemplateVersionHistoryPage />}
         />
         <Route path="apps" element={<AppsPage />} />
         <Route path="apps/:appId" element={<AppDetailPage />} />

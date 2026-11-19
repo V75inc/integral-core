@@ -1,8 +1,4 @@
-"""Public-share intent + hire/onboarding notify (integral-business overlay).
-
-Extends rc10 (``declared_public_share`` only) with token mint + email notify
-used by Complete hire → onboarding form link.
-"""
+"""Manifest-declared public sharing, link generation and form notification."""
 
 from __future__ import annotations
 
@@ -91,12 +87,14 @@ async def declared_public_share(
             declared = spec.get("public_share")
             return declared if isinstance(declared, dict) else None
     except Exception:
-        if strict:
-            raise
         logger.exception(
             "declared_public_share: resolution failed for track=%s",
             getattr(track, "id", "?"),
         )
+        if strict:
+            from app.exceptions import AuthorizationUnavailableError
+
+            raise AuthorizationUnavailableError() from None
         return None
     return None
 

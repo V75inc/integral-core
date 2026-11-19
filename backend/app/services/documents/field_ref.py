@@ -53,7 +53,7 @@ def parse_field_ref(field_key: str) -> Optional[Dict[str, str]]:
 
 
 def local_field_from_context_key(context_key: str, raw_field_key: str) -> str:
-    """``employee.full_name`` under context ``employee`` → ``full_name``."""
+    """Strip an explicit context prefix from a qualified field reference."""
     raw = str(raw_field_key or "").strip()
     prefix = f"{context_key}."
     if context_key and raw.startswith(prefix):

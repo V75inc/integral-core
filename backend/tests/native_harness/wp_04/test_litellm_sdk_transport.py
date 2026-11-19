@@ -2154,3 +2154,85 @@ def test_anthropic_reasoning_codec_rejects_unsigned_replay_and_ambiguous_stream(
         ]
     )
     assert foreign == [{"role": "assistant", "content": "visible answer"}]
+
+
+@pytest.mark.parametrize("structured", [False, True])
+@pytest.mark.parametrize("stream", [False, True])
+async def test_ollama_only_structured_frames_dispatch_tools(
+    structured, stream, monkeypatch, tmp_path
+):
+    """JSON in assistant content is not an authorized tool invocation."""
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    import litellm
+
+    monkeypatch.setattr(litellm, "get_model_info", lambda **_: {})
+    arguments = '{"query":"membership"}'
+    calls = []
+    requests = []
+
+    async def completion(**kwargs):
+        requests.append(kwargs)
+        first = len(requests) == 1
+        tool = {
+            "id": "fixture-call",
+            "type": "function",
+            "function": {"name": "lookup", "arguments": arguments},
+        }
+        if first and structured:
+            payload = {"tool_calls": [{**tool, "index": 0}] if stream else [tool]}
+            finish = "tool_calls"
+        else:
+            payload = {"content": arguments if first else "Found the membership rule."}
+            finish = "stop"
+        frame = {
+            "id": "fixture-response",
+            "object": "chat.completion.chunk" if stream else "chat.completion",
+            "created": 1,
+            "model": kwargs["model"],
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": finish,
+                    **(
+                        {"delta": {"role": "assistant", **payload}}
+                        if stream
+                        else {"message": {"role": "assistant", **payload}}
+                    ),
+                }
+            ],
+        }
+        if not stream:
+            return frame
+
+        async def chunks():
+            yield frame
+
+        return chunks()
+
+    route = _route().model_copy(
+        update={"provider": "ollama_chat", "model": "ollama_chat/gpt-oss:120b"}
+    )
+    agent = Agent(
+        build_litellm_sdk_model(
+            route=route,
+            scope=_scope(),
+            observer=_ignore_observation,
+            completion=completion,
+        )
+    )
+
+    @agent.tool_plain
+    def lookup(query: str) -> str:
+        calls.append(query)
+        return "Payment precedes activation."
+
+    if stream:
+        async with agent.run_stream("Read the rule.") as result:
+            output = await result.get_output()
+    else:
+        output = (await agent.run("Read the rule.")).output
+    assert calls == (["membership"] if structured else [])
+    assert output == ("Found the membership rule." if structured else arguments)
+    assert len(requests) == (2 if structured else 1)

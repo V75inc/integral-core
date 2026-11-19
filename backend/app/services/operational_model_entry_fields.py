@@ -941,38 +941,21 @@ async def validate_and_materialize_entry_custom_fields(
                 if resolved_setting is not None:
                     value = resolved_setting
 
-        # Auto-generate employee_id if left blank on employee creation
-        if (
-            key == "employee_id"
-            and value in (None, "")
-            and entry_type.name == "Employee"
-        ):
-            existing = await Entry.find(
-                {"context.track_id": track.id, "context.type_id": entry_type.id}
-            )
-            max_num = 0
-            for e in existing:
-                emp_id = (e.custom_fields or {}).get("employee_id")
-                if emp_id and isinstance(emp_id, str) and emp_id.strip().isdigit():
-                    max_num = max(max_num, int(emp_id.strip()))
-            value = f"{max_num + 1:04d}"
-
-        # Validate email fields
-        if key in ("work_email", "personal_email") and value:
+        # A field's value format is explicitly declared, never inferred from its key.
+        validation_format = fd.get("validation_format")
+        if validation_format == "email" and value:
             import re
 
-            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", str(value).strip()):
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", str(value).strip()):
                 raise BadRequestError(
                     message=f"Field '{key}' must be a valid email address"
                 )
-
-        # Validate phone fields
-        if key in ("phone", "emergency_contact_phone") and value:
+        if validation_format == "phone" and value:
             import re
 
             val_str = str(value).strip()
             cleaned = re.sub(r"[^\d]", "", val_str)
-            if len(cleaned) < 7 or not re.match(r"^[0-9+\-\(\)\s]+$", val_str):
+            if len(cleaned) < 7 or not re.fullmatch(r"[0-9+\-\(\)\s]+", val_str):
                 raise BadRequestError(
                     message=f"Field '{key}' must be a valid phone number"
                 )

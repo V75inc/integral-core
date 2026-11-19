@@ -341,13 +341,10 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
         }
         let created = 0;
         let skipped = 0;
-        // The tool owns field-name knowledge (NIS's wage_period_N vs.
-        // PAYE's value_7a, etc.) and hands back a ready-to-write
-        // custom_fields dict per row — this widget stays generic across
-        // every app that wires an import-style action, not just NIS/PAYE.
+        // App tools explicitly mark validated rows importable; absent or false fails closed.
         for (const row of output.rows as Array<Record<string, unknown>>) {
           const customFields = row.custom_fields as Record<string, unknown> | undefined;
-          if (!row.employee_id || !customFields) {
+          if (row.importable !== true || !customFields || typeof customFields !== 'object' || Array.isArray(customFields)) {
             skipped += 1;
             continue;
           }
@@ -360,10 +357,10 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
           });
           created += 1;
         }
-        const unresolved = typeof output.unresolved_count === 'number' ? output.unresolved_count : skipped;
+        const unresolved = skipped + (typeof output.unresolved_count === 'number' ? Math.max(0, output.unresolved_count) : 0);
         showToast(
           unresolved > 0
-            ? `${button.label}: imported ${created} row(s), ${unresolved} skipped (no matching employee)`
+            ? `${button.label}: imported ${created} row(s), ${unresolved} skipped (not eligible for import)`
             : `${button.label}: imported ${created} row(s)`,
           unresolved > 0 ? 'error' : 'success'
         );

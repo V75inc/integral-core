@@ -637,33 +637,6 @@ export function useEntryExpandedForm(
   );
   const selectedTypeId = selectedType?.id || '';
 
-  const existingEmployeesQuery = useQuery({
-    queryKey: ['entries', 'track', activeTrackId, 'employee'],
-    enabled: Boolean(enabled && activeTrackId && selectedType?.name === 'Employee' && mode === 'create'),
-    queryFn: () => entriesApi.list({ track_id: activeTrackId, limit: 200 })
-  });
-
-  useEffect(() => {
-    if (mode !== 'create' || selectedType?.name !== 'Employee') return;
-    if (!existingEmployeesQuery.data) return;
-    const data = existingEmployeesQuery.data as any;
-    const existing = Array.isArray(data.entries) ? data.entries : (Array.isArray(data) ? data : []);
-    const employeeIds = existing
-      .map((e: any) => e.custom_fields?.employee_id)
-      .filter((val: any) => typeof val === 'string' && /^\d+$/.test(val.trim()))
-      .map((val: any) => parseInt(val.trim(), 10));
-    const maxId = employeeIds.length > 0 ? Math.max(...employeeIds) : 0;
-    const nextIdVal = maxId + 1;
-    const nextIdStr = String(nextIdVal).padStart(4, '0');
-
-    setFieldValues(prev => {
-      if (prev.employee_id === undefined || prev.employee_id === null || prev.employee_id === '') {
-        return { ...prev, employee_id: nextIdStr };
-      }
-      return prev;
-    });
-  }, [existingEmployeesQuery.data, selectedType?.name, mode]);
-
   const baseFields = (selectedType?.form_schema?.base_fields || {}) as EntryTypeBaseFields;
   const titleBase = baseFields.title || {};
   const bodyBase = baseFields.body || {};
@@ -836,52 +809,6 @@ export function useEntryExpandedForm(
     },
     [dynamicFields]
   );
-
-  // ── Seed-from: cross-track entry seeding ────────────────────────────────
-  // When the employee entry type has a `seed_from` relation field and the
-  // user picks an onboarding_form entry, fetch that entry and map all
-  // matching custom_field keys + title into the current form values.
-  const seedFromValue = fieldValues['seed_from'];
-  const hasSeedFromField = useMemo(
-    () => dynamicFields.some(f => f.key === 'seed_from'),
-    [dynamicFields]
-  );
-  const prevSeedFromRef = useRef<string>('');
-
-  useEffect(() => {
-    if (!hasSeedFromField || mode !== 'create') return;
-    const sourceId = typeof seedFromValue === 'string' ? seedFromValue : '';
-    if (!sourceId || sourceId === prevSeedFromRef.current) return;
-    prevSeedFromRef.current = sourceId;
-
-    (async () => {
-      try {
-        const sourceEntry = await entriesApi.get(sourceId);
-        const cf = (sourceEntry as any).custom_fields || {};
-        // Map matching keys from the onboarding form into the employee form.
-        // Exclude meta (_*) keys and the seed_from field itself.
-        setFieldValues(prev => {
-          const next = { ...prev };
-          for (const [k, v] of Object.entries(cf)) {
-            if (k.startsWith('_') || k === 'seed_from') continue;
-            next[k] = v;
-          }
-          return next;
-        });
-        // Also propagate the government name (title) from the onboarding form.
-        if ((sourceEntry as any).title) {
-          setTitle(String((sourceEntry as any).title));
-        }
-        showToast(
-          `Fields imported from "${(sourceEntry as any).title || 'Onboarding Form'}" — review before saving`,
-          'success'
-        );
-      } catch {
-        showToast('Could not load onboarding form data', 'error');
-      }
-    })();
-  }, [seedFromValue, hasSeedFromField, mode, showToast]);
-  // ── End seed-from ────────────────────────────────────────────────────────
 
   const composerRows = useMemo((): ComposerRow[] => {
     const rows: ComposerRow[] = [];
@@ -1376,8 +1303,6 @@ export function useEntryExpandedForm(
           mergedFieldValues[key] = val;
         }
       }
-      // seed_from is a UI-only field — never persist it on the saved entry.
-      delete mergedFieldValues['seed_from'];
 
       // Identify and extract File uploads from custom fields
       const cleanedFieldValues = { ...mergedFieldValues };

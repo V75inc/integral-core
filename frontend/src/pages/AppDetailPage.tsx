@@ -90,7 +90,7 @@ import { useRecents } from '../hooks/useRecents';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import { WorkspaceCreationRightsNotice } from '../components/collab/WorkspaceCreationRightsNotice';
 import type { App, OperationalModelNode, Track, User } from '../types';
-import { resolveDocumentTemplatesTrackHref } from '../features/documents/documentTemplatesRouting';
+import { resolveHostTrackHref } from '../host/registry';
 import { Text } from '../ui';
 import {
   readAppDetailSection,
@@ -1406,7 +1406,7 @@ function AppTrackRow({
   const { activeWorkspace } = useScope();
   const canDrag = !!sortable && canAdmin;
   const workspaceAccentColor = activeWorkspace?.accent_color;
-  const trackHref = resolveDocumentTemplatesTrackHref(track, app ?? track.app ?? null);
+  const trackHref = resolveHostTrackHref(track, app ?? track.app ?? null);
   return (
     <li
       ref={sortable?.setNodeRef}

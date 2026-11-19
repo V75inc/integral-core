@@ -2,15 +2,9 @@ import apiClient from '../../api/client';
 import { normalizeAttachment } from '../../api/attachments';
 import { imageExceedsUploadLimit, ImageUploadSizeError } from '../../utils/imageUploadLimits';
 import type {
-  PublicOnboardingPolicy,
   PublicSharedEntry,
   PublicTrackPayload,
 } from '../../api/sharing';
-
-function apiRoot(): string {
-  const base = apiClient.defaults.baseURL || '/api';
-  return String(base).replace(/\/$/, '');
-}
 
 /** Workspace member assigned-entry wizard (substrate: `/me/assigned-form`). */
 export interface MemberAssignedFormContext extends PublicTrackPayload {
@@ -38,6 +32,7 @@ export const memberAssignedFormApi = {
         update_entries: !data.locked,
       },
       public_share_extensions: data.public_share_extensions,
+      acknowledgment_documents: data.acknowledgment_documents,
       entry: data.entry,
       locked: Boolean(data.locked),
       workspace_id: data.workspace_id,
@@ -56,76 +51,6 @@ export const memberAssignedFormApi = {
   ): Promise<{ entry: PublicSharedEntry }> {
     const res = await apiClient.patch(`/me/assigned-form${qs(entryId)}`, body);
     return res.data as { entry: PublicSharedEntry };
-  },
-
-  async listPolicyDocuments(): Promise<{
-    policies: PublicOnboardingPolicy[];
-    extensions?: Record<string, string>;
-  }> {
-    const res = await apiClient.get('/me/assigned-form/policies');
-    return res.data;
-  },
-
-  getPolicyDocumentUrl(policyEntryId: string): string {
-    return `${apiRoot()}/me/assigned-form/policies/${encodeURIComponent(policyEntryId)}/document`;
-  },
-
-  getContractDocumentUrl(): string {
-    return `${apiRoot()}/me/assigned-form/contract`;
-  },
-
-  async fetchContractBlob(
-    cacheBust?: string | number,
-    entryId?: string,
-  ): Promise<Blob> {
-    const params = new URLSearchParams();
-    if (entryId?.trim()) {
-      params.set('entry', entryId.trim());
-    }
-    if (cacheBust != null && cacheBust !== '') {
-      params.set('v', String(cacheBust));
-    }
-    const suffix = params.toString() ? `?${params.toString()}` : '';
-    const resp = await apiClient.get(`/me/assigned-form/contract${suffix}`, {
-      responseType: 'blob',
-    });
-    return resp.data as Blob;
-  },
-
-  async generateContract(
-    options?: { force?: boolean; entryId?: string },
-  ): Promise<{
-    contract_status?: string;
-    reused?: boolean;
-    update_available?: boolean;
-  }> {
-    const params = new URLSearchParams();
-    if (options?.force === true) {
-      params.set('force', '1');
-    }
-    if (options?.entryId?.trim()) {
-      params.set('entry', options.entryId.trim());
-    }
-    const suffix = params.toString() ? `?${params.toString()}` : '';
-    const res = await apiClient.post(
-      `/me/assigned-form/contract/generate${suffix}`,
-    );
-    return res.data;
-  },
-
-  async decideContract(
-    body: {
-      action: 'accept' | 'reject';
-      signature_png?: string;
-      reason?: string;
-    },
-    entryId?: string,
-  ): Promise<unknown> {
-    const res = await apiClient.post(
-      `/me/assigned-form/contract/decision${qs(entryId)}`,
-      body,
-    );
-    return res.data;
   },
 
   async uploadAttachment(

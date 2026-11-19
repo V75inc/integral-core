@@ -104,3 +104,21 @@ def test_signature_overlay_preserves_text_under_transparent_pixels():
         if max(clip.pixel(x, y)[:3]) < 240
     )
     assert inkish > 0, "overlay painted opaque white over template text"
+
+
+def test_signature_defaults_do_not_require_an_app_role():
+    from app.services.documents.signature_places import (
+        collect_signature_blocks,
+        pick_runtime_sign_place,
+    )
+
+    block = collect_signature_blocks({})[0]
+    assert block["role"] == "signature"
+    assert block["label"] == "Signature"
+    places = [
+        {"role": "reviewer", "mode": "runtime"},
+        {"role": "signature", "mode": "pre_embedded"},
+        {"role": "signature", "mode": "runtime"},
+    ]
+    assert pick_runtime_sign_place(places) is places[2]
+    assert pick_runtime_sign_place(places, preferred_roles=("reviewer",)) is places[0]

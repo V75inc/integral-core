@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { CreateWizardModal } from './CreateWizardModal';
+import { CreateWizardModal, createWizardActionInput } from './CreateWizardModal';
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), tool: vi.fn(), toast: vi.fn(), created: vi.fn(), close: vi.fn() }));
 vi.mock('../../api', () => ({ entriesApi: { create: mocks.create }, tracksApi: { get: vi.fn(), list: vi.fn() } }));
@@ -37,4 +37,9 @@ it('falls back to a generic message when there is no reason to show', async () =
   show();
   fireEvent.click(await screen.findByRole('button', { name: /^Create/ }));
   await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining('Failed to create'), 'error'));
+});
+
+it('injects only the App-declared IDs argument', () => {
+  expect(createWizardActionInput('record', ['A'])).toEqual({entry_id:'record'});
+  expect(createWizardActionInput('record', ['A'], ' selected_records ')).toEqual({entry_id:'record',selected_records:['A']});
 });
