@@ -68,6 +68,25 @@ class ConnectorAuthError(JVSpatialAPIException):
     )
 
 
+class RetrievalUnavailableError(JVSpatialAPIException):
+    """A requested search could not complete, not a successful empty result.
+
+    Keep deployment diagnostics out of the caller envelope. Provisioning remains
+    a reviewed operator action; this error does not authorize a rebuild or a
+    wider query. Direct record reads retain their ordinary authorization.
+    """
+
+    status_code = HTTPStatus.SERVICE_UNAVAILABLE
+    error_code = "retrieval_unavailable"
+    default_message = (
+        "Search is unavailable and was not completed. Do not interpret this as "
+        "zero matching records or claim document evidence was read. An authorized "
+        "lookup of a known record ID may be attempted separately; report its actual "
+        "result and do not describe it as a completed search. Ask the operator to "
+        "check retrieval readiness and reviewed index provisioning."
+    )
+
+
 class ServiceUnavailableError(JVSpatialAPIException):
     """503 envelope for transient unavailability (harness disabled / offline).
 
@@ -244,6 +263,7 @@ __all__ = [
     "RateLimitedError",
     "ResourceConflictError",
     "ResourceNotFoundError",
+    "RetrievalUnavailableError",
     "ServiceUnavailableError",
     "SkillRegistrationError",
     "UnprocessableEntityError",
