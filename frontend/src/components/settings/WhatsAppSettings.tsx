@@ -49,6 +49,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
   const [loadError, setLoadError] = useState(false);
   const [phone, setPhone] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  const [issuedCode, setIssuedCode] = useState('');
   const [step, setStep] = useState<'idle' | 'enter_phone' | 'enter_otp'>('idle');
   const [, setPendingIdentityId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -104,11 +105,9 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
           setStep('idle');
           setPhone('');
         } else {
+          setIssuedCode(res.otp_code || '');
           setStep('enter_otp');
-          showToast(res.otp_code
-            ? `Verification code: ${res.otp_code} (send this to the agent on WhatsApp)`
-            : 'Check your WhatsApp for a verification code',
-          'info');
+          showToast('Enter the verification code on this page', 'info');
         }
       } else if (res.error) {
         showToast(res.error, 'error');
@@ -313,7 +312,9 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
       {step === 'enter_otp' && (
         <div className="space-y-3">
           <Text variant="body" tone="muted" as="p">
-            A verification code has been generated. Send it to the Integral agent on WhatsApp, or enter it below.
+            {issuedCode
+              ? `Enter this code to confirm ${phone.trim()}: ${issuedCode}`
+              : 'Enter the verification code for this number.'}
           </Text>
           <label className="block">
             <span className="text-sm font-medium text-[var(--text)]">Verification code</span>

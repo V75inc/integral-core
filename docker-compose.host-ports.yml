@@ -1,0 +1,12 @@
+# Local port override. Host 5433 is already used by another Postgres.
+# Compose merges port lists by appending, so reset the published port.
+services:
+  db:
+    ports: !override
+      - "5434:5432"
+  api:
+    # This database predates the managed index catalog, and the API logs in
+    # as the database owner. Constraints keeps existing indexes and lets
+    # writes proceed until a reviewed catalog migration is applied.
+    environment:
+      JVSPATIAL_POSTGRES_INDEX_CREATION: constraints

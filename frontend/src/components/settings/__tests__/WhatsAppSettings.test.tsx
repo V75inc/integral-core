@@ -27,14 +27,16 @@ describe('WhatsApp notification setup', () => {
     expect(listChannelIdentities).toHaveBeenCalledTimes(2);
   });
   it('refreshes notification eligibility after verification', async () => {
-    vi.mocked(initiateWhatsAppVerification).mockResolvedValue({ identity_id: 'phone-1', verified: false });
+    vi.mocked(initiateWhatsAppVerification).mockResolvedValue({ identity_id: 'phone-1', verified: false, otp_code: 'ABC123' });
     vi.mocked(verifyWhatsAppOtp).mockResolvedValue({ verified: true });
     const onChange = vi.fn();
     render(<WhatsAppSettings onChange={onChange} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Link WhatsApp number' }));
     fireEvent.change(screen.getByLabelText('WhatsApp phone number'), { target: { value: '+15551234567' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: 'ABC123' } });
+    expect(await screen.findByText(/Enter this code to confirm \+15551234567: ABC123/)).toBeInTheDocument();
+    expect(screen.queryByText(/send it to the Integral/i)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: 'ABC123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(onChange).toHaveBeenCalledOnce());
     expect(verifyWhatsAppOtp).toHaveBeenCalledWith('+15551234567', 'ABC123');

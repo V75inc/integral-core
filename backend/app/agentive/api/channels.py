@@ -49,6 +49,27 @@ from app.services.change_event import emit_change_event
 logger = logging.getLogger(__name__)
 
 _VALID_CHANNELS = ("whatsapp", "slack", "telegram", "email", "sms", "in_app")
+_IDENTITY_SECRET_KEYS = frozenset(
+    {
+        "otp_hash",
+        "otp_expires",
+        "otp_attempts",
+        "link_token",
+        "link_token_expires",
+    }
+)
+
+
+def _public_identity(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop verification secrets from a channel identity shown in settings."""
+    preferences = data.get("preferences")
+    if isinstance(preferences, dict):
+        data["preferences"] = {
+            key: value
+            for key, value in preferences.items()
+            if key not in _IDENTITY_SECRET_KEYS
+        }
+    return data
 
 
 @endpoint(
@@ -64,10 +85,7 @@ async def list_channel_identities(request: Request) -> Dict[str, Any]:
         raise MissingAuthenticationError(message="Authentication required")
 
     identities = await ChannelIdentity.find(user_id=user_id)
-    items = []
-    for ci in identities:
-        data = ci.export() if hasattr(ci, "export") else {"id": ci.id}
-        items.append(data)
+    items = [_public_identity(await export_node(ci)) for ci in identities]
     return {"identities": items, "total": len(items)}
 
 
