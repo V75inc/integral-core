@@ -388,6 +388,56 @@ async def test_put_without_public_url_stays_disabled_outside_debug(
 
 
 @pytest.mark.asyncio
+async def test_second_put_updates_the_binding_and_registers(
+    enc_key, authenticated_client, monkeypatch
+):
+    """Saving again replaces credentials and retries webhook registration."""
+    from app.agentive.services.whatsapp_channel_binding import read_api_key
+
+    calls = _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "")
+    monkeypatch.setattr(settings, "DEBUG", False)
+    first = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_test_secret_value",
+        },
+    )
+    assert first.status_code == 200, first.text
+    first_body = first.json()["binding"]
+    assert first_body["enabled"] is False
+    assert "PUBLIC_API_BASE_URL" in first_body["last_error"]
+
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    second = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_replaced_secret",
+        },
+    )
+    assert second.status_code == 200, second.text
+    body = second.json()["binding"]
+    assert body["id"] == first_body["id"]
+    assert body["enabled"] is True
+    assert body["last_error"] == ""
+    assert body["api_key_last4"] == "cret"
+    assert calls["register"] == [
+        "https://integral.example/api/agentive/channels/whatsapp/webhook"
+    ]
+    assert "jvk_replaced_secret" not in second.text
+
+    from app.agentive.services.whatsapp_channel_binding import (
+        get_whatsapp_channel_binding,
+    )
+
+    stored = await get_whatsapp_channel_binding(body["user_id"])
+    assert stored is not None
+    assert read_api_key(stored) == "jvk_replaced_secret"
+
+
+@pytest.mark.asyncio
 async def test_put_rejects_a_phone_already_bound_to_another_user(
     enc_key, authenticated_client, second_user_client, monkeypatch
 ):

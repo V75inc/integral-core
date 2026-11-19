@@ -130,6 +130,39 @@ async def create_whatsapp_channel_binding(
     return binding
 
 
+async def save_whatsapp_channel_credentials(
+    *,
+    user_id: str,
+    jvconnect_base_url: str,
+    api_key: str,
+) -> tuple[WhatsAppChannelBinding, bool]:
+    """Create the user's binding, or replace credentials on the existing one.
+
+    A second Save retries webhook registration instead of creating another row.
+    Returns the binding and whether this call created it.
+    """
+    existing = await get_whatsapp_channel_binding(user_id)
+    if existing is None:
+        created = await create_whatsapp_channel_binding(
+            user_id=user_id,
+            jvconnect_base_url=jvconnect_base_url,
+            api_key=api_key,
+        )
+        return created, True
+    if not encryption_available():
+        raise RuntimeError(
+            encryption_unavailable_reason() or "INTEGRAL_CREDENTIAL_ENC_KEY is required"
+        )
+    existing.jvconnect_base_url = jvconnect_base_url.rstrip("/")
+    existing.api_key_ciphertext = encrypt_secret_for_storage(api_key, aad=existing.id)
+    existing.api_key_last4 = api_key[-4:] if len(api_key) >= 4 else api_key
+    existing.enabled = False
+    existing.last_error = ""
+    existing.updated_at = utc_now_iso()
+    await existing.save()
+    return existing, False
+
+
 def _public_callback_url(request_base_url: str) -> str:
     from app.config import settings
 

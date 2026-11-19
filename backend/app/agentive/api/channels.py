@@ -479,9 +479,10 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
     from pydantic import ValidationError
 
     from app.agentive.services.whatsapp_channel_binding import (
-        create_whatsapp_channel_binding,
+        get_whatsapp_channel_binding,
         public_binding_view,
         register_saved_whatsapp_channel,
+        save_whatsapp_channel_credentials,
     )
     from app.api.errors import ServiceUnavailableError
     from app.schemas.agentive.whatsapp_channel import SaveWhatsAppChannelBindingRequest
@@ -495,8 +496,10 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
         body = SaveWhatsAppChannelBindingRequest.model_validate(raw or {})
     except ValidationError as exc:
         raise BadRequestError(message=_binding_validation_message(exc)) from exc
+    before_binding = await get_whatsapp_channel_binding(user_id)
+    before = None if before_binding is None else public_binding_view(before_binding)
     try:
-        binding = await create_whatsapp_channel_binding(
+        binding, created = await save_whatsapp_channel_credentials(
             user_id=user_id,
             jvconnect_base_url=body.jvconnect_base_url,
             api_key=body.api_key,
@@ -506,7 +509,6 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
         if "INTEGRAL_CREDENTIAL_ENC_KEY" not in text:
             raise
         raise ServiceUnavailableError(message=text) from exc
-
     binding = await register_saved_whatsapp_channel(
         binding,
         request_base_url=str(request.base_url),
@@ -516,10 +518,14 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="whatsapp_channel_binding.create",
+        action=(
+            "whatsapp_channel_binding.create"
+            if created
+            else "whatsapp_channel_binding.update"
+        ),
         resource_type="WhatsAppChannelBinding",
         resource_id=binding.id,
-        before=None,
+        before=before,
         after=view,
         scope=f"user:{user_id}",
     )
