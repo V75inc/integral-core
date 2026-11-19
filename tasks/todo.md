@@ -200,16 +200,16 @@ Plan: `tasks/plan.md`
 **Description:** Extend Notifications → WhatsApp with a “WhatsApp channel” section for base URL, API key, enable/disable, and status. Keep phone OTP where it is. Do not add a Connectors entry.
 
 **Acceptance criteria:**
-- [ ] The section renders under the existing WhatsApp settings card and uses the current button, text, and card primitives
-- [ ] Save posts the key once; a later GET shows last-4 and webhook status, and the key field is empty
-- [ ] A failed register or a missing public URL shows the server error on the card
-- [ ] Disable calls the binding disable API and updates status without removing the linked phone
-- [ ] The section stays hidden until agentive is enabled, matching the current card
+- [x] The section renders under the existing WhatsApp settings card and uses the current button, text, and card primitives
+- [x] Save posts the key once; a later GET shows last-4 and webhook status, and the key field is empty
+- [x] A failed register or a missing public URL shows the server error on the card
+- [x] Disable calls the binding disable API and updates status without removing the linked phone
+- [x] The section stays hidden until agentive is enabled, matching the current card
 
 **Verification:**
-- [ ] Tests pass: `cd frontend && npm run test:run -- src/components/settings/__tests__/WhatsAppSettings.test.tsx`
-- [ ] Build succeeds: `cd frontend && npm run lint:types`
-- [ ] Manual check: existing OTP tests still pass, and no settings route under Connectors mentions this form
+- [x] Tests pass: `cd frontend && npm run test:run -- src/components/settings/__tests__/WhatsAppSettings.test.tsx`
+- [ ] Build succeeds: `cd frontend && npm run lint:types` (fails in `DocumentTemplateEditor.tsx`, outside this change)
+- [x] Manual check: existing OTP tests still pass, and no settings route under Connectors mentions this form
 
 **Dependencies:** Task 2 (status fields from Task 5 should be visible before calling this done)
 
@@ -225,14 +225,14 @@ Plan: `tasks/plan.md`
 **Description:** Document `PUBLIC_API_BASE_URL` as the API origin jvconnect must reach, and record that Phase 1 chat is specified by the approved spec plus this plan’s provider-id decision.
 
 **Acceptance criteria:**
-- [ ] `.env.example` and `backend/app/config.py` describe `PUBLIC_API_BASE_URL` with an empty default
-- [ ] The ops or platform note states the callback path `/api/agentive/channels/whatsapp/webhook` and that the first successful jvconnect register locks the callback host
-- [ ] The spec header says approved, and it records that the dedicated thread uses `provider_id=integral_native` with `provider_session_id=wa:{e164}`
+- [x] `.env.example` and `backend/app/config.py` describe `PUBLIC_API_BASE_URL` with an empty default
+- [x] The ops or platform note states the callback path `/api/agentive/channels/whatsapp/webhook` and that the first successful jvconnect register locks the callback host
+- [x] The spec header says approved, and it records that the dedicated thread uses `provider_id=integral_native` with `provider_session_id=wa:{e164}`
 
 **Verification:**
-- [ ] Tests pass: no new runtime tests; config import still loads
-- [ ] Build succeeds: `cd backend && uv run python -c "from app.config import settings; assert hasattr(settings, 'PUBLIC_API_BASE_URL')"`
-- [ ] Manual check: docs do not tell the operator to put the jvconnect API key in the environment
+- [x] Tests pass: no new runtime tests; config import still loads
+- [x] Build succeeds: `cd backend && uv run python -c "from app.config import settings; assert hasattr(settings, 'PUBLIC_API_BASE_URL')"`
+- [x] Manual check: docs do not tell the operator to put the jvconnect API key in the environment
 
 **Dependencies:** Task 5
 
@@ -246,7 +246,7 @@ Plan: `tasks/plan.md`
 ## Checkpoint: Complete
 
 - [ ] `cd backend && uv run pytest tests/test_whatsapp_channel_binding.py tests/test_whatsapp_ingress.py tests/test_whatsapp_chat_bridge.py tests/test_jvconnect_whatsapp_client.py -v`
-- [ ] `cd frontend && npm run test:run -- src/components/settings/__tests__/WhatsAppSettings.test.tsx`
-- [ ] `cd frontend && npm run lint:types`
+- [x] `cd frontend && npm run test:run -- src/components/settings/__tests__/WhatsAppSettings.test.tsx`
+- [ ] `cd frontend && npm run lint:types` (pre-existing failure in `DocumentTemplateEditor.tsx`)
 - [ ] `make verify-ci` before push
 - [ ] Human review

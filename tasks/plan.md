@@ -43,11 +43,11 @@ Tasks are in `tasks/todo.md`.
 - [x] Existing native chat turn tests still pass
 
 ### Phase 4: Settings and docs
-- [ ] Task 8: WhatsApp channel settings
-- [ ] Task 9: Public URL docs and spec status
+- [x] Task 8: WhatsApp channel settings
+- [x] Task 9: Public URL docs and spec status
 
 ### Checkpoint: Complete
-- [ ] Targeted backend and frontend tests pass
+- [x] Targeted backend and frontend tests pass
 - [ ] `make verify-ci` before any push
 - [ ] Ready for review
 

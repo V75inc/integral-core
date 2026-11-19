@@ -6,10 +6,30 @@ import {
   listChannelIdentities,
   unlinkChannelIdentity,
   initiateWhatsAppVerification,
-  verifyWhatsAppOtp
+  verifyWhatsAppOtp,
+  getWhatsAppChannelBinding,
+  saveWhatsAppChannelBinding,
+  disableWhatsAppChannelBinding,
+  type WhatsAppChannelBinding,
 } from '../../api/agentive';
+import { Field } from '../../patterns';
 import { Button, IconWell, LINE_ICON_STROKE } from '../ui';
-import { Text } from '../../ui';
+import { Input, Text } from '../../ui';
+
+function responseMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const message = (error as { response?: { data?: { message?: unknown } } }).response?.data?.message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
+}
+
+function withoutSecrets(binding: WhatsAppChannelBinding): WhatsAppChannelBinding {
+  const view = { ...binding } as WhatsAppChannelBinding & { api_key?: string; webhook_secret?: string };
+  delete view.api_key;
+  delete view.webhook_secret;
+  return view;
+}
 
 interface ChannelIdentity {
   id: string;
@@ -32,6 +52,12 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
   const [step, setStep] = useState<'idle' | 'enter_phone' | 'enter_otp'>('idle');
   const [, setPendingIdentityId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [binding, setBinding] = useState<WhatsAppChannelBinding | null>(null);
+  const [bindingReady, setBindingReady] = useState(false);
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [channelError, setChannelError] = useState('');
+  const [channelAction, setChannelAction] = useState<'save' | 'disable' | null>(null);
 
   const loadIdentities = useCallback(async () => {
     if (!enabled) { setLoading(false); return; }
@@ -47,7 +73,22 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
     }
   }, [enabled]);
 
-  useEffect(() => { loadIdentities(); }, [loadIdentities]);
+  const loadBinding = useCallback(async () => {
+    if (!enabled) { setBindingReady(true); return; }
+    try {
+      const res = await getWhatsAppChannelBinding();
+      const next = res?.binding ? withoutSecrets(res.binding) : null;
+      setBinding(next);
+      setChannelError('');
+      setBaseUrl(next?.jvconnect_base_url ?? '');
+    } catch (error: unknown) {
+      setChannelError(responseMessage(error, 'Could not load WhatsApp channel'));
+    } finally {
+      setBindingReady(true);
+    }
+  }, [enabled]);
+
+  useEffect(() => { loadIdentities(); void loadBinding(); }, [loadIdentities, loadBinding]);
 
   const handleInitiate = async () => {
     if (!phone.trim()) { showToast('Enter your WhatsApp phone number', 'error'); return; }
@@ -101,6 +142,52 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
     }
   };
 
+  const handleSaveChannel = async () => {
+    const url = baseUrl.trim();
+    const key = apiKey;
+    if (!url || !key.trim()) {
+      showToast('Enter the jvconnect base URL and API key', 'error');
+      return;
+    }
+    setChannelAction('save');
+    setChannelError('');
+    try {
+      const saved = await saveWhatsAppChannelBinding({ jvconnect_base_url: url, api_key: key });
+      setApiKey('');
+      if (saved?.binding) {
+        const next = withoutSecrets(saved.binding);
+        setBinding(next);
+        setBaseUrl(next.jvconnect_base_url || url);
+      }
+      showToast('WhatsApp channel saved', 'success');
+      await loadBinding();
+    } catch (error: unknown) {
+      const message = responseMessage(error, 'Could not save WhatsApp channel');
+      setChannelError(message);
+      showToast(message, 'error');
+    } finally {
+      setChannelAction(null);
+    }
+  };
+
+  const handleDisableChannel = async () => {
+    if (!binding?.id) return;
+    setChannelAction('disable');
+    setChannelError('');
+    try {
+      const saved = await disableWhatsAppChannelBinding(binding.id);
+      if (saved?.binding) setBinding(withoutSecrets(saved.binding));
+      showToast('WhatsApp channel disabled', 'success');
+      await loadBinding();
+    } catch (error: unknown) {
+      const message = responseMessage(error, 'Could not disable WhatsApp channel');
+      setChannelError(message);
+      showToast(message, 'error');
+    } finally {
+      setChannelAction(null);
+    }
+  };
+
   const handleUnlink = async (id: string) => {
     try {
       await unlinkChannelIdentity(id);
@@ -128,7 +215,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
     );
   }
 
-  if (loading) {
+  if (loading || !bindingReady) {
     return (
       <div className="app-card p-5 flex items-center gap-3">
         <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" />
@@ -137,7 +224,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
     );
   }
 
-  if (loadError) return <div role="alert" className="app-card p-5"><Text as="p" variant="body-sm" tone="danger">Could not load WhatsApp numbers.</Text><Button variant="outline" size="sm" onClick={() => void loadIdentities()}>Try again</Button></div>;
+  if (loadError) return <div role="alert" className="app-card p-5"><Text as="p" variant="body-sm" tone="danger">Could not load WhatsApp numbers.</Text><Button variant="outline" size="sm" onClick={() => { void loadIdentities(); void loadBinding(); }}>Try again</Button></div>;
 
   return (
     <div className="app-card p-5">
@@ -249,6 +336,38 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
           </div>
         </div>
       )}
+
+      <div className="mt-6 space-y-3 border-t border-[var(--panel-border)] pt-4">
+        <Text variant="heading-sm" as="h4">WhatsApp channel</Text>
+        {binding && (
+          <div className="space-y-1">
+            <Text variant="body-sm" tone="muted" as="p">{binding.jvconnect_base_url}</Text>
+            <Text variant="body-sm" tone="muted" as="p">{binding.enabled ? 'Enabled' : 'Disabled'}</Text>
+            <Text variant="body-sm" tone="muted" as="p">{binding.webhook_registered ? 'Webhook registered' : 'Webhook not registered'}</Text>
+            {binding.api_key_last4 ? <Text variant="body-sm" as="p">API key ending in {binding.api_key_last4}</Text> : null}
+            {binding.phone_number_id ? <Text variant="body-sm" as="p">Phone number id {binding.phone_number_id}</Text> : null}
+            {binding.display_phone ? <Text variant="body-sm" as="p">Display phone {binding.display_phone}</Text> : null}
+            {binding.last_error?.trim() ? <Text variant="body-sm" tone="danger" as="p">{binding.last_error}</Text> : null}
+          </div>
+        )}
+        {channelError ? <Text variant="body-sm" tone="danger" as="p" role="alert">{channelError}</Text> : null}
+        <Field label="jvconnect base URL">
+          <Input type="text" value={baseUrl} autoComplete="off" onChange={(event) => setBaseUrl(event.target.value)} />
+        </Field>
+        <Field label="API key">
+          <Input type="password" value={apiKey} autoComplete="new-password" onChange={(event) => setApiKey(event.target.value)} />
+        </Field>
+        <div className="flex gap-2">
+          <Button variant="primary" size="sm" onClick={() => void handleSaveChannel()} loading={channelAction === 'save'} disabled={channelAction !== null}>
+            Save
+          </Button>
+          {binding?.id ? (
+            <Button variant="outline" size="sm" onClick={() => void handleDisableChannel()} loading={channelAction === 'disable'} disabled={channelAction !== null}>
+              Disable
+            </Button>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
