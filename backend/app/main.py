@@ -1526,6 +1526,7 @@ from app.agentive.nodes import (
     Connector,
     ConversationContext,
     RoutineTask,
+    WhatsAppChannelBinding,
 )
 
 for node_cls in (
@@ -1534,6 +1535,7 @@ for node_cls in (
     AgentConfig,
     Connector,
     RoutineTask,
+    WhatsAppChannelBinding,
 ):
     server.add_node_type(node_cls)
 

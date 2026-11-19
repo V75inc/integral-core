@@ -424,3 +424,128 @@ async def verify_link_token(
     )
 
     return result
+
+
+def _require_channel_user(request: Request) -> str:
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    return user_id
+
+
+def _binding_validation_message(exc: Exception) -> str:
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return "Invalid WhatsApp channel binding"
+    details = errors()
+    if not details:
+        return "Invalid WhatsApp channel binding"
+    message = str(details[0].get("msg") or "Invalid WhatsApp channel binding")
+    prefix = "Value error, "
+    if message.startswith(prefix):
+        message = message[len(prefix) :]
+    return message
+
+
+@endpoint(
+    "/agentive/channels/whatsapp/binding",
+    methods=["GET"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def get_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, Any]:
+    """Return this user's WhatsApp channel status. Secrets are omitted."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        get_whatsapp_channel_binding,
+        public_binding_view,
+    )
+
+    user_id = _require_channel_user(request)
+    binding = await get_whatsapp_channel_binding(user_id)
+    return {"binding": None if binding is None else public_binding_view(binding)}
+
+
+@endpoint(
+    "/agentive/channels/whatsapp/binding",
+    methods=["PUT"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, Any]:
+    """Store jvconnect credentials for the caller's personal workspace.
+
+    The channel stays disabled until webhook registration succeeds.
+    """
+    from pydantic import ValidationError
+
+    from app.agentive.services.whatsapp_channel_binding import (
+        create_whatsapp_channel_binding,
+        public_binding_view,
+    )
+    from app.api.errors import ServiceUnavailableError
+    from app.schemas.agentive.whatsapp_channel import SaveWhatsAppChannelBindingRequest
+
+    user_id = _require_channel_user(request)
+    try:
+        raw = await request.json()
+    except Exception as exc:
+        raise BadRequestError(message="Request body must be a JSON object") from exc
+    try:
+        body = SaveWhatsAppChannelBindingRequest.model_validate(raw or {})
+    except ValidationError as exc:
+        raise BadRequestError(message=_binding_validation_message(exc)) from exc
+    try:
+        binding = await create_whatsapp_channel_binding(
+            user_id=user_id,
+            jvconnect_base_url=body.jvconnect_base_url,
+            api_key=body.api_key,
+        )
+    except RuntimeError as exc:
+        text = str(exc)
+        if "INTEGRAL_CREDENTIAL_ENC_KEY" not in text:
+            raise
+        raise ServiceUnavailableError(message=text) from exc
+
+    view = public_binding_view(binding)
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="whatsapp_channel_binding.create",
+        resource_type="WhatsAppChannelBinding",
+        resource_id=binding.id,
+        before=None,
+        after=view,
+        scope=f"user:{user_id}",
+    )
+    return {"binding": view}
+
+
+@endpoint(
+    "/agentive/channels/whatsapp/binding/{binding_id}",
+    methods=["DELETE"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def disable_whatsapp_channel_binding_endpoint(
+    request: Request, binding_id: str
+) -> Dict[str, Any]:
+    """Disable the caller's binding. Other users' bindings look missing."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        disable_whatsapp_channel_binding_for_owner,
+        public_binding_view,
+    )
+
+    user_id = _require_channel_user(request)
+    binding = await disable_whatsapp_channel_binding_for_owner(user_id, binding_id)
+    view = public_binding_view(binding)
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="whatsapp_channel_binding.disable",
+        resource_type="WhatsAppChannelBinding",
+        resource_id=binding.id,
+        before=None,
+        after=view,
+        scope=f"user:{user_id}",
+    )
+    return {"binding": view}
