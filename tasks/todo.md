@@ -144,16 +144,16 @@ Plan: `tasks/plan.md`
 **Description:** Map a verified sender to one native `ChatThread` in the binding’s personal workspace and admit the inbound text through `submit_chat_turn`. Short approval replies reuse the text-approve decision path and skip the harness.
 
 **Acceptance criteria:**
-- [ ] The thread is created with `provider_id="integral_native"`, `workspace_id` from the binding, and `provider_session_id="wa:{e164}"`, and a second inbound reuses it
-- [ ] Agent id follows the same preference-then-catalog resolution as `POST /chat/threads`
-- [ ] A single parsed approval calls `decide_staged_write` with `source="channel"` and does not call `submit_chat_turn`
-- [ ] Other text calls `submit_chat_turn` with `client_request_id` derived from the Meta id hash, then the webhook returns 200 without waiting for the model
-- [ ] The harness is not invoked when the binding is disabled or the identity is unverified
+- [x] The thread is created with `provider_id="integral_native"`, `workspace_id` from the binding, and `provider_session_id="wa:{e164}"`, and a second inbound reuses it
+- [x] Agent id follows the same preference-then-catalog resolution as `POST /chat/threads`
+- [x] A single parsed approval calls `decide_staged_write` with `source="channel"` and does not call `submit_chat_turn`
+- [x] Other text calls `submit_chat_turn` with `client_request_id` derived from the Meta id hash, then the webhook returns 200 without waiting for the model
+- [x] The harness is not invoked when the binding is disabled or the identity is unverified
 
 **Verification:**
-- [ ] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_chat_bridge.py tests/test_whatsapp_ingress.py -v`
-- [ ] Build succeeds: bridge imports `submit_chat_turn` and does not import jvagent
-- [ ] Manual check: test asserts one `submit_chat_turn` call and a 200 response before any mocked model runs
+- [x] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_chat_bridge.py tests/test_whatsapp_ingress.py -v`
+- [x] Build succeeds: bridge imports `submit_chat_turn` and does not import jvagent
+- [x] Manual check: test asserts one `submit_chat_turn` call and a 200 response before any mocked model runs
 
 **Dependencies:** Task 5
 
@@ -169,16 +169,16 @@ Plan: `tasks/plan.md`
 **Description:** After a native chat turn reaches a terminal state, send the committed assistant text to the WhatsApp sender when the thread session id is a WhatsApp session. Delivery failure stays on the inbound receipt.
 
 **Acceptance criteria:**
-- [ ] `_execute_claimed_work` calls the delivery helper only after `_handle_chat_turn` returns
-- [ ] Threads whose `provider_session_id` does not start with `wa:` make no jvconnect call
-- [ ] One succeeded turn produces one text send of the terminal assistant text, with no partial tokens
-- [ ] A send failure leaves the WorkItem status unchanged, records the error on the receipt, and does not send a follow-up WhatsApp error message
-- [ ] An approval confirmation from Task 6 uses the same send helper
+- [x] `_execute_claimed_work` calls the delivery helper only after `_handle_chat_turn` returns
+- [x] Threads whose `provider_session_id` does not start with `wa:` make no jvconnect call
+- [x] One succeeded turn produces one text send of the terminal assistant text, with no partial tokens
+- [x] A send failure leaves the WorkItem status unchanged, records the error on the receipt, and does not send a follow-up WhatsApp error message
+- [x] An approval confirmation from Task 6 uses the same send helper
 
 **Verification:**
-- [ ] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_chat_bridge.py tests/test_ai_chat_work_routes.py -v`
-- [ ] Build succeeds: `cd backend && uv run python -c "import app.agentive.services.work_worker"`
-- [ ] Manual check: a non-WhatsApp fixture in the delivery test records zero client calls
+- [x] Tests pass: `cd backend && uv run pytest tests/test_whatsapp_chat_bridge.py tests/test_ai_chat_work_routes.py -v`
+- [x] Build succeeds: `cd backend && uv run python -c "import app.agentive.services.work_worker"`
+- [x] Manual check: a non-WhatsApp fixture in the delivery test records zero client calls
 
 **Dependencies:** Tasks 3 and 6
 
@@ -191,8 +191,8 @@ Plan: `tasks/plan.md`
 
 ## Checkpoint: After Tasks 6-7
 
-- [ ] Mocked inbound text enqueues one turn and sends one reply
-- [ ] Existing chat-turn route tests pass
+- [x] Mocked inbound text enqueues one turn and sends one reply
+- [x] Existing chat-turn route tests pass
 - [ ] Review with human before Settings UI
 
 ## Task 8: WhatsApp channel settings

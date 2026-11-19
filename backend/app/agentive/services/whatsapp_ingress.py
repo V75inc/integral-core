@@ -179,18 +179,46 @@ def _binding_for_signature(raw_body: bytes, signature: str, candidates: list):
     return None
 
 
-async def _sender_is_verified(sender_id: str) -> bool:
+def _e164(phone: str) -> str:
+    cleaned = phone.strip()
+    if not cleaned:
+        return ""
+    if cleaned.startswith("+"):
+        return cleaned
+    return f"+{cleaned}"
+
+
+async def _verified_sender(sender_id: str) -> dict | None:
     from app.agentive.services.channel_identity import resolve_channel_identity
 
     if not sender_id:
-        return False
+        return None
     resolved = await resolve_channel_identity("whatsapp", sender_id)
-    if resolved:
-        return True
-    if sender_id.startswith("+"):
+    if resolved is None and not sender_id.startswith("+"):
+        resolved = await resolve_channel_identity("whatsapp", f"+{sender_id}")
+    if not resolved:
+        return None
+    return resolved
+
+
+async def _identity_owns_binding(resolved: dict, binding) -> bool:
+    owner = str(getattr(binding, "user_id", "") or "")
+    candidate = str(resolved.get("user_id") or "")
+    if not owner or not candidate:
         return False
-    resolved = await resolve_channel_identity("whatsapp", f"+{sender_id}")
-    return resolved is not None
+    if candidate == owner:
+        return True
+    from app.models.nodes import User
+
+    user = await User.get(candidate)
+    if user is None:
+        matches = await User.find({"context.user_id": candidate})
+        user = matches[0] if matches else None
+    if user is None:
+        return False
+    principal = str(getattr(user, "user_id", "") or "").strip()
+    node_id = str(getattr(user, "id", "") or "")
+    return owner == principal or owner == node_id
 
 
 async def _store_receipt(
@@ -268,16 +296,32 @@ async def _dispatch_verified(binding, envelope) -> dict:
     if envelope.kind == "non_text":
         await _send_notice_and_store(binding, envelope, _TEXT_ONLY_NOTICE, "non_text")
         return {"ok": True}
-    if not await _sender_is_verified(envelope.sender_id):
+    identity = await _verified_sender(envelope.sender_id)
+    if identity is None:
         await _send_notice_and_store(binding, envelope, _LINK_NOTICE, "text")
         return {"ok": True}
-    await _store_receipt(
-        binding.id,
-        envelope.message_id,
-        "text",
-        "accepted",
-        "",
-    )
+    if not await _identity_owns_binding(identity, binding):
+        await _store_receipt(
+            binding.id,
+            envelope.message_id,
+            "text",
+            "accepted",
+            "",
+        )
+        return {"ok": True}
+    e164 = _e164(str(identity.get("channel_user_id") or ""))
+    if not e164:
+        await _store_receipt(
+            binding.id,
+            envelope.message_id,
+            "text",
+            "accepted",
+            "",
+        )
+        return {"ok": True}
+    from app.agentive.services.whatsapp_chat_bridge import admit_owner_whatsapp_text
+
+    await admit_owner_whatsapp_text(binding, envelope, e164=e164)
     return {"ok": True}
 
 

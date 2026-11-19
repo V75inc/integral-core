@@ -35,12 +35,12 @@ Tasks are in `tasks/todo.md`.
 - [x] Forged signatures do not touch the graph; valid non-text and unknown senders do not enqueue a turn
 
 ### Phase 3: Chat bridge
-- [ ] Task 6: Dedicated thread, approval short-circuit, and turn enqueue
-- [ ] Task 7: Terminal reply delivery
+- [x] Task 6: Dedicated thread, approval short-circuit, and turn enqueue
+- [x] Task 7: Terminal reply delivery
 
 ### Checkpoint: Chat bridge
-- [ ] Mocked happy path enqueues one native turn and sends one reply
-- [ ] Existing native chat turn tests still pass
+- [x] Mocked happy path enqueues one native turn and sends one reply
+- [x] Existing native chat turn tests still pass
 
 ### Phase 4: Settings and docs
 - [ ] Task 8: WhatsApp channel settings

@@ -1387,9 +1387,23 @@ async def _execute_claimed_work(
     # send its storage or fencing errors through the generic transition path,
     # which would leave its principal permit and thread reservation stranded.
     if kind == "chat_turn":
-        return await _handle_chat_turn(
+        finished = await _handle_chat_turn(
             item, worker_id=worker_id, lease_seconds=lease_seconds
         )
+        # After the turn transaction commits. A delivery failure stays off
+        # the WorkItem and does not send a second WhatsApp message.
+        try:
+            from app.agentive.services.whatsapp_chat_bridge import (
+                deliver_terminal_whatsapp_reply,
+            )
+
+            await deliver_terminal_whatsapp_reply(finished)
+        except Exception:  # noqa: BLE001 — delivery must not change the WorkItem
+            log.exception(
+                "whatsapp terminal delivery failed for work item %s",
+                getattr(finished, "work_item_id", ""),
+            )
+        return finished
     try:
         if kind == "capability":
             return await _handle_capability(
