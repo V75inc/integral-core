@@ -234,3 +234,93 @@ async def test_public_entries_and_comments_permissions(
     finally:
         if auth_header:
             authenticated_client.headers["Authorization"] = auth_header
+
+
+@pytest.mark.asyncio
+async def test_public_create_link_uses_a_fixed_entry_type(
+    authenticated_client, shared_track_setup
+):
+    from app.models.nodes import EntryType
+
+    track, selected, _ = shared_track_setup
+    other = await EntryType.create(
+        track_id=track.id, name="Other Type", name_fold="other type"
+    )
+    other_track_type = await EntryType.create(
+        track_id="other-track", name="Other Track", name_fold="other track"
+    )
+    settings = f"/api/tracks/{track.id}/public-share"
+    perms = {"read_entries": False, "create_entries": True}
+    body = {"enabled": True, "public_permissions": perms}
+    result = await authenticated_client.post(
+        settings, json={**body, "public_entry_type_id": other_track_type.id}
+    )
+    assert result.status_code == 404
+    assert (await authenticated_client.get(settings)).json()["enabled"] is False
+
+    result = await authenticated_client.post(settings, json=body)
+    assert result.status_code == 200
+    result = await authenticated_client.post(
+        settings, json={**body, "public_entry_type_id": selected.id}
+    )
+    assert result.status_code == 409
+    assert (
+        await authenticated_client.post(settings, json={"enabled": False})
+    ).status_code == 200
+
+    result = await authenticated_client.post(
+        settings, json={**body, "public_entry_type_id": selected.id}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["public_entry_type_id"] == selected.id
+    token = result.json()["token"]
+
+    from app.api.errors import ResourceConflictError
+    from app.services.track_public_share import ensure_public_share_token
+
+    with pytest.raises(ResourceConflictError):
+        await ensure_public_share_token(track=track, actor_user_id=track.owner_id)
+
+    result = await authenticated_client.post(settings, json=body)
+    assert result.status_code == 200
+    assert result.json()["public_entry_type_id"] == selected.id
+    assert (await authenticated_client.get(settings)).json()[
+        "public_entry_type_id"
+    ] == selected.id
+    result = await authenticated_client.post(
+        settings, json={**body, "public_entry_type_id": other.id}
+    )
+    assert result.status_code == 409
+    result = await authenticated_client.post(
+        settings, json={**body, "public_entry_type_id": None}
+    )
+    assert result.status_code == 409
+
+    authenticated_client.headers.pop("Authorization", None)
+    url = f"/api/public-share/track/{token}"
+    result = await authenticated_client.get(url)
+    assert result.status_code == 200, result.text
+    assert result.json()["public_entry_type_id"] == selected.id
+    assert [item["id"] for item in result.json()["entry_types"]] == [selected.id]
+    result = await authenticated_client.post(
+        f"{url}/entries", json={"type_id": other.id, "title": "Other Type"}
+    )
+    assert result.status_code == 404
+    result = await authenticated_client.post(
+        f"{url}/entries",
+        json={
+            "type_id": selected.id,
+            "title": "New Form",
+            "custom_fields": {"priority": "medium"},
+        },
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["entry"]["type_id"] == selected.id
+
+    # If the configured schema is removed, do not fall back to other types.
+    await selected.delete()
+    assert (await authenticated_client.get(url)).status_code == 404
+    result = await authenticated_client.post(
+        f"{url}/entries", json={"type_id": selected.id, "title": "Unavailable Form"}
+    )
+    assert result.status_code == 404

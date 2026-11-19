@@ -874,6 +874,7 @@ class ShareLink(Node):
     role: str = "viewer"  # admin | editor | commenter | viewer (not owner)
     intent: str = "collaborator"  # "collaborator" | "public"
     public_permissions: Dict[str, bool] = Field(default_factory=dict)
+    public_entry_type_id: Optional[str] = None
     public_token: str = ""
     token_hash: str = attribute(
         default="",

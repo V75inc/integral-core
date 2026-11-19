@@ -926,6 +926,15 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             if "goal_semantics" in spec
             else {}
         ),
+        **(
+            {
+                "confirmation": _normalize_form_confirmation(
+                    spec["confirmation"], where=f"entry type '{name}' confirmation"
+                )
+            }
+            if "confirmation" in spec
+            else {}
+        ),
         # Opt-in: a multi-step create flow (region_system's create_wizard
         # primitive) replaces the default single-form create dialog for
         # this entry type. None when unset — every existing entry type's
@@ -934,6 +943,30 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             spec.get("create_wizard"), where=f"entry type '{name}' create_wizard"
         ),
     }
+
+
+def _normalize_form_confirmation(raw: Any, *, where: str) -> Dict[str, Any]:
+    """Normalize optional plain-text confirmation presentation."""
+    spec = _as_dict(raw, where=where)
+    out: Dict[str, Any] = {}
+    for key, limit in (("title", 160), ("message", 2000)):
+        if key not in spec:
+            continue
+        value = spec[key]
+        if not isinstance(value, str) or len(value) > limit:
+            raise BadRequestError(
+                message=f"{where}.{key} must be text up to {limit} characters"
+            )
+        if value.strip():
+            out[key] = value.strip()
+    if "allow_another_response" in spec:
+        value = spec["allow_another_response"]
+        if not isinstance(value, bool):
+            raise BadRequestError(
+                message=f"{where}.allow_another_response must be boolean"
+            )
+        out["allow_another_response"] = value
+    return out
 
 
 def _normalize_canvas(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
@@ -4795,6 +4828,10 @@ def normalize_entry_type_form_schema(
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }
+    if "confirmation" in raw:
+        out["confirmation"] = _normalize_form_confirmation(
+            raw["confirmation"], where="entry_type.form_schema.confirmation"
+        )
     if "search_index" in raw:
         out["search_index"] = _normalize_search_index(raw["search_index"])
     if "task_semantics" in raw:

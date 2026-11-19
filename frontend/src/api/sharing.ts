@@ -127,6 +127,8 @@ export interface PublicOnboardingPolicy {
 }
 
 export interface PublicTrackPayload {
+  /** Server-enforced create-only type binding; absent for legacy shares. */
+  public_entry_type_id?: string | null;
   track: {
     id: string;
     title: string;

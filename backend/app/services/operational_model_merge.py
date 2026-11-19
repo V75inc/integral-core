@@ -128,6 +128,8 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["open_as_page"] = bool(spec.get("open_as_page"))
         if "canvas" not in merged and spec.get("canvas") is not None:
             merged["canvas"] = spec.get("canvas")
+        if "confirmation" not in merged and "confirmation" in spec:
+            merged["confirmation"] = spec["confirmation"]
         if "create_wizard" not in merged and spec.get("create_wizard") is not None:
             merged["create_wizard"] = spec.get("create_wizard")
         if "singleton" not in merged and spec.get("singleton") is not None:
@@ -156,6 +158,8 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         out["open_as_page"] = bool(spec.get("open_as_page"))
     if spec.get("canvas") is not None:
         out["canvas"] = spec.get("canvas")
+    if "confirmation" in spec:
+        out["confirmation"] = spec["confirmation"]
     if spec.get("create_wizard") is not None:
         out["create_wizard"] = spec.get("create_wizard")
     # One-record types (``singleton``): the compiler sets it, and create-time
@@ -235,6 +239,7 @@ def merge_entry_type_schema_from_spec(
         "required_tag_groups",
         "open_as_page",
         "create_wizard",
+        "confirmation",
         "singleton",
     ):
         if key not in desired_schema:
