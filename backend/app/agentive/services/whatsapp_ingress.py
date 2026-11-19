@@ -241,6 +241,29 @@ async def _store_receipt(
     )
 
 
+async def _show_typing(binding, message_id: str) -> None:
+    """Best-effort typing indicator. A failure does not change the reply."""
+    from app.agentive.clients.jvconnect_whatsapp import send_typing_indicator
+
+    if not message_id:
+        return
+    api_key = read_api_key(binding)
+    if not api_key:
+        return
+    try:
+        result = await send_typing_indicator(
+            binding.jvconnect_base_url,
+            api_key,
+            message_id,
+            client=None,
+        )
+    except Exception:
+        logger.warning("whatsapp typing indicator failed")
+        return
+    if not result.ok:
+        logger.info("whatsapp typing indicator not shown")
+
+
 async def _send_notice(binding, to: str, body: str) -> str:
     from app.agentive.clients.jvconnect_whatsapp import send_text
 
@@ -294,10 +317,12 @@ async def _dispatch_verified(binding, envelope) -> dict:
     if existing:
         return {"ok": True}
     if envelope.kind == "non_text":
+        await _show_typing(binding, envelope.message_id)
         await _send_notice_and_store(binding, envelope, _TEXT_ONLY_NOTICE, "non_text")
         return {"ok": True}
     identity = await _verified_sender(envelope.sender_id)
     if identity is None:
+        await _show_typing(binding, envelope.message_id)
         await _send_notice_and_store(binding, envelope, _LINK_NOTICE, "text")
         return {"ok": True}
     if not await _identity_owns_binding(identity, binding):
@@ -321,6 +346,7 @@ async def _dispatch_verified(binding, envelope) -> dict:
         return {"ok": True}
     from app.agentive.services.whatsapp_chat_bridge import admit_owner_whatsapp_text
 
+    await _show_typing(binding, envelope.message_id)
     await admit_owner_whatsapp_text(binding, envelope, e164=e164)
     return {"ok": True}
 

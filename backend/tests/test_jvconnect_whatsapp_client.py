@@ -10,6 +10,7 @@ from app.agentive.clients.jvconnect_whatsapp import (
     fetch_account,
     register_webhook,
     send_text,
+    send_typing_indicator,
 )
 
 pytestmark = pytest.mark.unit
@@ -138,6 +139,37 @@ async def test_send_text_posts_message_wrapper_and_bearer():
             "text": {"body": "Hello from Integral"},
         }
     }
+
+
+@pytest.mark.asyncio
+async def test_send_typing_indicator_marks_the_inbound_message_read(caplog):
+    """Typing uses Meta's read receipt plus a text typing indicator."""
+    caplog.set_level(logging.DEBUG)
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["auth"] = request.headers["Authorization"]
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"success": True})
+
+    async with _client(handler) as client:
+        result = await send_typing_indicator(
+            _BASE, _API_KEY, "wamid.inbound", client=client
+        )
+
+    assert result.ok is True
+    assert captured["auth"] == "Bearer jvk_test"
+    assert captured["body"] == {
+        "message": {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": "wamid.inbound",
+            "typing_indicator": {"type": "text"},
+        }
+    }
+    logged = _logged(caplog)
+    assert _API_KEY not in logged
+    assert "Bearer" not in logged
 
 
 @pytest.mark.asyncio

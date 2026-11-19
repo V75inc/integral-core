@@ -310,7 +310,14 @@ def _raw_payload(payload: dict) -> bytes:
 @pytest.fixture
 def sent_texts(monkeypatch):
     """Capture send_text calls without opening a socket."""
-    calls = []
+
+    class _Calls(list):
+        """Send calls plus typing-indicator calls."""
+
+        typing: list
+
+    calls = _Calls()
+    calls.typing = []
 
     async def fake_send(base_url, api_key, to, body, *, client=None):
         calls.append(
@@ -325,9 +332,25 @@ def sent_texts(monkeypatch):
 
         return JvconnectResult(ok=True, status_code=200, data={}, error="")
 
+    async def fake_typing(base_url, api_key, message_id, *, client=None):
+        calls.typing.append(
+            {
+                "base_url": base_url,
+                "message_id": message_id,
+                "client": client,
+            }
+        )
+        from app.agentive.clients.jvconnect_whatsapp import JvconnectResult
+
+        return JvconnectResult(ok=True, status_code=200, data={}, error="")
+
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.send_text",
         fake_send,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.send_typing_indicator",
+        fake_typing,
     )
     return calls
 
@@ -435,6 +458,7 @@ async def test_repeated_meta_message_id_returns_200_and_sends_once(
     assert [call["body"] for call in sent_texts] == [
         "Link your number in Integral settings"
     ]
+    assert [call["message_id"] for call in sent_texts.typing] == ["wamid.repeat"]
     receipts = await WhatsAppInboundReceipt.find(
         binding_id=(await WhatsAppInboundReceipt.find())[0].binding_id,
         meta_message_id="wamid.repeat",
@@ -476,6 +500,7 @@ async def test_non_text_inbound_stores_receipt_and_sends_text_only_notice(
             "client": None,
         }
     ]
+    assert [call["message_id"] for call in sent_texts.typing] == ["wamid.image"]
     receipts = await WhatsAppInboundReceipt.find(
         binding_id=binding.id, meta_message_id="wamid.image"
     )
@@ -504,6 +529,13 @@ async def test_unknown_sender_sends_link_notice_and_does_not_submit_chat(
     assert response.status_code == 200
     assert [call["body"] for call in sent_texts] == [
         "Link your number in Integral settings"
+    ]
+    assert sent_texts.typing == [
+        {
+            "base_url": "https://connect.example",
+            "message_id": "wamid.unknown",
+            "client": None,
+        }
     ]
     _assert_no_chat_submit()
 
@@ -541,6 +573,7 @@ async def test_verified_text_is_accepted_without_a_reply(
 
     assert response.status_code == 200
     assert sent_texts == []
+    assert sent_texts.typing == []
     receipts = await WhatsAppInboundReceipt.find(
         binding_id=binding.id, meta_message_id="wamid.verified"
     )
@@ -549,6 +582,92 @@ async def test_verified_text_is_accepted_without_a_reply(
     assert receipts[0].kind == "text"
     assert ("whatsapp", "+15551212") in seen
     _assert_no_chat_submit()
+
+
+@pytest.mark.asyncio
+async def test_owner_text_shows_typing_before_the_turn(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """A linked sender sees typing before the chat turn starts."""
+    binding = await _ready_binding(test_user)
+    order = []
+
+    async def resolve(channel, channel_user_id):
+        if channel == "whatsapp" and channel_user_id == "+15551212":
+            return {
+                "user_id": binding.user_id,
+                "channel_user_id": "+15551212",
+            }
+        return None
+
+    async def admit(bound, envelope, *, e164):
+        order.append(("admit", envelope.message_id, e164))
+
+    async def typing(base_url, api_key, message_id, *, client=None):
+        order.append(("typing", message_id))
+        sent_texts.typing.append({"message_id": message_id})
+        from app.agentive.clients.jvconnect_whatsapp import JvconnectResult
+
+        return JvconnectResult(ok=True, status_code=200, data={}, error="")
+
+    monkeypatch.setattr(
+        "app.agentive.services.channel_identity.resolve_channel_identity",
+        resolve,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_chat_bridge.admit_owner_whatsapp_text",
+        admit,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.send_typing_indicator",
+        typing,
+    )
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15551212", message_id="wamid.owner")],
+            phone_number_id=_PHONE,
+        )
+    )
+    signature = _jvconnect_signature(raw, _HOOK_SECRET)
+    response = await _post_webhook(
+        client, raw, signature, header="X-Jvconnect-Signature"
+    )
+
+    assert response.status_code == 200
+    assert order == [("typing", "wamid.owner"), ("admit", "wamid.owner", "+15551212")]
+    assert sent_texts == []
+
+
+@pytest.mark.asyncio
+async def test_typing_failure_still_sends_the_reply(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """A failed typing indicator does not block the notice."""
+
+    async def fail_typing(*args: object, **kwargs: object) -> None:
+        """Typing indicator is unavailable."""
+        raise RuntimeError("typing down")
+
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.send_typing_indicator",
+        fail_typing,
+    )
+    await _ready_binding(test_user)
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15559999", message_id="wamid.typing")],
+            phone_number_id=_PHONE,
+        )
+    )
+    signature = _jvconnect_signature(raw, _HOOK_SECRET)
+    response = await _post_webhook(
+        client, raw, signature, header="X-Jvconnect-Signature"
+    )
+
+    assert response.status_code == 200
+    assert [call["body"] for call in sent_texts] == [
+        "Link your number in Integral settings"
+    ]
 
 
 @pytest.mark.asyncio

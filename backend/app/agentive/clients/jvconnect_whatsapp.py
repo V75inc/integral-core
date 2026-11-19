@@ -206,6 +206,35 @@ async def register_webhook(
     )
 
 
+async def send_typing_indicator(
+    base_url: str,
+    api_key: str,
+    message_id: str,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
+) -> JvconnectResult:
+    """Show the WhatsApp typing indicator for one inbound message.
+
+    Meta shows it after a read receipt on that message id, for about 25
+    seconds or until the next outbound message.
+    """
+    return await _call(
+        "POST",
+        _endpoint(base_url, "messages"),
+        api_key,
+        json_body={
+            "message": {
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": message_id,
+                "typing_indicator": {"type": "text"},
+            }
+        },
+        client=client,
+        operation="typing indicator",
+    )
+
+
 async def send_text(
     base_url: str,
     api_key: str,
