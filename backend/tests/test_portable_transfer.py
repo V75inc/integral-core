@@ -195,7 +195,10 @@ async def test_reject_external_relation_and_wrong_workspace(
     await update_entry_in_track(
         entry_id=first.id, user_id=test_user.id, custom_fields={"related": target.id}
     )
-    with pytest.raises(BadRequestError, match="outside this export"):
+    with pytest.raises(
+        BadRequestError,
+        match=r"outside this export.*Record 'First' field 'related'.*Track 'External'",
+    ):
         await export_resources(
             user_id=test_user.id,
             workspace_id=ws,
@@ -207,6 +210,198 @@ async def test_reject_external_relation_and_wrong_workspace(
             workspace_id="wrong",
             selection=ExportSelection(kind="track", ids=[track.id]),
         )
+
+
+@pytest.mark.asyncio
+async def test_export_strips_deleted_relation_targets(authenticated_client, test_user):
+    from app.services.entry_update import update_entry_in_track
+    from app.services.portable_archive import decode_archive
+
+    ws, app, track, first, second = await fixture(test_user.id)
+    await update_entry_in_track(
+        entry_id=first.id, user_id=test_user.id, custom_fields={"related": second.id}
+    )
+    deleted_id = second.id
+    await second.delete(cascade=False)
+    assert await Entry.get(deleted_id) is None
+
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    raw, _files = decode_archive(data)
+    entries = raw["apps"][0]["tracks"][0]["entries"]
+    by_title = {row["title"]: row for row in entries}
+    assert "Second" not in by_title
+    assert "related" not in (by_title["First"].get("custom_fields") or {})
+
+
+@pytest.mark.asyncio
+async def test_export_names_live_external_app_for_relation(
+    authenticated_client, test_user
+):
+    """Plant a live out-of-App relation (bypass write validation) and require App name."""
+    ws, app, track, first, _ = await fixture(test_user.id)
+    other_app = await create_app_for_user(
+        test_user.id, "Legacy Projects", workspace_id=ws
+    )
+    other = await create_track_in_space(
+        test_user.id, title="Projects", workspace_id=ws, app_id=other_app.id
+    )
+    target = await create_entry_in_track(
+        track=other, user_id=test_user.id, title="Foreign project"
+    )
+    first.custom_fields = {**(first.custom_fields or {}), "related": target.id}
+    await first.save()
+    with pytest.raises(
+        BadRequestError,
+        match=(
+            r"outside this export.*Record 'First' field 'related'.*"
+            r"App 'Legacy Projects' / Track 'Projects'"
+        ),
+    ):
+        await export_resources(
+            user_id=test_user.id,
+            workspace_id=ws,
+            selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_export_refuses_silent_record_loss(authenticated_client, test_user):
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.operational_model_runtime import sync_attached_manifest
+
+    ws, app, track, first, second = await fixture(test_user.id)
+    cp = await get_track_attached_operational_model(track)
+    types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
+    et = types[0]
+    fields = list(et.form_schema.get("fields") or [])
+    for field in fields:
+        if field.get("key") == "related":
+            field["required"] = True
+    et.form_schema = {**et.form_schema, "fields": fields}
+    await et.save()
+    await sync_attached_manifest(cp)
+
+    # Keep First importable (required related → self). Break Second with a deleted id.
+    first.custom_fields = {
+        **(first.custom_fields or {}),
+        "amount": 0,
+        "related": first.id,
+    }
+    await first.save()
+    second.custom_fields = {
+        **(second.custom_fields or {}),
+        "amount": 12.5,
+        "related": "n.Entry.missing-required-target",
+    }
+    await second.save()
+
+    with pytest.raises(BadRequestError, match="missing required relations or files"):
+        await export_resources(
+            user_id=test_user.id,
+            workspace_id=ws,
+            selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_import_skips_entries_missing_required_relation(
+    authenticated_client, test_user, monkeypatch
+):
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.portable_archive import decode_archive
+
+    monkeypatch.setattr(
+        get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
+    )
+    ws, app, track, first, second = await fixture(test_user.id)
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    raw, files = decode_archive(data)
+    # Simulate an older ZIP: require related; First keeps a self-link, Second lacks it.
+    first_ref = next(
+        row["ref"]
+        for row in raw["apps"][0]["tracks"][0]["entries"]
+        if row["title"] == "First"
+    )
+    for et in raw["apps"][0]["tracks"][0]["entry_types"]:
+        for field in et.get("form_schema", {}).get("fields", []):
+            if field.get("key") == "related":
+                field["required"] = True
+    for row in raw["apps"][0]["tracks"][0]["entries"]:
+        if row["title"] == "First":
+            row["custom_fields"]["related"] = first_ref
+        elif row["title"] == "Second":
+            row["custom_fields"].pop("related", None)
+    import hashlib
+    import io
+
+    from PIL import Image
+
+    from app.services.attachment_thumbnails import THUMB_FILENAME
+    from app.services.workspace_storage_usage import get_usage
+
+    image = io.BytesIO()
+    Image.new("RGB", (4, 4), "white").save(image, format="PNG")
+    content = image.getvalue()
+    files["files/skipped-image"] = content
+    skipped = next(
+        row
+        for row in raw["apps"][0]["tracks"][0]["entries"]
+        if row["title"] == "Second"
+    )
+    skipped["attachments"] = [
+        {
+            "ref": "skipped-attachment",
+            "filename": "ordinary.png",
+            "mime_type": "image/png",
+            "source_type": "file",
+            "member": "files/skipped-image",
+            "sha256": hashlib.sha256(content).hexdigest(),
+        }
+    ]
+    storage = get_attachment_storage_service()
+    original_save = storage.save_attachment
+    written = []
+
+    async def record_write(**kwargs):
+        result = await original_save(**kwargs)
+        written.extend(
+            [
+                result["path"],
+                storage.build_sibling_key(
+                    kwargs["entry_id"], kwargs["attachment_id"], THUMB_FILENAME
+                ),
+            ]
+        )
+        return result
+
+    monkeypatch.setattr(storage, "save_attachment", record_write)
+    before_usage = (await get_usage(ws)).bytes_used
+    broken = encode_archive(raw, files)
+    result = await import_resources(user_id=test_user.id, workspace_id=ws, data=broken)
+    assert result["attachments"] == 0
+    assert (await get_usage(ws)).bytes_used == before_usage
+    assert written
+    for key in written:
+        assert await storage.read_attachment(key) is None
+    assert result["entries"] == 1
+    assert result["skipped_entry_count"] == 1
+    assert any("Second" in name for name in result["skipped_entries"])
+    imported = await App.get(result["resource_ids"][0])
+    tracks = await imported.nodes(edge=[CONTAINS], node=["Track"])
+    entries = [
+        e for t in tracks for e in await t.nodes(edge=[CONTAINS], node=["Entry"])
+    ]
+    titles = {e.title for e in entries}
+    assert "First" in titles
+    assert "Second" not in titles
 
 
 @pytest.mark.asyncio
@@ -765,3 +960,86 @@ async def test_multiple_apps_rebind_cross_app_relations_after_name_collisions(
     relation = next(f["relation"] for f in form["fields"] if f["key"] == "related")
     assert relation["resolution"] == f"instance:{copied_provider.id}"
     assert relation["target_app"] == copied_provider.name
+
+
+@pytest.mark.asyncio
+async def test_shared_template_tracks_export_as_distinct_snapshots(test_user):
+    from app.models.edges import HAS_OPERATIONAL_MODEL
+
+    ws, app, first, _, _ = await fixture(test_user.id)
+    second = await create_track_in_space(
+        test_user.id, title="Second use", workspace_id=ws, app_id=app.id
+    )
+    shared = await get_track_attached_operational_model(first)
+    old = await get_track_attached_operational_model(second)
+    for entry_type in await shared.nodes(edge=[CONTAINS], node=["EntryType"]):
+        entry_type.track_id = ""
+        await entry_type.save()
+    await second.disconnect(old)
+    await second.connect(shared, edge=HAS_OPERATIONAL_MODEL)
+    second.attached_operational_model_id = shared.id
+    await second.save()
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(
+            kind="track", ids=[first.id, second.id], mode="configuration"
+        ),
+    )
+    archive, _ = await read_archive(data)
+    assert len({t.model_ref for t in archive.tracks}) == 2
+    assert len({et.ref for t in archive.tracks for et in t.entry_types}) == 2
+    result = await import_resources(user_id=test_user.id, workspace_id=ws, data=data)
+    assert result["tracks"] == 2
+    assert await get_track_attached_operational_model(first) is not None
+
+
+@pytest.mark.asyncio
+async def test_shared_template_materialized_types_round_trip(test_user):
+    from app.models.edges import HAS_OPERATIONAL_MODEL
+    from app.services.entry_type_service import materialize_entry_types_from_tier
+
+    ws, app, first, _, _ = await fixture(test_user.id)
+    second = await create_track_in_space(
+        test_user.id, title="Second use", workspace_id=ws, app_id=app.id
+    )
+    shared = await get_track_attached_operational_model(first)
+    old = await get_track_attached_operational_model(second)
+    # This fixture replaces a blank Track's profile with a shared template;
+    # discard its unused blank-profile type before normal materialization.
+    for entry_type in await old.nodes(edge=[CONTAINS], node=["EntryType"]):
+        await entry_type.delete()
+    for entry_type in await shared.nodes(edge=[CONTAINS], node=["EntryType"]):
+        entry_type.track_id = ""
+        await entry_type.save()
+    await second.disconnect(old)
+    await second.connect(shared, edge=HAS_OPERATIONAL_MODEL)
+    second.attached_operational_model_id = shared.id
+    await second.save()
+    await materialize_entry_types_from_tier(first)
+    second_types = await materialize_entry_types_from_tier(second)
+    await create_entry_in_track(
+        track=second,
+        user_id=test_user.id,
+        title="Materialized record",
+        type_id=second_types[0].id,
+        custom_fields={"amount": 7},
+    )
+
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="track", ids=[first.id, second.id], mode="full"),
+    )
+    archive, _ = await read_archive(data)
+    assert [len(track.entry_types) for track in archive.tracks] == [1, 1]
+    assert len({track.entry_types[0].ref for track in archive.tracks}) == 2
+    for track in archive.tracks:
+        assert all(
+            entry.type_ref == track.entry_types[0].ref for entry in track.entries
+        )
+    result = await import_resources(user_id=test_user.id, workspace_id=ws, data=data)
+    assert result["tracks"] == 2
+    assert result["entries"] == 3
+    copies = [await Track.get(identity) for identity in result["resource_ids"]]
+    assert len({track.attached_operational_model_id for track in copies}) == 2

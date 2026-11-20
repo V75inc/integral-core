@@ -190,6 +190,9 @@ logs.txt
 # Stdio MCP token stores (rotated QuickBooks refresh tokens, etc.)
 backend/.data/
 
+# Portable ZIP import admits domain Apps here (not under backend/app/packages/).
+/packages/apps/
+
 # Local Postgres dumps from scripts/pg_backup.sh (default BACKUP_DIR).
 # Never commit a database dump.
 backups/

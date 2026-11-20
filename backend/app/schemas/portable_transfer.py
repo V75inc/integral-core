@@ -1,9 +1,13 @@
-"""Versioned, data-only App and Track portability contract."""
+"""Versioned App and Track portability contract.
+
+Version 1 is data-only. Version 2 may bind one or more admitted package
+payloads so packaged Apps round-trip with their runtime extensions.
+"""
 
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PortableModel(BaseModel):
@@ -109,16 +113,76 @@ class PortableApp(PortableModel):
     icon: str = ""
     accent_color: str = ""
     manifest: dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    package_slug: str = ""
     tags: list[PortableTag] = Field(default_factory=list)
     dashboards: list[PortableDashboard] = Field(default_factory=list)
     home_composition: dict[str, Any] | None = None
     tracks: list[PortableTrack] = Field(default_factory=list)
 
 
+class PackagePayload(PortableModel):
+    """Admitted package tree carried under package/<slug>/ in a v2 archive."""
+
+    slug: str = Field(
+        min_length=1, max_length=200, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+    )
+    version: str = ""
+    fingerprint: str = Field(min_length=1, max_length=128)
+    member_prefix: str = Field(min_length=1, max_length=300)
+
+
 class PortableArchive(PortableModel):
     format: Literal["integral-portable"] = "integral-portable"
-    version: Literal[1] = 1
+    version: Literal[1, 2] = 1
     mode: Literal["configuration", "full"]
     kind: Literal["app", "track"]
     apps: list[PortableApp] = Field(default_factory=list)
     tracks: list[PortableTrack] = Field(default_factory=list)
+    packages: list[PackagePayload] = Field(default_factory=list)
+    # Legacy singular field from early v2 single-App archives.
+    package: PackagePayload | None = None
+
+    def wire_dict(self) -> dict[str, Any]:
+        """Keep ordinary v1 exports readable by the original strict v1 models."""
+        result = self.model_dump()
+        if self.version == 1:
+            result.pop("package", None)
+            result.pop("packages", None)
+            for app in result["apps"]:
+                app.pop("package_slug", None)
+                app.pop("settings", None)
+        return result
+
+    @model_validator(mode="after")
+    def normalize_packages(self) -> "PortableArchive":
+        packages = list(self.packages or [])
+        if self.package is not None and not packages:
+            packages = [self.package]
+        object.__setattr__(self, "packages", packages)
+        if packages and self.version != 2:
+            raise ValueError("Package payloads require portable archive version 2")
+        if self.version == 2 and not packages:
+            raise ValueError("Version 2 archives require at least one package payload")
+        if packages and self.kind != "app":
+            raise ValueError("Package payloads are only valid for App archives")
+        slugs = [payload.slug for payload in packages]
+        if len(slugs) != len(set(slugs)):
+            raise ValueError("Package payloads must have unique slugs")
+        slug_set = set(slugs)
+        apps = list(self.apps)
+        # Legacy single-App v2 archives omit package_slug; bind the sole package.
+        if len(packages) == 1 and len(apps) == 1 and not apps[0].package_slug:
+            apps = [apps[0].model_copy(update={"package_slug": packages[0].slug})]
+            object.__setattr__(self, "apps", apps)
+        for app in apps:
+            if app.package_slug and app.package_slug not in slug_set:
+                raise ValueError(
+                    f"App {app.name!r} references unknown package_slug {app.package_slug!r}"
+                )
+        # Keep singular package populated for single-package archives (legacy readers).
+        if len(packages) == 1:
+            object.__setattr__(self, "package", packages[0])
+        elif not packages:
+            object.__setattr__(self, "package", None)
+        return self

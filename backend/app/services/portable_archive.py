@@ -17,6 +17,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 from app.api.errors import BadRequestError
 
 FORMAT = "integral-portable"
+SUPPORTED_VERSIONS = frozenset({1, 2})
 VERSION = 1
 MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_FILES = 4096
@@ -32,11 +33,21 @@ def _safe_name(name: str) -> bool:
     )
 
 
+def _allowed_member(name: str) -> bool:
+    return name == "integral.json" or name.startswith(("files/", "package/"))
+
+
 def encode_archive(manifest: dict[str, Any], files: dict[str, bytes]) -> bytes:
     """Encode an archive with a versioned descriptor and optional binary files."""
-    if any(not _safe_name(name) or not name.startswith("files/") for name in files):
+    if any(
+        not _safe_name(name) or not name.startswith(("files/", "package/"))
+        for name in files
+    ):
         raise BadRequestError(message="Invalid portable archive file path")
-    descriptor = {**manifest, "format": FORMAT, "version": VERSION}
+    version = manifest.get("version", VERSION)
+    if type(version) is not int or version not in SUPPORTED_VERSIONS:
+        raise BadRequestError(message="Unsupported portable archive format")
+    descriptor = {**manifest, "format": FORMAT, "version": version}
     try:
         raw = json.dumps(descriptor, ensure_ascii=False, allow_nan=False).encode(
             "utf-8"
@@ -83,10 +94,7 @@ def decode_archive(data: bytes) -> tuple[dict[str, Any], dict[str, bytes]]:
                 or stat.S_ISLNK(m.external_attr >> 16)
                 or bool(m.flag_bits & 1)
                 or not _safe_name(m.filename)
-                or (
-                    m.filename != "integral.json"
-                    and not m.filename.startswith("files/")
-                )
+                or not _allowed_member(m.filename)
                 for m in members
             ):
                 raise BadRequestError(message="Invalid portable archive member")
@@ -114,7 +122,7 @@ def decode_archive(data: bytes) -> tuple[dict[str, Any], dict[str, bytes]]:
                 not isinstance(descriptor, dict)
                 or descriptor.get("format") != FORMAT
                 or type(descriptor.get("version")) is not int
-                or descriptor.get("version") != VERSION
+                or descriptor.get("version") not in SUPPORTED_VERSIONS
             ):
                 raise BadRequestError(message="Unsupported portable archive format")
             return descriptor, {

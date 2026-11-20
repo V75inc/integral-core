@@ -427,7 +427,8 @@ describe('AppManagerDialog', () => {
     await confirmInstall();
     expect(await screen.findByText(/installation result is not confirmed/)).toBeInTheDocument();
     expect(onChanged).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('app-manager-review')).toBeDisabled();
+    // Clearing the selection returns the review panel through a separate effect.
+    expect(await screen.findByTestId('app-manager-review')).toBeDisabled();
     expect(mockBatchInstall).toHaveBeenCalledTimes(1);
   });
 
