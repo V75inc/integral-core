@@ -2,7 +2,7 @@
 
 **Status:** Phase 1 chat is implemented (binding, signed webhook, native thread, reply delivery, settings form in the same change window). The dedicated thread uses `provider_id=integral_native` and `provider_session_id=wa:{e164}` because the native turn worker and text-approve reject any other provider id.  
 **Idea:** [whatsapp-personal-channel.md](whatsapp-personal-channel.md)  
-**Follow-on:** [RESEARCH-pydantic-ai-realtime-voice.md](RESEARCH-pydantic-ai-realtime-voice.md) and [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md). The old voice spike is retired and is not Phase 1 acceptance.
+**Follow-on:** [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md) (not Phase 1 acceptance)
 
 ## Capability map (Phase 0)
 
@@ -45,7 +45,7 @@ A personal-workspace user who has linked and verified their WhatsApp number can 
 ## Tech stack
 
 - Integral Core backend: Python 3.11+, FastAPI via jvspatial `@endpoint`, existing agentive + chat services
-- Frontend: React 18 + TypeScript (extend `WhatsAppSettings` / Notifications settings)
+- Frontend: React 18 + TypeScript (extend `WhatsAppSettings` under Settings → Workspace → WhatsApp)
 - Transport: jvconnect HTTP Messaging API + webhook forwards (same contract as `jvagent` `JvconnectWhatsAppAPI`)
 - Crypto at rest: `app.services.credential_crypto` (same pattern as connector `auth_state`)
 - No jvagent dependency; no LiveKit/jvvoice in Phase 1
@@ -77,7 +77,7 @@ make verify-ci   # before push when substrate-adjacent
 docs/ideas/
   whatsapp-personal-channel.md          # idea one-pager
   SPEC-whatsapp-personal-channel-chat.md # this spec
-  SPIKE-whatsapp-voice-jvvoice.md        # retired; see the research note
+  SPIKE-whatsapp-voice-jvvoice.md        # Phase 2 spike
 
 backend/app/agentive/
   api/channels.py                       # extend: binding CRUD + webhook receive
@@ -131,7 +131,7 @@ In-app UI may list this thread like any other; Phase 1 does not require a specia
 
 ### 4. Settings naming
 
-Keep under existing Notifications / WhatsApp settings surface (`WhatsAppSettings`). Label the new controls **“WhatsApp channel”** (credentials, webhook status, enable/disable). Do **not** add an entry under Settings → Connectors.
+Keep the channel controls on `WhatsAppSettings`, mounted at Settings → Workspace → WhatsApp. Label them **“WhatsApp channel”** (credentials, webhook status, enable/disable). Do **not** add an entry under Settings → Connectors or Your account → Notifications. Notification delivery toggles stay under Notifications and link here to verify a phone.
 
 ## Webhook contract
 
