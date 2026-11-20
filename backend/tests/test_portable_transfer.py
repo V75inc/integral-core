@@ -992,3 +992,54 @@ async def test_shared_template_tracks_export_as_distinct_snapshots(test_user):
     result = await import_resources(user_id=test_user.id, workspace_id=ws, data=data)
     assert result["tracks"] == 2
     assert await get_track_attached_operational_model(first) is not None
+
+
+@pytest.mark.asyncio
+async def test_shared_template_materialized_types_round_trip(test_user):
+    from app.models.edges import HAS_OPERATIONAL_MODEL
+    from app.services.entry_type_service import materialize_entry_types_from_tier
+
+    ws, app, first, _, _ = await fixture(test_user.id)
+    second = await create_track_in_space(
+        test_user.id, title="Second use", workspace_id=ws, app_id=app.id
+    )
+    shared = await get_track_attached_operational_model(first)
+    old = await get_track_attached_operational_model(second)
+    # This fixture replaces a blank Track's profile with a shared template;
+    # discard its unused blank-profile type before normal materialization.
+    for entry_type in await old.nodes(edge=[CONTAINS], node=["EntryType"]):
+        await entry_type.delete()
+    for entry_type in await shared.nodes(edge=[CONTAINS], node=["EntryType"]):
+        entry_type.track_id = ""
+        await entry_type.save()
+    await second.disconnect(old)
+    await second.connect(shared, edge=HAS_OPERATIONAL_MODEL)
+    second.attached_operational_model_id = shared.id
+    await second.save()
+    await materialize_entry_types_from_tier(first)
+    second_types = await materialize_entry_types_from_tier(second)
+    await create_entry_in_track(
+        track=second,
+        user_id=test_user.id,
+        title="Materialized record",
+        type_id=second_types[0].id,
+        custom_fields={"amount": 7},
+    )
+
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="track", ids=[first.id, second.id], mode="full"),
+    )
+    archive, _ = await read_archive(data)
+    assert [len(track.entry_types) for track in archive.tracks] == [1, 1]
+    assert len({track.entry_types[0].ref for track in archive.tracks}) == 2
+    for track in archive.tracks:
+        assert all(
+            entry.type_ref == track.entry_types[0].ref for entry in track.entries
+        )
+    result = await import_resources(user_id=test_user.id, workspace_id=ws, data=data)
+    assert result["tracks"] == 2
+    assert result["entries"] == 3
+    copies = [await Track.get(identity) for identity in result["resource_ids"]]
+    assert len({track.attached_operational_model_id for track in copies}) == 2

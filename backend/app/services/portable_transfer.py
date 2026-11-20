@@ -577,10 +577,40 @@ async def export_resources(
 
         config_refs = dict(tag_refs)
         if await is_shared_track_profile(cp):
+            from app.services.entry_type_resolver import canonical_entry_type_key
+
+            # Shared profiles retain template shells alongside the authoritative
+            # per-Track materializations used by normal entry creation. Export
+            # one definition per key, and map older shell-bound records to it.
+            by_key: dict[str, EntryType] = {}
+            type_aliases = {}
+            seen_type_scopes = set()
+            for entry_type in types:
+                if entry_type.track_id and entry_type.track_id != track.id:
+                    continue
+                key = canonical_entry_type_key(entry_type)
+                scope_key = (key, bool(entry_type.track_id))
+                if scope_key in seen_type_scopes:
+                    raise BadRequestError(
+                        message="Track entry type configuration is ambiguous"
+                    )
+                seen_type_scopes.add(scope_key)
+                previous = by_key.get(key)
+                if previous is None:
+                    by_key[key] = entry_type
+                elif entry_type.track_id:
+                    type_aliases[previous.id] = entry_type.id
+                    by_key[key] = entry_type
+                else:
+                    type_aliases[entry_type.id] = previous.id
+            types = list(by_key.values())
             # Snapshot each selected use of a shared template independently. Its
             # graph IDs cannot be repeated as archive identities across Tracks.
             config_refs.update(
                 {node.id: f"{node.id}:track:{track.id}" for node in [cp, *types, *tags]}
+            )
+            config_refs.update(
+                {source: config_refs[target] for source, target in type_aliases.items()}
             )
             tag_refs.update({tag.id: config_refs[tag.id] for tag in tags})
         views = await _bounded(track, HAS_VIEW, "View")
