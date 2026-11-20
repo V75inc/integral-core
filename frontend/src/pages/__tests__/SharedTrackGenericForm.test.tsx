@@ -11,6 +11,7 @@ vi.mock('../../features/memberAssignedForm/memberAssignedFormApi', () => ({ memb
   load: vi.fn().mockResolvedValue({
     track: { id: 'assigned-track', title: 'Assigned form' },
     public_permissions: { update_entries: true }, views: [], locked: false,
+    public_share_extensions: { form_default_group: 'Personal Details', form_readonly_groups: 'Personal Details', form_prefill_notice: 'Details were provided by the issuing organization.' },
     entry: { id: 'assigned-entry', type_id: 'assigned-type', title: 'Prefilled person', custom_fields: { company: 'Prefilled organization', status: 'draft' } },
     entry_types: [{ id: 'assigned-type', name: 'Form', form_schema: {
       base_fields: { body: { enabled: false } },
@@ -22,6 +23,7 @@ vi.mock('../../api/sharing', () => ({ publicSharingApi: {
   getPublicTrack: vi.fn().mockResolvedValue({
     track: { id: 'demo-track', title: 'Synthetic intake', purpose: '' },
     public_permissions: { create_entries: true, read_entries: false }, views: [],
+    public_share_extensions: { form_hidden_field_keys: 'status', form_hidden_field_prefixes: 'contract_' },
     entry_types: [{ id: 'demo-type', name: 'Application', form_schema: {
       base_fields: { body: { enabled: false } },
       fields: [{ key: 'company', name: 'Company', type: 'text', required: true }, { key: 'status', name: 'Internal status', type: 'text' }, { key: 'contract_internal', name: 'Internal contract', type: 'text' }],
@@ -56,7 +58,7 @@ describe('generic public intake UI', () => {
       <Route path="/me/assigned-form" element={<SharedTrackPage memberFormMode />} />
     </Routes></MemoryRouter>);
     await screen.findByText('Assigned form');
-    expect(screen.getByText(/Personal details are filled in from HR records/)).toBeTruthy();
+    expect(screen.getByText('Details were provided by the issuing organization.')).toBeTruthy();
     expect(screen.getByText('Prefilled person')).toBeTruthy();
     expect(screen.queryAllByRole('textbox').every(input => input.hasAttribute('disabled') || input.hasAttribute('readonly'))).toBe(true);
   });

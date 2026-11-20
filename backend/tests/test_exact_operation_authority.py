@@ -334,13 +334,13 @@ async def test_declared_target_resolver_is_read_only_and_cannot_change_other_pay
         "call_app_tool",
         "call_connector_tool",
         "put_attachment",
-        "clear_pending_onboarding_form_for_user",
+        "clear_member_assigned_form_prompt",
         "upsert_workspace_email_delivery",
         "send_workspace_test_email",
         "send_workspace_transactional_email",
         "esign_vault_save",
         "esign_vault_delete",
-        "esign_contract_decision",
+        "run_host_tool",
     ],
 )
 async def test_service_context_cannot_borrow_human_generic_facade_writes(method):

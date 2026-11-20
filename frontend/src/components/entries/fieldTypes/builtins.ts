@@ -17,7 +17,6 @@
 import { registerFieldType } from './registry';
 import { memberFieldRegistration } from './MemberField';
 import { checklistFieldRegistration } from './ChecklistField';
-import { documentTemplateFieldRegistration } from './DocumentTemplateField';
 
 // The registry's ``Map.set`` is idempotent (re-registering overwrites);
 // this module-load side effect lands ``member`` on first import and is
@@ -25,4 +24,3 @@ import { documentTemplateFieldRegistration } from './DocumentTemplateField';
 // ``_resetFieldTypeRegistryForTests``.
 registerFieldType(memberFieldRegistration);
 registerFieldType(checklistFieldRegistration);
-registerFieldType(documentTemplateFieldRegistration);

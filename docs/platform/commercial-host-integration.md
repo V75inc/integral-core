@@ -154,6 +154,38 @@ host integration APIs, not model tools or permission grants.
 | `register_workspace_export_enricher` | Opaque host fields on workspace exports | Original Core payload |
 | `register_middleware_factory` | Host request middleware; required by default | No host middleware |
 | `register_background_task` | Host reconciliation/task coroutine | No host task |
+| `register_startup_readiness_check` | Assert host-owned installed-state migration/readiness before traffic | No additional host check |
+| `register_server_managed_preference_keys` | Reserve host-owned preference slots from ordinary client writes/projections | Only Core-owned reserved keys apply |
+| `register_host_tool` | Bind an exact installed bundle/write-tool dispatch to host implementation | No host implementation |
+| `register_signature_vault_provider` | Provide actor-scoped list/save/delete through the host's chosen storage/tool implementation | Core's personal vault remains available |
+
+### App-neutral ownership and cutover
+
+`APP_BOUNDARY_CUTOVER_REQUIRED` identifies the host interface requiring installed
+state qualification. Owning hosts migrate and verify their historical metadata,
+prompt slots and stored handler references before startup. Readiness callbacks
+must return `None` or raise; a failure aborts startup rather than becoming a
+best-effort background task. Core carries no named-App compatibility fallback.
+An absent host cannot qualify a stale installation belonging to that host.
+
+Host tool bindings are exact `(bundle_slug, tool_key)` registrations. Invocation
+requires the currently registered spec, the same live human context, workspace,
+write-tool scope, task and payload selected by the normal tool dispatcher. A
+registration is not new authorization or a route around staging. Business logic
+and additional resource checks stay in the host.
+
+Signature vault providers receive operation (`list`, `save`, `delete`), resolved
+workspace, authenticated actor ID and payload. Core checks result shape (list,
+dict or bool respectively). Only explicit absence (`None`) selects Core storage;
+denied/unavailable workspace resolution, provider failure or malformed output
+must propagate without cross-scope fallback. Hosts bind their concrete installed
+tool identities; Core does not know those names. Public download and mutation
+routes share current actor/workspace admission and existing signature ownership.
+
+Frontend host routes/navigation and form presentation are described in
+[App-owned form behavior](../architecture/form-host-contract.md). Qualify the
+same immutable Core artifact in generic and host configurations, including
+installed-state upgrade, dismissal persistence, restart and paired rollback.
 
 ### Operator-configured evidence for bounded text requests
 

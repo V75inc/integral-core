@@ -63,7 +63,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           node_destroy_check nodes_len_drift_check \
           core_no_app_import_check core_packages_only_check contracts_boundary_check
 GUARDS += module_boundary_check
-GUARDS += module_import_cycle_check
+GUARDS += module_import_cycle_check app_boundary_guard
 
 .PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts verify-distribution test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc capability-map
@@ -216,7 +216,7 @@ test-postgres-ci:
 		tests/test_mailbox_verification.py tests/test_member_provision_verified_mailbox.py \
 		tests/test_public_submission_capability.py tests/test_public_submission_capability_routes.py \
 		tests/test_verified_mailbox_activation_retry.py tests/test_password_reset.py \
-		tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py tests/test_install_seed_authority.py \
+		tests/test_entry_relation_admission_regressions.py tests/test_signature_vault_provider.py tests/test_public_form_access_policy.py tests/test_host_tool_binding.py tests/test_install_seed_authority.py \
 		tests/test_native_entry_counts_postgres.py tests/test_permission_decision_cost.py \
 		tests/test_app_passage_candidates.py \
 		tests/test_resource_metadata_index.py tests/test_resource_metadata_scale.py \

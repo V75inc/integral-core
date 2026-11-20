@@ -2,13 +2,15 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CreateWorkspaceModal } from './CreateWorkspaceModal';
-const mocks = vi.hoisted(() => ({ create: vi.fn(), toast: vi.fn() }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), toast: vi.fn(), navigate: vi.fn(), setScope: vi.fn() }));
 vi.mock('../../api/workspaces', async importOriginal => ({ ...await importOriginal<typeof import('../../api/workspaces')>(), workspacesApi: { create: mocks.create } }));
 vi.mock('../../api/operationalModels', () => ({ operationalModelsApi: { list: async () => [{ id: 'library-1', name: 'Example App', manifest: {} }] } }));
 vi.mock('../apps/appBundleMatching', () => ({ filterAppScopedLibraryPackages: (rows: unknown[]) => rows, extractPackageMeta: () => ({ name: 'Example App', description: '', slug: 'example' }) }));
 vi.mock('../../lib/operationalModelManifest', () => ({ summarizeLibraryManifest: () => ({ prescribedTrackCount: 1, skillCount: 1, agentCount: 0 }) }));
 vi.mock('../../context/ToastContext', () => ({ useToast: () => ({ showToast: mocks.toast }) }));
-afterEach(() => { cleanup(); mocks.create.mockReset(); mocks.toast.mockReset(); });
+vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.navigate }));
+vi.mock('../../context/ScopeContext', () => ({ useScope: () => ({ setScope: mocks.setScope }) }));
+afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 async function create(provisioning: unknown) {
   const onClose = vi.fn(); const onCreated = vi.fn();
@@ -39,6 +41,18 @@ describe('workspace provisioning feedback', () => {
     expect(screen.getByText(/1 Apps installed · 1 failed · 1 need settings/)).toBeVisible();
     expect(screen.getByText(/Creating another workspace is not required/)).toBeVisible();
     expect(callbacks.onCreated).not.toHaveBeenCalled();
+  });
+  it('opens app setup in the just-created workspace on request', async () => {
+    const callbacks = await create({ installed: 1, failed: 0, awaiting_settings: 1 });
+    const finish = await screen.findByRole('button', { name: 'Finish app setup' });
+    expect(mocks.setScope).not.toHaveBeenCalled();
+    fireEvent.click(finish);
+    expect(mocks.setScope).toHaveBeenCalledWith({ workspaceId: 'new-workspace' });
+    expect(callbacks.onCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'new-workspace' }), 'manage-apps',
+    );
+    await vi.waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('/apps?manage=1'));
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
   it('closes the unchanged successful install flow', async () => {
     const callbacks = await create({ installed: 1, failed: 0, awaiting_settings: 0 });

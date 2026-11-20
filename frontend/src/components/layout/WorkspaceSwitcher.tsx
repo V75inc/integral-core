@@ -209,7 +209,7 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
     <CreateWorkspaceModal
       open={createOpen}
       onClose={() => setCreateOpen(false)}
-      onCreated={async (created) => {
+      onCreated={async (created, destination) => {
         qc.setQueryData<Workspace[]>(['workspaces'], old => {
           const list = old ?? [];
           return list.some(w => w.id === created.id)
@@ -217,8 +217,10 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
             : [...list, { ...created, your_role: created.your_role ?? 'owner' }];
         });
         void invalidateWorkspaceListCaches(qc);
-        setScope({ workspaceId: created.id });
-        navigate(`/workspaces/${created.id}`);
+        if (destination !== 'manage-apps') {
+          setScope({ workspaceId: created.id });
+          navigate(`/workspaces/${created.id}`);
+        }
       }}
     />
   );

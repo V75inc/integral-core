@@ -3,7 +3,6 @@
 POST /api/tracks/{track_id}/public-share
 GET /api/tracks/{track_id}/public-share
 GET /api/public-share/track/{token}
-GET /api/public-share/track/{token}/apply
 GET /api/public-share/track/{token}/entries
 POST /api/public-share/track/{token}/entries
 PATCH /api/public-share/track/{token}/entries/{entry_id}
@@ -59,14 +58,15 @@ from app.services.entry_context import (
 )
 from app.services.entry_create import create_entry_in_track
 from app.services.entry_type_service import materialize_entry_types_from_tier
-from app.services.onboarding_form_public import partition_server_managed_custom_fields
-from app.services.operational_model_entry_fields import resolve_entry_type_spec
 from app.services.operational_model_runtime import (
     resolve_track_runtime_profile,
     validate_and_materialize_entry_custom_fields,
 )
 from app.services.pagination import build_paginated_response, node_key
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.public_share_form_extensions import (
+    authenticated_only_entry_type_keys,
+)
 from app.services.public_submission_capability import (
     PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD,
     public_submission_capability_required,
@@ -127,17 +127,7 @@ async def _resolve_fixed_public_entry_type(track: Track, type_id: str) -> EntryT
     entry_type = await EntryType.get(type_id)
     if not entry_type or entry_type.track_id != track.id or entry_type.is_template:
         raise ResourceNotFoundError(message="Entry type not found on this track")
-    declaration = await declared_public_share(track, strict=True) or {}
-    private_keys = (declaration.get("extensions") or {}).get(
-        "authenticated_only_entry_type_keys", ()
-    )
-    if isinstance(private_keys, str):
-        private_keys = private_keys.split(",")
-    _reject_legacy_private_type(entry_type)
-    if _entry_type_slug(entry_type) in {_slugify_key(key) for key in private_keys}:
-        raise InsufficientPermissionsError(
-            message="Entry type requires authentication."
-        )
+    await _require_public_entry_type(entry_type, track)
     return entry_type
 
 
@@ -531,6 +521,10 @@ async def get_public_track(request: Request, token: str) -> Dict[str, Any]:
         if perms.get("create_entries") or perms.get("update_entries"):
             await materialize_entry_types_from_tier(track)
         entry_types = await EntryType.find({"context.track_id": track.id})
+        private_keys = await _private_public_form_keys(track)
+        entry_types = [
+            et for et in entry_types if _may_publish_entry_type(et, private_keys)
+        ]
     entry_types_export = [await export_node(et) for et in entry_types]
 
     workspace_data = None
@@ -569,63 +563,6 @@ def _entry_type_slug(entry_type: Optional[EntryType]) -> str:
     return _slugify_key(str(getattr(entry_type, "name", "") or ""))
 
 
-async def _public_opening_apply_snapshot(entry: Entry) -> Dict[str, Any]:
-    cf = dict(entry.custom_fields or {})
-    body = str(entry.body or "").strip()
-    return {
-        "id": str(entry.id),
-        "title": str(entry.title or "").strip(),
-        "body": body,
-        "description": body,
-        "salary_range": str(cf.get("salary_range") or "").strip(),
-        "status": str(cf.get("status") or "open").strip().lower(),
-    }
-
-
-@endpoint(
-    "/public-share/track/{token}/apply",
-    methods=["GET"],
-    auth=False,
-    tags=["Shares"],
-)
-async def get_public_track_apply_context(
-    request: Request, token: str
-) -> Dict[str, Any]:
-    """Opening details for anonymous job applications (description lives on entry body)."""
-    opening_id = str(request.query_params.get("opening") or "").strip()
-    if not opening_id:
-        raise BadRequestError(message="opening query parameter is required")
-
-    link = await _resolve_public_track_link(token)
-    perms = dict(link.public_permissions or {})
-    if not perms.get("create_entries"):
-        raise InsufficientPermissionsError(message="Public applications are disabled.")
-
-    track = await Track.get(link.resource_id)
-    if not track:
-        raise ResourceNotFoundError(message="Shared track not found")
-
-    entry = await Entry.get(opening_id)
-    if not entry or str(entry.track_id or "") != str(track.id):
-        raise ResourceNotFoundError(message="Job opening not found")
-
-    await _require_public_entry_capability(request, link=link, track=track, entry=entry)
-
-    entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-    if _entry_type_slug(entry_type) != "opening":
-        raise ResourceNotFoundError(message="Job opening not found")
-
-    cf = dict(entry.custom_fields or {})
-    status = str(cf.get("status") or "open").strip().lower()
-    if status != "open":
-        raise BadRequestError(message="This job opening is not accepting applications.")
-
-    return {
-        "opening": await _public_opening_apply_snapshot(entry),
-        "message": "Apply context retrieved successfully",
-    }
-
-
 @endpoint(
     "/public-share/track/{token}/entries", methods=["GET"], auth=False, tags=["Shares"]
 )
@@ -655,6 +592,8 @@ async def get_public_track_entries(
         for e in entries
         if e.status == "active" and not await public_submission_capability_required(e)
     ]
+
+    entries = await _filter_public_entry_types(entries, [track])
 
     from app.services.entry_search import filter_entries_by_query
 
@@ -726,8 +665,9 @@ async def get_public_track_relation_options(
         entry_type = await _resolve_fixed_public_entry_type(track, entry_type_id)
     else:
         entry_type = await EntryType.get(entry_type_id)
-    if not entry_type or entry_type.track_id != track.id:
-        raise ResourceNotFoundError(message="Entry type not found on this track")
+        if not entry_type or entry_type.track_id != track.id:
+            raise ResourceNotFoundError(message="Entry type not found on this track")
+        await _require_public_entry_type(entry_type, track)
 
     fields = (entry_type.form_schema or {}).get("fields") or []
     field = next((f for f in fields if f.get("key") == field_key), None)
@@ -774,6 +714,7 @@ async def get_public_track_relation_options(
     track_titles = {t.id: (t.title or "") for t in candidate_tracks}
 
     candidates = await Entry.find({"context.track_id": {"$in": candidate_track_ids}})
+    candidates = await _filter_public_entry_types(candidates, candidate_tracks)
     targets: List[Dict[str, Any]] = []
     for e in candidates[:200]:
         if await public_submission_capability_required(e):
@@ -824,6 +765,8 @@ async def create_public_track_entry(request: Request, token: str) -> Dict[str, A
     if not entry_type or entry_type.track_id != track.id:
         raise ResourceNotFoundError(message="Entry type not found on this track")
 
+    await _require_public_entry_type(entry_type, track)
+
     entry = await create_entry_in_track(
         track=track,
         user_id="public",
@@ -844,24 +787,57 @@ async def create_public_track_entry(request: Request, token: str) -> Dict[str, A
     return {"entry": entry_data, "message": "Entry created successfully"}
 
 
-async def _reject_public_onboarding_form_entry(entry: Entry) -> None:
-    """Employee onboarding forms are authenticated-only, not public share."""
-    entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-    _reject_legacy_private_type(entry_type)
+async def _private_public_form_keys(track: Track) -> frozenset[str]:
+    declared = await authenticated_only_entry_type_keys(track)
+    return frozenset(_slugify_key(k) for k in declared)
 
 
-def _reject_legacy_private_type(entry_type: Optional[EntryType]) -> None:
-    if entry_type is None:
-        return
-    et_slug = _entry_type_slug(entry_type)
-    if et_slug == "onboarding_form":
+def _may_publish_entry_type(
+    entry_type: Optional[EntryType], private_keys: frozenset[str]
+) -> bool:
+    return bool(entry_type and _entry_type_slug(entry_type) not in private_keys)
+
+
+async def _filter_public_entry_types(
+    entries: List[Entry], tracks: List[Track]
+) -> List[Entry]:
+    """Resolve private entry types before search, pages or option limits."""
+    keys_by_track = {t.id: await _private_public_form_keys(t) for t in tracks}
+    type_ids = {e.type_id for e in entries if e.type_id}
+    types = await EntryType.find({"id": {"$in": sorted(type_ids)}}) if type_ids else []
+    types_by_id = {t.id: t for t in types}
+    return [
+        e
+        for e in entries
+        if e.track_id in keys_by_track
+        and (
+            not e.type_id
+            or _may_publish_entry_type(
+                types_by_id.get(e.type_id), keys_by_track[e.track_id]
+            )
+        )
+    ]
+
+
+async def _require_public_entry_type(
+    entry_type: Optional[EntryType], track: Track
+) -> None:
+    if not _may_publish_entry_type(entry_type, await _private_public_form_keys(track)):
         raise InsufficientPermissionsError(
-            message="Employee onboarding forms require sign-in. Open the link from your onboarding prompt after logging in."
+            message="This form requires sign-in. Open the link from your assigned form prompt after logging in."
         )
 
 
+async def _reject_private_form_entry(entry: Entry, track: Track) -> None:
+    """Enforce published entry-type visibility policy on an existing entry."""
+    if not entry.type_id:
+        return  # A plain record has no form policy.
+    entry_type = await EntryType.get(entry.type_id)
+    await _require_public_entry_type(entry_type, track)
+
+
 async def _public_share_form_entry(token: str, entry_id: str) -> tuple:
-    """Resolve share link + track + entry for assigned onboarding form uploads."""
+    """Resolve the public share, track and entry for form uploads."""
     link = await _resolve_public_track_link(token)
     perms = dict(link.public_permissions or {})
     track = await Track.get(link.resource_id)
@@ -870,7 +846,7 @@ async def _public_share_form_entry(token: str, entry_id: str) -> tuple:
     entry = await Entry.get(entry_id)
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
-    await _reject_public_onboarding_form_entry(entry)
+    await _reject_private_form_entry(entry, track)
     _require_fixed_type_match(link, entry.type_id)
     if link.public_entry_type_id is not None:
         await _resolve_fixed_public_entry_type(track, link.public_entry_type_id)
@@ -907,22 +883,10 @@ async def get_public_track_entry(
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
     await _require_public_entry_capability(request, link=link, track=track, entry=entry)
-    await _reject_public_onboarding_form_entry(entry)
+    await _reject_private_form_entry(entry, track)
 
-    entry_type = await EntryType.get(entry.type_id)
     entry_data = await export_node(entry)
     await attach_author_exports([entry_data])
-    et_slug = _slugify_key(str(getattr(entry_type, "name", "") or ""))
-    manifest_key = str(
-        (getattr(entry_type, "form_schema", None) or {}).get("_manifest_entry_type_key")
-        or ""
-    ).strip()
-    if manifest_key:
-        et_slug = _slugify_key(manifest_key)
-    if et_slug == "onboarding_form":
-        from app.services.onboarding_form_prefill import enrich_onboarding_form_export
-
-        entry_data = await enrich_onboarding_form_export(entry, entry_data)
     return {"entry": entry_data, "message": "Entry retrieved successfully"}
 
 
@@ -1016,7 +980,7 @@ async def update_public_track_entry(
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
     await _require_public_entry_capability(request, link=link, track=track, entry=entry)
-    await _reject_public_onboarding_form_entry(entry)
+    await _reject_private_form_entry(entry, track)
 
     raw = await request.json()
     req = PublicEntryUpdateRequest.model_validate(raw)
@@ -1104,42 +1068,6 @@ async def update_public_track_entry(
             if key != PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD
         }
         merged_cfs = {**entry_cfs, **requested_cfs}
-        preserved_cfs: Dict[str, Any] = {}
-        et_slug = _slugify_key(
-            str(
-                (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-                or entry_type.name
-                or ""
-            )
-        )
-        if et_slug == "onboarding_form":
-            if "employee" in entry_cfs:
-                merged_cfs["employee"] = entry_cfs["employee"]
-            incoming_status = (
-                str(req.custom_fields.get("status") or "").strip().lower()
-                if req.custom_fields
-                else ""
-            )
-            current_status = str(entry_cfs.get("status") or "draft").strip().lower()
-            if incoming_status == "submitted" and current_status in (
-                "draft",
-                "rejected",
-            ):
-                merged_cfs["status"] = "submitted"
-            elif "status" in entry_cfs:
-                merged_cfs["status"] = entry_cfs["status"]
-            spec = resolve_entry_type_spec(entry_type, runtime_tier)
-            allowed_keys = {
-                str((f or {}).get("key") or "")
-                for f in (spec.get("fields") or [])
-                if isinstance(f, dict)
-            }
-            editable_cfs, preserved_cfs = partition_server_managed_custom_fields(
-                entry_type_slug=et_slug,
-                merged_custom_fields=merged_cfs,
-                allowed_keys=allowed_keys,
-            )
-            merged_cfs = editable_cfs
         validated_cfs, relation_refs = (
             await validate_and_materialize_entry_custom_fields(
                 track=track,
@@ -1152,28 +1080,12 @@ async def update_public_track_entry(
                 source_entry_title=entry.title,
             )
         )
-        if et_slug == "onboarding_form" and preserved_cfs:
-            validated_cfs = {**validated_cfs, **preserved_cfs}
         if capability_required:
             validated_cfs[PUBLIC_SUBMISSION_CAPABILITY_REQUIRED_FIELD] = True
         entry.custom_fields = validated_cfs
         from app.services.operational_model_runtime import sync_relation_edges
 
         await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
-
-    et_slug_save = _slugify_key(
-        str(
-            (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-            or entry_type.name
-            or ""
-        )
-    )
-    if et_slug_save == "onboarding_form":
-        from app.services.onboarding_form_prefill import (
-            materialize_employee_prefill_on_form,
-        )
-
-        await materialize_employee_prefill_on_form(entry)
 
     entry.record_revision = current_record_revision + 1
     entry.schema_revision = current_schema_revision
@@ -1194,11 +1106,6 @@ async def update_public_track_entry(
     await _reembed_entry(entry)
 
     entry_data = await export_node(entry)
-    if et_slug_save == "onboarding_form":
-        from app.services.onboarding_form_prefill import enrich_onboarding_form_export
-
-        entry_data = await enrich_onboarding_form_export(entry, entry_data)
-
     await emit_change_event(
         actor_kind="human",
         actor_id="public",
@@ -1237,6 +1144,7 @@ async def get_public_track_entry_comments(
         raise ResourceNotFoundError(message="Entry not found on this track")
 
     await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+    await _reject_private_form_entry(entry, track)
 
     comments = await entry.nodes(edge=["HAS_COMMENT"], node=["Comment"])
     items = [await export_node(c) for c in comments]
@@ -1270,6 +1178,7 @@ async def create_public_track_entry_comment(
         raise ResourceNotFoundError(message="Entry not found on this track")
 
     await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+    await _reject_private_form_entry(entry, track)
 
     raw = await request.json()
     req = PublicCommentCreateRequest.model_validate(raw)
@@ -1332,6 +1241,7 @@ async def add_public_track_entry_reaction(
         raise ResourceNotFoundError(message="Entry not found on this track")
 
     await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+    await _reject_private_form_entry(entry, track)
 
     raw = await request.json()
     req = PublicReactionCreateRequest.model_validate(raw)
@@ -1397,6 +1307,7 @@ async def remove_public_track_entry_reaction(
         raise ResourceNotFoundError(message="Entry not found on this track")
 
     await _require_public_entry_capability(request, link=link, track=track, entry=entry)
+    await _reject_private_form_entry(entry, track)
 
     prior_snapshot = await export_node(entry)
 

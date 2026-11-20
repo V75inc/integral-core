@@ -44,7 +44,7 @@ def collect_signature_blocks(
             return
         if node.get("type") == "signaturePlaceholder":
             attrs = node.get("attrs") or {}
-            role = str(attrs.get("role") or "employee_signature").strip()
+            role = str(attrs.get("role") or "signature").strip()
             mode = str(attrs.get("mode") or "runtime").strip().lower()
             block_key = (role, mode)
             if not role or block_key in seen:
@@ -77,9 +77,9 @@ def collect_signature_blocks(
     if not blocks:
         return [
             {
-                "role": "employee_signature",
+                "role": "signature",
                 "mode": "runtime",
-                "label": "Employee Signature",
+                "label": "Signature",
                 "width": 220.0,
                 "height": 48.0,
                 "embedded_png_b64": "",
@@ -735,9 +735,9 @@ def runtime_signature_places(places: List[Dict[str, Any]]) -> List[Dict[str, Any
 def pick_runtime_sign_place(
     places: List[Dict[str, Any]],
     *,
-    preferred_roles: tuple[str, ...] = ("employee_signature", "signature"),
+    preferred_roles: tuple[str, ...] = ("signature",),
 ) -> Optional[Dict[str, Any]]:
-    """Choose the employee/runtime block for onboarding accept — not My signature."""
+    """Choose a preferred runtime signature place, not a pre-embedded mark."""
     runtime = runtime_signature_places(places)
     for role in preferred_roles:
         match = next((p for p in runtime if str(p.get("role") or "") == role), None)

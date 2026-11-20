@@ -5,6 +5,11 @@ import type { SavedView } from '../../../types';
 
 const mockToolsCall = vi.fn();
 const mockShowToast = vi.fn();
+const mockCreate = vi.fn();
+vi.mock('../../../api', () => ({
+  entriesApi: { create: (...args: unknown[]) => mockCreate(...args) },
+  entryTypesApi: { list: async () => [{id:'type',name:'Record',form_schema:{}}] },
+}));
 
 vi.mock('../../../api/tools', () => ({
   toolsApi: { call: (key: string, input: Record<string, unknown>) => mockToolsCall(key, input) },
@@ -316,5 +321,23 @@ describe('ActionBarWidget — greyed-out steps', () => {
     renderSteps('approved');
     expect(screen.getByText('Mark as reviewed').closest('button')).toBeDisabled();
     expect(screen.getByText('Mark as paid').closest('button')).toBeEnabled();
+  });
+});
+
+
+describe('App-declared import rows', () => {
+  it('imports only explicitly eligible rows, without domain identifiers', async () => {
+    mockCreate.mockResolvedValue({id:'created'});
+    mockToolsCall.mockResolvedValue({output:{rows:[
+      {importable:true,custom_fields:{code:'A'}},
+      {importable:false,custom_fields:{code:'B'}},
+      {employee_id:'legacy',custom_fields:{code:'C'}},
+      {importable:'true',custom_fields:{code:'D'}},
+    ],unresolved_count:0}});
+    render(<ActionBarWidget view={view([{key:'import',label:'Import',tool:'import_records'}])} entries={[]} isLoading={false} onEntryOpen={noop} />);
+    fireEvent.click(screen.getByText('Import'));
+    await waitFor(()=>expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(mockCreate.mock.calls[0][0].custom_fields).toEqual({code:'A'});
+    await waitFor(()=>expect(mockShowToast).toHaveBeenCalledWith('Import: imported 1 row(s), 3 skipped (not eligible for import)','error'));
   });
 });

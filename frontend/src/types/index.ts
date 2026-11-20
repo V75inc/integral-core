@@ -23,10 +23,8 @@ export interface User {
   onboarded_at?: string | null;
   /** True when the account was provisioned with a temporary password. */
   must_change_password?: boolean;
-  /** HR hire flow — public onboarding form the member must complete. */
+  /** Host-provided authenticated assignment for this member. */
   pending_assigned_form?: { url: string } | null;
-  /** @deprecated use pending_assigned_form */
-  pending_onboarding_form?: { url: string } | null;
   /** False until the user completes email verification. Non-blocking — the
    *  app shows a banner but doesn't gate login on this flag. */
   email_verified?: boolean;
@@ -478,7 +476,7 @@ export interface CreateWizardPeriodOption {
 export interface CreateWizardConfig {
   steps: CreateWizardStep[];
   on_create_tool: string;
-  on_create_ids_param: string;
+  on_create_ids_param?: string;
 }
 
 export interface DeclarativeViewConfig {

@@ -45,7 +45,8 @@ export function fieldTypeRegistryVersion(): number {
 /**
  * Resolve a field spec to a registered renderer (or null).
  *
- * - Direct hit on ``field.type`` wins.
+ * - Explicit ``field.config.renderer`` selects a required installed renderer.
+ * - Otherwise a direct hit on ``field.type`` wins.
  * - Otherwise, if ``field.composite.base`` resolves to a registered type,
  *   the base's renderer is returned.
  * - Returns null when neither applies; the caller falls back to the
@@ -54,6 +55,13 @@ export function fieldTypeRegistryVersion(): number {
 export function resolveFieldType(
   field: OperationalModelFieldSpec
 ): FieldTypeRegistration | null {
+  // Explicit presentation override preserves the underlying schema/storage type.
+  const renderer = typeof field.config?.renderer === 'string' ? field.config.renderer.trim() : '';
+  if (renderer) {
+    const registration = REGISTRY.get(renderer);
+    if (!registration) throw new Error(`Configured field renderer unavailable: ${renderer}`);
+    return registration;
+  }
   const direct = REGISTRY.get(field.type);
   if (direct) return direct;
   const compositeBase = field.composite?.base;

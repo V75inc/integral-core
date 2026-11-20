@@ -256,7 +256,7 @@ def overlay_signature_png(
     png_bytes: bytes,
     places: List[Dict[str, Any]],
     *,
-    role: str = "employee_signature",
+    role: str = "signature",
 ) -> bytes:
     """Stamp ``png_bytes`` onto ``pdf_bytes`` at the matching runtime place only."""
     if not png_bytes:

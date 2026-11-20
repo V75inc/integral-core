@@ -79,7 +79,7 @@ _PROTECTED_PREFERENCE_KEYS = frozenset(
         "reset_token",
         "email_verification",
         "must_change_password",
-        "pending_onboarding_form",
+        "pending_assigned_form",
         "credentials_delivery",
         "credentials_delivery_released",
     }
@@ -89,7 +89,10 @@ _PROTECTED_PREFERENCE_KEYS = frozenset(
 def _scrub_sensitive_preferences(prefs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not prefs:
         return {}
-    return {k: v for k, v in prefs.items() if k not in _SENSITIVE_PREFERENCE_KEYS}
+    from app.services.host_hooks import server_managed_preference_keys
+
+    hidden = _SENSITIVE_PREFERENCE_KEYS | server_managed_preference_keys()
+    return {k: v for k, v in prefs.items() if k not in hidden}
 
 
 async def _self_user_view(user: User) -> Dict[str, Any]:
@@ -139,12 +142,19 @@ async def _self_user_view(user: User) -> Dict[str, Any]:
     return user_data
 
 
+def _protected_preference_keys() -> frozenset[str]:
+    from app.services.host_hooks import server_managed_preference_keys
+
+    return _PROTECTED_PREFERENCE_KEYS | server_managed_preference_keys()
+
+
 def _merge_user_preferences(
     existing: Optional[Dict[str, Any]], patch: Dict[str, Any]
 ) -> Dict[str, Any]:
     merged = dict(existing or {})
+    protected = _protected_preference_keys()
     for key, value in patch.items():
-        if key in _PROTECTED_PREFERENCE_KEYS:
+        if key in protected:
             continue
         merged[key] = value
     return merged
@@ -157,16 +167,11 @@ def _attach_must_change_password(user: User, user_data: Dict[str, Any]) -> None:
 
 
 def _attach_pending_assigned_form(user: User, user_data: Dict[str, Any]) -> None:
-    from app.services.onboarding_prompt import pending_onboarding_form_view
+    from app.services.assigned_form_prompt import pending_assigned_form_view
 
-    view = pending_onboarding_form_view(user)
+    view = pending_assigned_form_view(user)
     if view:
         user_data["pending_assigned_form"] = view
-        user_data["pending_onboarding_form"] = view
-
-
-def _attach_pending_onboarding_form(user: User, user_data: Dict[str, Any]) -> None:
-    _attach_pending_assigned_form(user, user_data)
 
 
 def _get_auth_service() -> AuthenticationService:
@@ -279,7 +284,7 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
 
     await _enrich_from_auth_user(user, user_data)
     _attach_must_change_password(user, user_data)
-    _attach_pending_onboarding_form(user, user_data)
+    _attach_pending_assigned_form(user, user_data)
     return {"user": user_data, "message": "User retrieved successfully"}
 
 
@@ -333,7 +338,7 @@ async def update_profile(
 
     await _enrich_from_auth_user(user, user_data)
     _attach_must_change_password(user, user_data)
-    _attach_pending_onboarding_form(user, user_data)
+    _attach_pending_assigned_form(user, user_data)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -494,7 +499,7 @@ async def register_user(request: Request) -> Dict[str, Any]:
     user_data = await _self_user_view(user_node)
     await _enrich_from_auth_user(user_node, user_data)
     _attach_must_change_password(user_node, user_data)
-    _attach_pending_onboarding_form(user_node, user_data)
+    _attach_pending_assigned_form(user_node, user_data)
     user_data["name"] = body.name
     user_data["email"] = body.email
 
@@ -744,9 +749,9 @@ async def _complete_pending_assigned_form(uid: str) -> Dict[str, Any]:
     if not user:
         raise ResourceNotFoundError(message="User not found")
 
-    from app.services.onboarding_prompt import clear_pending_onboarding_form
+    from app.services.assigned_form_prompt import clear_pending_assigned_form
 
-    cleared = await clear_pending_onboarding_form(user)
+    cleared = await clear_pending_assigned_form(user)
     if cleared:
         user.updated_at = utc_now_iso()
         await user.save()
@@ -772,20 +777,6 @@ async def _complete_pending_assigned_form(uid: str) -> Dict[str, Any]:
 )
 async def complete_assigned_form(request: Request) -> Dict[str, Any]:
     """Clear a pending assigned-form prompt for the signed-in user."""
-    uid = resolve_principal_id(request)
-    if not uid:
-        raise MissingAuthenticationError(message="Authentication required")
-    return await _complete_pending_assigned_form(uid)
-
-
-@endpoint(
-    "/auth/complete-onboarding-form",
-    methods=["POST"],
-    auth=True,
-    tags=["Auth"],
-)
-async def complete_onboarding_form(request: Request) -> Dict[str, Any]:
-    """Legacy shim — use ``/auth/complete-assigned-form``."""
     uid = resolve_principal_id(request)
     if not uid:
         raise MissingAuthenticationError(message="Authentication required")

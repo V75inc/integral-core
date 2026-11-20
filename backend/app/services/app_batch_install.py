@@ -51,7 +51,9 @@ import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.api.errors import BadRequestError, JVSpatialAPIException
+from app.exceptions import OperationalModelValidationError
 from app.models.nodes import App, OperationalModel
+from app.services.app_install import validate_settings_against_schema
 from app.services.app_lifecycle import install_app
 from app.services.operational_model_compile import slug_manifest_key
 from app.services.operational_model_runtime import compile_canonical_manifest
@@ -159,6 +161,24 @@ def default_settings_for_canonical(canonical: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _settings_for_automatic_install(
+    canonical: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """Use defaults unless the installer still needs to supply required settings."""
+    defaults = default_settings_for_canonical(canonical)
+    schema = (canonical.get("app") or {}).get("settings_schema") or {}
+    try:
+        validate_settings_against_schema(defaults, schema)
+    except OperationalModelValidationError as exc:
+        if (exc.details or {}).get("validator") == "required":
+            # None means: supply nothing and let the lifecycle issue the usual
+            # signed setup token. An empty/partial mapping attempts activation.
+            return None
+        # Leave malformed schemas and invalid defaults to the ordinary lifecycle
+        # validation and per-app failure reporting. Do not silently accept them.
+    return defaults
+
+
 async def default_settings_for_library_model(library_cp_id: str) -> Dict[str, Any]:
     """The declared defaults of a library App, for an install that sends no settings.
 
@@ -256,8 +276,8 @@ async def batch_install(
     ``resolve_dependencies`` — auto-pull each item's hard app dependencies from
     the library catalog (so the caller need not hand-pick prerequisites).
     ``use_default_settings`` — for any item WITHOUT explicit ``settings``, fill
-    the bundle's ``settings_schema`` defaults so the app activates immediately
-    instead of pausing at ``awaiting_settings``. Both default off (the Manage
+    the bundle's ``settings_schema`` defaults if they supply the required fields;
+    otherwise leave the usual ``awaiting_settings`` flow available. Both default off (the Manage
     Apps dialog opts into dependency resolution only; the create wizard opts
     into both).
     """
@@ -297,9 +317,7 @@ async def batch_install(
         )
         item_settings = raw.get("settings")
         if item_settings is None and use_default_settings:
-            # Activate immediately with the schema's declared defaults instead
-            # of pausing at awaiting_settings (auto-pulled deps included).
-            item_settings = default_settings_for_canonical(canonical)
+            item_settings = _settings_for_automatic_install(canonical)
         loaded[lib_id] = {
             "cp": cp,
             "canonical": canonical,
