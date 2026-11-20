@@ -88,6 +88,7 @@ See [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat
 - Phase 1 chat spec: [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md)
 - Phase 2 voice spike: [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md)
 - Realtime voice research (18–19 Nov 2026): [RESEARCH-pydantic-ai-realtime-voice.md](RESEARCH-pydantic-ai-realtime-voice.md)
+- Realtime voice broker spec (draft): [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md)
 
 ## Status
 

@@ -4,7 +4,7 @@
 **Status:** Planning and test only. No live calling and no production enablement.
 **Source card:** [Pydantic AI realtime research and prototype direction](https://planner.cloud.microsoft/ui/web/plan/vGeDOHx9mUWOt37fjKxit2UACae2/view/board/task/p5F-NeI-m0KvotiFBD64emUAC05d?tid=1229a998-708d-402a-ba72-b5dccc4506f2) (18 November 2026)
 **Stack checked:** `pydantic-ai-slim==2.59.0` and `pydantic-ai-harness==0.59.0` in `backend/pyproject.toml`
-**Related:** [whatsapp-personal-channel.md](whatsapp-personal-channel.md), [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md), [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md)
+**Related:** [whatsapp-personal-channel.md](whatsapp-personal-channel.md), [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md), [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md), [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md)
 
 Prices are vendor list prices gathered on 19 November 2026. They exclude tax, regional uplifts, cached-input discounts, tool calls, and the cost of a growing conversation. Confirm the linked pricing pages before budgeting a prototype.
 
