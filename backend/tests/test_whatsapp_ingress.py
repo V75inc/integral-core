@@ -544,7 +544,7 @@ async def test_unknown_sender_sends_link_notice_and_does_not_submit_chat(
 async def test_verified_text_is_accepted_without_a_reply(
     enc_key, test_user, client, sent_texts, monkeypatch
 ):
-    """A verified text sender is stored as accepted and gets no reply."""
+    """A verified sender who is not a member is refused and does not chat."""
     from app.models.whatsapp_inbound import WhatsAppInboundReceipt
 
     binding = await _ready_binding(test_user)
@@ -572,13 +572,15 @@ async def test_verified_text_is_accepted_without_a_reply(
     )
 
     assert response.status_code == 200
-    assert sent_texts == []
-    assert sent_texts.typing == []
+    assert [call["body"] for call in sent_texts] == [
+        "This number isn't a member of a workspace on this WhatsApp line."
+    ]
+    assert [call["message_id"] for call in sent_texts.typing] == ["wamid.verified"]
     receipts = await WhatsAppInboundReceipt.find(
         binding_id=binding.id, meta_message_id="wamid.verified"
     )
     assert len(receipts) == 1
-    assert receipts[0].status == "accepted"
+    assert receipts[0].status == "notice_sent"
     assert receipts[0].kind == "text"
     assert ("whatsapp", "+15551212") in seen
     _assert_no_chat_submit()
@@ -600,7 +602,7 @@ async def test_owner_text_shows_typing_before_the_turn(
             }
         return None
 
-    async def admit(bound, envelope, *, e164):
+    async def admit(bound, envelope, *, e164, user_id="", workspace_id=""):
         order.append(("admit", envelope.message_id, e164))
 
     async def typing(base_url, api_key, message_id, *, client=None):

@@ -29,6 +29,14 @@ class HasWhatsAppChannelBinding(Edge):
     bidirectional: bool = False
 
 
+class UsesWhatsAppLine(Edge):
+    """Workspace → WhatsAppChannelBinding (this workspace may use the line)."""
+
+    attached_by: str = ""
+    attached_at: Optional[str] = None
+    bidirectional: bool = False
+
+
 class HasChannelIdentity(Edge):
     """User → ChannelIdentity (external channel linkages)."""
 
@@ -136,6 +144,7 @@ class Owns(Edge):
 
 # Backward-compatible aliases for existing imports/usages.
 HAS_WHATSAPP_CHANNEL_BINDING = HasWhatsAppChannelBinding
+USES_WHATSAPP_LINE = UsesWhatsAppLine
 HAS_CHANNEL_IDENTITY = HasChannelIdentity
 HAS_INTEGRAL_CONTEXT = HasIntegralContext
 HAS_AGENT_CONFIG = HasAgentConfig

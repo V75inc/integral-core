@@ -472,14 +472,20 @@ def _binding_validation_message(exc: Exception) -> str:
     tags=["Agentive"],
 )
 async def get_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, Any]:
-    """Return this user's WhatsApp channel status. Secrets are omitted."""
+    """Return the active workspace's WhatsApp line. Secrets are omitted."""
     from app.agentive.services.whatsapp_channel_binding import (
-        get_whatsapp_channel_binding,
+        binding_for_workspace,
         public_binding_view,
     )
+    from app.services.request_scope import resolve_workspace_id_from_request
 
     user_id = _require_channel_user(request)
-    binding = await get_whatsapp_channel_binding(user_id)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    binding = (
+        None
+        if not workspace_id
+        else await binding_for_workspace(workspace_id)
+    )
     return {"binding": None if binding is None else public_binding_view(binding)}
 
 
@@ -490,22 +496,25 @@ async def get_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, A
     tags=["Agentive"],
 )
 async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, Any]:
-    """Store jvconnect credentials for the caller's personal workspace.
+    """Attach the active workspace to the jvconnect line for this API key.
 
     The channel stays disabled until webhook registration succeeds.
     """
     from pydantic import ValidationError
 
     from app.agentive.services.whatsapp_channel_binding import (
-        get_whatsapp_channel_binding,
+        binding_for_workspace,
         public_binding_view,
-        register_saved_whatsapp_channel,
         save_whatsapp_channel_credentials,
     )
     from app.api.errors import ServiceUnavailableError
     from app.schemas.agentive.whatsapp_channel import SaveWhatsAppChannelBindingRequest
+    from app.services.request_scope import resolve_workspace_id_from_request
 
     user_id = _require_channel_user(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise BadRequestError(message="A workspace is required")
     try:
         raw = await request.json()
     except Exception as exc:
@@ -514,24 +523,21 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
         body = SaveWhatsAppChannelBindingRequest.model_validate(raw or {})
     except ValidationError as exc:
         raise BadRequestError(message=_binding_validation_message(exc)) from exc
-    before_binding = await get_whatsapp_channel_binding(user_id)
+    before_binding = await binding_for_workspace(workspace_id)
     before = None if before_binding is None else public_binding_view(before_binding)
     try:
         binding, created = await save_whatsapp_channel_credentials(
             user_id=user_id,
+            workspace_id=workspace_id,
             jvconnect_base_url=body.jvconnect_base_url,
             api_key=body.api_key,
+            request_base_url=str(request.base_url),
         )
     except RuntimeError as exc:
         text = str(exc)
         if "INTEGRAL_CREDENTIAL_ENC_KEY" not in text:
             raise
         raise ServiceUnavailableError(message=text) from exc
-    binding = await register_saved_whatsapp_channel(
-        binding,
-        request_base_url=str(request.base_url),
-        client=None,
-    )
     view = public_binding_view(binding)
     await emit_change_event(
         actor_kind="human",
@@ -559,14 +565,20 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
 async def disable_whatsapp_channel_binding_endpoint(
     request: Request, binding_id: str
 ) -> Dict[str, Any]:
-    """Disable the caller's binding. Other users' bindings look missing."""
+    """Disconnect the active workspace. The last grant disables the line."""
     from app.agentive.services.whatsapp_channel_binding import (
-        disable_whatsapp_channel_binding_for_owner,
+        disconnect_workspace_whatsapp_line,
         public_binding_view,
     )
+    from app.services.request_scope import resolve_workspace_id_from_request
 
     user_id = _require_channel_user(request)
-    binding = await disable_whatsapp_channel_binding_for_owner(user_id, binding_id)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise BadRequestError(message="A workspace is required")
+    binding = await disconnect_workspace_whatsapp_line(
+        user_id, workspace_id, binding_id
+    )
     view = public_binding_view(binding)
     await emit_change_event(
         actor_kind="human",

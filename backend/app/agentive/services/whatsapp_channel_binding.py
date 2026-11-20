@@ -1,8 +1,8 @@
-"""Personal WhatsApp channel binding: encrypted jvconnect credentials.
+"""WhatsApp channel binding: one jvconnect line, many workspace grants.
 
-The binding is user-owned and scoped to that user's personal workspace.
-Ciphertext is bound to the binding id (GCM AAD). Public reads go through
-``public_binding_view``.
+The binding is rooted on the user who first saved the key. Each workspace
+that may use the line has a ``UsesWhatsAppLine`` edge. Ciphertext is bound
+to the binding id (GCM AAD). Public reads go through ``public_binding_view``.
 """
 
 from __future__ import annotations
@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from app.agentive.edges import HAS_WHATSAPP_CHANNEL_BINDING
+from app.agentive.edges import HAS_WHATSAPP_CHANNEL_BINDING, USES_WHATSAPP_LINE
 from app.agentive.nodes import WhatsAppChannelBinding
-from app.api.errors import ResourceConflictError, ResourceNotFoundError
+from app.api.errors import InsufficientPermissionsError, ResourceNotFoundError
 from app.services.credential_crypto import (
     decrypt_secret_from_storage,
     encrypt_secret_for_storage,
@@ -52,23 +52,119 @@ def read_webhook_secret(binding: WhatsAppChannelBinding) -> str:
     )
 
 
-async def _require_owner(user_id: str):
+async def _require_user(user_id: str):
     from app.services.permissions import get_user_node
-    from app.services.personal_workspace import ensure_personal_workspace
 
     user = await get_user_node(user_id)
     if user is None:
         raise ResourceNotFoundError(message="User not found")
-    workspace = await ensure_personal_workspace(user)
-    return user, workspace
+    return user
+
+
+async def _workspace_node(workspace_id: str):
+    from app.models.nodes import Workspace
+
+    workspace = await Workspace.get(workspace_id)
+    if workspace is None:
+        raise ResourceNotFoundError(message="Workspace not found")
+    return workspace
 
 
 async def get_whatsapp_channel_binding(
     user_id: str,
 ) -> WhatsAppChannelBinding | None:
-    """Return the caller's binding, or None when they have not saved one."""
+    """Return a binding this user registered, or None."""
     found = await WhatsAppChannelBinding.find(user_id=user_id)
     return found[0] if found else None
+
+
+async def granted_workspace_ids(binding: WhatsAppChannelBinding) -> list[str]:
+    """Workspaces that currently hold a grant on this line."""
+    workspaces = await binding.nodes(
+        edge=[USES_WHATSAPP_LINE],
+        direction="in",
+        node=["Workspace"],
+        limit=50,
+    )
+    return [workspace.id for workspace in workspaces]
+
+
+async def binding_for_workspace(workspace_id: str) -> WhatsAppChannelBinding | None:
+    """Return the line granted to this workspace, if any."""
+    from app.models.nodes import Workspace
+
+    workspace = await Workspace.get(workspace_id)
+    if workspace is None:
+        return None
+    lines = await workspace.nodes(
+        edge=[USES_WHATSAPP_LINE],
+        direction="out",
+        node=["WhatsAppChannelBinding"],
+        limit=5,
+    )
+    return lines[0] if lines else None
+
+
+async def _revoke_grant(workspace, binding: WhatsAppChannelBinding) -> None:
+    context = await workspace.get_context()
+    edges = await context.find_edges_between(
+        workspace.id, binding.id, edge_class=USES_WHATSAPP_LINE
+    )
+    for edge in edges:
+        await edge.delete()
+
+
+async def grant_whatsapp_line(
+    workspace_id: str, binding: WhatsAppChannelBinding, user_id: str
+) -> None:
+    """Attach this workspace to the line. A workspace keeps one line."""
+    workspace = await _workspace_node(workspace_id)
+    current = await workspace.nodes(
+        edge=[USES_WHATSAPP_LINE],
+        direction="out",
+        node=["WhatsAppChannelBinding"],
+        limit=5,
+    )
+    for other in current:
+        if other.id == binding.id:
+            continue
+        await _revoke_grant(workspace, other)
+        if not await granted_workspace_ids(other):
+            other.enabled = False
+            other.updated_at = utc_now_iso()
+            await other.save()
+    linked = await workspace.nodes(
+        edge=[USES_WHATSAPP_LINE],
+        direction="out",
+        node=["WhatsAppChannelBinding"],
+        limit=5,
+    )
+    if any(node.id == binding.id for node in linked):
+        return
+    await workspace.connect(
+        binding,
+        edge=USES_WHATSAPP_LINE,
+        attached_by=user_id,
+        attached_at=utc_now_iso(),
+    )
+
+
+def _store_api_key(
+    binding: WhatsAppChannelBinding, base_url: str, api_key: str
+) -> None:
+    binding.jvconnect_base_url = base_url.rstrip("/")
+    binding.api_key_ciphertext = encrypt_secret_for_storage(api_key, aad=binding.id)
+    binding.api_key_last4 = api_key[-4:] if len(api_key) >= 4 else api_key
+    binding.updated_at = utc_now_iso()
+
+
+async def _require_line_admin(user_id: str, workspace_id: str) -> None:
+    from app.services.workspace_permissions import is_workspace_admin_or_owner
+
+    if not await is_workspace_admin_or_owner(user_id, workspace_id):
+        raise InsufficientPermissionsError(
+            message="Only workspace owners and admins can manage WhatsApp"
+        )
 
 
 async def create_whatsapp_channel_binding(
@@ -76,19 +172,20 @@ async def create_whatsapp_channel_binding(
     user_id: str,
     jvconnect_base_url: str,
     api_key: str,
+    workspace_id: str = "",
 ) -> WhatsAppChannelBinding:
-    """Create one binding and wire it to the user in the same call."""
+    """Create one binding, root it on the user, and grant one workspace."""
     if not encryption_available():
         raise RuntimeError(
             encryption_unavailable_reason() or "INTEGRAL_CREDENTIAL_ENC_KEY is required"
         )
-    existing = await get_whatsapp_channel_binding(user_id)
-    if existing is not None:
-        raise ResourceConflictError(
-            message="WhatsApp channel is already configured for this user"
-        )
+    user = await _require_user(user_id)
+    if workspace_id:
+        workspace = await _workspace_node(workspace_id)
+    else:
+        from app.services.personal_workspace import ensure_personal_workspace
 
-    user, workspace = await _require_owner(user_id)
+        workspace = await ensure_personal_workspace(user)
     now = utc_now_iso()
     binding = await WhatsAppChannelBinding.create(
         user_id=user_id,
@@ -110,9 +207,8 @@ async def create_whatsapp_channel_binding(
             edge=HAS_WHATSAPP_CHANNEL_BINDING,
             created_at=now,
         )
-        binding.api_key_ciphertext = encrypt_secret_for_storage(api_key, aad=binding.id)
-        binding.api_key_last4 = api_key[-4:] if len(api_key) >= 4 else api_key
-        binding.updated_at = utc_now_iso()
+        await grant_whatsapp_line(workspace.id, binding, user_id)
+        _store_api_key(binding, jvconnect_base_url, api_key)
         await binding.save()
     except Exception:
         logger.warning(
@@ -130,37 +226,89 @@ async def create_whatsapp_channel_binding(
     return binding
 
 
+async def _binding_for_phone(phone: str) -> WhatsAppChannelBinding | None:
+    found = await WhatsAppChannelBinding.find(phone_number_id=phone)
+    for binding in found:
+        if binding.phone_number_id == phone:
+            return binding
+    return None
+
+
 async def save_whatsapp_channel_credentials(
     *,
     user_id: str,
+    workspace_id: str,
     jvconnect_base_url: str,
     api_key: str,
+    request_base_url: str,
+    client: Optional[Any] = None,
 ) -> tuple[WhatsAppChannelBinding, bool]:
-    """Create the user's binding, or replace credentials on the existing one.
+    """Attach the active workspace to the jvconnect line this key controls.
 
-    A second Save retries webhook registration instead of creating another row.
-    Returns the binding and whether this call created it.
+    The same phone id reuses the existing registration. A different phone
+    creates a line. Returns the binding and whether this call created it.
     """
-    existing = await get_whatsapp_channel_binding(user_id)
-    if existing is None:
-        created = await create_whatsapp_channel_binding(
-            user_id=user_id,
-            jvconnect_base_url=jvconnect_base_url,
-            api_key=api_key,
-        )
-        return created, True
+    await _require_line_admin(user_id, workspace_id)
     if not encryption_available():
         raise RuntimeError(
             encryption_unavailable_reason() or "INTEGRAL_CREDENTIAL_ENC_KEY is required"
         )
-    existing.jvconnect_base_url = jvconnect_base_url.rstrip("/")
-    existing.api_key_ciphertext = encrypt_secret_for_storage(api_key, aad=existing.id)
-    existing.api_key_last4 = api_key[-4:] if len(api_key) >= 4 else api_key
-    existing.enabled = False
-    existing.last_error = ""
-    existing.updated_at = utc_now_iso()
-    await existing.save()
-    return existing, False
+    from app.agentive.clients.jvconnect_whatsapp import fetch_account
+
+    account = await fetch_account(
+        jvconnect_base_url.rstrip("/"), api_key, client=client
+    )
+    phone = ""
+    display = ""
+    if account.ok:
+        raw_phone = account.data.get("phone_number_id")
+        if isinstance(raw_phone, str) and raw_phone.strip():
+            phone = raw_phone.strip()
+        raw_display = account.data.get("display_phone_number")
+        if isinstance(raw_display, str):
+            display = raw_display.strip()
+    if phone:
+        existing = await _binding_for_phone(phone)
+        if existing is not None:
+            _store_api_key(existing, jvconnect_base_url, api_key)
+            if display:
+                existing.display_phone = display
+            existing.last_error = ""
+            await existing.save()
+            await grant_whatsapp_line(workspace_id, existing, user_id)
+            if existing.enabled and existing.webhook_secret_ciphertext:
+                return existing, False
+            registered = await register_saved_whatsapp_channel(
+                existing, request_base_url=request_base_url, client=client
+            )
+            return registered, False
+    current = await binding_for_workspace(workspace_id)
+    created = False
+    if (
+        phone
+        and current is not None
+        and current.phone_number_id
+        and current.phone_number_id != phone
+    ):
+        current = None
+    if current is None:
+        binding = await create_whatsapp_channel_binding(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            jvconnect_base_url=jvconnect_base_url,
+            api_key=api_key,
+        )
+        created = True
+    else:
+        _store_api_key(current, jvconnect_base_url, api_key)
+        current.enabled = False
+        current.last_error = ""
+        await current.save()
+        binding = current
+    registered = await register_saved_whatsapp_channel(
+        binding, request_base_url=request_base_url, client=client
+    )
+    return registered, created
 
 
 def _public_callback_url(request_base_url: str) -> str:
@@ -225,17 +373,6 @@ async def register_saved_whatsapp_channel(
     display = account.data.get("display_phone_number")
     display_phone = display.strip() if isinstance(display, str) else ""
 
-    others = await WhatsAppChannelBinding.find(phone_number_id=phone)
-    for other in others:
-        if other.id != binding.id and other.user_id != binding.user_id:
-            await _disable_with_error(
-                binding,
-                "This WhatsApp number is already linked to another user",
-            )
-            raise ResourceConflictError(
-                message="This WhatsApp number is already linked to another user"
-            )
-
     callback = _public_callback_url(request_base_url)
     if not callback:
         return await _disable_with_error(binding, "PUBLIC_API_BASE_URL is required")
@@ -290,14 +427,21 @@ async def disable_whatsapp_channel_binding(user_id: str) -> WhatsAppChannelBindi
     return binding
 
 
-async def disable_whatsapp_channel_binding_for_owner(
-    user_id: str, binding_id: str
+async def disconnect_workspace_whatsapp_line(
+    user_id: str, workspace_id: str, binding_id: str
 ) -> WhatsAppChannelBinding:
-    """Disable one binding. Another user's id is indistinguishable from a miss."""
+    """Remove this workspace's grant. The last grant disables the line."""
+    await _require_line_admin(user_id, workspace_id)
     binding = await WhatsAppChannelBinding.get(binding_id)
-    if binding is None or binding.user_id != user_id:
+    granted = [] if binding is None else await granted_workspace_ids(binding)
+    if binding is None or workspace_id not in granted:
         raise ResourceNotFoundError(message="WhatsApp channel is not configured")
-    binding.enabled = False
-    binding.updated_at = utc_now_iso()
-    await binding.save()
+    workspace = await _workspace_node(workspace_id)
+    await _revoke_grant(workspace, binding)
+    if not await granted_workspace_ids(binding):
+        binding.enabled = False
+        binding.updated_at = utc_now_iso()
+        await binding.save()
+    else:
+        binding = await WhatsAppChannelBinding.get(binding_id) or binding
     return binding

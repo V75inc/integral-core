@@ -5,7 +5,6 @@ import json
 import pytest
 
 from app.agentive.clients.jvconnect_whatsapp import JvconnectResult
-from app.api.errors import ResourceConflictError
 from app.config import settings
 from app.services.credential_crypto import decrypt_secret_from_storage
 
@@ -106,23 +105,29 @@ async def test_create_stores_personal_binding_and_round_trips_secrets(
 
 
 @pytest.mark.asyncio
-async def test_create_rejects_a_second_binding_for_the_same_user(enc_key, test_user):
-    """One user gets one WhatsApp channel binding."""
+async def test_a_second_line_replaces_the_workspace_grant(enc_key, test_user):
+    """A workspace keeps one line. A second create moves the grant."""
     from app.agentive.services.whatsapp_channel_binding import (
+        binding_for_workspace,
         create_whatsapp_channel_binding,
     )
 
-    await create_whatsapp_channel_binding(
+    first = await create_whatsapp_channel_binding(
         user_id=_user_id(test_user),
         jvconnect_base_url="https://connect.example",
         api_key="jvk_first_key",
     )
-    with pytest.raises(ResourceConflictError):
-        await create_whatsapp_channel_binding(
-            user_id=_user_id(test_user),
-            jvconnect_base_url="https://connect.example",
-            api_key="jvk_second_key",
-        )
+    second = await create_whatsapp_channel_binding(
+        user_id=_user_id(test_user),
+        jvconnect_base_url="https://connect.example",
+        api_key="jvk_second_key",
+    )
+
+    assert first.id != second.id
+    current = await binding_for_workspace(second.workspace_id)
+    assert current is not None
+    assert current.id == second.id
+    assert first.enabled is False
 
 
 @pytest.mark.asyncio
@@ -438,10 +443,10 @@ async def test_second_put_updates_the_binding_and_registers(
 
 
 @pytest.mark.asyncio
-async def test_put_rejects_a_phone_already_bound_to_another_user(
+async def test_second_admin_attaches_the_same_phone(
     enc_key, authenticated_client, second_user_client, monkeypatch
 ):
-    """A phone_number_id already stored for another user is a conflict."""
+    """A second workspace admin with the same phone joins the existing line."""
     calls = _stub_jvconnect_registration(monkeypatch, phone="phone-shared")
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
     monkeypatch.setattr(settings, "DEBUG", False)
@@ -453,6 +458,7 @@ async def test_put_rejects_a_phone_already_bound_to_another_user(
         },
     )
     assert first.status_code == 200, first.text
+    first_id = first.json()["binding"]["id"]
     assert first.json()["binding"]["enabled"] is True
 
     second = await second_user_client.put(
@@ -462,8 +468,11 @@ async def test_put_rejects_a_phone_already_bound_to_another_user(
             "api_key": "jvk_second_owner",
         },
     )
-    assert second.status_code == 409
+    assert second.status_code == 200, second.text
+    assert second.json()["binding"]["id"] == first_id
+    assert second.json()["binding"]["enabled"] is True
     assert "jvk_second_owner" not in second.text
     assert len(calls["register"]) == 1
     fetched = await second_user_client.get("/api/agentive/channels/whatsapp/binding")
-    assert fetched.json()["binding"]["enabled"] is False
+    assert fetched.json()["binding"]["id"] == first_id
+    assert fetched.json()["binding"]["enabled"] is True

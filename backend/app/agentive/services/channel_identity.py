@@ -416,6 +416,102 @@ async def verify_identity_by_token(
     }
 
 
+def normalize_whatsapp_e164(phone: str) -> str:
+    """Return +E.164, or empty when the value is not a full international number."""
+    cleaned = "".join(ch for ch in (phone or "").strip() if ch.isdigit() or ch == "+")
+    if not cleaned.startswith("+"):
+        return ""
+    digits = cleaned[1:]
+    if not digits.isdigit() or not 8 <= len(digits) <= 15:
+        return ""
+    return f"+{digits}"
+
+
+def _claim_is_open(identity: ChannelIdentity) -> bool:
+    if getattr(identity, "verified", False):
+        return False
+    raw = (getattr(identity, "preferences", {}) or {}).get("claim_expires", "")
+    try:
+        expires = datetime.fromisoformat(str(raw))
+    except (ValueError, TypeError):
+        return False
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return utc_now() <= expires
+
+
+async def _remember_whatsapp_opt_in(user_id: str, e164: str) -> None:
+    from app.services.permissions import get_user_node
+
+    user = await get_user_node(user_id)
+    if user is None:
+        return
+    raw = getattr(user, "notification_preferences", None)
+    prefs = dict(raw) if raw else {}
+    whatsapp = dict(prefs.get("whatsapp") or {})
+    whatsapp["opted_in_at"] = utc_now_iso()
+    whatsapp["phone_e164"] = e164
+    prefs["whatsapp"] = whatsapp
+    user.notification_preferences = prefs
+    await user.save()
+
+
+async def verify_pending_whatsapp_sender(sender: str) -> Optional[Dict[str, Any]]:
+    """Verify the newest open claim when this sender matches it.
+
+    An already-verified number is left unchanged. Returns the verified
+    identity summary, or None when nothing was claimed.
+    """
+    e164 = normalize_whatsapp_e164(sender if str(sender).startswith("+") else f"+{sender}")
+    if not e164:
+        return None
+    identities = await ChannelIdentity.find(channel="whatsapp", channel_user_id=e164)
+    if any(getattr(identity, "verified", False) for identity in identities):
+        return None
+    pending = [identity for identity in identities if _claim_is_open(identity)]
+    if not pending:
+        return None
+    if await find_conflicting_verified_identity("whatsapp", e164):
+        return None
+    chosen = sorted(pending, key=lambda identity: identity.created_at or "")[-1]
+    chosen.verified = True
+    chosen.verified_at = utc_now_iso()
+    prefs = dict(getattr(chosen, "preferences", {}) or {})
+    prefs.pop("claim_expires", None)
+    prefs.pop("otp_hash", None)
+    prefs.pop("otp_expires", None)
+    prefs.pop("otp_attempts", None)
+    chosen.preferences = prefs
+    await chosen.save()
+    try:
+        await _remember_whatsapp_opt_in(str(chosen.user_id or ""), e164)
+    except Exception:
+        logger.warning("whatsapp opt-in preference was not stored")
+    return {
+        "identity_id": chosen.id,
+        "user_id": chosen.user_id,
+        "channel_user_id": e164,
+        "verified": True,
+    }
+
+
+async def _supersede_pending_whatsapp_claims(e164: str, user_id: str) -> Optional[ChannelIdentity]:
+    """Expire other people's open claims. Return this user's existing row."""
+    identities = await ChannelIdentity.find(channel="whatsapp", channel_user_id=e164)
+    mine = None
+    for identity in identities:
+        if str(getattr(identity, "user_id", "") or "") == str(user_id):
+            mine = identity
+            continue
+        if getattr(identity, "verified", False):
+            continue
+        prefs = dict(getattr(identity, "preferences", {}) or {})
+        prefs["claim_expires"] = "1970-01-01T00:00:00+00:00"
+        identity.preferences = prefs
+        await identity.save()
+    return mine
+
+
 async def initiate_link(
     user_id: str,
     channel: str,
@@ -430,6 +526,58 @@ async def initiate_link(
     """
     if channel not in ("whatsapp", "slack", "telegram", "email", "sms", "in_app"):
         return {"error": f"Unsupported channel: {channel}"}
+
+    if channel == "whatsapp":
+        e164 = normalize_whatsapp_e164(channel_user_id)
+        if not e164:
+            return {
+                "error": (
+                    "Enter the full number, including the country code, "
+                    "like +15556767191."
+                )
+            }
+        if await find_conflicting_verified_identity("whatsapp", e164):
+            return {
+                "error": "This channel address is already verified for another account."
+            }
+        expires = (utc_now() + timedelta(minutes=10)).isoformat()
+        existing = await _supersede_pending_whatsapp_claims(e164, user_id)
+        if existing is not None and getattr(existing, "verified", False):
+            return {
+                "identity_id": existing.id,
+                "verified": True,
+                "message": "Channel identity already verified",
+            }
+        if existing is None:
+            user = await _require_user_node(user_id)
+            existing = await ChannelIdentity.create(
+                user_id=user_id,
+                channel="whatsapp",
+                channel_user_id=e164,
+                verified=False,
+                preferences={"claim_expires": expires},
+                created_at=utc_now_iso(),
+            )
+            await user.connect(
+                existing,
+                edge=HAS_CHANNEL_IDENTITY,
+                is_primary=False,
+                created_at=utc_now_iso(),
+            )
+        else:
+            prefs = dict(getattr(existing, "preferences", {}) or {})
+            prefs["claim_expires"] = expires
+            existing.channel_user_id = e164
+            existing.verified = False
+            existing.preferences = prefs
+            await existing.save()
+        return {
+            "identity_id": existing.id,
+            "verified": False,
+            "message": (
+                "From this phone, send any message to the WhatsApp business number."
+            ),
+        }
 
     otp_code = secrets.token_hex(3).upper()
     link_token = secrets.token_urlsafe(16)

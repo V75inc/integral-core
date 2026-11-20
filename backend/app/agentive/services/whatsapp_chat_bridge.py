@@ -17,8 +17,15 @@ def _client_request_id(meta_message_id: str) -> str:
     return f"wa.{digest}"
 
 
-def _session_id(e164: str) -> str:
-    return f"wa:{e164}"
+def _session_id(workspace_id: str, e164: str) -> str:
+    return f"wa:{workspace_id}:{e164}"
+
+
+def _recipient_from_session(session: str) -> str:
+    parts = session.split(":", 2)
+    if len(parts) != 3 or parts[0] != "wa":
+        return ""
+    return parts[2].strip()
 
 
 def _confirmation_body(verb: str, result: dict) -> str:
@@ -157,9 +164,6 @@ async def _committed_assistant_text(item, thread) -> str:
 
 async def deliver_terminal_whatsapp_reply(item) -> None:
     """Send the committed assistant text for a finished WhatsApp turn."""
-    from app.agentive.services.whatsapp_channel_binding import (
-        get_whatsapp_channel_binding,
-    )
     from app.models.nodes import ChatThread
     from app.schemas.agentive.work import TERMINAL_WORK_STATUSES
 
@@ -176,18 +180,16 @@ async def deliver_terminal_whatsapp_reply(item) -> None:
     session = str(thread.provider_session_id or "")
     if not session.startswith("wa:"):
         return
-    recipient = session[3:].strip()
+    recipient = _recipient_from_session(session)
     if not recipient:
         return
     text = await _committed_assistant_text(item, thread)
     if not text:
         return
-    binding = await get_whatsapp_channel_binding(item.principal_id)
-    if (
-        binding is None
-        or not binding.enabled
-        or binding.workspace_id != item.workspace_id
-    ):
+    from app.agentive.services.whatsapp_channel_binding import binding_for_workspace
+
+    binding = await binding_for_workspace(str(item.workspace_id or ""))
+    if binding is None or not binding.enabled:
         return
     error = await send_channel_text(binding, recipient, text)
     if error:
@@ -209,29 +211,29 @@ async def _agent_for_new_thread(user_id: str, workspace_id: str) -> str:
     )
 
 
-async def _dedicated_thread(binding, e164: str):
+async def _dedicated_thread(user_id: str, workspace_id: str, e164: str):
     from app.services.chat_threads import (
         create_thread,
         get_thread_by_session,
         update_provider_session,
     )
 
-    session_id = _session_id(e164)
+    session_id = _session_id(workspace_id, e164)
     existing = await get_thread_by_session(session_id)
     if (
         existing is not None
         and existing.provider_id == _PROVIDER_ID
-        and existing.user_id == binding.user_id
-        and existing.workspace_id == binding.workspace_id
+        and existing.user_id == user_id
+        and existing.workspace_id == workspace_id
         and not existing.archived
     ):
         await update_provider_session(existing, session_id)
         return existing
     thread = await create_thread(
-        user_id=binding.user_id,
+        user_id=user_id,
         provider_id=_PROVIDER_ID,
-        workspace_id=binding.workspace_id,
-        agent_id=await _agent_for_new_thread(binding.user_id, binding.workspace_id),
+        workspace_id=workspace_id,
+        agent_id=await _agent_for_new_thread(user_id, workspace_id),
     )
     await update_provider_session(thread, session_id)
     return thread
@@ -258,14 +260,19 @@ async def _store_text_receipt(
 
 
 async def _apply_single_approval(
-    binding, envelope: ParsedWhatsAppEnvelope, thread
+    binding,
+    envelope: ParsedWhatsAppEnvelope,
+    thread,
+    *,
+    user_id: str,
+    workspace_id: str,
 ) -> bool:
     from app.agentive.services.approval_decisions import decide_staged_write
     from app.agentive.services.approval_intent import parse_approval_intent
     from app.agentive.staging import list_unresolved_for_session
 
     pending = await list_unresolved_for_session(
-        binding.user_id,
+        user_id,
         thread.provider_session_id,
     )
     workspace_id = thread.workspace_id
@@ -279,11 +286,11 @@ async def _apply_single_approval(
         return False
     intent = intents[0]
     result = await decide_staged_write(
-        principal_id=binding.user_id,
+        principal_id=user_id,
         proposal_id=intent.token,
         decision="approve" if intent.verb == "bless" else "reject",
         source="channel",
-        workspace_id=binding.workspace_id,
+        workspace_id=workspace_id,
         conversation_id=thread.provider_session_id,
         thread_id=thread.id,
     )
@@ -304,14 +311,21 @@ async def _apply_single_approval(
     return True
 
 
-async def _enqueue_turn(binding, envelope: ParsedWhatsAppEnvelope, thread) -> None:
+async def _enqueue_turn(
+    binding,
+    envelope: ParsedWhatsAppEnvelope,
+    thread,
+    *,
+    user_id: str,
+    workspace_id: str,
+) -> None:
     from app.schemas.agentive.work import ChatTurnSubmissionRequest
     from app.services.chat_turn_submissions import submit_chat_turn
 
     await submit_chat_turn(
         ChatTurnSubmissionRequest(
-            principal_id=binding.user_id,
-            workspace_id=binding.workspace_id,
+            principal_id=user_id,
+            workspace_id=workspace_id,
             thread_id=thread.id,
             client_request_id=_client_request_id(envelope.message_id),
             parts=[{"type": "text", "text": envelope.text}],
@@ -329,9 +343,15 @@ async def admit_owner_whatsapp_text(
     envelope: ParsedWhatsAppEnvelope,
     *,
     e164: str,
+    user_id: str,
+    workspace_id: str,
 ) -> None:
     """Enqueue one native turn, or apply one channel approval, for this text."""
-    thread = await _dedicated_thread(binding, e164)
-    if await _apply_single_approval(binding, envelope, thread):
+    thread = await _dedicated_thread(user_id, workspace_id, e164)
+    if await _apply_single_approval(
+        binding, envelope, thread, user_id=user_id, workspace_id=workspace_id
+    ):
         return
-    await _enqueue_turn(binding, envelope, thread)
+    await _enqueue_turn(
+        binding, envelope, thread, user_id=user_id, workspace_id=workspace_id
+    )

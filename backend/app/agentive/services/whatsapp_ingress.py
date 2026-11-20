@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 _TEXT_ONLY_NOTICE = "Text only for now"
 _LINK_NOTICE = "Link your number in Integral settings"
+_LINKED_NOTICE = "Number linked. Send a message to continue."
+_NO_WORKSPACE_NOTICE = (
+    "This number isn't a member of a workspace on this WhatsApp line."
+)
+_LINE_CHOICE = "whatsapp_line_workspace"
 
 
 @dataclass(frozen=True)
@@ -201,24 +206,82 @@ async def _verified_sender(sender_id: str) -> dict | None:
     return resolved
 
 
-async def _identity_owns_binding(resolved: dict, binding) -> bool:
-    owner = str(getattr(binding, "user_id", "") or "")
-    candidate = str(resolved.get("user_id") or "")
-    if not owner or not candidate:
-        return False
-    if candidate == owner:
-        return True
-    from app.models.nodes import User
+async def _sender_principal(resolved: dict) -> str:
+    from app.services.permissions import get_user_node
 
-    user = await User.get(candidate)
+    candidate = str(resolved.get("principal_id") or resolved.get("user_id") or "")
+    if not candidate:
+        return ""
+    user = await get_user_node(candidate)
     if user is None:
-        matches = await User.find({"context.user_id": candidate})
-        user = matches[0] if matches else None
-    if user is None:
-        return False
-    principal = str(getattr(user, "user_id", "") or "").strip()
-    node_id = str(getattr(user, "id", "") or "")
-    return owner == principal or owner == node_id
+        return ""
+    return str(getattr(user, "user_id", "") or user.id)
+
+
+async def _accessible_workspaces(binding, principal: str) -> list:
+    from app.agentive.services.whatsapp_channel_binding import granted_workspace_ids
+    from app.models.nodes import Workspace
+    from app.services.workspace_permissions import user_in_workspace_member_pool
+
+    workspaces = []
+    for workspace_id in await granted_workspace_ids(binding):
+        if not await user_in_workspace_member_pool(principal, workspace_id):
+            continue
+        workspace = await Workspace.get(workspace_id)
+        if workspace is not None:
+            workspaces.append(workspace)
+    workspaces.sort(
+        key=lambda workspace: (
+            (getattr(workspace, "name", "") or "").casefold(),
+            workspace.id,
+        )
+    )
+    return workspaces
+
+
+def _picker_body(workspaces: list) -> str:
+    lines = [
+        f"{index}. {getattr(workspace, 'name', '') or 'Workspace'}"
+        for index, workspace in enumerate(workspaces, start=1)
+    ]
+    joined = "\n".join(lines)
+    return (
+        "Which workspace?\n"
+        f"{joined}\n"
+        "Reply with a number. Send switch to choose again."
+    )
+
+
+async def _identity_record(resolved: dict):
+    from app.agentive.nodes import ChannelIdentity
+
+    identity_id = str(resolved.get("identity_id") or "")
+    if not identity_id:
+        return None
+    return await ChannelIdentity.get(identity_id)
+
+
+def _saved_workspace(record, phone_number_id: str) -> str:
+    if record is None:
+        return ""
+    raw = (getattr(record, "preferences", {}) or {}).get(_LINE_CHOICE)
+    if not isinstance(raw, dict):
+        return ""
+    return str(raw.get(phone_number_id) or "")
+
+
+async def _store_workspace_choice(record, phone_number_id: str, workspace_id: str) -> None:
+    if record is None:
+        return
+    prefs = dict(getattr(record, "preferences", {}) or {})
+    choices = dict(prefs.get(_LINE_CHOICE) or {})
+    if workspace_id:
+        choices[phone_number_id] = workspace_id
+    else:
+        choices.pop(phone_number_id, None)
+    prefs[_LINE_CHOICE] = choices
+    record.preferences = prefs
+    await record.save()
 
 
 async def _store_receipt(
@@ -320,21 +383,58 @@ async def _dispatch_verified(binding, envelope) -> dict:
         await _show_typing(binding, envelope.message_id)
         await _send_notice_and_store(binding, envelope, _TEXT_ONLY_NOTICE, "non_text")
         return {"ok": True}
+    from app.agentive.services.channel_identity import verify_pending_whatsapp_sender
+
+    claimed = await verify_pending_whatsapp_sender(envelope.sender_id)
+    if claimed:
+        await _show_typing(binding, envelope.message_id)
+        await _send_notice_and_store(binding, envelope, _LINKED_NOTICE, "text")
+        return {"ok": True}
     identity = await _verified_sender(envelope.sender_id)
     if identity is None:
         await _show_typing(binding, envelope.message_id)
         await _send_notice_and_store(binding, envelope, _LINK_NOTICE, "text")
         return {"ok": True}
-    if not await _identity_owns_binding(identity, binding):
-        await _store_receipt(
-            binding.id,
-            envelope.message_id,
-            "text",
-            "accepted",
-            "",
+    principal = await _sender_principal(identity)
+    workspaces = (
+        await _accessible_workspaces(binding, principal) if principal else []
+    )
+    if not workspaces:
+        await _show_typing(binding, envelope.message_id)
+        await _send_notice_and_store(binding, envelope, _NO_WORKSPACE_NOTICE, "text")
+        return {"ok": True}
+    record = await _identity_record(identity)
+    text = (envelope.text or "").strip()
+    saved = _saved_workspace(record, binding.phone_number_id)
+    workspace_ids = [workspace.id for workspace in workspaces]
+    if len(workspaces) > 1 and text.lower() == "switch":
+        await _store_workspace_choice(record, binding.phone_number_id, "")
+        await _show_typing(binding, envelope.message_id)
+        await _send_notice_and_store(
+            binding, envelope, _picker_body(workspaces), "text"
         )
         return {"ok": True}
-    e164 = _e164(str(identity.get("channel_user_id") or ""))
+    if len(workspaces) > 1 and saved not in workspace_ids:
+        if text.isdigit():
+            index = int(text)
+            if 1 <= index <= len(workspaces):
+                chosen = workspaces[index - 1]
+                await _store_workspace_choice(
+                    record, binding.phone_number_id, chosen.id
+                )
+                name = getattr(chosen, "name", "") or "Workspace"
+                await _show_typing(binding, envelope.message_id)
+                await _send_notice_and_store(
+                    binding, envelope, f"Using {name}.", "text"
+                )
+                return {"ok": True}
+        await _show_typing(binding, envelope.message_id)
+        await _send_notice_and_store(
+            binding, envelope, _picker_body(workspaces), "text"
+        )
+        return {"ok": True}
+    workspace_id = workspaces[0].id if len(workspaces) == 1 else saved
+    e164 = _e164(str(identity.get("channel_user_id") or envelope.sender_id))
     if not e164:
         await _store_receipt(
             binding.id,
@@ -347,7 +447,13 @@ async def _dispatch_verified(binding, envelope) -> dict:
     from app.agentive.services.whatsapp_chat_bridge import admit_owner_whatsapp_text
 
     await _show_typing(binding, envelope.message_id)
-    await admit_owner_whatsapp_text(binding, envelope, e164=e164)
+    await admit_owner_whatsapp_text(
+        binding,
+        envelope,
+        e164=e164,
+        user_id=principal,
+        workspace_id=workspace_id,
+    )
     return {"ok": True}
 
 
