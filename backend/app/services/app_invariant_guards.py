@@ -105,6 +105,12 @@ async def enforce_protected_field_write(
     )
     if not touched and not top_touched and not destructive:
         return
+    from app.services.entry_import_reservations import portable_import_write_active
+
+    # Platform portable restore recreates exported App-managed state; it is not
+    # a generic UI create/edit and has no operation permit of its own.
+    if portable_import_write_active():
+        return
     from app.services.app_operation_authority import permits_mutation
 
     if await permits_mutation(

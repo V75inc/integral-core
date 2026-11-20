@@ -32,6 +32,7 @@ from app.models.nodes import (
 from app.schemas.policy import Resource, Subject
 from app.schemas.portable_transfer import (
     ExportSelection,
+    PackagePayload,
     PortableApp,
     PortableArchive,
     PortableDashboard,
@@ -57,6 +58,7 @@ logger = logging.getLogger(__name__)
 MAX_NODES = 10000
 # These contracts depend on separately admitted installed code/operations. A ZIP
 # cannot promote that code or bypass its guards by flattening it to a blank App.
+# Version-2 archives may retain them when a verified package payload is bound.
 _RUNTIME_KEYS = {
     "tools",
     "hooks",
@@ -83,24 +85,55 @@ async def _authorize(
         )
 
 
-def _data_manifest(manifest: dict) -> dict:
-    """No settings values or executable authority in a portable declaration."""
+def _manifest_tiers(manifest: dict) -> list[dict]:
+    app_tier = manifest.get("app") or {}
+    tiers = [manifest, app_tier, manifest.get("track") or {}]
+    if isinstance(app_tier, dict):
+        tiers += list(app_tier.get("tracks") or []) + list(
+            app_tier.get("track_templates") or []
+        )
+    return [tier for tier in tiers if isinstance(tier, dict)]
+
+
+def _tier_has_runtime(value: dict) -> bool:
+    skills = value.get("skills") or []
+    if isinstance(skills, list) and any(
+        not isinstance(skill, dict)
+        or skill.get("kind", "declarative") != "declarative"
+        for skill in skills
+    ):
+        return True
+    if any(value.get(key) for key in _RUNTIME_KEYS):
+        return True
+    queries = value.get("queries") or []
+    return isinstance(queries, list) and any(
+        isinstance(query, dict) and (query.get("handler_ref") or query.get("tool"))
+        for query in queries
+    )
+
+
+def manifest_has_runtime(manifest: dict | None) -> bool:
+    """True when the declaration depends on installed package runtime."""
+    if not isinstance(manifest, dict):
+        return False
+    try:
+        return any(_tier_has_runtime(tier) for tier in _manifest_tiers(manifest))
+    except Exception:
+        return False
+
+
+def _data_manifest(manifest: dict, *, allow_runtime: bool = False) -> dict:
+    """No settings values; executable authority only when a package is bound."""
     result = deepcopy(manifest)
     if result.get("scope") == "app_node":
         result["scope"] = "app"
     # Runtime declarations can also live on embedded Track templates. Walk the
     # declaration, not just its top tier, before removing nonportable values.
-    app_tier = result.get("app") or {}
-    tiers = [result, app_tier, result.get("track") or {}]
-    if isinstance(app_tier, dict):
-        tiers += list(app_tier.get("tracks") or []) + list(
-            app_tier.get("track_templates") or []
-        )
-    for value in tiers:
-        if not isinstance(value, dict):
-            raise BadRequestError(message="Invalid portable configuration tier")
+    for value in _manifest_tiers(result):
         skills = value.get("skills") or []
-        if not isinstance(skills, list) or any(
+        if not isinstance(skills, list):
+            raise BadRequestError(message="Invalid portable configuration tier")
+        if not allow_runtime and any(
             not isinstance(skill, dict)
             or skill.get("kind", "declarative") != "declarative"
             for skill in skills
@@ -108,25 +141,31 @@ def _data_manifest(manifest: dict) -> dict:
             raise BadRequestError(
                 message="Custom executable skills require their original installed package"
             )
-        if any(value.get(key) for key in _RUNTIME_KEYS):
+        if not allow_runtime and any(value.get(key) for key in _RUNTIME_KEYS):
             raise BadRequestError(
                 message="Portable configuration requires separately installed runtime extensions"
             )
         queries = value.get("queries") or []
-        if not isinstance(queries, list) or any(
-            not isinstance(query, dict) or query.get("handler_ref") or query.get("tool")
-            for query in queries
+        if not isinstance(queries, list) or (
+            not allow_runtime
+            and any(
+                not isinstance(query, dict)
+                or query.get("handler_ref")
+                or query.get("tool")
+                for query in queries
+            )
         ):
             raise BadRequestError(
                 message="Custom query handlers require their original installed runtime package"
             )
-    result.pop("package", None)
+    if not allow_runtime:
+        result.pop("package", None)
     result.pop("migrations", None)
     result.pop("applied_migrations", None)
     for tier in (result, result.get("app", {}), result.get("track", {})):
         if not isinstance(tier, dict):
             raise BadRequestError(message="Invalid configuration in archive")
-        if any(tier.get(key) for key in _RUNTIME_KEYS):
+        if not allow_runtime and any(tier.get(key) for key in _RUNTIME_KEYS):
             raise BadRequestError(
                 message=(
                     "This configuration requires installed extensions or guarded operations. "
@@ -134,7 +173,8 @@ def _data_manifest(manifest: dict) -> dict:
                     "a portable archive cannot replace its runtime contracts."
                 )
             )
-        for key in _RUNTIME_KEYS | {"seeds", "settings"}:
+        drop = {"seeds", "settings"} if allow_runtime else _RUNTIME_KEYS | {"seeds", "settings"}
+        for key in drop:
             tier.pop(key, None)
     pending = [result]
     while pending:
@@ -392,6 +432,45 @@ async def _bounded(node: Any, edge: Any, kind: str) -> list:
     return rows
 
 
+async def _export_app_package(app: App) -> tuple[PackagePayload, dict[str, bytes]]:
+    """Resolve the installed bundle and pack it for a version-2 App archive."""
+    from pathlib import Path
+
+    from app.services.app_lifecycle import _resolve_app_bundle_dir
+    from app.services.portable_package import (
+        member_prefix_for_slug,
+        pack_bundle_dir,
+        package_meta_from_bundle,
+    )
+
+    bundle_dir = await _resolve_app_bundle_dir(app)
+    if not bundle_dir:
+        raise BadRequestError(
+            message="Packaged App export requires its installed package on disk"
+        )
+    root = Path(bundle_dir)
+    slug = str(
+        getattr(app, "source_operational_model_slug", "")
+        or getattr(app, "installed_package_slug", "")
+        or root.name
+    ).strip()
+    if not slug:
+        attached = await get_app_attached_operational_model(app)
+        pkg = ((attached.manifest if attached else {}) or {}).get("package") or {}
+        slug = str(pkg.get("slug") or pkg.get("name") or root.name).strip()
+    meta = package_meta_from_bundle(root, slug)
+    packed, fingerprint = pack_bundle_dir(root, slug)
+    return (
+        PackagePayload(
+            slug=slug,
+            version=meta.get("version") or "",
+            fingerprint=fingerprint,
+            member_prefix=member_prefix_for_slug(slug),
+        ),
+        packed,
+    )
+
+
 async def export_resources(
     *, user_id: str, workspace_id: str, selection: ExportSelection
 ) -> bytes:
@@ -412,7 +491,35 @@ async def export_resources(
         await walker.spawn(node)
         if walker.failure is not None:
             raise walker.failure
-    files: dict[str, bytes] = {}
+    package_by_slug: dict[str, PackagePayload] = {}
+    package_files: dict[str, bytes] = {}
+    app_package_slugs: dict[str, str] = {}
+    track_package_allow: dict[str, bool] = {}
+    if selection.kind == "app" and walker.apps:
+        for app in walker.apps:
+            cp = await get_app_attached_operational_model(app)
+            if not manifest_has_runtime(cp.manifest if cp else {}):
+                continue
+            payload, packed = await _export_app_package(app)
+            existing = package_by_slug.get(payload.slug)
+            if existing is not None:
+                if existing.fingerprint != payload.fingerprint:
+                    raise BadRequestError(
+                        message=(
+                            f"Package {payload.slug!r} appears with conflicting contents "
+                            "in the selected Apps"
+                        )
+                    )
+            else:
+                package_by_slug[payload.slug] = payload
+                package_files.update(packed)
+            app_package_slugs[app.id] = payload.slug
+        for app in walker.apps:
+            allow = app.id in app_package_slugs
+            for child in await _bounded(app, CONTAINS, "Track"):
+                track_package_allow[child.id] = allow
+    package_payloads = list(package_by_slug.values())
+    files: dict[str, bytes] = dict(package_files)
     tracks = {}
     for track in walker.tracks:
         cp = await get_track_attached_operational_model(track)
@@ -499,7 +606,13 @@ async def export_resources(
             relation_type_key=track.template_id or track.relation_type_key,
             nav_visible=track.nav_visible,
             search_index=track.search_index,
-            manifest=_remap(_data_manifest(cp.manifest or {}), tag_refs),
+            manifest=_remap(
+                _data_manifest(
+                    cp.manifest or {},
+                    allow_runtime=track_package_allow.get(track.id, False),
+                ),
+                tag_refs,
+            ),
             entry_types=[
                 PortableType(
                     ref=t.id, name=t.name, icon=t.icon, form_schema=t.form_schema
@@ -543,6 +656,7 @@ async def export_resources(
 
         dashboards = await list_dashboards(user_id=user_id, app_id=app.id)
         app_tags = await _bounded(cp, CONTAINS, "Tag") if cp else []
+        package_slug = app_package_slugs.get(app.id, "")
         apps.append(
             PortableApp(
                 tags=[
@@ -573,22 +687,31 @@ async def export_resources(
                 description=app.description,
                 icon=app.icon,
                 accent_color=app.accent_color,
-                manifest=_data_manifest(cp.manifest if cp else {}),
+                manifest=_data_manifest(
+                    cp.manifest if cp else {},
+                    allow_runtime=bool(package_slug),
+                ),
+                settings=dict(getattr(app, "settings", None) or {}),
+                package_slug=package_slug,
                 home_composition=app.home_composition,
                 tracks=[tracks[t.id] for t in children],
             )
         )
     archive = PortableArchive(
+        version=2 if package_payloads else 1,
         mode=selection.mode,
         kind=selection.kind,
         apps=apps,
         tracks=list(tracks.values()) if selection.kind == "track" else [],
+        packages=package_payloads,
     )
     configurations = [a.manifest for a in archive.apps]
     for t in _tracks(archive):
         configurations.append(t.manifest)
         configurations.extend(et.form_schema for et in t.entry_types)
     await asyncio.to_thread(_pin_app_relations, configurations, apps=list(walker.apps))
+    if archive.mode == "full" and archive.kind == "app":
+        archive = await _sanitize_dangling_export_refs(archive, files)
     validate_archive(archive, files)
     return await asyncio.to_thread(encode_archive, archive.model_dump(), files)
 
@@ -597,30 +720,296 @@ def _tracks(archive: PortableArchive) -> list[PortableTrack]:
     return archive.tracks + [track for app in archive.apps for track in app.tracks]
 
 
+_OUTSIDE_EXPORT_PREFIX = (
+    "A record references content outside this export. "
+    "Include the related Apps or Tracks in the same export."
+)
+
+
+def _record_label(entry: PortableEntry) -> str:
+    title = str(entry.title or "").strip()
+    return title or entry.ref
+
+
+async def _describe_live_relation_target(target_id: str, *, kind: str) -> str | None:
+    """Return a human location for a live target, or None if it no longer exists."""
+    if kind == "track":
+        track = await Track.get(target_id)
+        if track is None:
+            return None
+        parents = await track.nodes(
+            edge=[CONTAINS], node=["WorkspaceApp"], direction="in", limit=2
+        )
+        track_title = str(getattr(track, "title", "") or "").strip() or track.id
+        if parents:
+            app_name = str(getattr(parents[0], "name", "") or "").strip() or parents[0].id
+            return f"App {app_name!r} / Track {track_title!r}"
+        return f"Track {track_title!r}"
+
+    target = await Entry.get(target_id)
+    if target is None:
+        return None
+    track = await Track.get(target.track_id) if target.track_id else None
+    track_title = (
+        str(getattr(track, "title", "") or "").strip()
+        if track is not None
+        else str(target.track_id or "unknown Track")
+    ) or "unknown Track"
+    if track is None:
+        return f"Track {track_title!r}"
+    parents = await track.nodes(
+        edge=[CONTAINS], node=["WorkspaceApp"], direction="in", limit=2
+    )
+    if parents:
+        app_name = str(getattr(parents[0], "name", "") or "").strip() or parents[0].id
+        return f"App {app_name!r} / Track {track_title!r}"
+    return f"Track {track_title!r}"
+
+
+def _field_is_required(field: dict) -> bool:
+    return bool(field.get("required"))
+
+
+def _relation_or_file_base(field: dict, manifest: dict | None) -> str | None:
+    base = _field_base(field, manifest)
+    if base in {"relation", "multi_relation", "relations", "file", "files"}:
+        return base
+    return None
+
+
+def _required_relation_file_gap(
+    item: PortableEntry,
+    entry_type: PortableType,
+    mapping: dict[str, str],
+    *,
+    skip_refs: set[str] | None = None,
+    manifest: dict | None = None,
+) -> str | None:
+    """Return the field key when a required relation/file cannot be remapped."""
+    skipped = skip_refs or set()
+    for field in entry_type.form_schema.get("fields", []) or []:
+        if not isinstance(field, dict) or not _field_is_required(field):
+            continue
+        key = field.get("key")
+        base = _relation_or_file_base(field, manifest)
+        if not key or base is None:
+            continue
+        value = (item.custom_fields or {}).get(key)
+        raw_values = value if isinstance(value, list) else ([value] if value else [])
+        if not raw_values:
+            return str(key)
+        for raw in raw_values:
+            if not isinstance(raw, str) or not raw.strip():
+                return str(key)
+            if raw in skipped or raw not in mapping:
+                return str(key)
+    return None
+
+
+async def _drop_reserved_import_entry(
+    *,
+    item: PortableEntry,
+    mapping: dict[str, str],
+    stored_keys: list[str],
+) -> None:
+    """Remove a placeholder entry (and its restored files) that will not be finalized."""
+    entry_id = mapping.pop(item.ref, None)
+    for attachment in item.attachments:
+        mapping.pop(attachment.ref, None)
+    if entry_id:
+        entry = await Entry.get(entry_id)
+        if entry is not None:
+            for attachment in await _bounded(entry, HAS_ATTACHMENT, "Attachment"):
+                key = getattr(attachment, "storage_key", "") or ""
+                await entry.disconnect(attachment, edge=HAS_ATTACHMENT)
+                await attachment.delete()
+                if key and key in stored_keys:
+                    stored_keys.remove(key)
+                    await get_attachment_storage_service().delete_attachment(key)
+            await entry.delete()
+
+
+def _collect_incomplete_import_refs(
+    track_pairs: list[tuple[PortableTrack, Track]],
+    mapping: dict[str, str],
+) -> set[str]:
+    """Cascade-skip archive entries whose required relation/file targets are unavailable."""
+    skip_refs: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for track_spec, _track in track_pairs:
+            for item in track_spec.entries:
+                if item.ref in skip_refs:
+                    continue
+                et = next(
+                    row for row in track_spec.entry_types if row.ref == item.type_ref
+                )
+                if _required_relation_file_gap(
+                    item,
+                    et,
+                    mapping,
+                    skip_refs=skip_refs,
+                    manifest=track_spec.manifest,
+                ):
+                    skip_refs.add(item.ref)
+                    changed = True
+    return skip_refs
+
+
+async def _sanitize_dangling_export_refs(
+    archive: PortableArchive, files: dict[str, bytes]
+) -> PortableArchive:
+    """Drop deleted relation/file ids; omit rows that lose required links; refuse live outs."""
+    track_refs = {track.ref for track in _tracks(archive)}
+    omitted: set[str] = set()
+
+    async def clean_entry(
+        entry: PortableEntry,
+        track: PortableTrack,
+        entry_refs: set[str],
+    ) -> PortableEntry | None:
+        """Return cleaned entry, or None to omit it from the archive."""
+        if entry.ref in omitted:
+            return None
+        et = next(row for row in track.entry_types if row.ref == entry.type_ref)
+        fields = deepcopy(entry.custom_fields or {})
+        attachment_refs = {attachment.ref for attachment in entry.attachments}
+        for field in et.form_schema.get("fields", []) or []:
+            if not isinstance(field, dict):
+                continue
+            key = field.get("key")
+            base = _relation_or_file_base(field, track.manifest)
+            if not key or base is None:
+                continue
+            if key not in fields:
+                if _field_is_required(field):
+                    return None
+                continue
+            value = fields.get(key)
+            many = isinstance(value, list)
+            raw_values = value if many else ([value] if value else [])
+            kept: list[Any] = []
+            for item in raw_values:
+                if not isinstance(item, str) or not item:
+                    continue
+                if base in {"relation", "multi_relation", "relations"}:
+                    target_kind = (field.get("relation") or {}).get("target", "entry")
+                    allowed = entry_refs if target_kind == "entry" else track_refs
+                    if item in allowed:
+                        kept.append(item)
+                        continue
+                    if item in omitted:
+                        continue
+                    where = await _describe_live_relation_target(
+                        item, kind=str(target_kind or "entry")
+                    )
+                    if where is None:
+                        continue
+                    raise BadRequestError(
+                        message=(
+                            f"{_OUTSIDE_EXPORT_PREFIX} Record {_record_label(entry)!r} "
+                            f"field {key!r} references {item!r} on {where}."
+                        )
+                    )
+                if item in attachment_refs:
+                    kept.append(item)
+                    continue
+                attachment = await Attachment.get(item)
+                if attachment is None:
+                    continue
+                raise BadRequestError(
+                    message=(
+                        f"{_OUTSIDE_EXPORT_PREFIX} Record {_record_label(entry)!r} "
+                        f"field {key!r} references attachment {item!r} that is not "
+                        "included with this record."
+                    )
+                )
+            if many:
+                fields[key] = kept
+            elif kept:
+                fields[key] = kept[0]
+            else:
+                fields.pop(key, None)
+            if _field_is_required(field):
+                current = fields.get(key)
+                empty = current is None or current == "" or current == []
+                if empty:
+                    return None
+        return entry.model_copy(update={"custom_fields": fields})
+
+    working = archive
+    while True:
+        entry_refs = {
+            entry.ref
+            for track in _tracks(working)
+            for entry in track.entries
+            if entry.ref not in omitted
+        }
+        newly_omitted: set[str] = set()
+        apps: list[PortableApp] = []
+        for app in working.apps:
+            tracks: list[PortableTrack] = []
+            for track in app.tracks:
+                kept_entries: list[PortableEntry] = []
+                for entry in track.entries:
+                    if entry.ref in omitted:
+                        continue
+                    cleaned = await clean_entry(entry, track, entry_refs)
+                    if cleaned is None:
+                        newly_omitted.add(entry.ref)
+                        for attachment in entry.attachments:
+                            if attachment.member:
+                                files.pop(attachment.member, None)
+                        continue
+                    kept_entries.append(cleaned)
+                tracks.append(track.model_copy(update={"entries": kept_entries}))
+            apps.append(app.model_copy(update={"tracks": tracks}))
+        working = working.model_copy(update={"apps": apps})
+        if not newly_omitted:
+            break
+        omitted.update(newly_omitted)
+    return working
+
+
 def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
     """Validate all identities/files/references before the first restore write."""
     if (archive.kind == "app" and (not archive.apps or archive.tracks)) or (
         archive.kind == "track" and (not archive.tracks or archive.apps)
     ):
         raise BadRequestError(message="Archive resource selection is invalid")
+    if archive.packages:
+        from app.services.portable_package import validate_package_members
+
+        for payload in archive.packages:
+            validate_package_members(payload, files)
+    track_allow_runtime: dict[str, bool] = {
+        track.ref: False for track in archive.tracks
+    }
     refs = [app.ref for app in archive.apps]
     refs.extend(app.model_ref for app in archive.apps if app.model_ref)
     entries = set()
     app_tag_refs = {t.ref for app in archive.apps for t in app.tags}
     members = set()
     for app in archive.apps:
+        allow_runtime = bool(app.package_slug)
         refs.extend(d.ref for d in app.dashboards)
         refs.extend(t.ref for t in app.tags)
-        _data_manifest(app.manifest)
+        _data_manifest(app.manifest, allow_runtime=allow_runtime)
+        for track in app.tracks:
+            track_allow_runtime[track.ref] = allow_runtime
     for track in _tracks(archive):
-        _data_manifest(track.manifest)
+        allow_runtime = track_allow_runtime.get(track.ref, False)
+        _data_manifest(track.manifest, allow_runtime=allow_runtime)
         from app.services.operational_model_compile import (
             compile_canonical_manifest,
             slug_manifest_key,
         )
 
         if track.manifest:
-            compile_canonical_manifest(manifest=_data_manifest(track.manifest))
+            compile_canonical_manifest(
+                manifest=_data_manifest(track.manifest, allow_runtime=allow_runtime)
+            )
         declarations = []
         for item in track.entry_types:
             form = item.form_schema
@@ -672,6 +1061,7 @@ def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
                     content = files.get(attachment.member)
                     if (
                         content is None
+                        or not str(attachment.member).startswith("files/")
                         or hashlib.sha256(content).hexdigest() != attachment.sha256
                     ):
                         raise BadRequestError(
@@ -752,7 +1142,12 @@ def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
             raise BadRequestError(
                 message="A saved configuration references content outside this export. Include the related resources together."
             )
-    if set(files) != members:
+    package_members = {
+        name
+        for name in files
+        if any(name.startswith(payload.member_prefix) for payload in archive.packages)
+    }
+    if set(files) - package_members != members:
         raise BadRequestError(message="Archive contains unreferenced files")
     for track in _tracks(archive):
         for entry in track.entries:
@@ -782,11 +1177,21 @@ def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
                     )
                 else:
                     allowed = {a.ref for a in entry.attachments}
-                if any(
-                    not isinstance(item, str) or item not in allowed for item in values
-                ):
+                bad = next(
+                    (
+                        item
+                        for item in values
+                        if not isinstance(item, str) or item not in allowed
+                    ),
+                    None,
+                )
+                if bad is not None:
+                    key = field.get("key")
                     raise BadRequestError(
-                        message="A record references content outside this export. Include the related Apps or Tracks in the same export."
+                        message=(
+                            f"{_OUTSIDE_EXPORT_PREFIX} Record {_record_label(entry)!r} "
+                            f"field {key!r} references {bad!r}."
+                        )
                     )
 
 
@@ -804,7 +1209,7 @@ async def read_archive(data: bytes) -> tuple[PortableArchive, dict[str, bytes]]:
 def archive_summary(archive: PortableArchive) -> dict:
     """Return a content preview without exposing record bodies."""
     tracks = _tracks(archive)
-    return {
+    summary = {
         "kind": archive.kind,
         "mode": archive.mode,
         "apps": len(archive.apps),
@@ -813,6 +1218,19 @@ def archive_summary(archive: PortableArchive) -> dict:
         "attachments": sum(len(e.attachments) for t in tracks for e in t.entries),
         "names": [a.name for a in archive.apps] or [t.title for t in tracks],
     }
+    if archive.packages:
+        summary["packages"] = [
+            {
+                "slug": payload.slug,
+                "version": payload.version,
+                "installs_package": True,
+            }
+            for payload in archive.packages
+        ]
+        # Keep singular package for single-payload archives (legacy UI).
+        if len(archive.packages) == 1:
+            summary["package"] = summary["packages"][0]
+    return summary
 
 
 class _CleanupWalker(Walker):
@@ -886,7 +1304,11 @@ async def _available_name(
 
 
 async def _restore_config(
-    track: Track, spec: PortableTrack, mapping: dict[str, str]
+    track: Track,
+    spec: PortableTrack,
+    mapping: dict[str, str],
+    *,
+    allow_runtime: bool = False,
 ) -> None:
     from app.services.operational_model_runtime import sync_attached_manifest
 
@@ -949,7 +1371,7 @@ async def _restore_config(
     track.nav_visible = spec.nav_visible
     track.search_index = spec.search_index
     await track.save()
-    source_manifest = _data_manifest(spec.manifest)
+    source_manifest = _data_manifest(spec.manifest, allow_runtime=allow_runtime)
     cp.manifest = source_manifest
     await sync_attached_manifest(cp)
     # Sync rebuilds graph-owned definitions. Retain declarative Track options
@@ -1044,6 +1466,545 @@ async def _restore_file(
     return attachment
 
 
+def _track_match_key(track: Any) -> str:
+    relation = str(
+        getattr(track, "relation_type_key", "")
+        or getattr(track, "template_id", "")
+        or ""
+    ).strip()
+    if relation:
+        return f"key:{relation}"
+    title = str(getattr(track, "title", "") or "").strip()
+    return f"title:{compute_fold(title)}" if title else ""
+
+
+def _portable_track_match_key(spec: PortableTrack) -> str:
+    relation = str(spec.relation_type_key or "").strip()
+    if relation:
+        return f"key:{relation}"
+    return f"title:{compute_fold(spec.title)}" if spec.title else ""
+
+
+def _order_archive_apps(apps: list[PortableApp]) -> list[PortableApp]:
+    """Topologically order archive Apps by hard ``requires_apps`` within the ZIP."""
+    if len(apps) <= 1:
+        return list(apps)
+    from app.services.app_batch_install import _topo_sort
+
+    alias_to_ref: dict[str, str] = {}
+    for app in apps:
+        aliases: set[str] = set()
+        if app.package_slug:
+            aliases.add(app.package_slug)
+        pkg = (app.manifest or {}).get("package") or {}
+        for key in (pkg.get("slug"), pkg.get("name"), pkg.get("key")):
+            if key:
+                aliases.add(str(key).strip())
+        app_key = ((app.manifest or {}).get("app") or {}).get("key")
+        if app_key:
+            aliases.add(str(app_key).strip())
+        for alias in aliases:
+            if alias and alias not in alias_to_ref:
+                alias_to_ref[alias] = app.ref
+
+    nodes = [app.ref for app in apps]
+    edges: dict[str, list[str]] = {}
+    for app in apps:
+        deps: list[str] = []
+        for dep in ((app.manifest or {}).get("app") or {}).get("requires_apps") or []:
+            if not isinstance(dep, dict) or dep.get("optional"):
+                continue
+            key = str(dep.get("key") or "").strip()
+            if not key:
+                continue
+            # Only order against Apps present in this archive; install_app still
+            # enforces hard deps that must already exist in the destination.
+            target = alias_to_ref.get(key)
+            if target and target != app.ref:
+                deps.append(target)
+        edges[app.ref] = deps
+    order, cycle = _topo_sort(nodes, edges)
+    if cycle:
+        raise BadRequestError(
+            message="Apps in this archive have a circular dependency and cannot be imported"
+        )
+    by_ref = {app.ref: app for app in apps}
+    return [by_ref[ref] for ref in order]
+
+
+async def _overlay_installed_packaged_tracks(
+    *,
+    user_id: str,
+    workspace_id: str,
+    app: App,
+    spec: PortableApp,
+    mapping: dict[str, str],
+    events: list[dict],
+) -> list[tuple[PortableTrack, Track]]:
+    """Match installed Tracks to archive specs; create blanks for extras."""
+    from app.services.track_service import create_track_in_space
+
+    installed_tracks = await _bounded(app, CONTAINS, "Track")
+    by_key = {
+        key: track for track in installed_tracks if (key := _track_match_key(track))
+    }
+    track_pairs: list[tuple[PortableTrack, Track]] = []
+    for track_spec in spec.tracks:
+        key = _portable_track_match_key(track_spec)
+        track = by_key.get(key) if key else None
+        if track is None:
+            track = await create_track_in_space(
+                user_id,
+                title=await _available_name(
+                    Track, "title", track_spec.title, workspace_id, app
+                ),
+                purpose=track_spec.purpose,
+                icon=track_spec.icon,
+                accent_color=track_spec.accent_color,
+                workspace_id=workspace_id,
+                app_id=app.id,
+                visibility="private",
+                change_event_sink=events.append,
+            )
+            await _restore_config(track, track_spec, mapping, allow_runtime=True)
+        else:
+            mapping[track_spec.ref] = track.id
+            cp = await get_track_attached_operational_model(track)
+            if track_spec.model_ref and cp is not None:
+                mapping[track_spec.model_ref] = cp.id
+            types = await _bounded(cp, CONTAINS, "EntryType") if cp else []
+            for item in track_spec.entry_types:
+                match = next(
+                    (
+                        row
+                        for row in types
+                        if compute_fold(row.name) == compute_fold(item.name)
+                    ),
+                    None,
+                )
+                if match is not None:
+                    mapping[item.ref] = match.id
+                else:
+                    node = await EntryType.create(
+                        name=item.name,
+                        name_fold=compute_fold(item.name),
+                        icon=item.icon,
+                        track_id=track.id,
+                        form_schema=item.form_schema,
+                        created_at=utc_now_iso(),
+                        updated_at=utc_now_iso(),
+                    )
+                    if cp is not None:
+                        await cp.connect(node, edge=CONTAINS)
+                    mapping[item.ref] = node.id
+            for item in track_spec.tags:
+                tag = await Tag.create(
+                    name=item.name,
+                    name_fold=compute_fold(item.name),
+                    color=item.color,
+                    track_id=track.id,
+                    group_key=item.group_key,
+                    aliases=item.aliases,
+                    applies_to_entry_types=item.applies_to_entry_types,
+                )
+                if cp is not None:
+                    await cp.connect(tag, edge=CONTAINS)
+                mapping[item.ref] = tag.id
+            for item in track_spec.tags:
+                if item.parent_ref and item.parent_ref in mapping:
+                    tag = await Tag.get(mapping[item.ref])
+                    tag.parent_tag_id = mapping[item.parent_ref]
+                    await tag.save()
+            existing_views = await _bounded(track, HAS_VIEW, "View")
+            for item in track_spec.views:
+                view = next(
+                    (
+                        row
+                        for row in existing_views
+                        if compute_fold(row.name) == compute_fold(item.name)
+                    ),
+                    None,
+                )
+                if view is None:
+                    view = await create_track_view(
+                        track,
+                        name=item.name,
+                        name_fold=compute_fold(item.name),
+                        type=item.type,
+                        config=item.config,
+                        entry_type_keys=item.entry_type_keys,
+                        default_entry_type_key=item.default_entry_type_key,
+                        is_default=item.is_default,
+                        hidden=item.hidden,
+                        created_at=utc_now_iso(),
+                    )
+                mapping[item.ref] = view.id
+        track_pairs.append((track_spec, track))
+    return track_pairs
+
+
+async def _import_packaged_archive(
+    *,
+    user_id: str,
+    workspace_id: str,
+    archive: PortableArchive,
+    files: dict[str, bytes],
+) -> dict:
+    """Admit packages, install/create Apps in dependency order, overlay data."""
+    from app.models.nodes import View
+    from app.services.app_home_override import validate_home_composition
+    from app.services.app_lifecycle import install_app
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+    from app.services.app_service import create_app_for_user
+    from app.services.application_definitions import compile_application_definition
+    from app.services.change_event import emit_change_event
+    from app.services.dashboard_service import create_dashboard
+    from app.services.entry_create import create_entry_in_track
+    from app.services.entry_import_reservations import (
+        portable_import_writes,
+        reserved_import_entry,
+    )
+    from app.services.entry_write_scope import entry_write_scope
+    from app.services.portable_package import admit_package_from_archive
+    from app.services.track_service import create_track_in_space
+    from app.services.workspace_storage_usage import check_quota, increment
+
+    if not archive.packages or not archive.apps:
+        raise BadRequestError(message="Packaged archive is invalid")
+    libraries: dict[str, Any] = {}
+    for payload in archive.packages:
+        libraries[payload.slug] = await admit_package_from_archive(payload, files)
+    ordered_apps = _order_archive_apps(list(archive.apps))
+    roots: list[Any] = []
+    stored_keys: list[str] = []
+    mapping: dict[str, str] = {}
+    app_names: dict[str, str] = {}
+    events: list[dict] = []
+    atomic = graph_transaction_available()
+    outboxes = []
+    try:
+        async with entry_write_scope(f"portable-package:{workspace_id}"):
+            total_file_bytes = sum(
+                len(files[a.member])
+                for t in _tracks(archive)
+                for e in t.entries
+                for a in e.attachments
+                if a.source_type == "file"
+            )
+            if await check_quota(workspace_id, total_file_bytes) is not None:
+                raise BadRequestError(
+                    message="This import exceeds the workspace's attachment storage quota"
+                )
+            from app.services.app_batch_install import default_settings_for_library_model
+
+            track_pairs: list[tuple[PortableTrack, Track]] = []
+            app_pairs: list[tuple[PortableApp, App]] = []
+            for spec in ordered_apps:
+                if spec.package_slug:
+                    library = libraries.get(spec.package_slug)
+                    if library is None:
+                        raise BadRequestError(
+                            message=f"Archive is missing package {spec.package_slug!r}"
+                        )
+                    settings = dict(spec.settings or {})
+                    if not settings:
+                        settings = await default_settings_for_library_model(library.id)
+                    installed = await install_app(
+                        workspace_id=workspace_id,
+                        library_cp_id=library.id,
+                        actor_id=user_id,
+                        name_override=spec.name,
+                        description_override=spec.description,
+                        icon_override=spec.icon or None,
+                        settings=settings,
+                        include_seed_data=False,
+                        visibility="private",
+                        _change_event_sink=events.append,
+                    )
+                    if installed.get("status") == "awaiting_settings":
+                        raise BadRequestError(
+                            message=(
+                                "A packaged App still requires settings after defaults "
+                                "were applied. Install it from the library, complete "
+                                "settings, then retry import."
+                            )
+                        )
+                    if installed.get("status") != "active" or not installed.get(
+                        "app_id"
+                    ):
+                        raise BadRequestError(
+                            message="Packaged App install did not complete"
+                        )
+                    app = await App.get(installed["app_id"])
+                    if app is None:
+                        raise BadRequestError(message="Installed App is unavailable")
+                    if spec.icon:
+                        app.icon = spec.icon
+                    if spec.accent_color:
+                        app.accent_color = spec.accent_color
+                    await app.save()
+                    roots.append(app)
+                    mapping[spec.ref] = app.id
+                    app_names[spec.ref] = app.name
+                    app_pairs.append((spec, app))
+                    track_pairs.extend(
+                        await _overlay_installed_packaged_tracks(
+                            user_id=user_id,
+                            workspace_id=workspace_id,
+                            app=app,
+                            spec=spec,
+                            mapping=mapping,
+                            events=events,
+                        )
+                    )
+                else:
+                    name = await _available_name(App, "name", spec.name, workspace_id)
+                    app = await create_app_for_user(
+                        user_id,
+                        name,
+                        description=spec.description,
+                        icon=spec.icon,
+                        accent_color=spec.accent_color,
+                        workspace_id=workspace_id,
+                        visibility="private",
+                        change_event_sink=events.append,
+                    )
+                    roots.append(app)
+                    mapping[spec.ref] = app.id
+                    app_names[spec.ref] = app.name
+                    app_pairs.append((spec, app))
+                    cp = await get_app_attached_operational_model(app)
+                    if spec.model_ref and cp is not None:
+                        mapping[spec.model_ref] = cp.id
+                    for item in spec.tags:
+                        tag = await Tag.create(
+                            name=item.name,
+                            name_fold=compute_fold(item.name),
+                            color=item.color,
+                            app_id=app.id,
+                            group_key=item.group_key,
+                            aliases=item.aliases,
+                            applies_to_entry_types=item.applies_to_entry_types,
+                        )
+                        if cp is not None:
+                            await cp.connect(tag, edge=CONTAINS)
+                        mapping[item.ref] = tag.id
+                    for item in spec.tags:
+                        if item.parent_ref:
+                            tag = await Tag.get(mapping[item.ref])
+                            tag.parent_tag_id = mapping[item.parent_ref]
+                            await tag.save()
+                    for track_spec in spec.tracks:
+                        track = await create_track_in_space(
+                            user_id,
+                            title=track_spec.title,
+                            purpose=track_spec.purpose,
+                            icon=track_spec.icon,
+                            accent_color=track_spec.accent_color,
+                            workspace_id=workspace_id,
+                            app_id=app.id,
+                            visibility="private",
+                            change_event_sink=events.append,
+                        )
+                        await _restore_config(track, track_spec, mapping)
+                        track_pairs.append((track_spec, track))
+            for track_spec, track in track_pairs:
+                await _authorize(user_id, "track", track.id, "read")
+                for item in track_spec.entries:
+                    decision = await evaluate(
+                        subject=Subject(kind="human", id=user_id),
+                        action="entry.create",
+                        resource=Resource(
+                            kind="track", id=track.id, scope=f"track:{track.id}"
+                        ),
+                    )
+                    if not decision.allowed:
+                        raise InsufficientPermissionsError(
+                            message="You cannot import records into this Track"
+                        )
+                    if item.type_ref not in mapping:
+                        raise BadRequestError(
+                            message="An imported record type is unavailable on the installed App"
+                        )
+                    entry = await Entry.create(
+                        track_id=track.id,
+                        type_id=mapping[item.type_ref],
+                        title=item.title,
+                        author_id=user_id,
+                        status="importing",
+                    )
+                    await track.connect(entry, edge=CONTAINS)
+                    mapping[item.ref] = entry.id
+                    for attachment in item.attachments:
+                        new_file = await _restore_file(
+                            entry, attachment, files, user_id, stored_keys
+                        )
+                        mapping[attachment.ref] = new_file.id
+            for track_spec, track in track_pairs:
+                cp = await get_track_attached_operational_model(track)
+                if cp is not None:
+                    cp.manifest = _remap(cp.manifest, mapping, app_names=app_names)
+                    await cp.save()
+                for item in track_spec.entry_types:
+                    if item.ref in mapping:
+                        et = await EntryType.get(mapping[item.ref])
+                        et.form_schema = _remap(
+                            item.form_schema, mapping, app_names=app_names
+                        )
+                        await et.save()
+                for item in track_spec.views:
+                    if item.ref in mapping:
+                        view = await View.get(mapping[item.ref])
+                        view.config = _remap(item.config, mapping)
+                        await view.save()
+            for spec, app in app_pairs:
+                if spec.package_slug:
+                    continue
+                cp = await get_app_attached_operational_model(app)
+                if cp is None:
+                    continue
+                cp.manifest = _remap(
+                    _data_manifest(spec.manifest), mapping, app_names=app_names
+                )
+                app.settings_schema = dict(
+                    (cp.manifest.get("app") or {}).get("settings_schema") or {}
+                )
+                await app.save()
+                await cp.save()
+                await compile_application_definition(
+                    app_node=app,
+                    manifest=cp.manifest,
+                    source_operational_model_id=cp.id,
+                    source_kind="local",
+                )
+            skip_refs = _collect_incomplete_import_refs(track_pairs, mapping)
+            skipped_entries: list[str] = []
+            for track_spec, track in track_pairs:
+                for item in track_spec.entries:
+                    if item.ref in skip_refs:
+                        skipped_entries.append(_record_label(item))
+                        await _drop_reserved_import_entry(
+                            item=item, mapping=mapping, stored_keys=stored_keys
+                        )
+                        continue
+                    entry = await Entry.get(mapping[item.ref])
+                    et = next(t for t in track_spec.entry_types if t.ref == item.type_ref)
+                    attachment_ids = [
+                        mapping[a.ref] for a in item.attachments if a.ref in mapping
+                    ]
+                    with portable_import_writes():
+                        with reserved_import_entry(entry, user_id):
+                            restored = await create_entry_in_track(
+                                track=track,
+                                user_id=user_id,
+                                workspace_id=workspace_id,
+                                title=item.title,
+                                body=_body_links(item.body, mapping),
+                                type_id=mapping[item.type_ref],
+                                custom_fields=_field_values(
+                                    item, et, mapping, track_spec.manifest
+                                ),
+                                tags=[mapping[t] for t in item.tags if t in mapping],
+                                attachment_ids=attachment_ids,
+                                change_event_sink=events.append,
+                            )
+                    restored.status = item.status
+                    if item.created_at is not None:
+                        restored.created_at = item.created_at
+                    if item.updated_at is not None:
+                        restored.updated_at = item.updated_at
+                    await restored.save()
+                    from app.services.retrieval.indexing import enqueue_entry
+
+                    await enqueue_entry(restored)
+            for spec, app in app_pairs:
+                if spec.home_composition is not None:
+                    app.home_composition = await validate_home_composition(
+                        user_id=user_id,
+                        app_id=app.id,
+                        home=_remap(spec.home_composition, mapping),
+                    )
+                    app.home_revision = 1
+                    await app.save()
+                for dashboard in spec.dashboards:
+                    await create_dashboard(
+                        user_id=user_id,
+                        app_id=app.id,
+                        name=dashboard.name,
+                        layout=dashboard.layout,
+                        widgets=_remap(dashboard.widgets, mapping),
+                        is_default=dashboard.is_default,
+                    )
+            from app.models.nodes import App as AppNode
+            from app.models.nodes import Track as TrackNode
+            from app.services.resource_events import queue_resource_event
+
+            kinds = {"App": AppNode, "Track": TrackNode, "Entry": Entry}
+            for event in events:
+                model = kinds.get(event["resource_type"])
+                if model:
+                    event["after"] = await (
+                        await model.get(event["resource_id"])
+                    ).export(flat=True)
+                outbox = await queue_resource_event(
+                    event, workspace_id, atomic, namespace="portable-import-v1"
+                )
+                if outbox:
+                    outboxes.append(outbox)
+            await increment(workspace_id, total_file_bytes)
+    except BaseException:
+        from anyio import CancelScope
+
+        with CancelScope(shield=True):
+            try:
+                if not atomic:
+                    cleanup = _CleanupWalker(
+                        max_queue_size=MAX_NODES + 1, max_steps=MAX_NODES * 4
+                    )
+                    for root in roots:
+                        await cleanup.spawn(root)
+                        if cleanup.failure is not None:
+                            raise cleanup.failure
+                    for node in reversed(cleanup.nodes):
+                        await node.delete()
+            finally:
+                for key in stored_keys:
+                    await get_attachment_storage_service().delete_attachment(key)
+        raise
+    if atomic:
+        from app.services.workspace_membership import _deliver
+
+        for outbox in outboxes:
+            await _deliver(outbox)
+    else:
+        for event in events:
+            await emit_change_event(**event)
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+
+    for track_spec in _tracks(archive):
+        for entry in track_spec.entries:
+            if entry.ref not in mapping:
+                continue
+            for attachment in entry.attachments:
+                if attachment.source_type == "file" and attachment.ref in mapping:
+                    try:
+                        get_metadata_extraction_service().schedule_extraction(
+                            mapping[attachment.ref]
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Could not schedule imported attachment metadata"
+                        )
+    return {
+        **archive_summary(archive),
+        "resource_ids": [root.id for root in roots],
+        "skipped_entries": skipped_entries,
+        "skipped_entry_count": len(skipped_entries),
+    }
+
+
 async def import_resources(
     *, user_id: str, workspace_id: str, data: bytes, app_id: str = ""
 ) -> dict:
@@ -1056,7 +2017,10 @@ async def import_resources(
     from app.services.application_definitions import compile_application_definition
     from app.services.change_event import emit_change_event
     from app.services.entry_create import create_entry_in_track
-    from app.services.entry_import_reservations import reserved_import_entry
+    from app.services.entry_import_reservations import (
+        portable_import_writes,
+        reserved_import_entry,
+    )
     from app.services.entry_write_scope import entry_write_scope
     from app.services.permissions import (
         can_create_app_under_workspace,
@@ -1083,6 +2047,17 @@ async def import_resources(
         ):
             raise BadRequestError(message="Track import destination is invalid")
         await _authorize(user_id, "app", app_id, "update")
+    if archive.packages:
+        if app_id:
+            raise BadRequestError(
+                message="Packaged App archives must be imported from Manage Apps"
+            )
+        return await _import_packaged_archive(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            archive=archive,
+            files=files,
+        )
     roots: list[Any] = []
     stored_keys: list[str] = []
     mapping: dict[str, str] = {}
@@ -1237,26 +2212,37 @@ async def import_resources(
                     source_operational_model_id=cp.id,
                     source_kind="local",
                 )
+            skip_refs = _collect_incomplete_import_refs(track_pairs, mapping)
+            skipped_entries = []
             for spec, track in track_pairs:
                 for item in spec.entries:
+                    if item.ref in skip_refs:
+                        skipped_entries.append(_record_label(item))
+                        await _drop_reserved_import_entry(
+                            item=item, mapping=mapping, stored_keys=stored_keys
+                        )
+                        continue
                     entry = await Entry.get(mapping[item.ref])
                     et = next(t for t in spec.entry_types if t.ref == item.type_ref)
-                    attachment_ids = [mapping[a.ref] for a in item.attachments]
-                    with reserved_import_entry(entry, user_id):
-                        restored = await create_entry_in_track(
-                            track=track,
-                            user_id=user_id,
-                            workspace_id=workspace_id,
-                            title=item.title,
-                            body=_body_links(item.body, mapping),
-                            type_id=mapping[item.type_ref],
-                            custom_fields=_field_values(
-                                item, et, mapping, spec.manifest
-                            ),
-                            tags=[mapping[t] for t in item.tags],
-                            attachment_ids=attachment_ids,
-                            change_event_sink=events.append,
-                        )
+                    attachment_ids = [
+                        mapping[a.ref] for a in item.attachments if a.ref in mapping
+                    ]
+                    with portable_import_writes():
+                        with reserved_import_entry(entry, user_id):
+                            restored = await create_entry_in_track(
+                                track=track,
+                                user_id=user_id,
+                                workspace_id=workspace_id,
+                                title=item.title,
+                                body=_body_links(item.body, mapping),
+                                type_id=mapping[item.type_ref],
+                                custom_fields=_field_values(
+                                    item, et, mapping, spec.manifest
+                                ),
+                                tags=[mapping[t] for t in item.tags if t in mapping],
+                                attachment_ids=attachment_ids,
+                                change_event_sink=events.append,
+                            )
                     restored.status = item.status
                     if item.created_at is not None:
                         restored.created_at = item.created_at
@@ -1337,8 +2323,10 @@ async def import_resources(
 
     for spec in _tracks(archive):
         for entry in spec.entries:
+            if entry.ref not in mapping:
+                continue
             for attachment in entry.attachments:
-                if attachment.source_type == "file":
+                if attachment.source_type == "file" and attachment.ref in mapping:
                     try:
                         get_metadata_extraction_service().schedule_extraction(
                             mapping[attachment.ref]
@@ -1349,4 +2337,9 @@ async def import_resources(
                         logger.exception(
                             "Could not schedule imported attachment metadata"
                         )
-    return {**archive_summary(archive), "resource_ids": [root.id for root in roots]}
+    return {
+        **archive_summary(archive),
+        "resource_ids": [root.id for root in roots],
+        "skipped_entries": skipped_entries,
+        "skipped_entry_count": len(skipped_entries),
+    }

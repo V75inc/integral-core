@@ -3,10 +3,15 @@ import { unwrapApiDataEnvelope, toArr } from './helpers';
 
 export type ResourceKind = 'app' | 'track';
 export type ExportMode = 'configuration' | 'full';
+export type PackageSummary = { slug: string; version?: string; installs_package?: boolean };
 export type TransferSummary = {
   kind: ResourceKind; mode: ExportMode; names: string[];
   apps: number; tracks: number; entries: number; attachments: number;
   resource_ids?: string[];
+  package?: PackageSummary;
+  packages?: PackageSummary[];
+  skipped_entries?: string[];
+  skipped_entry_count?: number;
 };
 
 export const portableApi = {

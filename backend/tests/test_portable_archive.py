@@ -19,6 +19,26 @@ def test_archive_round_trips_descriptor_and_binary():
     assert files == {"files/1": b"\x00\xff"}
 
 
+def test_archive_round_trips_package_members_for_v2():
+    data = portable_archive.encode_archive(
+        {
+            "kind": "app",
+            "version": 2,
+            "mode": "configuration",
+            "package": {
+                "slug": "demo",
+                "version": "1.0.0",
+                "fingerprint": "abc",
+                "member_prefix": "package/demo/",
+            },
+        },
+        {"package/demo/operational-model.yaml": b"scope: app\n"},
+    )
+    manifest, files = portable_archive.decode_archive(data)
+    assert manifest["version"] == 2
+    assert files == {"package/demo/operational-model.yaml": b"scope: app\n"}
+
+
 @pytest.mark.parametrize(
     "name",
     [

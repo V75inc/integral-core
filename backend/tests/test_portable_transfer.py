@@ -195,7 +195,10 @@ async def test_reject_external_relation_and_wrong_workspace(
     await update_entry_in_track(
         entry_id=first.id, user_id=test_user.id, custom_fields={"related": target.id}
     )
-    with pytest.raises(BadRequestError, match="outside this export"):
+    with pytest.raises(
+        BadRequestError,
+        match=r"outside this export.*Record 'First' field 'related'.*Track 'External'",
+    ):
         await export_resources(
             user_id=test_user.id,
             workspace_id=ws,
@@ -207,6 +210,153 @@ async def test_reject_external_relation_and_wrong_workspace(
             workspace_id="wrong",
             selection=ExportSelection(kind="track", ids=[track.id]),
         )
+
+
+@pytest.mark.asyncio
+async def test_export_strips_deleted_relation_targets(authenticated_client, test_user):
+    from app.services.entry_update import update_entry_in_track
+    from app.services.portable_archive import decode_archive
+
+    ws, app, track, first, second = await fixture(test_user.id)
+    await update_entry_in_track(
+        entry_id=first.id, user_id=test_user.id, custom_fields={"related": second.id}
+    )
+    deleted_id = second.id
+    await second.delete(cascade=False)
+    assert await Entry.get(deleted_id) is None
+
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    raw, _files = decode_archive(data)
+    entries = raw["apps"][0]["tracks"][0]["entries"]
+    by_title = {row["title"]: row for row in entries}
+    assert "Second" not in by_title
+    assert "related" not in (by_title["First"].get("custom_fields") or {})
+
+
+@pytest.mark.asyncio
+async def test_export_names_live_external_app_for_relation(
+    authenticated_client, test_user
+):
+    """Plant a live out-of-App relation (bypass write validation) and require App name."""
+    ws, app, track, first, _ = await fixture(test_user.id)
+    other_app = await create_app_for_user(
+        test_user.id, "Legacy Projects", workspace_id=ws
+    )
+    other = await create_track_in_space(
+        test_user.id, title="Projects", workspace_id=ws, app_id=other_app.id
+    )
+    target = await create_entry_in_track(
+        track=other, user_id=test_user.id, title="Foreign project"
+    )
+    first.custom_fields = {**(first.custom_fields or {}), "related": target.id}
+    await first.save()
+    with pytest.raises(
+        BadRequestError,
+        match=(
+            r"outside this export.*Record 'First' field 'related'.*"
+            r"App 'Legacy Projects' / Track 'Projects'"
+        ),
+    ):
+        await export_resources(
+            user_id=test_user.id,
+            workspace_id=ws,
+            selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_export_omits_entry_when_required_relation_deleted(
+    authenticated_client, test_user
+):
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.operational_model_runtime import sync_attached_manifest
+    from app.services.portable_archive import decode_archive
+
+    ws, app, track, first, second = await fixture(test_user.id)
+    cp = await get_track_attached_operational_model(track)
+    types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
+    et = types[0]
+    fields = list(et.form_schema.get("fields") or [])
+    for field in fields:
+        if field.get("key") == "related":
+            field["required"] = True
+    et.form_schema = {**et.form_schema, "fields": fields}
+    await et.save()
+    await sync_attached_manifest(cp)
+
+    # Keep First importable (required related → self). Break Second with a deleted id.
+    first.custom_fields = {**(first.custom_fields or {}), "amount": 0, "related": first.id}
+    await first.save()
+    second.custom_fields = {
+        **(second.custom_fields or {}),
+        "amount": 12.5,
+        "related": "n.Entry.missing-required-target",
+    }
+    await second.save()
+
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    raw, _files = decode_archive(data)
+    titles = {row["title"] for row in raw["apps"][0]["tracks"][0]["entries"]}
+    assert "First" in titles
+    assert "Second" not in titles
+    first_row = next(
+        row for row in raw["apps"][0]["tracks"][0]["entries"] if row["title"] == "First"
+    )
+    assert first_row["custom_fields"]["related"] == first.id
+
+
+@pytest.mark.asyncio
+async def test_import_skips_entries_missing_required_relation(
+    authenticated_client, test_user, monkeypatch
+):
+    from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.portable_archive import decode_archive
+
+    monkeypatch.setattr(
+        get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
+    )
+    ws, app, track, first, second = await fixture(test_user.id)
+    data = await export_resources(
+        user_id=test_user.id,
+        workspace_id=ws,
+        selection=ExportSelection(kind="app", ids=[app.id], mode="full"),
+    )
+    raw, files = decode_archive(data)
+    # Simulate an older ZIP: require related; First keeps a self-link, Second lacks it.
+    first_ref = next(
+        row["ref"] for row in raw["apps"][0]["tracks"][0]["entries"] if row["title"] == "First"
+    )
+    for et in raw["apps"][0]["tracks"][0]["entry_types"]:
+        for field in et.get("form_schema", {}).get("fields", []):
+            if field.get("key") == "related":
+                field["required"] = True
+    for row in raw["apps"][0]["tracks"][0]["entries"]:
+        if row["title"] == "First":
+            row["custom_fields"]["related"] = first_ref
+        elif row["title"] == "Second":
+            row["custom_fields"].pop("related", None)
+    broken = encode_archive(raw, files)
+    result = await import_resources(
+        user_id=test_user.id, workspace_id=ws, data=broken
+    )
+    assert result["skipped_entry_count"] >= 1
+    assert any("Second" in name for name in result["skipped_entries"])
+    imported = await App.get(result["resource_ids"][0])
+    tracks = await imported.nodes(edge=[CONTAINS], node=["Track"])
+    entries = [
+        e for t in tracks for e in await t.nodes(edge=[CONTAINS], node=["Entry"])
+    ]
+    titles = {e.title for e in entries}
+    assert "First" in titles
+    assert "Second" not in titles
 
 
 @pytest.mark.asyncio

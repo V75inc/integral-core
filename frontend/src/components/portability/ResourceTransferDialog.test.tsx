@@ -22,15 +22,31 @@ beforeEach(() => {
 });
 
 describe('portable resource dialog', () => {
-  it('exports multiple selections with the chosen data mode', async () => {
+  it('exports the selected Apps with a fixed download name', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.download).toBe('integral-apps-full.integral.zip');
+    });
+    render(<ResourceTransferDialog {...props} />);
+    fireEvent.click(await screen.findByText('People'));
+    fireEvent.click(screen.getByText('Configuration and data'));
+    fireEvent.click(screen.getByText('Download export'));
+    await waitFor(() => expect(portableApi.export).toHaveBeenCalledWith('app', ['b'], 'full'));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    await waitFor(() => expect(props.onClose).toHaveBeenCalled());
+    expect(toast).toHaveBeenCalledWith('Export downloaded.', 'success');
+  });
+
+  it('exports multiple Apps in one call', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.download).toBe('integral-apps-full.integral.zip');
+    });
     render(<ResourceTransferDialog {...props} />);
     fireEvent.click(await screen.findByText('Projects'));
     fireEvent.click(screen.getByText('People'));
     fireEvent.click(screen.getByText('Configuration and data'));
     fireEvent.click(screen.getByText('Download export'));
-    await waitFor(() => expect(portableApi.export).toHaveBeenCalledWith('app', ['a', 'b'], 'full'));
-    await waitFor(() => expect(props.onClose).toHaveBeenCalled());
-    expect(toast).toHaveBeenCalledWith('Export downloaded.', 'success');
+    await waitFor(() => expect(portableApi.export).toHaveBeenCalledWith('app', expect.arrayContaining(['a', 'b']), 'full'));
+    await waitFor(() => expect(click).toHaveBeenCalled());
   });
 
   it('previews then imports copies, never imports before confirmation', async () => {
@@ -46,6 +62,42 @@ describe('portable resource dialog', () => {
     expect(props.onImported).toHaveBeenCalledTimes(1);
   });
 
+  it('shows package install intent for packaged archives', async () => {
+    vi.mocked(portableApi.preview).mockResolvedValue({
+      ...summary,
+      package: { slug: 'tcs-crm', version: '1.3.0', installs_package: true },
+    });
+    render(<ResourceTransferDialog {...props} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Import' }));
+    const file = new File(['zip'], 'crm.integral.zip', { type: 'application/zip' });
+    fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
+    fireEvent.click(screen.getByText('Preview import'));
+    expect(await screen.findByText(/Installs package/)).toBeInTheDocument();
+    expect(screen.getByText(/tcs-crm 1.3.0/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Install and import'));
+    await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined));
+  });
+
+  it('lists multiple packages in the import preview', async () => {
+    vi.mocked(portableApi.preview).mockResolvedValue({
+      ...summary,
+      apps: 2,
+      names: ['CRM', 'Inventory'],
+      packages: [
+        { slug: 'tcs-crm', version: '1.3.0', installs_package: true },
+        { slug: 'tcs-inventory', version: '2.0.0', installs_package: true },
+      ],
+    });
+    render(<ResourceTransferDialog {...props} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Import' }));
+    const file = new File(['zip'], 'apps.integral.zip', { type: 'application/zip' });
+    fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
+    fireEvent.click(screen.getByText('Preview import'));
+    expect(await screen.findByText(/Installs packages/)).toBeInTheDocument();
+    expect(screen.getByText(/tcs-crm 1.3.0, tcs-inventory 2.0.0/)).toBeInTheDocument();
+    expect(screen.getByText('Install and import')).toBeInTheDocument();
+  });
+
   it('keeps App-scoped Track imports contextual', async () => {
     vi.mocked(portableApi.preview).mockResolvedValue({ ...summary, kind: 'track' });
     render(<ResourceTransferDialog {...props} kind="track" appId="parent" />);
@@ -58,16 +110,16 @@ describe('portable resource dialog', () => {
     await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, 'parent'));
   });
 
-  it('retains selections across pages', async () => {
+  it('retains Track selections across pages', async () => {
     vi.mocked(portableApi.list).mockResolvedValueOnce({ items: [{ id: 'a', name: 'First' }], cursor: 'next' })
       .mockResolvedValueOnce({ items: [{ id: 'b', name: 'Later' }], cursor: undefined });
-    render(<ResourceTransferDialog {...props} />);
+    render(<ResourceTransferDialog {...props} kind="track" />);
     fireEvent.click(await screen.findByText('First'));
     fireEvent.click(screen.getByText('Load more'));
     fireEvent.click(await screen.findByText('Later'));
     expect(screen.getByText('2 selected')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Download export'));
-    await waitFor(() => expect(portableApi.export).toHaveBeenCalledWith('app', ['a', 'b'], 'configuration'));
+    await waitFor(() => expect(portableApi.export).toHaveBeenCalledWith('track', expect.arrayContaining(['a', 'b']), 'configuration'));
   });
 
   it('discards a late response after the workspace changes', async () => {

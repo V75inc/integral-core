@@ -90,7 +90,13 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
       } else if (file) {
         const result = await portableApi.import(file, appId);
         if (generation.current !== current) return;
-        showToast(`Imported ${countLabel(result.apps || result.tracks, kind === 'app' ? 'App' : 'Track')}.`, 'success');
+        const skipped = result.skipped_entry_count || 0;
+        showToast(
+          skipped
+            ? `Imported ${countLabel(result.apps || result.tracks, kind === 'app' ? 'App' : 'Track')}. Skipped ${countLabel(skipped, 'record')} with missing required links.`
+            : `Imported ${countLabel(result.apps || result.tracks, kind === 'app' ? 'App' : 'Track')}.`,
+          'success',
+        );
         onImported?.(); onClose();
       }
     } catch (error) {
@@ -105,8 +111,20 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
   };
 
   const visible = items.filter(item => (item.name || item.title || '').toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
+  const toggleSelected = (id: string) => setSelected(previous => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else if (next.size >= 100) return previous;
+    else next.add(id);
+    return next;
+  });
+  const previewPackages = preview?.packages?.length
+    ? preview.packages
+    : preview?.package
+      ? [preview.package]
+      : [];
   return <FormDialog open={open} onClose={() => { if (!busy) onClose(); }} title={`Import / export ${title}`}
-    onConfirm={() => void confirm()} submitLabel={tab === 'export' ? 'Download export' : preview ? 'Import copies' : 'Preview import'}
+    onConfirm={() => void confirm()} submitLabel={tab === 'export' ? 'Download export' : preview ? (previewPackages.length ? 'Install and import' : 'Import copies') : 'Preview import'}
     submitLoading={busy} submitDisabled={tab === 'export' ? !selected.size || loading : !file}>
     <div className="flex gap-2" role="tablist" aria-label="Transfer direction">
       <Button role="tab" aria-selected={tab === 'export'} variant={tab === 'export' ? 'primary' : 'ghost'} disabled={busy} icon={<Download size={16} strokeWidth={LINE_ICON_STROKE} />} onClick={() => setTab('export')}>Export</Button>
@@ -128,21 +146,29 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
       <Input aria-label={`Filter loaded ${title}`} placeholder={`Find in loaded ${title}…`} value={filter} disabled={busy} onChange={event => setFilter(event.target.value)} />
       <Surface padding="sm" tone="panel-2" className="max-h-48 space-y-1 overflow-y-auto" aria-label={`Choose ${title} to export`}>
         {visible.map(item => <Surface as="label" key={item.id} padding="sm" border="none" hoverTone="panel-2" className="flex cursor-pointer items-center gap-3">
-          <input className="h-4 w-4 shrink-0 accent-[var(--brand-accent)]" type="checkbox" disabled={busy || (!selected.has(item.id) && selected.size >= 100)} checked={selected.has(item.id)} onChange={() => setSelected(previous => { const next = new Set(previous); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />
+          <input className="h-4 w-4 shrink-0 accent-[var(--brand-accent)]" type="checkbox" disabled={busy || (!selected.has(item.id) && selected.size >= 100)} checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
           <Text as="span">{item.name || item.title}</Text>
         </Surface>)}
         {!loading && !visible.length && <Text variant="body-sm" tone="muted">No {title} found.</Text>}
         {loading && <div role="status"><Text variant="body-sm" tone="muted">Loading…</Text></div>}
       </Surface>
       <div className="flex items-center justify-between gap-3"><Text variant="body-sm" tone="muted">{selected.size} selected</Text>{(cursor || failed) && <Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => void more()}>{failed ? 'Retry' : 'Load more'}</Button>}</div>
-      <Text variant="body-sm" tone="muted">Select related {title} together to preserve links between their records. Exports are limited to 50 MiB.</Text>
+      <Text variant="body-sm" tone="muted">{kind === 'app'
+        ? 'Select related Apps together to preserve links. Packaged Apps include their runtime in the ZIP. Exports are limited to 50 MiB.'
+        : `Select related ${title} together to preserve links between their records. Exports are limited to 50 MiB.`}</Text>
     </div> : <div className="space-y-4">
-      <Text variant="body-sm" tone="muted">Choose an Integral export (.integral.zip). Imported {title} are new private copies {appId ? 'inside this App' : 'in this workspace'}.</Text>
+      <Text variant="body-sm" tone="muted">
+        Choose an Integral export (.integral.zip). On another machine or folder, run Core (`integral up`), then import here.
+        Packaged Apps install their runtime from the ZIP. Imported {title} are new private copies {appId ? 'inside this App' : 'in this workspace'}.
+        Full-data archives need related Apps/Tracks together; records with broken required links may be skipped.
+      </Text>
       <input aria-label="Integral archive" type="file" accept=".zip" disabled={busy} onChange={event => { setFile(event.target.files?.[0] || null); setPreview(null); }} />
       {preview && <Surface padding="md" tone="panel-2" className="space-y-3">
         <Text>{preview.mode === 'full' ? 'Configuration and data' : 'Configuration only'}</Text>
         <ul className="max-h-40 list-inside list-disc overflow-y-auto">{preview.names.map((name, index) => <li key={index}>{name}</li>)}</ul>
         <Text variant="body-sm">{countLabel(preview.apps, 'App')} · {countLabel(preview.tracks, 'Track')} · {countLabel(preview.entries, 'record')} · {countLabel(preview.attachments, 'attachment')}</Text>
+        {previewPackages.length === 1 && <Text variant="body-sm">Installs package <Text as="span" weight="medium">{previewPackages[0].slug}{previewPackages[0].version ? ` ${previewPackages[0].version}` : ''}</Text> then restores this archive.</Text>}
+        {previewPackages.length > 1 && <Text variant="body-sm">Installs packages <Text as="span" weight="medium">{previewPackages.map(pkg => `${pkg.slug}${pkg.version ? ` ${pkg.version}` : ''}`).join(', ')}</Text> then restores this archive.</Text>}
         <Text variant="body-sm" tone="muted">Existing content stays in place. Sharing permissions, credentials and activity history are not imported.</Text>
       </Surface>}
     </div>}
