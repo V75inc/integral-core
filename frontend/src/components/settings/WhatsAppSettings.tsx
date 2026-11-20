@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Phone, Link2, CheckCircle2, XCircle, Loader2, Send, Trash2 } from 'lucide-react';
+import { Phone, Link2, CheckCircle2, XCircle, Loader2, Trash2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAgentive } from '../../context/AgentiveContext';
 import {
   listChannelIdentities,
   unlinkChannelIdentity,
   initiateWhatsAppVerification,
-  verifyWhatsAppOtp,
   getWhatsAppChannelBinding,
   saveWhatsAppChannelBinding,
   disableWhatsAppChannelBinding,
@@ -48,10 +47,8 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [phone, setPhone] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [issuedCode, setIssuedCode] = useState('');
-  const [step, setStep] = useState<'idle' | 'enter_phone' | 'enter_otp'>('idle');
-  const [, setPendingIdentityId] = useState<string | null>(null);
+  const [linkHint, setLinkHint] = useState('');
+  const [step, setStep] = useState<'idle' | 'enter_phone' | 'await_message'>('idle');
   const [submitting, setSubmitting] = useState(false);
   const [binding, setBinding] = useState<WhatsAppChannelBinding | null>(null);
   const [bindingReady, setBindingReady] = useState(false);
@@ -97,7 +94,6 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
     try {
       const res = await initiateWhatsAppVerification(phone.trim());
       if (res.identity_id || res.otp_code) {
-        setPendingIdentityId(res.identity_id || '');
         if (res.verified) {
           showToast('WhatsApp number already linked!', 'success');
           await loadIdentities();
@@ -105,37 +101,18 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
           setStep('idle');
           setPhone('');
         } else {
-          setIssuedCode(res.otp_code || '');
-          setStep('enter_otp');
-          showToast('Enter the verification code on this page', 'info');
+        const target = binding?.display_phone
+          ? binding.display_phone
+          : 'the WhatsApp business number';
+        setLinkHint(`From ${phone.trim()}, send any message to ${target}.`);
+        setStep('await_message');
+        showToast('Send any message from that phone', 'info');
         }
       } else if (res.error) {
         showToast(res.error, 'error');
       }
     } catch (e: any) {
       showToast(e?.response?.data?.message || 'Failed to initiate verification', 'error');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    if (!otpCode.trim()) { showToast('Enter the verification code', 'error'); return; }
-    setSubmitting(true);
-    try {
-      const res = await verifyWhatsAppOtp(phone.trim(), otpCode.trim());
-      if (res.verified) {
-        showToast('WhatsApp number verified!', 'success');
-        await loadIdentities();
-        onChange?.();
-        setStep('idle');
-        setPhone('');
-        setOtpCode('');
-      } else {
-        showToast(res.message || 'Invalid code, try again', 'error');
-      }
-    } catch (e: any) {
-      showToast(e?.response?.data?.message || 'Verification failed', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -280,7 +257,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
           variant="outline"
           size="sm"
           icon={<Link2 size={13} strokeWidth={LINE_ICON_STROKE} />}
-          onClick={() => { setStep('enter_phone'); setPhone(''); }}
+          onClick={() => { setStep('enter_phone'); setPhone(''); setLinkHint(''); }}
         >
           Link WhatsApp number
         </Button>
@@ -294,47 +271,27 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 555 123 4567"
+              placeholder="+15556767191"
               className="mt-1 block w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]"
             />
           </label>
           <div className="flex gap-2">
             <Button variant="primary" size="sm" onClick={handleInitiate} loading={submitting}>
-              Send verification code
+              Link this number
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setStep('idle'); setPhone(''); }}>
+            <Button variant="ghost" size="sm" onClick={() => { setStep('idle'); setPhone(''); setLinkHint(''); }}>
               Cancel
             </Button>
           </div>
         </div>
       )}
 
-      {step === 'enter_otp' && (
+      {step === 'await_message' && (
         <div className="space-y-3">
-          <Text variant="body" tone="muted" as="p">
-            {issuedCode
-              ? `Enter this code to confirm ${phone.trim()}: ${issuedCode}`
-              : 'Enter the verification code for this number.'}
-          </Text>
-          <label className="block">
-            <span className="text-sm font-medium text-[var(--text)]">Verification code</span>
-            <input
-              type="text"
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value.toUpperCase())}
-              placeholder="ABC123"
-              maxLength={6}
-              className="mt-1 block w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)] font-mono tracking-widest text-center"
-            />
-          </label>
-          <div className="flex gap-2">
-            <Button variant="primary" size="sm" onClick={handleVerifyOtp} loading={submitting} icon={<Send size={13} strokeWidth={LINE_ICON_STROKE} />}>
-              Verify
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setStep('enter_phone'); setOtpCode(''); }}>
-              Back
-            </Button>
-          </div>
+          <Text variant="body" tone="muted" as="p">{linkHint}</Text>
+          <Button variant="ghost" size="sm" onClick={() => { setStep('idle'); setPhone(''); setLinkHint(''); }}>
+            Done
+          </Button>
         </div>
       )}
 
@@ -348,6 +305,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
             {binding.api_key_last4 ? <Text variant="body-sm" as="p">API key ending in {binding.api_key_last4}</Text> : null}
             {binding.phone_number_id ? <Text variant="body-sm" as="p">Phone number id {binding.phone_number_id}</Text> : null}
             {binding.display_phone ? <Text variant="body-sm" as="p">Display phone {binding.display_phone}</Text> : null}
+            <Text variant="body-sm" tone="muted" as="p">Other workspaces can use this number with the same API key.</Text>
             {binding.last_error?.trim() ? <Text variant="body-sm" tone="danger" as="p">{binding.last_error}</Text> : null}
           </div>
         )}
@@ -364,7 +322,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
           </Button>
           {binding?.id ? (
             <Button variant="outline" size="sm" onClick={() => void handleDisableChannel()} loading={channelAction === 'disable'} disabled={channelAction !== null}>
-              Disable
+              Disconnect
             </Button>
           ) : null}
         </div>

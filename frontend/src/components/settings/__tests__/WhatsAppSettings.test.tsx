@@ -3,13 +3,13 @@ import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../../api/agentive', () => ({
   listChannelIdentities: vi.fn(), unlinkChannelIdentity: vi.fn(),
-  initiateWhatsAppVerification: vi.fn(), verifyWhatsAppOtp: vi.fn(),
+  initiateWhatsAppVerification: vi.fn(),
   getWhatsAppChannelBinding: vi.fn(), saveWhatsAppChannelBinding: vi.fn(),
   disableWhatsAppChannelBinding: vi.fn(),
 }));
 vi.mock('../../../context/ToastContext', () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 vi.mock('../../../context/AgentiveContext', () => ({ useAgentive: () => ({ enabled: true }) }));
-import { listChannelIdentities, unlinkChannelIdentity, initiateWhatsAppVerification, verifyWhatsAppOtp, getWhatsAppChannelBinding, saveWhatsAppChannelBinding, disableWhatsAppChannelBinding } from '../../../api/agentive';
+import { listChannelIdentities, unlinkChannelIdentity, initiateWhatsAppVerification, getWhatsAppChannelBinding, saveWhatsAppChannelBinding, disableWhatsAppChannelBinding } from '../../../api/agentive';
 import { WhatsAppSettings } from '../WhatsAppSettings';
 
 beforeEach(() => {
@@ -27,19 +27,20 @@ describe('WhatsApp notification setup', () => {
     expect(listChannelIdentities).toHaveBeenCalledTimes(2);
   });
   it('refreshes notification eligibility after verification', async () => {
-    vi.mocked(initiateWhatsAppVerification).mockResolvedValue({ identity_id: 'phone-1', verified: false, otp_code: 'ABC123' });
-    vi.mocked(verifyWhatsAppOtp).mockResolvedValue({ verified: true });
-    const onChange = vi.fn();
-    render(<WhatsAppSettings onChange={onChange} />);
+    vi.mocked(initiateWhatsAppVerification).mockResolvedValue({ identity_id: 'phone-1', verified: false });
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
+      binding: {
+        id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', phone_number_id: 'pn-1',
+        display_phone: '+15550001111', enabled: true, last_error: '', api_key_last4: '9911', webhook_registered: true,
+      },
+    });
+    render(<WhatsAppSettings />);
     fireEvent.click(await screen.findByRole('button', { name: 'Link WhatsApp number' }));
     fireEvent.change(screen.getByLabelText('WhatsApp phone number'), { target: { value: '+15551234567' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
-    expect(await screen.findByText(/Enter this code to confirm \+15551234567: ABC123/)).toBeInTheDocument();
-    expect(screen.queryByText(/send it to the Integral/i)).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: 'ABC123' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
-    await waitFor(() => expect(onChange).toHaveBeenCalledOnce());
-    expect(verifyWhatsAppOtp).toHaveBeenCalledWith('+15551234567', 'ABC123');
+    fireEvent.click(screen.getByRole('button', { name: 'Link this number' }));
+    expect(await screen.findByText('From +15551234567, send any message to +15550001111.')).toBeInTheDocument();
+    expect(screen.queryByText(/1E200E|verification code/i)).not.toBeInTheDocument();
+    expect(initiateWhatsAppVerification).toHaveBeenCalledWith('+15551234567');
   });
   it('refreshes notification eligibility after unlinking', async () => {
     vi.mocked(listChannelIdentities).mockResolvedValueOnce({ identities: [{ id: 'phone-1', channel: 'whatsapp', channel_user_id: '+15551234567', verified: true }] });
@@ -106,7 +107,7 @@ describe('WhatsApp notification setup', () => {
       },
     });
     render(<WhatsAppSettings />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Disable' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
     await waitFor(() => expect(disableWhatsAppChannelBinding).toHaveBeenCalledTimes(1));
     expect(disableWhatsAppChannelBinding).toHaveBeenCalledWith('bind-9');
     expect(unlinkChannelIdentity).not.toHaveBeenCalled();

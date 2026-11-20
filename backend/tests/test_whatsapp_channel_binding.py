@@ -476,3 +476,134 @@ async def test_second_admin_attaches_the_same_phone(
     fetched = await second_user_client.get("/api/agentive/channels/whatsapp/binding")
     assert fetched.json()["binding"]["id"] == first_id
     assert fetched.json()["binding"]["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_member_cannot_attach_a_line(
+    enc_key, authenticated_client, monkeypatch
+):
+    """A caller who is not an owner or admin cannot save the line."""
+
+    async def not_admin(*args: object, **kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(
+        "app.services.workspace_permissions.is_workspace_admin_or_owner",
+        not_admin,
+    )
+    saved = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_member_key",
+        },
+    )
+    assert saved.status_code == 403
+    assert "jvk_member_key" not in saved.text
+
+
+@pytest.mark.asyncio
+async def test_a_different_phone_stays_a_separate_line(
+    enc_key, authenticated_client, second_user_client, monkeypatch
+):
+    """A key for another phone does not join the first line."""
+    phones = {"jvk_first_owner": "phone-a", "jvk_second_owner": "phone-b"}
+
+    async def fetch_account(base_url, api_key, *, client=None):
+        return JvconnectResult(
+            ok=True,
+            status_code=200,
+            data={
+                "phone_number_id": phones[api_key],
+                "display_phone_number": "+15550001111",
+            },
+            error="",
+        )
+
+    async def register_webhook(base_url, api_key, callback_url, *, client=None):
+        return JvconnectResult(
+            ok=True,
+            status_code=200,
+            data={"webhook_secret": "whsec_registered"},
+            error="",
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_account", fetch_account
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.register_webhook", register_webhook
+    )
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    first = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_first_owner",
+        },
+    )
+    second = await second_user_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_second_owner",
+        },
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["binding"]["id"] != second.json()["binding"]["id"]
+    assert second.json()["binding"]["phone_number_id"] == "phone-b"
+    still = await authenticated_client.get("/api/agentive/channels/whatsapp/binding")
+    assert still.json()["binding"]["phone_number_id"] == "phone-a"
+
+
+@pytest.mark.asyncio
+async def test_disconnect_disables_the_line_only_after_the_last_grant(
+    enc_key, test_user
+):
+    """One workspace can leave while another grant keeps the line enabled."""
+    from app.agentive.nodes import WhatsAppChannelBinding
+    from app.agentive.services.whatsapp_channel_binding import (
+        create_whatsapp_channel_binding,
+        disconnect_workspace_whatsapp_line,
+        grant_whatsapp_line,
+        granted_workspace_ids,
+    )
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import Workspace
+    from app.services.app_graph import catalog_workspace
+    from app.services.permissions import get_user_node
+    from app.utils.time import utc_now_iso
+
+    user_id = _user_id(test_user)
+    binding = await create_whatsapp_channel_binding(
+        user_id=user_id,
+        jvconnect_base_url="https://connect.example",
+        api_key="jvk_keep_me",
+    )
+    binding.enabled = True
+    await binding.save()
+    user = await get_user_node(user_id)
+    now = utc_now_iso()
+    org = await Workspace.create(
+        kind="organization",
+        name="Alpha Org",
+        name_fold="alpha org",
+        created_at=now,
+        updated_at=now,
+    )
+    await catalog_workspace(org)
+    await user.connect(org, edge=IS_MEMBER_OF, role="admin", joined_at=now)
+    await grant_whatsapp_line(org.id, binding, user_id)
+
+    await disconnect_workspace_whatsapp_line(user_id, org.id, binding.id)
+    kept = await WhatsAppChannelBinding.get(binding.id)
+    assert kept is not None
+    assert kept.enabled is True
+    assert binding.workspace_id in await granted_workspace_ids(kept)
+
+    await disconnect_workspace_whatsapp_line(user_id, binding.workspace_id, binding.id)
+    closed = await WhatsAppChannelBinding.get(binding.id)
+    assert closed is not None
+    assert closed.enabled is False
+    assert await granted_workspace_ids(closed) == []

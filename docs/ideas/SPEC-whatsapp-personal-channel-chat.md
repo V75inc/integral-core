@@ -109,19 +109,20 @@ Store jvconnect credentials on a dedicated graph node (working name `WhatsAppCha
 - `jvconnect_base_url` (non-secret)
 - encrypted `api_key` and `webhook_secret` via `encrypt_secret_for_storage` / `decrypt_secret_from_storage` (AAD = binding id), same pattern as connector `auth_state`
 - denormalized `phone_number_id` / display phone from `GET …/account` after save
-- `workspace_id` = caller’s personal workspace at bind time
+- `workspace_id` records the workspace that first registered the line
 - `enabled` flag
+- one binding per jvconnect `phone_number_id`. Another workspace owner or admin who can present the same API key gets a `UsesWhatsAppLine` grant instead of a second registration. Disconnect removes that workspace’s grant and disables the line only when no grant remains.
 
 Do **not** put API keys in browser storage, env-only global `WHATSAPP_*`, or the data-connector registry.
 
 ### 2. Chat thread mapping
 
-Use a **dedicated** `ChatThread` per user+channel binding:
+Use a **dedicated** `ChatThread` per sender and workspace:
 
-- `provider_id = "whatsapp"`
-- `provider_session_id` = stable WhatsApp sender id (E.164 / wa_id) for the personal user
-- `workspace_id` = personal workspace on the binding
-- Reuse the same thread across turns; do not dump WhatsApp turns into an arbitrary in-app “primary” thread
+- `provider_id = "integral_native"`
+- `provider_session_id` = `wa:{workspace_id}:{e164}`
+- `workspace_id` = the workspace chosen for this sender on this line
+- Reuse the same thread across turns in that workspace. A sender who belongs to more than one granted workspace is asked to pick; `switch` asks again. Membership is checked on every message.
 
 In-app UI may list this thread like any other; Phase 1 does not require a special WhatsApp transcript chrome.
 
@@ -131,7 +132,7 @@ In-app UI may list this thread like any other; Phase 1 does not require a specia
 
 ### 4. Settings naming
 
-Keep the channel controls on `WhatsAppSettings`, mounted at Settings → Workspace → WhatsApp. Label them **“WhatsApp channel”** (credentials, webhook status, enable/disable). Do **not** add an entry under Settings → Connectors or Your account → Notifications. Notification delivery toggles stay under Notifications and link here to verify a phone.
+Keep the channel controls on `WhatsAppSettings`, mounted at Settings → Workspace → WhatsApp. Label them **“WhatsApp channel”** (credentials, webhook status, disconnect). Saving attaches the active workspace. Do **not** add an entry under Settings → Connectors or Your account → Notifications. A personal number is verified only when a message arrives from that full international number. The page does not show or accept a code. Notification delivery toggles stay under Notifications.
 
 ## Webhook contract
 
@@ -210,7 +211,7 @@ Coverage expectation: new services/endpoints have focused tests; no need to expa
 **Ask first**
 - Changing ChatThread provider_id conventions used elsewhere
 - Adding outbound template sends
-- Sharing one phone across multiple Integral users
+- Letting someone who is not a member of a granted workspace chat on the line
 - Migrating notification Graph sends onto jvconnect
 - Any jvvoice / calling work (Phase 2)
 
@@ -219,7 +220,7 @@ Coverage expectation: new services/endpoints have focused tests; no need to expa
 - Store Meta long-lived tokens in Core for this channel (jvconnect holds them)
 - Put this feature in the connector catalog / `IS_CONNECTED_TO`
 - Expose API keys to the browser after save
-- Implement org-facing business-line routing in Phase 1
+- Route the line to people who have no Integral workspace membership
 - Treat coexistence / WA Web as supported paths
 
 ## Success criteria

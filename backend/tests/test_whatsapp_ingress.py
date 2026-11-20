@@ -692,3 +692,178 @@ async def test_disabled_binding_returns_200_and_does_not_send(
     assert second.status_code == 200
     assert sent_texts == []
     _assert_no_chat_submit()
+
+
+@pytest.mark.asyncio
+async def test_pending_inbound_verifies_and_blocks_a_second_account(
+    enc_key, test_user, second_user, client, sent_texts, monkeypatch
+):
+    """A matching inbound verifies the claim and does not start a turn."""
+    from app.agentive.services.channel_identity import initiate_link
+
+    admitted = []
+
+    async def admit(*args: object, **kwargs: object) -> None:
+        admitted.append(args)
+
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_chat_bridge.admit_owner_whatsapp_text",
+        admit,
+    )
+    await _ready_binding(test_user)
+    started = await initiate_link(_user_id(test_user), "whatsapp", "+15551212")
+    assert "otp_code" not in started
+    assert started["verified"] is False
+    rejected = await initiate_link(_user_id(test_user), "whatsapp", "5556767191")
+    assert "country code" in rejected["error"]
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15551212", message_id="wamid.link")],
+            phone_number_id=_PHONE,
+        )
+    )
+    signature = _jvconnect_signature(raw, _HOOK_SECRET)
+    response = await _post_webhook(client, raw, signature, header="X-Jvconnect-Signature")
+    assert response.status_code == 200
+    assert [call["body"] for call in sent_texts] == [
+        "Number linked. Send a message to continue."
+    ]
+    assert admitted == []
+    other = await initiate_link(_user_id(second_user), "whatsapp", "+15551212")
+    assert "another account" in other["error"]
+
+
+@pytest.mark.asyncio
+async def test_two_workspaces_ask_and_then_use_the_choice(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """Several workspaces ask once, then later messages use that choice."""
+    from app.agentive.services.channel_identity import initiate_link
+    from app.agentive.services.whatsapp_channel_binding import grant_whatsapp_line
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import Workspace
+    from app.services.app_graph import catalog_workspace
+    from app.services.permissions import get_user_node
+    from app.utils.time import utc_now_iso
+
+    admitted = []
+
+    async def admit(binding, envelope, *, e164, user_id, workspace_id):
+        admitted.append(workspace_id)
+
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_chat_bridge.admit_owner_whatsapp_text",
+        admit,
+    )
+    binding = await _ready_binding(test_user)
+    await initiate_link(_user_id(test_user), "whatsapp", "+15551212")
+    link_raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15551212", message_id="wamid.claim")],
+            phone_number_id=_PHONE,
+        )
+    )
+    await _post_webhook(
+        client,
+        link_raw,
+        _jvconnect_signature(link_raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+    user = await get_user_node(_user_id(test_user))
+    now = utc_now_iso()
+    org = await Workspace.create(
+        kind="organization",
+        name="Alpha Org",
+        name_fold="alpha org",
+        created_at=now,
+        updated_at=now,
+    )
+    await catalog_workspace(org)
+    await user.connect(org, edge=IS_MEMBER_OF, role="admin", joined_at=now)
+    await grant_whatsapp_line(org.id, binding, _user_id(test_user))
+
+    async def post(body: str, message_id: str):
+        raw = _raw_payload(
+            _envelope(
+                [_text_message(body, sender="15551212", message_id=message_id)],
+                phone_number_id=_PHONE,
+            )
+        )
+        return await _post_webhook(
+            client,
+            raw,
+            _jvconnect_signature(raw, _HOOK_SECRET),
+            header="X-Jvconnect-Signature",
+        )
+
+    asked = await post("hello", "wamid.ask")
+    assert asked.status_code == 200
+    assert any("Which workspace?" in call["body"] for call in sent_texts)
+    assert admitted == []
+    chosen = await post("1", "wamid.pick")
+    assert chosen.status_code == 200
+    assert any(call["body"].startswith("Using ") for call in sent_texts)
+    chatted = await post("status", "wamid.chat")
+    assert chatted.status_code == 200
+    personal = await Workspace.get(binding.workspace_id)
+    ordered = sorted(
+        [
+            (getattr(personal, "name", "") or "", personal.id),
+            (org.name, org.id),
+        ],
+        key=lambda item: (item[0].casefold(), item[1]),
+    )
+    assert admitted == [ordered[0][1]]
+
+
+@pytest.mark.asyncio
+async def test_removed_member_is_refused(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """A sender who lost workspace access does not start a turn."""
+    from app.models.edges import IS_MEMBER_OF
+    from app.services.permissions import get_user_node
+
+    admitted = []
+
+    async def admit(*args: object, **kwargs: object) -> None:
+        admitted.append(args)
+
+    async def resolve(channel, channel_user_id):
+        if channel_user_id == "+15551212":
+            return {"user_id": _user_id(test_user), "channel_user_id": "+15551212"}
+        return None
+
+    monkeypatch.setattr(
+        "app.agentive.services.channel_identity.resolve_channel_identity",
+        resolve,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_chat_bridge.admit_owner_whatsapp_text",
+        admit,
+    )
+    binding = await _ready_binding(test_user)
+    user = await get_user_node(_user_id(test_user))
+    context = await user.get_context()
+    edges = await context.find_edges_between(
+        user.id, binding.workspace_id, edge_class=IS_MEMBER_OF
+    )
+    for edge in edges:
+        await edge.delete()
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15551212", message_id="wamid.removed")],
+            phone_number_id=_PHONE,
+        )
+    )
+    response = await _post_webhook(
+        client,
+        raw,
+        _jvconnect_signature(raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+    assert response.status_code == 200
+    assert [call["body"] for call in sent_texts] == [
+        "This number isn't a member of a workspace on this WhatsApp line."
+    ]
+    assert admitted == []

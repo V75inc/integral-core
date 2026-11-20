@@ -21,7 +21,11 @@ from tests.test_whatsapp_ingress import (
 
 _SENDER = "15551212"
 _E164 = "+15551212"
-_SESSION = f"wa:{_E164}"
+
+
+def _session_for(workspace_id: str) -> str:
+    """Session id for one sender in one workspace."""
+    return f"wa:{workspace_id}:{_E164}"
 
 
 @pytest.fixture
@@ -114,11 +118,13 @@ def _signed_text(body: str, message_id: str) -> tuple[bytes, str]:
     return raw, _jvconnect_signature(raw, "whsec_test")
 
 
-async def _threads_for_session():
+async def _threads_for_session(workspace_id: str):
     """Native threads stored for this sender's WhatsApp session."""
     from app.models.nodes import ChatThread
 
-    found = await ChatThread.find({"context.provider_session_id": _SESSION})
+    found = await ChatThread.find(
+        {"context.provider_session_id": _session_for(workspace_id)}
+    )
     return [
         thread
         for thread in found
@@ -136,7 +142,7 @@ def _request_id(meta_message_id: str) -> str:
 async def test_first_inbound_creates_native_thread_and_second_reuses_it(
     enc_key, test_user, client, sent_texts, monkeypatch
 ):
-    """The first owner text creates wa:{e164}; the next text reuses that thread."""
+    """The first text creates wa:{workspace}:{e164}; the next text reuses it."""
     submits = _patch_submit(monkeypatch)
     _patch_owner(monkeypatch, test_user)
     binding = await _ready_binding(test_user)
@@ -146,11 +152,11 @@ async def test_first_inbound_creates_native_thread_and_second_reuses_it(
     first = await _post_webhook(
         client, first_raw, first_sig, header="X-Jvconnect-Signature"
     )
-    created = await _threads_for_session()
+    created = await _threads_for_session(binding.workspace_id)
     second = await _post_webhook(
         client, second_raw, second_sig, header="X-Jvconnect-Signature"
     )
-    reused = await _threads_for_session()
+    reused = await _threads_for_session(binding.workspace_id)
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -158,7 +164,7 @@ async def test_first_inbound_creates_native_thread_and_second_reuses_it(
     thread = created[0]
     assert thread.provider_id == "integral_native"
     assert thread.workspace_id == binding.workspace_id
-    assert thread.provider_session_id == _SESSION
+    assert thread.provider_session_id == _session_for(binding.workspace_id)
     assert thread.user_id == binding.user_id
     assert len(reused) == 1
     assert reused[0].id == thread.id
@@ -220,7 +226,7 @@ async def test_single_approval_decides_on_channel_and_skips_the_turn(
     pending = StagedChange(
         token="tok-wa-1",
         user_id=binding.user_id,
-        session_id=_SESSION,
+        session_id=_session_for(binding.workspace_id),
         kind="entry.update",
         summary="Update a record",
         diff_human="name",
@@ -233,7 +239,7 @@ async def test_single_approval_decides_on_channel_and_skips_the_turn(
 
     async def fake_list(user_id, session_id):
         assert user_id == binding.user_id
-        assert session_id == _SESSION
+        assert session_id == _session_for(binding.workspace_id)
         return [pending]
 
     monkeypatch.setattr(
@@ -254,7 +260,7 @@ async def test_single_approval_decides_on_channel_and_skips_the_turn(
     assert decision["principal_id"] == binding.user_id
     assert decision["workspace_id"] == binding.workspace_id
     assert decision["thread_id"]
-    assert decision["conversation_id"] == _SESSION
+    assert decision["conversation_id"] == _session_for(binding.workspace_id)
     assert decision["proposal_id"] == "tok-wa-1"
     assert decision["decision"] == "approve"
     assert [call["body"] for call in sent_texts] == ["Approved."]
@@ -355,6 +361,8 @@ async def _terminal_turn(
     from app.utils.time import utc_now_iso
 
     binding = await _ready_binding(user, enabled=enabled)
+    if session_id == "whatsapp":
+        session_id = _session_for(binding.workspace_id)
     thread = await create_thread(
         user_id=binding.user_id,
         provider_id="integral_native",
@@ -433,7 +441,7 @@ async def test_succeeded_whatsapp_turn_sends_terminal_assistant_text(
 
     item, _, _, receipt = await _terminal_turn(
         test_user,
-        session_id=_SESSION,
+        session_id="whatsapp",
         assistant_text="The ledger is balanced.",
         meta_message_id="wamid.reply",
     )
@@ -498,7 +506,7 @@ async def test_send_failure_keeps_work_item_and_records_receipt(
     )
     item, _, binding, receipt = await _terminal_turn(
         test_user,
-        session_id=_SESSION,
+        session_id="whatsapp",
         assistant_text="The ledger is balanced.",
         meta_message_id="wamid.fail",
         extra_meta_message_id="wamid.other",
@@ -535,7 +543,7 @@ async def test_whatsapp_turn_without_public_text_does_not_send(
 
     item, _, _, _ = await _terminal_turn(
         test_user,
-        session_id=_SESSION,
+        session_id="whatsapp",
         assistant_text=None,
         meta_message_id="wamid.notext",
     )
