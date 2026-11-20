@@ -479,9 +479,7 @@ async def test_second_admin_attaches_the_same_phone(
 
 
 @pytest.mark.asyncio
-async def test_member_cannot_attach_a_line(
-    enc_key, authenticated_client, monkeypatch
-):
+async def test_member_cannot_attach_a_line(enc_key, authenticated_client, monkeypatch):
     """A caller who is not an owner or admin cannot save the line."""
 
     async def not_admin(*args: object, **kwargs: object) -> bool:

@@ -723,7 +723,9 @@ async def test_pending_inbound_verifies_and_blocks_a_second_account(
         )
     )
     signature = _jvconnect_signature(raw, _HOOK_SECRET)
-    response = await _post_webhook(client, raw, signature, header="X-Jvconnect-Signature")
+    response = await _post_webhook(
+        client, raw, signature, header="X-Jvconnect-Signature"
+    )
     assert response.status_code == 200
     assert [call["body"] for call in sent_texts] == [
         "Number linked. Send a message to continue."

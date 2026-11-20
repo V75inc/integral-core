@@ -270,7 +270,9 @@ def _saved_workspace(record, phone_number_id: str) -> str:
     return str(raw.get(phone_number_id) or "")
 
 
-async def _store_workspace_choice(record, phone_number_id: str, workspace_id: str) -> None:
+async def _store_workspace_choice(
+    record, phone_number_id: str, workspace_id: str
+) -> None:
     if record is None:
         return
     prefs = dict(getattr(record, "preferences", {}) or {})
@@ -396,9 +398,7 @@ async def _dispatch_verified(binding, envelope) -> dict:
         await _send_notice_and_store(binding, envelope, _LINK_NOTICE, "text")
         return {"ok": True}
     principal = await _sender_principal(identity)
-    workspaces = (
-        await _accessible_workspaces(binding, principal) if principal else []
-    )
+    workspaces = await _accessible_workspaces(binding, principal) if principal else []
     if not workspaces:
         await _show_typing(binding, envelope.message_id)
         await _send_notice_and_store(binding, envelope, _NO_WORKSPACE_NOTICE, "text")

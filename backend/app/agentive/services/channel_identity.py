@@ -462,7 +462,9 @@ async def verify_pending_whatsapp_sender(sender: str) -> Optional[Dict[str, Any]
     An already-verified number is left unchanged. Returns the verified
     identity summary, or None when nothing was claimed.
     """
-    e164 = normalize_whatsapp_e164(sender if str(sender).startswith("+") else f"+{sender}")
+    e164 = normalize_whatsapp_e164(
+        sender if str(sender).startswith("+") else f"+{sender}"
+    )
     if not e164:
         return None
     identities = await ChannelIdentity.find(channel="whatsapp", channel_user_id=e164)
@@ -495,7 +497,9 @@ async def verify_pending_whatsapp_sender(sender: str) -> Optional[Dict[str, Any]
     }
 
 
-async def _supersede_pending_whatsapp_claims(e164: str, user_id: str) -> Optional[ChannelIdentity]:
+async def _supersede_pending_whatsapp_claims(
+    e164: str, user_id: str
+) -> Optional[ChannelIdentity]:
     """Expire other people's open claims. Return this user's existing row."""
     identities = await ChannelIdentity.find(channel="whatsapp", channel_user_id=e164)
     mine = None

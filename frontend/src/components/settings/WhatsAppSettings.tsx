@@ -101,12 +101,12 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
           setStep('idle');
           setPhone('');
         } else {
-        const target = binding?.display_phone
-          ? binding.display_phone
-          : 'the WhatsApp business number';
-        setLinkHint(`From ${phone.trim()}, send any message to ${target}.`);
-        setStep('await_message');
-        showToast('Send any message from that phone', 'info');
+          const target = binding?.display_phone
+            ? binding.display_phone
+            : 'the WhatsApp business number';
+          setLinkHint(`From ${phone.trim()}, send any message to ${target}.`);
+          setStep('await_message');
+          showToast('Send any message from that phone', 'info');
         }
       } else if (res.error) {
         showToast(res.error, 'error');

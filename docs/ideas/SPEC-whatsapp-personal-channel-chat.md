@@ -1,6 +1,6 @@
 # Spec: WhatsApp Personal Channel — Phase 1 Chat
 
-**Status:** Phase 1 chat is implemented (binding, signed webhook, native thread, reply delivery, settings form in the same change window). The dedicated thread uses `provider_id=integral_native` and `provider_session_id=wa:{e164}` because the native turn worker and text-approve reject any other provider id.  
+**Status:** Phase 1 chat is implemented (binding, signed webhook, native thread, reply delivery, settings form in the same change window). The dedicated thread uses `provider_id=integral_native` and `provider_session_id=wa:{workspace_id}:{e164}` because the native turn worker and text-approve reject any other provider id. One jvconnect phone is one registration, shared by workspace grants. A personal number is verified by an inbound message, not a code shown on the page.  
 **Idea:** [whatsapp-personal-channel.md](whatsapp-personal-channel.md)  
 **Follow-on:** [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md) (not Phase 1 acceptance)
 
