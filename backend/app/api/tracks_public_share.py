@@ -115,6 +115,37 @@ def _slugify_key(value: str) -> str:
     return s
 
 
+def _is_create_only(perms: Dict[str, bool]) -> bool:
+    return (
+        perms.get("create_entries") is True
+        and perms.get("read_entries") is False
+        and not any(value for key, value in perms.items() if key != "create_entries")
+    )
+
+
+async def _resolve_fixed_public_entry_type(track: Track, type_id: str) -> EntryType:
+    entry_type = await EntryType.get(type_id)
+    if not entry_type or entry_type.track_id != track.id or entry_type.is_template:
+        raise ResourceNotFoundError(message="Entry type not found on this track")
+    declaration = await declared_public_share(track, strict=True) or {}
+    private_keys = (declaration.get("extensions") or {}).get(
+        "authenticated_only_entry_type_keys", ()
+    )
+    if isinstance(private_keys, str):
+        private_keys = private_keys.split(",")
+    _reject_legacy_private_type(entry_type)
+    if _entry_type_slug(entry_type) in {_slugify_key(key) for key in private_keys}:
+        raise InsufficientPermissionsError(
+            message="Entry type requires authentication."
+        )
+    return entry_type
+
+
+def _require_fixed_type_match(link: ShareLink, type_id: Optional[str]) -> None:
+    if link.public_entry_type_id is not None and link.public_entry_type_id != type_id:
+        raise ResourceNotFoundError(message="Entry type not found on this track")
+
+
 async def _track_has_active_public_share(track_id: str) -> bool:
     """True when the track has a non-revoked, non-expired public share link."""
     links = await ShareLink.find(
@@ -171,6 +202,10 @@ async def _resolve_public_track_link(token: str) -> ShareLink:
         raise ResourceNotFoundError(message="Shared track not found")
     if link.revoked_at or _is_expired(link):
         raise ResourceNotFoundError(message="Shared track not found")
+    if link.public_entry_type_id is not None and not _is_create_only(
+        link.public_permissions or {}
+    ):
+        raise ResourceNotFoundError(message="Shared track not found")
     return link
 
 
@@ -224,6 +259,7 @@ async def get_public_track_share_settings(
             # Never re-serve plaintext; lookup is hash-only on the public path.
             "token": None,
             "public_permissions": active_link.public_permissions or {},
+            "public_entry_type_id": active_link.public_entry_type_id,
             "permissions_source": "link",
         }
 
@@ -298,7 +334,19 @@ async def update_public_track_share_settings(
         before_snap = await export_node(active_link)
 
     if req.enabled:
+        fixed_type_id = req.public_entry_type_id
+        if active_link and "public_entry_type_id" not in req.model_fields_set:
+            fixed_type_id = active_link.public_entry_type_id
+        if active_link and fixed_type_id != active_link.public_entry_type_id:
+            raise ResourceConflictError(
+                message="Disable the existing link before changing its fixed form."
+            )
+        if fixed_type_id is not None:
+            if not _is_create_only(req.public_permissions):
+                raise BadRequestError(message="A fixed form link must be create-only.")
+            await _resolve_fixed_public_entry_type(track, fixed_type_id)
         if active_link:
+            active_link.public_entry_type_id = fixed_type_id
             active_link.public_permissions = req.public_permissions
             # Clear any legacy plaintext; public resolve uses token_hash only.
             if getattr(active_link, "public_token", None):
@@ -315,12 +363,10 @@ async def update_public_track_share_settings(
                 role="viewer",
                 expires_at=None,
                 intent="public",
+                public_permissions=req.public_permissions,
+                public_entry_type_id=fixed_type_id,
             )
             link_obj = await ShareLink.get(minted["share_link"]["id"])
-            link_obj.public_permissions = req.public_permissions
-            # Hash-only persist (mint_share_link already set token_hash).
-            link_obj.public_token = ""
-            await link_obj.save()
             token = minted["token"]
 
         await emit_change_event(
@@ -337,6 +383,7 @@ async def update_public_track_share_settings(
             "enabled": True,
             "token": token,
             "public_permissions": link_obj.public_permissions,
+            "public_entry_type_id": link_obj.public_entry_type_id,
             # Same key GET reports, so callers can read one shape from either.
             "permissions_source": "link",
         }
@@ -476,9 +523,14 @@ async def get_public_track(request: Request, token: str) -> Dict[str, Any]:
     # an unauthenticated GET would create nodes / merge schemas (write-on-read).
     # Read-only shares still see already-persisted types; create/update shares
     # materialize so the client receives real type ids before POST.
-    if perms.get("create_entries") or perms.get("update_entries"):
-        await materialize_entry_types_from_tier(track)
-    entry_types = await EntryType.find({"context.track_id": track.id})
+    if link.public_entry_type_id is not None:
+        entry_types = [
+            await _resolve_fixed_public_entry_type(track, link.public_entry_type_id)
+        ]
+    else:
+        if perms.get("create_entries") or perms.get("update_entries"):
+            await materialize_entry_types_from_tier(track)
+        entry_types = await EntryType.find({"context.track_id": track.id})
     entry_types_export = [await export_node(et) for et in entry_types]
 
     workspace_data = None
@@ -496,6 +548,7 @@ async def get_public_track(request: Request, token: str) -> Dict[str, Any]:
         "track": track_data,
         "workspace": workspace_data,
         "public_permissions": perms,
+        "public_entry_type_id": link.public_entry_type_id,
         "public_share_extensions": (
             dict((await declared_public_share(track) or {}).get("extensions") or {})
         ),
@@ -668,7 +721,11 @@ async def get_public_track_relation_options(
     if not track:
         raise ResourceNotFoundError(message="Shared track not found")
 
-    entry_type = await EntryType.get(entry_type_id)
+    _require_fixed_type_match(link, entry_type_id)
+    if link.public_entry_type_id is not None:
+        entry_type = await _resolve_fixed_public_entry_type(track, entry_type_id)
+    else:
+        entry_type = await EntryType.get(entry_type_id)
     if not entry_type or entry_type.track_id != track.id:
         raise ResourceNotFoundError(message="Entry type not found on this track")
 
@@ -758,8 +815,12 @@ async def create_public_track_entry(request: Request, token: str) -> Dict[str, A
 
     # Materialize before resolve so anchored/by-reference tracks expose types
     # that live only in the manifest tier (same as get_public_track).
-    await materialize_entry_types_from_tier(track)
-    entry_type = await EntryType.get(req.type_id)
+    _require_fixed_type_match(link, req.type_id)
+    if link.public_entry_type_id is not None:
+        entry_type = await _resolve_fixed_public_entry_type(track, req.type_id)
+    else:
+        await materialize_entry_types_from_tier(track)
+        entry_type = await EntryType.get(req.type_id)
     if not entry_type or entry_type.track_id != track.id:
         raise ResourceNotFoundError(message="Entry type not found on this track")
 
@@ -786,15 +847,13 @@ async def create_public_track_entry(request: Request, token: str) -> Dict[str, A
 async def _reject_public_onboarding_form_entry(entry: Entry) -> None:
     """Employee onboarding forms are authenticated-only, not public share."""
     entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
+    _reject_legacy_private_type(entry_type)
+
+
+def _reject_legacy_private_type(entry_type: Optional[EntryType]) -> None:
     if entry_type is None:
         return
-    et_slug = _slugify_key(
-        str(
-            (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-            or entry_type.name
-            or ""
-        )
-    )
+    et_slug = _entry_type_slug(entry_type)
     if et_slug == "onboarding_form":
         raise InsufficientPermissionsError(
             message="Employee onboarding forms require sign-in. Open the link from your onboarding prompt after logging in."
@@ -812,6 +871,9 @@ async def _public_share_form_entry(token: str, entry_id: str) -> tuple:
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
     await _reject_public_onboarding_form_entry(entry)
+    _require_fixed_type_match(link, entry.type_id)
+    if link.public_entry_type_id is not None:
+        await _resolve_fixed_public_entry_type(track, link.public_entry_type_id)
     if perms.get("update_entries"):
         return link, track, entry, perms
     if (

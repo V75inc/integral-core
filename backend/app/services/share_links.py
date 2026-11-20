@@ -202,6 +202,8 @@ async def mint_share_link(
     *,
     intent: ShareLinkIntent = "collaborator",
     max_redemptions: Optional[int] = None,
+    public_permissions: Optional[Dict[str, bool]] = None,
+    public_entry_type_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Owner or admin. Return ``{share_link, token}`` — token shown only once."""
     from app.runtime.composition import require_capability
@@ -258,6 +260,8 @@ async def mint_share_link(
         role=role,
         intent=intent,
         token_hash=_hash_token(plaintext),
+        public_permissions=public_permissions or {},
+        public_entry_type_id=public_entry_type_id,
         created_by=actor_user_id,
         created_at=now_iso,
         expires_at=expires_at,

@@ -19,6 +19,7 @@ class RedeemShareLinkRequest(BaseModel):
 class UpdatePublicTrackShareRequest(BaseModel):
     enabled: bool
     public_permissions: Dict[str, bool] = Field(default_factory=dict)
+    public_entry_type_id: Optional[str] = Field(default=None, min_length=1)
 
 
 class NotifyPublicTrackShareRequest(BaseModel):

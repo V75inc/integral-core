@@ -536,7 +536,12 @@ async def apply_entry_types_to_track(
                 **(
                     {
                         key: et[key]
-                        for key in ("search_index", "task_semantics", "goal_semantics")
+                        for key in (
+                            "search_index",
+                            "task_semantics",
+                            "goal_semantics",
+                            "confirmation",
+                        )
                         if key in et
                     }
                 ),

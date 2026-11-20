@@ -1047,6 +1047,7 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
                 "related_views",
                 "open_as_page",
                 "create_wizard",
+                "confirmation",
                 "singleton",
             ):
                 if chrome_key not in fs:

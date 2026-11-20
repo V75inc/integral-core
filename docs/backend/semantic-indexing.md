@@ -504,3 +504,34 @@ Insights workflow/tool schemas. It starts with a small passage budget; live
 broker and App operation boundaries still apply. This reduces model roundtrips
 and schema input, not the physical model/provider latency. See
 [chat latency](ai-chat.md#response-latency-and-activity).
+
+
+### Unavailable retrieval is not an empty result
+
+A known unavailable indexed-search capability now returns HTTP 503 with
+`retrieval_unavailable` when the requested lexical read cannot complete.
+The resident/MCP tool envelope preserves this as an error, including for legacy
+direct tools that raise `EmbeddingStoreUnavailable`. It does not expose database
+connection diagnostics. Programming and authorization failures are not recast as
+search outages.
+
+The existing semantic/hybrid fallback remains bounded by the same authenticated
+workspace, requested scope and current-source permissions. Successful fallback
+reports its actual mode and `degraded=true`; it is not evidence that semantic
+search or complete index coverage is ready. Explicit lexical failure does not
+silently broaden into a different scan. A known-record authorized direct read
+can be attempted separately and cited only after its own successful receipt.
+No outage or empty retrieval proves that a record does not exist.
+
+Operational preflight remains the supported reviewed storage provisioning and
+index-status workflow: verify deployment search schema/index readiness, then
+Track source coverage, then a scoped passage retrieval with a known source.
+These are distinct checks. Do not have the runtime create managed schema, fetch
+model weights, change credentials, or rebuild indexes to conceal a failure.
+The model must not claim a document was read without a successful returned
+passage or separately verified direct-record read.
+
+Regression gate: `tests/test_retrieval_unavailable_contract.py`,
+`tests/test_retrieval_lexical_mode.py`, `tests/test_retrieve_degrade.py`.
+Preserves I-RET-01/02/04 (permission, current source and Track scope),
+I-RET-07 (truthful readiness/coverage) and I-RUNTIME-01 (bounded work).

@@ -47,3 +47,39 @@ Core routes that know the Entry and its current Track/form but do not own the
 host's pending-record ID. All validation failures should be reported as a
 generic not-found response so a shared form token cannot enumerate protected
 submissions.
+
+## Public create-form presentation
+
+Anonymous create forms group the published schema fields under their declared
+labels, with a neutral Details group for ungrouped fields. Questions remain
+visible above their controls. This does not change assigned-form review,
+prefilled fields, public permissions, upload restrictions or the existing
+sensitive-field exclusions. Those exclusions remain pending a separately
+qualified host-policy migration.
+
+An EntryType may declare optional `confirmation` metadata with plain-text
+`title` (maximum 160 characters), `message` (maximum 2000 characters), and boolean
+`allow_another_response`. Omitted values retain the existing confirmation copy
+and repeat-response button. Only `false` hides the anonymous repeat button;
+it is presentation, not duplicate prevention. Assigned response editing remains
+available under its existing rules. Metadata persists through compile, merge,
+authoring and graph manifest round trips.
+
+
+### Fixed entry type on a create-only link
+
+Public share settings accept optional `public_entry_type_id` for a single
+persisted EntryType on the shared Track. A bound link requires explicitly
+`read_entries: false`, `create_entries: true` and all other permissions false.
+Public config exposes only that schema, the form omits the type switcher, and
+server create/relation requests enforce the binding. Missing, foreign, template
+or authenticated-only types are refused rather than exposing alternatives.
+
+An active token's binding is immutable. Omitted settings preserve its binding;
+changing, adding or clearing it requires disabling the link and minting a new
+one. Legacy shares with no binding otherwise retain their existing behavior.
+Disabling a link remains the normal recoverable way to stop intake. Binding is
+not approval of any application, duplicate detection, or a `read_entries` grant.
+Existing relation fields may still expose their configured option labels through
+the relation-options endpoint. A zero-record-disclosure intake must contain no
+relation fields; otherwise its author must verify the options are public-safe.

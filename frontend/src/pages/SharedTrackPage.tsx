@@ -51,6 +51,8 @@ import {
   ContractReviewHost as ContractReviewStep,
   ContractReviewRejectedTerminal,
 } from '../host/ContractReviewHost';
+import { publicFormEntryTypes } from '../utils/publicFormTypeBinding';
+import { formConfirmation } from '../utils/formConfirmation';
 import { memberAssignedFormApi } from '../features/memberAssignedForm/memberAssignedFormApi';
 
 function isEmptyFileFieldValue(val: unknown): boolean {
@@ -203,6 +205,8 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
     slot: 'body'
   }), [editBodyLabel, editBodyBase.placeholder]);
 
+  const confirmation = formConfirmation(selectedEntryType?.form_schema?.confirmation, Boolean(assignedEntryId));
+
   // Compute wizard steps: Personal Details → Contract → other groups → policies
   const formSteps = useMemo(() => {
     if (!selectedEntryType) return [];
@@ -217,6 +221,27 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
       if (String(f.group || '').trim().toLowerCase() === 'review') return false;
       return true;
     };
+
+    // Anonymous create uses only the public schema. Preserve legacy sensitive
+    // field exclusions until the independent host-policy migration is qualified.
+    // Assigned forms retain their existing prefilled/review workflow unchanged.
+    if (!assignedEntryId && !memberFormMode) {
+      const groups = new Map<string, any[]>();
+      if (selectedTitleEnabled) groups.set('Details', [{ type: 'base_title' }]);
+      for (const spec of fields) {
+        if (!isWizardCustomField(spec)) continue;
+        const group = String(spec.group || '').trim() || 'Details';
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group)!.push({ type: 'custom', spec });
+      }
+      const steps = [...groups].map(([title, items], index) => ({
+        id: `public-fields-${index}`, title, fields: items,
+      }));
+      if (selectedBodyEnabled) steps.push({
+        id: 'additional-info', title: 'Additional Info', fields: [{ type: 'base_body' }],
+      });
+      return steps;
+    }
 
     const groupBuckets: Record<string, any[]> = {};
     const groupOrder: string[] = [];
@@ -288,7 +313,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
     }
 
     return steps;
-  }, [selectedEntryType, selectedTitleEnabled, selectedBodyEnabled, policyStepEnabled, contractStepEnabled]);
+  }, [selectedEntryType, selectedTitleEnabled, selectedBodyEnabled, policyStepEnabled, contractStepEnabled, assignedEntryId, memberFormMode]);
 
   // Validate the inputs in the current wizard step
   const validateCurrentStep = () => {
@@ -446,7 +471,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
   ) => {
     if (!step?.fields) return null;
     const readOnlyStep =
-      assignedEntryLocked || step.id === 'personal-details';
+      assignedEntryLocked || (Boolean(assignedEntryId || memberFormMode) && step.id === 'personal-details');
     const rowsCount = variant === 'form' ? 4 : 3;
     const publicShareCtx =
       assignedEntryId && token
@@ -569,7 +594,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         <div key={f.key} className="space-y-1">
           <div className={isInvalid ? "rounded-[var(--radius-input)] border border-red-500/80 p-0.5" : ""}>
             <SeamlessField
-              field={f}
+              field={!assignedEntryId && !memberFormMode ? { ...f, seamless: false } : f}
               value={values[f.key]}
               onChange={val => {
                 if (readOnlyStep && !isFile) return;
@@ -678,6 +703,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         return;
       }
       const res = await publicSharingApi.getPublicTrack(token);
+      res.entry_types = publicFormEntryTypes(res.entry_types || [], res.public_entry_type_id);
 
       // Move "post" or "Post" to the end of the entry types list so it's not the default
       if (res.entry_types && res.entry_types.length > 0) {
@@ -1406,15 +1432,13 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
               <div className="text-center py-8 space-y-4 animate-fade-in">
                 <CheckCircle2 size={56} className="mx-auto text-emerald-500 animate-pulse" />
                 <div>
-                  <Text variant="heading-md" weight="semibold" as="h2">Response Recorded</Text>
+                  <Text variant="heading-md" weight="semibold" as="h2">{confirmation.title}</Text>
                   <Text variant="body-sm" tone="muted" as="p" className="block mt-1">
-                    {assignedEntryId
-                      ? 'Thank you! Your form has been submitted.'
-                      : 'Thank you! Your response has been submitted successfully to the track.'}
+                    {confirmation.message}
                   </Text>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 justify-center mt-2">
-                  <Button
+                  {(assignedEntryId || confirmation.allowAnotherResponse) && <Button
                     variant="outline"
                     onClick={() => {
                       setSubmittedSuccess(false);
@@ -1424,7 +1448,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
                     }}
                   >
                     {assignedEntryId ? 'Edit response' : 'Submit another response'}
-                  </Button>
+                  </Button>}
                   {assignedEntryId ? (
                     <Button
                       variant="primary"
@@ -1438,7 +1462,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
             ) : (
               <form onSubmit={handleSubmitEntry} className="space-y-5">
                 {/* Entry Type selector if multiple types exist */}
-                {filteredEntryTypes.length > 1 && (
+                {!data.public_entry_type_id && filteredEntryTypes.length > 1 && (
                   <div className="space-y-1.5">
                     <Text as="label" variant="label" tone="muted" weight="semibold" className="block">
                       Response Type
@@ -1788,7 +1812,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         title={submitButtonLabel}
       >
             <form onSubmit={handleSubmitEntry} className="px-4 sm:px-6 py-4 space-y-4 max-h-[80vh] overflow-y-auto">
-              {filteredEntryTypes.length > 1 && (
+              {!data.public_entry_type_id && filteredEntryTypes.length > 1 && (
                 <div className="space-y-1.5">
                   <Text as="label" variant="label" tone="muted" weight="semibold" className="block">Entry Type</Text>
                   <Select

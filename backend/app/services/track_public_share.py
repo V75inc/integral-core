@@ -32,7 +32,7 @@ def _track_manifest_spec_match(
     return False
 
 
-async def _parent_app_for_track(track: Track) -> Optional[App]:
+async def _parent_app_for_track(track: Track, *, strict: bool = False) -> Optional[App]:
     for node_label in ("WorkspaceApp", "App"):
         parents = await track.nodes(
             edge=["CONTAINS"], direction="in", node=[node_label], limit=4
@@ -47,13 +47,17 @@ async def _parent_app_for_track(track: Track) -> Optional[App]:
             try:
                 children = await app.nodes(edge=[CONTAINS], node=["Track"], limit=200)
             except Exception:
+                if strict:
+                    raise
                 continue
             if any(str(getattr(t, "id", "") or "") == track_id for t in children or []):
                 return app
     return None
 
 
-async def declared_public_share(track: Track) -> Optional[Dict[str, Any]]:
+async def declared_public_share(
+    track: Track, *, strict: bool = False
+) -> Optional[Dict[str, Any]]:
     """Return manifest-declared public-share defaults for a track, if any."""
     from app.runtime.composition import runtime
 
@@ -66,7 +70,7 @@ async def declared_public_share(track: Track) -> Optional[Dict[str, Any]]:
         from app.services.app_graph import get_app_attached_operational_model
         from app.services.operational_model_compile import compile_canonical_manifest
 
-        app_node = await _parent_app_for_track(track)
+        app_node = await _parent_app_for_track(track, strict=strict)
         if app_node is None:
             return None
 
@@ -87,6 +91,8 @@ async def declared_public_share(track: Track) -> Optional[Dict[str, Any]]:
             declared = spec.get("public_share")
             return declared if isinstance(declared, dict) else None
     except Exception:
+        if strict:
+            raise
         logger.exception(
             "declared_public_share: resolution failed for track=%s",
             getattr(track, "id", "?"),
@@ -140,10 +146,15 @@ async def ensure_public_share_token(
     track: Track,
     actor_user_id: str,
 ) -> str:
+    from app.api.errors import ResourceConflictError
     from app.models.nodes import ShareLink
     from app.services.share_links import _now_iso, mint_share_link
 
     active = await _active_public_link(track.id)
+    if active and active.public_entry_type_id is not None:
+        raise ResourceConflictError(
+            message="Use the existing fixed form URL or disable the link before reissuing it."
+        )
     stored = (getattr(active, "public_token", None) or "").strip() if active else ""
     if active and stored:
         return stored
