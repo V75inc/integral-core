@@ -21,6 +21,8 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
+APP_SCHEDULE_THREAD_PROVIDER = "integral_native"
+
 
 def compute_next_run_at(
     cron: str, timezone: str, *, base_iso: Optional[str] = None
@@ -144,6 +146,7 @@ async def create_routine_task(
     run_at: Optional[str] = None,
     source_app_id: str = "",
     source_schedule_key: str = "",
+    pending_thread_title: str = "",
     delivery_mode: str = "agent",
     source_staging_token: str = "",
     watch_entry_id: str = "",
@@ -166,6 +169,7 @@ async def create_routine_task(
 
     ``source_app_id`` / ``source_schedule_key`` mark App-bundled schedule
     materializations so reinstall can find (and not duplicate) them.
+    Only that trusted path may defer its dedicated chat to first dispatch.
     """
     from app.services.permissions import get_user_node
 
@@ -205,7 +209,16 @@ async def create_routine_task(
                     message="Watch requires a readable Entry with the selected published semantics"
                 )
             _, watch_fingerprint, _ = snapshot
-    if not thread_id:
+    pending_thread_title = pending_thread_title.strip()
+    if pending_thread_title and (
+        thread_id
+        or not source_app_id
+        or not source_schedule_key
+        or delivery_mode != "agent"
+        or source_staging_token
+    ):
+        raise BadRequestError(message="Deferred chat requires an App-bundled schedule")
+    if not thread_id and not pending_thread_title:
         raise BadRequestError(message="thread_id is required")
 
     cron_s = (cron or "").strip()
@@ -266,6 +279,7 @@ async def create_routine_task(
         run_count=0,
         source_app_id=source_app_id or "",
         source_schedule_key=source_schedule_key or "",
+        pending_thread_title=pending_thread_title,
         created_at=now,
         updated_at=now,
     )
@@ -635,6 +649,7 @@ async def enqueue_routine_turn_work(
             routine is None
             or routine.user_id != principal_id
             or routine.workspace_id != workspace_id
+            or not thread_id
             or routine.thread_id != thread_id
         ):
             raise WorkError("work.policy_denied", "Routine enqueue binding mismatch")

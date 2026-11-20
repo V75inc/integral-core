@@ -51,6 +51,10 @@ the old generated all-skills instruction. Owner-edited tasks and cancelled
 tasks remain unchanged; repairs preserve status, cadence, run budgets and
 write grants. Previously queued work with the old mandate must fail admission.
 An unavailable schedule lookup never causes a replacement routine to be created.
+Installing an App does not open a chat for its bundled schedule. Core binds the
+routine to a dedicated owned chat on its first eligible dispatch, then reuses
+that chat for later runs. Existing routine chat links and explicit chats are
+unchanged.
 The lightweight saved-reminder path is only for fixed text, such as a personal
 nudge; reminder delivery does not call a model or execute task instructions.
 
