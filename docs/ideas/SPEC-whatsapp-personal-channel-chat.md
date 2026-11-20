@@ -2,7 +2,7 @@
 
 **Status:** Phase 1 chat is implemented (binding, signed webhook, native thread, reply delivery, settings form in the same change window). The dedicated thread uses `provider_id=integral_native` and `provider_session_id=wa:{e164}` because the native turn worker and text-approve reject any other provider id.  
 **Idea:** [whatsapp-personal-channel.md](whatsapp-personal-channel.md)  
-**Follow-on:** [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md) (not Phase 1 acceptance)
+**Follow-on:** [RESEARCH-pydantic-ai-realtime-voice.md](RESEARCH-pydantic-ai-realtime-voice.md) and [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md). The old voice spike is retired and is not Phase 1 acceptance.
 
 ## Capability map (Phase 0)
 
@@ -77,7 +77,7 @@ make verify-ci   # before push when substrate-adjacent
 docs/ideas/
   whatsapp-personal-channel.md          # idea one-pager
   SPEC-whatsapp-personal-channel-chat.md # this spec
-  SPIKE-whatsapp-voice-jvvoice.md        # Phase 2 spike
+  SPIKE-whatsapp-voice-jvvoice.md        # retired; see the research note
 
 backend/app/agentive/
   api/channels.py                       # extend: binding CRUD + webhook receive

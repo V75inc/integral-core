@@ -34,8 +34,8 @@ sequenceDiagram
 - Outbound replies via jvconnect Messaging API (`/api/v1/meta/whatsapp/messages`), not long-lived Meta tokens in Core `.env`.
 - Settings UX: “WhatsApp channel” (link phone identity + paste jvconnect credentials / register webhook). Product language may say “connector”; implementation stays a **channel adapter**, separate from Gmail/QB/`IS_CONNECTED_TO`.
 
-**Phase 2 — Voice (immediately after chat confirmed)**
-- Inbound WhatsApp Cloud Calling via jvvoice; Core owns accept/disconnect + an Integral interact/session bridge (do **not** call jvagent Orchestrator).
+**Phase 2 — Voice (after chat)**
+- Direction is the [realtime voice research note](RESEARCH-pydantic-ai-realtime-voice.md) and the draft [broker spec](SPEC-realtime-voice-broker.md). `integral-voice` owns `Agent.realtime().session()`. jvvoice carries media. Core exposes the broker. Do not call jvagent.
 - Outbound place-call only if jvvoice gains that capability; until then, receive-first is the honest scope.
 - Requires LiveKit Cloud + jvconnect calling credentials; coexistence/WA Web paths are out.
 
@@ -56,7 +56,7 @@ sequenceDiagram
 - [ ] Native chat turn path can be invoked from a service/webhook principal without breaking workspace scope, approvals, or receipts
 - [ ] Customer can obtain and paste a jvconnect API key; ops docs are enough (no deep jvconnect OAuth into Core for MVP)
 - [ ] 24h session window + template rules can be handled with “user messaged first” MVP (templates deferred)
-- [ ] jvvoice can be pointed at an Integral interact URL with parity to today’s jvagent callback (Phase 2 spike)
+- [ ] Voice follows the realtime session and broker in the research note, not a jvvoice speech-to-text callback into a full harness turn
 
 ## MVP Scope (Phase 1)
 
@@ -86,10 +86,11 @@ See [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat
 ## Related artifacts
 
 - Phase 1 chat spec: [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md)
-- Phase 2 voice spike: [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md)
-- Realtime voice research (18–19 Nov 2026): [RESEARCH-pydantic-ai-realtime-voice.md](RESEARCH-pydantic-ai-realtime-voice.md)
+- Realtime voice research: [RESEARCH-pydantic-ai-realtime-voice.md](RESEARCH-pydantic-ai-realtime-voice.md)
 - Realtime voice broker spec (draft): [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md)
+- Realtime voice broker plan: [PLAN-realtime-voice-broker.md](PLAN-realtime-voice-broker.md)
+- Retired voice spike: [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md)
 
 ## Status
 
-Idea confirmed 2026-11-18. No implementation until Phase 1 spec is approved.
+Idea confirmed 2026-11-18. Phase 1 chat is implemented. Voice is specified in the research note and the draft broker spec, and is not approved for implementation.

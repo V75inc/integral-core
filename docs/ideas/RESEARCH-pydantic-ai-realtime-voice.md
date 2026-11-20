@@ -4,9 +4,9 @@
 **Status:** Planning and test only. No live calling and no production enablement.
 **Source card:** [Pydantic AI realtime research and prototype direction](https://planner.cloud.microsoft/ui/web/plan/vGeDOHx9mUWOt37fjKxit2UACae2/view/board/task/p5F-NeI-m0KvotiFBD64emUAC05d?tid=1229a998-708d-402a-ba72-b5dccc4506f2) (18 November 2026)
 **Stack checked:** `pydantic-ai-slim==2.59.0` and `pydantic-ai-harness==0.59.0` in `backend/pyproject.toml`
-**Related:** [whatsapp-personal-channel.md](whatsapp-personal-channel.md), [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md), [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md), [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md)
+**Related:** [whatsapp-personal-channel.md](whatsapp-personal-channel.md), [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md), [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md), [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md), [PLAN-realtime-voice-broker.md](PLAN-realtime-voice-broker.md)
 
-Prices are vendor list prices gathered on 19 November 2026. They exclude tax, regional uplifts, cached-input discounts, tool calls, and the cost of a growing conversation. Confirm the linked pricing pages before budgeting a prototype.
+Model prices are vendor list prices gathered on 19 November 2026. They exclude tax, cached-input discounts, tool calls, and the cost of a growing conversation. Meta prices in this note are the Guyana case only: market **Other**, because Guyana (+592) is not a named market and is not in Rest of Latin America. Confirm the linked pricing pages, and Meta's USD CSV, before budgeting a prototype.
 
 ## Finding
 
@@ -14,7 +14,69 @@ The personal WhatsApp text channel can stay as it is. The 18 November card is a 
 
 Phase 1 is signed jvconnect ingress, a native chat thread, durable text approvals, and settings. The card asks for a review of `Agent.realtime().session()`, a small set of broker tools, and an authenticated media bridge. Its own scope is planning and test only.
 
-The note that needs a later rewrite is [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md). That spike is not implemented. It assumes jvvoice does speech-to-text, Integral runs a full harness turn, and jvvoice does text-to-speech. The card uses a speech-to-speech realtime session and keeps jvvoice as the media bridge. Reconcile the spike after the text branch lands, before any voice code.
+[SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md) is retired. It assumed jvvoice would do speech-to-text, Integral would run a full harness turn, and jvvoice would do text-to-speech, on `provider_id=whatsapp`. This note replaces that path: a speech-to-speech session, jvvoice as the media bridge, and the broker in Core.
+
+## The product idea
+
+Source: [whatsapp-personal-channel.md](whatsapp-personal-channel.md). Phase 1 decisions live in [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md). Phase 1 is implemented on the current branch. Voice is the follow-on.
+
+A personal-workspace user talks to their Integral resident mind over WhatsApp, chat first and calls after, on a phone and API key they own in jvconnect. The product is a messaging channel adapter. It is separate from the data-connector catalog (`IS_CONNECTED_TO`). Core does not hold a long-lived Meta token, and it does not route the turn through jvagent.
+
+Phase 1, already on the branch:
+
+- The user links a verified `ChannelIdentity` and stores their jvconnect credentials on a user-owned binding. Secrets are encrypted for that binding. The phone number id is unique. The workspace is the personal workspace.
+- jvconnect forwards the signed Meta webhook to `POST /api/agentive/channels/whatsapp/webhook`. Core checks the HMAC before it parses, then returns 200.
+- The turn is a native chat turn: `provider_id=integral_native`, `provider_session_id=wa:{e164}`. Approvals stay on the durable staging path (`parse_approval_intent`, `decide_staged_write`, source `channel`).
+- The reply goes out through jvconnect's Messaging API only when that session id starts with `wa:`.
+- Settings sit under Notifications / WhatsApp.
+- Inbound receipts are an `Object` (I-GRAPH-02), not a graph node.
+- Org numbers, templates, groups, Flows, coexistence, WhatsApp Web, and notification-graph migration stay out of Phase 1.
+
+Phase 2 is inbound WhatsApp Cloud Calling. jvvoice carries the media. Core accepts and disconnects and owns the session. Outbound place-call waits until jvvoice can place a call. LiveKit Cloud is required for the current connector. The older spike's "one utterance, one full harness reply" shape is the piece to reconcile with the broker below.
+
+`tasks/plan.md` and `tasks/todo.md` remain the Phase 1 text plan. `make verify-ci` is still open on that plan before any push.
+
+## The broker spec
+
+Source: [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md) (draft, not approved for implementation) and [PLAN-realtime-voice-broker.md](PLAN-realtime-voice-broker.md). This section is the whole decision. Those files are the build artifacts.
+
+Three modules:
+
+| Module | Job | Home |
+|---|---|---|
+| `voice-session` | `Agent.realtime().session()`, fake session, eager tools | `integral-voice` (exists) |
+| `voice-media` | Signed jvconnect calls webhook, jvvoice accept/disconnect, LiveKit audio | `integral-voice` (exists) |
+| `voice-broker` | Authorized read of the WhatsApp thread, and handoff of approval-required work | Integral Core (specified, not built) |
+
+Build order is the broker in Core, then one consumer tool in `integral-voice`. The media bridge is not a dependency of the fake-session test. `integral-voice` today proves the socket with `current_time` only. Its own spec says Integral, chat threads, approvals, and audit are outside that POC.
+
+The voice process stays a separate service. Core does not open the provider socket and does not accept WhatsApp calls. `REALTIME_MODEL` stays in `integral-voice`. It is not written into the chat model profile or the transcription `voice_configuration` record.
+
+Auth is a deployment service secret on `X-Integral-Voice-Key`, compared with `hmac.compare_digest`. It is not a browser JWT and not the jvconnect key. The check runs before any graph or identity work. An empty secret fails closed. A bad key returns 401 and writes nothing. The secret is absent from responses and logs.
+
+Two routes, under the existing agentive channel surface:
+
+1. `POST /api/agentive/channels/whatsapp/voice/context` — the caller sends a verified E.164. Core resolves the `ChannelIdentity`, requires `verified`, loads that user's personal-workspace WhatsApp binding, and reads `wa:{e164}`. The response is a short status plus a few capped role/text lines a voice model can speak. An unknown thread returns a short empty status. The handler does not call `submit_chat_turn`, jvconnect, or an Entry write.
+2. `POST /api/agentive/channels/whatsapp/voice/delegate` — the same identity check, then the request is admitted on the existing native chat path. The response is `task_ref` plus a short status. The handler does not call `decide_staged_write`, does not apply an approval, and does not send WhatsApp. Completion stays with the text-channel worker. Speaking that completion back into the live audio session is a later module.
+
+The voice agent may register `current_time` and one broker tool that calls those two routes. Skills, deferred tools, and approval-gated tools stay off the session. Core does not advertise the resident catalog to the voice process.
+
+Done, for this slice, means all of the following:
+
+1. A valid key and a verified sender return a capped status, and a test spy shows no chat submit, no jvconnect send, and no Entry write.
+2. An approval-required request returns a `task_ref` and a short status. The spy shows the work was admitted and `decide_staged_write` was not called.
+3. A missing or wrong key returns 401 and creates no graph writes and no work item.
+4. An unverified or unknown sender returns an empty status and creates no work item.
+5. The fake-session agent registers only eager tools.
+6. The chat model profile and the transcription voice settings are unchanged.
+
+The plan is four tasks, in `docs/ideas/PLAN-realtime-voice-broker.md`: service-key gate, context route, delegate route, then the `integral-voice` broker tool beside `current_time`. The fake session still exits cleanly when no Core key is set and does not open a network call. Live Meta calls, the LiveKit bridge, reconnect and barge-in measurement, NemotronLabs VoiceChat, Dessa, org numbers, and any edit to the Phase 1 webhook or to `tasks/plan.md` / `tasks/todo.md` are out of the slice.
+
+Three questions are still open. The third one has to be answered before the delegate task:
+
+1. One deployment secret, or one secret per voice binding?
+2. Is context the last few thread messages (the spec assumes this, capped), or one governed query result?
+3. Should `delegate` ever decide an approval that is already waiting, or does that stay on the text channel only? The spec admits work and does not decide it.
 
 ## What the card asks for
 
@@ -44,7 +106,7 @@ The text path already calls the durable staging runtime. That stays. The card is
 
 `tasks/plan.md` still has `make verify-ci` open before push. That gate belongs to the text branch.
 
-The implemented thread identity matters for any later handoff. The native turn worker and text-approve reject any `provider_id` other than `integral_native`, so the WhatsApp conversation is isolated on `provider_session_id=wa:{e164}`. The spike's wording `provider_id=whatsapp` does not match the code. A voice completion should route to that thread by session id.
+The implemented thread identity matters for any later handoff. The native turn worker and text-approve reject any `provider_id` other than `integral_native`, so the WhatsApp conversation is isolated on `provider_session_id=wa:{e164}`. The retired spike's wording `provider_id=whatsapp` does not match the code. A voice completion should route to that thread by session id.
 
 ## Runtime boundary
 
@@ -173,9 +235,65 @@ For a short voice-only exchange, before tools and history growth, the published 
 4. Full `gpt-realtime-2.1` is several times the Gemini audio rate once both sides are speaking.
 5. Grok Voice and Eleven Realtime start at $0.08 per connected or session minute, before their extra text or token meters.
 
-WhatsApp, LiveKit, and Meta calling fees are outside these rates. The first proposed test is a fake session, so those fees stay at zero until a live call is explicitly enabled.
+A first model trial can price `gemini-3.8-live` and `gpt-realtime-2.1-mini` against `gpt-live-1` plus its backend model, using the published rates, and then record the actual session cost. The fake session pays none of the Meta or LiveKit fees below.
 
-A first model trial can price `gemini-3.8-live` and `gpt-realtime-2.1-mini` against `gpt-live-1` plus its backend model, using the published rates, and then record the actual session cost.
+### Extra model costs and limits
+
+These sit on top of the per-minute illustration.
+
+| Item | What it adds |
+|---|---|
+| OpenAI Realtime history | Each response is billed for the whole conversation so far. Tool results and instructions are text tokens. Cached input is the discount ($0.40 / 1M on `gpt-realtime-2.1` audio and text) |
+| GPT-Live silence | The $0.05 / minute covers user speech, assistant speech, silence, and time waiting on the backend. Muting the microphone does not stop the bill. Closing the session does. There is no duration cap in `UsageLimits`; a `cost_limit` bounds a priced call |
+| GPT-Live tools | Tool and reasoning tokens are billed as a normal Responses request on the backend model, in addition to the voice minute |
+| Gemini 3.8 listening | Proactive audio stays on, so input audio is billed while the session is listening. There is no cache discount on resent history. Extended Thinking adds text-output tokens at $4.50 / 1M |
+| Gemini tool timing | A slow tool is silence or a spoken filler, depending on the model. On some Gemini models the user talking during a pending call cancels that call. The model can speak as if the action finished before the tool result arrives |
+| Session length | Provider connection caps still apply. Gemini sends `GoAway` before its cap and Pydantic reconnects after the drop, so a long call can break mid-turn. GPT-Live and xAI end or restart at their own duration limits. Measure the cap in the prototype |
+| Core install | `pydantic-ai-slim[openai-realtime]` wants `openai>=3.31.0`. Core pins plain `pydantic-ai-slim` and avoids that extra because it selects a different SDK major. Gemini needs `pydantic-ai-slim[google-realtime]`. Either extra is a dependency change, not a free import |
+| LiveKit | The current WhatsApp connector needs LiveKit Cloud. That is a separate vendor bill. It is not in the model rates or the Meta rates |
+| Self-hosted | NemotronLabs VoiceChat has no per-minute API price and needs a dedicated NVIDIA GPU with at least 80 GB. Dessa has no published price and no API yet |
+
+### What Meta charges for Guyana
+
+Sources, read 20 November 2026: [Calling API pricing](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/pricing), [WhatsApp Business Platform pricing](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing), and [Twilio's WhatsApp pricing](https://www.twilio.com/en-us/whatsapp/pricing) country table. Rates change on the quarter boundaries (1 January, April, July, October). Confirm Meta's official USD CSV before budgeting. Figures below exclude tax.
+
+**Guyana (+592) is Meta market Other.** As of 1 October 2026 Meta's card has 39 named countries and 8 regions. Rest of Latin America is fifteen markets: Bolivia, Costa Rica, Dominican Republic, Ecuador, El Salvador, Guatemala, Haiti, Honduras, Jamaica, Nicaragua, Panama, Paraguay, Puerto Rico, Uruguay, and Venezuela. Guyana is not on that list and is not a named country. Meta's rule is that a country absent from the list is Other. Twilio lists Guyana on the Other row: user-initiated calls $0.00 per minute, business-initiated calls $0.0132 per minute. French Guiana is a different country.
+
+Calling, for a Guyana number:
+
+- A call the WhatsApp user starts is free, whether or not the business accepts it.
+- A call the business starts is charged by duration, in six-second pulses, rounded up. A 56-second call is 10 pulses. The rate is the called number's market, here Other, and it drops by volume tier inside the calendar month. A call that crosses a tier is priced entirely at the cheaper tier. A payment method is required before the business can place calls.
+- A call-permission request is charged as a normal message at the Other message rate, not as call minutes.
+- Call recording and transcription are free for now. Meta says separate pricing is planned, with notice before it starts.
+- A user call, and a user accepting a business call, starts or refreshes the 24-hour customer service window.
+
+Business-initiated minutes to an Other-market number, reprinted from the 1 October 2026 calling card. A personal-workspace prototype stays in the first tier. Inbound-first, which is the honest scope until jvvoice can place a call, pays Meta $0 for the call minute.
+
+| Business-initiated minutes in the month | USD per minute |
+|---|---:|
+| Up to 50,000 | $0.0132 |
+| 50,001–250,000 | $0.0113 |
+| 250,001–1,000,000 | $0.0096 |
+| 1,000,001–2,500,000 | $0.0083 |
+| 2,500,001–5,000,000 | $0.0076 |
+| Above 5,000,000 | $0.0072 |
+
+Confirm calling eligibility before any outbound plan. Some write-ups say Meta blocks business-initiated calls from United States numbers while customers can still call the business. That check is on Meta's calling eligibility page. It does not change the inbound price.
+
+Messages to a Guyana number, separate from calls. Meta charges when a business message is delivered, by category. A message the user sends to the business is free. Conversation-based pricing ended on 1 July 2025. These list rates are reprints of Meta's 1 October 2026 USD card for market Other (ChatMaxima, Broadchat, and Calypso agree). The official CSV is the one to budget from.
+
+| Category | USD per delivered message |
+|---|---:|
+| Marketing | $0.0604 |
+| Utility | $0.0077 |
+| Authentication | $0.0077 |
+| Service | $0.0077 |
+
+From 1 October 2026 each business phone number gets 1,000 delivered service messages a month at no charge. The 1,001st is charged at the service rate above. Unused free messages do not roll over. Without a payment method, Meta delivers the free tier and stops after it. A reply inside a free entry point window (a user who arrived from a click-to-WhatsApp ad) is not charged for up to 7 days. That window is not the normal personal-chat path.
+
+Phase 1 text replies are service messages inside the customer service window. They consume that 1,000-message free tier, then $0.0077 each. Utility, authentication, and marketing templates are a different meter and stay out of the Phase 1 text scope.
+
+A ten-minute call the user places to a Guyana number is $0 in Meta call fees, plus the model cost in the table above (about $0.23 of Gemini 3.8 audio if the caller is heard for ten minutes and the model speaks for about ten, before tools), plus LiveKit. A ten-minute business-initiated call to a Guyana number adds $0.132 of Meta fees at the first-tier Other rate, billed as 100 six-second pulses.
 
 ## Self-hosted: NemotronLabs VoiceChat
 
@@ -227,9 +345,30 @@ Block has published recordings and a waitlist. A small group of AI safety resear
 
 Until weights or an API exist, Dessa stays off the prototype path. The broker-tool test still needs a session that can call an authorized tool, which VoiceChat documents and Dessa does not. Revisit it when Block opens access, and then check tool use, context length, and whether the audio socket can sit behind the same media bridge.
 
+## Tool calling and Integral Core
+
+The realtime models can call tools. They do not fit Integral's full tool catalog or its durable approval pause. A small broker in front of the existing runtime does fit.
+
+Pydantic AI runs ordinary function tools inside `Agent.realtime().session()` on every supported provider. The session validates arguments, runs the same tool hooks as a text run, and sends the result back. `integral-voice` already does this with one eager tool, `current_time`. OpenAI gpt-realtime and Gemini can keep speaking while a tool runs. GPT-Live puts the agent's tools on its backend text model and can talk while that backend works. It cannot cancel a delegation once it has started, so a tool that changes state can still finish after the caller takes the request back.
+
+What does not carry over from the text harness:
+
+| Text runtime | Realtime session |
+|---|---|
+| Skills load mid-turn and reveal more tools | A `defer_loading=True` capability that contributes tools raises `UserError` before connect. Tools are fixed at connect |
+| An approval ends the run as `DeferredToolRequests` and resumes later through staging | The session cannot pause that way. With no inline handler the call is refused. An inline handler decides during the call and dies if the process restarts |
+| The resident catalog is large and many tools stage a review | Those tools must stay off the voice agent. Registering them would fail at connect or refuse the call without writing the approval record |
+| Graph node hooks, output validators, and history processors run around each model request | A realtime session has no agent graph. Those hooks do not run. Instructions are resolved again between turns and appended |
+
+The shape that integrates with Core is the one in [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md). The voice agent registers a few tools that return immediately. A read calls Core, which checks a service secret and a verified `ChannelIdentity`, then returns a short status from the existing `wa:{e164}` thread. An approval-required request calls Core, which admits the work on the native chat path and returns a task reference. `decide_staged_write`, the skill catalog, and the audit record stay in Core. The audio session never applies the change.
+
+That split also matches the weaker open models. NemotronLabs VoiceChat can call tools, and NVIDIA recommends at most five, with weak argument accuracy. Moshi has no tool interface. Dessa has not published one. None of them should receive Integral's catalog. They can only sit in front of the same broker, and only after a prototype proves the socket.
+
+Gemini and `gpt-realtime-2.1-mini` are the cleanest hosted fit for that broker: one speech-to-speech session, eager tools, a separate voice model setting. GPT-Live is a worse fit for "the voice model calls Integral," because the tools run on OpenAI's backend model and the spoken instructions are a different prompt. It remains useful if the prototype wants the voice model to delegate thinking while Integral is still just one function tool.
+
 ## JV Voice and WhatsApp
 
-Today's jvvoice path is Meta calls, a jvconnect forward, jvagent, then `POST /api/calls/accept` on jvvoice, then LiveKit and a worker that calls jvagent `/interact`. The Integral spike already says that path must reach Integral directly, with jvagent left out.
+Today's jvvoice path is Meta calls, a jvconnect forward, jvagent, then `POST /api/calls/accept` on jvvoice (SDP plus `jvagent_base_url` and `jvagent_agent_id`), then LiveKit and a worker that calls jvagent `/interact`. Calling credentials today come from jvconnect `GET /api/v1/meta/whatsapp/calling/credentials`. That path has to reach Integral directly, with jvagent left out. A live answer still has to fit Meta's answer window, about 60 seconds. The retired spike's options for keeping speech-to-text on jvvoice are closed.
 
 The card changes the brain. Pydantic AI does not terminate a WhatsApp call. Something still has to carry audio between Meta and `session.send_audio()` / `session.stream_audio()`, with authenticated session identity, reconnect, barge-in, cancellation, and duplicate-call protection. jvvoice is the candidate for that bridge. LiveKit Cloud remains a constraint of the current WhatsApp connector. Coexistence and WhatsApp Web do not support Cloud Calling. Meta calling eligibility, permissions, and account restrictions have to be confirmed before any live test.
 
@@ -238,9 +377,8 @@ The first test does not need that bridge. A fake session and one read-only broke
 ## Sequence
 
 1. Finish review of the WhatsApp text branch. Run `make verify-ci` before any push.
-2. After that branch lands, update [SPIKE-whatsapp-voice-jvvoice.md](SPIKE-whatsapp-voice-jvvoice.md) so it records `Agent.realtime().session()`, the broker handoff, the corrected thread id, and the media-bridge role for jvvoice.
-3. Prototype only in a fake session. Record installed versions, the extra packages required, provider, model, latency, authorization, approval handoff, and audit evidence.
-4. Leave live Meta calls, production flags, and Core dependency changes until that evidence exists.
+2. Prototype only in a fake session, after the broker spec is approved. Record installed versions, the extra packages required, provider, model, latency, authorization, approval handoff, and audit evidence.
+3. Leave live Meta calls, production flags, and Core dependency changes until that evidence exists.
 
 ## Sources
 
@@ -259,3 +397,10 @@ The first test does not need that bridge. A fake session and one read-only broke
 - VoiceChat paper: https://arxiv.org/abs/2609.21967
 - Block Dessa: https://block.xyz/dessa
 - Voice AI Space on Dessa, 24 October 2026: https://www.voiceaispace.com/articles/block-launches-dessa-a-full-duplex-speech-model-trained-only-on-audio
+- Meta Calling API pricing: https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/pricing
+- Meta WhatsApp Business Platform pricing: https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing
+- Twilio WhatsApp pricing (Guyana listed as Other): https://www.twilio.com/en-us/whatsapp/pricing
+- Product idea: [whatsapp-personal-channel.md](whatsapp-personal-channel.md)
+- Phase 1 chat spec: [SPEC-whatsapp-personal-channel-chat.md](SPEC-whatsapp-personal-channel-chat.md)
+- Broker spec: [SPEC-realtime-voice-broker.md](SPEC-realtime-voice-broker.md)
+- Broker plan: [PLAN-realtime-voice-broker.md](PLAN-realtime-voice-broker.md)
