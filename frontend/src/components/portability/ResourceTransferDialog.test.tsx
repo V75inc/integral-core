@@ -62,7 +62,7 @@ describe('portable resource dialog', () => {
     expect(props.onImported).toHaveBeenCalledTimes(1);
   });
 
-  it('shows package install intent for packaged archives', async () => {
+  it('shows admitted package intent for packaged archives', async () => {
     vi.mocked(portableApi.preview).mockResolvedValue({
       ...summary,
       package: { slug: 'tcs-crm', version: '1.3.0', installs_package: true },
@@ -72,7 +72,7 @@ describe('portable resource dialog', () => {
     const file = new File(['zip'], 'crm.integral.zip', { type: 'application/zip' });
     fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
     fireEvent.click(screen.getByText('Preview import'));
-    expect(await screen.findByText(/Installs package/)).toBeInTheDocument();
+    expect(await screen.findByText(/Uses admitted package/)).toBeInTheDocument();
     expect(screen.getByText(/tcs-crm 1.3.0/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('Install and import'));
     await waitFor(() => expect(portableApi.import).toHaveBeenCalledWith(file, undefined));
@@ -93,7 +93,7 @@ describe('portable resource dialog', () => {
     const file = new File(['zip'], 'apps.integral.zip', { type: 'application/zip' });
     fireEvent.change(screen.getByLabelText('Integral archive'), { target: { files: [file] } });
     fireEvent.click(screen.getByText('Preview import'));
-    expect(await screen.findByText(/Installs packages/)).toBeInTheDocument();
+    expect(await screen.findByText(/Uses admitted packages/)).toBeInTheDocument();
     expect(screen.getByText(/tcs-crm 1.3.0, tcs-inventory 2.0.0/)).toBeInTheDocument();
     expect(screen.getByText('Install and import')).toBeInTheDocument();
   });

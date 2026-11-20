@@ -299,9 +299,7 @@ export function normalizeUserMe(raw: any): User {
     email: u.email ?? u.email_address,
     must_change_password: Boolean(u.must_change_password),
     pending_assigned_form:
-      u.pending_assigned_form ?? u.pending_onboarding_form ?? null,
-    pending_onboarding_form:
-      u.pending_onboarding_form ?? u.pending_assigned_form ?? null,
+      u.pending_assigned_form ?? null,
   };
 }
 

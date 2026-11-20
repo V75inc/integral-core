@@ -11,7 +11,7 @@ from jvspatial.core.pager import ObjectPager
 
 from app.api.attachments import _read_multipart_files
 from app.api.auth import (
-    _SENSITIVE_PREFERENCE_KEYS,
+    _protected_preference_keys,
     _scrub_sensitive_preferences,
 )
 from app.api.errors import (
@@ -312,10 +312,10 @@ async def update_user(
         # Wholesale replace of client-visible prefs, but never let the client
         # clear/overwrite server-owned slots (reset_token, email_verification).
         existing = dict(user.preferences or {})
-        preserved = {
-            k: existing[k] for k in _SENSITIVE_PREFERENCE_KEYS if k in existing
-        }
-        user.preferences = {**_scrub_sensitive_preferences(preferences), **preserved}
+        protected = _protected_preference_keys()
+        preserved = {k: existing[k] for k in protected if k in existing}
+        client_prefs = {k: v for k, v in preferences.items() if k not in protected}
+        user.preferences = {**client_prefs, **preserved}
 
     user.updated_at = utc_now_iso()
     await user.save()

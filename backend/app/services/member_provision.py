@@ -271,6 +271,12 @@ async def provision_workspace_member(
         auth_user = await _find_auth_user_by_email(email_norm)
         user_node = await get_user_node(auth_user.id) if auth_user else None
         if auth_user and user_node is None:
+            # The identity can be disabled between these two live reads.
+            current = await primary_auth_record(
+                get_default_context().database, auth_user.id
+            )
+            if current is not None and current["context"]["is_active"] is False:
+                raise InsufficientPermissionsError(message="Account is unavailable")
             raise AuthorizationUnavailableError()
         # Stable row ordering prevents two provisioning calls reversing actor/recipient locks.
         identities = {actor.id: actor}

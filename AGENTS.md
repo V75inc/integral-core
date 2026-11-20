@@ -707,3 +707,35 @@ New/migrated React components require SDK ^1.2.0 and design checks. Preserve
 existing scoped instructions. Never treat UI work as permission to publish, deploy
 or activate a release.
 <!-- integral-app-ui:end -->
+
+### Domain-neutral Core substrate invariant
+
+This invariant covers all Core runtime, hooks, services, API, renderers,
+packaging and release paths, not just form surfaces. Core must not infer
+business policy from App names, entry-type
+slugs, field keys, group labels or industry terminology. Host Apps own domain
+copy, hidden/locked field rules and workflow labels through declared neutral
+extension contracts. Server-side authorization remains independent of UI
+presentation. Migration from legacy hardcoding must preserve existing access
+and field protections, or fail closed until host configuration is migrated.
+Add generic-form and configured-host regression tests for every such change.
+
+Boundary qualification must demonstrate the neutral API and renderer against
+at least two independent fixtures: a domain-neutral form and an explicitly
+configured host form (or two different host Apps). Review the host policy at
+its owning App and test legacy configuration compatibility separately. Refuse
+shortcuts that reintroduce domain-name switches, weaken server protections,
+expand a legacy debt allowlist without review, or treat a mocked UI test as a
+live end-to-end deployment proof. Run the boundary guard on the exact release
+SHA and report remaining migration debt before publication.
+
+No named-App compatibility remains in Core, even temporarily. Business or another
+owning host must migrate its own persisted state and aliases through neutral
+contracts before admission. A stale or missing host policy must refuse startup
+or the affected operation, never silently broaden access. Generic package
+loaders are infrastructure, not authorization for concrete App identifiers.
+The architecture guard is a regression check, not a substitute for source review.
+Do not add or regenerate an exception list to make a refactor pass. A paired
+artifact handoff must identify exact Core SHA and hashes, the compatible App
+artifact, migration/readiness checks, and test results. One frozen Core artifact
+must be tested by every consumer; never build a different Core for each host.

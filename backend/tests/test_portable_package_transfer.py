@@ -71,6 +71,7 @@ def _write_demo_bundle(
         entry_type["fields"].append(
             {"key": "qty_on_hand", "name": "Qty on hand", "type": "number"}
         )
+    tool_key = "echo" if slug == "portable-demo" else f"{slug}.echo"
     app_body: dict = {
         "description": "Packaged portable fixture",
         "tracks": [
@@ -83,7 +84,7 @@ def _write_demo_bundle(
         ],
         "tools": [
             {
-                "key": "echo",
+                "key": tool_key,
                 "name": "Echo",
                 "description": "Echo tool",
                 "handler_ref": "tools.hello:echo",
@@ -98,7 +99,7 @@ def _write_demo_bundle(
         app_body["protected_state"] = {
             "stock_position": {
                 "fields": ["qty_on_hand"],
-                "operations": ["echo"],
+                "operations": [tool_key],
             }
         }
     if with_settings:
@@ -207,15 +208,32 @@ async def test_packaged_app_export_import_round_trip(tmp_path, test_user, monkey
 
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
 
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )
 
     bundle = _write_demo_bundle(packages)
+    # Preserve canonical signature coverage. Immutable signed package hosts run
+    # with bytecode writes disabled, including in the cold-start interpreter.
+    import sys
+
+    from nacl.encoding import Base64Encoder
+    from nacl.signing import SigningKey
+
+    from app.services.operational_model_signature import compute_bundle_payload
+
+    key = SigningKey.generate()
+    monkeypatch.setenv(
+        "INTEGRAL_OPERATIONAL_MODEL_PUBKEY",
+        key.verify_key.encode(encoder=Base64Encoder).decode(),
+    )
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    (bundle / "signature.bin").write_bytes(
+        key.sign(compute_bundle_payload(bundle)).signature
+    )
     library = await _admit_bundle(bundle)
     source_ws = await ensure_personal_workspace_for_user_id(test_user.id)
     installed = await install_app(
@@ -245,6 +263,30 @@ async def test_packaged_app_export_import_round_trip(tmp_path, test_user, monkey
         type_id=types[0].id,
         custom_fields={"body": "portable"},
     )
+
+    from app.models.edges import HAS_VIEW
+    from app.models.nodes import Tag
+
+    tag = await Tag.create(
+        name="Important",
+        name_fold="important",
+        app_id=app.id,
+        color="#123456",
+        aliases=["priority"],
+    )
+    await attached.connect(tag, edge=CONTAINS)
+    entry.tags = [tag.id]
+    await entry.save()
+    track.title = "Renamed Notes"
+    track.title_fold = "renamed notes"
+    track.purpose = "Preserved purpose"
+    track.accent_color = "#234567"
+    track.nav_visible = False
+    await track.save()
+    source_view = (await track.nodes(edge=[HAS_VIEW], node=["View"]))[0]
+    source_view.hidden = True
+    source_view.is_default = False
+    await source_view.save()
 
     data = await export_resources(
         user_id=test_user.id,
@@ -283,6 +325,98 @@ async def test_packaged_app_export_import_round_trip(tmp_path, test_user, monkey
     imported_tracks = await imported.nodes(edge=[CONTAINS], node=["Track"])
     imported_entries = await imported_tracks[0].nodes(edge=[CONTAINS], node=["Entry"])
     assert any(row.title == entry.title for row in imported_entries)
+    assert imported_tracks[0].title == "Renamed Notes"
+    assert imported_tracks[0].purpose == "Preserved purpose"
+    assert imported_tracks[0].accent_color == "#234567"
+    assert imported_tracks[0].nav_visible is False
+    copied_view = next(
+        row
+        for row in await imported_tracks[0].nodes(edge=[HAS_VIEW], node=["View"])
+        if row.name == source_view.name
+    )
+    assert copied_view.hidden is True
+    assert copied_view.is_default is False
+    copied_tag = await Tag.get(imported_entries[0].tags[0])
+    assert copied_tag.app_id == imported.id
+    assert copied_tag.name == "Important"
+    assert copied_tag.color == "#123456"
+    assert copied_tag.aliases == ["priority"]
+
+    # A repeat import must leave the existing destination and runtime intact.
+    before = await imported.export(flat=True)
+    with pytest.raises(BadRequestError, match="fresh App destination"):
+        await import_resources(user_id=test_user.id, workspace_id=dest.id, data=data)
+    assert await (await App.get(imported.id)).export(flat=True) == before
+    assert len(await imported_tracks[0].nodes(edge=[CONTAINS], node=["Entry"])) == 1
+
+    # Supported registry rehydration in a fresh interpreter, using only durable
+    # graph state and configured operator package paths.
+    import asyncio
+    import json
+    import os
+    import subprocess
+    import sys
+
+    script = """
+import asyncio, json, os
+from app.models.nodes import App
+from app.services.hooks.install_hook import rehydrate_all_installed_bundles
+from app.services.hooks.registry import get_workspace_tools
+from app.services.app_lifecycle import _resolve_app_bundle_dir
+from app.services.operational_model_signature import verify_bundle_signature
+from pathlib import Path
+async def main():
+    await rehydrate_all_installed_bundles()
+    app = await App.get(os.environ['PORTABLE_QA_APP'])
+    assert verify_bundle_signature(Path(await _resolve_app_bundle_dir(app)), os.environ['INTEGRAL_OPERATIONAL_MODEL_PUBKEY']).reason == 'valid'
+    print(json.dumps({'active': app.lifecycle_state, 'fingerprint': app.installed_artifact_fingerprint, 'tool': 'echo' in get_workspace_tools(app.workspace_id), 'bundle': await _resolve_app_bundle_dir(app)}))
+asyncio.run(main())
+"""
+    child = await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-c", script],
+        env={**os.environ, "PORTABLE_QA_APP": imported.id},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert child.returncode == 0, child.stderr
+    recovered = json.loads(child.stdout.strip().splitlines()[-1])
+    assert recovered == {
+        "active": "active",
+        "fingerprint": compute_bundle_fingerprint(bundle),
+        "tool": True,
+        "bundle": str(bundle.resolve()),
+    }
+
+    # An ordinary creator failure compensates only the new attempt's graph and
+    # runtime. The admitted package and the earlier successful import survive.
+    from unittest.mock import AsyncMock
+
+    from app.services.hooks.registry import get_workspace_tools
+
+    failure_dest = await Workspace.create(
+        kind="organization",
+        workspace_type="company",
+        name="Failure Dest",
+        name_fold="failure dest",
+    )
+    await catalog_workspace(failure_dest)
+    await profile.connect(failure_dest, edge=IS_MEMBER_OF, role="owner")
+    monkeypatch.setattr(
+        "app.services.entry_create.create_entry_in_track",
+        AsyncMock(side_effect=RuntimeError("simulated creator failure")),
+    )
+    with pytest.raises(RuntimeError, match="simulated creator failure"):
+        await import_resources(
+            user_id=test_user.id, workspace_id=failure_dest.id, data=data
+        )
+    assert not await App.find({"context.workspace_id": failure_dest.id})
+    assert "echo" not in get_workspace_tools(failure_dest.id)
+    assert "echo" in get_workspace_tools(dest.id)
+    assert (
+        compute_bundle_fingerprint(bundle) == before["installed_artifact_fingerprint"]
+    )
 
 
 @pytest.mark.asyncio
@@ -292,9 +426,7 @@ async def test_multi_packaged_app_export_import(tmp_path, test_user, monkeypatch
 
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )
@@ -390,9 +522,7 @@ async def test_mixed_packaged_and_declarative_export_import(
 
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )
@@ -464,9 +594,7 @@ async def test_legacy_singular_package_archive_still_imports(
 
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )
@@ -535,9 +663,7 @@ async def test_export_refuses_same_slug_fingerprint_conflict(
 ):
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
 
     bundle_a = _write_demo_bundle(packages, slug="portable-conflict-a")
     bundle_b = _write_demo_bundle(packages, slug="portable-conflict-b")
@@ -601,9 +727,7 @@ async def test_protected_fields_still_blocked_without_portable_context(
 
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
     bundle = _write_demo_bundle(packages, slug="portable-protected", protected=True)
     library = await _admit_bundle(bundle)
     ws = await ensure_personal_workspace_for_user_id(test_user.id)
@@ -630,19 +754,16 @@ async def test_protected_fields_still_blocked_without_portable_context(
 
 
 @pytest.mark.asyncio
-async def test_packaged_import_restores_protected_fields(
+async def test_packaged_import_requires_app_owned_restore_validation(
     tmp_path, test_user, monkeypatch
 ):
     from app.services.app_graph import get_track_attached_operational_model
     from app.services.attachment_metadata.service import get_metadata_extraction_service
     from app.services.entry_create import create_entry_in_track
-    from app.services.entry_import_reservations import portable_import_writes
 
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )
@@ -661,16 +782,17 @@ async def test_packaged_import_restores_protected_fields(
     track = (await app.nodes(edge=[CONTAINS], node=["Track"]))[0]
     cp = await get_track_attached_operational_model(track)
     types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
-    with portable_import_writes():
-        entry = await create_entry_in_track(
-            track=track,
-            user_id=test_user.id,
-            workspace_id=source_ws.id,
-            title="Shelf A",
-            type_id=types[0].id,
-            custom_fields={"body": "bin", "qty_on_hand": 12},
-        )
-    assert entry.custom_fields.get("qty_on_hand") == 12
+    # Ordinary synthetic protected state, written directly by this test fixture.
+    from app.models.nodes import Entry
+
+    entry = await Entry.create(
+        track_id=track.id,
+        type_id=types[0].id,
+        title="Shelf A",
+        author_id=test_user.id,
+        custom_fields={"body": "bin", "qty_on_hand": 12},
+    )
+    await track.connect(entry, edge=CONTAINS)
 
     data = await export_resources(
         user_id=test_user.id,
@@ -689,15 +811,9 @@ async def test_packaged_import_restores_protected_fields(
     profile = await get_user_node(test_user.id)
     if profile is not None:
         await profile.connect(dest, edge=IS_MEMBER_OF, role="owner")
-    result = await import_resources(
-        user_id=test_user.id, workspace_id=dest.id, data=data
-    )
-    assert result["entries"] == 1
-    imported = await App.get(result["resource_ids"][0])
-    imported_tracks = await imported.nodes(edge=[CONTAINS], node=["Track"])
-    imported_entries = await imported_tracks[0].nodes(edge=[CONTAINS], node=["Entry"])
-    match = next(row for row in imported_entries if row.title == "Shelf A")
-    assert match.custom_fields.get("qty_on_hand") == 12
+    with pytest.raises(BadRequestError, match="App-owned restore validation"):
+        await import_resources(user_id=test_user.id, workspace_id=dest.id, data=data)
+    assert not await App.find({"context.workspace_id": dest.id})
 
 
 @pytest.mark.asyncio
@@ -708,9 +824,7 @@ async def test_packaged_import_applies_settings_defaults(
 
     packages = tmp_path / "packages"
     packages.mkdir()
-    monkeypatch.setattr(
-        "app.services.package_paths.admitted_packages_root", lambda: packages
-    )
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(packages))
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
     )

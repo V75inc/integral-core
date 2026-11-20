@@ -95,14 +95,13 @@ export function useFirstLoginOnboarding(): FirstLoginOnboardingState {
 
   const isLoading = auth?.loading ?? false;
   const onboardedAt = user?.onboarded_at ?? null;
-  const hireGatesActive =
+  const assignmentGatesActive =
     Boolean(user?.must_change_password) ||
     Boolean(
-      user?.pending_assigned_form?.url?.trim() ||
-        user?.pending_onboarding_form?.url?.trim(),
+      user?.pending_assigned_form?.url?.trim(),
     );
   const shouldOnboard =
-    !isLoading && !!user && !onboardedAt && !dismissed && !hireGatesActive;
+    !isLoading && !!user && !onboardedAt && !dismissed && !assignmentGatesActive;
 
   return { shouldOnboard, agentiveEnabled, dismiss };
 }

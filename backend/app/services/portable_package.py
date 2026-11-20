@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
-import os
-import shutil
 from pathlib import Path
 from typing import Any
 
 from app.api.errors import BadRequestError
 from app.schemas.portable_transfer import PackagePayload
-from app.utils.time import utc_now_iso
-
-logger = logging.getLogger(__name__)
 
 _EXCLUDE_DIRS = frozenset(
     {
@@ -44,7 +38,7 @@ def _unsafe_member(name: str) -> bool:
 def fingerprint_members(files: dict[str, bytes], prefix: str) -> str:
     """Match ``compute_bundle_fingerprint`` over in-archive package members."""
     entries: list[str] = []
-    for name in sorted(files):
+    for name in sorted(files, key=lambda name: Path(name).parts):
         if not name.startswith(prefix) or name.endswith("/"):
             continue
         rel = name[len(prefix) :]
@@ -65,6 +59,10 @@ def pack_bundle_dir(bundle_dir: Path, slug: str) -> tuple[dict[str, bytes], str]
     prefix = member_prefix_for_slug(slug)
     files: dict[str, bytes] = {}
     for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise BadRequestError(
+                message="Package export requires a self-contained artifact without links"
+            )
         if not path.is_file():
             continue
         rel = path.relative_to(root)
@@ -104,111 +102,60 @@ def validate_package_members(payload: PackagePayload, files: dict[str, bytes]) -
         )
 
 
-def write_package_tree(payload: PackagePayload, files: dict[str, bytes]) -> Path:
-    """Materialize package members under ``packages/apps/<slug>/`` (not Core seeds)."""
-    from app.services.operational_model_loader import compute_bundle_fingerprint
-    from app.services.package_paths import admitted_packages_root
-
-    validate_package_members(payload, files)
-    prefix = payload.member_prefix
-    packages_root = admitted_packages_root()
-    packages_root.mkdir(parents=True, exist_ok=True)
-    dest = (packages_root / payload.slug).resolve()
-    if not str(dest).startswith(str(packages_root) + os.sep):
-        raise BadRequestError(message="Invalid package destination")
-    if dest.is_dir() and (dest / "operational-model.yaml").is_file():
-        existing = compute_bundle_fingerprint(dest)
-        if existing == payload.fingerprint:
-            return dest
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True, exist_ok=True)
-    try:
-        for name, data in files.items():
-            if not name.startswith(prefix):
-                continue
-            rel = name[len(prefix) :]
-            if (
-                not rel
-                or _unsafe_member(name)
-                or any(part in _EXCLUDE_DIRS for part in Path(rel).parts)
-            ):
-                raise BadRequestError(message="Invalid package member path")
-            target = (dest / rel).resolve()
-            if not str(target).startswith(str(dest) + os.sep) and target != dest:
-                raise BadRequestError(message="Invalid package member path")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-        actual = compute_bundle_fingerprint(dest)
-        if actual != payload.fingerprint:
-            raise BadRequestError(
-                message="Package fingerprint does not match after extract"
-            )
-    except Exception:
-        if dest.exists():
-            shutil.rmtree(dest, ignore_errors=True)
-        raise
-    return dest
-
-
-async def admit_package_from_archive(
-    payload: PackagePayload, files: dict[str, bytes]
+async def resolve_admitted_package(
+    payload: PackagePayload,
+    files: dict[str, bytes],
+    *,
+    user_id: str,
+    workspace_id: str,
 ) -> Any:
-    """Write package bytes, load the bundle, upsert library OM, return the library row."""
-    from app.models.nodes import (
-        OPERATIONAL_MODELS_REGISTRY_ID,
-        OperationalModel,
-        OperationalModels,
-    )
-    from app.services.app_graph import ensure_catalog_edge
-    from app.services.operational_model_library_seed import (
-        upsert_seeded_library_packages,
-    )
-    from app.services.operational_model_loader import (
-        load_library_operational_models_with_issues,
-    )
+    """Resolve an exact, host-admitted artifact without publishing archive bytes.
+
+    Workspace creation rights never authorize global package publication. Package
+    admission is an operator workflow; restore only consumes its durable catalog
+    provenance and existing source tree. In particular, dev-mode signature success
+    on bytes supplied by a caller is not an admission decision.
+    """
+    from app.models.nodes import OperationalModel
+    from app.services.library_package_visibility import visible_library_model
+    from app.services.operational_model_loader import compute_bundle_fingerprint
+    from app.services.package_paths import resolve_bundle_dir_for_slug
     from app.services.package_trust import assert_library_artifact_trusted
 
-    bundle_dir = await asyncio.to_thread(write_package_tree, payload, files)
-    specs, issues = await asyncio.to_thread(
-        load_library_operational_models_with_issues,
-        package_paths=[bundle_dir.parent],
-        verify_signatures=True,
-        core_only=False,
+    validate_package_members(payload, files)
+    candidates = await OperationalModel.find(
+        {"context.metadata.slug": payload.slug, "context.library_package": True}
     )
-    matched = [spec for spec in specs if spec.slug == payload.slug]
-    if not matched:
-        detail = (
-            "; ".join(
-                f"{issue.slug}:{issue.code}"
-                for issue in issues
-                if issue.slug == payload.slug
-            )
-            or "bundle failed library admission"
+    admitted = []
+    for candidate in candidates:
+        current = await visible_library_model(
+            candidate.id, workspace_id, user_id=user_id
         )
+        if current is not None:
+            admitted.append(current)
+    if len(admitted) != 1:
         raise BadRequestError(
-            message=f"Imported package could not be admitted ({detail})"
+            message="Import requires one matching package admitted by the destination host"
         )
-    spec = matched[0]
-    if spec.bundle_fingerprint != payload.fingerprint:
-        raise BadRequestError(
-            message="Admitted package fingerprint does not match the archive"
-        )
-    registry = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-    if registry is None:
-        raise BadRequestError(message="Library catalog is unavailable")
-    await upsert_seeded_library_packages(
-        catalog_registry=registry,
-        specs=[spec],
-        now_iso=utc_now_iso(),
-        ensure_catalog_edge=ensure_catalog_edge,
-    )
-    rows = await OperationalModel.find({"context.metadata.slug": payload.slug})
-    library = next(
-        (row for row in rows if getattr(row, "library_package", False)), None
-    )
-    if library is None:
-        raise BadRequestError(message="Library package was not registered after import")
+    library = admitted[0]
+    metadata = dict(library.metadata or {})
     await asyncio.to_thread(assert_library_artifact_trusted, library)
+    recorded = metadata.get("bundle_dir_path") or metadata.get("bundle_dir") or ""
+    root = Path(recorded) if recorded else None
+    # Require the same artifact to be discoverable after a supported cold boot.
+    discovered = await asyncio.to_thread(resolve_bundle_dir_for_slug, payload.slug)
+    if (
+        root is None
+        or not root.is_dir()
+        or not discovered
+        or Path(discovered).resolve() != root.resolve()
+        or metadata.get("bundle_fingerprint") != payload.fingerprint
+        or await asyncio.to_thread(compute_bundle_fingerprint, root)
+        != payload.fingerprint
+    ):
+        raise BadRequestError(
+            message="Import requires the exact admitted package on the host's configured package path"
+        )
     return library
 
 

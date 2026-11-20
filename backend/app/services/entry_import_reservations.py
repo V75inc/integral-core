@@ -3,9 +3,6 @@
 Only a new, already rooted shell may be supplied. The canonical entry creator
 still validates fields, runs guards/hooks and emits its normal creation event.
 No HTTP request can select an existing identity through this seam.
-
-``portable_import_writes`` additionally authorizes restoring App-protected
-fields during platform portable restore (not via generic UI create).
 """
 
 import asyncio
@@ -17,24 +14,6 @@ from app.models.nodes import Entry
 _reservation: ContextVar[tuple | None] = ContextVar(
     "portable_entry_reservation", default=None
 )
-_PORTABLE_IMPORT_WRITE: ContextVar[bool] = ContextVar(
-    "portable_import_write", default=False
-)
-
-
-@contextmanager
-def portable_import_writes():
-    """Allow protected-field writes for the duration of a portable entry restore."""
-    token = _PORTABLE_IMPORT_WRITE.set(True)
-    try:
-        yield
-    finally:
-        _PORTABLE_IMPORT_WRITE.reset(token)
-
-
-def portable_import_write_active() -> bool:
-    """True while portable restore is recreating exported record state."""
-    return bool(_PORTABLE_IMPORT_WRITE.get())
 
 
 @contextmanager

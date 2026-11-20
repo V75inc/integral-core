@@ -86,6 +86,12 @@ function resolveDisplayValue(
   return formatDisplayValue(value);
 }
 
+/** Schema-owned tool argument; absence never invents a domain-specific key. */
+export function createWizardActionInput(entryId: string, ids: string[], idsParam?: string): Record<string, unknown> {
+  const key = idsParam?.trim();
+  return { entry_id: entryId, ...(key ? { [key]: ids } : {}) };
+}
+
 export function CreateWizardModal({
   open,
   track,
@@ -443,10 +449,7 @@ export function CreateWizardModal({
       const checklistStep = steps.find(s => s.kind === 'entry_checklist');
       if (checklistStep && config.on_create_tool) {
         const ids = checklistRows.filter(r => r.checked).map(r => r.entry.id);
-        await toolsApi.call(config.on_create_tool, {
-          entry_id: created.id,
-          [config.on_create_ids_param]: ids,
-        });
+        await toolsApi.call(config.on_create_tool, createWizardActionInput(created.id, ids, config.on_create_ids_param));
       }
       showToast(`${entryType.name} created`, 'success');
       onCreated(created);

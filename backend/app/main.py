@@ -757,6 +757,12 @@ async def _startup() -> None:
     from app.services.app_graph import ensure_integral_app_graph
 
     await ensure_integral_app_graph()
+    from app.services.host_hooks import assert_startup_ready
+
+    # A required compatibility check must complete before the server accepts
+    # traffic; it is intentionally not a best-effort background task.
+    await assert_startup_ready()
+
     from app.agentive.staging import restore_open_batches
 
     await restore_open_batches()

@@ -245,6 +245,13 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
 
 def _tool_error_from_exception(exc: Exception) -> ToolResult:
     """Map a dispatch exception to a fail-closed ToolResult."""
+    # Legacy direct retrieval tools can raise the store contract outside the
+    # HTTP handler. Preserve the same truthful, sanitized capability refusal.
+    from app.api.errors import RetrievalUnavailableError
+    from app.services.retrieval.embedding_store import EmbeddingStoreUnavailable
+
+    if isinstance(exc, EmbeddingStoreUnavailable):
+        exc = RetrievalUnavailableError()
     if isinstance(exc, JVSpatialAPIException):
         return ToolResult(
             is_error=True,

@@ -160,15 +160,15 @@ export function ResourceTransferDialog({ open, kind, workspaceId, appId, onClose
       <Text variant="body-sm" tone="muted">
         Choose an Integral export (.integral.zip). On another machine or folder, run Core (`integral up`), then import here.
         Packaged Apps install their runtime from the ZIP. Imported {title} are new private copies {appId ? 'inside this App' : 'in this workspace'}.
-        Full-data archives need related Apps/Tracks together; records with broken required links may be skipped.
+        Full-data archives need related Apps/Tracks together. Export reports broken required links; import reports any skipped records.
       </Text>
       <input aria-label="Integral archive" type="file" accept=".zip" disabled={busy} onChange={event => { setFile(event.target.files?.[0] || null); setPreview(null); }} />
       {preview && <Surface padding="md" tone="panel-2" className="space-y-3">
         <Text>{preview.mode === 'full' ? 'Configuration and data' : 'Configuration only'}</Text>
         <ul className="max-h-40 list-inside list-disc overflow-y-auto">{preview.names.map((name, index) => <li key={index}>{name}</li>)}</ul>
         <Text variant="body-sm">{countLabel(preview.apps, 'App')} · {countLabel(preview.tracks, 'Track')} · {countLabel(preview.entries, 'record')} · {countLabel(preview.attachments, 'attachment')}</Text>
-        {previewPackages.length === 1 && <Text variant="body-sm">Installs package <Text as="span" weight="medium">{previewPackages[0].slug}{previewPackages[0].version ? ` ${previewPackages[0].version}` : ''}</Text> then restores this archive.</Text>}
-        {previewPackages.length > 1 && <Text variant="body-sm">Installs packages <Text as="span" weight="medium">{previewPackages.map(pkg => `${pkg.slug}${pkg.version ? ` ${pkg.version}` : ''}`).join(', ')}</Text> then restores this archive.</Text>}
+        {previewPackages.length === 1 && <Text variant="body-sm">Uses admitted package <Text as="span" weight="medium">{previewPackages[0].slug}{previewPackages[0].version ? ` ${previewPackages[0].version}` : ''}</Text> to create new Apps. The destination must already have the matching packages.</Text>}
+        {previewPackages.length > 1 && <Text variant="body-sm">Uses admitted packages <Text as="span" weight="medium">{previewPackages.map(pkg => `${pkg.slug}${pkg.version ? ` ${pkg.version}` : ''}`).join(', ')}</Text> to create new Apps. The destination must already have the matching packages.</Text>}
         <Text variant="body-sm" tone="muted">Existing content stays in place. Sharing permissions, credentials and activity history are not imported.</Text>
       </Surface>}
     </div>}

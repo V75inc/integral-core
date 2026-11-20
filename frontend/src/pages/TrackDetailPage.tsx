@@ -36,7 +36,7 @@ import {
   viewsForTrackQueryKey
 } from '../queryKeys';
 import { errorMessageFromAxios } from '../api/helpers';
-import { resolveDocumentTemplatesTrackRedirect } from '../features/documents/documentTemplatesRouting';
+import { resolveHostTrackRedirect } from '../host/registry';
 import { pathAfterTrackDelete } from '../utils/pathAfterTrackDelete';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
 import {
@@ -357,9 +357,9 @@ export function TrackDetailPage() {
     queryClient.setQueryData(['track', id, 'meta'], { track: trackWithCollab });
   }, [id, queryClient, trackDetailQuery.data]);
 
-  const documentTemplatesRedirect = useMemo(
+  const hostTrackRedirect = useMemo(
     () =>
-      track ? resolveDocumentTemplatesTrackRedirect(track, searchParams) : null,
+      track ? resolveHostTrackRedirect(track, searchParams) : null,
     [track, searchParams],
   );
 
@@ -1944,8 +1944,8 @@ export function TrackDetailPage() {
       </div>
     );
 
-  if (documentTemplatesRedirect) {
-    return <Navigate to={documentTemplatesRedirect} replace />;
+  if (hostTrackRedirect) {
+    return <Navigate to={hostTrackRedirect} replace />;
   }
 
   // A track an App keeps out of its track list and opens from its Settings: shown as that App's settings screen,

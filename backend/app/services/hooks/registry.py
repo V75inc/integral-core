@@ -1817,7 +1817,7 @@ class ToolContext:
     async def clear_member_assigned_form_prompt(self, member_user_id: str) -> bool:
         """Clear pending member assigned-form URL on a user (bundle hook side effect)."""
         from app.models.nodes import User
-        from app.services.onboarding_prompt import clear_pending_onboarding_form
+        from app.services.assigned_form_prompt import clear_pending_assigned_form
 
         uid = str(member_user_id or "").strip()
         if not uid:
@@ -1825,7 +1825,7 @@ class ToolContext:
         user = await User.get(uid)
         if user is None:
             return False
-        cleared = await clear_pending_onboarding_form(user)
+        cleared = await clear_pending_assigned_form(user)
         if cleared:
             from app.services.credential_delivery import _save_user_node
             from app.utils.time import utc_now_iso
@@ -1833,10 +1833,6 @@ class ToolContext:
             user.updated_at = utc_now_iso()
             await _save_user_node(user)
         return cleared
-
-    async def clear_pending_onboarding_form_for_user(self, member_user_id: str) -> bool:
-        """Backward-compatible alias for :meth:`clear_member_assigned_form_prompt`."""
-        return await self.clear_member_assigned_form_prompt(member_user_id)
 
     async def is_workspace_administrator(self) -> bool:
         """True when the caller is workspace owner or admin."""
@@ -2039,53 +2035,8 @@ class ToolContext:
             return {"signature_png_b64": ""}
         return {"signature_png_b64": base64.b64encode(png).decode("ascii")}
 
-    async def esign_contract_decision(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Accept or reject a contract on a form entry (canvas sign + artifacts)."""
-        from app.models.nodes import Entry
-        from app.services.esign.contract_decision import (
-            accept_contract_canvas,
-            reject_contract,
-            resolve_places_for_form,
-            try_docusign_accept,
-        )
+    async def run_host_tool(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Invoke the trusted host handler bound to this dispatched write tool."""
+        from app.services.host_hooks import run_bound_host_tool
 
-        action = str(payload.get("action") or "").strip().lower()
-        form_entry_id = str(payload.get("form_entry_id") or "").strip()
-        if not form_entry_id:
-            raise ValueError("form_entry_id is required")
-        form_entry = await Entry.get(form_entry_id)
-        if form_entry is None:
-            raise ValueError("Form entry not found")
-
-        if action == "reject":
-            return await reject_contract(
-                form_entry=form_entry,
-                reason=str(payload.get("reason") or ""),
-            )
-
-        if action != "accept":
-            raise ValueError("action must be accept or reject")
-
-        actor_id = str(payload.get("actor_id") or "public").strip() or "public"
-        return_url = str(payload.get("return_url") or "")
-        use_docusign = bool(payload.get("use_docusign"))
-
-        pdf_bytes, places = await resolve_places_for_form(form_entry)
-        if use_docusign:
-            docusign_out = await try_docusign_accept(
-                pdf_bytes=pdf_bytes,
-                form_entry=form_entry,
-                places=places,
-                return_url=return_url,
-            )
-            if docusign_out is not None:
-                return docusign_out
-
-        signature_png = str(payload.get("signature_png") or "")
-        return await accept_contract_canvas(
-            form_entry=form_entry,
-            signature_png=signature_png,
-            actor_id=actor_id,
-            places=places,
-            pdf_bytes=pdf_bytes,
-        )
+        return await run_bound_host_tool(self, payload)

@@ -100,6 +100,7 @@ jobs:
           bash ../.ci/jvspatial_drift_check.sh
           bash ../.ci/graph_contiguousness_check.sh
           bash ../.ci/substrate_domain_drift_check.sh
+          bash ../.ci/app_boundary_guard.sh
           bash ../.ci/service_layer_drift_check.sh
           bash ../.ci/core_no_app_import_check.sh
           # Not a substrate guard, but it belongs on a blocking gate: a stale

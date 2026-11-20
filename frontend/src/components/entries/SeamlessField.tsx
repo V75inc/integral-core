@@ -1049,7 +1049,7 @@ function SeamlessFieldInner(props: SeamlessFieldProps) {
   //    ``base``), let that win regardless of legacy / seamless mode.
   const registered = resolveFieldType(rawField);
   if (registered) {
-    const Renderer = registered.editor;
+    const Renderer = rawField.readonly && registered.renderer ? registered.renderer : registered.editor;
     return (
       <Renderer
         field={rawField}

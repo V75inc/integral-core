@@ -413,6 +413,13 @@ async def _dispatch_retrieve_modes(
         if requested_mode not in (
             "semantic",
             "hybrid",
+        ) and _is_vector_store_unavailable(exc):
+            from app.api.errors import RetrievalUnavailableError
+
+            raise RetrievalUnavailableError() from exc
+        if requested_mode not in (
+            "semantic",
+            "hybrid",
         ) or not _is_vector_store_unavailable(exc):
             raise
         from app.services.retrieval.embedding_store import EmbeddingBusy

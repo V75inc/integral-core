@@ -20,6 +20,8 @@ An unavailable Home deep link shows Tracks without rewriting the URL or preferen
 
 `app.home` gives an installed App a package-defined entry experience under its active ApplicationDefinition. Home is the default App section unless an explicit preference selects another section. Dashboards remain separate, mutable instance projections.
 
+The App header can render while Core checks for Home, but the default section waits for that result rather than briefly opening Tracks. A direct or remembered Tracks or Dashboards selection does not wait for Home.
+
 A Home can declare one to six widgets and up to three actions. Data is resolved through the declared capability contract. A query-backed widget must provide the complete rows and totals its output contract requires. Failed sources become unavailable; they must not become fabricated zeros or empty lists.
 
 Resolution checks definition ownership, active pointer, and status. Sources share a bounded five-second resolution budget. A stale, inaccessible, or mismatched definition cannot become execution authority.

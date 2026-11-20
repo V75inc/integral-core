@@ -47,3 +47,54 @@ Core routes that know the Entry and its current Track/form but do not own the
 host's pending-record ID. All validation failures should be reported as a
 generic not-found response so a shared form token cannot enumerate protected
 submissions.
+
+## Public form presentation
+
+Core renders schema fields without domain-name inference. Hosts declare optional
+string-valued `public_share.extensions`: `form_default_group`,
+`form_readonly_groups` (CSV), `form_hidden_field_keys` (CSV),
+`form_hidden_field_prefixes` (CSV), `form_hidden_groups` (CSV),
+`form_prefill_notice`, and `form_review_step_title`. Group matching for hidden
+and readonly groups is case-insensitive. Defaults are editable Details and
+Document Review. Schema-level readonly and approved-entry locks remain intact.
+
+Presentation is not authorization: server-side field and entry permissions must
+independently enforce the host's policy. Only expose an intentionally public
+intake schema. Existing host forms must be migrated to explicit declarations,
+or refused until migrated, before upgrading to this renderer. A missing policy
+must never silently relax legacy protected workflows.
+
+## Boundary release gate
+
+The runtime boundary guard detects a bounded set of named-App coupling signals;
+it does not prove every possible domain dependency has been eliminated. Named-App
+fallbacks and compatibility rules belong in the owning host, with migration and
+readiness proof before cutover. Core has no domain exception allowlist. Run the
+guard and paired regression tests on the exact candidate artifact.
+
+An EntryType may declare optional `confirmation` metadata with plain-text
+`title` (maximum 160 characters), `message` (maximum 2000 characters), and boolean
+`allow_another_response`. Omitted values retain the existing confirmation copy
+and repeat-response button. Only `false` hides the anonymous repeat button;
+it is presentation, not duplicate prevention. Assigned response editing remains
+available under its existing rules. Metadata persists through compile, merge,
+authoring and graph manifest round trips.
+
+
+### Fixed entry type on a create-only link
+
+Public share settings accept optional `public_entry_type_id` for a single
+persisted EntryType on the shared Track. A bound link requires explicitly
+`read_entries: false`, `create_entries: true` and all other permissions false.
+Public config exposes only that schema, the form omits the type switcher, and
+server create/relation requests enforce the binding. Missing, foreign, template
+or authenticated-only types are refused rather than exposing alternatives.
+
+An active token's binding is immutable. Omitted settings preserve its binding;
+changing, adding or clearing it requires disabling the link and minting a new
+one. Legacy shares with no binding otherwise retain their existing behavior.
+Disabling a link remains the normal recoverable way to stop intake. Binding is
+not approval of any application, duplicate detection, or a `read_entries` grant.
+Existing relation fields may still expose their configured option labels through
+the relation-options endpoint. A zero-record-disclosure intake must contain no
+relation fields; otherwise its author must verify the options are public-safe.

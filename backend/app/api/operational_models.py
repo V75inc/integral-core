@@ -102,19 +102,10 @@ async def _require_operational_model_scope(
     await _require_workspace_scope(request, user_id, authority.workspace_id)
 
 
-# These packages were merged/retired, but older development databases can
-# still contain their library rows. Keep the rows recoverable for existing
-# installs while preventing new UI or agent installs from selecting them.
-_RETIRED_LIBRARY_SLUGS = frozenset({"payroll_filings", "guyana-payroll-hr"})
-_RETIRED_LIBRARY_NAMES = frozenset({"Payroll Filings", "Guyana Payroll (HR-linked)"})
-
-
 def _is_visible_library_profile(profile: OperationalModel) -> bool:
+    """Keep archived packages out of discovery without deleting installed rows."""
     metadata = getattr(profile, "metadata", None) or {}
-    package = (getattr(profile, "manifest", None) or {}).get("package") or {}
-    slug = str(metadata.get("slug") or package.get("name") or "").strip()
-    name = str(getattr(profile, "name", "") or "").strip()
-    return slug not in _RETIRED_LIBRARY_SLUGS and name not in _RETIRED_LIBRARY_NAMES
+    return metadata.get("library_retired") is not True
 
 
 async def _resolve_active_workspace_for_library_list(

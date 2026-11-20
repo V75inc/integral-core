@@ -516,6 +516,8 @@ async def install_app(
     include_seed_data: Optional[bool] = None,
     visibility: Optional[str] = None,
     _change_event_sink=None,
+    _require_fresh: bool = False,
+    _created_app_sink=None,
 ) -> Dict[str, Any]:
     """Atomic install transaction — 12 steps per app_bundles_v1.md §9.1.
 
@@ -601,14 +603,29 @@ async def install_app(
     )
 
     library_display_name = str(getattr(library_cp, "name", "") or "").strip()
-    existing_install = await _find_existing_bundle_install(
-        workspace_id,
-        source_operational_model_slug,
-        library_cp_id,
-        actor_id=actor_id,
-        library_display_name=library_display_name,
-        package_meta=package_meta,
-    )
+    if _require_fresh:
+        from app.services.app_install import (
+            bundle_identity_key,
+            find_all_bundle_installs,
+        )
+
+        identity = bundle_identity_key(
+            source_operational_model_slug, package_meta, library_display_name
+        )
+        if await find_all_bundle_installs(workspace_id, identity, library_cp_id):
+            raise BadRequestError(
+                message="Package import requires a fresh App destination"
+            )
+        existing_install = None
+    else:
+        existing_install = await _find_existing_bundle_install(
+            workspace_id,
+            source_operational_model_slug,
+            library_cp_id,
+            actor_id=actor_id,
+            library_display_name=library_display_name,
+            package_meta=package_meta,
+        )
     if existing_install is not None:
         seed_pref = _resolve_include_seed_data(
             include_seed_data,
@@ -774,6 +791,8 @@ async def install_app(
             updated_at=now,
         )
         txn.app_id = app_node.id
+        if _created_app_sink is not None:
+            _created_app_sink(app_node)
         await txn.checkpoint("app_create", app_id=app_node.id)
         txn.record(
             "app_create",
@@ -929,6 +948,8 @@ async def install_app(
                 app_id=app_node.id,
             )
         except Exception:
+            if _require_fresh:
+                raise
             logger.exception("hook framework registration failed; continuing")
 
         # Step 12: Mark active + emit single ChangeEvent.

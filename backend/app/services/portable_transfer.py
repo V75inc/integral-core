@@ -161,6 +161,7 @@ def _data_manifest(manifest: dict, *, allow_runtime: bool = False) -> dict:
         result.pop("package", None)
     result.pop("migrations", None)
     result.pop("applied_migrations", None)
+    result.pop("materialization", None)
     for tier in (result, result.get("app", {}), result.get("track", {})):
         if not isinstance(tier, dict):
             raise BadRequestError(message="Invalid configuration in archive")
@@ -190,6 +191,24 @@ def _data_manifest(manifest: dict, *, allow_runtime: bool = False) -> dict:
                     value.pop(key, None)
             pending.extend(value.values())
     return result
+
+
+def _export_settings(value: Any, schema: dict) -> Any:
+    """Export only declared, non-secret settings, including nested objects."""
+    if schema.get("writeOnly") or schema.get("format") == "password":
+        return None
+    if isinstance(value, dict):
+        properties = schema.get("properties") or {}
+        return {
+            key: _export_settings(item, properties[key])
+            for key, item in value.items()
+            if key in properties
+            and not properties[key].get("writeOnly")
+            and properties[key].get("format") != "password"
+        }
+    if isinstance(value, list):
+        return [_export_settings(item, schema.get("items") or {}) for item in value]
+    return deepcopy(value)
 
 
 _TEXT_KEYS = {
@@ -463,6 +482,11 @@ async def _export_app_package(app: App) -> tuple[PackagePayload, dict[str, bytes
         slug = str(pkg.get("slug") or pkg.get("name") or root.name).strip()
     meta = package_meta_from_bundle(root, slug)
     packed, fingerprint = pack_bundle_dir(root, slug)
+    expected = str(getattr(app, "installed_artifact_fingerprint", "") or "")
+    if not expected or fingerprint != expected:
+        raise BadRequestError(
+            message="Installed package provenance does not match its export artifact"
+        )
     return (
         PackagePayload(
             slug=slug,
@@ -549,6 +573,16 @@ async def export_resources(
             if selection.kind == "track"
             else {}
         )
+        from app.services.operational_model_graph import is_shared_track_profile
+
+        config_refs = dict(tag_refs)
+        if await is_shared_track_profile(cp):
+            # Snapshot each selected use of a shared template independently. Its
+            # graph IDs cannot be repeated as archive identities across Tracks.
+            config_refs.update(
+                {node.id: f"{node.id}:track:{track.id}" for node in [cp, *types, *tags]}
+            )
+            tag_refs.update({tag.id: config_refs[tag.id] for tag in tags})
         views = await _bounded(track, HAS_VIEW, "View")
         rows = []
         for entry in walker.entries:
@@ -588,7 +622,7 @@ async def export_resources(
             rows.append(
                 PortableEntry(
                     ref=entry.id,
-                    type_ref=entry.type_id,
+                    type_ref=config_refs.get(entry.type_id, entry.type_id),
                     title=entry.title,
                     body=entry.body,
                     status=entry.status,
@@ -601,7 +635,7 @@ async def export_resources(
             )
         tracks[track.id] = PortableTrack(
             ref=track.id,
-            model_ref=cp.id,
+            model_ref=config_refs.get(cp.id, cp.id),
             title=track.title,
             purpose=track.purpose,
             icon=track.icon,
@@ -614,11 +648,14 @@ async def export_resources(
                     cp.manifest or {},
                     allow_runtime=track_package_allow.get(track.id, False),
                 ),
-                tag_refs,
+                config_refs,
             ),
             entry_types=[
                 PortableType(
-                    ref=t.id, name=t.name, icon=t.icon, form_schema=t.form_schema
+                    ref=config_refs.get(t.id, t.id),
+                    name=t.name,
+                    icon=t.icon,
+                    form_schema=_remap(t.form_schema, config_refs),
                 )
                 for t in types
                 if not t.track_id or t.track_id == track.id
@@ -641,7 +678,7 @@ async def export_resources(
                     ref=v.id,
                     name=v.name,
                     type=v.type,
-                    config=_remap(v.config, tag_refs),
+                    config=_remap(v.config, config_refs),
                     entry_type_keys=v.entry_type_keys,
                     default_entry_type_key=v.default_entry_type_key,
                     is_default=v.is_default,
@@ -694,7 +731,9 @@ async def export_resources(
                     cp.manifest if cp else {},
                     allow_runtime=bool(package_slug),
                 ),
-                settings=dict(getattr(app, "settings", None) or {}),
+                settings=_export_settings(
+                    app.settings or {}, app.settings_schema or {}
+                ),
                 package_slug=package_slug,
                 home_composition=app.home_composition,
                 tracks=[tracks[t.id] for t in children],
@@ -716,7 +755,7 @@ async def export_resources(
     if archive.mode == "full" and archive.kind == "app":
         archive = await _sanitize_dangling_export_refs(archive, files)
     validate_archive(archive, files)
-    return await asyncio.to_thread(encode_archive, archive.model_dump(), files)
+    return await asyncio.to_thread(encode_archive, archive.wire_dict(), files)
 
 
 def _tracks(archive: PortableArchive) -> list[PortableTrack]:
@@ -825,12 +864,13 @@ async def _drop_reserved_import_entry(
         entry = await Entry.get(entry_id)
         if entry is not None:
             for attachment in await _bounded(entry, HAS_ATTACHMENT, "Attachment"):
-                key = getattr(attachment, "storage_key", "") or ""
-                await entry.disconnect(attachment, edge=HAS_ATTACHMENT)
+                keys = [attachment.storage_key, attachment.thumb_storage_key]
+                await entry.disconnect(attachment)
                 await attachment.delete()
-                if key and key in stored_keys:
-                    stored_keys.remove(key)
-                    await get_attachment_storage_service().delete_attachment(key)
+                for key in keys:
+                    if key and key in stored_keys:
+                        await get_attachment_storage_service().delete_attachment(key)
+                        stored_keys.remove(key)
             await entry.delete()
 
 
@@ -974,6 +1014,10 @@ async def _sanitize_dangling_export_refs(
         if not newly_omitted:
             break
         omitted.update(newly_omitted)
+    if omitted:
+        raise BadRequestError(
+            message=f"Export cannot include {len(omitted)} record(s) with missing required relations or files; repair those records before retrying"
+        )
     return working
 
 
@@ -1272,21 +1316,101 @@ class _CleanupWalker(Walker):
                 "Dashboard",
                 "ApplicationDefinition",
             ],
+            direction="out",
             limit=MAX_NODES + 1,
         )
         from app.models.edges import (
             CATALOGS,
+            DEFINES_TRACK_PROFILE,
             HAS_APPLICATION_DEFINITION,
             HAS_OPERATIONAL_MODEL,
         )
 
-        for edge in (HAS_OPERATIONAL_MODEL, CATALOGS, HAS_APPLICATION_DEFINITION):
+        for edge in (
+            HAS_OPERATIONAL_MODEL,
+            CATALOGS,
+            HAS_APPLICATION_DEFINITION,
+            DEFINES_TRACK_PROFILE,
+        ):
             children += await here.nodes(
                 edge=[edge],
                 node=["OperationalModel", "View", "Dashboard", "ApplicationDefinition"],
+                direction="out",
                 limit=MAX_NODES + 1,
             )
         await self.visit(children)
+
+
+async def _cleanup_import_attempt(roots, stored_keys, workspace_id, atomic):
+    """Compensate only attempt-owned roots; continue after individual failures."""
+    from anyio import CancelScope
+
+    failures = []
+    with CancelScope(shield=True):
+        for root in reversed(roots):
+            if isinstance(root, App) and root.installed_package_slug:
+                from app.agentive.services.skill_registry import (
+                    unregister_skills_for_app,
+                )
+                from app.agentive.services.uplink_registry import (
+                    unregister_app_agents_for_app,
+                )
+                from app.services.hooks.install_hook import (
+                    unregister_bundle_on_uninstall,
+                )
+
+                try:
+                    await unregister_bundle_on_uninstall(
+                        workspace_id, root.installed_package_slug, app_id=root.id
+                    )
+                except Exception as exc:
+                    failures.append(exc)
+                if not atomic:
+                    for cleanup in (
+                        unregister_app_agents_for_app,
+                        unregister_skills_for_app,
+                    ):
+                        try:
+                            await cleanup(root.id, strict=True)
+                        except Exception as exc:
+                            failures.append(exc)
+            if not atomic:
+                cleanup = _CleanupWalker(
+                    max_queue_size=MAX_NODES + 1, max_steps=MAX_NODES * 4
+                )
+                try:
+                    if await type(root).get(root.id) is None:
+                        continue
+                    await cleanup.spawn(root)
+                    if cleanup.failure is not None:
+                        raise cleanup.failure
+                except Exception as exc:
+                    failures.append(exc)
+                for node in reversed(cleanup.nodes):
+                    try:
+                        await node.delete()
+                    except Exception as exc:
+                        failures.append(exc)
+        if any(isinstance(root, App) for root in roots):
+            try:
+                from app.agentive.workspace_agent_profile import (
+                    invalidate_workspace_profile,
+                )
+                from app.services.capability_catalogue import (
+                    compile_workspace_catalogue,
+                )
+
+                await compile_workspace_catalogue(workspace_id, activate=True)
+                invalidate_workspace_profile(workspace_id)
+            except Exception as exc:
+                failures.append(exc)
+        for key in set(stored_keys):
+            try:
+                await get_attachment_storage_service().delete_attachment(key)
+            except Exception as exc:
+                failures.append(exc)
+    if failures:
+        raise ExceptionGroup("Portable import cleanup is incomplete", failures)
 
 
 async def _available_name(
@@ -1449,7 +1573,11 @@ async def _restore_file(
         attachment, edge=HAS_ATTACHMENT, attached_by=user_id, attached_at=utc_now_iso()
     )
     if spec.source_type == "file":
-        stored = await get_attachment_storage_service().save_attachment(
+        storage = get_attachment_storage_service()
+        stored_keys.append(
+            storage.build_storage_key(entry.id, attachment.id, attachment.filename)
+        )
+        stored = await storage.save_attachment(
             entry_id=entry.id,
             attachment_id=attachment.id,
             filename=attachment.filename,
@@ -1458,8 +1586,11 @@ async def _restore_file(
         )
         attachment.storage_key = str(stored.get("path") or "")
         stored_keys.append(attachment.storage_key)
-        from app.services.attachment_thumbnails import ensure_thumbnail
+        from app.services.attachment_thumbnails import THUMB_FILENAME, ensure_thumbnail
 
+        stored_keys.append(
+            storage.build_sibling_key(entry.id, attachment.id, THUMB_FILENAME)
+        )
         thumbnail = await ensure_thumbnail(
             attachment,
             entry_id=entry.id,
@@ -1498,8 +1629,9 @@ def _order_archive_apps(apps: list[PortableApp]) -> list[PortableApp]:
     from app.services.app_batch_install import _topo_sort
 
     alias_to_ref: dict[str, str] = {}
+    ambiguous_aliases: set[str] = set()
     for app in apps:
-        aliases: set[str] = set()
+        aliases: set[str] = {app.name, app.name.casefold()}
         if app.package_slug:
             aliases.add(app.package_slug)
         pkg = (app.manifest or {}).get("package") or {}
@@ -1509,8 +1641,14 @@ def _order_archive_apps(apps: list[PortableApp]) -> list[PortableApp]:
         app_key = ((app.manifest or {}).get("app") or {}).get("key")
         if app_key:
             aliases.add(str(app_key).strip())
+        from app.services.operational_model_compile import slug_manifest_key
+
+        aliases |= {slug_manifest_key(alias) for alias in aliases}
+        aliases |= {alias.casefold() for alias in aliases}
         for alias in aliases:
-            if alias and alias not in alias_to_ref:
+            if alias in alias_to_ref and alias_to_ref[alias] != app.ref:
+                ambiguous_aliases.add(alias)
+            if alias:
                 alias_to_ref[alias] = app.ref
 
     nodes = [app.ref for app in apps]
@@ -1525,7 +1663,18 @@ def _order_archive_apps(apps: list[PortableApp]) -> list[PortableApp]:
                 continue
             # Only order against Apps present in this archive; install_app still
             # enforces hard deps that must already exist in the destination.
-            target = alias_to_ref.get(key)
+            if any(
+                alias in ambiguous_aliases
+                for alias in (key, key.casefold(), slug_manifest_key(key))
+            ):
+                raise BadRequestError(
+                    message="Archive App dependency aliases are ambiguous"
+                )
+            target = (
+                alias_to_ref.get(key)
+                or alias_to_ref.get(key.casefold())
+                or alias_to_ref.get(slug_manifest_key(key))
+            )
             if target and target != app.ref:
                 deps.append(target)
         edges[app.ref] = deps
@@ -1551,13 +1700,24 @@ async def _overlay_installed_packaged_tracks(
     from app.services.track_service import create_track_in_space
 
     installed_tracks = await _bounded(app, CONTAINS, "Track")
-    by_key = {
-        key: track for track in installed_tracks if (key := _track_match_key(track))
-    }
+    by_key: dict[str, list[Track]] = {}
+    for track in installed_tracks:
+        if key := _track_match_key(track):
+            by_key.setdefault(key, []).append(track)
     track_pairs: list[tuple[PortableTrack, Track]] = []
     for track_spec in spec.tracks:
         key = _portable_track_match_key(track_spec)
-        track = by_key.get(key) if key else None
+        candidates = by_key.get(key, [])
+        track = next(
+            (
+                row
+                for row in candidates
+                if compute_fold(row.title) == compute_fold(track_spec.title)
+            ),
+            candidates[0] if candidates else None,
+        )
+        if track is not None:
+            candidates.remove(track)
         if track is None:
             track = await create_track_in_space(
                 user_id,
@@ -1574,9 +1734,21 @@ async def _overlay_installed_packaged_tracks(
             )
             await _restore_config(track, track_spec, mapping, allow_runtime=True)
         else:
+            track.title = track_spec.title
+            track.title_fold = compute_fold(track_spec.title)
+            track.purpose = track_spec.purpose
+            track.icon = track_spec.icon
+            track.accent_color = track_spec.accent_color
+            track.nav_visible = track_spec.nav_visible
+            track.search_index = track_spec.search_index
+            await track.save()
             mapping[track_spec.ref] = track.id
             cp = await get_track_attached_operational_model(track)
-            if track_spec.model_ref and cp is not None:
+            if cp is None:
+                raise BadRequestError(
+                    message="Installed Track configuration is unavailable"
+                )
+            if track_spec.model_ref:
                 mapping[track_spec.model_ref] = cp.id
             types = await _bounded(cp, CONTAINS, "EntryType") if cp else []
             for item in track_spec.entry_types:
@@ -1603,18 +1775,28 @@ async def _overlay_installed_packaged_tracks(
                     if cp is not None:
                         await cp.connect(node, edge=CONTAINS)
                     mapping[item.ref] = node.id
+            existing_tags = await _bounded(cp, CONTAINS, "Tag")
             for item in track_spec.tags:
-                tag = await Tag.create(
-                    name=item.name,
-                    name_fold=compute_fold(item.name),
-                    color=item.color,
-                    track_id=track.id,
-                    group_key=item.group_key,
-                    aliases=item.aliases,
-                    applies_to_entry_types=item.applies_to_entry_types,
+                tag = next(
+                    (
+                        row
+                        for row in existing_tags
+                        if compute_fold(row.name) == compute_fold(item.name)
+                    ),
+                    None,
                 )
-                if cp is not None:
+                if tag is None:
+                    tag = await Tag.create(
+                        name=item.name,
+                        name_fold=compute_fold(item.name),
+                        track_id=track.id,
+                    )
                     await cp.connect(tag, edge=CONTAINS)
+                tag.color = item.color
+                tag.group_key = item.group_key
+                tag.aliases = item.aliases
+                tag.applies_to_entry_types = item.applies_to_entry_types
+                await tag.save()
                 mapping[item.ref] = tag.id
             for item in track_spec.tags:
                 if item.parent_ref and item.parent_ref in mapping:
@@ -1644,6 +1826,12 @@ async def _overlay_installed_packaged_tracks(
                         hidden=item.hidden,
                         created_at=utc_now_iso(),
                     )
+                view.type = item.type
+                view.entry_type_keys = item.entry_type_keys
+                view.default_entry_type_key = item.default_entry_type_key
+                view.is_default = item.is_default
+                view.hidden = item.hidden
+                await view.save()
                 mapping[item.ref] = view.id
         track_pairs.append((track_spec, track))
     return track_pairs
@@ -1656,7 +1844,7 @@ async def _import_packaged_archive(
     archive: PortableArchive,
     files: dict[str, bytes],
 ) -> dict:
-    """Admit packages, install/create Apps in dependency order, overlay data."""
+    """Resolve admitted packages, install fresh Apps in dependency order, restore data."""
     from app.models.nodes import View
     from app.services.app_home_override import validate_home_composition
     from app.services.app_lifecycle import install_app
@@ -1669,20 +1857,32 @@ async def _import_packaged_archive(
     from app.services.dashboard_service import create_dashboard
     from app.services.entry_create import create_entry_in_track
     from app.services.entry_import_reservations import (
-        portable_import_writes,
         reserved_import_entry,
     )
     from app.services.entry_write_scope import entry_write_scope
-    from app.services.portable_package import admit_package_from_archive
+    from app.services.portable_package import resolve_admitted_package
     from app.services.track_service import create_track_in_space
-    from app.services.workspace_storage_usage import check_quota, increment
+    from app.services.workspace_storage_usage import check_quota
 
     if not archive.packages or not archive.apps:
         raise BadRequestError(message="Packaged archive is invalid")
     libraries: dict[str, Any] = {}
     for payload in archive.packages:
-        libraries[payload.slug] = await admit_package_from_archive(payload, files)
-    ordered_apps = _order_archive_apps(list(archive.apps))
+        libraries[payload.slug] = await resolve_admitted_package(
+            payload, files, user_id=user_id, workspace_id=workspace_id
+        )
+    ordered_apps = _order_archive_apps(
+        [
+            (
+                spec.model_copy(
+                    update={"manifest": libraries[spec.package_slug].manifest}
+                )
+                if spec.package_slug
+                else spec
+            )
+            for spec in archive.apps
+        ]
+    )
     roots: list[Any] = []
     stored_keys: list[str] = []
     mapping: dict[str, str] = {}
@@ -1692,6 +1892,11 @@ async def _import_packaged_archive(
     outboxes = []
     try:
         async with entry_write_scope(f"portable-package:{workspace_id}"):
+            from app.services.portable_preflight import preflight_packaged_apps
+
+            await preflight_packaged_apps(
+                ordered_apps, libraries, workspace_id=workspace_id
+            )
             total_file_bytes = sum(
                 len(files[a.member])
                 for t in _tracks(archive)
@@ -1730,6 +1935,8 @@ async def _import_packaged_archive(
                         include_seed_data=False,
                         visibility="private",
                         _change_event_sink=events.append,
+                        _require_fresh=True,
+                        _created_app_sink=roots.append,
                     )
                     if installed.get("status") == "awaiting_settings":
                         raise BadRequestError(
@@ -1753,7 +1960,42 @@ async def _import_packaged_archive(
                     if spec.accent_color:
                         app.accent_color = spec.accent_color
                     await app.save()
-                    roots.append(app)
+                    cp = await get_app_attached_operational_model(app)
+                    if cp is None:
+                        raise BadRequestError(
+                            message="Installed App configuration is unavailable"
+                        )
+                    if spec.model_ref:
+                        mapping[spec.model_ref] = cp.id
+                    existing_tags = await _bounded(cp, CONTAINS, "Tag")
+                    for item in spec.tags:
+                        tag = next(
+                            (
+                                t
+                                for t in existing_tags
+                                if compute_fold(t.name) == compute_fold(item.name)
+                            ),
+                            None,
+                        )
+                        if tag is None:
+                            tag = await Tag.create(
+                                name=item.name,
+                                name_fold=compute_fold(item.name),
+                                app_id=app.id,
+                            )
+                            await cp.connect(tag, edge=CONTAINS)
+                        tag.color = item.color
+                        tag.group_key = item.group_key
+                        tag.aliases = item.aliases
+                        tag.applies_to_entry_types = item.applies_to_entry_types
+                        await tag.save()
+                        mapping[item.ref] = tag.id
+                    for item in spec.tags:
+                        tag = await Tag.get(mapping[item.ref])
+                        tag.parent_tag_id = (
+                            mapping[item.parent_ref] if item.parent_ref else None
+                        )
+                        await tag.save()
                     mapping[spec.ref] = app.id
                     app_names[spec.ref] = app.name
                     app_pairs.append((spec, app))
@@ -1904,10 +2146,7 @@ async def _import_packaged_archive(
                     attachment_ids = [
                         mapping[a.ref] for a in item.attachments if a.ref in mapping
                     ]
-                    with (
-                        portable_import_writes(),
-                        reserved_import_entry(entry, user_id),
-                    ):
+                    with reserved_import_entry(entry, user_id):
                         restored = await create_entry_in_track(
                             track=track,
                             user_id=user_id,
@@ -1922,6 +2161,25 @@ async def _import_packaged_archive(
                             attachment_ids=attachment_ids,
                             change_event_sink=events.append,
                         )
+                    from app.services.app_invariant_guards import (
+                        enforce_protected_field_write,
+                    )
+                    from app.services.operational_model_compile import slug_manifest_key
+
+                    await enforce_protected_field_write(
+                        workspace_id=workspace_id,
+                        entry_type_key=slug_manifest_key(
+                            str(
+                                et.form_schema.get("_manifest_entry_type_key")
+                                or et.name
+                            )
+                        ),
+                        proposed_custom_fields={},
+                        proposed_fields={"status": item.status},
+                        track_id=track.id,
+                        entry_id=restored.id,
+                        principal_id=user_id,
+                    )
                     restored.status = item.status
                     if item.created_at is not None:
                         restored.created_at = item.created_at
@@ -1965,25 +2223,19 @@ async def _import_packaged_archive(
                 )
                 if outbox:
                     outboxes.append(outbox)
-            await increment(workspace_id, total_file_bytes)
-    except BaseException:
-        from anyio import CancelScope
+            retained_file_bytes = sum(
+                len(files[a.member])
+                for t in _tracks(archive)
+                for e in t.entries
+                if e.ref in mapping
+                for a in e.attachments
+                if a.source_type == "file" and a.ref in mapping
+            )
+            from app.services.portable_preflight import charge_import_storage
 
-        with CancelScope(shield=True):
-            try:
-                if not atomic:
-                    cleanup = _CleanupWalker(
-                        max_queue_size=MAX_NODES + 1, max_steps=MAX_NODES * 4
-                    )
-                    for root in roots:
-                        await cleanup.spawn(root)
-                        if cleanup.failure is not None:
-                            raise cleanup.failure
-                    for node in reversed(cleanup.nodes):
-                        await node.delete()
-            finally:
-                for key in stored_keys:
-                    await get_attachment_storage_service().delete_attachment(key)
+            await charge_import_storage(workspace_id, retained_file_bytes)
+    except BaseException:
+        await _cleanup_import_attempt(roots, stored_keys, workspace_id, atomic)
         raise
     if atomic:
         from app.services.workspace_membership import _deliver
@@ -2011,6 +2263,13 @@ async def _import_packaged_archive(
                         )
     return {
         **archive_summary(archive),
+        "entries": sum(e.ref in mapping for t in _tracks(archive) for e in t.entries),
+        "attachments": sum(
+            a.ref in mapping
+            for t in _tracks(archive)
+            for e in t.entries
+            for a in e.attachments
+        ),
         "resource_ids": [root.id for root in roots],
         "skipped_entries": skipped_entries,
         "skipped_entry_count": len(skipped_entries),
@@ -2030,7 +2289,6 @@ async def import_resources(
     from app.services.change_event import emit_change_event
     from app.services.entry_create import create_entry_in_track
     from app.services.entry_import_reservations import (
-        portable_import_writes,
         reserved_import_entry,
     )
     from app.services.entry_write_scope import entry_write_scope
@@ -2079,7 +2337,7 @@ async def import_resources(
     outboxes = []
     try:
         async with entry_write_scope(f"portable:{workspace_id}"):
-            from app.services.workspace_storage_usage import check_quota, increment
+            from app.services.workspace_storage_usage import check_quota
 
             total_file_bytes = sum(
                 len(files[a.member])
@@ -2239,10 +2497,7 @@ async def import_resources(
                     attachment_ids = [
                         mapping[a.ref] for a in item.attachments if a.ref in mapping
                     ]
-                    with (
-                        portable_import_writes(),
-                        reserved_import_entry(entry, user_id),
-                    ):
+                    with reserved_import_entry(entry, user_id):
                         restored = await create_entry_in_track(
                             track=track,
                             user_id=user_id,
@@ -2257,6 +2512,25 @@ async def import_resources(
                             attachment_ids=attachment_ids,
                             change_event_sink=events.append,
                         )
+                    from app.services.app_invariant_guards import (
+                        enforce_protected_field_write,
+                    )
+                    from app.services.operational_model_compile import slug_manifest_key
+
+                    await enforce_protected_field_write(
+                        workspace_id=workspace_id,
+                        entry_type_key=slug_manifest_key(
+                            str(
+                                et.form_schema.get("_manifest_entry_type_key")
+                                or et.name
+                            )
+                        ),
+                        proposed_custom_fields={},
+                        proposed_fields={"status": item.status},
+                        track_id=track.id,
+                        entry_id=restored.id,
+                        principal_id=user_id,
+                    )
                     restored.status = item.status
                     if item.created_at is not None:
                         restored.created_at = item.created_at
@@ -2305,25 +2579,19 @@ async def import_resources(
                 )
                 if outbox:
                     outboxes.append(outbox)
-            await increment(workspace_id, total_file_bytes)
-    except BaseException:
-        from anyio import CancelScope
+            retained_file_bytes = sum(
+                len(files[a.member])
+                for t in _tracks(archive)
+                for e in t.entries
+                if e.ref in mapping
+                for a in e.attachments
+                if a.source_type == "file" and a.ref in mapping
+            )
+            from app.services.portable_preflight import charge_import_storage
 
-        with CancelScope(shield=True):
-            try:
-                if not atomic:
-                    cleanup = _CleanupWalker(
-                        max_queue_size=MAX_NODES + 1, max_steps=MAX_NODES * 4
-                    )
-                    for root in roots:
-                        await cleanup.spawn(root)
-                        if cleanup.failure is not None:
-                            raise cleanup.failure
-                    for node in reversed(cleanup.nodes):
-                        await node.delete()
-            finally:
-                for key in stored_keys:
-                    await get_attachment_storage_service().delete_attachment(key)
+            await charge_import_storage(workspace_id, retained_file_bytes)
+    except BaseException:
+        await _cleanup_import_attempt(roots, stored_keys, workspace_id, atomic)
         raise
     if atomic:
         from app.services.workspace_membership import _deliver
@@ -2353,6 +2621,13 @@ async def import_resources(
                         )
     return {
         **archive_summary(archive),
+        "entries": sum(e.ref in mapping for t in _tracks(archive) for e in t.entries),
+        "attachments": sum(
+            a.ref in mapping
+            for t in _tracks(archive)
+            for e in t.entries
+            for a in e.attachments
+        ),
         "resource_ids": [root.id for root in roots],
         "skipped_entries": skipped_entries,
         "skipped_entry_count": len(skipped_entries),

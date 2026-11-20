@@ -124,7 +124,9 @@ class PortableApp(PortableModel):
 class PackagePayload(PortableModel):
     """Admitted package tree carried under package/<slug>/ in a v2 archive."""
 
-    slug: str = Field(min_length=1, max_length=200)
+    slug: str = Field(
+        min_length=1, max_length=200, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+    )
     version: str = ""
     fingerprint: str = Field(min_length=1, max_length=128)
     member_prefix: str = Field(min_length=1, max_length=300)
@@ -140,6 +142,17 @@ class PortableArchive(PortableModel):
     packages: list[PackagePayload] = Field(default_factory=list)
     # Legacy singular field from early v2 single-App archives.
     package: PackagePayload | None = None
+
+    def wire_dict(self) -> dict[str, Any]:
+        """Keep ordinary v1 exports readable by the original strict v1 models."""
+        result = self.model_dump()
+        if self.version == 1:
+            result.pop("package", None)
+            result.pop("packages", None)
+            for app in result["apps"]:
+                app.pop("package_slug", None)
+                app.pop("settings", None)
+        return result
 
     @model_validator(mode="after")
     def normalize_packages(self) -> "PortableArchive":

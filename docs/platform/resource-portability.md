@@ -4,7 +4,8 @@ Manage Apps and Manage Tracks share an **Import / export** dialog. Users can
 select resources, then download a versioned `.integral.zip` archive. Import
 previews the archive before creating new private copies in the current
 workspace. From inside an App, Track imports stay inside that App.
-Name collisions receive an `(import N)` suffix; imports never overwrite a resource.
+Declarative name collisions receive an `(import N)` suffix. A packaged App already
+installed in the destination produces a conflict; import never updates that App.
 
 In the export tab, choose what to include and select the Apps or Tracks to
 download. The search field filters the items currently loaded; use **Load more**
@@ -26,7 +27,7 @@ together; Track archives remain data-only.
 | Configuration and data | The configuration above, plus Entries, bodies, custom field values, tags, typed record relationships, file-field bindings, URL attachments and binary attachment files |
 
 This is content portability, not a deployment or identity backup. Accounts,
-sharing grants, invitations, credentials, App settings values, reactions,
+sharing grants, invitations, credentials, secret App settings, reactions,
 comments, audit history, chat history, generated-document execution receipts and
 derived search indexes are not copied. Imported records belong to the importing
 principal; source identity strings never grant authority. Search indexing and
@@ -42,16 +43,28 @@ attachment metadata extraction run afresh after import.
 Version 1 still refuses runtime declarations (`tools`, `operations`, `agents`,
 `protected_state`, hooks/plugins, custom skills, queries with `handler_ref`)
 rather than silently dropping behavior. Version 2 retains those declarations
-only on Apps that bind a verified package via `package_slug`. Import admits
-every package through the same library seed and trust gates as Install from
-library (`verify_bundle_signature` / `assert_library_artifact_trusted`), orders
-Apps by hard `requires_apps` within the archive, calls `install_app` for each
-packaged App (or blank-creates declarative Apps), then overlays
-tracks/records/Home/dashboards with a shared identity map. Package bytes are
-written under the primary package root as `<slug>/` so they remain discoverable
-after restart. A portable ZIP never `sys.path`-injects code without that
-admission path. Early single-App v2 archives that only set singular `package`
-still import; the server normalizes them to `packages` and binds `package_slug`.
+only on Apps that bind an exact host-admitted package via `package_slug`.
+Ordinary v1 exports retain the original strict wire shape: no package or settings
+fields are added. V2 includes only declared non-secret settings; `writeOnly` and
+password fields are omitted recursively, as are undeclared settings.
+
+Import does **not** publish packages or extract archive code onto the host. An
+operator must first admit the exact package through the destination's supported
+package setup and configure `INTEGRAL_PACKAGE_PATHS`. Restore requires one
+currently visible library source with matching fingerprint, unchanged files and
+a discoverable path for cold boot. A caller-supplied hash or a development-mode
+signature result is not package admission. Existing catalog rows and package
+files remain untouched on success and failure. Signature coverage is unchanged;
+run immutable signed Python packages with `PYTHONDONTWRITEBYTECODE=1` so runtime
+imports do not add bytes to the signed artifact.
+
+Apps with protected state currently require an App-owned restore validator that
+Core does not yet expose. Their import fails closed before destination creation;
+a portable archive never grants an operation permit. This restriction includes
+configuration-only protected Apps because schema overrides also affect their
+invariants. Ordinary unprotected packaged Apps use canonical installation,
+entitlements and dependency checks. Early single-App v2 archives using singular
+`package` remain readable.
 
 Include all related Tracks in the same full-data App selection when records
 cross Tracks. Select related Apps together so cross-App bindings and packaged
@@ -60,8 +73,8 @@ cross Tracks. Select related Apps together so cross-App bindings and packaged
 On **App** full-data export, relation and file field values that point at
 **deleted** (unresolvable) targets are dropped from the archive so stale links
 do not block the download. If clearing a link would leave a **required**
-relation/file empty, that whole record is **omitted** from the ZIP (and records
-that required it may cascade out). Live targets outside the selected Apps still
+relation/file empty, export fails with an explicit repair message. It never
+returns a full-data ZIP with silently omitted records. Live targets outside the selected Apps still
 fail export with a message that names the record, field, and the other App/Track
 to include (or clear the link in the UI first). On import, rows that still lack a
 remappable required relation/file are **skipped** and reported as
@@ -72,9 +85,9 @@ remappable required relation/file are **skipped** and reported as
 1. **Source:** Manage Apps → Export (select related Apps; configuration or full) →
    download `.integral.zip`. Packaged Apps carry `package/<slug>/`.
 2. **Destination:** install/run Core in the new location (`integral up`), sign in,
-   open the workspace → Manage Apps → Import → preview → install/import.
-3. **Result:** new private App copies in that workspace; runtime is admitted from
-   the ZIP. Sharing, credentials, and history are not copied. You need App-create
+   have the operator admit the exact packages and configure their package paths,
+   then open the workspace → Manage Apps → Import → preview → import.
+3. **Result:** new private App copies in that workspace; runtime uses the previously admitted package. Sharing, credentials, and history are not copied. You need App-create
    permission and package trust still applies. Copying only an agent `integral-apps/`
    folder does not move workspace records.
 
@@ -116,15 +129,19 @@ their configuration. Every new Node is attached through its structural edge in
 the same unit of work (I-GRAPH-01). View creation uses the canonical Track/View
 catalog helper.
 
-**Version 2 (packaged Apps):** admit every `packages[]` payload to the library
-catalog, topologically order Apps by hard `requires_apps` within the archive,
-then for each App either run `install_app` (entitlements, `requires_apps`,
-`register_bundle_on_install`, protected state) when `package_slug` is set or
-blank-create a declarative App. Match packaged Tracks to installed Tracks by
-`relation_type_key` / title, create any extra Tracks from the archive, restore
-Entries/attachments with a shared identity map, and apply Home composition and
-dashboards. Packages that stop at `awaiting_settings` must finish library
-install settings before a data import can complete.
+**Version 2 (packaged Apps):** resolve all packages read-only, check destination
+conflicts, settings, protected state, dependencies and entitlements, then install
+fresh Apps in dependency order. Installed App names and package aliases participate
+in ordering. Runtime registration failure aborts restore. Match packaged Tracks
+to installed Tracks by stable key, restore tags and presentation overrides,
+then Entries/attachments, Home composition and dashboards. Shared template uses
+export independent configuration snapshots with unique archive identities.
+Missing required settings fail before installation; completing an existing App's
+settings does not authorize importing over it.
+
+Skipped import records are named in the response. Counts and storage charges
+include only retained records and attachments. Compensation removes generated
+thumbnails as well as original files and clears attempt-owned runtime registrations.
 
 Record identities are reserved in a first pass beneath their new Tracks. A
 task-local, one-use reservation lets the **normal entry creator** finalize each

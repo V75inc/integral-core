@@ -210,7 +210,7 @@ function mountHomePage(url = '/apps/app', home: unknown = { title: 'Home' }, den
     if (path === '/apps/app') return { data: { app: { id: 'app', name: 'Existing app', workspace_id: 'ws' } } };
     if (path.includes('/home')) {
       if (denied) throw { response: { status: 403 } };
-      return { data: { home, source: 'default' } };
+      return { data: { home: await home, source: 'default' } };
     }
     return { data: { tracks: [], dashboards: [], collaborators: [], caller_role: 'viewer' } };
   });
@@ -218,6 +218,38 @@ function mountHomePage(url = '/apps/app', home: unknown = { title: 'Home' }, den
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[url]}><HistoryControls /><Routes><Route path="/apps/:appId" element={<AppDetailPage />} /></Routes></MemoryRouter></QueryClientProvider>);
   return client;
 }
+
+it('waits for the configured default Home without showing Tracks first', async () => {
+  localStorage.removeItem('integral:app-section:app');
+  let resolveHome!: (home: unknown) => void;
+  const pendingHome = new Promise(resolve => { resolveHome = resolve; });
+  mountHomePage('/apps/app', pendingHome);
+
+  await screen.findByRole('heading', { name: 'Existing app' });
+  await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('/apps/app/home', expect.anything()));
+  expect(screen.getByText('Loading App sections…')).toHaveAttribute('role', 'status');
+  expect(screen.queryByRole('tab', { name: /Tracks/ })).not.toBeInTheDocument();
+  expect(screen.queryByPlaceholderText(/Search tracks/)).not.toBeInTheDocument();
+
+  await act(async () => resolveHome({ title: 'Home' }));
+  await screen.findByTestId('app-home');
+  expect(screen.getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true');
+});
+
+it.each(['url', 'preference'])('opens Tracks immediately with a %s selection while Home is loading', async source => {
+  localStorage.setItem('integral:app-section:app', source === 'url' ? 'home' : 'tracks');
+  let resolveHome!: (home: unknown) => void;
+  const pendingHome = new Promise(resolve => { resolveHome = resolve; });
+  mountHomePage(source === 'url' ? '/apps/app?section=tracks&keep=1' : '/apps/app', pendingHome);
+
+  expect(await screen.findByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByPlaceholderText(/Search tracks/)).toBeVisible();
+  await act(async () => resolveHome({ title: 'Home' }));
+  await screen.findByRole('tab', { name: 'Home' });
+  expect(screen.getByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.queryByTestId('app-home')).not.toBeInTheDocument();
+  if (source === 'url') expect(screen.getByTestId('location')).toHaveTextContent('keep=1');
+});
 
 it('defaults to exactly one Home and restores repeated tab navigation through browser history', async () => {
   localStorage.removeItem('integral:app-section:app');
@@ -245,10 +277,10 @@ it.each(['home', 'tracks', 'dashboards'])('honors direct %s links over saved pre
 
 it.each([false, true])('falls back safely for disabled/denied Home (%s)', async denied => {
   mountHomePage('/apps/app?section=home', null, denied);
-  await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('/apps/app/home', expect.anything()));
+  expect(await screen.findByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true');
+  expect(mocks.get).toHaveBeenCalledWith('/apps/app/home', expect.anything());
   expect(screen.queryByRole('tab', { name: 'Home' })).not.toBeInTheDocument();
   expect(screen.queryByTestId('app-home')).not.toBeInTheDocument();
-  expect(screen.getByRole('tab', { name: /Tracks/ })).toHaveAttribute('aria-selected', 'true');
   expect(screen.queryByText('Start here')).not.toBeInTheDocument();
 });
 

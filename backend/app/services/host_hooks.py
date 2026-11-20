@@ -12,15 +12,33 @@ recorded on the module, not silently discarded.
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import logging
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+)
 
 from app.schemas.agentive.model_dispatch import ModelDispatchInput, ModelPayloadBounds
 from app.schemas.agentive.work_price import ModelPriceRequest, ModelTokenPriceEvidence
 
 logger = logging.getLogger(__name__)
+
+# A host upgrading to this interface must qualify any persisted compatibility
+# state before serving. The migration and verification of its own data are host-owned.
+APP_BOUNDARY_CUTOVER_REQUIRED = True
 
 # workspace_id → raise or pass (authorization)
 PlatformQuotaAssert = Callable[[str], Awaitable[Any]]
@@ -30,6 +48,14 @@ UsageEventRecorder = Callable[..., Awaitable[Any]]
 WorkspaceExportEnricher = Callable[[Dict[str, Any], str], Awaitable[Dict[str, Any]]]
 # zero-arg coroutine factory started at boot
 BackgroundTaskFactory = Callable[[], Awaitable[Any]]
+# Required, read-only compatibility assertions before the host serves traffic.
+StartupReadinessCheck = Callable[[], Awaitable[object]]
+HostToolHandler = Callable[[Dict[str, Any], Any], Awaitable[Dict[str, Any]]]
+SignatureVaultOperation = Literal["list", "save", "delete"]
+SignatureVaultResult = Dict[str, Any] | List[Dict[str, Any]] | bool | None
+SignatureVaultProvider = Callable[
+    [SignatureVaultOperation, str, str, Dict[str, Any]], Awaitable[SignatureVaultResult]
+]
 # Starlette middleware class (or None)
 MiddlewareFactory = Callable[[], Any]
 # (request, action, workspace_id) → raise or pass
@@ -63,6 +89,10 @@ _platform_quota_assert: Optional[PlatformQuotaAssert] = None
 _usage_event_recorder: Optional[UsageEventRecorder] = None
 _workspace_enricher: Optional[WorkspaceExportEnricher] = None
 _background_task_factories: List[BackgroundTaskFactory] = []
+_startup_readiness_checks: List[StartupReadinessCheck] = []
+_server_managed_preferences: frozenset[str] = frozenset()
+_host_tools: dict[tuple[str, str], HostToolHandler] = {}
+_signature_vault_provider: Optional[SignatureVaultProvider] = None
 _middleware_registrations: List[MiddlewareRegistration] = []
 _entitlement_mutation_authorizer: Optional[EntitlementMutationAuthorizer] = None
 _entitlement_access_resolver: Optional[EntitlementAccessResolver] = None
@@ -116,6 +146,165 @@ def register_workspace_export_enricher(fn: Optional[WorkspaceExportEnricher]) ->
     """Register (or clear) a workspace list/detail payload enricher."""
     global _workspace_enricher
     _workspace_enricher = fn
+
+
+def register_startup_readiness_check(check: StartupReadinessCheck) -> None:
+    """Register a required async pre-traffic check from the trusted host module."""
+    if not callable(check):
+        raise TypeError("startup readiness check must be callable")
+    if check not in _startup_readiness_checks:
+        _startup_readiness_checks.append(check)
+
+
+async def assert_startup_ready() -> None:
+    """Run required checks serially; an unavailable check prevents startup."""
+    for check in tuple(_startup_readiness_checks):
+        result = await check()
+        if result is not None:
+            raise TypeError("startup readiness check must return None or raise")
+
+
+def register_server_managed_preference_keys(*keys: str) -> None:
+    """Reserve host-owned preference slots from client writes and projections."""
+    if any(not isinstance(key, str) or not key or key != key.strip() for key in keys):
+        raise ValueError("Server-managed preference keys must be nonempty strings")
+    global _server_managed_preferences
+    _server_managed_preferences = _server_managed_preferences.union(keys)
+
+
+def server_managed_preference_keys() -> frozenset[str]:
+    """Return hidden and write-protected preferences declared by this host."""
+    return _server_managed_preferences
+
+
+@dataclass(frozen=True)
+class _HostToolInvocation:
+    ctx: Any
+    actor: tuple[str, str, str]
+    task: Any
+    spec: Dict[str, Any]
+    key: tuple[str, str]
+    payload: Dict[str, Any]
+
+
+_active_host_tool: ContextVar[Optional[_HostToolInvocation]] = ContextVar(
+    "integral_active_host_tool", default=None
+)
+
+
+def register_host_tool(bundle_slug: str, tool_key: str, fn: HostToolHandler) -> None:
+    """Bind a trusted host action to one installed bundle's exact write tool."""
+    key = (bundle_slug, tool_key)
+    if any(
+        not isinstance(part, str) or not part or part != part.strip() for part in key
+    ):
+        raise ValueError("Host tool identity must be nonempty")
+    if not callable(fn):
+        raise TypeError("Host tool handler must be callable")
+    if key in _host_tools and _host_tools[key] is not fn:
+        raise RuntimeError("Host tool is already bound")
+    _host_tools[key] = fn
+
+
+def _ctx_actor(ctx: Any) -> tuple[str, str, str]:
+    return ctx.user_id, ctx.workspace_id, ctx.scope
+
+
+def _registered_host_tool_spec(ctx: Any, spec: Dict[str, Any], tool_key: str) -> bool:
+    from app.services.hooks.registry import get_workspace_tools
+
+    return get_workspace_tools(ctx.workspace_id).get(tool_key) is spec
+
+
+@contextmanager
+def bound_host_tool(
+    spec: Dict[str, Any], payload: Dict[str, Any], ctx: Any
+) -> Iterator[None]:
+    """Select a host action only from the current registry-owned dispatch."""
+    key = (str(spec.get("_bundle_slug") or ""), str(spec.get("key") or ""))
+    binding = None
+    if (
+        key in _host_tools
+        and ctx.actor_kind == "human"
+        and not ctx.read_only
+        and ctx.user_id
+        and ctx.workspace_id
+        and ctx.tool_is_write
+        and _registered_host_tool_spec(ctx, spec, key[1])
+    ):
+        binding = _HostToolInvocation(
+            ctx,
+            _ctx_actor(ctx),
+            asyncio.current_task(),
+            spec,
+            key,
+            copy.deepcopy(payload),
+        )
+    token = _active_host_tool.set(binding)
+    try:
+        yield
+    finally:
+        _active_host_tool.reset(token)
+
+
+async def run_bound_host_tool(ctx: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Invoke only the active, exact, validated tool; never a supplied name."""
+    from app.api.errors import InsufficientPermissionsError
+
+    bound = _active_host_tool.get()
+    if (
+        bound is None
+        or bound.ctx is not ctx
+        or bound.task is not asyncio.current_task()
+        or bound.actor != _ctx_actor(ctx)
+        or ctx.actor_kind != "human"
+        or ctx.read_only
+        or not ctx.tool_is_write
+        or bound.payload != payload
+        or not _registered_host_tool_spec(ctx, bound.spec, bound.key[1])
+    ):
+        raise InsufficientPermissionsError(
+            message="A current registered human write tool is required"
+        )
+    _active_host_tool.set(None)  # One invocation under this exact write dispatch.
+    return await _host_tools[bound.key](copy.deepcopy(bound.payload), ctx)
+
+
+def register_signature_vault_provider(fn: SignatureVaultProvider) -> None:
+    """Bind an optional host adapter for signed-in users' signature vault."""
+    global _signature_vault_provider
+    if not callable(fn):
+        raise TypeError("Signature vault provider must be callable")
+    if _signature_vault_provider is not None and _signature_vault_provider is not fn:
+        raise RuntimeError("Signature vault provider is already bound")
+    _signature_vault_provider = fn
+
+
+async def invoke_signature_vault_provider(
+    operation: SignatureVaultOperation,
+    workspace_id: str,
+    actor_user_id: str,
+    payload: Dict[str, Any],
+) -> SignatureVaultResult:
+    """Invoke trusted code with the actor and workspace validated by the route.
+
+    No registered provider, or its explicit None result for a workspace where
+    it is not installed, permits fallback to Core's own vault. Providers must
+    raise on denial or failure. Malformed results never change storage paths.
+    """
+    if _signature_vault_provider is None:
+        return None
+    result = await _signature_vault_provider(
+        operation, workspace_id, actor_user_id, payload
+    )
+    if result is None:
+        return None
+    expected = {"list": list, "save": dict, "delete": bool}[operation]
+    if not isinstance(result, expected):
+        from app.exceptions import AuthorizationUnavailableError
+
+        raise AuthorizationUnavailableError()
+    return result
 
 
 def register_background_task(factory: BackgroundTaskFactory) -> None:

@@ -20,13 +20,13 @@ def test_member_provision_email_new_account_html():
     assert "Temporary password" in msg.html
 
 
-def test_onboarding_form_email_html():
+def test_form_email_does_not_infer_app_domain_from_title():
     msg = render_public_form_email(
         recipient_email="casper@example.com",
         recipient_name="Casper",
         form_url="http://localhost:9006/me/assigned-form?entry=1",
         form_title="employee onboarding form",
     )
-    assert msg.subject == "Welcome — complete your onboarding"
-    assert "Start onboarding" in msg.html
-    assert "employment contract" in msg.html
+    assert msg.subject == "Please complete your employee onboarding form"
+    assert "Open form" in msg.html
+    assert "employment contract" not in msg.html

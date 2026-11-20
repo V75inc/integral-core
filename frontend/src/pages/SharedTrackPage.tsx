@@ -8,7 +8,7 @@ import {
 import {
   publicSharingApi,
   type PublicEntryType,
-  type PublicOnboardingPolicy,
+  type AcknowledgmentDocument,
   type PublicSharedEntry,
   type PublicTrackPayload,
 } from '../api/sharing';
@@ -44,13 +44,18 @@ import {
 } from '../components/views/kanbanColumnUtils';
 import type { OperationalModelFieldSpec } from '../types';
 import {
-  PolicyAcknowledgmentStep,
-  firstMissingRequiredPolicy,
-} from '../components/intakeForm/PolicyAcknowledgmentStep';
+  DocumentAcknowledgmentStep,
+  firstMissingRequiredDocument,
+} from '../components/intakeForm/DocumentAcknowledgmentStep';
 import {
-  ContractReviewHost as ContractReviewStep,
-  ContractReviewRejectedTerminal,
-} from '../host/ContractReviewHost';
+  DocumentReviewHost as DocumentReviewStep,
+  DocumentReviewRejectedTerminal,
+} from '../host/DocumentReviewHost';
+import { publicFormEntryTypes } from '../utils/publicFormTypeBinding';
+import { formConfirmation } from '../utils/formConfirmation';
+import { publicFormWorkflow, workflowLocksEntry, workflowSubmissionFields } from '../utils/publicFormWorkflow';
+import { buildPublicFormSteps, isPublicFormStepReadOnly } from '../utils/publicFormSteps';
+
 import { memberAssignedFormApi } from '../features/memberAssignedForm/memberAssignedFormApi';
 
 function isEmptyFileFieldValue(val: unknown): boolean {
@@ -87,7 +92,6 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
   const queryEntryId = searchParams.get('entry')?.trim() || '';
   const [memberEntryId, setMemberEntryId] = useState('');
   const assignedEntryId = memberFormMode ? (queryEntryId || memberEntryId) : queryEntryId;
-  const openingId = searchParams.get('opening')?.trim() || '';
   const toast = useToast();
   const auth = useAuthOptional();
   const navigate = useNavigate();
@@ -141,11 +145,11 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
 
   // Wizard Step State
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [onboardingPolicies, setOnboardingPolicies] = useState<PublicOnboardingPolicy[]>([]);
-  const [onboardingPoliciesLoading, setOnboardingPoliciesLoading] = useState(false);
-  const [policyStepEnabled, setPolicyStepEnabled] = useState(false);
-  const [contractStepEnabled, setContractStepEnabled] = useState(false);
-  const [contractRejected, setContractRejected] = useState(false);
+  const [acknowledgmentDocuments, setAcknowledgmentDocuments] = useState<AcknowledgmentDocument[]>([]);
+  const documentsLoading = false;
+  const [acknowledgmentsEnabled, setAcknowledgmentsEnabled] = useState(false);
+  const [reviewEnabled, setReviewEnabled] = useState(false);
+  const [reviewRejected, setReviewRejected] = useState(false);
 
   // Dynamic Base Field configs for selected entry type (Creation Form)
   const selectedBaseFields = selectedEntryType?.form_schema?.base_fields || {};
@@ -203,92 +207,20 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
     slot: 'body'
   }), [editBodyLabel, editBodyBase.placeholder]);
 
-  // Compute wizard steps: Personal Details → Contract → other groups → policies
-  const formSteps = useMemo(() => {
-    if (!selectedEntryType) return [];
+  // Host-declared presentation is shared by anonymous and assigned forms.
+  // Entry identity and domain field names never choose UI policy.
+  const confirmation = formConfirmation(selectedEntryType?.form_schema?.confirmation, Boolean(assignedEntryId));
+  const workflow = useMemo(() => publicFormWorkflow(data?.public_share_extensions), [data?.public_share_extensions]);
+  const formSteps = useMemo(() => selectedEntryType ? buildPublicFormSteps(
+    selectedEntryType.form_schema,
+    selectedTitleEnabled,
+    selectedBodyEnabled,
+    data?.public_share_extensions,
+    reviewEnabled,
+    acknowledgmentsEnabled,
+  ) : [], [selectedEntryType, selectedTitleEnabled, selectedBodyEnabled,
+    data?.public_share_extensions, reviewEnabled, acknowledgmentsEnabled]);
 
-    const fields = selectedEntryType.form_schema?.fields || [];
-    const isWizardCustomField = (f: { key?: string; group?: string }) => {
-      const key = String(f.key || '');
-      if (['employee', 'status', 'submitted_at', 'policy_acknowledgments'].includes(key)) {
-        return false;
-      }
-      if (key.startsWith('contract_')) return false;
-      if (String(f.group || '').trim().toLowerCase() === 'review') return false;
-      return true;
-    };
-
-    const groupBuckets: Record<string, any[]> = {};
-    const groupOrder: string[] = [];
-    const pushToGroup = (groupName: string, fieldItem: any) => {
-      const normalizedName = groupName.trim() || 'Personal Details';
-      if (!groupBuckets[normalizedName]) {
-        groupBuckets[normalizedName] = [];
-        groupOrder.push(normalizedName);
-      }
-      groupBuckets[normalizedName].push(fieldItem);
-    };
-
-    for (const f of fields) {
-      if (!isWizardCustomField(f)) continue;
-      const gName = f.group ? String(f.group).trim() : 'Personal Details';
-      pushToGroup(gName, { type: 'custom', spec: f });
-    }
-
-    const steps: Array<{ id: string; title: string; fields: any[] }> = [];
-
-    const personalFields: any[] = [];
-    if (selectedTitleEnabled) {
-      personalFields.push({ type: 'base_title' });
-    }
-    for (const item of groupBuckets['Personal Details'] || []) {
-      personalFields.push(item);
-    }
-    if (personalFields.length) {
-      steps.push({
-        id: 'personal-details',
-        title: 'Personal Details',
-        fields: personalFields,
-      });
-    }
-
-    if (contractStepEnabled) {
-      steps.push({
-        id: 'contract-review',
-        title: 'Employment Contract',
-        fields: [{ type: 'contract_review' }],
-      });
-    }
-
-    for (const gName of groupOrder) {
-      if (gName === 'Personal Details') continue;
-      const bucket = groupBuckets[gName];
-      if (!bucket?.length) continue;
-      steps.push({
-        id: gName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        title: gName,
-        fields: bucket,
-      });
-    }
-
-    if (selectedBodyEnabled) {
-      steps.push({
-        id: 'additional-info',
-        title: 'Additional Info',
-        fields: [{ type: 'base_body' }],
-      });
-    }
-
-    if (policyStepEnabled) {
-      steps.push({
-        id: 'company-documents',
-        title: 'Company Documents',
-        fields: [{ type: 'policy_acknowledgments' }],
-      });
-    }
-
-    return steps;
-  }, [selectedEntryType, selectedTitleEnabled, selectedBodyEnabled, policyStepEnabled, contractStepEnabled]);
 
   // Validate the inputs in the current wizard step
   const validateCurrentStep = () => {
@@ -301,25 +233,25 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         setInvalidFieldKey('title');
         return false;
       }
-      if (fieldItem.type === 'policy_acknowledgments') {
-        const missing = firstMissingRequiredPolicy(
-          onboardingPolicies,
-          formCustomFields.policy_acknowledgments,
+      if (fieldItem.type === 'document_acknowledgments') {
+        const missing = firstMissingRequiredDocument(
+          acknowledgmentDocuments,
+          formCustomFields[workflow.acknowledgmentsField],
         );
         if (missing) {
           toast.showToast(
-            `Please acknowledge required document: ${missing.title || 'Company document'}`,
+            `Please acknowledge required document: ${missing.title || 'Document'}`,
             'error',
           );
-          setInvalidFieldKey('policy_acknowledgments');
+          setInvalidFieldKey(workflow.acknowledgmentsField);
           return false;
         }
         continue;
       }
-      if (fieldItem.type === 'contract_review') {
-        const cs = String(formCustomFields.contract_status || '').toLowerCase();
-        if (cs !== 'accepted') {
-          toast.showToast('Please accept and sign the employment contract to continue', 'error');
+      if (fieldItem.type === 'document_review') {
+        const cs = String(formCustomFields[workflow.reviewField] || '');
+        if (cs !== workflow.acceptValue) {
+          toast.showToast('Please complete the required document acceptance to continue', 'error');
           return false;
         }
         continue;
@@ -373,13 +305,13 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
     }
   };
 
-  const isContractReviewStep = Boolean(
+  const isDocumentReviewStep = Boolean(
     formSteps[currentStepIndex]?.fields?.some(
-      (f: { type?: string }) => f.type === 'contract_review',
+      (f: { type?: string }) => f.type === 'document_review',
     ),
   );
-  const contractAccepted =
-    String(formCustomFields.contract_status || '').toLowerCase() === 'accepted';
+  const reviewAccepted =
+    String(formCustomFields[workflow.reviewField] || '') === workflow.acceptValue;
 
   const handlePrevStep = () => {
     setInvalidFieldKey(null);
@@ -445,8 +377,8 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
     variant: 'modal' | 'form'
   ) => {
     if (!step?.fields) return null;
-    const readOnlyStep =
-      assignedEntryLocked || step.id === 'personal-details';
+    const readOnlyStep = isPublicFormStepReadOnly(step, assignedEntryLocked);
+
     const rowsCount = variant === 'form' ? 4 : 3;
     const publicShareCtx =
       assignedEntryId && token
@@ -454,49 +386,47 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         : undefined;
 
     const renderFieldItem = (fieldItem: any): ReactNode => {
-      if (fieldItem.type === 'contract_review') {
+      if (fieldItem.type === 'document_review') {
         if (!assignedEntryId) {
           return (
-            <Text key="contract-review" variant="body" tone="muted">
-              Contract review requires an assigned form link.
+            <Text key="document-review" variant="body" tone="muted">
+              Document review requires an assigned form link.
             </Text>
           );
         }
         return (
-          <ContractReviewStep
-            key="contract-review"
+          <DocumentReviewStep
+            key="document-review"
             token={token}
             entryId={assignedEntryId}
             memberFormMode={memberFormMode}
-            contractStatus={String(values.contract_status || '')}
+            reviewStatus={String(values[workflow.reviewField] || '')}
             onAccepted={() => {
-              setFormCustomFields((prev) => ({ ...prev, contract_status: 'accepted' }));
+              setFormCustomFields((prev) => ({ ...prev, [workflow.reviewField]: workflow.acceptValue }));
               setCurrentStepIndex((prev) =>
                 Math.min(prev + 1, Math.max(formSteps.length - 1, 0)),
               );
               void reloadAssignedEntry();
             }}
             onRejected={() => {
-              setContractRejected(true);
-              setFormCustomFields((prev) => ({ ...prev, contract_status: 'rejected' }));
+              setReviewRejected(true);
+              setFormCustomFields((prev) => ({ ...prev, [workflow.reviewField]: workflow.rejectValue }));
             }}
           />
         );
       }
 
-      if (fieldItem.type === 'policy_acknowledgments') {
+      if (fieldItem.type === 'document_acknowledgments') {
         return (
-          <PolicyAcknowledgmentStep
-            key="policy-acknowledgments"
-            token={token}
-            memberFormMode={memberFormMode}
-            policies={onboardingPolicies}
-            loading={onboardingPoliciesLoading}
-            value={values.policy_acknowledgments}
+          <DocumentAcknowledgmentStep
+            key="document-acknowledgments"
+            policies={acknowledgmentDocuments}
+            loading={documentsLoading}
+            value={values[workflow.acknowledgmentsField]}
             onChange={(next) => {
-              onChange('policy_acknowledgments', next);
+              onChange(workflow.acknowledgmentsField, next);
               if (assignedEntryId && !assignedEntryLocked) {
-                const patch = { custom_fields: { policy_acknowledgments: next } };
+                const patch = { custom_fields: { [workflow.acknowledgmentsField]: next } };
                 void (memberFormMode
                   ? memberAssignedFormApi.updateForm(patch, assignedEntryId)
                   : publicSharingApi.updatePublicEntry(token, assignedEntryId, patch)
@@ -562,14 +492,15 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         );
       }
 
-      const f = readOnlyStep ? { ...fieldItem.spec, readonly: true } : fieldItem.spec;
+      // Guided forms keep full prompts above controls; progress labels remain navigation only.
+      const f = { ...fieldItem.spec, seamless: false, ...(readOnlyStep ? { readonly: true } : {}) };
       const isInvalid = invalidFieldKey === f.key;
       const isFile = String(f.type || '') === 'file' || String(f.type || '') === 'files';
       return (
         <div key={f.key} className="space-y-1">
           <div className={isInvalid ? "rounded-[var(--radius-input)] border border-red-500/80 p-0.5" : ""}>
             <SeamlessField
-              field={f}
+              field={!assignedEntryId && !memberFormMode ? { ...f, seamless: false } : f}
               value={values[f.key]}
               onChange={val => {
                 if (readOnlyStep && !isFile) return;
@@ -639,12 +570,10 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
           });
           res.entry_types = sortedTypes;
         }
-        setData(res);
         if (res.entry) {
           const entry = res.entry;
           setMemberEntryId(String(entry.id || ''));
-          const status = String(entry.custom_fields?.status || 'draft').toLowerCase();
-          setAssignedEntryLocked(status === 'approved' || Boolean(res.locked));
+          setAssignedEntryLocked(workflowLocksEntry(publicFormWorkflow(res.public_share_extensions), entry.custom_fields) || Boolean(res.locked));
           setFormTitle(entry.title || '');
           setFormBody(entry.body || '');
           setFormCustomFields({ ...(entry.custom_fields || {}) });
@@ -652,32 +581,18 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
           const et = (res.entry_types ?? []).find(t => t.id === entry.type_id);
           if (et) setSelectedEntryType(et);
         }
-        const extensions = res.public_share_extensions || {};
-        const entryCf = res.entry?.custom_fields || {};
-        const hasContractTemplate = Boolean(
-          String(entryCf.contract_template || entryCf.contract_template_id || '').trim(),
-        );
-        const hasContractReviewExt = Boolean(
-          String(extensions.contract_review_document_type || '').trim(),
-        );
-        setContractStepEnabled(hasContractReviewExt || hasContractTemplate);
-        const hasPolicyCatalog = Boolean(String(extensions.policy_catalog_track_type_key || '').trim());
-        if (hasPolicyCatalog) {
-          setPolicyStepEnabled(true);
-          setOnboardingPoliciesLoading(true);
-          try {
-            const policyRes = await memberAssignedFormApi.listPolicyDocuments();
-            setOnboardingPolicies(policyRes.policies || []);
-          } catch {
-            setOnboardingPolicies([]);
-            setPolicyStepEnabled(false);
-          } finally {
-            setOnboardingPoliciesLoading(false);
-          }
+        const declared = publicFormWorkflow(res.public_share_extensions);
+        setReviewEnabled(declared.reviewEnabled);
+        setAcknowledgmentsEnabled(declared.acknowledgmentsEnabled);
+        if (declared.acknowledgmentsEnabled && !Array.isArray(res.acknowledgment_documents)) {
+          throw new Error('App document acknowledgment configuration is unavailable');
         }
+        setAcknowledgmentDocuments(res.acknowledgment_documents || []);
+        setData(res);
         return;
       }
       const res = await publicSharingApi.getPublicTrack(token);
+      res.entry_types = publicFormEntryTypes(res.entry_types || [], res.public_entry_type_id);
 
       // Move "post" or "Post" to the end of the entry types list so it's not the default
       if (res.entry_types && res.entry_types.length > 0) {
@@ -692,40 +607,19 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         setSelectedEntryType(sortedTypes[0]);
       }
 
-      setData(res);
       if (res.views && res.views.length > 0) {
         const defView = res.views.find((v: any) => v.is_default) || res.views[0];
         setActiveView(defView);
       }
 
-      const extensions = res.public_share_extensions || {};
-      const hasContractReview = Boolean(
-        String(extensions.contract_review_document_type || '').trim(),
-      );
-      setContractStepEnabled(hasContractReview);
-
-      const hasPolicyCatalog = Boolean(
-        String(extensions.policy_catalog_track_type_key || '').trim(),
-      );
-      if (hasPolicyCatalog && (res.public_permissions?.update_entries || res.public_permissions?.read_entries)) {
-        setPolicyStepEnabled(true);
-        setOnboardingPoliciesLoading(true);
-        try {
-          const policyRes = await publicSharingApi.listOnboardingPolicies(token);
-          setOnboardingPolicies(policyRes.policies || []);
-          // Keep the step even when empty so the wizard flow is stable; empty
-          // catalog skips required-ack validation.
-          setPolicyStepEnabled(true);
-        } catch {
-          setOnboardingPolicies([]);
-          setPolicyStepEnabled(false);
-        } finally {
-          setOnboardingPoliciesLoading(false);
-        }
-      } else {
-        setPolicyStepEnabled(false);
-        setOnboardingPolicies([]);
+      const declared = publicFormWorkflow(res.public_share_extensions);
+      setReviewEnabled(declared.reviewEnabled);
+      setAcknowledgmentsEnabled(declared.acknowledgmentsEnabled);
+      if (declared.acknowledgmentsEnabled && !Array.isArray(res.acknowledgment_documents)) {
+        throw new Error('App document acknowledgment configuration is unavailable');
       }
+      setAcknowledgmentDocuments(res.acknowledgment_documents || []);
+      setData(res);
     } catch (err: unknown) {
       setNotFound(true);
       if (memberFormMode) {
@@ -749,18 +643,8 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
       entryTypes: PublicEntryType[],
       options?: { resetStep?: boolean; mergeLocal?: boolean },
     ) => {
-      const status = String(entry.custom_fields?.status || 'draft').toLowerCase();
-      const contractStatus = String(entry.custom_fields?.contract_status || '').toLowerCase();
-      if (contractStatus === 'rejected') {
-        setContractRejected(true);
-      } else {
-        setContractRejected(false);
-      }
-      if (status === 'approved') {
-        setAssignedEntryLocked(true);
-        return;
-      }
-      setAssignedEntryLocked(false);
+      setReviewRejected(workflow.reviewEnabled && String(entry.custom_fields?.[workflow.reviewField] || '') === workflow.rejectValue);
+      setAssignedEntryLocked(workflowLocksEntry(workflow, entry.custom_fields));
       const entryTypeSlug = String(entry.type || '').toLowerCase();
       const et = entryTypes.find(
         t =>
@@ -782,7 +666,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         setCurrentStepIndex(0);
       }
     },
-    [],
+    [workflow],
   );
 
   const reloadAssignedEntry = useCallback(async () => {
@@ -834,7 +718,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
               custom_fields: res.entry.custom_fields as Record<string, unknown>,
             })
             .catch(() => {
-              /* best-effort — keeps HR-filled personal details on the entry */
+              /* best-effort — keeps host-prefilled values on the entry */
             });
         }
       })
@@ -1090,26 +974,26 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
           setCurrentStepIndex(stepIdx);
           return;
         }
-        if (fieldItem.type === 'policy_acknowledgments') {
-          const missing = firstMissingRequiredPolicy(
-            onboardingPolicies,
-            formCustomFields.policy_acknowledgments,
+        if (fieldItem.type === 'document_acknowledgments') {
+          const missing = firstMissingRequiredDocument(
+            acknowledgmentDocuments,
+            formCustomFields[workflow.acknowledgmentsField],
           );
           if (missing) {
             toast.showToast(
-              `Please acknowledge required document: ${missing.title || 'Company document'}`,
+              `Please acknowledge required document: ${missing.title || 'Document'}`,
               'error',
             );
-            setInvalidFieldKey('policy_acknowledgments');
+            setInvalidFieldKey(workflow.acknowledgmentsField);
             setCurrentStepIndex(stepIdx);
             return;
           }
           continue;
         }
-        if (fieldItem.type === 'contract_review') {
-          const cs = String(formCustomFields.contract_status || '').toLowerCase();
-          if (cs !== 'accepted') {
-            toast.showToast('Please accept and sign the employment contract', 'error');
+        if (fieldItem.type === 'document_review') {
+          const cs = String(formCustomFields[workflow.reviewField] || '');
+          if (cs !== workflow.acceptValue) {
+            toast.showToast('Please complete the required document acceptance', 'error');
             setCurrentStepIndex(stepIdx);
             return;
           }
@@ -1145,7 +1029,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
           body: selectedBodyEnabled ? formBody : '',
           custom_fields: {
             ...customFieldsForWizardSave(formSteps, formCustomFields),
-            status: 'submitted',
+            ...workflowSubmissionFields(workflow),
           },
         };
         const res = memberFormMode
@@ -1173,8 +1057,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         'success',
       );
       if (
-        auth?.user?.pending_assigned_form?.url?.trim() ||
-        auth?.user?.pending_onboarding_form?.url?.trim()
+        auth?.user?.pending_assigned_form?.url?.trim()
       ) {
         try {
           await authApi.completeAssignedForm();
@@ -1285,22 +1168,6 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
     });
   };
 
-  if (openingId && !assignedEntryId && !memberFormMode) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg)] p-6 text-center">
-        <Surface tone="panel" radius="card" elevation="pop" className="max-w-md w-full p-8">
-          <HelpCircle size={48} className="mx-auto" style={{ color: 'var(--text-muted)' }} />
-          <Text variant="heading-lg" weight="bold" as="h1" className="block mt-4">
-            Application unavailable
-          </Text>
-          <Text variant="body" tone="muted" as="p" className="block mt-2 leading-relaxed">
-            Public job applications are not configured on this server build.
-          </Text>
-        </Surface>
-      </div>
-    );
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg)] gap-3">
@@ -1383,8 +1250,8 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
               )}
             </div>
 
-            {contractRejected ? (
-              <ContractReviewRejectedTerminal />
+            {reviewRejected ? (
+              <DocumentReviewRejectedTerminal />
             ) : assignedEntryLocked ? (
               <div className="text-center py-8 space-y-4 animate-fade-in">
                 <CheckCircle2 size={56} className="mx-auto text-emerald-500" />
@@ -1406,15 +1273,13 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
               <div className="text-center py-8 space-y-4 animate-fade-in">
                 <CheckCircle2 size={56} className="mx-auto text-emerald-500 animate-pulse" />
                 <div>
-                  <Text variant="heading-md" weight="semibold" as="h2">Response Recorded</Text>
+                  <Text variant="heading-md" weight="semibold" as="h2">{confirmation.title}</Text>
                   <Text variant="body-sm" tone="muted" as="p" className="block mt-1">
-                    {assignedEntryId
-                      ? 'Thank you! Your form has been submitted.'
-                      : 'Thank you! Your response has been submitted successfully to the track.'}
+                    {confirmation.message}
                   </Text>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 justify-center mt-2">
-                  <Button
+                  {(assignedEntryId || confirmation.allowAnotherResponse) && <Button
                     variant="outline"
                     onClick={() => {
                       setSubmittedSuccess(false);
@@ -1424,7 +1289,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
                     }}
                   >
                     {assignedEntryId ? 'Edit response' : 'Submit another response'}
-                  </Button>
+                  </Button>}
                   {assignedEntryId ? (
                     <Button
                       variant="primary"
@@ -1438,7 +1303,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
             ) : (
               <form onSubmit={handleSubmitEntry} className="space-y-5">
                 {/* Entry Type selector if multiple types exist */}
-                {filteredEntryTypes.length > 1 && (
+                {!data.public_entry_type_id && filteredEntryTypes.length > 1 && (
                   <div className="space-y-1.5">
                     <Text as="label" variant="label" tone="muted" weight="semibold" className="block">
                       Response Type
@@ -1468,10 +1333,9 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
 
                 {/* Render fields for the current active step */}
                 <div className="space-y-4">
-                  {formSteps[currentStepIndex]?.id === 'personal-details' ? (
+                  {formSteps[currentStepIndex]?.notice ? (
                     <Text variant="body-sm" tone="muted" className="block">
-                      Personal details are filled in from HR records. You cannot edit them here; they
-                      are saved and submitted with the rest of your form.
+                      {formSteps[currentStepIndex].notice}
                     </Text>
                   ) : null}
                   {formSteps[currentStepIndex] && renderStepFields(
@@ -1502,7 +1366,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
                         key="wizard-next-btn"
                         type="button"
                         variant="primary"
-                        disabled={wizardStepBusy || (isContractReviewStep && !contractAccepted)}
+                        disabled={wizardStepBusy || (isDocumentReviewStep && !reviewAccepted)}
                         onClick={() => void handleNextStep()}
                       >
                         {wizardStepBusy ? 'Please wait…' : 'Next'}
@@ -1788,7 +1652,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         title={submitButtonLabel}
       >
             <form onSubmit={handleSubmitEntry} className="px-4 sm:px-6 py-4 space-y-4 max-h-[80vh] overflow-y-auto">
-              {filteredEntryTypes.length > 1 && (
+              {!data.public_entry_type_id && filteredEntryTypes.length > 1 && (
                 <div className="space-y-1.5">
                   <Text as="label" variant="label" tone="muted" weight="semibold" className="block">Entry Type</Text>
                   <Select

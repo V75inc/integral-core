@@ -72,6 +72,67 @@ async def grants(user, workspace):
     )
 
 
+async def test_recipient_disabled_after_identity_lookup_is_denied(
+    client, authenticated_client, monkeypatch
+):
+    caller, owner, recipient, workspace, email = await setup_accounts(
+        client, authenticated_client, monkeypatch
+    )
+    original = provision._find_auth_user_by_email
+
+    async def disable_after_lookup(email_norm):
+        identity = await original(email_norm)
+        assert identity is not None
+        await get_default_context().database.find_one_and_update(
+            "object",
+            {"id": identity.id},
+            {"$set": {"context.is_active": False}},
+        )
+        return identity
+
+    monkeypatch.setattr(provision, "_find_auth_user_by_email", disable_after_lookup)
+    async with caller:
+        with pytest.raises(InsufficientPermissionsError):
+            await provision.provision_workspace_member(
+                workspace=workspace,
+                actor_id=owner.id,
+                email=email,
+                display_name="Disabled recipient",
+                send_credentials=False,
+            )
+        assert await grants(recipient, workspace) == []
+        provision.send_email.assert_not_awaited()
+
+
+async def test_active_recipient_with_unavailable_profile_still_fails_closed(
+    client, authenticated_client, monkeypatch
+):
+    from app.exceptions import AuthorizationUnavailableError
+
+    caller, owner, recipient, workspace, email = await setup_accounts(
+        client, authenticated_client, monkeypatch
+    )
+    original = provision.get_user_node
+
+    async def unavailable_profile(user_id):
+        if user_id == recipient.user_id:
+            return None
+        return await original(user_id)
+
+    monkeypatch.setattr(provision, "get_user_node", unavailable_profile)
+    async with caller:
+        with pytest.raises(AuthorizationUnavailableError):
+            await provision.provision_workspace_member(
+                workspace=workspace,
+                actor_id=owner.id,
+                email=email,
+                display_name="Unavailable profile",
+                send_credentials=False,
+            )
+        assert await grants(recipient, workspace) == []
+        provision.send_email.assert_not_awaited()
+
+
 @pytest.mark.parametrize("surface", ["http", "service"])
 async def test_existing_unverified_account_cannot_receive_email_matched_grant(
     client, authenticated_client, monkeypatch, surface

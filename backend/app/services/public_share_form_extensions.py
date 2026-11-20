@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, FrozenSet, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, Set, Tuple
 
-from app.models.nodes import Entry, Track
+from app.models.nodes import Track
 from app.services.track_public_share import declared_public_share
 
 
@@ -12,19 +12,15 @@ def _split_csv(raw: str) -> Set[str]:
     return {p.strip() for p in str(raw or "").split(",") if p.strip()}
 
 
-async def template_provider_slug_from_track(track: Track) -> Optional[str]:
-    """Read neutral ``template_provider_slug`` from public_share.extensions."""
-    from app.services.documents.entry_template_store import (
-        normalize_template_provider_slug,
-    )
-
-    ext = await public_share_extensions(track)
-    return normalize_template_provider_slug(ext.get("template_provider_slug"))
-
-
-async def public_share_extensions(track: Track) -> Dict[str, str]:
+async def public_share_extensions(
+    track: Track, *, strict: bool = False
+) -> Dict[str, str]:
     """Return the published extension declarations for this track."""
-    declared = await declared_public_share(track) or {}
+    declared = (
+        await declared_public_share(track, strict=True)
+        if strict
+        else await declared_public_share(track)
+    ) or {}
     ext = declared.get("extensions") or {}
     if not isinstance(ext, dict):
         return {}
@@ -33,7 +29,7 @@ async def public_share_extensions(track: Track) -> Dict[str, str]:
 
 async def authenticated_only_entry_type_keys(track: Track) -> FrozenSet[str]:
     """Return declared entry types that require an authenticated reader."""
-    ext = await public_share_extensions(track)
+    ext = await public_share_extensions(track, strict=True)
     return frozenset(_split_csv(ext.get("authenticated_only_entry_type_keys", "")))
 
 
@@ -41,7 +37,7 @@ async def server_managed_field_keys(
     track: Track, *, entry_type_slug: str
 ) -> FrozenSet[str]:
     """Return declared server-managed field keys for one entry type."""
-    ext = await public_share_extensions(track)
+    ext = await public_share_extensions(track, strict=True)
     key = f"server_managed_field_keys_{entry_type_slug}"
     return frozenset(_split_csv(ext.get(key, "")))
 
@@ -80,19 +76,3 @@ async def partition_server_managed_for_track(
         allowed_keys=allowed_keys,
         server_managed_keys=set(managed),
     )
-
-
-async def reject_authenticated_only_public_entry(
-    entry: Entry, track: Track, *, entry_type_slug: str
-) -> None:
-    """Block public-share access for entry types declared auth-only in extensions."""
-    only = await authenticated_only_entry_type_keys(track)
-    if entry_type_slug in only:
-        from app.api.errors import InsufficientPermissionsError
-
-        raise InsufficientPermissionsError(
-            message=(
-                "This form requires sign-in. Open the link from your assigned "
-                "form prompt after logging in."
-            )
-        )

@@ -114,19 +114,18 @@ export interface PublicSharedEntry {
   [key: string]: unknown;
 }
 
-export interface PublicOnboardingPolicy {
+export interface AcknowledgmentDocument {
   id: string;
   title: string;
   description?: string;
-  required_for_onboarding?: boolean;
-  active?: boolean;
-  sort_order?: number;
-  document_attachment_id?: string | null;
-  document_filename?: string | null;
-  document_mime_type?: string | null;
+  required?: boolean;
+  document_url?: string;
+  filename?: string;
 }
 
 export interface PublicTrackPayload {
+  /** Server-enforced create-only type binding; absent for legacy shares. */
+  public_entry_type_id?: string | null;
   track: {
     id: string;
     title: string;
@@ -144,6 +143,7 @@ export interface PublicTrackPayload {
   } | null;
   public_permissions: Record<string, boolean>;
   public_share_extensions?: Record<string, string>;
+  acknowledgment_documents?: AcknowledgmentDocument[];
   views: PublicViewConfig[];
   entry_types: PublicEntryType[];
 }
@@ -236,7 +236,7 @@ export const publicSharingApi = {
     const resp = await fetch(
       `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}`,
     );
-    if (resp.status !== 200) throw new Error('Failed to load onboarding form');
+    if (resp.status !== 200) throw new Error('Failed to load assigned form');
     return resp.json();
   },
 
@@ -314,28 +314,6 @@ export const publicSharingApi = {
       throw new Error(detailText || 'Failed to update entry');
     }
     return resp.json();
-  },
-
-  async listOnboardingPolicies(token: string): Promise<{
-    policies: PublicOnboardingPolicy[];
-    extensions?: Record<string, string>;
-  }> {
-    const resp = await fetch(
-      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/onboarding-policies`,
-    );
-    if (resp.status !== 200) {
-      const errData = await resp.json().catch(() => ({}));
-      throw new Error(
-        (errData as { message?: string }).message ||
-          (errData as { detail?: string }).detail ||
-          'Failed to load onboarding policies',
-      );
-    }
-    return resp.json();
-  },
-
-  getOnboardingPolicyDocumentUrl(token: string, policyEntryId: string): string {
-    return `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/onboarding-policies/${encodeURIComponent(policyEntryId)}/document`;
   },
 
   async listPublicEntryAttachments(

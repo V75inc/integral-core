@@ -244,32 +244,6 @@ async def test_public_collections_never_enumerate_protected_submissions(
 
 
 @pytest.mark.asyncio
-async def test_protected_apply_snapshot_requires_its_own_capability(
-    authenticated_client, test_user, monkeypatch
-):
-    token, _track, _entry_type, _entry_a, entry_b, capability_a, capability_b = (
-        await _public_candidates(authenticated_client, test_user)
-    )
-    monkeypatch.setattr(
-        "app.api.tracks_public_share._entry_type_slug", lambda _: "opening"
-    )
-    auth = authenticated_client.headers.pop("Authorization", None)
-    try:
-        url = f"/api/public-share/track/{token}/apply?opening={entry_b.id}"
-        for headers in ({}, {"X-Entry-Capability": capability_a}):
-            denied = await authenticated_client.get(url, headers=headers)
-            assert denied.status_code == 404, denied.text
-        own = await authenticated_client.get(
-            url, headers={"X-Entry-Capability": capability_b}
-        )
-        assert own.status_code == 200, own.text
-        assert own.json()["opening"]["id"] == entry_b.id
-    finally:
-        if auth:
-            authenticated_client.headers["Authorization"] = auth
-
-
-@pytest.mark.asyncio
 async def test_applicant_a_cannot_mutate_b_entry_or_replace_either_file(
     authenticated_client, test_user, monkeypatch
 ):

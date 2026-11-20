@@ -446,6 +446,17 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "index": bool(field.get("index", False)),
     }
+    if "validation_format" in field:
+        validation_format = field["validation_format"]
+        if validation_format not in ("email", "phone"):
+            raise BadRequestError(
+                message=f"Unsupported validation_format for field '{key}'"
+            )
+        if _field_type_primitive(ftype) != "text":
+            raise BadRequestError(
+                message=f"validation_format requires a text field: '{key}'"
+            )
+        out["validation_format"] = validation_format
     # How a choice is shown when its stored value is not the wording people use (``biweekly`` shown as
     # ``Fortnightly``). Display only: the stored value, filters and rules keep using the value. Added only when
     # given, so every existing definition compiles to exactly what it did before.
@@ -926,6 +937,15 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             if "goal_semantics" in spec
             else {}
         ),
+        **(
+            {
+                "confirmation": _normalize_form_confirmation(
+                    spec["confirmation"], where=f"entry type '{name}' confirmation"
+                )
+            }
+            if "confirmation" in spec
+            else {}
+        ),
         # Opt-in: a multi-step create flow (region_system's create_wizard
         # primitive) replaces the default single-form create dialog for
         # this entry type. None when unset — every existing entry type's
@@ -934,6 +954,30 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             spec.get("create_wizard"), where=f"entry type '{name}' create_wizard"
         ),
     }
+
+
+def _normalize_form_confirmation(raw: Any, *, where: str) -> Dict[str, Any]:
+    """Normalize optional plain-text confirmation presentation."""
+    spec = _as_dict(raw, where=where)
+    out: Dict[str, Any] = {}
+    for key, limit in (("title", 160), ("message", 2000)):
+        if key not in spec:
+            continue
+        value = spec[key]
+        if not isinstance(value, str) or len(value) > limit:
+            raise BadRequestError(
+                message=f"{where}.{key} must be text up to {limit} characters"
+            )
+        if value.strip():
+            out[key] = value.strip()
+    if "allow_another_response" in spec:
+        value = spec["allow_another_response"]
+        if not isinstance(value, bool):
+            raise BadRequestError(
+                message=f"{where}.allow_another_response must be boolean"
+            )
+        out["allow_another_response"] = value
+    return out
 
 
 def _normalize_canvas(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
@@ -1095,12 +1139,12 @@ def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]
         controls (not just forwarded from an earlier step) — e.g. a
         Frequency select sits above the Period dropdown, and changing it
         re-fetches periods for the new value. Reusable for any recurring-
-        schedule scenario (payroll cadences, invoicing cycles, subscription
+        schedule scenario (reporting cadences, invoicing cycles, subscription
         renewals, …) — not tied to any one app's domain.
       - ``summary``: read-only review step, no config.
     ``on_create_tool`` (a workspace tool key) is called after the entry is
     created, with `entry_id` plus the checked entry_checklist step's ids
-    under `on_create_ids_param` (default "employee_ids").
+    under an explicitly declared `on_create_ids_param`.
     """
     if not raw:
         return None
@@ -1149,7 +1193,7 @@ def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]
             # periods_tool's call args (e.g. a prior 'form' step collected
             # `frequency`; the periods tool needs it to pick the right
             # cadence). Generic: any step kind that ends up in formValues
-            # can be named here, not payroll-specific.
+            # can be named here.
             if sd.get("input_fields"):
                 step["input_fields"] = [
                     str(f)
@@ -1219,7 +1263,11 @@ def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]
     return {
         "steps": steps,
         "on_create_tool": str(d.get("on_create_tool") or ""),
-        "on_create_ids_param": str(d.get("on_create_ids_param") or "employee_ids"),
+        **(
+            {"on_create_ids_param": str(d["on_create_ids_param"]).strip()}
+            if str(d.get("on_create_ids_param") or "").strip()
+            else {}
+        ),
     }
 
 
@@ -1804,7 +1852,7 @@ def _ensure_feed_view_fallback(
     whatever tier it's handed; since the compiled tier previously never
     carried the flag forward, an already-suppressed track silently grew a
     Feed view back on that second pass (found live: Guyana/Aruba/BVI/Curaçao
-    payroll's consolidated Settings track, which declares
+    a consolidated Settings track that declares
     ``suppress_feed_fallback: true``, still ended up with a visible Feed tab
     after install). Writing it here makes the suppression durable across any
     number of re-compiles instead of being consumed once and forgotten.
@@ -1998,7 +2046,7 @@ PUBLIC_SHARE_PERMISSION_KEYS = (
 def _normalize_public_share_extensions(
     block: Dict[str, Any], *, where: str
 ) -> Dict[str, str]:
-    """Opaque string map for onboarding / hire flows (not public-share permissions)."""
+    """Opaque string map for declared behaviors beyond public-share permissions."""
     ext_raw = block.get("extensions")
     if ext_raw is None:
         return {}
@@ -2024,9 +2072,8 @@ def _normalize_public_share_spec(spec: Any, *, where: str) -> Optional[Dict[str,
 
     Returns ``None`` when absent, or when disabled with no ``extensions``.
 
-    When ``enabled: false`` but ``extensions`` are present (e.g. member onboarding
-    with ``contract_review_document_type``), the block is retained so authenticated
-    flows can read manifest metadata without minting a public share link.
+    When disabled with extensions present, retain the declaration so a trusted
+    flow can read manifest metadata without minting a public share link.
 
     This declares INTENT only. Provisioning never mints a link from it — see
     ``services/operational_model_merge.provision_prescribed_tracks_from_app_manifest``
@@ -4795,6 +4842,10 @@ def normalize_entry_type_form_schema(
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }
+    if "confirmation" in raw:
+        out["confirmation"] = _normalize_form_confirmation(
+            raw["confirmation"], where="entry_type.form_schema.confirmation"
+        )
     if "search_index" in raw:
         out["search_index"] = _normalize_search_index(raw["search_index"])
     if "task_semantics" in raw:

@@ -4,6 +4,22 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## Unreleased
+
+- Move domain form workflows, document UI, template selection and legacy App aliases to explicit host contracts; Core renders declared groups, review and acknowledgment steps without inferring business policy from field names. Host migration/readiness and paired artifact qualification are required before adoption.
+- Require declared create-action argument names and import eligibility; remove implicit record-copy and identifier-preview behavior from Core forms. Enforce an app-neutral runtime and SDK architecture gate without named-App exceptions.
+
+- Bind optional create-only public links to one server-validated entry type; scope changes require a new token, while unconfigured legacy shares retain their behavior.
+
+- Render anonymous create forms with neutral grouped editable fields and visible prompts, while retaining existing assigned-form behavior and sensitive-field exclusions.
+- Allow per-form plain-text confirmation copy and optional hiding of the repeat-response button without implying duplicate prevention.
+- Report unavailable retrieval explicitly instead of treating failed search as empty evidence; retain scoped degraded retrieval and separately verified direct-record recovery.
+
+- Require exact destination-admitted packages and fresh App destinations for portable restores; leave shared package files and catalog rows unchanged.
+- Fail closed for protected App restores pending an App-owned validation contract. Preserve the original v1 export wire shape and redact secret settings in v2.
+- Preserve App tags, Track/View presentation and shared-template snapshots; report record loss explicitly and account only for retained attachments, with thumbnail/runtime cleanup on failure.
+- Return the normal permission denial when a member-provisioning recipient is disabled between identity and profile reads; keep unavailable active profiles fail-closed.
+
 ## 0.1.1rc66 — 2026-11-18
 
 - Bind reviewed native storage plans to the PostgreSQL cluster and database so Windows can apply the same approved plan after its private listener changes ports. Reject a different database before creating serving credentials.

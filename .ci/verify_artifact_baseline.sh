@@ -111,9 +111,16 @@ with zipfile.ZipFile(wheel) as archive:
     for module in ("index_definition", "indexing", "index_management", "search_service", "passage_store"):
         assert f"app/services/retrieval/{module}.py" in archive.namelist()
     # AC-19: unsupported legacy list/generation paths must not ship in Core.
-    for retired in ("generate", "template_lifecycle", "document_type_lifecycle"):
+    for retired in ("generate", "template_lifecycle", "document_type_lifecycle", "entry_template_store", "hire_readiness"):
         assert f"app/services/documents/{retired}.py" not in archive.namelist()
         assert importlib.util.find_spec(f"app.services.documents.{retired}") is None
+    # Concrete App compatibility modules must not survive wheel build caches.
+    for module in (
+        "onboarding_prompt", "onboarding_form_member", "onboarding_form_prefill",
+        "onboarding_form_public", "esign.dispatch", "esign.contract_decision",
+    ):
+        assert f"app/services/{module.replace('.', '/')}.py" not in archive.namelist()
+        assert importlib.util.find_spec(f"app.services.{module}") is None
     from app.models.nodes import GeneratedDocument
     from app.services.documents import list_document_fields
     from app.services.document_render import render_document
