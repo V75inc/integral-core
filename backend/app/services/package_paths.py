@@ -89,6 +89,16 @@ def default_packages_root() -> Path:
     return paths[0] if paths else _DEFAULT_PROFILES
 
 
+def admitted_packages_root() -> Path:
+    """Writable root for packages admitted from portable ZIP import.
+
+    Core's ``backend/app/packages/`` is seed-only (``core_packages_only_check``).
+    Domain Apps extracted from ``.integral.zip`` land under ``packages/apps/``,
+    which ``resolve_package_paths`` already discovers when present.
+    """
+    return (_REPO_ROOT / "packages" / "apps").resolve()
+
+
 def resolve_package_paths(
     package_paths: Optional[Sequence[str | Path]] = None,
 ) -> List[Path]:

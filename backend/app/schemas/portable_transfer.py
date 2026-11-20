@@ -159,14 +159,8 @@ class PortableArchive(PortableModel):
         slug_set = set(slugs)
         apps = list(self.apps)
         # Legacy single-App v2 archives omit package_slug; bind the sole package.
-        if (
-            len(packages) == 1
-            and len(apps) == 1
-            and not apps[0].package_slug
-        ):
-            apps = [
-                apps[0].model_copy(update={"package_slug": packages[0].slug})
-            ]
+        if len(packages) == 1 and len(apps) == 1 and not apps[0].package_slug:
+            apps = [apps[0].model_copy(update={"package_slug": packages[0].slug})]
             object.__setattr__(self, "apps", apps)
         for app in apps:
             if app.package_slug and app.package_slug not in slug_set:

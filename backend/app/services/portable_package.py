@@ -33,6 +33,7 @@ _EXCLUDE_NAMES = frozenset({".DS_Store", "Thumbs.db"})
 
 
 def member_prefix_for_slug(slug: str) -> str:
+    """ZIP member prefix for an admitted package tree: ``package/<slug>/``."""
     return f"package/{slug}/"
 
 
@@ -104,13 +105,13 @@ def validate_package_members(payload: PackagePayload, files: dict[str, bytes]) -
 
 
 def write_package_tree(payload: PackagePayload, files: dict[str, bytes]) -> Path:
-    """Materialize package members under the primary package root as ``<slug>/``."""
+    """Materialize package members under ``packages/apps/<slug>/`` (not Core seeds)."""
     from app.services.operational_model_loader import compute_bundle_fingerprint
-    from app.services.package_paths import default_packages_root
+    from app.services.package_paths import admitted_packages_root
 
     validate_package_members(payload, files)
     prefix = payload.member_prefix
-    packages_root = default_packages_root().resolve()
+    packages_root = admitted_packages_root()
     packages_root.mkdir(parents=True, exist_ok=True)
     dest = (packages_root / payload.slug).resolve()
     if not str(dest).startswith(str(packages_root) + os.sep):
@@ -126,8 +127,10 @@ def write_package_tree(payload: PackagePayload, files: dict[str, bytes]) -> Path
             if not name.startswith(prefix):
                 continue
             rel = name[len(prefix) :]
-            if not rel or _unsafe_member(name) or any(
-                part in _EXCLUDE_DIRS for part in Path(rel).parts
+            if (
+                not rel
+                or _unsafe_member(name)
+                or any(part in _EXCLUDE_DIRS for part in Path(rel).parts)
             ):
                 raise BadRequestError(message="Invalid package member path")
             target = (dest / rel).resolve()
@@ -157,25 +160,31 @@ async def admit_package_from_archive(
         OperationalModels,
     )
     from app.services.app_graph import ensure_catalog_edge
-    from app.services.operational_model_library_seed import upsert_seeded_library_packages
+    from app.services.operational_model_library_seed import (
+        upsert_seeded_library_packages,
+    )
     from app.services.operational_model_loader import (
         load_library_operational_models_with_issues,
     )
     from app.services.package_trust import assert_library_artifact_trusted
 
     bundle_dir = await asyncio.to_thread(write_package_tree, payload, files)
-    specs, issues = load_library_operational_models_with_issues(
+    specs, issues = await asyncio.to_thread(
+        load_library_operational_models_with_issues,
         package_paths=[bundle_dir.parent],
         verify_signatures=True,
         core_only=False,
     )
     matched = [spec for spec in specs if spec.slug == payload.slug]
     if not matched:
-        detail = "; ".join(
-            f"{issue.slug}:{issue.code}"
-            for issue in issues
-            if issue.slug == payload.slug
-        ) or "bundle failed library admission"
+        detail = (
+            "; ".join(
+                f"{issue.slug}:{issue.code}"
+                for issue in issues
+                if issue.slug == payload.slug
+            )
+            or "bundle failed library admission"
+        )
         raise BadRequestError(
             message=f"Imported package could not be admitted ({detail})"
         )

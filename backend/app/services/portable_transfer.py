@@ -98,8 +98,7 @@ def _manifest_tiers(manifest: dict) -> list[dict]:
 def _tier_has_runtime(value: dict) -> bool:
     skills = value.get("skills") or []
     if isinstance(skills, list) and any(
-        not isinstance(skill, dict)
-        or skill.get("kind", "declarative") != "declarative"
+        not isinstance(skill, dict) or skill.get("kind", "declarative") != "declarative"
         for skill in skills
     ):
         return True
@@ -173,7 +172,11 @@ def _data_manifest(manifest: dict, *, allow_runtime: bool = False) -> dict:
                     "a portable archive cannot replace its runtime contracts."
                 )
             )
-        drop = {"seeds", "settings"} if allow_runtime else _RUNTIME_KEYS | {"seeds", "settings"}
+        drop = (
+            {"seeds", "settings"}
+            if allow_runtime
+            else _RUNTIME_KEYS | {"seeds", "settings"}
+        )
         for key in drop:
             tier.pop(key, None)
     pending = [result]
@@ -742,7 +745,9 @@ async def _describe_live_relation_target(target_id: str, *, kind: str) -> str | 
         )
         track_title = str(getattr(track, "title", "") or "").strip() or track.id
         if parents:
-            app_name = str(getattr(parents[0], "name", "") or "").strip() or parents[0].id
+            app_name = (
+                str(getattr(parents[0], "name", "") or "").strip() or parents[0].id
+            )
             return f"App {app_name!r} / Track {track_title!r}"
         return f"Track {track_title!r}"
 
@@ -1206,10 +1211,10 @@ async def read_archive(data: bytes) -> tuple[PortableArchive, dict[str, bytes]]:
     return archive, files
 
 
-def archive_summary(archive: PortableArchive) -> dict:
+def archive_summary(archive: PortableArchive) -> dict[str, Any]:
     """Return a content preview without exposing record bodies."""
     tracks = _tracks(archive)
-    summary = {
+    summary: dict[str, Any] = {
         "kind": archive.kind,
         "mode": archive.mode,
         "apps": len(archive.apps),
@@ -1219,7 +1224,7 @@ def archive_summary(archive: PortableArchive) -> dict:
         "names": [a.name for a in archive.apps] or [t.title for t in tracks],
     }
     if archive.packages:
-        summary["packages"] = [
+        packages = [
             {
                 "slug": payload.slug,
                 "version": payload.version,
@@ -1227,9 +1232,10 @@ def archive_summary(archive: PortableArchive) -> dict:
             }
             for payload in archive.packages
         ]
+        summary["packages"] = packages
         # Keep singular package for single-payload archives (legacy UI).
-        if len(archive.packages) == 1:
-            summary["package"] = summary["packages"][0]
+        if len(packages) == 1:
+            summary["package"] = packages[0]
     return summary
 
 
@@ -1697,7 +1703,9 @@ async def _import_packaged_archive(
                 raise BadRequestError(
                     message="This import exceeds the workspace's attachment storage quota"
                 )
-            from app.services.app_batch_install import default_settings_for_library_model
+            from app.services.app_batch_install import (
+                default_settings_for_library_model,
+            )
 
             track_pairs: list[tuple[PortableTrack, Track]] = []
             app_pairs: list[tuple[PortableApp, App]] = []
@@ -1890,26 +1898,30 @@ async def _import_packaged_archive(
                         )
                         continue
                     entry = await Entry.get(mapping[item.ref])
-                    et = next(t for t in track_spec.entry_types if t.ref == item.type_ref)
+                    et = next(
+                        t for t in track_spec.entry_types if t.ref == item.type_ref
+                    )
                     attachment_ids = [
                         mapping[a.ref] for a in item.attachments if a.ref in mapping
                     ]
-                    with portable_import_writes():
-                        with reserved_import_entry(entry, user_id):
-                            restored = await create_entry_in_track(
-                                track=track,
-                                user_id=user_id,
-                                workspace_id=workspace_id,
-                                title=item.title,
-                                body=_body_links(item.body, mapping),
-                                type_id=mapping[item.type_ref],
-                                custom_fields=_field_values(
-                                    item, et, mapping, track_spec.manifest
-                                ),
-                                tags=[mapping[t] for t in item.tags if t in mapping],
-                                attachment_ids=attachment_ids,
-                                change_event_sink=events.append,
-                            )
+                    with (
+                        portable_import_writes(),
+                        reserved_import_entry(entry, user_id),
+                    ):
+                        restored = await create_entry_in_track(
+                            track=track,
+                            user_id=user_id,
+                            workspace_id=workspace_id,
+                            title=item.title,
+                            body=_body_links(item.body, mapping),
+                            type_id=mapping[item.type_ref],
+                            custom_fields=_field_values(
+                                item, et, mapping, track_spec.manifest
+                            ),
+                            tags=[mapping[t] for t in item.tags if t in mapping],
+                            attachment_ids=attachment_ids,
+                            change_event_sink=events.append,
+                        )
                     restored.status = item.status
                     if item.created_at is not None:
                         restored.created_at = item.created_at
@@ -2227,22 +2239,24 @@ async def import_resources(
                     attachment_ids = [
                         mapping[a.ref] for a in item.attachments if a.ref in mapping
                     ]
-                    with portable_import_writes():
-                        with reserved_import_entry(entry, user_id):
-                            restored = await create_entry_in_track(
-                                track=track,
-                                user_id=user_id,
-                                workspace_id=workspace_id,
-                                title=item.title,
-                                body=_body_links(item.body, mapping),
-                                type_id=mapping[item.type_ref],
-                                custom_fields=_field_values(
-                                    item, et, mapping, spec.manifest
-                                ),
-                                tags=[mapping[t] for t in item.tags if t in mapping],
-                                attachment_ids=attachment_ids,
-                                change_event_sink=events.append,
-                            )
+                    with (
+                        portable_import_writes(),
+                        reserved_import_entry(entry, user_id),
+                    ):
+                        restored = await create_entry_in_track(
+                            track=track,
+                            user_id=user_id,
+                            workspace_id=workspace_id,
+                            title=item.title,
+                            body=_body_links(item.body, mapping),
+                            type_id=mapping[item.type_ref],
+                            custom_fields=_field_values(
+                                item, et, mapping, spec.manifest
+                            ),
+                            tags=[mapping[t] for t in item.tags if t in mapping],
+                            attachment_ids=attachment_ids,
+                            change_event_sink=events.append,
+                        )
                     restored.status = item.status
                     if item.created_at is not None:
                         restored.created_at = item.created_at

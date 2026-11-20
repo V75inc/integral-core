@@ -289,7 +289,11 @@ async def test_export_omits_entry_when_required_relation_deleted(
     await sync_attached_manifest(cp)
 
     # Keep First importable (required related → self). Break Second with a deleted id.
-    first.custom_fields = {**(first.custom_fields or {}), "amount": 0, "related": first.id}
+    first.custom_fields = {
+        **(first.custom_fields or {}),
+        "amount": 0,
+        "related": first.id,
+    }
     await first.save()
     second.custom_fields = {
         **(second.custom_fields or {}),
@@ -332,7 +336,9 @@ async def test_import_skips_entries_missing_required_relation(
     raw, files = decode_archive(data)
     # Simulate an older ZIP: require related; First keeps a self-link, Second lacks it.
     first_ref = next(
-        row["ref"] for row in raw["apps"][0]["tracks"][0]["entries"] if row["title"] == "First"
+        row["ref"]
+        for row in raw["apps"][0]["tracks"][0]["entries"]
+        if row["title"] == "First"
     )
     for et in raw["apps"][0]["tracks"][0]["entry_types"]:
         for field in et.get("form_schema", {}).get("fields", []):
@@ -344,9 +350,7 @@ async def test_import_skips_entries_missing_required_relation(
         elif row["title"] == "Second":
             row["custom_fields"].pop("related", None)
     broken = encode_archive(raw, files)
-    result = await import_resources(
-        user_id=test_user.id, workspace_id=ws, data=broken
-    )
+    result = await import_resources(user_id=test_user.id, workspace_id=ws, data=broken)
     assert result["skipped_entry_count"] >= 1
     assert any("Second" in name for name in result["skipped_entries"])
     imported = await App.get(result["resource_ids"][0])

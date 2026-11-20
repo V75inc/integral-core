@@ -8,8 +8,7 @@ import pytest
 import yaml
 
 from app.api.errors import BadRequestError
-from app.models.edges import CONTAINS
-from app.models.edges import IS_MEMBER_OF
+from app.models.edges import CONTAINS, IS_MEMBER_OF
 from app.models.nodes import (
     OPERATIONAL_MODELS_REGISTRY_ID,
     App,
@@ -44,6 +43,7 @@ from app.services.portable_transfer import (
     read_archive,
 )
 from app.utils.time import utc_now_iso
+
 
 def _write_demo_bundle(
     root: Path,
@@ -202,13 +202,13 @@ async def test_runtime_without_package_payload_still_refused():
 
 @pytest.mark.asyncio
 async def test_packaged_app_export_import_round_trip(tmp_path, test_user, monkeypatch):
-    from app.services.entry_create import create_entry_in_track
     from app.services.attachment_metadata.service import get_metadata_extraction_service
+    from app.services.entry_create import create_entry_in_track
 
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
 
     monkeypatch.setattr(
@@ -293,7 +293,7 @@ async def test_multi_packaged_app_export_import(tmp_path, test_user, monkeypatch
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
@@ -391,7 +391,7 @@ async def test_mixed_packaged_and_declarative_export_import(
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
@@ -465,7 +465,7 @@ async def test_legacy_singular_package_archive_still_imports(
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
@@ -536,7 +536,7 @@ async def test_export_refuses_same_slug_fingerprint_conflict(
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
 
     bundle_a = _write_demo_bundle(packages, slug="portable-conflict-a")
@@ -602,7 +602,7 @@ async def test_protected_fields_still_blocked_without_portable_context(
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
     bundle = _write_demo_bundle(packages, slug="portable-protected", protected=True)
     library = await _admit_bundle(bundle)
@@ -641,7 +641,7 @@ async def test_packaged_import_restores_protected_fields(
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
@@ -709,7 +709,7 @@ async def test_packaged_import_applies_settings_defaults(
     packages = tmp_path / "packages"
     packages.mkdir()
     monkeypatch.setattr(
-        "app.services.package_paths.default_packages_root", lambda: packages
+        "app.services.package_paths.admitted_packages_root", lambda: packages
     )
     monkeypatch.setattr(
         get_metadata_extraction_service(), "schedule_extraction", lambda *_: None
