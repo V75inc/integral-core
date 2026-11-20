@@ -1,5 +1,6 @@
 import { useDeployment } from '../../hooks/useDeployment';
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Package, Plus } from 'lucide-react';
 import {
@@ -18,6 +19,7 @@ import type { OperationalModelNode } from '../../types';
 import { Button, ColorPicker, LINE_ICON_STROKE, Modal } from '../ui';
 import { Surface, Text } from '../../ui';
 import { useToast } from '../../context/ToastContext';
+import { useScope } from '../../context/ScopeContext';
 import { logEvent } from '../../lib/telemetry';
 import { parseTrackAccentHex } from '../../utils';
 
@@ -25,7 +27,7 @@ export interface CreateWorkspaceModalProps {
   open: boolean;
   onClose: () => void;
   /** Called after creation feedback is dismissed. The modal closes first. */
-  onCreated?: (workspace: Workspace) => void | Promise<void>;
+  onCreated?: (workspace: Workspace, destination?: 'manage-apps') => void | Promise<void>;
 }
 
 /** Checkbox mirroring the Manage Apps "Available" list checkbox. */
@@ -113,6 +115,8 @@ export function CreateWorkspaceModal({
   const { singleUser } = useDeployment();
   const { showToast } = useToast();
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { setScope } = useScope();
   const [step, setStep] = useState<1 | 2>(1);
   const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -185,12 +189,18 @@ export function CreateWorkspaceModal({
     onClose();
   };
 
-  const finishCreated = async (created: Workspace) => {
+  const finishCreated = async (created: Workspace, destination?: 'manage-apps') => {
     if (completedId.current === created.id) return;
     completedId.current = created.id;
     resetForm();
     onClose();
-    await onCreated?.(created);
+    if (destination === 'manage-apps') {
+      setScope({ workspaceId: created.id });
+      await onCreated?.(created, destination);
+      navigate('/apps?manage=1');
+    } else {
+      await onCreated?.(created);
+    }
   };
 
   const toggleId = (id: string) => {
@@ -473,7 +483,21 @@ export function CreateWorkspaceModal({
         </>}
       </Modal.Body>
       <Modal.Footer>
-        {createdResult ? <Button variant="primary" onClick={() => void finishCreated(createdResult)}>Continue to workspace</Button> : step === 1 ? (
+        {createdResult ? (
+          <>
+            <Button
+              variant={createdResult.provisioning?.awaiting_settings ? 'ghost' : 'primary'}
+              onClick={() => void finishCreated(createdResult)}
+            >
+              Continue to workspace
+            </Button>
+            {Boolean(createdResult.provisioning?.awaiting_settings) && (
+              <Button variant="primary" onClick={() => void finishCreated(createdResult, 'manage-apps')}>
+                Finish app setup
+              </Button>
+            )}
+          </>
+        ) : step === 1 ? (
           <>
             <Button
               variant="ghost"

@@ -34,7 +34,7 @@ on restart. See `backend/tests/test_application_definitions.py` for both cases.
 
 ## Lifecycle
 
-States include installing, awaiting_settings, active, paused, uninstalled, and failed. Installation uses recorded compensation for partial steps; failed compensations must not prevent earlier cleanup. Signed setting-completion tokens and abandonment cleanup protect paused installations.
+States include installing, awaiting_settings, active, paused, uninstalled, and failed. Installation uses recorded compensation for partial steps; failed compensations must not prevent earlier cleanup. Signed setting-completion tokens and abandonment cleanup protect paused installations. Workspace creation uses declared defaults for selected Apps when they supply the required settings. An App that still needs a required value remains in setup, rather than failing configuration; finish it in **Apps → Manage apps**. Setup does not activate the App or waive required settings.
 
 Install settings submissions validate the token and schema before reserving a
 durable work key. A legacy failed settings-validation task permits a corrected

@@ -516,3 +516,77 @@ async def test_default_settings_for_an_unknown_library_app_is_refused(
 
     with pytest.raises(BadRequestError):
         await default_settings_for_library_model("n.OperationalModel.missing")
+
+
+@pytest.mark.asyncio
+async def test_workspace_app_defaults_can_defer_and_resume_required_settings(
+    test_user,
+) -> None:
+    from app.services.app_lifecycle import finalize_install
+
+    ws = await _make_workspace("Install with setup")
+    await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=utc_now_iso())
+    plain = await _seed_library("Simple Workspace App", slug="simple-workspace-app")
+    needs_setup = await _seed_library(
+        "Configured Workspace App", slug="configured-workspace-app"
+    )
+    manifest = dict(needs_setup.manifest)
+    manifest["app"] = {
+        **manifest["app"],
+        "settings_schema": {
+            "type": "object",
+            "properties": {
+                "cadence": {"type": "string", "default": "weekly"},
+                "organization_name": {"type": "string", "minLength": 1},
+            },
+            "required": ["cadence", "organization_name"],
+        },
+    }
+    needs_setup.manifest = manifest
+    await needs_setup.save()
+
+    result = await batch_install(
+        workspace_id=ws.id,
+        items=[{"library_cp_id": plain.id}, {"library_cp_id": needs_setup.id}],
+        actor_id=test_user.id,
+        use_default_settings=True,
+    )
+    assert result["failed"] == []
+    by_id = {row["library_cp_id"]: row for row in result["installed"]}
+    assert by_id[plain.id]["status"] == "active"
+    pending = by_id[needs_setup.id]
+    assert pending["status"] == "awaiting_settings"
+    app = await App.get(pending["app_id"])
+    assert app.lifecycle_state == "awaiting_settings"
+
+    # The normal Manage Apps retry reuses the same installation rather than
+    # creating a duplicate. Explicitly submitting incomplete settings is still
+    # a real validation failure.
+    retry = await batch_install(
+        workspace_id=ws.id,
+        items=[{"library_cp_id": needs_setup.id}],
+        actor_id=test_user.id,
+    )
+    setup = retry["installed"][0]
+    assert setup["app_id"] == app.id
+    rejected = await batch_install(
+        workspace_id=ws.id,
+        items=[{"library_cp_id": needs_setup.id, "settings": {}}],
+        actor_id=test_user.id,
+        use_default_settings=True,
+    )
+    assert rejected["installed"] == []
+    assert rejected["failed"][0]["error_code"] == "operational_model_validation_error"
+    assert (await App.get(app.id)).lifecycle_state == "awaiting_settings"
+
+    done = await finalize_install(
+        app_id=app.id,
+        install_token=setup["install_token"],
+        settings={"organization_name": "Fictional Workspace"},
+        actor_id=test_user.id,
+    )
+    assert done["status"] == "active"
+    assert (await App.get(app.id)).settings == {
+        "cadence": "weekly",
+        "organization_name": "Fictional Workspace",
+    }
