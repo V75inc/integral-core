@@ -171,22 +171,28 @@ function AppDetailContent() {
     enabled: !!appId && !accessDenied
   });
   const dashboardCount = dashboardsQuery.data?.length ?? 0;
+  const homeScopeMatches = Boolean(appId && app?.id === appId && app.workspace_id === activeHomeScope?.workspaceId);
   const homeQuery = useQuery({
     queryKey: ['app-home-definition', appId, activeHomeScope?.workspaceId],
     queryFn: () => readHomeQuery(queryClient, appId!, activeHomeScope?.workspaceId, false),
     refetchInterval: 15_000,
-    enabled: Boolean(!accessDenied && appId && app?.id === appId && app.workspace_id === activeHomeScope?.workspaceId),
+    enabled: !accessDenied && homeScopeMatches,
   });
-  const hasHome = Boolean(app?.id === appId && app?.workspace_id === activeHomeScope?.workspaceId && homeQuery.data?.home && !isHomeAccessDenied(homeQuery.error));
-  const preferredSection = explicitSection ?? (appId ? readAppDetailSection(appId, hasHome ? 'home' : 'tracks') : 'tracks');
-  const appSection = preferredSection === 'home' && !hasHome ? 'tracks' : preferredSection;
+  const hasHome = Boolean(homeScopeMatches && homeQuery.data?.home && !isHomeAccessDenied(homeQuery.error));
+  const preferredSection = explicitSection ?? (appId ? readAppDetailSection(appId, 'home') : 'tracks');
+  // Home is the default when available. An unresolved definition (including
+  // the workspace switch before its query starts) is not a Tracks selection.
+  const waitingForHome = preferredSection === 'home' && (
+    !app || (homeScopeMatches ? homeQuery.isPending : Boolean(app.workspace_id))
+  );
+  const appSection = waitingForHome ? null : preferredSection === 'home' && !hasHome ? 'tracks' : preferredSection;
 
   const selectAppSection = useCallback(
     (section: AppDetailSection) => {
       if (section === appSection) return;
       // Preserve the initial section in this history entry before changing the
       // device preference. Otherwise Back to an unqualified URL reads the new preference.
-      if (!explicitSection) {
+      if (!explicitSection && appSection) {
         setSectionParams(previous => {
           const current = new URLSearchParams(previous);
           current.set('section', appSection);
@@ -360,7 +366,7 @@ function AppDetailContent() {
       clearPageContext();
       return;
     }
-    if (appSection === 'dashboards') return;
+    if (!appSection || appSection === 'dashboards') return;
     setPageContext({
       pageKind: appSection === 'home' ? 'app_home' : 'app_detail',
       focusedAppId: appId,
@@ -922,7 +928,7 @@ function AppDetailContent() {
         ) : null}
       </header>
 
-      <ViewTabs<AppDetailSection>
+      {appSection && <ViewTabs<AppDetailSection>
         className="mt-6"
         ariaLabel="App sections"
         value={appSection}
@@ -942,13 +948,17 @@ function AppDetailContent() {
             count: tracks.length
           },
         ]}
-      />
+      />}
 
       </PageSection>
 
       <PageSection.Separator />
 
-      {appSection === 'home' && hasHome ? (
+      {appSection === null ? (
+        <PageSection className={filterBar.sectionTop}>
+          <Text as="p" role="status" tone="muted">Loading App sections…</Text>
+        </PageSection>
+      ) : appSection === 'home' ? (
         <PageSection className={filterBar.sectionTop}>
           <AppHomePanel appId={appId} workspaceId={app?.workspace_id || ''} tracks={tracks.filter(isTrackNavVisible)} defaultTrack={defaultTrack ?? undefined} hasDashboards={dashboardCount > 0} />
         </PageSection>
