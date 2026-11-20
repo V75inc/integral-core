@@ -702,6 +702,8 @@ export interface Entry {
   custom_fields?: Record<string, unknown>;
   /** Read-only live projections; never merge into write payloads. */
   read_time_fields?: { values: Record<string, unknown>; status: Record<string, string> };
+  /** Restriction projected by the owning App at the current saved state. */
+  app_record_readonly?: boolean;
   /** Optimistic-concurrency token returned by the record write contract. */
   record_revision?: number;
   /** Effective profile revision under which this record was last written. */

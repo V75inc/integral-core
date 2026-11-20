@@ -17,6 +17,25 @@ Use sibling Tracks when collections have independent lifecycles. Use anchors whe
 
 Current package YAML uses `integral_operational_model_version: 3`; compiled manifests use `operational_model_schema_version: 2`. An Operational Model is not the entire installed App authority: the immutable active ApplicationDefinition also governs its capability contract.
 
+## Lifecycle-based read-only records
+
+A trusted or audited App can declare `readonly_when` under `app.protected_state` for a named Entry type. The condition compares a saved custom field to a string. It can follow one single-valued relation to a declared type in the same installed App.
+
+```yaml
+app:
+  protected_state:
+    review:
+      readonly_when: {field: phase, equals: closed}
+    review_summary:
+      readonly_when: {relation: review, related_entry_type: review, field: phase, equals: closed}
+```
+
+The typed Entry writer checks the rule on updates, retyping and individual deletion. The operation that moves an editable record into its terminal state can finish. The rule applies to standard fields such as title and body as well as custom fields. A missing state or unavailable related record keeps the Entry read-only. Existing permissions still govern access, including read access to the related record. The Entry detail and write responses expose `app_record_readonly` when the restriction applies. The UI refreshes that status when it reads the Entry.
+
+App commands that persist attachments or export results use separate effect paths. An App that requires an entirely frozen record must qualify those paths as part of its rollout.
+
+The restriction is part of the installed App definition and adds no operation grant. Qualify an upgrade against existing records before using a new rule in an installed App. Protected App restore requirements also apply to this declaration. [App portability](../platform/resource-portability.md)
+
 ## Reading path
 
 - [App settings UI contract](../platform/app-settings-ui.md): one standard dialog

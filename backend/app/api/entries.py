@@ -501,6 +501,7 @@ async def create_entry(
     await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry, track=track)
+    await _attach_app_record_readonly(entry_data, user_id)
     entry_data["comment_count"] = 0
 
     user = await get_user_node(user_id)
@@ -541,6 +542,18 @@ async def create_entry(
     return {"entry": entry_data, "message": "Entry created successfully"}
 
 
+async def _attach_app_record_readonly(entry_data: Dict[str, Any], user_id: str) -> None:
+    if app := entry_data.get("app"):
+        from app.services.entry_record_readonly import entry_is_app_readonly
+
+        if await entry_is_app_readonly(
+            workspace_id=app["workspace_id"],
+            entry_id=entry_data["id"],
+            principal_id=user_id,
+        ):
+            entry_data["app_record_readonly"] = True
+
+
 @endpoint("/entries/{entry_id}", methods=["GET"], auth=True, tags=["Entries"])
 async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     """Get a specific entry by ID."""
@@ -576,6 +589,7 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
         entry_data["read_time_fields"] = live_fields
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
+    await _attach_app_record_readonly(entry_data, user_id)
     await attach_comment_count(entry_data, entry)
     # Standard backlinks: anchor source entry + incoming REFERENCES. Always
     # present (None / [] when absent) so the frontend can rely on a stable
@@ -938,6 +952,7 @@ async def update_entry(
     await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
+    await _attach_app_record_readonly(entry_data, user_id)
     await attach_comment_count(entry_data, entry)
 
     # Phase 9 NOTIF-02 — fan out @mention notifications on update too.

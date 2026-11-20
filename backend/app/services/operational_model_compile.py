@@ -3358,6 +3358,7 @@ def _parse_manifest_protected_state(
     raw: Any,
     *,
     where: str = "app.protected_state",
+    trust_tier: str = "untrusted",
 ) -> Dict[str, Any]:
     """Normalize optional ``app.protected_state`` map (ADR-012)."""
     if raw is None:
@@ -3378,7 +3379,13 @@ def _parse_manifest_protected_state(
                 for f in _as_list(ed.get("fields"), where=f"{where}.{key}.fields")
                 if str(f).strip()
             ]
-            unknown = set(ed) - {"fields", "operations", "top_level", "deny_delete"}
+            unknown = set(ed) - {
+                "fields",
+                "operations",
+                "top_level",
+                "deny_delete",
+                "readonly_when",
+            }
             if unknown:
                 raise OperationalModelValidationError(
                     message=f"{where}.{key} has unsupported keys"
@@ -3407,6 +3414,21 @@ def _parse_manifest_protected_state(
                     if str(o).strip()
                 ],
             }
+            if "readonly_when" in ed:
+                from app.services.entry_record_readonly import normalize_readonly_rule
+
+                if trust_tier not in {"trusted", "audited"}:
+                    raise OperationalModelValidationError(
+                        message=f"{where}.{key}.readonly_when requires a trusted App"
+                    )
+                try:
+                    out[key]["readonly_when"] = normalize_readonly_rule(
+                        ed["readonly_when"]
+                    )
+                except ValueError as exc:
+                    raise OperationalModelValidationError(
+                        message=f"{where}.{key}.readonly_when {exc}"
+                    ) from exc
     return out
 
 
@@ -4594,7 +4616,19 @@ def _compile_canonical_manifest(
             app_protected_state = _parse_manifest_protected_state(
                 app_node.get("protected_state"),
                 where="app.protected_state",
+                trust_tier=bundle_trust_tier,
             )
+            if app_protected_state:
+                from app.services.entry_record_readonly import validate_readonly_rules
+
+                try:
+                    validate_readonly_rules(
+                        app_protected_state, tracks_out + track_templates_out
+                    )
+                except ValueError as exc:
+                    raise OperationalModelValidationError(
+                        message=f"app.protected_state.readonly_when {exc}"
+                    ) from exc
             app_extension_views = _parse_manifest_extension_views(
                 app_node.get("extension_views"),
                 where="app.extension_views",
