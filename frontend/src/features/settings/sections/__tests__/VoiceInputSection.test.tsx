@@ -103,7 +103,7 @@ describe('VoiceInputSection', () => {
     vi.stubGlobal('RTCPeerConnection', class {});
     mutate = vi.fn();
     mockedPrefs.mockReturnValue({ data: PREFS, isLoading: false });
-    mockedUpdate.mockReturnValue({ mutate, isPending: false });
+    mockedUpdate.mockReturnValue({ mutate, reset: vi.fn(), isPending: false });
   });
   afterEach(() => {
     cleanup();
@@ -121,8 +121,9 @@ describe('VoiceInputSection', () => {
   });
 
   it('prevents overlapping preference updates', () => {
-    mockedUpdate.mockReturnValue({ mutate, isPending: true });
+    mockedUpdate.mockReturnValue({ mutate, reset: vi.fn(), isPending: true });
     renderSection(config());
+    fireEvent.click(screen.getByRole("button", { name: "Edit dictation preferences" }));
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeDisabled();
   });
 
@@ -157,24 +158,47 @@ describe('VoiceInputSection', () => {
 
   it('shows the browser privacy note when the browser recognizer is in use', () => {
     renderSection(config());
+    fireEvent.click(screen.getByRole("button", { name: "Edit dictation preferences" }));
     expect(screen.getByText(BROWSER_OPTION.privacy_note)).toBeInTheDocument();
   });
 
   it('hides the privacy note when the workspace provider is in use', () => {
     renderSection(PROVIDER_CONFIG);
+    fireEvent.click(screen.getByRole("button", { name: "Edit dictation preferences" }));
     expect(screen.queryByText(BROWSER_OPTION.privacy_note)).toBeNull();
   });
 
-  it('saves preference changes', () => {
+  it('stages preference changes until Save', () => {
     renderSection(config());
+    fireEvent.click(screen.getByRole("button", { name: "Edit dictation preferences" }));
     fireEvent.click(screen.getByRole('button', { name: /Send when I stop talking/ }));
-    expect(mutate).toHaveBeenCalledWith({ auto_send_on_stop: true }, expect.anything());
-
     fireEvent.change(screen.getByLabelText('Recognizer'), { target: { value: 'browser' } });
-    expect(mutate).toHaveBeenCalledWith({ engine: 'browser' }, expect.anything());
-
     fireEvent.change(screen.getByLabelText('Stop after silence'), { target: { value: '0' } });
-    expect(mutate).toHaveBeenCalledWith({ silence_timeout_seconds: 0 }, expect.anything());
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save preferences' }));
+    expect(mutate).toHaveBeenCalledOnce();
+    expect(mutate).toHaveBeenCalledWith({
+      auto_send_on_stop: true, engine: 'browser', silence_timeout_seconds: 0,
+    }, expect.anything());
+  });
+
+  it('keeps the microphone test inside the preferences dialog when embedded', async () => {
+    const stop = vi.fn();
+    let finish!: (stream: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: { getUserMedia: vi.fn(() => pending) }, configurable: true,
+    });
+    mockedConfig.mockReturnValue({ data: config(), isLoading: false });
+    render(<VoiceInputSection embedded />);
+    expect(screen.queryByRole('button', { name: 'Test microphone' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dictation preferences' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test microphone' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    finish({ getTracks: () => [{ stop }] });
+    await waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mutate).not.toHaveBeenCalled();
   });
 
   it('reports a blocked microphone in the mic test', async () => {

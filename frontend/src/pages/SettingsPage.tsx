@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Cpu,
   Info,
-  Mic,
   Mail,
   MessageCircle,
   Palette,
@@ -106,12 +105,6 @@ const GetStartedSection = React.lazy(() =>
     default: m.GetStartedSection,
   })),
 );
-// Chat dictation — per-user voice input preferences + provider status.
-const VoiceInputSection = React.lazy(() =>
-  import('../features/settings/sections/VoiceInputSection').then(m => ({
-    default: m.VoiceInputSection,
-  })),
-);
 const AuditLogSection = React.lazy(() =>
   import('../features/settings/sections/AuditLogSection').then(m => ({
     default: m.AuditLogSection,
@@ -154,7 +147,7 @@ const SECTIONS: Section[] = [
     id: 'ai-models',
     label: 'AI Models',
     icon: Brain,
-    render: (ctx) => <AiModelsSection navigateToSection={ctx.navigateToSection} />,
+    render: () => <AiModelsSection key="ai-models" />,
   },
   {
     id: 'skills',
@@ -229,14 +222,20 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'voice-input',
-    label: 'Voice input',
-    icon: Mic,
-    render: ctx => <VoiceInputSection navigateToSection={ctx.navigateToSection} />,
+    label: 'Speech to Text',
+    icon: Brain,
+    render: () => <AiModelsSection key="speech-to-text" initialCategory="speech-to-text" />,
+  },
+  {
+    id: 'realtime-voice',
+    label: 'Realtime Voice',
+    icon: Brain,
+    render: () => <AiModelsSection key="realtime-voice" initialCategory="realtime-voice" />,
   },
 ];
 
 const GROUPS = [
-  { label: 'Your account', ids: ['profile', 'appearance', 'notifications', 'voice-input'] },
+  { label: 'Your account', ids: ['profile', 'appearance', 'notifications'] },
   { label: 'AI & connections', ids: ['ai-models', 'agents', 'skills', 'connectors'] },
   { label: 'Workspace', ids: ['retrieval', 'sharing', 'email', 'whatsapp'] },
   { label: 'Governance', ids: ['policies', 'conflicts', 'audit-log'] },
@@ -257,10 +256,10 @@ function SettingsNavigation({ sections, active, query, onQuery, onSelect }: {
   onQuery: (value: string) => void;
   onSelect: (id: string) => void;
 }) {
-  const known = new Set(GROUPS.flatMap(g => g.ids));
+  const known = new Set([...GROUPS.flatMap(g => g.ids), 'voice-input', 'realtime-voice']);
   const groups = [...GROUPS, { label: 'Extensions', ids: sections.filter(s => !known.has(s.id)).map(s => s.id) }];
   const needle = query.trim().toLowerCase();
-  const filtered = groups.map(g => ({ ...g, items: g.ids.map(id => sections.find(s => s.id === id)).filter((s): s is Section => !!s).filter(s => !needle || `${s.label} ${g.label}`.toLowerCase().includes(needle)) })).filter(g => g.items.length);
+  const filtered = groups.map(g => ({ ...g, items: (needle && g.label === 'AI & connections' ? [...g.ids, 'voice-input', 'realtime-voice'] : g.ids).map(id => sections.find(s => s.id === id)).filter((s): s is Section => !!s).filter(s => !needle || `${s.label} ${g.label} ${s.id === 'voice-input' ? 'voice input stt dictation microphone' : ''}`.toLowerCase().includes(needle)) })).filter(g => g.items.length);
   return (
     <nav aria-label="Settings sections" className="flex flex-col gap-4">
       <Input aria-label="Find a setting" placeholder="Find a setting…" value={query} onChange={e => onQuery(e.target.value)} />

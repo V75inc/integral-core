@@ -398,3 +398,40 @@ async def save_voice_configuration(request: Request) -> dict:
         )
     except ValueError as exc:
         raise BadRequestError(str(exc)) from None
+
+
+@endpoint(
+    "/users/me/realtime-voice-configuration",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Models"],
+)
+async def get_realtime_voice_configuration(request: Request) -> dict:
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.voice_configuration import describe_realtime
+
+    user_id = resolve_principal_id(request)
+    return await describe_realtime(
+        user_id, await resolve_workspace_id_from_request(request, user_id)
+    )
+
+
+@endpoint(
+    "/users/me/realtime-voice-configuration",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Models"],
+)
+async def save_realtime_voice_configuration(request: Request) -> dict:
+    from app.schemas.voice_configuration import RealtimeVoiceModelWrite
+    from app.services.request_scope import resolve_workspace_id_from_request
+    from app.services.voice_configuration import save
+
+    user_id = resolve_principal_id(request)
+    body = await _body(request, RealtimeVoiceModelWrite)
+    try:
+        return await save(
+            user_id, await resolve_workspace_id_from_request(request, user_id), body
+        )
+    except ValueError as exc:
+        raise BadRequestError(str(exc)) from None

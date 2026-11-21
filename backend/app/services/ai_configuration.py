@@ -26,6 +26,7 @@ from app.services.model_credentials import (
 from app.services.model_harness_policy import (
     assess_model,
     model_policy_catalog,
+    require_chat_model,
     require_heavy_model,
 )
 from app.services.model_provider_endpoints import normalize_custom_base_url
@@ -328,6 +329,8 @@ async def save_profile(user_id: str, body: ProfileWrite) -> dict[str, Any]:
     )
     if default_id and profile.id == default_id:
         require_heavy_model(connection.provider, body.model)
+    if record and record.light_profile_id and profile.id == record.light_profile_id:
+        require_chat_model(connection.provider, body.model)
     previous = profile.updated_at if body.id else None
     profile.name, profile.connection_id, profile.model = (
         body.name.strip(),
@@ -462,6 +465,7 @@ async def remove_item(user_id: str, item_id: str, *, connection: bool) -> None:
                 "$or": [
                     {"context.embedding_settings.connection_id": item.id},
                     {"context.voice_settings.connection_id": item.id},
+                    {"context.realtime_voice_settings.connection_id": item.id},
                 ]
             },
             limit=1001,
@@ -720,13 +724,15 @@ async def save_routing(user_id: str, body: RoutingWrite) -> None:
         record = await get_credential_for_user(user_id) or UserModelCredential(
             user_id=user_id
         )
-        await profile_credential(user_id, body.light_profile_id, record)
+        light = await profile_credential(user_id, body.light_profile_id, record)
+        require_chat_model(light.provider, light.model)
     await activate_profile(user_id, body.heavy_profile_id, routing=body)
 
 
 def _require_structured_support(provider: str, model: str) -> None:
     from app.services.model_settings import model_capabilities
 
+    require_chat_model(provider, model)
     if model_capabilities(provider, model).get("tool_calling") is False:
         raise ValueError(
             "Automatic routing requires structured tool support; choose another model or Single model"

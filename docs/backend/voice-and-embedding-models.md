@@ -6,11 +6,11 @@ and integration gates. This guide describes the implemented configuration.
 
 Settings → AI Models → Models groups configuration into a single-open accordion:
 Language & multimodal (existing chat profiles and Light/Heavy routing), Embeddings
-(workspace semantic search), Images and documents (attachment processing), and
-Voice (transcription). Providers remains the
-single private connection/key catalog. Model editors use those saved connections;
-Voice input owns microphone, language and shortcut preferences and links back to
-AI Models. Mutation results use toasts; failed editors retain drafts.
+(workspace semantic search), Images and documents (attachment processing),
+Speech to Text, and Realtime Voice. Providers remains the single private
+connection/key catalog. Compatible registered models can be assigned directly
+in the voice sections; existing assignments stay visible even if they are not
+registered. Dictation preferences are separate from the transcription model.
 
 ## Embedding choice
 
@@ -90,8 +90,10 @@ for access checks, source identity, format limits and reprocessing behavior.
 ## Voice choice
 
 The workspace owner can inherit the existing legacy/deployment voice selection,
-select a saved OpenAI connection and transcription model, or choose browser-only
-recognition. Voice is independent of chat setup: no chat model or duplicate API
+select an eligible registered OpenAI transcription model, or choose browser-only
+recognition. Realtime Voice similarly offers Off or an eligible registered
+OpenAI model. A voice model uses the saved provider connection from its catalog
+entry. Voice is independent of chat setup: no chat model or duplicate API
 key entry is required. Existing settings continue working until explicitly changed.
 Only OpenAI streaming transcription is currently supported; other provider
 connections are not offered as voice choices. Live resolution follows provider

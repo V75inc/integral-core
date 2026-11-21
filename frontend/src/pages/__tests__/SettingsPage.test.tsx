@@ -22,7 +22,7 @@ describe('Settings navigation', () => {
     expect(screen.getByText('Your account')).toBeInTheDocument();
     expect(screen.getByText('AI & connections')).toBeInTheDocument();
     expect(screen.getByText('Governance')).toBeInTheDocument();
-    expect(within(screen.getByRole('navigation', { name: 'Settings sections' })).getAllByRole('button').map(b => b.textContent)).toEqual(['Profile', 'Appearance', 'Notifications', 'Voice input', 'AI Models', 'Connected agents', 'AI Skills', 'Connectors', 'Search', 'Sharing', 'Email', 'WhatsApp', 'Policies', 'Conflicts', 'Audit log', 'Help & about']);
+    expect(within(screen.getByRole('navigation', { name: 'Settings sections' })).getAllByRole('button').map(b => b.textContent)).toEqual(['Profile', 'Appearance', 'Notifications', 'AI Models', 'Connected agents', 'AI Skills', 'Connectors', 'Search', 'Sharing', 'Email', 'WhatsApp', 'Policies', 'Conflicts', 'Audit log', 'Help & about']);
   });
   it('does not expose Operational Models through an old Settings link', async () => {
     show('/settings#library');
@@ -37,7 +37,8 @@ describe('Settings navigation', () => {
   it('filters settings and shows an empty result explicitly', () => {
     show();
     fireEvent.change(screen.getByRole('textbox', { name: 'Find a setting' }), { target: { value: 'voice' } });
-    expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Speech to Text' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Realtime Voice' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Policies' })).toBeNull();
     fireEvent.change(screen.getByRole('textbox', { name: 'Find a setting' }), { target: { value: 'nonexistent' } });
     expect(screen.getByText('No matching settings.')).toBeInTheDocument();

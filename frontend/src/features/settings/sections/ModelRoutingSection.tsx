@@ -127,11 +127,15 @@ export function ModelRoutingSection({
   onEdit,
   onAddModel,
   profileEditorOpen = false,
+  inline = false,
+  busy = false,
 }: {
   data: AIConfiguration;
   onEdit: (profile: ModelProfile) => void;
   onAddModel?: () => void;
   profileEditorOpen?: boolean;
+  inline?: boolean;
+  busy?: boolean;
 }) {
   const [draft, setDraft] = useState<ModelRouting | null>(null);
   const { showToast } = useToast();
@@ -144,7 +148,9 @@ export function ModelRoutingSection({
     heavy: string;
   } | null>(null);
   const save = useMutation({
-    mutationFn: aiConfigurationApi.saveRouting,
+    mutationFn: (body: Parameters<typeof aiConfigurationApi.saveRouting>[0]) => inline
+      ? aiConfigurationApi.saveRouting(body, { headers: { "X-Integral-Scope": `ws:${data.effective.workspace_id}` } })
+      : aiConfigurationApi.saveRouting(body),
     onSuccess: () => {
       setDraft(null);
       showToast(
@@ -207,7 +213,7 @@ export function ModelRoutingSection({
   const effective = data.effective.routing;
   const dual = effective?.mode === "light_heavy";
   const disabled =
-    data.key_policy === "platform_only" || !data.effective.editable;
+    busy || data.key_policy === "platform_only" || !data.effective.editable;
   const selected = (id: string) => data.profiles.find((p) => p.id === id);
   const brief = (p: ModelProfile) =>
     `${data.connections.find((c) => c.id === p.connection_id)?.name ? `${data.connections.find((c) => c.id === p.connection_id)!.name} · ` : ""}${p.model} · ${p.generation_settings.reasoning_effort ? `${p.generation_settings.reasoning_effort} reasoning` : "Default reasoning"}${p.generation_settings.max_tokens ? ` · ${p.generation_settings.max_tokens.toLocaleString()} output tokens` : ""}`;
@@ -247,6 +253,79 @@ export function ModelRoutingSection({
       ceiling,
       ...effectiveSettings.map((settings) => settings[key] ?? ceiling),
     );
+  const choice = draft ?? routing;
+  const changed = !!draft && (
+    draft.mode !== routing.mode || draft.heavy_profile_id !== routing.heavy_profile_id ||
+    draft.light_profile_id !== routing.light_profile_id
+  );
+  if (inline) return (
+    <form onSubmit={event => {
+      event.preventDefault();
+      if (!disabled && changed && selected(choice.heavy_profile_id) &&
+          selected(choice.heavy_profile_id)?.harness_policy?.tier !== "light" &&
+          (choice.mode === "single" || selected(choice.light_profile_id))) save.mutate(choice);
+    }}>
+      <Stack gap="md">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <Stack gap="xs">
+            <Text weight="medium">Chat and reasoning</Text>
+            <Text variant="body-sm" tone="muted">
+              Active: {effective?.heavy_model || data.effective.model || "No model assigned"}
+              {data.effective.source === "deployment" ? " · Server default" : ""}
+              {dual && effective.light_model ? ` · Light: ${effective.light_model}` : ""}
+            </Text>
+          </Stack>
+          {selected(routing.heavy_profile_id) && data.effective.source === "workspace_owner" && !disabled && (
+            <Button type="button" variant="ghost" size="sm" disabled={save.isPending}
+              onClick={() => editFromRouting(selected(routing.heavy_profile_id)!)}>
+              {dual ? "Heavy model settings" : "Model settings"}
+            </Button>
+          )}
+        </div>
+        <fieldset disabled={disabled || save.isPending} className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <Text as="label" variant="body-sm" className="flex min-w-0 flex-col gap-1">
+            Routing mode
+            <Select value={choice.mode} onChange={e => setDraft({ ...choice, mode: e.target.value as ModelRouting["mode"] })}>
+              <option value="single">Single model</option>
+              <option value="light_heavy">Light + Heavy</option>
+            </Select>
+          </Text>
+          {(choice.mode === "light_heavy" ? ["heavy", "light"] : ["heavy"]).map(role => {
+            const key = role === "light" ? "light_profile_id" : "heavy_profile_id";
+            const activeProfile = selected(routing[key]);
+            return (
+              <div className="flex min-w-0 items-end gap-2" key={role}>
+                <Text as="label" variant="body-sm" className="flex min-w-0 flex-1 flex-col gap-1">
+                  {role === "light" ? "Light model" : choice.mode === "single" ? "Main model" : "Heavy model"}
+                  <Select value={selected(choice[key]) ? choice[key] : ""} onChange={e => setDraft({ ...choice, [key]: e.target.value })}>
+                    <option value="" disabled>{role === "heavy" && data.effective.model ? `Current: ${data.effective.model}` : "Choose a saved model"}</option>
+                    {data.profiles.map(p => <option key={p.id} value={p.id} disabled={role === "heavy" && p.harness_policy?.tier === "light"}>
+                      {p.name === p.model ? p.name : `${p.name} · ${p.model}`}
+                    </option>)}
+                  </Select>
+                </Text>
+                {role === "light" && activeProfile && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => editFromRouting(activeProfile)}>Light model settings</Button>
+                )}
+              </div>
+            );
+          })}
+        </fieldset>
+        {!data.effective.editable && <Text variant="meta" tone="muted">Managed by the workspace owner.</Text>}
+        {!data.profiles.length && !disabled && (
+          <Text variant="meta" tone="muted">Add a compatible model under Providers &amp; Models first.</Text>
+        )}
+        {changed && (
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" disabled={save.isPending} onClick={() => setDraft(null)}>Cancel</Button>
+            <Button type="submit" disabled={disabled || save.isPending || !selected(choice.heavy_profile_id) ||
+              selected(choice.heavy_profile_id)?.harness_policy?.tier === "light" ||
+              (choice.mode === "light_heavy" && !selected(choice.light_profile_id))}>Save model assignment</Button>
+          </div>
+        )}
+      </Stack>
+    </form>
+  );
   return (
     <>
       <Stack gap="md" className="border-b border-[var(--border-subtle)] pb-5">

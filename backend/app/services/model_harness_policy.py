@@ -94,9 +94,33 @@ def _identity(provider: str, model: str) -> tuple[str, str]:
     return provider, model
 
 
+def _non_chat_tier(provider: str, model: str) -> str | None:
+    if provider not in {"openai", "openrouter", "custom_openai", ""}:
+        return None
+    bare = model.removeprefix("openai/")
+    if re.fullmatch(
+        r"(?:whisper-1|gpt-(?:4o-(?:mini-)?transcribe(?:-diarize)?|"
+        r"(?:live-)?transcribe|realtime(?:-2\.1-mini|-mini)?|"
+        r"4o-(?:mini-)?realtime-preview))(?:-\d{4}-\d{2}-\d{2})?",
+        bare,
+    ):
+        return "voice"
+    if re.fullmatch(r"text-embedding-(?:3-(?:small|large)|ada-002)", bare):
+        return "embedding"
+    return None
+
+
 def assess_model(provider: str, model: str) -> dict[str, Any]:
     """Classify role suitability without pretending a model has passed an eval."""
     provider, model = _identity(provider, model)
+    non_chat_tier = _non_chat_tier(provider, model)
+    if non_chat_tier:
+        return {
+            "tier": non_chat_tier,
+            "recommended": False,
+            "evidence": "non_chat",
+            "message": "This model is for voice or embeddings and cannot be used for chat.",
+        }
     # Strip routing prefixes only for light detection; custom models do not gain
     # preferred status by borrowing a model ID from another provider.
     bare = model.rsplit("/", 1)[-1].split(":", 1)[0]
@@ -139,8 +163,15 @@ class ModelHarnessPolicyError(ValueError):
     """An actionable configuration error, not an internal execution failure."""
 
 
+def require_chat_model(provider: str, model: str) -> None:
+    """Reject known non-chat profiles regardless of text routing role."""
+    assessment = assess_model(provider, model)
+    if assessment["tier"] in {"voice", "embedding"}:
+        raise ModelHarnessPolicyError(assessment["message"])
+
+
 def require_heavy_model(provider: str, model: str) -> None:
     """Reject known light models before persisting or running a heavy route."""
     assessment = assess_model(provider, model)
-    if assessment["tier"] == "light":
+    if assessment["tier"] in {"light", "voice", "embedding"}:
         raise ModelHarnessPolicyError(assessment["message"])

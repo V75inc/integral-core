@@ -47,13 +47,19 @@ const data = {
   serving_available: true,
   error: "",
 };
-function mount() {
+function mount(embedded = false) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
       <EmbeddingConfiguration
+        embedded={embedded}
+        profiles={[
+          { id: "embed", name: "Search encoder", connection_id: "provider", model: "openai/text-embedding-3-small", generation_settings: {}, updated_at: "" },
+          { id: "chat", name: "Chat model", connection_id: "provider", model: "gpt-4o", generation_settings: {}, updated_at: "" },
+          { id: "missing", name: "Missing provider", connection_id: "missing", model: "embeddinggemma", generation_settings: {}, updated_at: "" },
+        ]}
         connections={[
           {
             id: "provider",
@@ -120,4 +126,41 @@ it("retains explicit continuation consent only when selected for the save", asyn
       expect.any(Object),
     ),
   );
+});
+
+it("offers registered embeddings inline without applying changes or losing legacy settings", async () => {
+  mount(true);
+  const selector = await screen.findByRole("combobox", { name: "Embedding model" });
+  expect(selector).toHaveValue("legacy");
+  expect(screen.getByRole("option", { name: /Search encoder/ })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /Chat model|Missing provider/ })).not.toBeInTheDocument();
+  fireEvent.change(selector, { target: { value: "embed" } });
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Embedding model ID")).toHaveValue("openai/text-embedding-3-small");
+  expect(screen.getByLabelText(/Allow indexed workspace text/)).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Save model" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
+  expect(selector).toHaveValue("legacy");
+  fireEvent.change(selector, { target: { value: "embed" } });
+  fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "1536" } });
+  fireEvent.click(screen.getByLabelText(/Allow indexed workspace text/));
+  fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith({
+    mode: "provider", connection_id: "provider", model: "openai/text-embedding-3-small",
+    dimensions: 1536, allow_workspace_text: true, revision: 3, continue_previous_provider: false,
+  }, expect.any(Object)));
+});
+it("keeps deployment selection read-only for a non-owner", async () => {
+  get.mockResolvedValue({ ...data, editable: false, configuration: { mode: "deployment" } });
+  mount(true);
+  expect(await screen.findByRole("combobox", { name: "Embedding model" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Embedding settings" })).not.toBeInTheDocument();
+});
+it("reviews a return to deployment defaults without immediately rebuilding", async () => {
+  mount(true);
+  fireEvent.change(await screen.findByRole("combobox", { name: "Embedding model" }), { target: { value: "deployment" } });
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/Keep using the current provider/)).not.toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ mode: "deployment", revision: 3, continue_previous_provider: false }), expect.any(Object)));
 });

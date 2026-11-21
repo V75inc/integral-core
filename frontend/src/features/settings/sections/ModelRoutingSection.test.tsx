@@ -69,7 +69,7 @@ const configuration: AIConfiguration = {
     idle_timeout: 30,
   },
 };
-function show(data = configuration, onEdit = vi.fn(), onAddModel = vi.fn()) {
+function show(data = configuration, onEdit = vi.fn(), onAddModel = vi.fn(), inline = false) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -83,6 +83,7 @@ function show(data = configuration, onEdit = vi.fn(), onAddModel = vi.fn()) {
           data={data}
           onEdit={onEdit}
           onAddModel={onAddModel}
+          inline={inline}
         />
       </QueryClientProvider>,
     ),
@@ -118,7 +119,6 @@ describe("Optional light/heavy model routing", () => {
           heavy_profile_id: "heavy",
           revision: "current-revision",
         },
-        expect.anything(),
       ),
     );
     await waitFor(() =>
@@ -279,7 +279,6 @@ it.each([false, true])(
           heavy_profile_id: "heavy",
           revision: concurrent ? "current-revision" : "profile-edited",
         }),
-        expect.anything(),
       ),
     );
   },
@@ -318,4 +317,21 @@ it("retains an honest warning for an unverified custom model", () => {
   data.effective.harness_policy = {tier:"unverified", recommended:false, evidence:"unverified", message:"Harness suitability is unverified."};
   show(data);
   expect(screen.getByText("Harness suitability is unverified.")).toBeVisible();
+});
+
+it("makes inline assignments explicit and saves only after confirmation", async () => {
+  vi.mocked(aiConfigurationApi.saveRouting).mockResolvedValue({ ok: true });
+  show(configuration, vi.fn(), vi.fn(), true);
+  expect(screen.getByLabelText("Main model")).toHaveValue("heavy");
+  fireEvent.change(screen.getByLabelText("Main model"), { target: { value: "light" } });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(aiConfigurationApi.saveRouting).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByLabelText("Main model")).toHaveValue("heavy");
+  fireEvent.change(screen.getByLabelText("Main model"), { target: { value: "light" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save model assignment" }));
+  await waitFor(() => expect(aiConfigurationApi.saveRouting).toHaveBeenCalledWith(
+    { mode: "single", heavy_profile_id: "light", light_profile_id: "", revision: "current-revision" },
+    { headers: { "X-Integral-Scope": "ws:workspace" } },
+  ));
 });

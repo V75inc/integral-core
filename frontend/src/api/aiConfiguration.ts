@@ -1,4 +1,5 @@
 import api from "./client";
+import type { AxiosRequestConfig } from "axios";
 import type { ModelProvider } from "./modelCredentials";
 
 export const AI_CONFIGURATION_QUERY_KEY = ["ai-configuration"] as const;
@@ -30,7 +31,7 @@ export interface ModelConnection {
   last_tested_at?: string;
 }
 export interface HarnessModelAssessment {
-  tier: "heavy" | "light" | "unverified";
+  tier: "heavy" | "light" | "unverified" | "voice" | "embedding";
   recommended: boolean;
   evidence: string;
   message: string;
@@ -108,8 +109,8 @@ export type ProfileWrite = Omit<ModelProfile, "id" | "updated_at" | "harness_pol
   id?: string;
 };
 export const aiConfigurationApi = {
-  async get(): Promise<AIConfiguration> {
-    return (await api.get("/users/me/ai-configuration")).data;
+  async get(request?: AxiosRequestConfig): Promise<AIConfiguration> {
+    return (await api.get("/users/me/ai-configuration", request)).data;
   },
   async capabilities(
     provider: ModelProvider,
@@ -118,8 +119,8 @@ export const aiConfigurationApi = {
     return (await api.post("/users/me/model-capabilities", { provider, model }))
       .data;
   },
-  async saveConnection(body: ConnectionWrite) {
-    return (await api.post("/users/me/model-connections", body)).data;
+  async saveConnection(body: ConnectionWrite, request?: AxiosRequestConfig) {
+    return (await api.post("/users/me/model-connections", body, request)).data;
   },
   async testConnection(
     id: string,
@@ -129,11 +130,11 @@ export const aiConfigurationApi = {
   async removeConnection(id: string) {
     await api.post("/users/me/model-connections/remove", { id });
   },
-  async saveProfile(body: ProfileWrite) {
-    return (await api.post("/users/me/model-profiles", body)).data;
+  async saveProfile(body: ProfileWrite, request?: AxiosRequestConfig) {
+    return (await api.post("/users/me/model-profiles", body, request)).data;
   },
-  async saveRouting(body: ModelRouting) {
-    return (await api.post("/users/me/model-routing", body)).data;
+  async saveRouting(body: ModelRouting, request?: AxiosRequestConfig) {
+    return (await api.post("/users/me/model-routing", body, request)).data;
   },
   async activateProfile(id: string) {
     await api.post("/users/me/model-profiles/activate", { id });
@@ -257,12 +258,34 @@ export interface VoiceConfigurationData {
   effective_provider: string;
 }
 export const voiceConfigurationApi = {
-  async get(): Promise<VoiceConfigurationData> {
-    return (await api.get("/users/me/voice-configuration")).data;
+  async get(request?: AxiosRequestConfig): Promise<VoiceConfigurationData> {
+    return (await api.get("/users/me/voice-configuration", request)).data;
   },
   async save(
     body: VoiceChoice & { revision: number },
+    request?: AxiosRequestConfig,
   ): Promise<VoiceConfigurationData> {
-    return (await api.post("/users/me/voice-configuration", body)).data;
+    return (await api.post("/users/me/voice-configuration", body, request)).data;
+  },
+};
+
+export const REALTIME_VOICE_QUERY_KEY = ["realtime-voice-configuration"] as const;
+export interface RealtimeVoiceChoice {
+  mode: "provider" | "disabled";
+  connection_id: string;
+  model: "" | "gpt-realtime-2.1-mini" | "gpt-realtime" | "gpt-realtime-mini";
+}
+export interface RealtimeVoiceConfiguration {
+  editable: boolean;
+  revision: number;
+  configuration: Partial<RealtimeVoiceChoice> & Pick<RealtimeVoiceChoice, "mode">;
+  effective_model: string;
+}
+export const realtimeVoiceConfigurationApi = {
+  async get(request?: AxiosRequestConfig): Promise<RealtimeVoiceConfiguration> {
+    return (await api.get("/users/me/realtime-voice-configuration", request)).data;
+  },
+  async save(body: RealtimeVoiceChoice & { revision: number }, request?: AxiosRequestConfig): Promise<RealtimeVoiceConfiguration> {
+    return (await api.post("/users/me/realtime-voice-configuration", body, request)).data;
   },
 };

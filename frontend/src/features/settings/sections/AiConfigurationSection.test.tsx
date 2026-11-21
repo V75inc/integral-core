@@ -80,6 +80,8 @@ it("shows thinking budgets directly when effort levels are unavailable", async (
   ).not.toBeInTheDocument();
 });
 
+vi.mock("./VoiceInputSection", () => ({ VoiceInputSection: () => <p>Voice input preferences</p> }));
+
 const fixture = vi.hoisted(() => ({
   isPending: false,
   isError: false,
@@ -150,7 +152,7 @@ vi.mock("../../../api/modelCredentials", async (original) => ({
 vi.mock("../../../context/ToastContext", () => ({
   useToast: () => ({ showToast: fixture.showToast }),
 }));
-function show({ advanced = true, language = true } = {}) {
+function show({ language = true } = {}) {
   const result = render(
     <QueryClientProvider
       client={
@@ -160,8 +162,7 @@ function show({ advanced = true, language = true } = {}) {
       <AiConfigurationSection />
     </QueryClientProvider>,
   );
-  if (advanced && screen.queryByRole("button", { name: "Show advanced configuration" })) fireEvent.click(screen.getByRole("button", { name: "Show advanced configuration" }));
-  if (advanced && language && screen.queryByRole("button", { name: "Language & multimodal" })) fireEvent.click(screen.getByRole("button", { name: "Language & multimodal" }));
+  if (language && screen.queryByRole("button", { name: "Language & multimodal" })) fireEvent.click(screen.getByRole("button", { name: "Language & multimodal" }));
   return result;
 }
 beforeEach(() => {
@@ -246,13 +247,8 @@ describe("AI connection and model configuration", () => {
     show();
     expect(screen.getByText("Managed by the workspace owner.")).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit provider" }));
-    expect(screen.getByLabelText("Provider")).toBeDisabled();
-    expect(
-      screen.getByLabelText(
-        "Replacement API key (leave blank to keep saved key)",
-      ),
-    ).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Edit provider" })).toBeDisabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
@@ -337,8 +333,8 @@ it("supports arrow-key tab navigation", () => {
 it("opens a model override editor while the active configuration comes from ENV", async () => {
   fixture.data.effective.source = "deployment";
   show();
-  expect(screen.getByText("Server default")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Add your own model" }));
+  expect(screen.getByText(/Server default/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Add model" }));
   const dialog = await screen.findByRole("dialog", { name: "Add a model" });
   expect(
     within(dialog).getByRole("textbox", { name: "Profile name" }),
@@ -380,25 +376,29 @@ it("reports provider transport failures through a toast", async () => {
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
-it("groups language, embedding and voice models under Models, apart from Providers", () => {
-  show();
-  expect(screen.getByRole("heading", { name: "Language & multimodal" })).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Embeddings" })).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Voice" })).toBeVisible();
-  fireEvent.click(screen.getByRole("tab", { name: /Providers/ }));
-  expect(screen.queryByRole("heading", { name: "Embeddings" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Voice" })).not.toBeInTheDocument();
+it("keeps model assignments separate from the providers and models catalog", () => {
+  show({ language: false });
+  const catalog = screen.getByRole("region", { name: "Providers & Models" });
+  const assignments = screen.getByRole("region", { name: "Model assignments" });
+  expect(within(catalog).getByRole("button", { name: "Add model" })).toBeVisible();
+  expect(within(catalog).queryByRole("button", { name: "Language & multimodal" })).not.toBeInTheDocument();
+  expect(within(assignments).getByRole("button", { name: "Embeddings" })).toBeVisible();
+  fireEvent.click(within(catalog).getByRole("tab", { name: /Providers/ }));
+  expect(within(catalog).getByRole("button", { name: "Connect provider" })).toBeVisible();
+  expect(within(assignments).getByRole("button", { name: "Speech to Text" })).toBeVisible();
 });
 
 it("starts categories collapsed and opens one at a time", () => {
   show({ language: false });
   const language = screen.getByRole("button", { name: "Language & multimodal" });
   const embeddings = screen.getByRole("button", { name: "Embeddings" });
-  const voice = screen.getByRole("button", { name: "Voice" });
+  const voice = screen.getByRole("button", { name: "Speech to Text" });
   expect(language).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("tab", { name: "Models 1" })).toBeVisible();
   fireEvent.click(language);
   expect(language).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByLabelText("Main model")).toHaveValue("profile");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   fireEvent.click(embeddings);
   expect(embeddings).toHaveAttribute("aria-expanded", "true");
   expect(language).toHaveAttribute("aria-expanded", "false");
@@ -406,19 +406,17 @@ it("starts categories collapsed and opens one at a time", () => {
   fireEvent.click(voice);
   expect(embeddings).toHaveAttribute("aria-expanded", "false");
   expect(voice).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("Voice input preferences")).toBeVisible();
   fireEvent.click(voice);
   expect(voice).toHaveAttribute("aria-expanded", "false");
 });
 
 
-it("starts with simple provider setup and keeps expert controls out of the default view", () => {
-  show({ advanced: false });
+it("shows provider setup and advanced model categories without an extra disclosure", () => {
+  show({ language: false });
   expect(screen.getByText("Your AI is connected")).toBeVisible();
-  expect(screen.queryByRole("tablist", { name: "AI configuration" })).not.toBeInTheDocument();
-  expect(screen.queryByText("Deployment limits")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Show advanced configuration" }));
+  expect(screen.getByRole("heading", { name: "Advanced configuration" })).toBeVisible();
   expect(screen.getByRole("tablist", { name: "AI configuration" })).toBeVisible();
-  expect(screen.getByText("Deployment limits")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Hide advanced configuration" }));
-  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Speech to Text" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("button", { name: /show advanced configuration/i })).not.toBeInTheDocument();
 });

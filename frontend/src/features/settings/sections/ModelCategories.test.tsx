@@ -3,8 +3,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EmbeddingConfiguration } from "./EmbeddingConfiguration";
 import { VoiceConfiguration } from "./VoiceConfiguration";
+import { RealtimeVoiceConfiguration } from "./RealtimeVoiceConfiguration";
 import {
   embeddingConfigurationApi,
+  realtimeVoiceConfigurationApi,
   voiceConfigurationApi,
 } from "../../../api/aiConfiguration";
 const toast = vi.hoisted(() => vi.fn());
@@ -21,6 +23,7 @@ vi.mock("../../../api/aiConfiguration", async (original) => ({
   ...(await original<typeof import("../../../api/aiConfiguration")>()),
   embeddingConfigurationApi: { get: vi.fn(), save: vi.fn(), test: vi.fn() },
   voiceConfigurationApi: { get: vi.fn(), save: vi.fn() },
+  realtimeVoiceConfigurationApi: { get: vi.fn(), save: vi.fn() },
 }));
 const connections = [
   {
@@ -42,6 +45,12 @@ const connections = [
     updated_at: "",
   },
 ];
+const profiles = [
+  ["transcribe", "openai", "gpt-4o-mini-transcribe", "STT model"],
+  ["live", "openai", "gpt-realtime-2.1-mini", "Live model"],
+  ["chat", "openai", "gpt-6.1-sol", "Chat model"],
+  ["wrong-provider", "claude", "gpt-4o-mini-transcribe", "Non-OpenAI model"],
+].map(([id, connection_id, model, name]) => ({ id, connection_id, model, name, updated_at: "", generation_settings: {} }));
 const config = {
   workspace_id: "workspace",
   editable: true,
@@ -75,6 +84,9 @@ function show(node: React.ReactNode) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(embeddingConfigurationApi.get).mockResolvedValue(config);
+  vi.mocked(realtimeVoiceConfigurationApi.get).mockResolvedValue({
+    editable: true, revision: 6, configuration: { mode: "disabled" }, effective_model: "",
+  });
   vi.mocked(voiceConfigurationApi.get).mockResolvedValue({
     workspace_id: "workspace",
     editable: true,
@@ -137,45 +149,79 @@ it("shows an accurate provider restriction for unsupported search stores", async
   );
   expect(screen.getByRole("option", { name: "Saved provider" })).toBeDisabled();
 });
-it("reuses saved voice providers without collecting another API key", async () => {
+it("assigns a registered transcription model inline without collecting another API key", async () => {
   const navigate = vi.fn();
-  show(
-    <VoiceConfiguration
-      connections={connections}
-      navigateToSection={navigate}
-    />,
-  );
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Configure voice" }),
-  );
-  fireEvent.change(screen.getByLabelText("Model source"), {
-    target: { value: "provider" },
-  });
-  fireEvent.change(screen.getByLabelText("Provider"), {
-    target: { value: "openai" },
-  });
+  show(<VoiceConfiguration connections={connections} profiles={profiles} navigateToSection={navigate} />);
+  const model = await screen.findByRole("combobox", { name: "Transcription model" });
+  expect(model).toHaveValue("inherit");
+  expect(screen.getByRole("option", { name: /STT model/ })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /Live model|Chat model|Non-OpenAI model/ })).not.toBeInTheDocument();
+  fireEvent.change(model, { target: { value: "profile:transcribe" } });
   expect(screen.queryByLabelText(/API key/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(voiceConfigurationApi.save).not.toHaveBeenCalled();
   vi.mocked(voiceConfigurationApi.save).mockResolvedValue({
     workspace_id: "workspace",
     editable: true,
     revision: 3,
     configuration: {
-      mode: "provider",
-      model: "gpt-4o-mini-transcribe",
-      connection_id: "openai",
+      mode: "provider", model: "gpt-4o-mini-transcribe", connection_id: "openai",
     },
     effective_model: "gpt-4o-mini-transcribe",
     effective_provider: "openai",
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save voice model" }));
-  await waitFor(() =>
-    expect(toast).toHaveBeenCalledWith("Voice model saved.", "success"),
+  fireEvent.click(screen.getByRole("button", { name: "Save transcription model" }));
+  await waitFor(() => expect(toast).toHaveBeenCalledWith("Voice model saved.", "success"));
+  expect(voiceConfigurationApi.save).toHaveBeenCalledWith(
+    { connection_id: "openai", revision: 2, mode: "provider", model: "gpt-4o-mini-transcribe" },
+    { headers: { "X-Integral-Scope": "ws:workspace" } },
   );
-  expect(vi.mocked(voiceConfigurationApi.save).mock.calls[0][0]).toEqual(
-    expect.objectContaining({ connection_id: "openai", revision: 2 }),
-  );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Voice input preferences" }),
-  );
+  expect(screen.getByText("Active: gpt-4o-mini-transcribe")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Voice input preferences" }));
   expect(navigate).toHaveBeenCalledWith("voice-input");
+});
+
+it("retains a legacy transcription assignment and cancels inline edits without saving", async () => {
+  vi.mocked(voiceConfigurationApi.get).mockResolvedValue({
+    workspace_id: "workspace", editable: true, revision: 4,
+    configuration: { mode: "provider", model: "whisper-1", connection_id: "openai" },
+    effective_model: "whisper-1", effective_provider: "openai",
+  });
+  show(<VoiceConfiguration connections={connections} profiles={profiles} />);
+  const model = await screen.findByRole("combobox", { name: "Transcription model" });
+  expect(model).toHaveValue("legacy");
+  expect(screen.getByRole("option", { name: "whisper-1 (current assignment)" })).toBeInTheDocument();
+  fireEvent.change(model, { target: { value: "disabled" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(model).toHaveValue("legacy");
+  expect(voiceConfigurationApi.save).not.toHaveBeenCalled();
+});
+
+it("assigns a registered realtime model inline and omits other model classes", async () => {
+  show(<RealtimeVoiceConfiguration connections={connections} profiles={profiles} />);
+  const model = await screen.findByRole("combobox", { name: "Realtime model" });
+  expect(model).toHaveValue("disabled");
+  expect(screen.queryByRole("option", { name: /STT model|Chat model/ })).not.toBeInTheDocument();
+  fireEvent.change(model, { target: { value: "profile:live" } });
+  expect(realtimeVoiceConfigurationApi.save).not.toHaveBeenCalled();
+  vi.mocked(realtimeVoiceConfigurationApi.save).mockResolvedValue({
+    editable: true, revision: 7, effective_model: "gpt-realtime-2.1-mini",
+    configuration: { mode: "provider", model: "gpt-realtime-2.1-mini", connection_id: "openai" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save realtime model" }));
+  expect(await screen.findByText("Active: gpt-realtime-2.1-mini")).toBeInTheDocument();
+  expect(realtimeVoiceConfigurationApi.save).toHaveBeenCalledWith(
+    { connection_id: "openai", revision: 6, mode: "provider", model: "gpt-realtime-2.1-mini" },
+    { headers: { "X-Integral-Scope": "ws:workspace" } },
+  );
+});
+
+it("keeps assigned realtime model visible to a non-editor", async () => {
+  vi.mocked(realtimeVoiceConfigurationApi.get).mockResolvedValue({
+    editable: false, revision: 6,
+    configuration: { mode: "provider" }, effective_model: "gpt-realtime-mini",
+  });
+  show(<RealtimeVoiceConfiguration connections={[]} profiles={profiles} />);
+  expect(await screen.findByText("Active: gpt-realtime-mini")).toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: "Realtime model" })).not.toBeInTheDocument();
 });

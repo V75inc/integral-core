@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   attachmentAnalysisApi,
@@ -7,6 +8,8 @@ import { errorMessageFromAxios } from "../../../api/helpers";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { useToast } from "../../../context/ToastContext";
+import { Button } from "../../../components/ui/Button";
+import { FormDialog } from "../../../templates";
 import { Select, Text } from "../../../ui";
 
 export function AttachmentAnalysisConfiguration() {
@@ -20,19 +23,16 @@ export function AttachmentAnalysisConfiguration() {
     queryFn: attachmentAnalysisApi.get,
     enabled: !!auth?.user && !!workspaceId,
   });
+  const [draft, setDraft] = useState<{ enabled: boolean; revision: number } | null>(null);
   const save = useMutation({
     mutationFn: attachmentAnalysisApi.save,
     onSuccess: () => {
+      setDraft(null);
       void client.invalidateQueries({
         queryKey: ATTACHMENT_ANALYSIS_QUERY_KEY,
       });
       showToast("Image processing updated.", "success");
     },
-    onError: (error) =>
-      showToast(
-        errorMessageFromAxios(error, "Could not update image processing."),
-        "error",
-      ),
   });
   const data = query.data;
   if (!data)
@@ -43,50 +43,45 @@ export function AttachmentAnalysisConfiguration() {
           : "Loading image processing settings…"}
       </Text>
     );
+  const close = () => { if (!save.isPending) setDraft(null); };
   return (
-    <div className="space-y-4">
+    <section aria-label="Attachment analysis" className="flex flex-wrap items-start justify-between gap-3">
       <div className="space-y-1">
-        <Text as="p" weight="medium">
-          Search inside attachments
+        <Text as="p" weight="medium">Image descriptions</Text>
+        <Text as="p" variant="body-sm" tone="muted">
+          {data.available && data.configuration.enabled
+            ? "Automatic · uses your configured vision model"
+            : "Off · file details only for images"}
         </Text>
         <Text as="p" variant="body-sm" tone="muted">
-          Document text, file details and visible image text join the search
-          index in the background.
+          Document text extraction runs independently.
         </Text>
-      </div>
-      <label className="flex flex-col gap-2">
-        <Text as="span" variant="body-sm">
-          Image descriptions
-        </Text>
-        <Select
-          aria-label="Image descriptions"
-          value={data?.configuration.enabled ? "automatic" : "off"}
-          disabled={!data?.editable || !data.available || save.isPending}
-          onChange={(event) => {
-            if (data)
-              save.mutate({
-                enabled: event.target.value === "automatic",
-                revision: data.revision,
-              });
-          }}
-        >
-          <option value="automatic">
-            Automatic · use a configured vision model
-          </option>
-          <option value="off">Off · file details only for images</option>
-        </Select>
-      </label>
-      <Text as="p" variant="meta" tone="muted">
-        Automatic descriptions send a resized image to your workspace’s
-        configured vision-capable model. They capture visual details and
-        readable text, labeled as AI-generated. Native document text extraction
-        continues when image descriptions are off.
-      </Text>
-      {data && !data.available && (
-        <Text as="p" variant="meta" tone="muted">
+        {!data.available && <Text as="p" variant="meta" tone="muted">
           Automatic descriptions are disabled by your deployment.
+        </Text>}
+      </div>
+      {data.editable && data.available && <Button type="button" variant="secondary" size="sm"
+        onClick={() => { save.reset(); setDraft({ enabled: data.configuration.enabled, revision: data.revision }); }}>
+        Configure image descriptions
+      </Button>}
+      {draft && <FormDialog open title="Image descriptions" onClose={close}
+        onSubmit={() => save.mutate(draft)} submitLabel="Save settings"
+        submitDisabled={draft.enabled === data.configuration.enabled} submitLoading={save.isPending}>
+        <label className="flex flex-col gap-2">
+          <Text as="span" variant="body-sm">Processing mode</Text>
+          <Select value={draft.enabled ? "automatic" : "off"} disabled={save.isPending}
+            onChange={event => setDraft({ ...draft, enabled: event.target.value === "automatic" })}>
+            <option value="automatic">Automatic · use a configured vision model</option>
+            <option value="off">Off · file details only for images</option>
+          </Select>
+        </label>
+        <Text as="p" variant="meta" tone="muted">
+          Automatic descriptions send a resized image to your workspace’s vision model and label the result as AI-generated. Native document text extraction continues when this is off.
         </Text>
-      )}
-    </div>
+        {save.isError && <Text as="p" role="alert" tone="danger">
+          {errorMessageFromAxios(save.error, "Could not update image processing.")}
+        </Text>}
+      </FormDialog>}
+    </section>
   );
 }

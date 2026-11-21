@@ -1,14 +1,20 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, KeyRound } from "lucide-react";
-import { aiConfigurationApi, AI_CONFIGURATION_QUERY_KEY, type AIConfiguration, type ModelConnection, type ModelProfile } from "../../../api/aiConfiguration";
+import { aiConfigurationApi, AI_CONFIGURATION_QUERY_KEY, REALTIME_VOICE_QUERY_KEY, VOICE_CONFIGURATION_QUERY_KEY, realtimeVoiceConfigurationApi, voiceConfigurationApi, type AIConfiguration, type ModelConnection, type ModelProfile } from "../../../api/aiConfiguration";
+import { SPEECH_CONFIG_QUERY_ROOT } from "../../../api/speech";
 import { MODEL_CREDENTIALS_QUERY_KEY, PROVIDER_LABELS, type ModelProvider } from "../../../api/modelCredentials";
 import { defaultModel, RECOMMENDED_MODELS } from "../../../api/modelPresets";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { useToast } from "../../../context/ToastContext";
 import { Button } from "../../../components/ui/Button";
 import { Input, Select, Stack, Surface, Text } from "../../../ui";
+import { allowsVoiceRole, type VoiceRole } from "./voiceRoleModels";
 
+const OPENAI_VOICE_DEFAULTS = {
+  transcription: "gpt-4o-mini-transcribe",
+  realtime: "gpt-realtime-2.1-mini",
+} as const;
 const QUICK_PROVIDERS = ["openai", "anthropic", "openrouter", "ollama"] as const;
 type QuickProvider = typeof QUICK_PROVIDERS[number];
 const isQuickProvider = (provider: string): provider is QuickProvider => QUICK_PROVIDERS.some(value => value === provider);
@@ -38,40 +44,78 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
   const readOnly = managed || !data.effective.editable;
   const setup = useMutation({
     mutationFn: async ({ selectedProvider, key }: { selectedProvider: QuickProvider; key: string }) => {
-      const current = await aiConfigurationApi.get();
+      const request = { headers: { "X-Integral-Scope": `ws:${data.effective.workspace_id}` } };
+      const current = await aiConfigurationApi.get(request);
+      if (current.effective.workspace_id !== data.effective.workspace_id) throw new Error("The workspace changed. Open AI Models and try again.");
       if (current.key_policy === "platform_only" || !current.effective.editable) throw new Error("This workspace uses its owner's AI configuration.");
       const previous = progress.current?.provider === selectedProvider ? current.connections.find(item => item.id === progress.current?.connectionId) : undefined;
       const existing = previous || savedConnection(current, selectedProvider);
+      // Read the separately versioned model roles before writing anything.
+      const [transcription, realtime] = selectedProvider === "openai"
+        ? await Promise.all([voiceConfigurationApi.get(request), realtimeVoiceConfigurationApi.get(request)])
+        : [undefined, undefined];
       const active = current.profiles.find(profile => profile.id === current.default_profile_id);
       const saved: ModelConnection = await aiConfigurationApi.saveConnection({
         ...(existing ? { id: existing.id } : {}),
         name: existing?.name || PROVIDER_LABELS[selectedProvider], provider: selectedProvider,
-        base_url: "", without_key: false, ...(key.trim() ? { api_key: key.trim() } : {}),
-      });
+        base_url: existing?.base_url ?? "", without_key: false, ...(key.trim() ? { api_key: key.trim() } : {}),
+      }, request);
       // Clear the field once the server has validated and stored the key.
       setApiKey("");
       progress.current = { provider: selectedProvider, connectionId: saved.id };
       // Updating the current key must preserve deliberate model/routing tuning.
-      if (active?.connection_id === saved.id) return;
-      const recommended = current.model_policy?.providers[selectedProvider]?.preferred_heavy ?? defaultModel(selectedProvider);
-      const reused = current.profiles.find(profile => profile.connection_id === saved.id && profile.model === recommended && Object.keys(profile.generation_settings).length === 0);
-      const profile: ModelProfile = reused || await aiConfigurationApi.saveProfile({
-        name: RECOMMENDED_MODELS[selectedProvider].find(item => item.id === recommended)?.label || recommended,
-        connection_id: saved.id, model: recommended, generation_settings: {},
-      });
-      await aiConfigurationApi.saveRouting({
-        mode: "single", heavy_profile_id: profile.id, light_profile_id: "", revision: current.routing?.revision || "",
-      });
+      if (active?.connection_id !== saved.id) {
+        const recommended = current.model_policy?.providers[selectedProvider]?.preferred_heavy ?? defaultModel(selectedProvider);
+        const reused = current.profiles.find(profile => profile.connection_id === saved.id && profile.model === recommended && Object.keys(profile.generation_settings).length === 0);
+        const profile: ModelProfile = reused || await aiConfigurationApi.saveProfile({
+          name: RECOMMENDED_MODELS[selectedProvider].find(item => item.id === recommended)?.label || recommended,
+          connection_id: saved.id, model: recommended, generation_settings: {},
+        }, request);
+        await aiConfigurationApi.saveRouting({
+          mode: "single", heavy_profile_id: profile.id, light_profile_id: "", revision: current.routing?.revision || "",
+        }, request);
+      }
+      async function registerVoiceDefault(model: string, name: string, role: VoiceRole) {
+        if (!allowsVoiceRole(saved, model, role)) return false;
+        if (!current.profiles.some(profile => profile.connection_id === saved.id && profile.model === model)) {
+          await aiConfigurationApi.saveProfile({ name, connection_id: saved.id, model, generation_settings: {} }, request);
+        }
+        return true;
+      }
+      const registeredTranscription = transcription?.editable &&
+        await registerVoiceDefault(OPENAI_VOICE_DEFAULTS.transcription, "GPT-4o mini Transcribe", "transcription");
+      const registeredRealtime = realtime?.editable &&
+        await registerVoiceDefault(OPENAI_VOICE_DEFAULTS.realtime, "GPT-Realtime 2.1 mini", "realtime");
+      // Revision zero denotes an untouched role. Preserve explicit choices
+      // (including Off, browser-only, and deployment-default) on update/switch.
+      if (registeredTranscription && transcription?.revision === 0 && transcription.configuration.mode === "inherit") {
+        await voiceConfigurationApi.save({
+          mode: "provider", connection_id: saved.id, model: OPENAI_VOICE_DEFAULTS.transcription, revision: transcription.revision,
+        }, request);
+      }
+      if (registeredRealtime && realtime?.revision === 0 && realtime.configuration.mode === "disabled") {
+        await realtimeVoiceConfigurationApi.save({
+          mode: "provider", connection_id: saved.id, model: OPENAI_VOICE_DEFAULTS.realtime, revision: realtime.revision,
+        }, request);
+      }
     },
     onMutate: () => onBusyChange(true),
     onSuccess: () => { progress.current = null; setEditing(false); showToast("Provider saved. Model availability depends on your provider account.", "success"); },
-    onError: error => showToast(errorMessageFromAxios(error, "Could not finish AI setup. Check your provider and API key, then try again."), "error"),
+    onError: error => {
+      // Keep the form available on partial success even if the refreshed top
+      // card can now resolve the saved chat model.
+      if (progress.current) setEditing(true);
+      showToast(errorMessageFromAxios(error, "Could not finish AI setup. Check your provider and API key, then try again."), "error");
+    },
     onSettled: async () => {
       // Refresh partial saves too, so retry reuses the validated provider/profile.
       try {
         await Promise.all([
           qc.invalidateQueries({ queryKey: AI_CONFIGURATION_QUERY_KEY }),
           qc.invalidateQueries({ queryKey: MODEL_CREDENTIALS_QUERY_KEY }),
+          qc.invalidateQueries({ queryKey: VOICE_CONFIGURATION_QUERY_KEY }),
+          qc.invalidateQueries({ queryKey: REALTIME_VOICE_QUERY_KEY }),
+          qc.invalidateQueries({ queryKey: SPEECH_CONFIG_QUERY_ROOT }),
           qc.invalidateQueries({ queryKey: ["agentive", "status"] }),
         ]);
       } finally { onBusyChange(false); }
@@ -90,7 +134,7 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
           <Text as="h3" variant="heading-sm">{readOnly && !available ? "Workspace AI" : editing ? "Update your AI provider" : available ? "Your AI is connected" : "Connect your AI provider"}</Text>
           <Text as="p" variant="body-sm" tone="muted">
             {readOnly ? managed ? "AI is managed for this installation." : "This workspace uses its owner's AI setup."
-              : editing ? "Choose a provider or update its API key." : available ? "You're ready to chat and work with Integral." : "Choose a provider and add your API key. Integral selects the model for you."}
+              : editing ? "Choose a provider or update its API key." : available ? "You're ready to chat and work with Integral." : "Choose a provider and add your API key. Integral sets up the supported model defaults for you."}
           </Text>
         </div>
       </div>
@@ -110,7 +154,11 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
               placeholder={connection?.key_fingerprint ? "Leave blank to keep your saved key" : "Enter your provider API key"} onChange={event => setApiKey(event.target.value)} />
           </label>
           <Text as="p" variant="meta" tone="muted">{connection && connection.id === data.profiles.find(item => item.id === data.default_profile_id)?.connection_id
-            ? "Your current model settings will be kept." : `${modelName} will be selected automatically.`}</Text>
+            ? "Your current chat model settings will be kept." : `${modelName} will be selected automatically.${data.routing?.mode === "light_heavy" ? " This switches chat from separate Heavy and Light models to one model." : ""}`}</Text>
+          {provider === "openai" && <Text as="p" variant="meta" tone="muted">
+            Quick setup also configures Speech to Text and Realtime Voice if you haven't set them up or turned them off.
+            Existing voice settings and embedding settings are kept.
+          </Text>}
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={pending || (!connection?.key_fingerprint && !apiKey.trim())} loading={setup.isPending}>{available ? "Save provider" : "Connect provider"}</Button>
             {editing && <Button type="button" variant="ghost" disabled={pending} onClick={() => { setEditing(false); setApiKey(""); }}>Cancel</Button>}

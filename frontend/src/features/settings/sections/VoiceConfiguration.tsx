@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic } from "lucide-react";
 import {
@@ -6,6 +6,7 @@ import {
   VOICE_CONFIGURATION_QUERY_KEY,
   type VoiceChoice,
   type ModelConnection,
+  type ModelProfile,
 } from "../../../api/aiConfiguration";
 import { SPEECH_CONFIG_QUERY_ROOT } from "../../../api/speech";
 import { useScopeOptional } from "../../../context/ScopeContext";
@@ -13,216 +14,94 @@ import { useAuthOptional } from "../../../context/AuthContext";
 import { useToast } from "../../../context/ToastContext";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { Button } from "../../../components/ui/Button";
-import { Modal } from "../../../components/ui";
-import { Input, Select, Text } from "../../../ui";
+import { Text } from "../../../ui";
+import { VoiceRoleAssignment } from "./VoiceRoleAssignment";
+import { voiceRoleOptions } from "./voiceRoleModels";
 
-export function VoiceConfiguration({
-  connections,
-  navigateToSection,
-  embedded = false,
-}: {
+type Props = {
   connections: ModelConnection[];
+  profiles?: ModelProfile[];
   embedded?: boolean;
+  secondaryAction?: ReactNode;
   navigateToSection?: (id: string) => void;
-}) {
-  const scope = useScopeOptional();
-  const auth = useAuthOptional();
-  const workspaceId = scope?.scope?.workspaceId;
+};
+
+export function VoiceConfiguration(props: Props) {
+  const workspace = useScopeOptional()?.scope?.workspaceId;
+  const user = useAuthOptional()?.user?.id;
+  return <ScopedVoiceConfiguration key={JSON.stringify([workspace, user])} workspace={workspace} user={user} {...props} />;
+}
+
+function ScopedVoiceConfiguration({
+  workspace, user, connections, profiles = [], navigateToSection, embedded = false, secondaryAction,
+}: Props & { workspace?: string; user?: string }) {
   const qc = useQueryClient();
   const { showToast } = useToast();
-  const [draft, setDraft] = useState<
-    (VoiceChoice & { revision: number }) | null
-  >(null);
-  useEffect(() => setDraft(null), [workspaceId, auth?.user?.id]);
-  const query = useQuery({
-    queryKey: [...VOICE_CONFIGURATION_QUERY_KEY, auth?.user?.id, workspaceId],
-    queryFn: voiceConfigurationApi.get,
-    enabled: !!auth?.user && !!workspaceId,
-  });
+  const [draft, setDraft] = useState<{ id: string; revision: number } | null>(null);
+  const key = [...VOICE_CONFIGURATION_QUERY_KEY, user, workspace];
+  const request = { headers: { "X-Integral-Scope": `ws:${workspace}` } };
+  const query = useQuery({ queryKey: key, queryFn: () => voiceConfigurationApi.get(request), enabled: Boolean(user && workspace) });
   const save = useMutation({
-    mutationFn: voiceConfigurationApi.save,
-    onSuccess: () => {
+    mutationFn: (body: VoiceChoice & { revision: number }) => voiceConfigurationApi.save(body, request),
+    onSuccess: result => {
+      qc.setQueryData(key, result);
       setDraft(null);
-      void qc.invalidateQueries({ queryKey: VOICE_CONFIGURATION_QUERY_KEY });
       void qc.invalidateQueries({ queryKey: SPEECH_CONFIG_QUERY_ROOT });
       showToast("Voice model saved.", "success");
     },
-    onError: (error) =>
-      showToast(
-        errorMessageFromAxios(error, "Could not save voice model."),
-        "error",
-      ),
+    onError: () => { void query.refetch(); },
   });
-  const providers = connections.filter((c) => c.provider === "openai");
   const data = query.data;
-  return (
-    <section
-      className={embedded ? "" : "border-t border-[var(--border-subtle)] pt-5"}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 gap-3">
-          {!embedded && <Mic size={18} className="mt-1 shrink-0" />}
-          <div className="min-w-0 space-y-1">
-            <Text as={embedded ? "p" : "h3"} weight="medium">
-              {embedded ? "Transcription model" : "Voice"}
-            </Text>
-            <Text as="p" variant="body-sm" tone="muted">
-              Transcribes audio into text. Reuses a saved provider independently
-              of your chat models.
-            </Text>
-            {data && (
-              <Text as="p" variant="body-sm" className="break-words">
-                {data.effective_model || "Browser recognition when available"}
-              </Text>
-            )}
-            {query.isError && (
-              <Text as="p" variant="body-sm" tone="muted">
-                Voice model settings could not be loaded.{" "}
-                <button
-                  className="underline"
-                  onClick={() => void query.refetch()}
-                >
-                  Retry
-                </button>
-              </Text>
-            )}
-            {navigateToSection && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigateToSection("voice-input")}
-              >
-                Voice input preferences
-              </Button>
-            )}
-          </div>
-        </div>
-        {data?.editable && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() =>
-              setDraft({
-                ...data.configuration,
-                revision: data.revision,
-              })
-            }
-          >
-            Configure voice
-          </Button>
-        )}
+  const { options, selected } = voiceRoleOptions(connections, profiles, "transcription", data?.configuration);
+  const currentDraft = draft?.revision === data?.revision ? draft : null;
+  const selectedModel = options.find(item => item.id === currentDraft?.id && item.id !== "legacy");
+  const dirty = Boolean(currentDraft && (selectedModel || currentDraft.id === "inherit" || currentDraft.id === "disabled"));
+  function submit() {
+    if (!currentDraft) return;
+    if (selectedModel) {
+      save.mutate({ mode: "provider", model: selectedModel.model, connection_id: selectedModel.connectionId, revision: currentDraft.revision });
+    } else if (currentDraft.id === "inherit" || currentDraft.id === "disabled") {
+      save.mutate({ mode: currentDraft.id, model: "", connection_id: "", revision: currentDraft.revision });
+    }
+  }
+  return <section aria-label="Speech to text assignment" className={embedded ? "space-y-3" : "space-y-3 border-t border-[var(--border-subtle)] pt-5"}>
+    <div className="flex min-w-0 flex-wrap items-start gap-3">
+      {!embedded && <Mic size={18} className="mt-1 shrink-0" />}
+      <div className="min-w-0 flex-1 space-y-1">
+        <Text as={embedded ? "p" : "h3"} weight="medium">Dictation</Text>
+        {data && <Text as="p" variant="body-sm" className="break-words">
+          Active: {data.effective_model || "Browser recognition when available"}
+        </Text>}
+        {query.isError && <Text as="p" role="alert" variant="body-sm">
+          Transcription settings could not be loaded.{" "}
+          <button className="underline" onClick={() => void query.refetch()}>Retry</button>
+        </Text>}
       </div>
-      <Modal
-        open={!!draft}
-        onClose={() => {
-          if (!save.isPending) setDraft(null);
-        }}
-        title="Voice model"
-        placement="right"
-      >
-        {draft && (
-          <Modal.Body>
-            <Text as="p" variant="body-sm" tone="muted">
-              Choose a transcription model. Microphone, language and shortcut
-              preferences stay under Voice input.
-            </Text>
-            <Text as="label" variant="body-sm" className="flex flex-col gap-1">
-              Model source
-              <Select
-                value={draft.mode}
-                disabled={save.isPending}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    mode: e.target.value as VoiceChoice["mode"],
-                  })
-                }
-              >
-                <option value="inherit">Current / deployment default</option>
-                <option value="provider">Saved provider</option>
-                <option value="disabled">Browser recognition only</option>
-              </Select>
-            </Text>
-            {draft.mode === "provider" && (
-              <>
-                <Text
-                  as="label"
-                  variant="body-sm"
-                  className="flex flex-col gap-1"
-                >
-                  Provider
-                  <Select
-                    value={draft.connection_id}
-                    disabled={save.isPending}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        connection_id: e.target.value,
-                        model: draft.model || "gpt-4o-mini-transcribe",
-                      })
-                    }
-                  >
-                    <option value="">Choose a saved OpenAI provider</option>
-                    {providers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Text>
-                {!providers.length && (
-                  <Text as="p" variant="body-sm" tone="muted">
-                    Add an OpenAI provider under Providers first. Voice
-                    currently supports OpenAI transcription.
-                  </Text>
-                )}
-                <Text
-                  as="label"
-                  variant="body-sm"
-                  className="flex flex-col gap-1"
-                >
-                  Transcription model
-                  <Input
-                    list="voice-model-options"
-                    value={draft.model}
-                    disabled={save.isPending}
-                    onChange={(e) =>
-                      setDraft({ ...draft, model: e.target.value })
-                    }
-                  />
-                  <datalist id="voice-model-options">
-                    <option value="gpt-4o-mini-transcribe" />
-                    <option value="gpt-4o-transcribe" />
-                  </datalist>
-                </Text>
-                <Text as="p" variant="meta" tone="muted">
-                  Audio is sent to the selected provider when you use provider
-                  dictation.
-                </Text>
-              </>
-            )}
-            <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] pt-4">
-              <Button
-                variant="ghost"
-                disabled={save.isPending}
-                onClick={() => setDraft(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                disabled={
-                  save.isPending ||
-                  (draft.mode === "provider" &&
-                    (!draft.connection_id || !draft.model.trim()))
-                }
-                onClick={() => save.mutate(draft)}
-              >
-                {save.isPending ? "Saving…" : "Save voice model"}
-              </Button>
-            </div>
-          </Modal.Body>
-        )}
-      </Modal>
-    </section>
-  );
+      {secondaryAction}
+    </div>
+    {data?.editable && <VoiceRoleAssignment
+      label="Transcription model"
+      options={[
+        { id: "inherit", label: "Deployment default" },
+        { id: "disabled", label: "Browser recognition only" },
+        ...options,
+      ]}
+      selected={dirty && currentDraft ? currentDraft.id : selected}
+      dirty={dirty}
+      pending={save.isPending}
+      onChange={id => {
+        save.reset();
+        setDraft(id === selected ? null : { id, revision: data.revision });
+      }}
+      onSave={submit}
+      onCancel={() => { setDraft(null); save.reset(); }}
+      error={save.isError ? errorMessageFromAxios(save.error, "Could not save transcription settings.") : undefined}
+      helper={options.some(option => option.id !== "legacy")
+        ? "Provider-backed dictation sends audio to the assigned provider."
+        : "Register a compatible transcription model to assign it here."}
+    />}
+    {navigateToSection && <Button variant="ghost" size="sm" onClick={() => navigateToSection("voice-input")}>
+      Voice input preferences
+    </Button>}
+  </section>;
 }

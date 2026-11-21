@@ -6,7 +6,9 @@ import {
   EMBEDDING_CONFIGURATION_QUERY_KEY,
   type EmbeddingChoice,
   type ModelConnection,
+  type ModelProfile,
 } from "../../../api/aiConfiguration";
+import { isEmbeddingProfile } from "./modelProfileKinds";
 import { PROVIDER_LABELS } from "../../../api/modelCredentials";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { useAuthOptional } from "../../../context/AuthContext";
@@ -32,9 +34,11 @@ const examples: Record<string, { model: string; dimensions: number }> = {
 export function EmbeddingConfiguration({
   connections,
   embedded = false,
+  profiles = [],
 }: {
   connections: ModelConnection[];
   embedded?: boolean;
+  profiles?: ModelProfile[];
 }) {
   const scope = useScopeOptional();
   const auth = useAuthOptional();
@@ -111,6 +115,36 @@ export function EmbeddingConfiguration({
   });
   const supported = connections.filter((c) => c.provider !== "anthropic");
   const data = query.data;
+  const eligibleProfiles = profiles.filter(
+    (profile) => isEmbeddingProfile(profile) && supported.some((c) => c.id === profile.connection_id),
+  );
+  const configuredProfile = eligibleProfiles.find(
+    (profile) => profile.connection_id === data?.configuration?.connection_id && profile.model === data?.configuration?.model,
+  );
+  const selection = data?.configuration?.mode === "provider"
+    ? configuredProfile?.id ?? "legacy"
+    : "deployment";
+  const openSettings = (profileId?: string) => {
+    if (!data) return;
+    setContinuePrevious(false);
+    const profile = eligibleProfiles.find((item) => item.id === profileId);
+    const choice = { ...fresh(), ...data.configuration, revision: data.revision };
+    if (profile) {
+      const unchanged = choice.mode === "provider" && choice.connection_id === profile.connection_id && choice.model === profile.model;
+      setDraft({
+        ...choice,
+        mode: "provider",
+        connection_id: profile.connection_id,
+        model: profile.model,
+        // Catalog profiles do not declare dimensions. Require an explicit review,
+        // rather than guessing a vector size from the model name.
+        dimensions: unchanged ? choice.dimensions : 0,
+        allow_workspace_text: unchanged && choice.allow_workspace_text,
+      });
+    } else {
+      setDraft(profileId === "deployment" ? { ...fresh(), revision: data.revision } : choice);
+    }
+  };
   const localLabel =
     data?.processing_location === "device"
       ? "On this device"
@@ -227,28 +261,52 @@ export function EmbeddingConfiguration({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => {
-              setContinuePrevious(false);
-              setDraft({
-                ...fresh(),
-                ...data.configuration,
-                revision: data.revision,
-              });
-            }}
+            onClick={() => openSettings()}
           >
-            Configure embeddings
+            {embedded ? "Embedding settings" : "Configure embeddings"}
           </Button>
         )}
       </div>
+      {embedded && data && (
+        <div className="mt-3 space-y-2">
+          <Text as="label" variant="body-sm" className="flex flex-col gap-1">
+            Embedding model
+            <Select
+              value={selection}
+              disabled={!data.editable || busy}
+              onChange={(event) => openSettings(event.target.value)}
+            >
+              <option value="deployment">{localLabel} · default</option>
+              {selection === "legacy" && (
+                <option value="legacy">{data.configuration?.model} · current configuration</option>
+              )}
+              {eligibleProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id} disabled={!data.provider_overrides_supported}>
+                  {profile.name} · {profile.model}
+                </option>
+              ))}
+            </Select>
+          </Text>
+          <Text as="p" variant="meta" tone="muted">
+            Select a registered embedding model to review dimensions and consent before saving.
+            No workspace text is sent until you confirm. Changing models rebuilds search.
+          </Text>
+          {!eligibleProfiles.length && (
+            <Text as="p" variant="meta" tone="muted">
+              No registered embedding models available. Register an embedding model in the model catalog, or use Embedding settings for an existing custom model.
+            </Text>
+          )}
+        </div>
+      )}
       <Modal
         open={!!draft}
         onClose={() => {
           if (!busy) setDraft(null);
         }}
         title="Embedding model"
-        placement="right"
       >
         {draft && (
+          <>
           <Modal.Body>
             <Text as="p" variant="body-sm" tone="muted">
               Choose how search understands workspace text. The default runs on{" "}
@@ -395,7 +453,8 @@ export function EmbeddingConfiguration({
                   </Text>
                 </label>
               )}
-            <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] pt-4">
+          </Modal.Body>
+          <Modal.Footer>
               <Button
                 variant="ghost"
                 disabled={busy}
@@ -424,8 +483,8 @@ export function EmbeddingConfiguration({
               >
                 {save.isPending ? "Saving…" : "Save model"}
               </Button>
-            </div>
-          </Modal.Body>
+          </Modal.Footer>
+          </>
         )}
       </Modal>
     </section>

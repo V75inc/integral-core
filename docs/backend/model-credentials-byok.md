@@ -1,9 +1,11 @@
 # AI models, providers and BYOK
 
-Settings → AI Models provides a simple setup: choose a provider, add its key,
-and use the provider's model default. Advanced configuration exposes Models and
-Providers. Models groups Language & multimodal, Embeddings and Voice in a
-single-open accordion; Language & multimodal is collapsed initially.
+Settings → AI Models provides a simple setup: choose a provider and save its API
+key once. Quick setup saves the provider connection and chooses the supported
+defaults; the Models and Providers tabs below show those same saved settings.
+Open an individual model section to set its assignment. The registered model
+catalog supplies compatible models; it is separate from the active assignments.
+Dictation preferences are available separately inside Speech to Text.
 
 ## Providers and model profiles
 
@@ -28,7 +30,13 @@ Guided setup uses provider-specific frontier defaults (reviewed 2026-11-13):
 OpenAI `gpt-6.1-sol`, Anthropic `claude-opus-5-5`, OpenRouter
 `openai/gpt-6.1-sol` (also offers `anthropic/claude-opus-5.5`), and Ollama Cloud
 `deepseek-v4.1-flash`. Local/custom endpoints have no automatic heavy default.
-Existing profiles are not migrated or switched silently.
+Where OpenAI Speech to Text and Realtime Voice are supported, quick setup
+registers `gpt-4o-mini-transcribe` and `gpt-realtime-2.1-mini` and assigns them
+to untouched roles. Existing voice choices, including explicitly disabled roles, are preserved.
+Embedding settings are not changed by quick setup. An update to the active
+provider's key keeps the current chat assignments; explicitly switching to a
+different provider selects its default chat profile and turns off dual routing.
+Provider access validation does not prove access to each individual model.
 
 The versioned harness policy separates candidate availability from observed
 Integral workflows; neither is certification. OpenAI Sol has limited workflow

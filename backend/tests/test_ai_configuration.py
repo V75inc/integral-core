@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.credentials import UserModelCredential
-from app.schemas.ai_configuration import ConnectionWrite, ProfileWrite
+from app.schemas.ai_configuration import ConnectionWrite, ProfileWrite, RoutingWrite
 from app.schemas.model_settings import ModelGenerationSettings
 from app.services import ai_configuration as service
 from app.services.credential_crypto import decrypt_secret_from_storage
@@ -431,6 +431,21 @@ async def test_conversation_profile_select_reset_and_busy_guard(authenticated_cl
     )
     assert rejected.status_code == 400
     assert "light model" in rejected.text
+    voice = await authenticated_client.post(
+        "/api/users/me/model-profiles",
+        json={
+            "name": "Transcription",
+            "connection_id": config["profiles"][0]["connection_id"],
+            "model": "gpt-4o-mini-transcribe",
+        },
+    )
+    assert voice.status_code == 200, voice.text
+    rejected = await authenticated_client.post(
+        "/api/users/me/conversation-model",
+        json={"thread_id": thread_id, "profile_id": voice.json()["id"]},
+    )
+    assert rejected.status_code == 400
+    assert "cannot be used for chat" in rejected.text
     reset = await authenticated_client.post(
         "/api/users/me/conversation-model",
         json={"thread_id": thread_id, "profile_id": ""},
@@ -738,3 +753,61 @@ def test_mandatory_native_reasoning_preserves_sdk_declared_levels(monkeypatch):
         ] == ["high", "xhigh"]
     finally:
         model_capabilities.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_non_chat_profiles_save_but_cannot_replace_routing_assignments():
+    connection = await service.save_connection(
+        "owner",
+        ConnectionWrite(name="Account", provider="openai", api_key="synthetic-key"),
+    )
+
+    async def save(model, item_id=None):
+        return await service.save_profile(
+            "owner",
+            ProfileWrite(
+                id=item_id, name=model, connection_id=connection["id"], model=model
+            ),
+        )
+
+    heavy = await save("gpt-4o")
+    light = await save("gpt-4.1-mini")
+    voice = await save("gpt-realtime-mini")
+    embedding = await save("text-embedding-3-small")
+    await service.activate_profile("owner", heavy["id"])
+    config = await service.configuration("owner")
+    tiers = {
+        entry["id"]: entry["harness_policy"]["tier"] for entry in config["profiles"]
+    }
+    assert tiers[voice["id"]] == "voice"
+    assert tiers[embedding["id"]] == "embedding"
+
+    record = await service.get_credential_for_user("owner")
+    with pytest.raises(ValueError, match="cannot be used for chat"):
+        await service.activate_profile("owner", voice["id"])
+    with pytest.raises(ValueError, match="cannot be used for chat"):
+        await service.save_routing(
+            "owner",
+            RoutingWrite(
+                mode="light_heavy",
+                heavy_profile_id=heavy["id"],
+                light_profile_id=voice["id"],
+                revision=record.updated_at,
+            ),
+        )
+    await service.save_routing(
+        "owner",
+        RoutingWrite(
+            mode="light_heavy",
+            heavy_profile_id=heavy["id"],
+            light_profile_id=light["id"],
+            revision=record.updated_at,
+        ),
+    )
+    for target in (heavy, light):
+        with pytest.raises(ValueError, match="cannot be used for chat"):
+            await save("gpt-4o-mini-transcribe", target["id"])
+    config = await service.configuration("owner")
+    models = {entry["id"]: entry["model"] for entry in config["profiles"]}
+    assert models[heavy["id"]] == "gpt-4o"
+    assert models[light["id"]] == "gpt-4.1-mini"
