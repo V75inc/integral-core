@@ -9,6 +9,10 @@ from app.models.edges import CONTAINS, HAS_APPLICATION_DEFINITION, OWNS
 from app.models.nodes import App, ApplicationDefinition, Entry
 from app.services.app_graph import catalog_app
 from app.services.application_definitions import definition_fingerprint
+from app.services.attachment_entry_write import (
+    AttachmentEntryReadonlyError,
+    attachment_entry_write,
+)
 from app.services.entry_create import create_entry_in_track
 from app.services.entry_update import update_entry_in_track
 from app.services.entry_write_check import check_entry_write
@@ -59,6 +63,8 @@ async def test_app_record_standard_fields_lock_after_state_change():
         custom_fields={"phase": "open"},
     )
     await update_entry_in_track(entry_id=entry.id, user_id=user, body="Reviewed note")
+    async with attachment_entry_write(entry, user) as current:
+        assert current.body == "Reviewed note"
     await update_entry_in_track(
         entry_id=entry.id, user_id=user, custom_fields={"phase": "closed"}
     )
@@ -77,3 +83,6 @@ async def test_app_record_standard_fields_lock_after_state_change():
         await update_entry_in_track(entry_id=entry.id, user_id=user, body="New note")
     assert refused.value.details["error_code"] == "app_record_readonly"
     assert (await Entry.find_one({"id": entry.id})).body == "Reviewed note"
+    with pytest.raises(AttachmentEntryReadonlyError):
+        async with attachment_entry_write(entry, user):
+            pytest.fail("A read-only rule must refuse before the attachment effect")

@@ -6,7 +6,7 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
-- Let a trusted App restrict standard Entry editing at a declared lifecycle state. The typed Entry writer checks the saved state, and the Entry editor shows the effective restriction.
+- Let a trusted App restrict standard Entry editing and attachment writes at a declared lifecycle state. The Entry editor shows the effective restriction, and action bar downloads skip the optional save to a read-only Entry.
 - Move domain form workflows, document UI, template selection and legacy App aliases to explicit host contracts; Core renders declared groups, review and acknowledgment steps without inferring business policy from field names. Host migration/readiness and paired artifact qualification are required before adoption.
 - Require declared create-action argument names and import eligibility; remove implicit record-copy and identifier-preview behavior from Core forms. Enforce an app-neutral runtime and SDK architecture gate without named-App exceptions.
 

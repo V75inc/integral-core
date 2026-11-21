@@ -40,6 +40,7 @@ from app.config import settings
 from app.models.edges import HAS_ATTACHMENT
 from app.models.nodes import Attachment, Entry
 from app.schemas.policy import Resource, Subject
+from app.services.attachment_entry_write import attachment_entry_write
 from app.services.attachment_metadata import get_metadata_extraction_service
 from app.services.attachment_preview import (
     PreviewUnavailableError,
@@ -122,154 +123,43 @@ async def _persist_uploaded_file(
     Returns a dict with either ``attachment`` (success) or ``error``
     (single-file failure, used by the batch endpoint to keep going).
     """
-    content, filename, sha256_hex, head_bytes = await _read_upload_streaming(
+    content, filename, sha256_hex, _ = await _read_upload_streaming(
         file,
         max_bytes=settings.ATTACHMENT_MAX_UPLOAD_BYTES,
         image_max_bytes=settings.ATTACHMENT_MAX_IMAGE_BYTES,
     )
-    file_size = len(content)
-    mime_type = _resolve_effective_mime(
-        head_bytes=head_bytes,
-        content_type_claim=file.content_type or "",
+    return await _persist_assembled_content(
+        entry=entry,
+        user_id=user_id,
         filename=filename,
+        content=content,
+        declared_mime=file.content_type or "",
+        sha256_hex=sha256_hex,
+        chunked=False,
     )
 
-    # Per-entry dedup (Phase 1: SHA-256 scope = same entry only).
-    existing = await _find_duplicate_hash_on_entry(entry, sha256_hex)
-    if existing is not None:
-        raise ResourceConflictError(
-            message=("An attachment with identical content is already on this entry."),
-        )
 
-    # Plan 03 — Phase 5: enforce org storage quota when configured.
-    # ``check_quota_for_entry`` is a fast O(1) read against the
-    # denormalised counter and returns None when there's nothing to
-    # enforce (no org, unlimited quota, or enforcement disabled).
-    over_quota = await check_quota_for_entry(entry, file_size)
-    if over_quota is not None:
-        raise BadRequestError(
-            message=(
-                "Workspace storage quota exceeded "
-                f"({over_quota.bytes_used} / {over_quota.quota_bytes} bytes). "
-                "Delete files or contact an admin to raise the quota."
-            ),
-        )
-
-    # Resolve the backing store before persisting a graph node. A missing or
-    # unwritable storage root must not leave an unattached Attachment behind.
-    storage = get_attachment_storage_service()
-    attachment = await Attachment.create(
-        filename=filename,
-        mime_type=mime_type,
-        size=file_size,
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=user_id,
-        content_hash=sha256_hex,
-        scan_status="pending",
-        metadata_status="pending",
-        created_at=utc_now_iso(),
-    )
-    try:
-        result = await storage.save_attachment(
-            entry_id=entry.id,
-            attachment_id=attachment.id,
-            filename=filename,
-            content=content,
-            mime_type=mime_type,
-            metadata={
-                "entry_id": entry.id,
-                "attachment_id": attachment.id,
-                "uploaded_by": user_id,
-                "sha256": sha256_hex,
-            },
-        )
-    except Exception:
-        await attachment.delete()
-        raise
-
-    attachment.storage_key = str(result.get("path") or "")
-    await attachment.save()
-
-    # ---- Post-write, pre-publish scan ----
-    scanner = get_attachment_scanner()
-    try:
-        verdict = await scanner.scan(
-            content=content,
-            mime_type=mime_type,
-            filename=filename,
-        )
-    except Exception as e:  # noqa: BLE001
-        # Scanner failure shouldn't block the upload — surface in the
-        # attachment record so an admin can re-scan later.
-        attachment.scan_status = "failed"
-        attachment.scan_engine = scanner.name
-        attachment.scan_message = f"scanner crashed: {e}"
-    else:
-        attachment.scan_status = verdict.status
-        attachment.scan_engine = verdict.engine
-        attachment.scan_message = verdict.message
-        if verdict.is_blocked:
-            # Keep the metadata record (for audit) but remove the bytes.
-            with contextlib.suppress(Exception):
-                await storage.delete_attachment(attachment.storage_key)
-            attachment.storage_key = ""
-    await attachment.save()
-
-    # ---- Generate image thumbnail (Phase 2) ----
-    # Cheap enough to run inline — Pillow downscale of a single image
-    # is sub-100ms on a midsize JPEG. Done before linking so the
-    # exported attachment carries thumb_storage_key on the create
-    # response. Failure here is non-fatal (the helper logs and returns
-    # None when Pillow isn't installed or the image is malformed).
-    if attachment.scan_status != SCAN_STATUS_BLOCKED:
-        try:
-            thumb_key = await ensure_thumbnail(
-                attachment, entry_id=entry.id, content=content, storage=storage
-            )
-            if thumb_key:
-                await attachment.save()
-        except Exception:  # noqa: BLE001
-            # Defensive: the helper already catches/logs; if something
-            # truly unexpected escapes, keep the upload alive.
-            pass
-
-    # ---- Link to entry ----
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-    if attachment.id not in entry.attachment_ids:
-        entry.attachment_ids.append(attachment.id)
-        await entry.save()
-
-    # ---- D-05 single emission path ----
+async def _publish_entry_attachment(
+    entry: Entry,
+    user_id: str,
+    attachment_id: str,
+    published: Dict[str, Any],
+    *,
+    scan_blocked: bool,
+) -> None:
+    """Publish the committed attachment and schedule its derived metadata."""
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
         action="attachment.create",
         resource_type="Attachment",
-        resource_id=attachment.id,
+        resource_id=attachment_id,
         before=None,
-        after=await export_node(attachment),
+        after=published,
         scope=f"track:{entry.track_id or ''}",
     )
-
-    # ---- Dispatch metadata extraction (background, non-blocking) ----
-    if attachment.scan_status != SCAN_STATUS_BLOCKED:
-        get_metadata_extraction_service().schedule_extraction(attachment.id)
-
-    # ---- Counter accounting (Phase 5) ----
-    # Only count bytes that actually landed in storage. Blocked uploads
-    # had their bytes deleted by the scanner branch above, so they
-    # don't accrue against quota.
-    if attachment.scan_status != SCAN_STATUS_BLOCKED and attachment.storage_key:
-        await increment_for_entry(entry, file_size)
-
-    return {"attachment": await export_node(attachment)}
+    if not scan_blocked:
+        get_metadata_extraction_service().schedule_extraction(attachment_id)
 
 
 async def _read_multipart_files(request: Request, field_name: str) -> List[UploadFile]:
@@ -400,25 +290,12 @@ async def upload_attachments_batch(
         # uses the post-read size so we don't have to trust the
         # content-length header.
         try:
-            persisted = await _persist_uploaded_file(
-                entry=entry,
-                user_id=user_id,
-                file=upload,
+            content, filename, sha256_hex, _ = await _read_upload_streaming(
+                upload,
+                max_bytes=settings.ATTACHMENT_MAX_UPLOAD_BYTES,
+                image_max_bytes=settings.ATTACHMENT_MAX_IMAGE_BYTES,
             )
-            att = persisted["attachment"]
-            file_size = int(
-                att.get("context", {}).get("size", 0) or att.get("size", 0) or 0
-            )
-            running_bytes += file_size
-            if running_bytes > settings.ATTACHMENT_MAX_BATCH_BYTES:
-                # Roll back this one entry so the running total
-                # accurately reflects what's now on the entry.
-                with contextlib.suppress(Exception):
-                    att_id = att.get("id") or att.get("context", {}).get("id")
-                    if att_id:
-                        node = await Attachment.get(att_id)
-                        if node:
-                            await node.delete()
+            if running_bytes + len(content) > settings.ATTACHMENT_MAX_BATCH_BYTES:
                 results.append(
                     {
                         "error": (
@@ -430,6 +307,16 @@ async def upload_attachments_batch(
                 )
                 failures += 1
                 break
+            persisted = await _persist_assembled_content(
+                entry=entry,
+                user_id=user_id,
+                filename=filename,
+                content=content,
+                declared_mime=upload.content_type or "",
+                sha256_hex=sha256_hex,
+                chunked=False,
+            )
+            running_bytes += len(content)
             results.append(persisted)
             successes += 1
         except Exception as e:  # noqa: BLE001
@@ -531,31 +418,32 @@ async def create_url_attachment(
     parsed = urlparse(raw_url)
 
     fallback_name = (parsed.netloc + (parsed.path or "")).strip("/") or parsed.netloc
-    attachment = await Attachment.create(
-        filename=label.strip() or fallback_name[:200],
-        mime_type="text/uri-list",
-        size=0,
-        storage_key=f"attachments/{entry_id}/url/{datetime.now().timestamp()}",
-        source_type="url",
-        external_url=parsed.geturl(),
-        uploaded_by=user_id,
-        # URL attachments skip the scanner + extractor pipeline; mark
-        # status explicitly so the UI knows the state is deliberate.
-        scan_status="skipped",
-        scan_engine="n/a",
-        scan_message="URL attachments are not scanned.",
-        metadata_status="skipped",
-        created_at=utc_now_iso(),
-    )
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-    if attachment.id not in entry.attachment_ids:
-        entry.attachment_ids.append(attachment.id)
-        await entry.save()
+    async with attachment_entry_write(entry, user_id) as entry:
+        attachment = await Attachment.create(
+            filename=label.strip() or fallback_name[:200],
+            mime_type="text/uri-list",
+            size=0,
+            storage_key=f"attachments/{entry_id}/url/{datetime.now().timestamp()}",
+            source_type="url",
+            external_url=parsed.geturl(),
+            uploaded_by=user_id,
+            # URL attachments skip the scanner + extractor pipeline; mark
+            # status explicitly so the UI knows the state is deliberate.
+            scan_status="skipped",
+            scan_engine="n/a",
+            scan_message="URL attachments are not scanned.",
+            metadata_status="skipped",
+            created_at=utc_now_iso(),
+        )
+        await entry.connect(
+            attachment,
+            edge=HAS_ATTACHMENT,
+            attached_at=utc_now_iso(),
+            attached_by=user_id,
+        )
+        if attachment.id not in entry.attachment_ids:
+            entry.attachment_ids.append(attachment.id)
+            await entry.save()
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -871,10 +759,15 @@ async def reprocess_attachment_metadata(
             message="You do not have permission to reprocess this attachment"
         )
 
-    service = get_metadata_extraction_service()
-    updated = await service.extract_now(
-        attachment_id, force_analysis=True, analysis_principal_id=user_id
-    )
+    async with attachment_entry_write(entry, user_id):
+        if len(entries) > 1:
+            raise ResourceConflictError(
+                message="Metadata reprocessing requires a single owning Entry."
+            )
+        service = get_metadata_extraction_service()
+        updated = await service.extract_now(
+            attachment_id, force_analysis=True, analysis_principal_id=user_id
+        )
     return {
         "attachment": await export_node(updated),
         "message": "Attachment metadata reprocessed",
@@ -1059,14 +952,15 @@ async def start_chunked_upload(
         raise ResourceNotFoundError(message="Entry not found")
     await _require_entry_scope(request, user_id, entry)
 
-    session = await chunked_start_session(
-        entry=entry,
-        user_id=user_id,
-        filename=filename,
-        mime_type=mime_type,
-        total_bytes=total_bytes,
-        chunk_size=chunk_size,
-    )
+    async with attachment_entry_write(entry, user_id) as entry:
+        session = await chunked_start_session(
+            entry=entry,
+            user_id=user_id,
+            filename=filename,
+            mime_type=mime_type,
+            total_bytes=total_bytes,
+            chunk_size=chunk_size,
+        )
     return {"session": chunked_session_to_dict(session)}
 
 
@@ -1249,16 +1143,9 @@ async def _persist_assembled_content(
     content: bytes,
     declared_mime: str,
     sha256_hex: str,
+    chunked: bool = True,
 ) -> Dict[str, Any]:
-    """Push already-assembled bytes through the full pipeline.
-
-    Phase 6 hand-off: take assembled chunked-upload bytes through the
-    same sniff / scan / dedup / store / metadata pipeline.
-    This is the chunked-upload counterpart of ``_persist_uploaded_file``.
-    Logic is intentionally near-identical so behaviour stays consistent
-    regardless of how the bytes arrived — sniffing still wins, scanner
-    still runs, dedup still fires, metadata still dispatches.
-    """
+    """Store bytes from either upload path under the same attachment policy."""
     head_bytes = content[:4096]
     mime_type = _resolve_effective_mime(
         head_bytes=head_bytes,
@@ -1272,116 +1159,111 @@ async def _persist_assembled_content(
         settings.ATTACHMENT_MAX_IMAGE_BYTES,
     )
 
-    existing = await _find_duplicate_hash_on_entry(entry, sha256_hex)
-    if existing is not None:
-        raise ResourceConflictError(
-            message=("An attachment with identical content is already on this entry."),
-        )
-
-    # Quota gate again — the session-init check used the declared
-    # total. Verifying at finalize covers the case where another
-    # upload pushed the org over while this one was streaming.
-    over_quota = await check_quota_for_entry(entry, file_size)
-    if over_quota is not None:
-        raise BadRequestError(
-            message=(
-                "Workspace storage quota exceeded "
-                f"({over_quota.bytes_used} / {over_quota.quota_bytes} bytes)."
-            ),
-        )
-
-    storage = get_attachment_storage_service()
-    attachment = await Attachment.create(
-        filename=filename,
-        mime_type=mime_type,
-        size=file_size,
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=user_id,
-        content_hash=sha256_hex,
-        scan_status="pending",
-        metadata_status="pending",
-        created_at=utc_now_iso(),
-    )
-    try:
-        result = await storage.save_attachment(
-            entry_id=entry.id,
-            attachment_id=attachment.id,
-            filename=filename,
-            content=content,
-            mime_type=mime_type,
-            metadata={
-                "entry_id": entry.id,
-                "attachment_id": attachment.id,
-                "uploaded_by": user_id,
-                "sha256": sha256_hex,
-                "via": "chunked",
-            },
-        )
-    except Exception:
-        await attachment.delete()
-        raise
-
-    attachment.storage_key = str(result.get("path") or "")
-    await attachment.save()
-
-    scanner = get_attachment_scanner()
-    try:
-        verdict = await scanner.scan(
-            content=content, mime_type=mime_type, filename=filename
-        )
-    except Exception as e:  # noqa: BLE001
-        attachment.scan_status = "failed"
-        attachment.scan_engine = scanner.name
-        attachment.scan_message = f"scanner crashed: {e}"
-    else:
-        attachment.scan_status = verdict.status
-        attachment.scan_engine = verdict.engine
-        attachment.scan_message = verdict.message
-        if verdict.is_blocked:
-            with contextlib.suppress(Exception):
-                await storage.delete_attachment(attachment.storage_key)
-            attachment.storage_key = ""
-    await attachment.save()
-
-    if attachment.scan_status != SCAN_STATUS_BLOCKED:
-        try:
-            thumb_key = await ensure_thumbnail(
-                attachment, entry_id=entry.id, content=content, storage=storage
+    async with attachment_entry_write(entry, user_id) as entry:
+        existing = await _find_duplicate_hash_on_entry(entry, sha256_hex)
+        if existing is not None:
+            raise ResourceConflictError(
+                message=(
+                    "An attachment with identical content is already on this entry."
+                ),
             )
-            if thumb_key:
-                await attachment.save()
-        except Exception:  # noqa: BLE001
-            pass
 
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-    if attachment.id not in entry.attachment_ids:
-        entry.attachment_ids.append(attachment.id)
-        await entry.save()
+        # Quota gate again — the session-init check used the declared
+        # total. Verifying at finalize covers the case where another
+        # upload pushed the org over while this one was streaming.
+        over_quota = await check_quota_for_entry(entry, file_size)
+        if over_quota is not None:
+            raise BadRequestError(
+                message=(
+                    "Workspace storage quota exceeded "
+                    f"({over_quota.bytes_used} / {over_quota.quota_bytes} bytes)."
+                ),
+            )
 
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="attachment.create",
-        resource_type="Attachment",
-        resource_id=attachment.id,
-        before=None,
-        after=await export_node(attachment),
-        scope=f"track:{entry.track_id or ''}",
-    )
+        storage = get_attachment_storage_service()
+        attachment = await Attachment.create(
+            filename=filename,
+            mime_type=mime_type,
+            size=file_size,
+            storage_key="",
+            source_type="file",
+            external_url="",
+            uploaded_by=user_id,
+            content_hash=sha256_hex,
+            scan_status="pending",
+            metadata_status="pending",
+            created_at=utc_now_iso(),
+        )
+        try:
+            result = await storage.save_attachment(
+                entry_id=entry.id,
+                attachment_id=attachment.id,
+                filename=filename,
+                content=content,
+                mime_type=mime_type,
+                metadata={
+                    "entry_id": entry.id,
+                    "attachment_id": attachment.id,
+                    "uploaded_by": user_id,
+                    "sha256": sha256_hex,
+                    **({"via": "chunked"} if chunked else {}),
+                },
+            )
+        except Exception:
+            await attachment.delete()
+            raise
 
-    if attachment.scan_status != SCAN_STATUS_BLOCKED:
-        get_metadata_extraction_service().schedule_extraction(attachment.id)
-        if attachment.storage_key:
+        attachment.storage_key = str(result.get("path") or "")
+        await attachment.save()
+
+        scanner = get_attachment_scanner()
+        try:
+            verdict = await scanner.scan(
+                content=content, mime_type=mime_type, filename=filename
+            )
+        except Exception as e:  # noqa: BLE001
+            attachment.scan_status = "failed"
+            attachment.scan_engine = scanner.name
+            attachment.scan_message = f"scanner crashed: {e}"
+        else:
+            attachment.scan_status = verdict.status
+            attachment.scan_engine = verdict.engine
+            attachment.scan_message = verdict.message
+            if verdict.is_blocked:
+                with contextlib.suppress(Exception):
+                    await storage.delete_attachment(attachment.storage_key)
+                attachment.storage_key = ""
+        await attachment.save()
+
+        if attachment.scan_status != SCAN_STATUS_BLOCKED:
+            try:
+                thumb_key = await ensure_thumbnail(
+                    attachment, entry_id=entry.id, content=content, storage=storage
+                )
+                if thumb_key:
+                    await attachment.save()
+            except Exception:  # noqa: BLE001
+                pass
+
+        await entry.connect(
+            attachment,
+            edge=HAS_ATTACHMENT,
+            attached_at=utc_now_iso(),
+            attached_by=user_id,
+        )
+        if attachment.id not in entry.attachment_ids:
+            entry.attachment_ids.append(attachment.id)
+            await entry.save()
+
+        published = await export_node(attachment)
+        scan_blocked = attachment.scan_status == SCAN_STATUS_BLOCKED
+        if not scan_blocked and attachment.storage_key:
             await increment_for_entry(entry, file_size)
 
-    return {"attachment": await export_node(attachment)}
+    await _publish_entry_attachment(
+        entry, user_id, attachment.id, published, scan_blocked=scan_blocked
+    )
+    return {"attachment": published}
 
 
 def _quote_disposition_filename(filename: str) -> str:
@@ -1556,48 +1438,47 @@ async def delete_attachment(
             message="You do not have permission to delete this attachment"
         )
 
-    # Deleting the node and bytes would also erase the original chat upload or
-    # another Entry's attachment. A future unlink operation can detach just
-    # this Entry; until then, fail closed rather than destroying shared data.
-    thread_parents = await attachment.nodes(
-        edge=["HAS_ATTACHMENT"], node=["ChatThread"], direction="in", limit=1
-    )
-    if len(entries) > 1 or thread_parents:
-        raise ResourceConflictError(
-            message="This file is shared with another record or conversation and cannot be deleted here."
+    async with attachment_entry_write(entry, user_id) as entry:
+        attachment = await Attachment.find_one({"id": attachment_id})
+        if attachment is None:
+            raise ResourceNotFoundError(message="Attachment not found")
+        # A node/byte delete must never erase a file still shared with chat
+        # or another Entry. Recheck ownership at the mutation boundary.
+        entries = await attachment.nodes(
+            edge=["HAS_ATTACHMENT"], node=["Entry"], direction="in", limit=2
         )
+        thread_parents = await attachment.nodes(
+            edge=["HAS_ATTACHMENT"], node=["ChatThread"], direction="in", limit=1
+        )
+        if len(entries) != 1 or entries[0].id != entry.id or thread_parents:
+            raise ResourceConflictError(
+                message="This file is shared with another record or conversation and cannot be deleted here."
+            )
 
-    prior_snapshot = await export_node(attachment)  # D-03 before-snapshot
-    track_id_for_scope = entry.track_id or ""
-
-    if attachment.source_type == "file":
-        storage = get_attachment_storage_service()
-        # Best-effort cleanup of the original + all sibling artefacts
-        # (thumbnail, preview). Storage failures don't block the node
-        # delete — orphan blobs are recoverable via the
-        # storage-reconcile job.
-        for key in (
-            attachment.storage_key,
-            attachment.thumb_storage_key,
-            attachment.preview_storage_key,
-        ):
-            if not key:
-                continue
-            with contextlib.suppress(Exception):
-                await storage.delete_attachment(key)
-        # Phase 5: release the counter once the bytes are gone. Only
-        # bytes that actually landed (non-blocked) were ever counted,
-        # and decrement floors at zero so we can never drive the
-        # counter negative on transient miscounts.
-        if attachment.scan_status != SCAN_STATUS_BLOCKED and attachment.size:
+        prior_snapshot = await export_node(attachment)
+        keys = (
+            (
+                attachment.storage_key,
+                attachment.thumb_storage_key,
+                attachment.preview_storage_key,
+            )
+            if attachment.source_type == "file"
+            else ()
+        )
+        if keys and attachment.scan_status != SCAN_STATUS_BLOCKED and attachment.size:
             await decrement_for_entry(entry, int(attachment.size or 0))
+        if attachment_id in (entry.attachment_ids or []):
+            entry.attachment_ids = [
+                aid for aid in entry.attachment_ids if aid != attachment_id
+            ]
+            await entry.save()
+        await attachment.delete()
 
-    if attachment_id in (entry.attachment_ids or []):
-        entry.attachment_ids = [
-            aid for aid in entry.attachment_ids if aid != attachment_id
-        ]
-        await entry.save()
-    await attachment.delete()
+    # Storage cleanup follows commit. Reconciliation can reclaim orphans
+    # if deleting a blob fails.
+    for key in filter(None, keys):
+        with contextlib.suppress(Exception):
+            await get_attachment_storage_service().delete_attachment(key)
 
     await emit_change_event(
         actor_kind="human",
@@ -1607,7 +1488,7 @@ async def delete_attachment(
         resource_id=attachment_id,
         before=prior_snapshot,
         after=None,
-        scope=f"track:{track_id_for_scope}",
+        scope=f"track:{entry.track_id or ''}",
     )
 
     return {

@@ -506,49 +506,64 @@ async def attach_sandbox_file_to_entry(
     from app.services.attachment_upload_shared import fallback_mime_from_filename
 
     mime_type = fallback_mime_from_filename(filename) or "application/octet-stream"
-    attachment = await Attachment.create(
-        filename=filename,
-        mime_type=mime_type,
-        size=len(content),
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=user_id,
-        scan_status="pending",
-        metadata_status="pending",
-        created_at=utc_now_iso(),
+    from app.services.attachment_entry_write import (
+        AttachmentEntryReadonlyError,
+        attachment_entry_write,
     )
-    storage = get_attachment_storage_service()
+
     try:
-        stored = await storage.save_attachment(
-            entry_id=entry.id,
-            attachment_id=attachment.id,
-            filename=filename,
-            content=content,
-            mime_type=mime_type,
-        )
-    except Exception as exc:  # noqa: BLE001
-        await attachment.delete()
+        async with attachment_entry_write(entry, user_id) as entry:
+            storage = get_attachment_storage_service()
+            attachment = await Attachment.create(
+                filename=filename,
+                mime_type=mime_type,
+                size=len(content),
+                storage_key="",
+                source_type="file",
+                external_url="",
+                uploaded_by=user_id,
+                scan_status="pending",
+                metadata_status="pending",
+                created_at=utc_now_iso(),
+            )
+            try:
+                stored = await storage.save_attachment(
+                    entry_id=entry.id,
+                    attachment_id=attachment.id,
+                    filename=filename,
+                    content=content,
+                    mime_type=mime_type,
+                )
+            except Exception as exc:  # noqa: BLE001
+                await attachment.delete()
+                return {
+                    "error": True,
+                    "error_code": "attach_failed",
+                    "message": str(exc) or "Attachment persist failed",
+                }
+
+            attachment.storage_key = str(stored.get("path") or "")
+            await attachment.save()
+            await entry.connect(
+                attachment,
+                edge=HAS_ATTACHMENT,
+                attached_at=utc_now_iso(),
+                attached_by=user_id,
+            )
+            if attachment.id not in (entry.attachment_ids or []):
+                entry.attachment_ids = list(entry.attachment_ids or []) + [
+                    attachment.id
+                ]
+                await entry.save()
+
+            item = await export_node(attachment)
+            return {"attachment": item, "entry_id": entry_id, "sandbox_path": rel}
+    except AttachmentEntryReadonlyError as exc:
         return {
             "error": True,
-            "error_code": "attach_failed",
-            "message": str(exc) or "Attachment persist failed",
+            "error_code": "app_record_readonly",
+            "message": exc.message,
         }
-
-    attachment.storage_key = str(stored.get("path") or "")
-    await attachment.save()
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-    if attachment.id not in (entry.attachment_ids or []):
-        entry.attachment_ids = list(entry.attachment_ids or []) + [attachment.id]
-        await entry.save()
-
-    item = await export_node(attachment)
-    return {"attachment": item, "entry_id": entry_id, "sandbox_path": rel}
 
 
 async def attach_image_bytes_to_entry(
@@ -599,49 +614,64 @@ async def attach_image_bytes_to_entry(
             "message": "You do not have permission to add attachments to this entry",
         }
 
-    attachment = await Attachment.create(
-        filename=filename,
-        mime_type=mime_type or "image/png",
-        size=len(content),
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=user_id,
-        scan_status="pending",
-        metadata_status="pending",
-        created_at=utc_now_iso(),
+    from app.services.attachment_entry_write import (
+        AttachmentEntryReadonlyError,
+        attachment_entry_write,
     )
-    storage = get_attachment_storage_service()
+
     try:
-        stored = await storage.save_attachment(
-            entry_id=entry.id,
-            attachment_id=attachment.id,
-            filename=filename,
-            content=content,
-            mime_type=mime_type or "image/png",
-        )
-    except Exception as exc:  # noqa: BLE001
-        await attachment.delete()
+        async with attachment_entry_write(entry, user_id) as entry:
+            storage = get_attachment_storage_service()
+            attachment = await Attachment.create(
+                filename=filename,
+                mime_type=mime_type or "image/png",
+                size=len(content),
+                storage_key="",
+                source_type="file",
+                external_url="",
+                uploaded_by=user_id,
+                scan_status="pending",
+                metadata_status="pending",
+                created_at=utc_now_iso(),
+            )
+            try:
+                stored = await storage.save_attachment(
+                    entry_id=entry.id,
+                    attachment_id=attachment.id,
+                    filename=filename,
+                    content=content,
+                    mime_type=mime_type or "image/png",
+                )
+            except Exception as exc:  # noqa: BLE001
+                await attachment.delete()
+                return {
+                    "error": True,
+                    "error_code": "attach_failed",
+                    "message": str(exc) or "Attachment persist failed",
+                }
+
+            attachment.storage_key = str(stored.get("path") or "")
+            await attachment.save()
+            await entry.connect(
+                attachment,
+                edge=HAS_ATTACHMENT,
+                attached_at=utc_now_iso(),
+                attached_by=user_id,
+            )
+            if attachment.id not in (entry.attachment_ids or []):
+                entry.attachment_ids = list(entry.attachment_ids or []) + [
+                    attachment.id
+                ]
+                await entry.save()
+
+            item = await export_node(attachment)
+            return {"attachment": item, "entry_id": entry.id}
+    except AttachmentEntryReadonlyError as exc:
         return {
             "error": True,
-            "error_code": "attach_failed",
-            "message": str(exc) or "Attachment persist failed",
+            "error_code": "app_record_readonly",
+            "message": exc.message,
         }
-
-    attachment.storage_key = str(stored.get("path") or "")
-    await attachment.save()
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
-    )
-    if attachment.id not in (entry.attachment_ids or []):
-        entry.attachment_ids = list(entry.attachment_ids or []) + [attachment.id]
-        await entry.save()
-
-    item = await export_node(attachment)
-    return {"attachment": item, "entry_id": entry.id}
 
 
 async def validate_chat_attachment_source(

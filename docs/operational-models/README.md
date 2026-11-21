@@ -32,7 +32,7 @@ app:
 
 The typed Entry writer checks the rule on updates, retyping and individual deletion. The operation that moves an editable record into its terminal state can finish. The rule applies to standard fields such as title and body as well as custom fields. A missing state or unavailable related record keeps the Entry read-only. Existing permissions still govern access, including read access to the related record. The Entry detail and write responses expose `app_record_readonly` when the restriction applies. The UI refreshes that status when it reads the Entry.
 
-App commands that persist attachments or export results use separate effect paths. An App that requires an entirely frozen record must qualify those paths as part of its rollout.
+Standard attachment writes, including App tool attachment saves, honor the same Entry policy. Existing attachments remain available under their normal read permissions. Action bar file downloads remain available and skip the optional save to a read-only Entry. Apps still define when an export is available and whether it writes other records.
 
 The restriction is part of the installed App definition and adds no operation grant. Qualify an upgrade against existing records before using a new rule in an installed App. Protected App restore requirements also apply to this declaration. [App portability](../platform/resource-portability.md)
 
