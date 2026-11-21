@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Reconcile personal WhatsApp text chat with native threads and approvals; require an account-issued one-time code for new phone pairing. Add an opt-in server connection-profile execution boundary for local host pilots, with current authorization and scoped sessions. Public provisioning and realtime voice remain unavailable.
+
 - Move domain form workflows, document UI, template selection and legacy App aliases to explicit host contracts; Core renders declared groups, review and acknowledgment steps without inferring business policy from field names. Host migration/readiness and paired artifact qualification are required before adoption.
 - Require declared create-action argument names and import eligibility; remove implicit record-copy and identifier-preview behavior from Core forms. Enforce an app-neutral runtime and SDK architecture gate without named-App exceptions.
 

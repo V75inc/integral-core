@@ -201,3 +201,30 @@ an invocable input contract is lost; each omission is explicit. This avoids
 forcing callers through repeated sample reads, schema discovery or tool aliases.
 SDK validation errors use bounded Pydantic diagnostics without echoing input
 values, so callers receive a repairable request error rather than a server fault.
+
+## Provisioned connection profiles (local pilot)
+
+`agentive.services.connection_profiles` provides an opt-in server execution
+boundary for host-provisioned connections. A server registry selects a profile
+from a fresh connection/principal grant; model, persona and transport input do
+not select authority. Every call intersects the profile allowlist, explicit tool
+omissions and current host authorization. Human-only operations require the
+authenticated host interaction path; the default agent path cannot invoke them,
+even when tool arguments claim confirmation. Handlers must retain canonical
+resource checks and ordinary write staging. A verified staff grant is required
+for staff profiles; a channel address alone is not a staff identity.
+
+The opaque session scope includes connection, principal, workspace, profile,
+audience and policy revision. A changed scope refuses old history/confirmation
+tokens. Hosts must key any history/retrieval store by that complete scope and
+recheck source permissions. This pilot provides no shared history or retrieval
+store and no public native-harness admission. Host registration is trusted server
+configuration: never expose generic workspace capabilities through a public
+profile. Public projection and inquiry behavior belongs to the owning App.
+
+The existing personal WhatsApp path remains separate and uses verified linked
+identities, current workspace access, native threads and existing approval
+decisions. Public/staff connection provisioning, durable restricted sessions,
+policy enforcement across native deferred execution and operational rollout
+remain later milestones; this service does not silently apply restrictions to
+existing native sessions.
