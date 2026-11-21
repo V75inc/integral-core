@@ -271,9 +271,18 @@ class TestChannelIdentityService:
 
         user = await _make_user("u_whatsapp_init")
         result = await initiate_link(user.id, "whatsapp", "+15553333333")
-        assert result["otp_code"] is not None
-        assert result["link_token"] is not None
+        assert result["pairing_code"]
         assert result["verified"] is False
+        assert "otp_code" not in result
+        assert "link_token" not in result
+        from app.agentive.nodes import ChannelIdentity
+
+        identity = await ChannelIdentity.get(result["identity_id"])
+        assert (
+            identity.preferences["claim_code_hash"]
+            == hashlib.sha256(result["pairing_code"].encode()).hexdigest()
+        )
+        assert result["pairing_code"] not in str(identity.preferences)
 
 
 class TestNewMCPTools:

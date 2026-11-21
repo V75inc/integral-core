@@ -642,3 +642,20 @@ Long-term tombstone retention, accounting coordinated with all upload paths,
 older approval migration, and provider-specific storage immutability remain
 qualification work. The scanner's `skipped` status is not a claim that malware
 scanning occurred.
+
+## Personal WhatsApp text connector
+
+The WhatsApp settings section binds a personal workspace to a jvconnect line.
+Webhook admission verifies the configured HMAC, resolves the verified linked
+channel identity (new links require the one-time code issued to the signed-in
+account), and checks current workspace access before creating or reusing
+a dedicated native thread. Text enters the existing durable turn submission
+path. An explicit single-proposal approval uses the shared approval decision
+service; delivery sends committed assistant text. Non-text messages receive a
+text-only notice. API keys and webhook secrets remain server-side.
+
+This integration is text-only. It does not provide public catalogue access,
+public CRM access, staff authorization inferred from phone numbers, or realtime
+voice. The separate connection-profile pilot is not registered on this webhook.
+Local qualification uses mocked transports and synthetic identities; operational
+activation still requires delivery/retry and durable ingress qualification.

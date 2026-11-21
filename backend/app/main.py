@@ -606,6 +606,15 @@ async def _ensure_model_indexes() -> None:
                 op_idem_err,
             )
         try:
+            from app.models.whatsapp_inbound import WhatsAppInboundReceipt
+
+            await ctx_for_indexes.ensure_indexes(WhatsAppInboundReceipt)
+        except Exception as wa_receipt_err:  # noqa: BLE001
+            log.warning(
+                "ensure_indexes failed for WhatsAppInboundReceipt: %s",
+                wa_receipt_err,
+            )
+        try:
             from app.agentive.services.execution_runs import AgentRun, RunStep
 
             await ctx_for_indexes.ensure_indexes(AgentRun)
@@ -1532,6 +1541,7 @@ from app.agentive.nodes import (
     Connector,
     ConversationContext,
     RoutineTask,
+    WhatsAppChannelBinding,
 )
 
 for node_cls in (
@@ -1540,6 +1550,7 @@ for node_cls in (
     AgentConfig,
     Connector,
     RoutineTask,
+    WhatsAppChannelBinding,
 ):
     server.add_node_type(node_cls)
 

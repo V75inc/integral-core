@@ -30,6 +30,27 @@ class ChannelIdentity(Node):
     created_at: Optional[str] = None
 
 
+class WhatsAppChannelBinding(Node):
+    """User-owned jvconnect credentials for the personal WhatsApp channel.
+
+    Secrets live only in the ciphertext fields. Callers that return this
+    node over HTTP use ``public_binding_view`` and never the raw record.
+    """
+
+    user_id: str = ""
+    workspace_id: str = ""
+    jvconnect_base_url: str = ""
+    api_key_ciphertext: str = ""
+    api_key_last4: str = ""
+    webhook_secret_ciphertext: str = ""
+    phone_number_id: str = ""
+    display_phone: str = ""
+    enabled: bool = False
+    last_error: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 class AgentConfig(Node):
     """Per-user or per-workspace agent configuration.
 

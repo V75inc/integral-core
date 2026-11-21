@@ -26,6 +26,24 @@ async def _create_identity(client: AsyncClient, channel_user_id: str = _PHONE) -
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
+async def test_list_identities_returns_linked_numbers(
+    authenticated_client: AsyncClient,
+):
+    """A saved channel identity is returned as data, not an unawaited export."""
+    await _create_identity(authenticated_client)
+
+    listed = await authenticated_client.get("/api/agentive/channels/identities")
+
+    assert listed.status_code == 200, listed.text
+    identities = listed.json()["identities"]
+    assert identities[0]["channel"] == "sms"
+    assert identities[0]["channel_user_id"] == _PHONE
+    assert "otp_hash" not in listed.text
+    assert "link_token" not in listed.text
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
 async def test_delete_identity_is_owner_only(
     authenticated_client: AsyncClient, second_user_client: AsyncClient
 ):
@@ -98,7 +116,7 @@ async def test_resolve_skips_unverified_identities(
     test_user,
     signed_service_headers,
 ):
-    """resolve returns nothing until the identity is verified."""
+    """Resolve returns nothing until the identity is verified."""
     identity_id = await _create_identity(authenticated_client)
     auth_user_id = getattr(test_user, "user_id", None) or test_user.id
     headers = signed_service_headers(auth_user_id)

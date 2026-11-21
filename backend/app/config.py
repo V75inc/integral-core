@@ -359,6 +359,8 @@ class Settings(BaseSettings):
     # Provider: "console" (DEBUG only) | "resend" | "sendgrid" | "smtp"
     EMAIL_PROVIDER: str = "console"
     EMAIL_WEBHOOK_BASE_URL: str = ""
+    # Public API origin (no path) jvconnect must reach for the WhatsApp webhook.
+    PUBLIC_API_BASE_URL: str = ""
     EMAIL_HISTORY_RETENTION_DAYS: int = 90
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587

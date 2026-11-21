@@ -11,6 +11,7 @@ import {
   Info,
   Mic,
   Mail,
+  MessageCircle,
   Palette,
   ScrollText,
   Search,
@@ -79,6 +80,11 @@ const NotificationsSection = React.lazy(() =>
     default: m.NotificationsSection,
   })),
 );
+const WhatsAppSection = React.lazy(() =>
+  import('../features/settings/sections/WhatsAppSection').then(m => ({
+    default: m.WhatsAppSection,
+  })),
+);
 // B-SET-01 — Profile / Account section.
 const ProfileSection = React.lazy(() =>
   import('../features/settings/sections/ProfileSection').then(m => ({
@@ -137,6 +143,7 @@ interface Section {
 // The registry defines content; GROUPS below defines navigation order.
 const SECTIONS: Section[] = [
   { id: 'email', label: 'Email', icon: Mail, render: () => <EmailSection /> },
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, render: () => <WhatsAppSection /> },
   {
     id: 'help',
     label: 'Help & about',
@@ -189,7 +196,7 @@ const SECTIONS: Section[] = [
     id: 'notifications',
     label: 'Notifications',
     icon: Bell,
-    render: () => <NotificationsSection />,
+    render: ctx => <NotificationsSection navigateToSection={ctx.navigateToSection} />,
   },
   {
     id: 'policies',
@@ -231,7 +238,7 @@ const SECTIONS: Section[] = [
 const GROUPS = [
   { label: 'Your account', ids: ['profile', 'appearance', 'notifications', 'voice-input'] },
   { label: 'AI & connections', ids: ['ai-models', 'agents', 'skills', 'connectors'] },
-  { label: 'Workspace', ids: ['retrieval', 'sharing', 'email'] },
+  { label: 'Workspace', ids: ['retrieval', 'sharing', 'email', 'whatsapp'] },
   { label: 'Governance', ids: ['policies', 'conflicts', 'audit-log'] },
   { label: 'Help', ids: ['help'] },
 ];
