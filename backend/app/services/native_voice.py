@@ -43,6 +43,7 @@ class VoiceScope:
 
 
 async def authorize(scope: VoiceScope):
+    """Check that the caller can use the requested workspace, profile, and thread."""
     from app.models.nodes import ChatThread
 
     with isolated_permissions_cache():
@@ -73,6 +74,7 @@ async def authorize(scope: VoiceScope):
 
 
 async def delegate(scope: VoiceScope, call_id: str, text: str) -> str:
+    """Run a voice request through native chat and return a spoken status or result."""
     from app.agentive.services.work_items import cancel_work_item
     from app.agentive.work_models import WorkItem
     from app.models.edges import CONTAINS
@@ -132,6 +134,11 @@ async def delegate(scope: VoiceScope, call_id: str, text: str) -> str:
                     item.thread_id,
                 ) != (scope.principal, scope.workspace, thread.id):
                     return "The workspace result is unavailable."
+                if item.status == "waiting_for_human":
+                    return (
+                        "Your request needs approval in the Integral conversation. "
+                        "Review it there; it has not been completed or cancelled."
+                    )
                 if item.status in TERMINAL_WORK_STATUSES:
                     if item.status != "succeeded":
                         return "Integral could not complete the workspace request."
@@ -164,13 +171,14 @@ async def delegate(scope: VoiceScope, call_id: str, text: str) -> str:
             # Cancel the canonical work item. Existing receipts/approvals
             # retain their ordinary lifecycle if the worker has already settled.
             try:
-                await cancel_work_item(item_id)
+                await cancel_work_item(item_id, preserve_human_review=True)
             except Exception:
                 pass
         raise
 
 
 def session_update(persona: str, *, name: str = "Integral AI") -> dict:
+    """Build the realtime session configuration for the selected voice persona."""
     pcm = {"type": "audio/pcm", "rate": 24000}
     return {
         "type": "session.update",
@@ -205,6 +213,7 @@ def session_update(persona: str, *, name: str = "Integral AI") -> dict:
 
 
 async def open_upstream(credential):
+    """Open an authenticated connection to the configured realtime model."""
     from websockets.asyncio.client import connect
 
     return await connect(

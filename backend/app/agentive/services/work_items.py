@@ -556,7 +556,9 @@ async def schedule_retry(
     )
 
 
-async def cancel_work_item(work_item_id: str, *, transaction: Any = None) -> WorkItem:
+async def cancel_work_item(
+    work_item_id: str, *, transaction: Any = None, preserve_human_review: bool = False
+) -> WorkItem:
     """Cancel queued/waiting immediately; request cancel for running work."""
     from app.agentive.services.work_outbox import (
         TOPIC_TRANSITIONED,
@@ -567,6 +569,10 @@ async def cancel_work_item(work_item_id: str, *, transaction: Any = None) -> Wor
     if item is None:
         raise WorkError("work.not_found", f"work item {work_item_id} not found")
     if item.status in ("succeeded", "failed", "cancelled", "expired", "dead_letter"):
+        return item
+    # Voice disconnection ends live work, not an already parked human review.
+    # The CAS below still binds the observed status if parking races this read.
+    if preserve_human_review and item.status == "waiting_for_human":
         return item
     if item.cancel_requested_at and item.status == "running":
         return item

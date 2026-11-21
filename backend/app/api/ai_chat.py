@@ -1282,6 +1282,7 @@ async def _resolve_agent_for_new_thread(
 
 @endpoint("/chat/agent-profiles", methods=["GET"], auth=True, tags=["AI Chat"])
 async def list_native_chat_profiles(request: Request) -> dict:
+    """List the profiles offered to this authenticated chat principal."""
     from app.agentive.services.profile_management import (
         WORKSPACE_ASSISTANT_KEY,
         native_chat_choices,

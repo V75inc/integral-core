@@ -27,6 +27,10 @@ describe('WhatsApp notification setup', () => {
     expect(listChannelIdentities).toHaveBeenCalledTimes(2);
   });
   it('refreshes notification eligibility after verification', async () => {
+    const phone = { id: 'phone-1', channel: 'whatsapp', channel_user_id: '+15551234567' };
+    vi.mocked(listChannelIdentities)
+      .mockResolvedValueOnce({ identities: [{ ...phone, verified: false }] })
+      .mockResolvedValueOnce({ identities: [{ ...phone, verified: true }] });
     vi.mocked(initiateWhatsAppVerification).mockResolvedValue({ identity_id: 'phone-1', verified: false, pairing_code: 'fixture-pairing-code' });
     vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
       binding: {
@@ -34,13 +38,20 @@ describe('WhatsApp notification setup', () => {
         display_phone: '+15550001111', enabled: true, last_error: '', api_key_last4: '9911', webhook_registered: true,
       },
     });
-    render(<WhatsAppSettings />);
+    const onChange = vi.fn();
+    render(<WhatsAppSettings onChange={onChange} />);
+    expect(await screen.findByText('Unverified')).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Link WhatsApp number' }));
     fireEvent.change(screen.getByLabelText('WhatsApp phone number'), { target: { value: '+15551234567' } });
     fireEvent.click(screen.getByRole('button', { name: 'Link this number' }));
     expect(await screen.findByText('From +15551234567, send fixture-pairing-code to +15550001111.')).toBeInTheDocument();
     expect(screen.queryByText(/1E200E|verification code/i)).not.toBeInTheDocument();
     expect(initiateWhatsAppVerification).toHaveBeenCalledWith('+15551234567');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(await screen.findByText('Verified')).toBeInTheDocument();
+    expect(screen.queryByText('Unverified')).not.toBeInTheDocument();
+    expect(listChannelIdentities).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenCalledOnce();
   });
   it('refreshes notification eligibility after unlinking', async () => {
     vi.mocked(listChannelIdentities).mockResolvedValueOnce({ identities: [{ id: 'phone-1', channel: 'whatsapp', channel_user_id: '+15551234567', verified: true }] });

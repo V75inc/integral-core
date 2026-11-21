@@ -203,6 +203,14 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
     }
   };
 
+  const finishPairing = async () => {
+    setStep('idle');
+    setPhone('');
+    setLinkHint('');
+    await loadIdentities();
+    onChange?.();
+  };
+
   const whatsappIdentities = identities.filter((i) => i.channel === 'whatsapp');
 
   const title = WHATSAPP_CONNECTOR.name;
@@ -338,7 +346,7 @@ export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = tr
       {step === 'await_message' && (
         <div className="space-y-3">
           <Text variant="body" tone="muted" as="p">{linkHint}</Text>
-          <Button variant="ghost" size="sm" onClick={() => { setStep('idle'); setPhone(''); setLinkHint(''); }}>
+          <Button variant="ghost" size="sm" onClick={() => void finishPairing()}>
             Done
           </Button>
         </div>

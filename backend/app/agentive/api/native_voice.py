@@ -35,6 +35,7 @@ _active_calls: set[str] = set()
 # deviation: jvspatial @endpoint does not support WebSocket route registration.
 @router.websocket("/ws/native-voice")
 async def native_voice(browser: WebSocket):
+    """Authorize and relay one authenticated live voice call."""
     if not settings.INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED or browser.headers.get(
         "origin"
     ) != settings.FRONTEND_ORIGIN.rstrip("/"):

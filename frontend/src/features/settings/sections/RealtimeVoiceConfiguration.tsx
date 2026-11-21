@@ -12,7 +12,8 @@ import { useAuthOptional } from "../../../context/AuthContext";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { Text } from "../../../ui";
 import { VoiceRoleAssignment } from "./VoiceRoleAssignment";
-import { isRealtimeVoiceModel, voiceRoleOptions } from "./voiceRoleModels";
+import { isRealtimeVoiceModel } from "../../../api/modelProfileKinds";
+import { voiceRoleOptions } from "./voiceRoleModels";
 
 type Props = { connections: ModelConnection[]; profiles?: ModelProfile[] };
 

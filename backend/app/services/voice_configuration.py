@@ -5,7 +5,6 @@ from typing import get_args
 from jvspatial.core.context import get_default_context
 
 from app.api.errors import InsufficientPermissionsError, ResourceConflictError
-
 from app.schemas.voice_configuration import (
     RealtimeVoiceModel,
     RealtimeVoiceModelWrite,
@@ -169,6 +168,7 @@ def _require_realtime_connection(connection):
 
 
 async def resolve_realtime_credential(workspace_id: str):
+    """Resolve the workspace's configured live voice credential."""
     from app.config import settings
     from app.services.credential_crypto import decrypt_secret_from_storage
     from app.services.model_credential_resolver import SpeechCredential
@@ -177,8 +177,10 @@ async def resolve_realtime_credential(workspace_id: str):
         return None
     config = await configuration_record(workspace_id)
     values = config.realtime_voice_settings if config else {}
-    if values.get("mode") != "provider" or not values.get("model") or (
-        values["model"] not in get_args(RealtimeVoiceModel)
+    if (
+        values.get("mode") != "provider"
+        or not values.get("model")
+        or (values["model"] not in get_args(RealtimeVoiceModel))
     ):
         return None
     try:
@@ -196,6 +198,7 @@ async def resolve_realtime_credential(workspace_id: str):
 
 
 async def describe_realtime(user_id: str, workspace_id: str):
+    """Describe live voice configuration without revealing its credential."""
     from app.config import settings
 
     if await can_access_workspace(user_id, workspace_id) == "none":

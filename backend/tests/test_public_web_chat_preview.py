@@ -102,6 +102,7 @@ def test_preview_keeps_visitor_history_and_reset_scoped():
         assert request(server, "/session", cookie=maple)[0] == 404
 
 
+@pytest.mark.smoke
 def test_hosted_and_embedded_presentations_use_one_channel_and_visitor_session():
     channel = preview.PreviewChannel(enabled=True)
     with running_preview(channel) as server:

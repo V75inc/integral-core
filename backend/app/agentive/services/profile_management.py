@@ -29,6 +29,7 @@ from app.services.workspace_permissions import is_workspace_admin_or_owner
 
 
 async def require_profile_manager(actor, workspace):
+    """Require workspace owner or administrator access."""
     if (
         not actor
         or not workspace
@@ -38,6 +39,7 @@ async def require_profile_manager(actor, workspace):
 
 
 async def record(workspace, *, create=False):
+    """Resolve the workspace profile node and verify its ownership edge."""
     db = get_default_context().database
     if create:
         locked = await db.find_one_and_update(
@@ -75,6 +77,7 @@ AVATAR_PREFIXES = {
 
 
 def normalize_avatar(value):
+    """Validate and normalize an avatar to a PNG data URL."""
     header, _, encoded = value.partition(",")
     try:
         if header not in AVATAR_PREFIXES:
@@ -91,6 +94,7 @@ def normalize_avatar(value):
 
 
 async def update_avatar(target, previous, body):
+    """Apply an explicit avatar edit or preserve the existing avatar."""
     value = body.avatar if "avatar" in body.model_fields_set else previous.get("avatar")
     target.pop("avatar", None)
     if value is not None:
@@ -102,6 +106,7 @@ async def update_avatar(target, previous, body):
 
 
 def workspace_assistant_identity(profiles):
+    """Project the default assistant identity for display."""
     saved = profiles.get(WORKSPACE_ASSISTANT_KEY, {})
     return {
         "key": WORKSPACE_ASSISTANT_KEY,
@@ -128,10 +133,12 @@ async def workspace_voice_profile_identity(workspace) -> VoiceProfileIdentity:
 
 
 async def workspace_assistant_persona(workspace):
+    """Read the default workspace assistant persona."""
     return (await workspace_voice_profile_identity(workspace)).persona
 
 
 def starter(key):
+    """Build the initial draft for a built-in profile."""
     return {
         "key": key,
         "audience": key,
@@ -145,6 +152,7 @@ def starter(key):
 
 
 def validate_draft(draft, ceiling):
+    """Check selected tools and omissions against the permitted catalogue."""
     if (
         len(set(draft["tools"])) != len(draft["tools"])
         or not set(draft["tools"]) <= ceiling.keys()
@@ -154,12 +162,14 @@ def validate_draft(draft, ceiling):
 
 
 async def catalogue(actor, workspace, key):
+    """Project capability declarations visible to the principal."""
     installed = await installed_catalogue(workspace, actor, key)
     return {name: cap.declaration for name, cap in installed.items()}
 
 
 def audience_of(draft):
     # Existing persisted starter drafts predate the explicit audience field.
+    """Read the explicit or original built-in profile audience."""
     return draft.get("audience", draft["key"])
 
 
@@ -173,6 +183,7 @@ def eligible_public_web_chat_profile(profile):
 
 
 async def describe(actor, workspace):
+    """Return guarded workspace settings for this surface."""
     await require_profile_manager(actor, workspace)
     found = await record(workspace)
     profiles = found.profiles if found else {}
@@ -204,6 +215,7 @@ async def describe(actor, workspace):
 
 
 async def mutate_config(actor, workspace, revision, action):
+    """Update profile configuration at the expected workspace revision."""
     async with postgres_graph_transaction():
         await require_profile_manager(actor, workspace)
         found = await record(workspace, create=True)
@@ -234,6 +246,8 @@ async def mutate_config(actor, workspace, revision, action):
 
 
 async def mutate(actor, workspace, body, action):
+    """Apply a single-profile change through the configuration revision guard."""
+
     async def update(profiles, bindings, native, public_web_chat):
         if body.key in ("public", "staff"):
             profiles.setdefault(body.key, {"draft": starter(body.key)})
@@ -245,6 +259,8 @@ async def mutate(actor, workspace, body, action):
 
 
 async def rename_workspace_assistant(actor, workspace, body):
+    """Update the default workspace assistant identity."""
+
     async def rename(profiles, bindings, native, _public_web_chat):
         name = body.name.strip()
         if not name:
@@ -262,6 +278,7 @@ async def rename_workspace_assistant(actor, workspace, body):
 
 
 async def create_profile(actor, workspace, body):
+    """Create a new workspace profile draft."""
     key = f"p_{uuid4().hex}"
 
     async def create(profiles, bindings, native, _public_web_chat):
@@ -280,6 +297,8 @@ async def create_profile(actor, workspace, body):
 
 
 async def set_native_chat_profiles(actor, workspace, body):
+    """Set the published profiles offered in workspace chat."""
+
     async def update(profiles, bindings, native, _public_web_chat):
         for key in body.profiles:
             published = profiles.get(key, {}).get("published")
@@ -291,6 +310,8 @@ async def set_native_chat_profiles(actor, workspace, body):
 
 
 async def save_draft(actor, workspace, body):
+    """Save a validated draft without changing the published profile."""
+
     async def save(item, bindings, native, _public_web_chat):
         if body.key != body.draft.key:
             raise BadRequestError("Profile identity cannot be changed")
@@ -305,6 +326,7 @@ async def save_draft(actor, workspace, body):
 
 
 def fingerprint(draft, ceiling):
+    """Hash the draft and selected capability declarations."""
     import hashlib
     import json
 
@@ -317,6 +339,8 @@ def fingerprint(draft, ceiling):
 
 
 async def test_draft(actor, workspace, body):
+    """Run an inert test for the selected workspace draft."""
+
     async def test(item, bindings, native, _public_web_chat):
         from app.agentive.services.profile_testing import test_profile_draft
 
@@ -329,7 +353,32 @@ async def test_draft(actor, workspace, body):
     return await mutate(actor, workspace, body, test)
 
 
+async def _validate_connection_assignment(workspace, key, audience, ids, bindings):
+    """Use the same host and existing-assignment checks for every management path."""
+    try:
+        connections = await profile_host().connections(workspace)
+    except ProfileDenied:
+        raise BadRequestError("No eligible external connection is registered") from None
+    eligible = {
+        connection["id"]
+        for connection in connections
+        if connection["audience"] == audience
+        and connection.get("publish_assignable") is True
+        and not connection.get("verification_path")
+    }
+    if not set(ids) <= eligible:
+        raise BadRequestError(
+            "A selected external connection is no longer eligible for this audience"
+        )
+    if any(bindings.get(connection_id) not in (None, key) for connection_id in ids):
+        raise BadRequestError(
+            "A selected external connection is already assigned to another profile"
+        )
+
+
 async def publish(actor, workspace, body):
+    """Validate and publish a profile with its requested assignments."""
+
     async def activate(item, bindings, native, public_web_chat):
         from app.agentive.services.profile_testing import test_profile_draft
 
@@ -359,30 +408,9 @@ async def publish(actor, workspace, body):
                 "Only workspace profiles can be offered in workspace chat"
             )
         if body.connection_ids:
-            try:
-                connections = await profile_host().connections(workspace)
-            except ProfileDenied:
-                raise BadRequestError(
-                    "No eligible external connection is registered"
-                ) from None
-            eligible = {
-                connection["id"]
-                for connection in connections
-                if connection["audience"] == audience
-                and connection.get("publish_assignable") is True
-                and not connection.get("verification_path")
-            }
-            if not set(body.connection_ids) <= eligible:
-                raise BadRequestError(
-                    "A selected external connection is no longer eligible for this audience"
-                )
-            if any(
-                bindings.get(connection_id) not in (None, body.key)
-                for connection_id in body.connection_ids
-            ):
-                raise BadRequestError(
-                    "A selected external connection is already assigned to another profile"
-                )
+            await _validate_connection_assignment(
+                workspace, body.key, audience, body.connection_ids, bindings
+            )
         # Validate through the inert Harness on the exact revision being published.
         result = await test_profile_draft(draft, workspace, ceiling)
         if result["real_actions"] != 0:
@@ -405,20 +433,15 @@ async def publish(actor, workspace, body):
 
 
 async def bind(actor, workspace, body):
+    """Assign an eligible external connection to a published profile."""
+
     async def attach(item, bindings, native, _public_web_chat):
         published = item.get("published")
         if not published:
             raise BadRequestError("Publish a tested profile before binding")
-        connection = next(
-            (
-                c
-                for c in await profile_host().connections(workspace)
-                if c["id"] == body.connection_id
-            ),
-            None,
+        await _validate_connection_assignment(
+            workspace, body.key, audience_of(published), (body.connection_id,), bindings
         )
-        if connection is None or connection["audience"] != audience_of(published):
-            raise BadRequestError("Connection is not eligible for this audience")
         bindings[body.connection_id] = body.key
 
     return await mutate(actor, workspace, body, attach)
@@ -458,6 +481,7 @@ async def thread_profile_identities(workspace, keys):
 
 
 async def native_chat_choices(workspace, principal):
+    """List published staff profiles available to the workspace principal."""
     from app.services.workspace_permissions import can_access_workspace
 
     if not workspace or await can_access_workspace(principal, workspace) not in (
@@ -477,6 +501,7 @@ async def native_chat_choices(workspace, principal):
 
 
 async def require_native_chat_profile(workspace, principal, key):
+    """Require an offered chat profile for this workspace principal."""
     if not any(
         choice["key"] == key
         for choice in await native_chat_choices(workspace, principal)
@@ -487,6 +512,7 @@ async def require_native_chat_profile(workspace, principal, key):
 async def open_published_profile(
     workspace, connection_id, principal_id, *, native_profile_key=None
 ):
+    """Open the current published profile and return its persona."""
     binding, identity = await open_published_profile_with_identity(
         workspace, connection_id, principal_id, native_profile_key=native_profile_key
     )

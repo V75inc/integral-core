@@ -34,8 +34,7 @@ import { ModelRoutingSection } from "./ModelRoutingSection";
 import { useToast } from "../../../context/ToastContext";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useScopeOptional } from "../../../context/ScopeContext";
-import { isRealtimeVoiceModel, isTranscriptionModel } from "./voiceRoleModels";
-import { isEmbeddingProfile } from "./modelProfileKinds";
+import { isChatProfile, specializedModel } from "../../../api/modelProfileKinds";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
 import {
   Brain,
@@ -71,14 +70,6 @@ const SPECIALTY_MODELS: Partial<Record<ModelProvider, { id: string; label: strin
   ollama_local: [{ id: "embeddinggemma", label: "EmbeddingGemma (Embeddings)" }],
 };
 const modelOptions = (provider: ModelProvider) => [...RECOMMENDED_MODELS[provider], ...(SPECIALTY_MODELS[provider] ?? [])];
-
-function specializedModel(model: string) {
-  const id = model.trim().toLowerCase().split("/").pop() ?? "";
-  if (isTranscriptionModel(id)) return "Speech to Text";
-  if (isRealtimeVoiceModel(id) || /^(?:gpt-realtime|gpt-4o(?:-mini)?-realtime-preview)(?:[-.]|$)/.test(id)) return "Realtime Voice";
-  if (isEmbeddingProfile({model})) return "Embeddings";
-  return null;
-}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -264,7 +255,7 @@ export function AiConfigurationSection({
     );
   const data = query.data;
   const disabled = mutation.isPending || quickPending || data.key_policy === "platform_only" || !data.effective.editable;
-  const chatProfiles = data.profiles.filter(p => !specializedModel(p.model) && p.harness_policy?.tier !== "voice" && p.harness_policy?.tier !== "embedding");
+  const chatProfiles = data.profiles.filter(isChatProfile);
   const needle = search.trim().toLowerCase();
   const roleChoices = [
     ["Speech to Text", speech.data?.configuration],

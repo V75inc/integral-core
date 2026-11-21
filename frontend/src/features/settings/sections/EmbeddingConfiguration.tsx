@@ -8,7 +8,7 @@ import {
   type ModelConnection,
   type ModelProfile,
 } from "../../../api/aiConfiguration";
-import { isEmbeddingProfile } from "./modelProfileKinds";
+import { isEmbeddingProfile } from "../../../api/modelProfileKinds";
 import { PROVIDER_LABELS } from "../../../api/modelCredentials";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { useAuthOptional } from "../../../context/AuthContext";

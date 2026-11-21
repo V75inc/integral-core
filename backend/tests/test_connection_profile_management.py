@@ -192,6 +192,7 @@ async def test_publish_stores_only_selected_routes_with_the_publication(
     monkeypatch,
 ):
     from types import SimpleNamespace
+
     from app.agentive.services import profile_testing
 
     found, database = management_state
@@ -492,8 +493,11 @@ async def test_native_selection_rechecks_allowlist_and_separates_profile_session
             name: {
                 "draft": {"name": "Unpublished", "persona": "Do not use this draft."},
                 "published": {
-                    **service.starter("staff"), "key": name, "version": 4,
-                    "name": f"Assistant {name[-1]}", "persona": f"Persona {name[-1]}",
+                    **service.starter("staff"),
+                    "key": name,
+                    "version": 4,
+                    "name": f"Assistant {name[-1]}",
+                    "persona": f"Persona {name[-1]}",
                 },
             }
             for name in names
@@ -613,7 +617,8 @@ async def test_rename_workspace_assistant_preserves_association_and_bindings(
     found.profiles = update["context.profiles"]
     assert await service.workspace_assistant_persona("ws") == "Keep answers brief."
     assert await service.workspace_voice_profile_identity("ws") == (
-        "Workspace Guide", "Keep answers brief."
+        "Workspace Guide",
+        "Keep answers brief.",
     )
     from types import SimpleNamespace
 
@@ -686,6 +691,7 @@ def hosted_route(management_state, monkeypatch):
     return found, database, another
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_hosted_route_assignment_enablement_and_revocation_are_separate(
     hosted_route,
@@ -810,3 +816,52 @@ async def test_hosted_route_publication_does_not_activate_and_old_scope_stays_pi
     found.profiles["public"]["published"]["tools"] = ["read"]
     with pytest.raises(ProfileDenied):
         await public_web_chat.admit("ws", "visitor", transport_ready=True)
+
+
+@pytest.mark.smoke
+@pytest.mark.parametrize(
+    "metadata,existing,error",
+    [
+        (
+            {"verification_path": "/fixture", "publish_assignable": True},
+            None,
+            "no longer eligible",
+        ),
+        ({"publish_assignable": False}, None, "no longer eligible"),
+        ({"publish_assignable": True}, "other", "already assigned"),
+        ({"publish_assignable": True}, "staff", None),
+        ({"publish_assignable": True}, None, None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_bind_applies_publish_assignment_rules(
+    management_state, monkeypatch, metadata, existing, error
+):
+    from types import SimpleNamespace
+
+    found, database = management_state
+    found.profiles = {
+        "staff": {
+            "draft": service.starter("staff"),
+            "published": service.starter("staff"),
+        }
+    }
+    found.bindings = {"selected": existing} if existing else {}
+    monkeypatch.setattr(
+        service,
+        "profile_host",
+        lambda: SimpleNamespace(
+            connections=AsyncMock(
+                return_value=[{"id": "selected", "audience": "staff", **metadata}]
+            )
+        ),
+    )
+    command = BindProfile(key="staff", expected_revision=4, connection_id="selected")
+    if error:
+        with pytest.raises(BadRequestError, match=error):
+            await service.bind("owner", "ws", command)
+        database.find_one_and_update.assert_not_awaited()
+    else:
+        await service.bind("owner", "ws", command)
+        update = database.find_one_and_update.await_args.args[2]["$set"]
+        assert update["context.bindings"] == {"selected": "staff"}

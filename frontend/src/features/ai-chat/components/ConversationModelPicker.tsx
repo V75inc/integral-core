@@ -1,3 +1,4 @@
+import { isChatProfile } from "../../../api/modelProfileKinds";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { aiConfigurationApi } from "../../../api/aiConfiguration";
 import { errorMessageFromAxios } from "../../../api/helpers";
@@ -101,8 +102,9 @@ export function ConversationModelPicker() {
         "error",
       ),
   });
-  if (!selection.data?.editable || !configuration.data || (!configuration.data.profiles.length && !configuration.data.effective.model))
-    return null;
+  if (!selection.data?.editable || !configuration.data) return null;
+  const chatProfiles = configuration.data.profiles.filter(isChatProfile);
+  if (!chatProfiles.length && !configuration.data.effective.model && !selection.data.profile_id) return null;
   const automatic =
     configuration.data.effective.routing?.mode === "light_heavy";
   const selected = configuration.data.profiles.find(
@@ -157,8 +159,9 @@ export function ConversationModelPicker() {
                   <option value="">{automatic ? "Automatic · Light + Heavy" : "Workspace default"}</option>
                   <option value="__heavy">Heavy only</option>
                 </optgroup>
-                {configuration.data.profiles.length > 0 && <optgroup label="Saved models">
-                  {configuration.data.profiles.map(profile => <option key={profile.id} value={profile.id} disabled={profile.harness_policy?.tier === "light"}>{profile.name}{profile.harness_policy?.tier === "light" ? " · Light role only" : ""}</option>)}
+                {selected && !isChatProfile(selected) && <option value={selected.id} disabled>{selected.name} · Not a chat model</option>}
+                {chatProfiles.length > 0 && <optgroup label="Saved models">
+                  {chatProfiles.map(profile => <option key={profile.id} value={profile.id} disabled={profile.harness_policy?.tier === "light"}>{profile.name}{profile.harness_policy?.tier === "light" ? " · Light role only" : ""}</option>)}
                 </optgroup>}
               </Select>
             </label>

@@ -17,6 +17,7 @@ from app.agentive.services.connection_profiles import (
 
 
 async def test_profile_draft(draft, workspace, ceiling):
+    """Test the profile draft without producing live effects."""
     audience = draft.get("audience", draft["key"])
     calls = []
 
@@ -24,7 +25,7 @@ async def test_profile_draft(draft, workspace, ceiling):
         calls.append(arguments)
         return {"message": "Simulation only; no action performed."}
 
-    async def resolve(*_):
+    async def resolve(*_: object):
         return ConnectionGrant(
             "draft-test",
             "synthetic",
@@ -34,7 +35,7 @@ async def test_profile_draft(draft, workspace, ceiling):
             verified_staff=audience == "staff",
         )
 
-    async def authorize(*_):
+    async def authorize(*_: object):
         return True
 
     executor = ConnectionProfileExecutor(

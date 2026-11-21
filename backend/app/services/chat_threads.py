@@ -1715,6 +1715,7 @@ async def delete_thread_messages(thread: ChatThread) -> int:
 
 
 async def thread_profile_metadata(workspace_id, threads):
+    """Return profile display metadata for the authorized threads."""
     from app.agentive.services.profile_management import (
         WORKSPACE_ASSISTANT_KEY,
         thread_profile_identities,

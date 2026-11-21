@@ -83,6 +83,7 @@ def _skill(label, description, body, *, source, skill_id=None, app=None):
 
 
 async def installed_catalogue(workspace, principal, audience):
+    """List current read capabilities available to the workspace principal."""
     if audience != "staff" or await can_access_workspace(principal, workspace) not in (
         "owner",
         "admin",
@@ -169,6 +170,7 @@ async def installed_catalogue(workspace, principal, audience):
 
 
 async def invoke_installed(workspace, principal, audience, name, arguments):
+    """Resolve and invoke an installed capability for the current principal."""
     current = (await installed_catalogue(workspace, principal, audience)).get(name)
     if current is None:
         raise ProfileDenied("Installed capability unavailable")

@@ -2364,8 +2364,8 @@ class PydanticAIProvider:
                 )
 
         from app.agentive.harness.adaptive import EscalatedTurn
-        from app.agentive.services.profile_management import workspace_assistant_persona
         from app.agentive.harness.model_routing import may_escalate_light_failure
+        from app.agentive.services.profile_management import workspace_assistant_persona
         from app.services.chat_latency import current_latency
 
         persona_instructions = _workspace_persona_instructions(

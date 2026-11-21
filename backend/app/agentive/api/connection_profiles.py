@@ -23,6 +23,7 @@ from app.services.request_scope import resolve_workspace_id_from_request
 
 
 async def scope(request):
+    """Resolve and authorize the workspace profile manager."""
     user = await get_user_node(resolve_principal_id(request))
     if user is None:
         raise MissingAuthenticationError("Authentication required")
@@ -32,6 +33,7 @@ async def scope(request):
 
 
 async def body(request, schema):
+    """Parse a request body against the supplied profile schema."""
     try:
         return schema.model_validate(await request.json())
     except ValueError:
@@ -40,6 +42,7 @@ async def body(request, schema):
 
 @endpoint("/workspace/agent-profiles", methods=["GET"], auth=True, tags=["Agentive"])
 async def get_profiles(request: Request) -> dict:
+    """List the workspace profile settings and capabilities."""
     return await service.describe(*(await scope(request)))
 
 
@@ -47,6 +50,7 @@ async def get_profiles(request: Request) -> dict:
     "/workspace/agent-profiles/draft", methods=["PUT"], auth=True, tags=["Agentive"]
 )
 async def save_profile_draft(request: Request) -> dict:
+    """Save a profile draft at the expected revision."""
     actor, workspace = await scope(request)
     return await service.save_draft(
         actor, workspace, await body(request, SaveProfileDraft)
@@ -57,6 +61,7 @@ async def save_profile_draft(request: Request) -> dict:
     "/workspace/agent-profiles/test", methods=["POST"], auth=True, tags=["Agentive"]
 )
 async def test_profile_draft(request: Request) -> dict:
+    """Test the profile draft without producing live effects."""
     actor, workspace = await scope(request)
     return await service.test_draft(
         actor, workspace, await body(request, ProfileRevision)
@@ -67,6 +72,7 @@ async def test_profile_draft(request: Request) -> dict:
     "/workspace/agent-profiles/publish", methods=["POST"], auth=True, tags=["Agentive"]
 )
 async def publish_profile(request: Request) -> dict:
+    """Publish a tested workspace profile."""
     actor, workspace = await scope(request)
     return await service.publish(actor, workspace, await body(request, PublishProfile))
 
@@ -75,12 +81,14 @@ async def publish_profile(request: Request) -> dict:
     "/workspace/agent-profiles/bind", methods=["POST"], auth=True, tags=["Agentive"]
 )
 async def bind_profile(request: Request) -> dict:
+    """Assign an eligible connection to a published profile."""
     actor, workspace = await scope(request)
     return await service.bind(actor, workspace, await body(request, BindProfile))
 
 
 @endpoint("/workspace/agent-profiles", methods=["POST"], auth=True, tags=["Agentive"])
 async def create_profile(request: Request) -> dict:
+    """Create a new workspace profile draft."""
     actor, workspace = await scope(request)
     return await service.create_profile(
         actor, workspace, await body(request, CreateProfile)
@@ -94,6 +102,7 @@ async def create_profile(request: Request) -> dict:
     tags=["Agentive"],
 )
 async def set_native_chat_profiles(request: Request) -> dict:
+    """Set the published profiles offered in workspace chat."""
     actor, workspace = await scope(request)
     return await service.set_native_chat_profiles(
         actor, workspace, await body(request, NativeChatAllowlist)
@@ -107,6 +116,7 @@ async def set_native_chat_profiles(request: Request) -> dict:
     tags=["Agentive"],
 )
 async def rename_workspace_assistant(request: Request) -> dict:
+    """Update the default workspace assistant identity."""
     actor, workspace = await scope(request)
     return await service.rename_workspace_assistant(
         actor, workspace, await body(request, RenameWorkspaceAssistant)
@@ -120,6 +130,7 @@ async def rename_workspace_assistant(request: Request) -> dict:
     tags=["Agentive"],
 )
 async def get_public_web_chat(request: Request) -> dict:
+    """Return the Public Web Chat settings."""
     return await public_web_chat.describe(*(await scope(request)))
 
 
@@ -130,6 +141,7 @@ async def get_public_web_chat(request: Request) -> dict:
     tags=["Agentive"],
 )
 async def assign_public_web_chat(request: Request) -> dict:
+    """Set the published profile assigned to Public Web Chat."""
     actor, workspace = await scope(request)
     update = await body(request, PublicWebChatAssignment)
     await public_web_chat.assign_profile(
@@ -145,6 +157,7 @@ async def assign_public_web_chat(request: Request) -> dict:
     tags=["Agentive"],
 )
 async def set_public_web_chat_enablement(request: Request) -> dict:
+    """Set whether the ready Public Web Chat route is enabled."""
     actor, workspace = await scope(request)
     update = await body(request, PublicWebChatEnablement)
     ready = update.enabled and await public_web_chat.transport_ready(workspace)

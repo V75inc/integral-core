@@ -15,7 +15,9 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    SerializerFunctionWrapHandler,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -78,6 +80,17 @@ class HarnessExecutionScope(BaseModel):
                 "Integral tenant scope must match the authorized workspace"
             )
         return self
+
+    @model_serializer(mode="wrap")
+    def _serialize_scope(
+        self, serialize: SerializerFunctionWrapHandler
+    ) -> dict[str, str]:
+        """Keep the canonical native shape for persisted receipts and digests."""
+        value = serialize(self)
+        for key in ("connection_scope_key", "connection_audience"):
+            if value.get(key) is None:
+                value.pop(key, None)
+        return value
 
     @property
     def framework_conversation_id(self) -> str:

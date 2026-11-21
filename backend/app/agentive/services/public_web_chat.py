@@ -35,6 +35,7 @@ async def transport_ready(workspace: str) -> bool:
 
 
 async def describe(actor: str, workspace: str) -> dict:
+    """Return guarded workspace settings for this surface."""
     await profile_management.require_profile_manager(actor, workspace)
     found = await profile_management.record(workspace)
     route = PublicWebChatRoute.model_validate(found.public_web_chat if found else {})

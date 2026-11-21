@@ -86,9 +86,11 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
         await registerVoiceDefault(OPENAI_VOICE_DEFAULTS.transcription, "GPT-4o mini Transcribe", "transcription");
       const registeredRealtime = realtime?.editable &&
         await registerVoiceDefault(OPENAI_VOICE_DEFAULTS.realtime, "GPT-Realtime 2.1 mini", "realtime");
-      // Revision zero denotes an untouched role. Preserve explicit choices
-      // (including Off, browser-only, and deployment-default) on update/switch.
-      if (registeredTranscription && transcription?.revision === 0 && transcription.configuration.mode === "inherit") {
+      // Revision zero alone does not mean dictation is unused: an inherited
+      // legacy or deployment credential may already be the effective model.
+      // Keep that route and any explicit choice; the new model stays assignable.
+      if (registeredTranscription && transcription?.revision === 0 &&
+          transcription.configuration.mode === "inherit" && !transcription.effective_model) {
         await voiceConfigurationApi.save({
           mode: "provider", connection_id: saved.id, model: OPENAI_VOICE_DEFAULTS.transcription, revision: transcription.revision,
         }, request);
@@ -156,7 +158,7 @@ export function QuickProviderSetup({ data, disabled, onBusyChange }: {
           <Text as="p" variant="meta" tone="muted">{connection && connection.id === data.profiles.find(item => item.id === data.default_profile_id)?.connection_id
             ? "Your current chat model settings will be kept." : `${modelName} will be selected automatically.${data.routing?.mode === "light_heavy" ? " This switches chat from separate Heavy and Light models to one model." : ""}`}</Text>
           {provider === "openai" && <Text as="p" variant="meta" tone="muted">
-            Quick setup also configures Speech to Text and Realtime Voice if you haven't set them up or turned them off.
+            Quick setup also configures Speech to Text and Realtime Voice if they have no active model or saved choice.
             Existing voice settings and embedding settings are kept.
           </Text>}
           <div className="flex flex-wrap gap-2">

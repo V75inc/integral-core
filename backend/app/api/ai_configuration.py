@@ -407,6 +407,7 @@ async def save_voice_configuration(request: Request) -> dict:
     tags=["AI Models"],
 )
 async def get_realtime_voice_configuration(request: Request) -> dict:
+    """Return the current workspace live voice model configuration."""
     from app.services.request_scope import resolve_workspace_id_from_request
     from app.services.voice_configuration import describe_realtime
 
@@ -423,6 +424,7 @@ async def get_realtime_voice_configuration(request: Request) -> dict:
     tags=["AI Models"],
 )
 async def save_realtime_voice_configuration(request: Request) -> dict:
+    """Validate and save workspace live voice model configuration."""
     from app.schemas.voice_configuration import RealtimeVoiceModelWrite
     from app.services.request_scope import resolve_workspace_id_from_request
     from app.services.voice_configuration import save

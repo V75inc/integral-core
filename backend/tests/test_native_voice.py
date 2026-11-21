@@ -63,6 +63,7 @@ def request(call_id, response_id, text):
     }
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     browser, provider = Browser(), Provider()
@@ -312,3 +313,90 @@ async def test_voice_authority_refuses_threads_outside_the_current_profile(monke
             VoiceScope("caller", "workspace", "profile", "thread")
         )
     check_profile.assert_awaited_once_with("workspace", "caller", "profile")
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_delegate_returns_approval_notice_without_cancelling_parked_work(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.agentive.services import work_items
+    from app.agentive.work_models import WorkItem
+    from app.services import chat_turn_submissions, native_voice
+
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    monkeypatch.setattr(
+        native_voice, "authorize", AsyncMock(return_value=SimpleNamespace(id="thread"))
+    )
+    monkeypatch.setattr(
+        chat_turn_submissions,
+        "submit_chat_turn",
+        AsyncMock(
+            return_value=SimpleNamespace(work_item_id="work", message_id="accepted")
+        ),
+    )
+    monkeypatch.setattr(
+        WorkItem,
+        "get",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                principal_id="caller",
+                workspace_id="workspace",
+                thread_id="thread",
+                status="waiting_for_human",
+            )
+        ),
+    )
+    cancel = AsyncMock()
+    monkeypatch.setattr(work_items, "cancel_work_item", cancel)
+    result = await native_voice.delegate(scope, "call", "Prepare a change for review")
+    assert "needs approval" in result
+    cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_voice_cancellation_preserves_human_review(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.agentive.services import work_items, work_outbox
+
+    item = SimpleNamespace(status="waiting_for_human")
+    monkeypatch.setattr(work_items, "_current_work_item", AsyncMock(return_value=item))
+    update = AsyncMock()
+    monkeypatch.setattr(work_outbox, "cas_work_item_update", update)
+    assert await work_items.cancel_work_item("work", preserve_human_review=True) is item
+    update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delegate_disconnect_requests_review_preserving_cancel(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.agentive.services import work_items
+    from app.agentive.work_models import WorkItem
+    from app.services import chat_turn_submissions, native_voice
+
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    monkeypatch.setattr(
+        native_voice, "authorize", AsyncMock(return_value=SimpleNamespace(id="thread"))
+    )
+    monkeypatch.setattr(
+        chat_turn_submissions,
+        "submit_chat_turn",
+        AsyncMock(
+            return_value=SimpleNamespace(work_item_id="work", message_id="accepted")
+        ),
+    )
+    monkeypatch.setattr(
+        WorkItem, "get", AsyncMock(side_effect=asyncio.CancelledError())
+    )
+    cancel = AsyncMock()
+    monkeypatch.setattr(work_items, "cancel_work_item", cancel)
+    with pytest.raises(asyncio.CancelledError):
+        await native_voice.delegate(scope, "call", "Read the current status")
+    cancel.assert_awaited_once_with("work", preserve_human_review=True)

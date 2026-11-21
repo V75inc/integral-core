@@ -221,3 +221,24 @@ it("resumes after a realtime save failure without rewriting a completed chat or 
   expect(realtimeVoiceConfigurationApi.save).toHaveBeenCalledTimes(2);
   expect(aiConfigurationApi.saveProfile).toHaveBeenCalledTimes(3);
 });
+
+
+it.each(["gpt-live-transcribe", "gpt-transcribe"])(
+  "preserves inherited transcription (%s) on an upgraded workspace with no explicit voice revision",
+  async effective_model => {
+    vi.mocked(voiceConfigurationApi.get).mockResolvedValue({
+      ...blankSpeech(),
+      effective_model,
+      effective_provider: "openai",
+    });
+    show();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "synthetic-test-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect provider" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.any(String), "success"));
+    expect(aiConfigurationApi.saveProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ connection_id: "saved", model: "gpt-4o-mini-transcribe" }), request,
+    );
+    expect(voiceConfigurationApi.save).not.toHaveBeenCalled();
+    expect(realtimeVoiceConfigurationApi.save).toHaveBeenCalled();
+  },
+);

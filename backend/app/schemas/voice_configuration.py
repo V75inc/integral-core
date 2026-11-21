@@ -21,7 +21,9 @@ class VoiceModelWrite(BaseModel):
         return self
 
 
-RealtimeVoiceModel = Literal["", "gpt-realtime-2.1-mini", "gpt-realtime", "gpt-realtime-mini"]
+RealtimeVoiceModel = Literal[
+    "", "gpt-realtime-2.1-mini", "gpt-realtime", "gpt-realtime-mini"
+]
 
 
 class RealtimeVoiceModelWrite(VoiceModelWrite):

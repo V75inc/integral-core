@@ -284,6 +284,26 @@ class TestChannelIdentityService:
         )
         assert result["pairing_code"] not in str(identity.preferences)
 
+    @pytest.mark.asyncio
+    async def test_pairing_preserves_existing_verified_number(self):
+        from app.agentive.services.channel_identity import (
+            create_channel_identity_with_otp,
+            initiate_link,
+            verify_channel_otp,
+        )
+
+        owner = await _make_user("u_whatsapp_existing_owner")
+        phone = "+15553456789"
+        legacy = await create_channel_identity_with_otp(owner.id, "whatsapp", phone)
+        confirmed = await verify_channel_otp("whatsapp", phone, legacy["otp_code"])
+        assert confirmed["verified"] is True
+
+        result = await initiate_link(owner.id, "whatsapp", phone)
+
+        assert result["verified"] is True
+        assert result["identity_id"] == confirmed["identity_id"]
+        assert "pairing_code" not in result
+
 
 class TestNewMCPTools:
     """Test the manifest tool surface used by WhatsApp agent integration."""

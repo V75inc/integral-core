@@ -37,7 +37,7 @@ class NativeConnectionProfile:
         *,
         declarations=None,
         turn_scoped=False,
-    ):
+    ) -> "NativeConnectionProfile":
         session = await executor.open(connection_id, principal_id)
         grant = await executor.current_grant(connection_id, principal_id, session)
         return cls(

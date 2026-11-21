@@ -1,12 +1,5 @@
-import type { ModelConnection, ModelProfile, RealtimeVoiceChoice } from "../../../api/aiConfiguration";
-
-export function isTranscriptionModel(model: string): boolean {
-  return ["whisper-1", "gpt-transcribe", "gpt-live-transcribe"].includes(model) || /^gpt-4o(?:-mini)?-transcribe(?:-[a-z0-9]+)*$/.test(model);
-}
-
-export function isRealtimeVoiceModel(model: string): model is Exclude<RealtimeVoiceChoice["model"], ""> {
-  return ["gpt-realtime-2.1-mini", "gpt-realtime", "gpt-realtime-mini"].includes(model);
-}
+import type { ModelConnection, ModelProfile } from "../../../api/aiConfiguration";
+import { isRealtimeVoiceModel, isTranscriptionModel } from "../../../api/modelProfileKinds";
 
 export type VoiceRole = "transcription" | "realtime";
 

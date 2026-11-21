@@ -29,6 +29,7 @@ _host: ProfileHost | None = None
 
 
 def register_profile_host(host: ProfileHost) -> None:
+    """Register the trusted deployment profile host once."""
     global _host
     if _host is not None:
         raise ValueError("Connection profile host already registered")
@@ -36,6 +37,7 @@ def register_profile_host(host: ProfileHost) -> None:
 
 
 def profile_host() -> ProfileHost:
+    """Return the configured deployment profile host or deny."""
     if _host is None:
         raise ProfileDenied("No eligible connection host is configured")
     return _host

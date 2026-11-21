@@ -32,7 +32,8 @@ OpenAI `gpt-6.1-sol`, Anthropic `claude-opus-5-5`, OpenRouter
 `deepseek-v4.1-flash`. Local/custom endpoints have no automatic heavy default.
 Where OpenAI Speech to Text and Realtime Voice are supported, quick setup
 registers `gpt-4o-mini-transcribe` and `gpt-realtime-2.1-mini` and assigns them
-to untouched roles. Existing voice choices, including explicitly disabled roles, are preserved.
+to untouched roles. Existing voice choices, including explicitly disabled roles
+and working inherited transcription, are preserved.
 Embedding settings are not changed by quick setup. An update to the active
 provider's key keeps the current chat assignments; explicitly switching to a
 different provider selects its default chat profile and turns off dual routing.

@@ -511,10 +511,9 @@ async def verify_pending_whatsapp_sender(
 
 
 async def _supersede_pending_whatsapp_claims(
-    e164: str, user_id: str
+    identities: list[ChannelIdentity], user_id: str
 ) -> Optional[ChannelIdentity]:
     """Expire other people's open claims. Return this user's existing row."""
-    identities = await ChannelIdentity.find(channel="whatsapp", channel_user_id=e164)
     mine = None
     for identity in identities:
         if str(getattr(identity, "user_id", "") or "") == str(user_id):
@@ -552,20 +551,24 @@ async def initiate_link(
                     "like +15556767191."
                 )
             }
-        if await find_conflicting_verified_identity("whatsapp", e164):
+        identities = await ChannelIdentity.find(
+            channel="whatsapp", channel_user_id=e164
+        )
+        verified = [identity for identity in identities if identity.verified]
+        if any(str(identity.user_id) != str(user_id) for identity in verified):
             return {
                 "error": "This channel address is already verified for another account."
+            }
+        if verified:
+            return {
+                "identity_id": verified[0].id,
+                "verified": True,
+                "message": "Channel identity already verified",
             }
         expires = (utc_now() + timedelta(minutes=10)).isoformat()
         pairing_code = secrets.token_urlsafe(18)
         code_hash = hashlib.sha256(pairing_code.encode()).hexdigest()
-        existing = await _supersede_pending_whatsapp_claims(e164, user_id)
-        if existing is not None and getattr(existing, "verified", False):
-            return {
-                "identity_id": existing.id,
-                "verified": True,
-                "message": "Channel identity already verified",
-            }
+        existing = await _supersede_pending_whatsapp_claims(identities, user_id)
         if existing is None:
             user = await _require_user_node(user_id)
             existing = await ChannelIdentity.create(
