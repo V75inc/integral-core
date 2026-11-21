@@ -46,6 +46,15 @@ describe('Active workspace tasks', () => {
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '75');
     expect(screen.getByText('Preparing sections')).toBeInTheDocument();
   });
+  it('shows loading before concealing an empty monitor', async () => {
+    let resolve!: (result: unknown) => void;
+    list.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    renderWithRouter(<WorkItemsSection workspaceId="workspace-1" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading work status');
+    expect(screen.getByRole('region', { name: 'Active workspace tasks' })).toBeInTheDocument();
+    resolve({ items: [], next_cursor: null });
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Active workspace tasks' })).not.toBeInTheDocument());
+  });
   it('shows failed observation and allows retry', async () => {
     list.mockRejectedValueOnce(new Error('Status unavailable')).mockResolvedValueOnce({ items: [], next_cursor: null });
     renderWithRouter(<WorkItemsSection workspaceId="workspace-1" />);

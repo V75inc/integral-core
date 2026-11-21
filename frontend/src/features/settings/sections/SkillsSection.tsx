@@ -139,7 +139,7 @@ function SkillsBrowser({
 
   return (
     <Section
-      title="AI Skills"
+      title="Agent Skills"
       description="Skills guide how Integral handles tasks in this workspace."
       actions={
         <div className="flex flex-wrap items-center gap-2">

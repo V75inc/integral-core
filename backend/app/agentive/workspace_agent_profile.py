@@ -346,6 +346,8 @@ def _skill_to_overlay_doc(
         requires_tools=tuple(resolved_tools),
         always_active=False,
         metadata={
+            "skill_id": skill.id,
+            "skill_name": getattr(skill, "name", "") or key,
             "skill_key": key,
             "app_id": getattr(skill, "app_id", ""),
             "app_slug": app_slug,

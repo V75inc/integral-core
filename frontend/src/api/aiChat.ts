@@ -1,3 +1,4 @@
+import type { ChatAgentIdentity } from './chatAssistantIdentity';
 import { apiClient } from './index';
 import { createSingleFlight } from './singleFlight';
 import type { ChatEntityRef } from '../types/chatEntityRefs';
@@ -79,7 +80,11 @@ export interface AIChatProviderInfo {
   };
 }
 
+export type { ChatAgentIdentity } from './chatAssistantIdentity';
+
 export interface AIChatThread {
+  agent_profile?: ChatAgentIdentity;
+  agent_profile_key?: string;
   id: string;
   provider_id: string;
   agent_id: string;
@@ -246,14 +251,21 @@ export const aiChatApi = {
     });
   },
 
+  async listAgentProfiles(workspaceId: string) {
+    const res = await apiClient.get<{ profiles: ChatAgentIdentity[]; workspace_assistant: ChatAgentIdentity | null }>('/chat/agent-profiles', { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } });
+    return res.data;
+  },
+
   async createThread(
     providerId: string,
-    options: { agentId?: string; title?: string } = {},
+    options: { agentId?: string; title?: string; agentProfileKey?: string; workspaceId?: string } = {},
   ): Promise<AIChatThread> {
     const body: Record<string, string> = { provider_id: providerId };
     if (options.agentId) body.agent_id = options.agentId;
     if (options.title) body.title = options.title;
-    const res = await apiClient.post<AIChatThread>('/chat/threads', body);
+    if (options.agentProfileKey) body.agent_profile_key = options.agentProfileKey;
+    const config = options.workspaceId ? { headers: { 'X-Integral-Scope': `ws:${options.workspaceId}` } } : undefined;
+    const res = await apiClient.post<AIChatThread>('/chat/threads', body, config);
     return res.data;
   },
 

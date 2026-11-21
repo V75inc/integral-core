@@ -133,7 +133,7 @@ describe('AgentsSection — existing provider listing', () => {
   it('renders the section header', () => {
     renderPanel();
     expect(
-      screen.getByRole('heading', { name: 'Connected agents', level: 2 }),
+      screen.getByRole('heading', { name: 'External Agents', level: 2 }),
     ).toBeInTheDocument();
   });
 
@@ -189,7 +189,7 @@ describe('AgentsSection — MCP endpoint + connected agents', () => {
     mockedList.mockResolvedValue([]);
     renderPanel();
     expect(
-      await screen.findByText(/no connected agents yet/i),
+      await screen.findByText(/no external agents connected/i),
     ).toBeInTheDocument();
   });
 

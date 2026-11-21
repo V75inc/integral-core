@@ -1,5 +1,6 @@
 """WhatsApp channel binding storage: encryption, ownership, and redaction."""
 
+import asyncio
 import json
 
 import pytest
@@ -367,6 +368,112 @@ async def test_put_registers_webhook_and_hides_secrets(
     assert "webhook_secret" not in fetched_body
     assert "whsec_registered" not in fetched.text
     assert "jvk_test_secret_value" not in fetched.text
+
+
+@pytest.mark.asyncio
+async def test_two_adds_cannot_replace_the_workspace_line(
+    enc_key, authenticated_client, monkeypatch
+):
+    """Only one explicit Add may claim an empty workspace."""
+    calls = _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    path = "/api/agentive/channels/whatsapp/binding"
+    body = {
+        "jvconnect_base_url": "https://connect.example",
+        "api_key": "jvk_fixture_key",
+        "expected_binding_id": None,
+    }
+    replies = await asyncio.gather(
+        authenticated_client.put(path, json=body),
+        authenticated_client.put(path, json=body),
+    )
+    assert sorted(reply.status_code for reply in replies) == [200, 409]
+    winner = next(
+        reply.json()["binding"] for reply in replies if reply.status_code == 200
+    )
+    stored = (await authenticated_client.get(path)).json()["binding"]
+    assert stored["id"] == winner["id"]
+    assert len(calls["register"]) == 1
+
+    stale = await authenticated_client.put(
+        path, json={**body, "expected_binding_id": "stale-binding"}
+    )
+    assert stale.status_code == 409
+    assert len(calls["register"]) == 1
+
+    updated = await authenticated_client.put(
+        path, json={**body, "expected_binding_id": winner["id"]}
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["binding"]["id"] == winner["id"]
+    assert len(calls["register"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_configure_cannot_replace_verified_line_with_a_different_number(
+    enc_key, authenticated_client, monkeypatch
+):
+    calls = _stub_jvconnect_registration(monkeypatch, phone="fixture-first")
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    path = "/api/agentive/channels/whatsapp/binding"
+    body = {
+        "jvconnect_base_url": "https://connect.example",
+        "api_key": "jvk_fixture_key",
+        "expected_binding_id": None,
+    }
+    first = await authenticated_client.put(path, json=body)
+    assert first.status_code == 200, first.text
+    binding = first.json()["binding"]
+    other_calls = _stub_jvconnect_registration(monkeypatch, phone="fixture-other")
+    other = await authenticated_client.put(
+        path, json={**body, "expected_binding_id": binding["id"]}
+    )
+    assert other.status_code == 409
+    assert len(calls["register"]) == 1
+    assert other_calls["register"] == []
+    assert (await authenticated_client.get(path)).json()["binding"] == binding
+
+
+@pytest.mark.asyncio
+async def test_late_registration_cannot_restore_a_disconnected_workspace_line(
+    enc_key, authenticated_client, monkeypatch
+):
+    _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    started, complete = asyncio.Event(), asyncio.Event()
+
+    async def register_webhook(*args, **kwargs):
+        started.set()
+        await complete.wait()
+        return JvconnectResult(
+            ok=True, status_code=200, data={"webhook_secret": "whsec_fixture"}, error=""
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.register_webhook", register_webhook
+    )
+    path = "/api/agentive/channels/whatsapp/binding"
+    adding = asyncio.create_task(
+        authenticated_client.put(
+            path,
+            json={
+                "jvconnect_base_url": "https://connect.example",
+                "api_key": "jvk_fixture_key",
+                "expected_binding_id": None,
+            },
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        pending = (await authenticated_client.get(path)).json()["binding"]
+        assert pending["enabled"] is False
+        removed = await authenticated_client.delete(f"{path}/{pending['id']}")
+        assert removed.status_code == 200
+    finally:
+        complete.set()
+        result = await adding
+    assert result.status_code == 409
+    assert (await authenticated_client.get(path)).json()["binding"] is None
 
 
 @pytest.mark.asyncio

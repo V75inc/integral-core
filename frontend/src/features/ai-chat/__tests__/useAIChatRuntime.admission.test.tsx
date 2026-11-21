@@ -236,6 +236,34 @@ describe("admission refusals are visible, and nothing is appended", () => {
     expect(result.current.activeThreadId).toBe("t-fresh");
   });
 
+  it("treats combined history as a filter and creates a named thread only on first send", async () => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    const provider = { ...persistedProvider, id: "integral_native" };
+    const profileChoices = [{ key: "staff", name: "Read records", description: "", icon: "integral" }];
+    const { result } = renderHook(() => useAIChatRuntime(provider, {
+      managedDraft: true, profileChoices, startNewThread: true,
+    }));
+    await waitFor(() => expect(result.current.profileSelectionReady).toBe(true));
+    expect(result.current.profileFilter).toBe("workspace-assistant");
+    expect(result.current.needsDraftAgent).toBe(false);
+    await act(async () => { await result.current.switchProfile("staff"); });
+    expect(result.current.profileFilter).toBe("staff");
+    expect(result.current.activeThreadId).toBeNull();
+    expect(aiChatApi.createThread).not.toHaveBeenCalled();
+    vi.mocked(aiChatApi.createThread).mockResolvedValueOnce({
+      id: "t-profile", provider_id: "integral_native", agent_profile_key: "staff",
+      title: "", archived: false,
+    } as never);
+    await send(result, "read records");
+    expect(aiChatApi.createThread).toHaveBeenCalledWith("integral_native", {
+      agentId: "agent1", agentProfileKey: "staff", workspaceId: "ws1",
+    });
+    await act(async () => { await result.current.switchProfile("all-workspace-assistants"); });
+    expect(result.current.needsDraftAgent).toBe(true);
+    expect(result.current.activeThreadId).toBeNull();
+    expect(aiChatApi.createThread).toHaveBeenCalledTimes(1);
+  });
+
   it("says the cap was hit instead of appending an unanswered message", async () => {
     const finishers: Array<() => void> = [];
     const cappedProvider: ChatProvider = {

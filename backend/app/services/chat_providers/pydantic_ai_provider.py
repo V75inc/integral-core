@@ -138,6 +138,17 @@ def _read_tools_for_run(run) -> set[str]:
     } | set(_FRAMEWORK_READ_TOOLS)
 
 
+def _workspace_persona_instructions(persona: str) -> str:
+    if not persona.strip():
+        return ""
+    preference = json.dumps(persona, ensure_ascii=False).replace("<", "\\u003c")
+    return (
+        "\n\nWorkspace-configured assistant persona (JSON string). Apply these preferences "
+        "when consistent with system instructions, current permissions, and approval rules: "
+        + preference
+    )
+
+
 async def _retained_file_context(
     thread: ChatThread, ctx: ChatTurnContext, *, through_message_id: str | None = None
 ) -> str:
@@ -1952,7 +1963,9 @@ class PydanticAIProvider:
             timing.clients.append(model.client)
         return model
 
-    async def _try_light_turn(self, ctx, thread, workspace_role, work_context):
+    async def _try_light_turn(
+        self, ctx, thread, workspace_role, work_context, *, persona_instructions=""
+    ):
         from app.agentive.harness.adaptive import (
             EscalatedTurn,
             LightTurnResult,
@@ -2113,7 +2126,8 @@ class PydanticAIProvider:
                         exclude_id=accepted_id,
                         allow_assistant=not thread_has_operational_history(thread),
                     ),
-                    instructions=ctx.system_context or None,
+                    instructions=((ctx.system_context or "") + persona_instructions)
+                    or None,
                     cancellation_token=self._active_tokens.get(ctx.thread_id),
                     # Native steering can open another model request after the
                     # first reply. Give that path the normal turn allowance.
@@ -2196,6 +2210,84 @@ class PydanticAIProvider:
             elapsed_ms=(time.monotonic() - started) * 1000,
         )
 
+    async def _prepare_profile_turn(self, ctx, thread, workspace_role, work_context):
+        """Run the admitted text only with fresh installed capabilities."""
+        from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+        from app.agentive.harness.adaptive import LightTurnResult
+        from app.agentive.services.connection_profiles import ProfileDenied
+        from app.agentive.services.execution_runs import AgentRun
+        from app.agentive.services.profile_management import open_published_profile
+        from app.middleware.permissions_cache import isolated_permissions_cache
+
+        run_id = str((ctx.extra_data or {}).get("run_id") or "")
+        run = await AgentRun.find_one({"run_id": run_id}) if run_id else None
+        if (
+            run is None
+            or run.status != "running"
+            or getattr(run, "origin", "") not in {"http", "chat", "interactive_chat"}
+            or (work_context is not None and work_context.run_id != run_id)
+            or ctx.deferred_resume is not None
+        ):
+            raise InsufficientPermissionsError(message="Profile turn unavailable")
+        scope = HarnessExecutionScope(
+            tenant_id=ctx.workspace_id,
+            principal_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+            session_id=ctx.thread_id,
+            run_id=run_id,
+            permission_revision=_POLICY_REVISION,
+            capability_version=run.capability_version or "agent-profile-v1",
+        )
+        prompt = await _load_recovery_user_message(run, scope)
+        if prompt is None:
+            raise InsufficientPermissionsError(
+                message="Profile turns require a text message"
+            )
+        await _assert_work_output_authority_current(work_context)
+        try:
+            binding, persona = await open_published_profile(
+                ctx.workspace_id,
+                "native-chat",
+                ctx.user_id,
+                native_profile_key=thread.agent_profile_key,
+            )
+        except ProfileDenied as exc:
+            raise InsufficientPermissionsError(
+                message="This chat profile is unavailable"
+            ) from exc
+        scope = binding.bind_scope(scope)
+
+        async def assert_current():
+            with isolated_permissions_cache():
+                await binding.current()
+
+        model = await self._build_turn_model(ctx, scope, work_context, workspace_role)
+        instructions = (
+            "Answer using only this conversation turn and the offered capabilities. "
+            "If the required capability is unavailable, say so.\n\n" + persona
+        )
+        agent, _ = build_native_runtime(
+            model=model,
+            instructions=instructions,
+            tools=(),
+            scope=scope,
+            agent_name="integral-profile",
+            connection_profile=binding,
+            step_store_backend=InMemoryStepStore(),
+        )
+        started = time.monotonic()
+        result = await agent.run(prompt.parts[0].content, conversation_id=ctx.thread_id)
+        await assert_current()
+        return LightTurnResult(
+            text=result.output,
+            scope=scope,
+            work_context=work_context,
+            elapsed_ms=(time.monotonic() - started) * 1000,
+            assert_current=assert_current,
+        )
+
     async def _prepare_current(self, ctx: ChatTurnContext):
         raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
         work_execution_context = (
@@ -2210,6 +2302,10 @@ class PydanticAIProvider:
         ):
             raise WorkError("work.policy_denied", "execution scope mismatch")
         thread, workspace_role = await self._validate_chat_scope(ctx)
+        if getattr(thread, "agent_profile_key", ""):
+            return await self._prepare_profile_turn(
+                ctx, thread, workspace_role, work_execution_context
+            )
         from app.services.credential_crypto import encryption_available
 
         if not encryption_available():
@@ -2268,15 +2364,26 @@ class PydanticAIProvider:
                 )
 
         from app.agentive.harness.adaptive import EscalatedTurn
+        from app.agentive.services.profile_management import workspace_assistant_persona
         from app.agentive.harness.model_routing import may_escalate_light_failure
         from app.services.chat_latency import current_latency
 
+        persona_instructions = _workspace_persona_instructions(
+            await workspace_assistant_persona(thread.workspace_id)
+        )
         light = None
         light_started = time.monotonic()
-        if ctx.deferred_resume is None:
+        if (
+            ctx.deferred_resume is None
+            and (ctx.extra_data or {}).get("voice_delegate") is not True
+        ):
             try:
                 light = await self._try_light_turn(
-                    ctx, thread, workspace_role, work_execution_context
+                    ctx,
+                    thread,
+                    workspace_role,
+                    work_execution_context,
+                    persona_instructions=persona_instructions,
                 )
             except Exception as exc:
                 timing = current_latency.get()
@@ -2657,6 +2764,7 @@ class PydanticAIProvider:
             + retained_file_instructions
             + current_file_instructions
             + approval_instructions
+            + persona_instructions
             + "\n\nRespond to the user with the final answer only. Do not "
             "include internal reasoning, a thought field, or a serialized "
             "assistant-message envelope unless the user explicitly requests "
@@ -2784,6 +2892,7 @@ class PydanticAIProvider:
                     .replace(retained_file_instructions, "")
                     .replace(current_file_instructions, "")
                     .replace(approval_instructions, "")
+                    .replace(persona_instructions, "")
                     .replace(time_context, ""),
                     tools=tools,
                     scope=scope,
@@ -3047,6 +3156,10 @@ class PydanticAIProvider:
                 else None
             )
             if public_response is not None:
+                thread = await ChatThread.get(ctx.thread_id)
+                if getattr(thread, "agent_profile_key", ""):
+                    public_response = None
+            if public_response is not None:
                 # Host support is persisted by the ordinary chat event consumer.
                 # No model, workspace tool, private context, or resume-pointer write.
                 from app.agentive.services.execution_runs import AgentRun
@@ -3129,6 +3242,8 @@ class PydanticAIProvider:
                     await _assert_work_output_authority_current(prepared.work_context)
                     yield event
                 await _assert_work_output_authority_current(prepared.work_context)
+                if prepared.assert_current is not None:
+                    await prepared.assert_current()
                 yield {"type": "text-delta", "delta": prepared.text}
                 from app.agentive.harness.model_observations import (
                     list_model_request_observations,

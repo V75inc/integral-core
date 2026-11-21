@@ -762,6 +762,7 @@ async def _execute_chat_turn(
         extra_data["pending_approval_tokens"] = (
             {}
             if deferred_resume is not None
+            or execution.extra_data.get("voice_delegate") is True
             else await _pending_write_references(
                 principal_id=ctx.principal_id,
                 workspace_id=ctx.workspace_id,

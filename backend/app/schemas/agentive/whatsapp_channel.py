@@ -12,6 +12,9 @@ class SaveWhatsAppChannelBindingRequest(BaseModel):
 
     jvconnect_base_url: str
     api_key: str = Field(repr=False)
+    # Explicit null means Add. An ID means Configure that existing line.
+    # Omission retains the behavior of clients using the original PUT.
+    expected_binding_id: str | None = Field(default=None, min_length=1)
 
     model_config = {"extra": "forbid"}
 

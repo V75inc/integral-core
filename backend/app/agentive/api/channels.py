@@ -528,6 +528,8 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
             jvconnect_base_url=body.jvconnect_base_url,
             api_key=body.api_key,
             request_base_url=str(request.base_url),
+            expected_binding_id=body.expected_binding_id,
+            check_expected_binding="expected_binding_id" in body.model_fields_set,
         )
     except RuntimeError as exc:
         text = str(exc)

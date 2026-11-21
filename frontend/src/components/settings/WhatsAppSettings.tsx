@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { Phone, Link2, CheckCircle2, XCircle, Loader2, Trash2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAgentive } from '../../context/AgentiveContext';
@@ -13,7 +13,9 @@ import {
 } from '../../api/agentive';
 import { Field } from '../../patterns';
 import { Button, IconWell, LINE_ICON_STROKE } from '../ui';
+import { WHATSAPP_CONNECTOR } from '../../features/settings/connectors/connectorDefinitions';
 import { Input, Text } from '../../ui';
+import { FormDialog } from '../../templates';
 
 function responseMessage(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -40,7 +42,19 @@ interface ChannelIdentity {
   created_at?: string;
 }
 
-export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
+export type WhatsAppDialogMode = 'Add' | 'Configure' | 'View';
+
+export interface WhatsAppDialog {
+  mode: WhatsAppDialogMode;
+  onClose: () => void;
+}
+
+export function WhatsAppSettings({ onChange, onBindingChange, canManageLine = true, dialog }: {
+  onChange?: () => void;
+  onBindingChange?: () => void;
+  canManageLine?: boolean;
+  dialog?: WhatsAppDialog;
+} = {}) {
   const { showToast } = useToast();
   const { enabled } = useAgentive();
   const [identities, setIdentities] = useState<ChannelIdentity[]>([]);
@@ -52,6 +66,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
   const [submitting, setSubmitting] = useState(false);
   const [binding, setBinding] = useState<WhatsAppChannelBinding | null>(null);
   const [bindingReady, setBindingReady] = useState(false);
+  const [bindingLoadFailed, setBindingLoadFailed] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [channelError, setChannelError] = useState('');
@@ -78,8 +93,10 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
       const next = res?.binding ? withoutSecrets(res.binding) : null;
       setBinding(next);
       setChannelError('');
+      setBindingLoadFailed(false);
       setBaseUrl(next?.jvconnect_base_url ?? '');
     } catch (error: unknown) {
+      setBindingLoadFailed(true);
       setChannelError(responseMessage(error, 'Could not load WhatsApp channel'));
     } finally {
       setBindingReady(true);
@@ -123,6 +140,7 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
   };
 
   const handleSaveChannel = async () => {
+    if (!canManageLine || bindingLoadFailed) return;
     const url = baseUrl.trim();
     const key = apiKey;
     if (!url || !key.trim()) {
@@ -132,14 +150,17 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
     setChannelAction('save');
     setChannelError('');
     try {
-      const saved = await saveWhatsAppChannelBinding({ jvconnect_base_url: url, api_key: key });
+      const saved = await saveWhatsAppChannelBinding({
+        jvconnect_base_url: url, api_key: key, expected_binding_id: binding?.id ?? null,
+      });
       setApiKey('');
       if (saved?.binding) {
         const next = withoutSecrets(saved.binding);
         setBinding(next);
         setBaseUrl(next.jvconnect_base_url || url);
       }
-      showToast('WhatsApp channel saved', 'success');
+      showToast(binding ? 'WhatsApp connection updated' : 'WhatsApp connection added', 'success');
+      onBindingChange?.();
       await loadBinding();
     } catch (error: unknown) {
       const message = responseMessage(error, 'Could not save WhatsApp channel');
@@ -151,13 +172,16 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
   };
 
   const handleDisableChannel = async () => {
-    if (!binding?.id) return;
+    if (!canManageLine || !binding?.id || bindingLoadFailed) return;
     setChannelAction('disable');
     setChannelError('');
     try {
-      const saved = await disableWhatsAppChannelBinding(binding.id);
-      if (saved?.binding) setBinding(withoutSecrets(saved.binding));
-      showToast('WhatsApp channel disabled', 'success');
+      await disableWhatsAppChannelBinding(binding.id);
+      setBinding(null);
+      setBaseUrl('');
+      setApiKey('');
+      showToast('WhatsApp disconnected from this workspace', 'success');
+      onBindingChange?.();
       await loadBinding();
     } catch (error: unknown) {
       const message = responseMessage(error, 'Could not disable WhatsApp channel');
@@ -181,44 +205,65 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
 
   const whatsappIdentities = identities.filter((i) => i.channel === 'whatsapp');
 
-  if (!enabled) {
+  const title = WHATSAPP_CONNECTOR.name;
+  const busy = channelAction !== null || submitting;
+  const closeDialog = () => { if (!busy) dialog?.onClose(); };
+
+  function renderSettings(body: ReactNode, primary?: ReactNode) {
+    if (dialog) {
+      return (
+        <FormDialog open title={`${dialog.mode} ${title}`} onClose={closeDialog}
+          actions={<>
+            <Button type="button" variant="ghost" size="sm" onClick={closeDialog} disabled={busy}>
+              {dialog.mode === 'Add' ? 'Cancel' : 'Done'}
+            </Button>
+            {primary}
+          </>}>
+          {body}
+        </FormDialog>
+      );
+    }
     return (
       <div className="app-card p-5">
-        <h2 className="font-display text-xl font-bold text-[var(--text)] flex items-center gap-2 mb-3">
-          <Phone size={20} strokeWidth={LINE_ICON_STROKE} />
-          WhatsApp
-        </h2>
-        <Text variant="body" tone="muted" as="p">
-          WhatsApp is unavailable. Contact your administrator to check channel configuration.
+        <Text as="h3" variant="heading-sm" className="mb-4 flex items-center gap-2">
+          <IconWell size="sm" aria-hidden><Phone size={16} strokeWidth={LINE_ICON_STROKE} /></IconWell>
+          {title}
         </Text>
+        {body}
       </div>
     );
   }
 
-  if (loading || !bindingReady) {
-    return (
-      <div className="app-card p-5 flex items-center gap-3">
-        <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" />
-        <span className="text-sm text-[var(--text-muted)]">Loading...</span>
-      </div>
-    );
-  }
+  if (!enabled) return renderSettings(
+    <Text variant="body" tone="muted" as="p">
+      WhatsApp is unavailable. Contact your administrator to check channel configuration.
+    </Text>,
+  );
+  if (loading || !bindingReady) return renderSettings(
+    <div role="status" className="flex items-center gap-3">
+      <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" aria-hidden />
+      <Text variant="body-sm" tone="muted" as="span">Loading WhatsApp settings…</Text>
+    </div>,
+  );
+  if (loadError) return renderSettings(
+    <div role="alert">
+      <Text as="p" variant="body-sm" tone="danger">Could not load WhatsApp numbers.</Text>
+      <Button variant="outline" size="sm" onClick={() => { void loadIdentities(); void loadBinding(); }}>Try again</Button>
+    </div>,
+  );
 
-  if (loadError) return <div role="alert" className="app-card p-5"><Text as="p" variant="body-sm" tone="danger">Could not load WhatsApp numbers.</Text><Button variant="outline" size="sm" onClick={() => { void loadIdentities(); void loadBinding(); }}>Try again</Button></div>;
+  const canEditWorkspace = canManageLine && !bindingLoadFailed && dialog?.mode !== 'View';
+  const primary = canEditWorkspace ? (
+    <Button variant="primary" size="sm" onClick={() => void handleSaveChannel()}
+      loading={channelAction === 'save'} disabled={busy || (Boolean(dialog) && (!baseUrl.trim() || !apiKey.trim()))}>
+      {binding ? 'Save changes' : 'Add connection'}
+    </Button>
+  ) : null;
 
-  return (
-    <div className="app-card p-5">
-      <h3 className="text-sm font-semibold flex items-center gap-2 mb-4">
-        <IconWell size="sm" aria-hidden>
-          <Phone size={16} strokeWidth={LINE_ICON_STROKE} />
-        </IconWell>
-        WhatsApp
-      </h3>
-
-      <p className="text-sm text-[var(--text-muted)] mb-4">
-        Link your WhatsApp number to interact with Integral via WhatsApp messages.
-        You'll be able to create entries, query tracks, and manage your workspace from any WhatsApp chat.
-      </p>
+  const personalSettings = (
+    <section className="space-y-3" aria-label="Personal WhatsApp number">
+      <Text as="h4" variant="heading-sm">Personal WhatsApp number</Text>
+      <Text as="p" variant="body-sm" tone="muted">Link your number to chat with Integral on WhatsApp.</Text>
 
       {/* Linked numbers */}
       {whatsappIdentities.length > 0 && (
@@ -298,39 +343,56 @@ export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
           </Button>
         </div>
       )}
+    </section>
+  );
 
-      <div className="mt-6 space-y-3 border-t border-[var(--panel-border)] pt-4">
-        <Text variant="heading-sm" as="h4">WhatsApp channel</Text>
-        {binding && (
-          <div className="space-y-1">
-            <Text variant="body-sm" tone="muted" as="p">{binding.jvconnect_base_url}</Text>
-            <Text variant="body-sm" tone="muted" as="p">{binding.enabled ? 'Enabled' : 'Disabled'}</Text>
-            <Text variant="body-sm" tone="muted" as="p">{binding.webhook_registered ? 'Webhook registered' : 'Webhook not registered'}</Text>
-            {binding.api_key_last4 ? <Text variant="body-sm" as="p">API key ending in {binding.api_key_last4}</Text> : null}
-            {binding.phone_number_id ? <Text variant="body-sm" as="p">Phone number id {binding.phone_number_id}</Text> : null}
-            {binding.display_phone ? <Text variant="body-sm" as="p">Display phone {binding.display_phone}</Text> : null}
-            <Text variant="body-sm" tone="muted" as="p">Other workspaces can use this number with the same API key.</Text>
-            {binding.last_error?.trim() ? <Text variant="body-sm" tone="danger" as="p">{binding.last_error}</Text> : null}
-          </div>
-        )}
-        {channelError ? <Text variant="body-sm" tone="danger" as="p" role="alert">{channelError}</Text> : null}
+  const workspaceSettings = (
+    <section className="space-y-3" aria-label="Workspace WhatsApp line">
+      <Text variant="heading-sm" as="h4">Workspace WhatsApp line</Text>
+      {!binding && !bindingLoadFailed && <Text variant="body-sm" tone="muted" as="p">
+        No WhatsApp line is connected to this workspace.
+      </Text>}
+      {binding && (
+        <div className="space-y-1">
+          <Text variant="body-sm" tone="muted" as="p">{binding.jvconnect_base_url}</Text>
+          <Text variant="body-sm" tone="muted" as="p">{binding.enabled ? 'Enabled' : 'Disabled'}</Text>
+          <Text variant="body-sm" tone="muted" as="p">{binding.webhook_registered ? 'Webhook registered' : 'Webhook not registered'}</Text>
+          {binding.api_key_last4 ? <Text variant="body-sm" as="p">API key ending in {binding.api_key_last4}</Text> : null}
+          {binding.phone_number_id ? <Text variant="body-sm" as="p">Phone number id {binding.phone_number_id}</Text> : null}
+          {binding.display_phone ? <Text variant="body-sm" as="p">Display phone {binding.display_phone}</Text> : null}
+          <Text variant="body-sm" tone="muted" as="p">Other workspaces can use this number with the same API key.</Text>
+          {binding.last_error?.trim() ? <Text variant="body-sm" tone="danger" as="p">{binding.last_error}</Text> : null}
+        </div>
+      )}
+      {channelError ? <Text variant="body-sm" tone="danger" as="p" role="alert">{channelError}</Text> : null}
+      {bindingLoadFailed && <Button variant="outline" size="sm" onClick={() => void loadBinding()}>Retry connection status</Button>}
+      {!canManageLine && <Text variant="body-sm" tone="muted" as="p">
+        Workspace admins and owners manage the workspace line.
+      </Text>}
+      {canEditWorkspace && <>
         <Field label="jvconnect base URL">
           <Input type="text" value={baseUrl} autoComplete="off" onChange={(event) => setBaseUrl(event.target.value)} />
         </Field>
         <Field label="API key">
           <Input type="password" value={apiKey} autoComplete="new-password" onChange={(event) => setApiKey(event.target.value)} />
         </Field>
-        <div className="flex gap-2">
-          <Button variant="primary" size="sm" onClick={() => void handleSaveChannel()} loading={channelAction === 'save'} disabled={channelAction !== null}>
-            Save
-          </Button>
-          {binding?.id ? (
-            <Button variant="outline" size="sm" onClick={() => void handleDisableChannel()} loading={channelAction === 'disable'} disabled={channelAction !== null}>
+        {(!dialog || binding) && <div className="flex gap-2">
+          {!dialog && primary}
+          {binding && (
+            <Button variant="outline" size="sm" onClick={() => void handleDisableChannel()} loading={channelAction === 'disable'} disabled={busy}>
               Disconnect
             </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
+          )}
+        </div>}
+      </>}
+    </section>
+  );
+
+  return renderSettings(
+    <div className="flex flex-col gap-4">
+      {workspaceSettings}
+      <div className="border-t border-[var(--panel-border)] pt-4">{personalSettings}</div>
+    </div>,
+    primary,
   );
 }

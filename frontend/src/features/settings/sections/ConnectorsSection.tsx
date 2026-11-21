@@ -7,13 +7,15 @@
  * shared warning banner above the list. Admins can still read, edit, and
  * delete existing rows.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Cable,
   HeartPulse,
   List,
+  MessageCircle,
   Pencil,
   PlugZap,
   Plus,
@@ -29,6 +31,9 @@ import {
   type CatalogEntry,
   type ConnectorResponse,
 } from "../../../api/connectors";
+import { getWhatsAppChannelBinding } from "../../../api/agentive";
+import { useAgentive } from "../../../context/AgentiveContext";
+import { WHATSAPP_CONNECTOR } from "../connectors/connectorDefinitions";
 import { Button } from "../../../components/ui/Button";
 import {
   KebabMenu,
@@ -44,6 +49,7 @@ import { useScopeOptional } from "../../../context/ScopeContext";
 import { SettingsSection, StatusPill } from "../components/Field";
 import { ConnectorEditModal } from "./ConnectorEditModal";
 import { ConnectorBrandIcon } from "../connectors/ConnectorBrandIcon";
+import { WhatsAppConnectorSettings } from "../connectors/WhatsAppConnectorSettings";
 import { ConnectorCatalogPanel } from "../connectors/ConnectorCatalogPanel";
 import { CustomMcpMountModal } from "../connectors/CustomMcpMountModal";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl";
@@ -124,7 +130,7 @@ function McpConnectorSummary({
       ) : null}
       <Text variant="body-sm" tone="subtle" as="p" className="mt-1 break-words">
         {connector.connection_mode === "shared"
-          ? "Shared connection"
+          ? "Workspace connection"
           : "Personal connection"}{" "}
         · MCP
       </Text>
@@ -144,6 +150,15 @@ function McpConnectorSummary({
         </Text>
       ) : null}
     </>
+  );
+}
+
+function ConnectedConnectorRow({ children }: { children: ReactNode }) {
+  return (
+    <Surface as="li" tone="panel-2" border="subtle" radius="card" padding="md"
+      className="min-w-0 flex flex-col gap-4">
+      {children}
+    </Surface>
   );
 }
 
@@ -184,6 +199,7 @@ function ScopedConnectorsSection({
   const auth = useAuthOptional();
   const myId = auth?.user?.id ?? "";
   const scope = useScopeOptional();
+  const { enabled: whatsappEnabled } = useAgentive();
   const wsRole = scope?.activeWorkspace?.your_role;
   // Workspace admins manage shared rows they did not install (edit,
   // re-auth, sync, delete). Mirror config (Gmail labels, QuickBooks
@@ -193,8 +209,18 @@ function ScopedConnectorsSection({
   // the control from members/guests so they don't fill a form that 403s.
   const canMountCustomMcp = !wsRole || isWsAdmin;
 
-  const [view, setView] = useState<"home" | "library">("home");
+  const { hash } = useLocation();
+  const navigate = useNavigate();
+  const showLibrary = hash === "#connector-library";
   const [customMcpOpen, setCustomMcpOpen] = useState(false);
+  const [whatsappOpen, setWhatsAppOpen] = useState(false);
+  const addConnector = useRef<HTMLButtonElement>(null);
+  const wasLibrary = useRef(showLibrary);
+  useEffect(() => {
+    if (showLibrary) setWhatsAppOpen(false);
+    else if (wasLibrary.current) addConnector.current?.focus({ preventScroll: true });
+    wasLibrary.current = showLibrary;
+  }, [showLibrary]);
   const [editing, setEditing] = useState<ConnectorResponse | null>(null);
   const [configuringId, setConfiguringId] = useState<string | null>(null);
   // Held by id, not by object: a snapshot taken at click time went stale the
@@ -210,6 +236,19 @@ function ScopedConnectorsSection({
     queryKey: ["connectors", "list", principalId, workspaceId],
     queryFn: () => connectorsApi.list(),
   });
+
+  const whatsapp = useQuery({
+    queryKey: ["connectors", "whatsapp", principalId, workspaceId],
+    queryFn: async () => {
+      const { binding } = await getWhatsAppChannelBinding();
+      return binding ? { enabled: binding.enabled } : null;
+    },
+    enabled: whatsappEnabled,
+    retry: false,
+  });
+  const whatsappStatus = whatsapp.isError ? "unavailable"
+    : whatsapp.isPending ? "loading" : whatsapp.data ? "existing" : "new";
+  const showWhatsApp = whatsappEnabled && whatsappStatus === "existing" && scopeFilter !== "per_user";
 
   const inspecting =
     (list.data?.connectors ?? []).find((c) => c.id === inspectingId) ?? null;
@@ -343,7 +382,10 @@ function ScopedConnectorsSection({
     delMut.mutate(c.id);
   };
 
-  const connectors = list.data?.connectors ?? [];
+  const connectors = list.isSuccess ? list.data.connectors : [];
+  const visibleConnectors = connectors.filter(connector =>
+    scopeFilter === "all" || (connector.connection_mode || "per_user") === scopeFilter
+  );
   const catalogBySlug = new Map(
     (catalog.data?.entries ?? []).map((e: CatalogEntry) => [e.slug, e]),
   );
@@ -381,17 +423,17 @@ function ScopedConnectorsSection({
 
   return (
     <div className="flex flex-col gap-5">
-      {view === "library" ? (
+      {showLibrary ? (
         <SettingsSection
           title="Connector library"
-          description="Vetted native integrations, MCP servers, and MCP packages. Nothing is listed unless it is curated in-repo."
+          description="Find API integrations, MCP servers, and messaging channels."
           actions={
             <Button
               type="button"
               variant="ghost"
               size="sm"
               icon={<ArrowLeft size={14} />}
-              onClick={() => setView("home")}
+              onClick={() => navigate("/settings#connectors")}
               aria-label="Back to connectors"
             >
               Back
@@ -399,9 +441,12 @@ function ScopedConnectorsSection({
           }
         >
           <ConnectorCatalogPanel
+            catalog={catalog}
+            whatsappEnabled={whatsappEnabled}
+            whatsappStatus={whatsappStatus}
             onInstalled={() => {
               refetchConnectors();
-              setView("home");
+              navigate("/settings#connectors");
             }}
           />
         </SettingsSection>
@@ -409,7 +454,7 @@ function ScopedConnectorsSection({
         <>
           <SettingsSection
             title="Connectors"
-            description="Add a vetted connector from the library or mount a custom MCP server. Connected instances appear below."
+            description="Configure integrations for Integral and manage connected tools."
             actions={
               <div className="flex items-center gap-2">
                 {canMountCustomMcp ? (
@@ -430,7 +475,8 @@ function ScopedConnectorsSection({
                   variant="primary"
                   size="sm"
                   icon={<Plus size={14} />}
-                  onClick={() => setView("library")}
+                  ref={addConnector}
+                  onClick={() => navigate("/settings#connector-library")}
                   aria-label="Add Connector"
                 >
                   Add Connector
@@ -438,10 +484,7 @@ function ScopedConnectorsSection({
               </div>
             }
           >
-            <Text variant="body-sm" tone="subtle" as="p">
-              Gmail, QuickBooks, GitHub Issues, and curated MCP packages share
-              one install flow — including OAuth and API credentials.
-            </Text>
+            {null}
           </SettingsSection>
 
           <SettingsSection
@@ -456,275 +499,274 @@ function ScopedConnectorsSection({
                 onChange={setScopeFilter}
                 options={[
                   { value: "all", label: "All" },
-                  { value: "shared", label: "Shared" },
+                  { value: "shared", label: "Workspace" },
                   { value: "per_user", label: "Per-user" },
                 ]}
               />
             </div>
-            <AsyncBoundary
-              query={list}
-              isEmpty={(data) => (data.connectors ?? []).length === 0}
-              emptyFallback={
-                <EmptyState
-                  icon={
-                    <Cable size={24} className="text-[var(--text-subtle)]" />
-                  }
-                  title="No connectors yet."
-                  description="Register a connector to mirror an external system into a Track."
-                />
-              }
-              errorFallback={(err) => (
-                <Text variant="body" tone="danger" as="p">
-                  Failed to load connectors: {err.message}
-                </Text>
-              )}
-            >
-              {() => {
-                const visible = connectors.filter((c) => {
-                  const shared = (c.connection_mode || "per_user") === "shared";
-                  if (scopeFilter === "shared") return shared;
-                  if (scopeFilter === "per_user") return !shared;
-                  return true;
-                });
-                if (visible.length === 0) {
-                  return (
-                    <Text variant="body-sm" tone="subtle" as="p">
-                      No connectors match this filter.
-                    </Text>
-                  );
-                }
-                return (
-                  <ul className="flex flex-col gap-2">
-                    {visible.map((c) => {
-                      const meta = instanceMeta(c);
-                      const showConfig = configuringId === c.id;
-                      const isMine =
-                        !myId ||
-                        c.owner === myId ||
-                        c.owner === auth?.user?.user_id;
-                      const canAdminister =
-                        isMine || (meta.isShared && isWsAdmin);
-                      const isSharedView = meta.isShared && !canAdminister;
-                      return (
-                        <Surface
-                          key={c.id}
-                          as="li"
-                          tone="panel-2"
-                          border="subtle"
-                          radius="card"
-                          padding="md"
-                          className="min-w-0 flex flex-col gap-4"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start gap-3">
-                              <ConnectorBrandIcon
-                                icon={meta.icon}
-                                label={meta.title}
-                              />
-                              <div className="min-w-0 flex-1">
-                                {meta.isMcp ? (
-                                  <McpConnectorSummary
-                                    connector={c}
-                                    title={meta.title}
-                                  />
-                                ) : (
-                                  <>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <Text
-                                        variant="heading-sm"
-                                        weight="semibold"
-                                        as="span"
-                                      >
-                                        {meta.title}
-                                      </Text>
-                                      <StatusPill
-                                        state={
-                                          c.conflict_policy ? "ok" : "idle"
-                                        }
-                                      >
-                                        {c.conflict_policy ||
-                                          "no conflict rule"}
-                                      </StatusPill>
-                                      {meta.isShared ? (
-                                        <StatusPill state="idle">
-                                          Shared
-                                        </StatusPill>
-                                      ) : null}
-                                    </div>
-                                    {isSharedView ? (
-                                      <Text
-                                        variant="body-sm"
-                                        tone="subtle"
-                                        as="p"
-                                        className="mt-1"
-                                      >
-                                        Shared connection — actions run as this
-                                        account. Add your own from the library
-                                        for a personal connection.
-                                      </Text>
-                                    ) : null}
-                                    <Text
-                                      variant="body-sm"
-                                      tone="subtle"
-                                      as="p"
-                                      className="mt-1"
-                                    >
-                                      {`Sync every ${c.sync_interval_seconds}s · last synced ${formatLastSynced(c.last_synced_at)}`}
-                                    </Text>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            {showConfig &&
-                            isMine &&
-                            c.subclass_slug === "gmail" ? (
-                              <div className="mt-3">
-                                <GmailConnectorSetup
-                                  initialConnectorId={c.id}
-                                  onActivated={refetchConnectors}
-                                />
-                              </div>
-                            ) : null}
-                            {showConfig &&
-                            isMine &&
-                            c.subclass_slug === "quickbooks" ? (
-                              <div className="mt-3">
-                                <QuickBooksConnectorSettings
-                                  connector={c}
-                                  onReconnect={refetchConnectors}
-                                  onUpdated={refetchConnectors}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              icon={<List size={14} />}
-                              onClick={() => setInspectingId(c.id)}
-                              aria-label={`View tools for ${meta.title}`}
-                            >
-                              {meta.isMcp
-                                ? `View ${toolCountLabel(mcpConnectorDetails(c).tools.length)}`
-                                : "View tools"}
-                            </Button>
-                            {meta.isMcp ? (
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                icon={<HeartPulse size={14} />}
-                                onClick={() => healthMut.mutate(c.id)}
-                                disabled={
-                                  healthMut.isPending &&
-                                  healthMut.variables === c.id
-                                }
-                                aria-label={`Health check ${c.id}`}
-                              >
-                                {healthMut.isPending &&
-                                healthMut.variables === c.id
-                                  ? "Checking…"
-                                  : "Check connection"}
-                              </Button>
-                            ) : canAdminister ? (
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                icon={<RefreshCw size={14} />}
-                                onClick={() => syncMut.mutate(c.id)}
-                                disabled={
-                                  syncMut.isPending &&
-                                  syncMut.variables === c.id
-                                }
-                                aria-label={`Sync connector ${c.id}`}
-                              >
-                                Sync now
-                              </Button>
-                            ) : null}
-                            {canAdminister ? (
-                              <div className="ml-auto shrink-0">
-                                <KebabMenu
-                                  ariaLabel={`Manage ${meta.title}`}
-                                  menuTitle={meta.title}
-                                  portal
-                                  items={
-                                    [
-                                      ...(meta.isMcp
-                                        ? [
-                                            {
-                                              key: "refresh",
-                                              label: "Refresh tools",
-                                              icon: <RefreshCw size={14} />,
-                                              onClick: () =>
-                                                refreshMcpMut.mutate(c.id),
-                                              disabled:
-                                                refreshMcpMut.isPending &&
-                                                refreshMcpMut.variables ===
-                                                  c.id,
-                                            },
-                                            {
-                                              key: "reconnect",
-                                              label: "Reconnect",
-                                              icon: <PlugZap size={14} />,
-                                              onClick: () =>
-                                                reauthMut.mutate(c.id),
-                                              disabled:
-                                                reauthMut.isPending &&
-                                                reauthMut.variables === c.id,
-                                            },
-                                          ]
-                                        : []),
-                                      ...(isMine &&
-                                      (c.subclass_slug === "gmail" ||
-                                        c.subclass_slug === "quickbooks")
-                                        ? [
-                                            {
-                                              key: "configure",
-                                              label: "Settings",
-                                              icon: <Settings size={14} />,
-                                              onClick: () =>
-                                                setConfiguringId((prev) =>
-                                                  prev === c.id ? null : c.id,
-                                                ),
-                                            },
-                                          ]
-                                        : []),
-                                      {
-                                        key: "edit",
-                                        label: "Edit connection",
-                                        icon: <Pencil size={14} />,
-                                        onClick: () => setEditing(c),
-                                      },
-                                      {
-                                        key: "delete",
-                                        label: "Delete connection",
-                                        icon: <Trash2 size={14} />,
-                                        danger: true,
-                                        dividerAbove: true,
-                                        onClick: () => {
-                                          void handleDelete(c);
-                                        },
-                                      },
-                                    ] satisfies KebabMenuItem[]
-                                  }
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        </Surface>
-                      );
-                    })}
-                  </ul>
-                );
-              }}
+            {whatsappEnabled && whatsappStatus === "unavailable" && scopeFilter !== "per_user" && (
+              <Text as="p" variant="body-sm" tone="muted">Could not check the workspace WhatsApp connection.</Text>
+            )}
+            <AsyncBoundary query={list} emptyFallback={null} errorFallback={(err) => (
+              <Text variant="body" tone="danger" as="p">Failed to load connectors: {err.message}</Text>
+            )}>
+              {() => null}
             </AsyncBoundary>
+            {showWhatsApp || visibleConnectors.length > 0 ? (
+              <ul className="flex flex-col gap-2">
+                {showWhatsApp && (
+                  <ConnectedConnectorRow>
+                    <div className="flex min-w-0 items-start gap-3">
+                      <MessageCircle size={24} className="m-1 shrink-0" aria-hidden />
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Text variant="heading-sm" weight="semibold" as="h3">{WHATSAPP_CONNECTOR.name}</Text>
+                        <StatusPill state={whatsapp.data?.enabled ? "ok" : "idle"}>
+                          {whatsapp.data?.enabled ? "Enabled" : "Disabled"}
+                        </StatusPill>
+                        <StatusPill state="idle">Workspace</StatusPill>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
+                      <Button type="button" variant="secondary" size="sm" icon={<Settings size={14} />}
+                        onClick={() => setWhatsAppOpen(true)}>
+                        {isWsAdmin ? "Configure WhatsApp" : "View WhatsApp"}
+                      </Button>
+                    </div>
+                  </ConnectedConnectorRow>
+                )}
+                {visibleConnectors.map((c) => {
+                  const meta = instanceMeta(c);
+                  const showConfig = configuringId === c.id;
+                  const isMine =
+                    !myId ||
+                    c.owner === myId ||
+                    c.owner === auth?.user?.user_id;
+                  const canAdminister =
+                    isMine || (meta.isShared && isWsAdmin);
+                  const isSharedView = meta.isShared && !canAdminister;
+                  return (
+                    <ConnectedConnectorRow key={c.id}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start gap-3">
+                          <ConnectorBrandIcon
+                            icon={meta.icon}
+                            label={meta.title}
+                          />
+                          <div className="min-w-0 flex-1">
+                            {meta.isMcp ? (
+                              <McpConnectorSummary
+                                connector={c}
+                                title={meta.title}
+                              />
+                            ) : (
+                              <>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Text
+                                    variant="heading-sm"
+                                    weight="semibold"
+                                    as="span"
+                                  >
+                                    {meta.title}
+                                  </Text>
+                                  <StatusPill
+                                    state={
+                                      c.conflict_policy ? "ok" : "idle"
+                                    }
+                                  >
+                                    {c.conflict_policy ||
+                                      "no conflict rule"}
+                                  </StatusPill>
+                                  {meta.isShared ? (
+                                    <StatusPill state="idle">
+                                      Workspace
+                                    </StatusPill>
+                                  ) : null}
+                                </div>
+                                {isSharedView ? (
+                                  <Text
+                                    variant="body-sm"
+                                    tone="subtle"
+                                    as="p"
+                                    className="mt-1"
+                                  >
+                                    Workspace connection — actions run as this
+                                    account. Add your own from the library
+                                    for a personal connection.
+                                  </Text>
+                                ) : null}
+                                <Text
+                                  variant="body-sm"
+                                  tone="subtle"
+                                  as="p"
+                                  className="mt-1"
+                                >
+                                  {`Sync every ${c.sync_interval_seconds}s · last synced ${formatLastSynced(c.last_synced_at)}`}
+                                </Text>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {showConfig &&
+                        isMine &&
+                        c.subclass_slug === "gmail" ? (
+                          <div className="mt-3">
+                            <GmailConnectorSetup
+                              initialConnectorId={c.id}
+                              onActivated={refetchConnectors}
+                            />
+                          </div>
+                        ) : null}
+                        {showConfig &&
+                        isMine &&
+                        c.subclass_slug === "quickbooks" ? (
+                          <div className="mt-3">
+                            <QuickBooksConnectorSettings
+                              connector={c}
+                              onReconnect={refetchConnectors}
+                              onUpdated={refetchConnectors}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          icon={<List size={14} />}
+                          onClick={() => setInspectingId(c.id)}
+                          aria-label={`View tools for ${meta.title}`}
+                        >
+                          {meta.isMcp
+                            ? `View ${toolCountLabel(mcpConnectorDetails(c).tools.length)}`
+                            : "View tools"}
+                        </Button>
+                        {meta.isMcp ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            icon={<HeartPulse size={14} />}
+                            onClick={() => healthMut.mutate(c.id)}
+                            disabled={
+                              healthMut.isPending &&
+                              healthMut.variables === c.id
+                            }
+                            aria-label={`Health check ${c.id}`}
+                          >
+                            {healthMut.isPending &&
+                            healthMut.variables === c.id
+                              ? "Checking…"
+                              : "Check connection"}
+                          </Button>
+                        ) : canAdminister ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            icon={<RefreshCw size={14} />}
+                            onClick={() => syncMut.mutate(c.id)}
+                            disabled={
+                              syncMut.isPending &&
+                              syncMut.variables === c.id
+                            }
+                            aria-label={`Sync connector ${c.id}`}
+                          >
+                            Sync now
+                          </Button>
+                        ) : null}
+                        {canAdminister ? (
+                          <div className="ml-auto shrink-0">
+                            <KebabMenu
+                              ariaLabel={`Manage ${meta.title}`}
+                              menuTitle={meta.title}
+                              portal
+                              items={
+                                [
+                                  ...(meta.isMcp
+                                    ? [
+                                        {
+                                          key: "refresh",
+                                          label: "Refresh tools",
+                                          icon: <RefreshCw size={14} />,
+                                          onClick: () =>
+                                            refreshMcpMut.mutate(c.id),
+                                          disabled:
+                                            refreshMcpMut.isPending &&
+                                            refreshMcpMut.variables ===
+                                              c.id,
+                                        },
+                                        {
+                                          key: "reconnect",
+                                          label: "Reconnect",
+                                          icon: <PlugZap size={14} />,
+                                          onClick: () =>
+                                            reauthMut.mutate(c.id),
+                                          disabled:
+                                            reauthMut.isPending &&
+                                            reauthMut.variables === c.id,
+                                        },
+                                      ]
+                                    : []),
+                                  ...(isMine &&
+                                  (c.subclass_slug === "gmail" ||
+                                    c.subclass_slug === "quickbooks")
+                                    ? [
+                                        {
+                                          key: "configure",
+                                          label: "Service settings",
+                                          icon: <Settings size={14} />,
+                                          onClick: () =>
+                                            setConfiguringId((prev) =>
+                                              prev === c.id ? null : c.id,
+                                            ),
+                                        },
+                                      ]
+                                    : []),
+                                  {
+                                    key: "edit",
+                                    label: "Configure connection",
+                                    icon: <Pencil size={14} />,
+                                    onClick: () => setEditing(c),
+                                  },
+                                  {
+                                    key: "delete",
+                                    label: "Remove connection",
+                                    icon: <Trash2 size={14} />,
+                                    danger: true,
+                                    dividerAbove: true,
+                                    onClick: () => {
+                                      void handleDelete(c);
+                                    },
+                                  },
+                                ] satisfies KebabMenuItem[]
+                              }
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </ConnectedConnectorRow>
+                  );
+                })}
+              </ul>
+            ) : list.isSuccess && (!whatsappEnabled || !whatsapp.isPending || scopeFilter === "per_user") ? (
+              connectors.length > 0 ? (
+                <Text variant="body-sm" tone="subtle" as="p">No connectors match this filter.</Text>
+              ) : (
+                <EmptyState icon={<Cable size={24} className="text-[var(--text-subtle)]" />}
+                  title="No connectors yet." description="Add an integration from the Connector Library." />
+              )
+            ) : null}
           </SettingsSection>
         </>
       )}
 
+      {!showLibrary && whatsappOpen && (
+        <WhatsAppConnectorSettings dialog={{
+          mode: isWsAdmin ? "Configure" : "View",
+          onClose: () => setWhatsAppOpen(false),
+        }} />
+      )}
       <ConnectorEditModal
         open={editing !== null}
         onClose={() => setEditing(null)}

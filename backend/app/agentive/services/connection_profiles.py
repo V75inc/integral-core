@@ -144,6 +144,30 @@ class ConnectionProfileExecutor:
         from model arguments. Human-only operations cannot run on the default
         agent execution path, even if their arguments claim confirmation.
         """
+        grant = await self.authorize_operation(
+            connection_id, principal_id, session, tool, origin=origin
+        )
+        return await self._handlers[tool](grant, session, arguments)
+
+    async def current_grant(
+        self, connection_id: str, principal_id: str, session: ProfileSession
+    ) -> ConnectionGrant:
+        """Revalidate the bound session before native history/model access."""
+        grant, _, current = await self._current(connection_id, principal_id)
+        if session != current:
+            raise ProfileDenied("Session unavailable")
+        return grant
+
+    async def authorize_operation(
+        self,
+        connection_id: str,
+        principal_id: str,
+        session: ProfileSession,
+        tool: str,
+        *,
+        origin: Literal["agent", "human"] = "agent",
+    ) -> ConnectionGrant:
+        """Check native disclosure/execution without invoking a handler."""
         grant, profile, current_session = await self._current(
             connection_id, principal_id
         )
@@ -156,4 +180,4 @@ class ConnectionProfileExecutor:
             or not await self._authorize(grant, tool)
         ):
             raise ProfileDenied("Operation unavailable")
-        return await self._handlers[tool](grant, current_session, arguments)
+        return grant

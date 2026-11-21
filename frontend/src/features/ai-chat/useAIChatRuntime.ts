@@ -18,7 +18,8 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import type { AssignmentSuggestion } from "../../api/routines";
-import { aiChatApi, type AIChatThread, type AIChatPersistedMessage } from "../../api/aiChat";
+import { ALL_WORKSPACE_ASSISTANTS, WORKSPACE_ASSISTANT } from "../../api/chatAssistantIdentity";
+import { aiChatApi, type AIChatThread, type AIChatPersistedMessage, type ChatAgentIdentity } from "../../api/aiChat";
 import { useScope } from "../../context/ScopeContext";
 import { useAuthOptional } from "../../context/AuthContext";
 import { useChatPageFocus } from "../../context/ChatPageFocusContext";
@@ -872,6 +873,8 @@ export interface UseAIChatRuntimeOptions {
    */
   startNewThread?: boolean;
   handoffEnabled?: boolean;
+  managedDraft?: boolean;
+  profileChoices?: readonly ChatAgentIdentity[];
 }
 
 export function useAIChatRuntime(
@@ -889,6 +892,8 @@ export function useAIChatRuntime(
     initialThreadId = null,
     startNewThread = false,
     handoffEnabled = true,
+    managedDraft = false,
+    profileChoices,
   } = options;
   // Active workspace drives the X-Integral-Scope header on every API
   // call (set globally in ScopeContext). The chat thread list is
@@ -923,6 +928,15 @@ export function useAIChatRuntime(
   const [threads, setThreads] = useState<AIChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const selectionKey = JSON.stringify([principalId, workspaceId, provider.id, activeAgentId]);
+  const [draftFilter, setDraftFilter] = useState<{ scope: string; key: string } | null>(null);
+  const selectedFilter = draftFilter?.scope === selectionKey ? draftFilter.key : WORKSPACE_ASSISTANT.key;
+  const profileFilter = profileChoices?.length === 0 ? WORKSPACE_ASSISTANT.key : selectedFilter;
+  const draftFilterRef = useRef(draftFilter);
+  draftFilterRef.current = draftFilter;
+  const needsDraftAgent = managedDraft && !activeThreadId && (
+    selectedFilter === ALL_WORKSPACE_ASSISTANTS
+    || (selectedFilter !== WORKSPACE_ASSISTANT.key && Boolean(profileChoices && !profileChoices.some(profile => profile.key === selectedFilter)))
+  );
   const [settledSelectionKey, setSettledSelectionKey] = useState<string | null>(null);
   const selectionReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
   const selectThread = useCallback((threadId: string) => {
@@ -1119,7 +1133,7 @@ export function useAIChatRuntime(
     try {
       const list = await aiChatApi.listThreads({
         providerId: provider.id,
-        agentId: activeAgentId ?? undefined,
+        agentId: provider.id === "integral_native" ? undefined : activeAgentId ?? undefined,
       });
       setThreads(list);
       return list;
@@ -1162,9 +1176,8 @@ export function useAIChatRuntime(
         return;
       }
       if (prefersFreshChat(freshChatScope)) return;
-      if (list.length > 0) {
-        setActiveThreadId((current) => current ?? list[0].id);
-      }
+      const recent = managedDraft ? list.find(thread => !thread.agent_profile_key) : list[0];
+      if (recent) setActiveThreadId(current => current ?? recent.id);
     })();
     return () => {
       cancelled = true;
@@ -1176,6 +1189,7 @@ export function useAIChatRuntime(
     activeAgentId,
     initialThreadId,
     startNewThread,
+    managedDraft,
     freshChatScope,
     selectionScopeReady,
     selectionKey,
@@ -1295,6 +1309,14 @@ export function useAIChatRuntime(
             }
             // Do not overwrite a cache that started streaming while we fetched.
             if (peekStreamingThreadIds().includes(threadId)) return "skip";
+            if (t.agent_profile_key && activeThreadIdRef.current === threadId) {
+              // A direct link can open an authorized thread missing from the
+              // current rail list. Keep its own profile association available.
+              const { messages: _messages, ...thread } = t;
+              setThreads(previous => previous.some(item => item.id === thread.id)
+                ? previous.map(item => item.id === thread.id ? { ...item, ...thread } : item)
+                : [...previous, thread]);
+            }
             // Durable host receipts drive continuation and audit, but are not
             // conversation bubbles (including after a reload or reconnect).
             const server = t.messages
@@ -1818,8 +1840,17 @@ export function useAIChatRuntime(
         selectThread(localId);
         return localId;
       }
+      const target = draftFilterRef.current?.scope === selectionKey ? draftFilterRef.current.key : WORKSPACE_ASSISTANT.key;
+      const profileKey = target === WORKSPACE_ASSISTANT.key ? "" : target;
+      if (managedDraft && (
+        !profileChoices || target === ALL_WORKSPACE_ASSISTANTS
+        || (profileKey && !profileChoices.some(profile => profile.key === profileKey))
+      )) {
+        throw new Error("Choose a workspace assistant before sending");
+      }
       const created = await aiChatApi.createThread(provider.id, {
         agentId: activeAgentId ?? undefined,
+        ...(profileKey && workspaceId ? { agentProfileKey: profileKey, workspaceId } : {}),
       });
       activeThreadIdRef.current = created.id;
       setThreads((prev) => [created, ...prev]);
@@ -1833,7 +1864,7 @@ export function useAIChatRuntime(
     } finally {
       threadCreationPromiseRef.current = null;
     }
-  }, [provider, activeAgentId, nextId, selectThread]);
+  }, [provider, activeAgentId, nextId, selectThread, managedDraft, profileChoices, selectionKey, workspaceId]);
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
@@ -2179,8 +2210,26 @@ export function useAIChatRuntime(
     rememberActiveChatThreadId(null, workspaceId);
     consumeChatHandoff();
     activeThreadIdRef.current = null;
+    if (profileChoices?.length === 0) {
+      draftFilterRef.current = null;
+      setDraftFilter(null);
+    }
     setActiveThreadId(null);
-  }, [freshChatScope, workspaceId]);
+  }, [freshChatScope, workspaceId, profileChoices]);
+
+  const switchProfile = useCallback(async (key: string) => {
+    if (provider.id !== "integral_native" || !selectionReady || threadCreationPromiseRef.current) return;
+    if (key !== WORKSPACE_ASSISTANT.key && (
+      !profileChoices?.length || (key !== ALL_WORKSPACE_ASSISTANTS && !profileChoices.some(profile => profile.key === key))
+    )) {
+      throw new Error("This profile could not be opened");
+    }
+    const selection = { scope: selectionKey, key };
+    draftFilterRef.current = selection;
+    setDraftFilter(selection);
+    resetComposerEntityRefs?.();
+    switchToNewThread();
+  }, [provider.id, selectionReady, profileChoices, selectionKey, resetComposerEntityRefs, switchToNewThread]);
 
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => {
     const regular = threads.filter((t) => !t.archived);
@@ -2351,7 +2400,11 @@ export function useAIChatRuntime(
       threads,
       threadGroups,
       activeThreadId,
-      composerReady,
+      composerReady: composerReady && (!managedDraft || Boolean(activeThreadId) || profileChoices !== undefined),
+      switchProfile,
+      profileFilter,
+      needsDraftAgent,
+      profileSelectionReady: selectionReady,
       activeProviderSessionId,
       activityText,
       isRunning,
@@ -2380,6 +2433,12 @@ export function useAIChatRuntime(
       selectThread,
       activeThreadId,
       composerReady,
+      switchProfile,
+      profileFilter,
+      needsDraftAgent,
+      managedDraft,
+      profileChoices,
+      selectionReady,
       activeProviderSessionId,
       activityText,
       isRunning,

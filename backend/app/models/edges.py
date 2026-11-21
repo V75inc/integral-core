@@ -37,6 +37,15 @@ class HasAuthorizationState(Edge):
 HAS_AUTHORIZATION_STATE = HasAuthorizationState
 
 
+class HasConnectionProfiles(Edge):
+    """Workspace → its private agent profile configuration."""
+
+    bidirectional: bool = False
+
+
+HAS_CONNECTION_PROFILES = HasConnectionProfiles
+
+
 class HasModelConfiguration(Edge):
     """Workspace → its single revision-bound model selection record."""
 

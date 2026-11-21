@@ -27,6 +27,7 @@ import {
   within,
 } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('../../../../api/connectors', () => ({
@@ -65,6 +66,16 @@ vi.mock('../../../../components/settings/QuickBooksConnectorSettings', () => ({
   ),
 }));
 
+vi.mock('../../../../api/agentive', () => ({
+  getWhatsAppChannelBinding: vi.fn(),
+  listChannelIdentities: vi.fn(),
+  saveWhatsAppChannelBinding: vi.fn(),
+}));
+
+vi.mock('../../../../context/AgentiveContext', () => ({
+  useAgentive: () => ({ enabled: true }),
+}));
+
 vi.mock('../../hooks/useAgentiveCapability', () => ({
   useAgentiveCapability: vi.fn(),
 }));
@@ -82,6 +93,7 @@ import { useAgentiveCapability } from '../../hooks/useAgentiveCapability';
 import { ConnectorsSection } from '../ConnectorsSection';
 import { ToastProvider } from '../../../../context/ToastContext';
 import { ConfirmProvider } from '../../../../context/ConfirmContext';
+import { getWhatsAppChannelBinding, listChannelIdentities, saveWhatsAppChannelBinding } from '../../../../api/agentive';
 import { useScopeOptional } from '../../../../context/ScopeContext';
 
 const mockedList = connectorsApi.list as unknown as ReturnType<typeof vi.fn>;
@@ -120,18 +132,29 @@ function makeConnector(
   };
 }
 
-function renderPanel(qc = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })) {
-  return render(
-    <QueryClientProvider client={qc}>
-      <ToastProvider>
-        <ConfirmProvider>
-          <ConnectorsSection />
-        </ConfirmProvider>
-      </ToastProvider>
-    </QueryClientProvider>,
+function CurrentSettingsHash() {
+  return <span data-testid="settings-hash" hidden>{useLocation().hash}</span>;
+}
+
+function panelWithProviders(qc: QueryClient) {
+  return (
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <ToastProvider>
+          <ConfirmProvider>
+            <ConnectorsSection />
+            <CurrentSettingsHash />
+          </ConfirmProvider>
+        </ToastProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
   );
+}
+
+function renderPanel(qc = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+})) {
+  return render(panelWithProviders(qc));
 }
 
 beforeEach(() => {
@@ -142,6 +165,8 @@ beforeEach(() => {
     width: 240, height: 40, toJSON: () => ({}),
   });
   mockedScope.mockReturnValue(null);
+  vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({ binding: null });
+  vi.mocked(listChannelIdentities).mockResolvedValue({ identities: [] });
   // Default: agentive layer ON
   mockedCapability.mockReturnValue({ enabled: true, isLoading: false });
   mockedSync.mockResolvedValue({
@@ -356,11 +381,7 @@ describe('<ConnectorsSection />', () => {
     let finishNew!: (value: { connectors: ConnectorResponse[]; total: number }) => void;
     mockedList.mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve; }));
     selectWorkspace('shared');
-    panel.rerender(
-      <QueryClientProvider client={qc}><ToastProvider><ConfirmProvider>
-        <ConnectorsSection />
-      </ConfirmProvider></ToastProvider></QueryClientProvider>,
-    );
+    panel.rerender(panelWithProviders(qc));
     expect(screen.queryByText('Personal prototype')).not.toBeInTheDocument();
     expect(screen.queryByText('prototype_read')).not.toBeInTheDocument();
     finishNew({ connectors: [makeConnector({ label: 'Shared research' })], total: 1 });
@@ -376,11 +397,7 @@ describe('<ConnectorsSection />', () => {
     const panel = renderPanel(qc);
     mockedList.mockResolvedValueOnce({ connectors: [makeConnector({ label: 'Shared research' })], total: 1 });
     selectWorkspace('shared');
-    panel.rerender(
-      <QueryClientProvider client={qc}><ToastProvider><ConfirmProvider>
-        <ConnectorsSection />
-      </ConfirmProvider></ToastProvider></QueryClientProvider>,
-    );
+    panel.rerender(panelWithProviders(qc));
     await screen.findByText('Shared research');
     finishOld({ connectors: [makeConnector({ label: 'Late personal result' })], total: 1 });
     await waitFor(() => expect(qc.getQueryData(['connectors', 'list', '', 'personal'])).toBeDefined());
@@ -404,11 +421,7 @@ describe('<ConnectorsSection />', () => {
     await waitFor(() => expect(connectorsApi.reauthorizeMcp).toHaveBeenCalledOnce());
     mockedList.mockResolvedValueOnce({ connectors: [], total: 0 });
     selectWorkspace('shared');
-    panel.rerender(
-      <QueryClientProvider client={qc}><ToastProvider><ConfirmProvider>
-        <ConnectorsSection />
-      </ConfirmProvider></ToastProvider></QueryClientProvider>,
-    );
+    panel.rerender(panelWithProviders(qc));
     await screen.findByText(/No connectors yet\./i);
     finishAuthorization({ connector_id: 'mcp-old', consent_url: 'https://example.com/consent', state: 'test-state' });
     await waitFor(() => expect(qc.getMutationCache().getAll().find(m => m.state.variables === 'mcp-old')?.state.status).toBe('success'));
@@ -517,7 +530,7 @@ describe('<ConnectorsSection />', () => {
         screen.getByRole('heading', { name: 'Connector library' }),
       ).toBeInTheDocument();
     });
-    expect(screen.getByPlaceholderText(/Search vetted connectors/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Search connectors/i)).toBeInTheDocument();
     expect(await screen.findByText('Gmail', { selector: ':not(title)' })).toBeInTheDocument();
     expect(screen.getByText('QuickBooks', { selector: ':not(title)' })).toBeInTheDocument();
     expect(screen.getByText('GitHub Issues', { selector: ':not(title)' })).toBeInTheDocument();
@@ -533,6 +546,99 @@ describe('<ConnectorsSection />', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Connected' })).toBeInTheDocument();
     });
+    expect(screen.getByRole('button', { name: 'Add Connector' })).toHaveFocus();
+  });
+
+  it('opens WhatsApp Add over the filtered library and restores focus on Cancel', async () => {
+    selectWorkspace('shared');
+    mockedList.mockResolvedValue({ connectors: [], total: 0 });
+    mockedCatalog.mockResolvedValue({ entries: [], total: 0 });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Connector' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
+    const search = screen.getByPlaceholderText('Search connectors…');
+    fireEvent.change(search, { target: { value: 'whatsapp' } });
+    const add = await screen.findByRole('button', { name: 'Add WhatsApp (JV Connect)' });
+    add.focus();
+    fireEvent.click(add);
+    const dialog = await screen.findByRole('dialog', { name: 'Add WhatsApp (JV Connect)' });
+    expect(await within(dialog).findByRole('button', { name: 'Add connection' })).toBeDisabled();
+    expect(screen.getByTestId('settings-hash')).toHaveTextContent('#connector-library');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(dialog).not.toBeInTheDocument();
+    expect(add).toHaveFocus();
+    expect(search).toHaveValue('whatsapp');
+    expect(screen.getByRole('button', { name: 'Channels' })).toHaveAttribute('aria-pressed', 'true');
+    expect(connectorsApi.installFromCatalog).not.toHaveBeenCalled();
+    expect(saveWhatsAppChannelBinding).not.toHaveBeenCalled();
+  });
+
+  it('configures an installed WhatsApp line in the connected list and the library', async () => {
+    selectWorkspace('shared');
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
+      binding: { id: 'wa-existing', enabled: false, jvconnect_base_url: 'https://local.invalid' },
+    });
+    mockedList.mockResolvedValue({ connectors: [makeConnector({ label: 'Workspace API', connection_mode: 'shared' })], total: 1 });
+    renderPanel();
+    const heading = await screen.findByRole('heading', { name: 'WhatsApp (JV Connect)' });
+    const list = heading.closest('ul');
+    expect(list).toContainElement(screen.getByText('Workspace API'));
+    expect(within(heading.closest('li')!).getByText('Disabled')).toBeVisible();
+    fireEvent.click(screen.getByRole('radio', { name: 'Per-user' }));
+    expect(heading).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Workspace' }));
+    const configure = screen.getByRole('button', { name: 'Configure WhatsApp' });
+    configure.focus();
+    fireEvent.click(configure);
+    const dialog = await screen.findByRole('dialog', { name: 'Configure WhatsApp (JV Connect)' });
+    expect(await within(dialog).findByRole('button', { name: 'Disconnect' })).toBeVisible();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(configure).toHaveFocus();
+    expect(screen.getByTestId('settings-hash')).toBeEmptyDOMElement();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(screen.queryByRole('button', { name: 'Add WhatsApp (JV Connect)' })).not.toBeInTheDocument();
+    const libraryConfigure = await screen.findByRole('button', { name: 'Configure WhatsApp (JV Connect)' });
+    libraryConfigure.focus();
+    fireEvent.click(libraryConfigure);
+    expect(screen.getByRole('dialog', { name: 'Configure WhatsApp (JV Connect)' })).toBeVisible();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(libraryConfigure).toHaveFocus();
+    expect(screen.getByTestId('settings-hash')).toHaveTextContent('#connector-library');
+  });
+
+  it('keeps GitHub Issues in the library and restores focus on Cancel', async () => {
+    mockedList.mockResolvedValue({ connectors: [], total: 0 });
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    const card = (await screen.findByText('GitHub Issues', { selector: ':not(title)' })).closest('li')!;
+    const add = within(card).getByRole('button', { name: 'Add' });
+    add.focus();
+    fireEvent.click(add);
+    const dialog = screen.getByRole('dialog', { name: 'Install GitHub Issues' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(add).toHaveFocus();
+    expect(screen.getByTestId('settings-hash')).toHaveTextContent('#connector-library');
+  });
+
+  it('opens Add for another custom MCP instance while keeping existing rows individually managed', async () => {
+    mockedList.mockResolvedValue({ connectors: [makeConnector({
+      subclass_slug: 'mcp', kind: 'mcp', label: 'Existing MCP fixture',
+    })], total: 1 });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Existing MCP fixture' }));
+    expect(screen.getByRole('menuitem', { name: 'Configure connection' })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: 'Remove connection' })).toBeVisible();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    const add = screen.getByRole('button', { name: 'Add Custom MCP Server' });
+    add.focus();
+    fireEvent.click(add);
+    const dialog = screen.getByRole('dialog', { name: 'Add custom MCP server' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(add).toHaveFocus();
+    expect(screen.getByTestId('settings-hash')).toHaveTextContent('#connector-library');
+    expect(connectorsApi.mountMcp).not.toHaveBeenCalled();
   });
 
   it('QuickBooks install sheet lets the operator enter Client ID and secret', async () => {
@@ -613,7 +719,7 @@ describe('<ConnectorsSection />', () => {
     expect(screen.getByText('Gmail')).toBeInTheDocument();
     expect(screen.queryByTestId('gmail-connector-setup')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Manage Gmail' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Service settings' }));
     expect(screen.getByTestId('gmail-connector-setup')).toBeInTheDocument();
   });
 
@@ -643,7 +749,7 @@ describe('<ConnectorsSection />', () => {
     });
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: /^Manage /  }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit connection' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Configure connection' }));
     // Modal title appears
     await waitFor(() => {
       expect(
@@ -659,7 +765,7 @@ describe('<ConnectorsSection />', () => {
     });
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: /^Manage /  }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete connection' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove connection' }));
     const confirmBtn = await screen.findByRole('button', { name: /^Delete$/ });
     fireEvent.click(confirmBtn);
     await waitFor(() => {

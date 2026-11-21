@@ -176,7 +176,7 @@ export function ConnectorInstallSheet({
         popupRef.current = null;
         setOauthOpened(false);
         const sharedNote =
-          data.connection_mode === "shared" ? " (shared connection)" : "";
+          data.connection_mode === "shared" ? " (workspace connection)" : "";
         toast.showToast(
           `${label || entry.display_name} connected${sharedNote}`,
           "success",
@@ -319,8 +319,8 @@ export function ConnectorInstallSheet({
                   },
                   {
                     value: "shared",
-                    title: "Shared",
-                    body: "Everyone uses these credentials (workspace admins only). Actions show this single account as the author.",
+                    title: "Workspace",
+                    body: "Eligible workspace members use the connected account. Workspace admins and owners can set it up.",
                   },
                 ] as const
               ).map((opt) => {

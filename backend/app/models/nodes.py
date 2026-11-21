@@ -327,6 +327,17 @@ class Workspace(Node):
     applied_profiles: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class WorkspaceConnectionProfiles(Node):
+    """Private workspace-rooted revision-bound agent profiles and bindings."""
+
+    workspace_id: str = attribute(default="", indexed=True)
+    revision: int = 0
+    profiles: Dict[str, Any] = Field(default_factory=dict)
+    bindings: Dict[str, Any] = Field(default_factory=dict)
+    native_chat_profiles: List[str] = Field(default_factory=list)
+    public_web_chat: Dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkspaceEmailConfiguration(Node):
     """Private, workspace-rooted email drafts and active connection revisions."""
 
@@ -914,6 +925,7 @@ class ChatThread(Node):
     ChatThread → ChatMessage via ``CONTAINS``.
     """
 
+    agent_profile_key: str = ""
     model_profile_id: str = ""
     model_routing_mode: str = "inherit"
     model_reasoning_efforts: Dict[str, str] = Field(default_factory=dict)

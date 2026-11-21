@@ -39,6 +39,8 @@ class HarnessExecutionScope(BaseModel):
     run_id: str
     permission_revision: str
     capability_version: str
+    connection_scope_key: str | None = None
+    connection_audience: Literal["public", "staff"] | None = None
 
     @field_validator(
         "tenant_id",
@@ -64,6 +66,13 @@ class HarnessExecutionScope(BaseModel):
     @model_validator(mode="after")
     def _validate_workspace_tenant(self) -> "HarnessExecutionScope":
         """Keep the session namespace aligned to the authorized workspace."""
+        if (self.connection_scope_key is None) != (self.connection_audience is None):
+            raise ValueError("Connection scope and audience must be supplied together")
+        if self.connection_scope_key is not None and (
+            len(self.connection_scope_key) != 64
+            or any(c not in "0123456789abcdef" for c in self.connection_scope_key)
+        ):
+            raise ValueError("Connection scope must be a server-generated digest")
         if self.tenant_id != self.workspace_id:
             raise ValueError(
                 "Integral tenant scope must match the authorized workspace"

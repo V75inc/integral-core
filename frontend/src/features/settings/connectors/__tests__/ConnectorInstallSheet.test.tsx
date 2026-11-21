@@ -70,13 +70,13 @@ describe("ConnectorInstallSheet", () => {
     expect(screen.getByText("Client ID")).toBeInTheDocument();
   });
 
-  it("submits label and shared mode", async () => {
+  it("submits the Workspace choice as the existing shared mode", async () => {
     installMock.mockResolvedValue({ action: "created", slug: "drive_native" });
     renderSheet();
     fireEvent.change(screen.getByPlaceholderText("Google Drive"), {
       target: { value: "Team Drive" },
     });
-    fireEvent.click(screen.getByRole("radio", { name: /shared/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /workspace/i }));
     fireEvent.click(screen.getByRole("button", { name: /connect/i }));
     await waitFor(() => expect(installMock).toHaveBeenCalledTimes(1));
     expect(installMock).toHaveBeenCalledWith("drive_native", {

@@ -930,6 +930,10 @@ def build_brokered_tools(
     When ``skill_library`` is supplied, a read-only unified search tool covers
     the authorized projected skills and this same tool catalogue.
     """
+    if scope.connection_audience == "public":
+        from app.agentive.services.connection_profiles import ProfileDenied
+
+        raise ProfileDenied("Public connections cannot use the authenticated broker")
     if catalogue is None:
         from app.agentive.tooling.catalogue import build_tool_catalogue
 

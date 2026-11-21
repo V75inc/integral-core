@@ -2,6 +2,65 @@
 
 Connectors give Integral declared paths to external information and capabilities. Native synchronization and external MCP mounts share lifecycle concerns but have different execution contracts.
 
+## Catalogue and connection lifecycle
+
+The Connector Library presents one collection of definitions. The Settings
+catalogue projection gives each definition a stable ID, a provider, supported
+scopes with cardinality, a list of capabilities (`api`, `mcp`, `channel`), and
+the setup flow. Capabilities can be combined. Existing curated package IDs are
+their API slugs. Their current install metadata and endpoints still come from
+the server. Built-in adapters for Custom MCP and WhatsApp use their existing
+specialized endpoints. Catalogue metadata describes the product surface.
+Authorization and instance cardinality are enforced by the owning service.
+
+**Add** opens setup for a new connection. A singleton displays **Configure**
+once its connection exists. **Connected** lists actual connections, with
+configuration and removal on each instance where the caller can manage it.
+Custom MCP supports multiple connections, with one workspace connection per
+server identity under the current normalized-name guard. Curated packages allow
+multiple per-user connections and one workspace connection per package.
+**Workspace** is the label for the API's `shared` scope. Eligible workspace
+members can use that connected account. The connection owner and authorized
+workspace admins and owners can manage it.
+
+## WhatsApp (JV Connect)
+
+**Settings → Connectors → Add Connector → WhatsApp (JV Connect)** opens an
+in-place dialog for the workspace line and personal number settings.
+Installed lines also open that dialog from their row in **Connected**. The catalogue ID is
+`whatsapp_jvconnect`, and `/settings#whatsapp` still opens the same panel.
+Connections keep their channel binding and identity records. A future direct
+Meta integration can use a separate definition and its own credentials.
+
+The workspace line is a singleton. Add and Configure use the existing binding
+PUT with an explicit expected binding ID. A null ID requires an empty workspace.
+A supplied ID must match the current grant, and a verified number cannot be
+silently replaced from Configure. Omitting the field preserves the original
+PUT behavior. Workspace grant changes serialize by workspace in PostgreSQL,
+with an in-process lock used by the local JSON fixture. Disconnect removes the
+workspace's grant. Other workspace grants and personal number links remain.
+
+[Workspace Email](../platform/workspace-email.md) stays under **Settings →
+Workspace → Email** for outbound delivery.
+
+## Public Web Chat preview and delivery boundary
+
+The explicitly enabled loopback preview now serves a full page and a same-origin
+iframe demo. They render the same chat and share one disposable channel pinned
+to the synthetic preview assistant. Both use the same session and message
+handlers, per-visitor rate and history limits, and deterministic tool-free
+replies. Only the iframe presentation accepts a same-origin parent. The main
+page remains unframeable. The preview has no catalogue entry or share URL in
+Settings.
+
+The managed route already records one eligible published public profile and a
+separate enabled flag. Product delivery still needs a trusted hosted adapter that
+supplies a server-issued visitor identity and checks the published profile,
+route generation, and enablement before every history read and turn. Hosted
+and embed must use that same route and policy. Real embeds also need explicit
+workspace-authorized origins and an origin-scoped frame policy. An inactive or
+unassigned route must expose neither a link nor embed code.
+
 ## Native synchronization
 
 A native connector implements the registered sync interface and binds to a Track through `IS_CONNECTED_TO`. It supplies stable external identity, record transformation, credential requirements, and deduplication semantics. Scope and policy gates precede synchronization.

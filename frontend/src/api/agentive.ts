@@ -363,11 +363,9 @@ export async function getWhatsAppChannelBinding(): Promise<{ binding: WhatsAppCh
 export async function saveWhatsAppChannelBinding(body: {
   jvconnect_base_url: string;
   api_key: string;
+  expected_binding_id: string | null;
 }): Promise<{ binding: WhatsAppChannelBinding }> {
-  const res = await api.put('/agentive/channels/whatsapp/binding', {
-    jvconnect_base_url: body.jvconnect_base_url,
-    api_key: body.api_key,
-  });
+  const res = await api.put('/agentive/channels/whatsapp/binding', body);
   return res.data;
 }
 

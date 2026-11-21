@@ -4,7 +4,7 @@ Called from main.py at startup. HTTP routes in this
 subpackage register themselves with jvspatial's ``Server`` via ``@endpoint``
 side-effect imports below — there is no central router to ``include_router``.
 
-The lone exception is ``agent_events.py`` (WebSocket) which still uses
+WebSocket routers use
 ``APIRouter().websocket(...)`` because jvspatial's ``@endpoint`` does not
 support WebSocket routes; ``register_routes(app)`` mounts that router
 explicitly. See ``app/agentive/api/agent_events.py`` for the ``# deviation:``
@@ -21,6 +21,7 @@ from app.agentive.api import (  # noqa: F401 — side-effect registration
     agent_tools,
     channels,
     chat,
+    connection_profiles,
     connectors,
     conversations,
     mcp_connectors,
@@ -34,6 +35,7 @@ from app.agentive.api import (  # noqa: F401 — side-effect registration
     uplink,
 )
 from app.agentive.api.agent_events import router as agent_events_router
+from app.agentive.api.native_voice import router as native_voice_router
 
 
 def register_routes(app: FastAPI) -> None:
@@ -44,3 +46,4 @@ def register_routes(app: FastAPI) -> None:
     jvspatial's ``@endpoint`` does not support WebSocket dispatch.
     """
     app.include_router(agent_events_router)
+    app.include_router(native_voice_router)

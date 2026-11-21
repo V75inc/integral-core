@@ -79,6 +79,7 @@ const NotificationsSection = React.lazy(() =>
     default: m.NotificationsSection,
   })),
 );
+const AgentProfilesSection = React.lazy(() => import('../features/settings/sections/AgentProfilesSection').then(m => ({ default: m.AgentProfilesSection })));
 const WhatsAppSection = React.lazy(() =>
   import('../features/settings/sections/WhatsAppSection').then(m => ({
     default: m.WhatsAppSection,
@@ -129,6 +130,7 @@ interface SectionRenderCtx {
 interface Section {
   id: SectionId;
   label: string;
+  keywords?: string;
   icon: typeof Cpu;
   render: (ctx: SectionRenderCtx) => React.ReactNode;
 }
@@ -136,7 +138,9 @@ interface Section {
 // The registry defines content; GROUPS below defines navigation order.
 const SECTIONS: Section[] = [
   { id: 'email', label: 'Email', icon: Mail, render: () => <EmailSection /> },
-  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, render: () => <WhatsAppSection /> },
+  { id: 'agent-profiles', label: 'Agent profiles', icon: Cpu, render: () => <AgentProfilesSection /> },
+  { id: 'connector-library', label: 'Connector library', icon: Cable, render: () => <ConnectorsSection /> },
+  { id: 'whatsapp', label: 'WhatsApp (JV Connect)', icon: MessageCircle, render: () => <WhatsAppSection /> },
   {
     id: 'help',
     label: 'Help & about',
@@ -145,13 +149,13 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'ai-models',
-    label: 'AI Models',
+    label: 'AI models',
     icon: Brain,
     render: () => <AiModelsSection key="ai-models" />,
   },
   {
     id: 'skills',
-    label: 'AI Skills',
+    label: 'Agent Skills',
     icon: Wrench,
     render: () => <SkillsSection />,
   },
@@ -181,7 +185,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'agents',
-    label: 'Connected agents',
+    label: 'External Agents',
     icon: Bot,
     render: ctx => <AgentsSection {...ctx} />,
   },
@@ -223,25 +227,31 @@ const SECTIONS: Section[] = [
   {
     id: 'voice-input',
     label: 'Speech to Text',
+    keywords: 'voice input STT dictation microphone',
     icon: Brain,
     render: () => <AiModelsSection key="speech-to-text" initialCategory="speech-to-text" />,
   },
   {
-    id: 'realtime-voice',
-    label: 'Realtime Voice',
-    icon: Brain,
+    id: "realtime-voice", label: "Realtime Voice", icon: Brain,
+    keywords: "full duplex voice call audio",
     render: () => <AiModelsSection key="realtime-voice" initialCategory="realtime-voice" />,
   },
 ];
 
-const GROUPS = [
-  { label: 'Your account', ids: ['profile', 'appearance', 'notifications'] },
-  { label: 'AI & connections', ids: ['ai-models', 'agents', 'skills', 'connectors'] },
-  { label: 'Workspace', ids: ['retrieval', 'sharing', 'email', 'whatsapp'] },
-  { label: 'Governance', ids: ['policies', 'conflicts', 'audit-log'] },
-  { label: 'Help', ids: ['help'] },
+const DETAIL_PARENTS: Record<string, string> = { 'connector-library': 'connectors', whatsapp: 'connectors', 'voice-input': 'ai-models', 'realtime-voice': 'ai-models' };
+
+type SettingsGroup = { label: string; groups: { label?: string; ids: string[] }[] };
+const GROUPS: SettingsGroup[] = [
+  { label: 'Your account', groups: [{ ids: ['profile', 'appearance', 'notifications'] }] },
+  { label: 'AI & connections', groups: [
+    { label: 'Agent Setup', ids: ['ai-models', 'skills', 'agent-profiles'] },
+    { label: 'Integrations', ids: ['agents', 'connectors'] },
+  ] },
+  { label: 'Workspace', groups: [{ ids: ['retrieval', 'sharing', 'email'] }] },
+  { label: 'Governance', groups: [{ ids: ['policies', 'conflicts', 'audit-log'] }] },
+  { label: 'Help', groups: [{ ids: ['help'] }] },
 ];
-const SECTION_ALIASES: Record<string, string> = { about: 'help', 'get-started': 'help' };
+const SECTION_ALIASES: Record<string, string> = { about: 'help', 'get-started': 'help', channels: 'connectors', 'in-app-interfaces': 'agent-profiles' };
 
 function allSections(): Section[] {
   return [...SECTIONS, ...getRegisteredSettingsSections().map(s => ({
@@ -256,26 +266,58 @@ function SettingsNavigation({ sections, active, query, onQuery, onSelect }: {
   onQuery: (value: string) => void;
   onSelect: (id: string) => void;
 }) {
-  const known = new Set([...GROUPS.flatMap(g => g.ids), 'voice-input', 'realtime-voice']);
-  const groups = [...GROUPS, { label: 'Extensions', ids: sections.filter(s => !known.has(s.id)).map(s => s.id) }];
+  const known = new Set([...GROUPS.flatMap(g => g.groups.flatMap(subgroup => subgroup.ids)), ...Object.keys(DETAIL_PARENTS)]);
+  const groups: SettingsGroup[] = [...GROUPS, {
+    label: 'Extensions', groups: [{ ids: sections.filter(s => !known.has(s.id)).map(s => s.id) }],
+  }];
   const needle = query.trim().toLowerCase();
-  const filtered = groups.map(g => ({ ...g, items: (needle && g.label === 'AI & connections' ? [...g.ids, 'voice-input', 'realtime-voice'] : g.ids).map(id => sections.find(s => s.id === id)).filter((s): s is Section => !!s).filter(s => !needle || `${s.label} ${g.label} ${s.id === 'voice-input' ? 'voice input stt dictation microphone' : ''}`.toLowerCase().includes(needle)) })).filter(g => g.items.length);
+  const filtered = groups.map(group => ({
+    ...group,
+    groups: group.groups.map(subgroup => {
+      const ids = needle ? subgroup.ids.flatMap(id => [id, ...Object.keys(DETAIL_PARENTS).filter(child => DETAIL_PARENTS[child] === id)]) : subgroup.ids;
+      return {
+        ...subgroup,
+        items: ids.map(id => sections.find(section => section.id === id)).filter((section): section is Section => Boolean(section))
+          .filter(section => !needle || `${section.label} ${section.keywords ?? ''} ${group.label} ${subgroup.label ?? ''}`.toLowerCase().includes(needle)),
+      };
+    }).filter(subgroup => subgroup.items.length),
+  })).filter(group => group.groups.length);
   return (
-    <nav aria-label="Settings sections" className="flex flex-col gap-4">
+    <nav aria-label="Settings sections" className="flex flex-col gap-3">
       <Input aria-label="Find a setting" placeholder="Find a setting…" value={query} onChange={e => onQuery(e.target.value)} />
-      {filtered.map(group => (
-        <div key={group.label} className="flex flex-col gap-1">
-          <Text as="p" variant="meta" tone="subtle" weight="semibold" className="px-2">{group.label}</Text>
-          {group.items.map(s => {
-            const Icon = s.icon;
-            return <button key={s.id} type="button" onClick={() => onSelect(s.id)} aria-current={s.id === active ? 'page' : undefined}
-              className={`inline-flex min-h-10 w-full items-center gap-2 rounded-[var(--radius-input)] px-3 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)] ${s.id === active ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'settings-nav-item'}`}>
-              <Icon size={16} strokeWidth={1.75} aria-hidden />
-              <Text as="span" variant="body-sm" tone={s.id === active ? 'inherit' : 'muted'}>{s.label}</Text>
-            </button>;
-          })}
-        </div>
-      ))}
+      {filtered.map(group => {
+        const grouped = group.groups.some(subgroup => subgroup.label);
+        return (
+          <div key={group.label} role={grouped ? 'group' : undefined}
+            aria-label={grouped ? group.label : undefined} className="settings-nav-group">
+            <Text as="p" variant="body-sm" weight="semibold" className="settings-nav-group-label">
+              {group.label}
+            </Text>
+            <div className={grouped ? 'settings-nav-branch' : undefined}>
+              {group.groups.map(subgroup => (
+                <div key={subgroup.label ?? group.label} role={subgroup.label ? 'group' : undefined}
+                  aria-label={subgroup.label} className="flex flex-col">
+                  {subgroup.label && (
+                    <Text as="p" variant="label" tone="muted" className="settings-nav-subheading">{subgroup.label}</Text>
+                  )}
+                  {subgroup.items.map(section => {
+                    const Icon = section.icon;
+                    const selected = section.id === active || (!needle && DETAIL_PARENTS[active] === section.id);
+                    return (
+                      <button key={section.id} type="button" onClick={() => onSelect(section.id)}
+                        aria-current={selected ? 'page' : undefined}
+                        className={`settings-nav-row inline-flex w-full items-center gap-2 rounded-[var(--radius-input)] text-left transition-colors ${grouped ? 'min-h-9 px-3 py-1.5' : 'min-h-10 px-3 py-2'} ${selected ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'settings-nav-item'}`}>
+                        <Icon size={16} strokeWidth={1.75} aria-hidden />
+                        <Text as="span" variant="body-sm" tone={selected ? 'inherit' : 'muted'}>{section.label}</Text>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
       {!filtered.length && <Text as="p" variant="body-sm" tone="muted">No matching settings.</Text>}
     </nav>
   );

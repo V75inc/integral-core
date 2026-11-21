@@ -168,7 +168,6 @@ export function Modal({
 }: ModalProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
-  const prevFocus = useRef<HTMLElement | null>(null);
 
   // Register this modal with the overlay-presence registry (nested overlay
   // counting). Dialogs render above the assistant surface — `z-overlay` beats
@@ -176,23 +175,24 @@ export function Modal({
   useRegisterOverlay(open);
 
   useEffect(() => {
-    if (open) {
-      prevFocus.current = document.activeElement as HTMLElement | null;
-      window.setTimeout(() => {
-        const explicit = initialFocusRef?.current;
-        if (explicit) {
-          focusElement(explicit);
-          return;
-        }
-        const root = panelRef.current;
-        const focusable = root?.querySelector<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        if (focusable) focusElement(focusable);
-      }, 0);
-    } else {
-      prevFocus.current?.focus?.();
-    }
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const timer = window.setTimeout(() => {
+      const focusable = initialFocusRef?.current ?? panel?.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable) focusElement(focusable);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      // Most connector dialogs unmount on dismissal. Restore focus during
+      // cleanup as well as when an already-mounted dialog closes.
+      const active = document.activeElement;
+      if (previous?.isConnected && (active === document.body || panel?.contains(active))) {
+        focusElement(previous);
+      }
+    };
   }, [open, initialFocusRef]);
 
   // Nested dialogs share one body lock; closing a child keeps its parent locked.

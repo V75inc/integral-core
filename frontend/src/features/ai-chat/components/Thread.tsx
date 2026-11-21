@@ -88,6 +88,7 @@ import { ToolFallback } from "./ToolFallback";
 import { LogoMark } from "../../../components/ui/Logo";
 import { MessageUndoActions } from "./MessageUndoActions";
 import { ComposerAttachmentErrorToast } from "./ComposerAttachmentErrorToast";
+import { NativeVoiceCall } from "./NativeVoiceCall";
 import { ComposerMicButton } from "./ComposerMicButton";
 import { ComposerDictationProvider } from "../../speech/ComposerDictationContext";
 import { friendlyChatFailure, hasAssistantDebugPayload, isContextLimitFailure, isModelSetupFailure } from "./assistantMessagePresentation";
@@ -110,7 +111,7 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
-  const { activeProviderId, activeThreadId } = useChatActivity();
+  const { activeProviderId, activeThreadId, profileFilter } = useChatActivity();
   const { scope: mandateScope } = useScope();
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
@@ -204,6 +205,7 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
                   {sheet}
                   <ChatFollowUps locked={composerLocked} />
                   <Composer
+                    key={activeThreadId ?? `fresh:${profileFilter ?? ""}`}
                     locked={
                       composerLocked &&
                       !(activeProviderId === 'integral_native' && canReplyInChat)
@@ -1315,10 +1317,14 @@ function ComposerHostAccessory() {
 
 export function Composer({ locked = false, home = false, onSendAttempt }: { locked?: boolean; home?: boolean; onSendAttempt?: () => void }) {
   const { blockedReason } = useAgentiveCapability();
-  const { composerReady = true } = useChatActivity();
+  const { composerReady = true, needsDraftAgent, profileChoices } = useChatActivity();
 
   if (!composerReady) {
     return <div role="status" className="px-3 py-3 text-sm text-[var(--text-muted)]">Loading conversation…</div>;
+  }
+
+  if (needsDraftAgent) {
+    return <div role="status" className="px-3 py-3 text-sm text-[var(--text-muted)]">{profileChoices?.length ? "Choose an assistant to start a conversation." : "Start a new conversation to use your workspace assistant."}</div>;
   }
 
   if (isModelSetupFailure(blockedReason)) {
@@ -1531,6 +1537,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
           <Text variant="meta" tone="subtle">Send attachments after this reply.</Text>
         )}
         <ComposerMicButton />
+        {!home && <NativeVoiceCall />}
         <AuiIf condition={(s) => !s.thread.isRunning || (!home && steeringRunning)}>
           <ComposerSendWithRefs
             aria-label={home ? "Ask Integral" : steeringRunning ? "Queue message" : "Send message"}

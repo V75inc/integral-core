@@ -70,15 +70,32 @@ describe('WhatsApp notification setup', () => {
     render(<WhatsAppSettings />);
     fireEvent.change(await screen.findByLabelText('jvconnect base URL'), { target: { value: 'https://jvconnect.example' } });
     fireEvent.change(screen.getByLabelText('API key'), { target: { value: apiKey } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add connection' }));
     expect(await screen.findByText(/9911/)).toBeInTheDocument();
     expect(saveWhatsAppChannelBinding).toHaveBeenCalledTimes(1);
-    expect(saveWhatsAppChannelBinding).toHaveBeenCalledWith({ jvconnect_base_url: 'https://jvconnect.example', api_key: apiKey });
+    expect(saveWhatsAppChannelBinding).toHaveBeenCalledWith({ jvconnect_base_url: 'https://jvconnect.example', api_key: apiKey, expected_binding_id: null });
     expect(getWhatsAppChannelBinding).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText('API key')).toHaveValue('');
     expect(screen.queryByDisplayValue(apiKey)).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain(apiKey);
   });
+  it('configures the existing line with its expected ID and withholds workspace mutations from members', async () => {
+    const binding = { id: 'line', jvconnect_base_url: 'https://line.invalid', enabled: true };
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({ binding });
+    vi.mocked(saveWhatsAppChannelBinding).mockResolvedValue({ binding });
+    const { rerender } = render(<WhatsAppSettings />);
+    fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'jvk_synthetic' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(saveWhatsAppChannelBinding).toHaveBeenCalledWith({
+      jvconnect_base_url: 'https://line.invalid', api_key: 'jvk_synthetic', expected_binding_id: 'line',
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Disconnect' })).toBeEnabled());
+    rerender(<WhatsAppSettings canManageLine={false} />);
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Link WhatsApp number' })).toBeVisible();
+  });
+
   it('shows a binding last_error on the card', async () => {
     vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
       binding: {

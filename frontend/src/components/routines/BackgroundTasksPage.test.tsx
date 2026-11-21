@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { BackgroundTasksPage } from './BackgroundTasksPage';
 
@@ -8,7 +8,7 @@ vi.mock('../../context/ScopeContext', () => ({ useScopeOptional: () => null }));
 const { list, get } = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn() }));
 vi.mock('../../api/routines', () => ({ listRoutines: list, getRoutine: get }));
 beforeEach(() => { list.mockReset().mockResolvedValue({ routines: [] }); get.mockReset(); });
-vi.mock('./RoutinesListBody', () => ({ RoutinesListBody: ({ rows, selectedRoutineId }: { rows: Array<{ id: string; instruction: string }>; selectedRoutineId?: string }) => <div data-testid="routine-list" data-selected={selectedRoutineId}>{rows.map(row => <p key={row.id}>{row.instruction}</p>)}</div> }));
+vi.mock('./RoutinesListBody', () => ({ RoutinesListBody: ({ rows, selectedRoutineId, emptyMessage }: { rows: Array<{ id: string; instruction: string }>; selectedRoutineId?: string; emptyMessage?: string }) => <div data-testid="routine-list" data-selected={selectedRoutineId}>{rows.map(row => <p key={row.id}>{row.instruction}</p>)}{!rows.length && emptyMessage}</div> }));
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -43,4 +43,21 @@ it('keeps the routine list usable when a linked routine is deleted or inaccessib
   render(<MemoryRouter initialEntries={['/background-tasks?routine=missing']}><BackgroundTasksPage /></MemoryRouter>);
   expect(await screen.findByText('This routine is unavailable or you no longer have access to it.')).toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'Scheduled routines' })).toBeInTheDocument();
+});
+
+
+it('reports loading and errors without a misleading zero count and keeps the filter with the routines', async () => {
+  let reject!: (failure: Error) => void;
+  list.mockImplementationOnce(() => new Promise((_, rejectResponse) => { reject = rejectResponse; }));
+  render(<MemoryRouter><BackgroundTasksPage /></MemoryRouter>);
+  const section = within(screen.getByRole('region', { name: 'Scheduled routines' }));
+  expect(section.getByRole('combobox', { name: 'Routine status' })).toBeInTheDocument();
+  expect(section.getByRole('status')).toHaveTextContent('Loading scheduled routines');
+  expect(screen.queryByText('No active routines')).not.toBeInTheDocument();
+  reject(new Error('Routine status unavailable'));
+  expect(await section.findByRole('button', { name: 'Refresh scheduled routines' })).toBeInTheDocument();
+  expect(screen.queryByText('0 scheduled routines')).not.toBeInTheDocument();
+  fireEvent.change(section.getByRole('combobox', { name: 'Routine status' }), { target: { value: 'paused' } });
+  expect(await section.findByText('No routines match this status.')).toBeInTheDocument();
+  expect(list).toHaveBeenLastCalledWith({ status: 'paused' });
 });

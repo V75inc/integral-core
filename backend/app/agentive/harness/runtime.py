@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any, Collection, Sequence
 
 from app.agentive.harness.capability_search import pydantic_tool_search_strategy
+from app.agentive.harness.connection_profile import (
+    NativeConnectionProfile,
+    NativeProfilePolicy,
+    build_connection_profile_tools,
+)
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.disclosure import (
     DISCLOSURE_POLICY,
@@ -39,6 +44,7 @@ from app.agentive.harness.pydantic_ai_compat import (
 from app.agentive.harness.scoped_store import ScopedStepStore
 from app.agentive.harness.skill_sources import projected_skills
 from app.agentive.harness.turn_progress import TurnProgress
+from app.agentive.services.connection_profiles import ProfileDenied
 from app.schemas.agentive.work import WorkExecutionContext
 
 
@@ -54,6 +60,7 @@ def build_native_agent(
     allowed_skill_names: Collection[str] = (),
     work_execution_context: WorkExecutionContext | None = None,
     turn_progress: TurnProgress | None = None,
+    connection_profile: NativeConnectionProfile | None = None,
 ) -> Agent:
     """Build a fresh Harness composition for one trusted Integral invocation.
 
@@ -76,6 +83,7 @@ def build_native_agent(
         allowed_skill_names=allowed_skill_names,
         work_execution_context=work_execution_context,
         turn_progress=turn_progress,
+        connection_profile=connection_profile,
     )
     return agent
 
@@ -96,6 +104,7 @@ def build_native_runtime(
     allowed_skill_names: Collection[str] = (),
     work_execution_context: WorkExecutionContext | None = None,
     turn_progress: TurnProgress | None = None,
+    connection_profile: NativeConnectionProfile | None = None,
 ) -> tuple[Agent, ScopedStepStore]:
     """Build an Agent and expose its scoped store for conversation resume.
 
@@ -103,6 +112,39 @@ def build_native_runtime(
     it to load the previous session checkpoint, but must not retain or share it
     across tenant, principal, thread, or session boundaries.
     """
+    if connection_profile is None and scope.connection_scope_key is not None:
+        raise ProfileDenied("Native connection policy is required")
+    if connection_profile is not None:
+        connection_profile.assert_scope(scope)
+        if connection_profile.turn_scoped:
+            if (
+                tools
+                or skill_directories
+                or allowed_skill_names
+                or initial_skill
+                or work_execution_context
+            ):
+                raise ProfileDenied(
+                    "Installed profile requires its own capability source"
+                )
+            tools = build_connection_profile_tools(
+                connection_profile, connection_profile.declarations
+            )
+        if connection_profile.audience == "public":
+            if (
+                skill_directories
+                or allowed_skill_names
+                or initial_skill
+                or work_execution_context
+                or accepts_deferred_approvals
+            ):
+                raise ProfileDenied("Public connection cannot use staff context")
+            if any(
+                (tool.metadata or {}).get("integral_connection_scope")
+                != connection_profile.session.scope_key
+                for tool in tools
+            ):
+                raise ProfileDenied("Public connection requires narrow profile tools")
     if step_store_backend is None:
         step_store_backend = JvSpatialStepStore(scope=scope)
     if work_execution_context is not None and (
@@ -183,7 +225,7 @@ def build_native_runtime(
         # tools explicitly marked read-only in the Core catalogue may be
         # compacted; capability loading, skills, staging, and writes stay exact.
         build_integral_working_context(
-            retrieval_scope=scope,
+            retrieval_scope=None if scope.connection_audience == "public" else scope,
             clearable_tools=frozenset(
                 tool.name
                 for tool in tools
@@ -225,6 +267,9 @@ def build_native_runtime(
         from app.agentive.harness.steering import DurableSteering
 
         capabilities.insert(0, DurableSteering(work_execution_context))
+
+    if connection_profile is not None:
+        capabilities.append(NativeProfilePolicy(connection_profile))
 
     agent = Agent(
         model,

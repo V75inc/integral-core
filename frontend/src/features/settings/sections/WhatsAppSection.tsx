@@ -1,16 +1,13 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 
-import { NOTIFICATION_PREFS_KEY } from '../../../api/notificationPreferences';
-import { WhatsAppSettings } from '../../../components/settings/WhatsAppSettings';
+import { WhatsAppConnectorSettings } from '../connectors/WhatsAppConnectorSettings';
 
-/** Workspace settings for the personal WhatsApp channel. */
+/** Legacy deep link, including the notification verification shortcut. */
 export function WhatsAppSection() {
-  const qc = useQueryClient();
   return (
-    <div id="whatsapp-settings" className="scroll-mt-20">
-      <WhatsAppSettings
-        onChange={() => void qc.invalidateQueries({ queryKey: NOTIFICATION_PREFS_KEY })}
-      />
+    <div id="whatsapp-settings" className="flex scroll-mt-20 flex-col gap-4">
+      <Link to="/settings#connector-library" className="self-start text-sm text-[var(--link)] underline">Back to Connector Library</Link>
+      <WhatsAppConnectorSettings />
     </div>
   );
 }

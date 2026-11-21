@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -130,6 +130,7 @@ class LightTurnResult:
     work_context: Any
     elapsed_ms: float
     tool_events: list[dict[str, Any]] = field(default_factory=list)
+    assert_current: Callable[[], Awaitable[None]] | None = None
 
 
 @dataclass
