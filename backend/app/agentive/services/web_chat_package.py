@@ -192,15 +192,23 @@ class ManagedWebChatPackage:
             raise ResourceConflictError("Web Chat provision changed")
         revision, route, profiles = await self._profile(scope)
         eligible = []
+        selected_publication = None
         for key in profiles:
             published = public_web_chat.eligible_publication(profiles, key)
             if published is not None:
                 eligible.append(ChannelProfileOption(key, published["name"]))
+                if key == route.profile_key and (
+                    route.provision_id,
+                    str(route.generation),
+                    route.enabled,
+                ) == (current.provision_id, current.route_epoch, current.enabled):
+                    selected_publication = published["version"]
         return ChannelProfileConfiguration(
             revision,
             route.profile_key,
             tuple(sorted(eligible, key=lambda item: (item.name.casefold(), item.key))),
             not current.enabled and not route.enabled,
+            published_version=selected_publication,
         )
 
     async def assign_profile(

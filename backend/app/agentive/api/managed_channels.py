@@ -220,6 +220,14 @@ async def _configuration_snapshot(
         or data.profile_revision < 0
         or (data.profile_key is not None and not _profile_text(data.profile_key))
         or not isinstance(data.eligible_profiles, tuple)
+        or (
+            data.published_version is not None
+            and (
+                type(data.published_version) is not int
+                or not 1 <= data.published_version <= 9_007_199_254_740_991
+                or data.profile_key is None
+            )
+        )
         or type(data.editable) is not bool
         or (current.enabled and data.editable)
         or not all(
@@ -227,6 +235,11 @@ async def _configuration_snapshot(
             and _profile_text(item.key)
             and _profile_text(item.name)
             for item in data.eligible_profiles
+        )
+        or (
+            data.published_version is not None
+            and sum(item.key == data.profile_key for item in data.eligible_profiles)
+            != 1
         )
     ):
         raise ServiceUnavailableError("Managed channel configuration is unavailable")
@@ -251,9 +264,12 @@ async def get_managed_channel_configuration(request: Request, slug: str) -> dict
     if await _installation(package, scope, match) != current:
         raise ResourceConflictError("Managed channel changed. Refresh and try again.")
     await require_profile_manager(scope.actor_id, scope.workspace_id)
+    projection = asdict(snapshot)
+    if snapshot.published_version is None:
+        projection.pop("published_version")
     return {
         "kind": PROFILE_CONFIGURATION,
-        **asdict(snapshot),
+        **projection,
         "provision_id": current.provision_id,
         "route_epoch": current.route_epoch,
     }

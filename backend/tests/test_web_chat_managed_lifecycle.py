@@ -229,6 +229,11 @@ async def test_real_managed_web_chat_configure_enable_disable(
     )
     assert read.status_code == 200, read.text
     assert not read.json()["editable"]
+    assert (
+        read.json()["published_version"]
+        == state.profiles["public"]["published"]["version"]
+    )
+    assert "full_page_url" not in read.json()
 
     state.ready = False
     disabled = _only_channel(

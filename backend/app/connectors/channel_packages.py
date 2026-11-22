@@ -115,6 +115,7 @@ class ChannelProfileConfiguration:
     profile_key: str | None
     eligible_profiles: tuple[ChannelProfileOption, ...]
     editable: bool
+    published_version: int | None = None
 
 
 @dataclass(frozen=True)
