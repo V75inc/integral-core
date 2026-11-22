@@ -318,3 +318,11 @@ catalogue projection for reads and successful changes:
 The owning adapter must atomically compare installation identity and epoch and
 enforce readiness at commit where needed. The management API never returns
 sharing URLs, credentials, or adapter exceptions.
+
+
+The unregistered Web Chat package composes this lifecycle with the existing
+tool-free published profile check. It requires a host that can attest the exact
+provision and epoch, and a durable store that commits provision and profile
+revision changes together. The package never treats profile assignment or an
+old enabled flag as installation. No store, bootstrap, or visitor endpoint is
+installed by this composition.

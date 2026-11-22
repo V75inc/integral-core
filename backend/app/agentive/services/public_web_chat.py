@@ -15,7 +15,8 @@ from app.api.errors import BadRequestError
 from app.schemas.agentive.connection_profiles import PublicWebChatRoute
 
 
-def _eligible_publication(profiles, key):
+def eligible_publication(profiles, key):
+    """Return only an eligible tool-free public publication for this exact key."""
     published = profiles.get(key, {}).get("published")
     if not profile_management.eligible_public_web_chat_profile(published):
         return None
@@ -42,7 +43,7 @@ async def describe(actor: str, workspace: str) -> dict:
     profiles = found.profiles if found else {}
     available = []
     for key in profiles:
-        published = _eligible_publication(profiles, key)
+        published = eligible_publication(profiles, key)
         if published is not None:
             available.append({"key": key, "name": published["name"]})
     ready = await transport_ready(workspace)
@@ -54,7 +55,7 @@ async def describe(actor: str, workspace: str) -> dict:
         "active": (
             route.enabled
             and ready
-            and _eligible_publication(profiles, route.profile_key) is not None
+            and eligible_publication(profiles, route.profile_key) is not None
         ),
         "eligible_profiles": sorted(
             available, key=lambda item: (item["name"].casefold(), item["key"])
@@ -71,7 +72,7 @@ async def assign_profile(
         if route.enabled:
             raise BadRequestError("Disable Public Web Chat before changing its profile")
         if profile_key is not None:
-            if _eligible_publication(profiles, profile_key) is None:
+            if eligible_publication(profiles, profile_key) is None:
                 raise BadRequestError(
                     "Select a published public profile without tool capabilities"
                 )
@@ -96,7 +97,7 @@ async def set_enabled(
         if enabled:
             if (
                 not transport_ready
-                or _eligible_publication(profiles, route.profile_key) is None
+                or eligible_publication(profiles, route.profile_key) is None
             ):
                 raise BadRequestError(
                     "Public Web Chat needs a ready transport and an eligible published profile"
@@ -139,7 +140,7 @@ async def admit(
         raise ProfileDenied("Public Web Chat unavailable") from None
     if not route.enabled or not route.profile_key or found is None:
         raise ProfileDenied("Public Web Chat unavailable")
-    published = _eligible_publication(found.profiles, route.profile_key)
+    published = eligible_publication(found.profiles, route.profile_key)
     if published is None:
         raise ProfileDenied("Public Web Chat unavailable")
     scope = PublicWebChatScope(
