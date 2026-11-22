@@ -358,3 +358,12 @@ revision. `PUT /{slug}/configuration` checks the same provision and epoch plus
 the expected profile revision and eligibility. Selection is disabled while
 the channel is enabled; saving a profile does not enable or publish it. The
 owning store checks these conditions again at commit.
+
+The unmounted PostgreSQL visitor-session adapter stores a digest of a random
+credential, expiry, and the exact workspace, provision, epoch, and visitor
+conversation. Each read rechecks active transport and the same published
+tool-free profile. Explicit **New chat** rotates the credential and visitor
+conversation with a single compare-and-set; an old or foreign credential
+cannot reopen the conversation. Credentials are handed to a future trusted
+host separately from browser reply data. Cookie handling, shared request
+budgets, cleanup, and PostgreSQL serving qualification remain host work.
