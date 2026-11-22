@@ -95,6 +95,16 @@ vi.mock('../../../../context/ScopeContext', async (importOriginal) => ({
   useScopeOptional: vi.fn(),
 }));
 
+vi.mock('../../../../context/AuthContext', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../context/AuthContext')>(),
+  useAuthOptional: vi.fn(),
+}));
+
+vi.mock('../../../../api/session', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../api/session')>(),
+  getSessionGeneration: vi.fn(),
+}));
+
 import {
   connectorsApi,
   type ConnectorResponse,
@@ -107,6 +117,9 @@ import { ToastProvider } from '../../../../context/ToastContext';
 import { ConfirmProvider } from '../../../../context/ConfirmContext';
 import { getWhatsAppChannelBinding, listChannelIdentities, saveWhatsAppChannelBinding } from '../../../../api/agentive';
 import { useScopeOptional } from '../../../../context/ScopeContext';
+import { useAuthOptional } from '../../../../context/AuthContext';
+import { getSessionGeneration } from '../../../../api/session';
+import type { ManagedChannelShareSource } from '../../connectors/ManagedChannelShareControl';
 
 const mockedList = connectorsApi.list as unknown as ReturnType<typeof vi.fn>;
 const mockedCatalog = connectorsApi.listCatalog as unknown as ReturnType<
@@ -148,13 +161,13 @@ function CurrentSettingsHash() {
   return <span data-testid="settings-hash" hidden>{useLocation().hash}</span>;
 }
 
-function panelWithProviders(qc: QueryClient) {
+function panelWithProviders(qc: QueryClient, shareSource?: ManagedChannelShareSource) {
   return (
     <MemoryRouter>
       <QueryClientProvider client={qc}>
         <ToastProvider>
           <ConfirmProvider>
-            <ConnectorsSection />
+            <ConnectorsSection shareSource={shareSource} />
             <CurrentSettingsHash />
           </ConfirmProvider>
         </ToastProvider>
@@ -177,6 +190,8 @@ beforeEach(() => {
     width: 240, height: 40, toJSON: () => ({}),
   });
   mockedScope.mockReturnValue(null);
+  vi.mocked(useAuthOptional).mockReturnValue(null);
+  vi.mocked(getSessionGeneration).mockReturnValue(1);
   mockedList.mockReset().mockResolvedValue({ connectors: [], total: 0 });
   vi.mocked(managedChannelsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(managedChannelsApi.change).mockReset().mockResolvedValue(undefined);
@@ -529,6 +544,56 @@ describe('<ConnectorsSection />', () => {
       'shared', 'outside_text_fixture', { provision_id: 'provision-1', route_epoch: 'r1' }, 3, null);
     expect(dialog.queryByText('Profile assignment saved.')).not.toBeInTheDocument();
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+  function authenticateManager(id: string) {
+    vi.mocked(useAuthOptional).mockReturnValue({
+      user: { id }, token: 'synthetic-auth-fixture', loading: false,
+    } as NonNullable<ReturnType<typeof useAuthOptional>>);
+  }
+
+  it('forwards an approved source only to the exact active managed Configure and drops it on session or actor change', async () => {
+    selectWorkspace('shared');
+    authenticateManager('original-manager');
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([configurable('active', 'r3')]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
+      ...profileConfig(5, 'r3', 'greeter', false), published_version: 7,
+    });
+    let finish!: () => void;
+    let signal!: AbortSignal;
+    const read = vi.fn<ManagedChannelShareSource['read']>((owner, abort) => {
+      signal = abort;
+      return new Promise(resolve => { finish = () => resolve({
+        kind: 'approved-full-page-share-v1', workspace_id: owner.workspaceId, slug: owner.slug,
+        provision_id: owner.provisionId, route_epoch: owner.routeEpoch,
+        profile_key: owner.publication.profileKey, published_version: owner.publication.publishedVersion,
+        full_page_url: 'https://fixture-visitor.example.invalid/chat/unserved',
+      }); });
+    });
+    const source = { scope: { principalId: 'original-manager', workspaceId: 'shared', sessionFence: '1' }, read };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = render(panelWithProviders(qc, source));
+    const configure = await screen.findByRole('button', { name: 'Configure Outside Text' });
+    expect(screen.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
+    fireEvent.click(configure);
+    fireEvent.click(await screen.findByRole('button', { name: 'Check full-page link' }));
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(signal.aborted).toBe(false);
+
+    vi.mocked(getSessionGeneration).mockReturnValue(2);
+    panel.rerender(panelWithProviders(qc, source));
+    expect(signal.aborted).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
+    await act(async () => finish());
+    expect(screen.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
+
+    authenticateManager('different-manager');
+    panel.rerender(panelWithProviders(qc, { ...source, scope: { ...source.scope, sessionFence: '2' } }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
+    expect(await screen.findByRole('combobox', { name: 'Published public profile' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledTimes(1);
   });
 
   it('does not apply an in-flight profile result after leaving the workspace', async () => {

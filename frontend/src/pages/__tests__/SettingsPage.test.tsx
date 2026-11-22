@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
 const deployment = vi.hoisted(() => ({ singleUser: false }));
+const receivedShareSource = vi.hoisted(() => vi.fn());
 vi.mock('../../hooks/useDeployment', () => ({ useDeployment: () => deployment }));
 vi.mock('../../features/settings/store', () => ({ useSettings: () => [{}, vi.fn()] }));
 vi.mock('../../hooks/usePublishPageContext', () => ({ usePublishPageContext: vi.fn() }));
@@ -13,7 +14,12 @@ vi.mock('../../features/settings/sections/ProfileSection', () => ({ ProfileSecti
 vi.mock('../../features/settings/sections/AppearanceSection', () => ({ AppearanceSection: () => <h2>Appearance details</h2> }));
 vi.mock('../../features/settings/sections/AboutSection', () => ({ AboutSection: () => <h2>About Integral</h2> }));
 vi.mock('../../features/settings/sections/GetStartedSection', () => ({ GetStartedSection: () => <h2>Getting started</h2> }));
-vi.mock('../../features/settings/sections/ConnectorsSection', () => ({ ConnectorsSection: () => <h2>Connector settings</h2> }));
+vi.mock('../../features/settings/sections/ConnectorsSection', () => ({
+  ConnectorsSection: ({ shareSource }: { shareSource?: unknown }) => {
+    receivedShareSource(shareSource);
+    return <h2>Connector settings</h2>;
+  },
+}));
 vi.mock('../../features/settings/sections/AgentProfilesSection', () => ({ AgentProfilesSection: () => <h2>Agent profiles settings</h2> }));
 vi.mock('../../features/settings/sections/AgentsSection', () => ({ AgentsSection: () => <h2>External agents settings</h2> }));
 vi.mock('../../features/settings/sections/SkillsSection', () => ({ SkillsSection: () => <h2>Agent skills settings</h2> }));
@@ -25,6 +31,7 @@ import { SettingsPage } from '../SettingsPage';
 afterEach(() => {
   cleanup();
   deployment.singleUser = false;
+  receivedShareSource.mockClear();
 });
 const show = (path = '/settings') => render(<MemoryRouter initialEntries={[path]}><SettingsPage /></MemoryRouter>);
 describe('Settings navigation', () => {
@@ -58,6 +65,17 @@ describe('Settings navigation', () => {
     show(`/settings#${hash}`);
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: parent })).toHaveAttribute('aria-current', 'page');
+  });
+  it.each(['connectors', 'connector-library'])('forwards the optional host source to %s only', async hash => {
+    const source = { scope: { principalId: 'fixture', workspaceId: 'workspace', sessionFence: '1' }, read: vi.fn() };
+    render(<MemoryRouter initialEntries={[`/settings#${hash}`]}>
+      <SettingsPage managedChannelShareSource={source} />
+    </MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Connector settings' })).toBeVisible();
+    expect(receivedShareSource).toHaveBeenLastCalledWith(source);
+    fireEvent.click(screen.getByRole('button', { name: 'Profile' }));
+    expect(await screen.findByRole('heading', { name: 'Profile details' })).toBeVisible();
+    expect(source.read).not.toHaveBeenCalled();
   });
   it('preserves the hidden Sharing destination in single-user mode', async () => {
     deployment.singleUser = true;

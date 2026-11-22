@@ -134,8 +134,10 @@ inject the read control into standard Configure. It is opt-in, requires an
 active install and the same exact configuration's eligible published version
 (not its profile revision), and reads only after a user gesture. The read has
 no cache and is discarded when the session, selection, or publication changes.
-The default Settings composition does not inject this capability. Embed policy
-remains separate.
+The default Settings composition does not inject this capability. A reviewed
+host can provide `managedChannelShareSource` to `SettingsPage`, scoped to the
+signed-in manager, selected workspace and `String(getSessionGeneration())`.
+Only the managed Configure dialog receives it. Embed policy remains separate.
 
 The detached [public request budget](../../backend/app/agentive/services/web_chat_request_budget.py)
 requires an explicitly supplied PostgreSQL adapter and identical fixed-window

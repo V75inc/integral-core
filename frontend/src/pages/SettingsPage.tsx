@@ -27,6 +27,7 @@ import { AppearanceSection } from '../features/settings/sections/AppearanceSecti
 import { AboutSection } from '../features/settings/sections/AboutSection';
 import { getRegisteredSettingsSections } from '../host/registry';
 import { Input, Text } from '../ui';
+import type { ManagedChannelShareSource } from '../features/settings/connectors/ManagedChannelShareControl';
 import type { SettingsSnapshot } from '../features/settings/types';
 import { PageShell, PageSection } from '../components/ui';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -330,7 +331,9 @@ function sectionFromHash(hash: string): SectionId | null {
   return allSections().some(s => s.id === id) ? id : null;
 }
 
-export function SettingsPage() {
+export function SettingsPage({ managedChannelShareSource }: {
+  managedChannelShareSource?: ManagedChannelShareSource;
+} = {}) {
   const { singleUser } = useDeployment();
   const location = useLocation();
   const navigate = useNavigate();
@@ -430,11 +433,13 @@ export function SettingsPage() {
           {/* Section content */}
           <div className="min-w-0 flex-1" aria-label={activeLabel} role="region">
             <Suspense fallback={<SectionFallback />}>
-              {sections.find(s => s.id === active)?.render({
-                settings,
-                update,
-                navigateToSection,
-              })}
+              {managedChannelShareSource && (active === 'connectors' || active === 'connector-library')
+                ? <ConnectorsSection shareSource={managedChannelShareSource} />
+                : sections.find(s => s.id === active)?.render({
+                    settings,
+                    update,
+                    navigateToSection,
+                  })}
             </Suspense>
           </div>
         </PageSection>

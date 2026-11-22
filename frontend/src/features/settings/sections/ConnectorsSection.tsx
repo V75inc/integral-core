@@ -31,6 +31,7 @@ import {
   type CatalogEntry,
   type ConnectorResponse,
 } from "../../../api/connectors";
+import { getSessionGeneration } from "../../../api/session";
 import { managedChannelsApi, type ManagedChannel } from "../../../api/managedChannels";
 import { connectionProfilesApi, publicWebChatSettingsKey } from "../../../api/connectionProfiles";
 import { getWhatsAppChannelBinding } from "../../../api/agentive";
@@ -55,6 +56,7 @@ import { ConnectorBrandIcon } from "../connectors/ConnectorBrandIcon";
 import { WebChatConnectorSettings } from "../connectors/WebChatConnectorSettings";
 import { WhatsAppConnectorSettings } from "../connectors/WhatsAppConnectorSettings";
 import { ConnectorCatalogPanel } from "../connectors/ConnectorCatalogPanel";
+import type { ManagedChannelShareSource } from "../connectors/ManagedChannelShareControl";
 import { ManagedChannelLoadNotice, ManagedChannelSettings, ManagedChannelStatus } from "../connectors/ManagedChannelSettings";
 import { currentManagedChannels } from "../connectors/managedChannelQueries";
 import { CustomMcpMountModal } from "../connectors/CustomMcpMountModal";
@@ -168,11 +170,16 @@ function ConnectedConnectorRow({ children }: { children: ReactNode }) {
   );
 }
 
-export function ConnectorsSection() {
+export function ConnectorsSection({ shareSource }: { shareSource?: ManagedChannelShareSource } = {}) {
   const auth = useAuthOptional();
   const scope = useScopeOptional();
   const principalId = auth?.user?.id ?? "";
   const workspaceId = scope?.scope?.workspaceId ?? "";
+  // A reviewed host must bind its optional reader to the current local auth
+  // generation. Never carry a prior actor/workspace/session source forward.
+  const currentShareSource = shareSource && principalId && workspaceId && auth?.token && !auth.loading &&
+    shareSource.scope.principalId === principalId && shareSource.scope.workspaceId === workspaceId &&
+    shareSource.scope.sessionFence === String(getSessionGeneration()) ? shareSource : undefined;
 
   // A scope switch must change the mounted observer and discard open panels.
   // Removing an unscoped cache alone leaves its observer displaying old rows.
@@ -181,6 +188,7 @@ export function ConnectorsSection() {
       key={JSON.stringify([principalId, workspaceId])}
       principalId={principalId}
       workspaceId={workspaceId}
+      shareSource={currentShareSource}
     />
   );
 }
@@ -188,9 +196,11 @@ export function ConnectorsSection() {
 function ScopedConnectorsSection({
   principalId,
   workspaceId,
+  shareSource,
 }: {
   principalId: string;
   workspaceId: string;
+  shareSource?: ManagedChannelShareSource;
 }) {
   const isCurrentPanel = useRef(true);
   useEffect(() => {
@@ -282,6 +292,9 @@ function ScopedConnectorsSection({
   });
   const showManaged = canReadManaged && scopeFilter !== "per_user";
   const connectedManaged = showManaged ? currentManagedChannels(managed).filter(row => row.connected) : [];
+  const currentConfiguredShare = shareSource && managedSelection?.action === "configure" &&
+    currentManagedChannels(managed).some(row => row.connected && row.state === "active" &&
+      row.definition.slug === managedSelection.slug) ? shareSource : undefined;
 
   // The standard managed entry owns the UI once registered; a legacy notice
   // is only safe after a successful, settled registry response.
@@ -884,6 +897,7 @@ function ScopedConnectorsSection({
       {canReadManaged && managedSelection && (
         <ManagedChannelSettings
           selection={managedSelection}
+          shareSource={currentConfiguredShare}
           principalId={principalId}
           workspaceId={workspaceId}
           query={managed}
