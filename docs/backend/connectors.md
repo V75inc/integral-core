@@ -182,8 +182,10 @@ The [full-page component](../../frontend/src/features/public-web-chat/PublicWebC
 requires an injected host transport and uses the same assistant-ui external
 store runtime as signed-in Integral chat. The connector supplies plain-text
 history and keeps a controlled composer so pending or ambiguous sends retry
-the original event ID rather than append a new draft. It clears the old
-conversation on expiry and is not mounted in the product router.
+the original event ID rather than append a new draft. The full page keeps its
+composer separate from the scrollable history and only follows new replies
+when the visitor is at the bottom. It clears the old conversation on expiry
+and is not mounted in the product router.
 The unregistered full-page admission adapter checks an already verified visitor
 session against the exact workspace, provision, and conversation, then projects
 the current public profile revision and independent route generation. It does

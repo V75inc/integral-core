@@ -117,8 +117,10 @@ export function PublicWebChat({ title, transport }: {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6">
-      <Text as="h1" variant="heading-md" weight="semibold" className="break-words">{title}</Text>
+    <main className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-4 sm:gap-5 sm:px-6 sm:py-6 ${
+      chat.phase === 'ready' ? 'h-dvh min-h-[20rem]' : 'min-h-dvh'
+    }`}>
+      <Text as="h1" variant="heading-md" weight="semibold" className="shrink-0 break-words">{title}</Text>
       {chat.phase !== 'ready' ? (
         <Surface border="subtle" radius="card" padding="md" className="flex flex-col items-start gap-3">
           {chat.phase === 'loading' && <Text as="p" role="status">Opening chat…</Text>}
@@ -206,15 +208,22 @@ function ReadyVisitorChat({ chat, onSend, onDraft }: {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <ThreadPrimitive.Viewport
+        turnAnchor="bottom"
+        autoScroll
+        scrollToBottomOnRunStart={false}
+        tabIndex={0}
+        role="log"
+        aria-label="Conversation"
+        aria-relevant="additions text"
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain"
+      >
         {chat.messages.length === 0 && <Text as="p" tone="muted">Send a message to begin.</Text>}
-        <div role="log" aria-label="Conversation" aria-relevant="additions text" className="min-w-0">
-          <ol className="flex min-w-0 flex-col gap-3">
-            <ThreadPrimitive.Messages components={messageComponents} />
-          </ol>
-        </div>
-      </div>
-      <Surface border="subtle" radius="card" padding="md">
+        <ol className="flex min-w-0 flex-col gap-3">
+          <ThreadPrimitive.Messages components={messageComponents} />
+        </ol>
+      </ThreadPrimitive.Viewport>
+      <Surface border="subtle" radius="card" padding="md" className="shrink-0">
         <form ref={form} className="flex min-w-0 flex-col gap-3" onSubmit={event => {
           event.preventDefault();
           if (running) return;
@@ -233,6 +242,8 @@ function ReadyVisitorChat({ chat, onSend, onDraft }: {
             id={messageId}
             value={chat.draft}
             maxLength={MESSAGE_LIMIT}
+            rows={2}
+            noResize
             readOnly={Boolean(chat.attempt)}
             onChange={event => { if (!chat.attempt) onDraft(event.target.value); }}
             onKeyDown={event => {

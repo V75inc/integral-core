@@ -1,7 +1,24 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { PublicWebChat, type PublicWebChatTransport } from './PublicWebChat';
+
+// jsdom doesn't implement browser layout or its scrolling/resize primitives.
+const originalScrollTo = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTo');
+
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    disconnect() {}
+  });
+  Object.defineProperty(Element.prototype, 'scrollTo', { value: vi.fn(), configurable: true });
+});
+
+afterEach(() => {
+  if (originalScrollTo) Object.defineProperty(Element.prototype, 'scrollTo', originalScrollTo);
+  else Reflect.deleteProperty(Element.prototype, 'scrollTo');
+  vi.unstubAllGlobals();
+});
 
 function transportFixture() {
   return {
@@ -138,4 +155,25 @@ it('does not append queued composer text from an old runtime on route change', a
   expect(await screen.findByRole('textbox', { name: 'Message' })).toHaveValue('');
   expect(previous.send).not.toHaveBeenCalled();
   expect(next.send).not.toHaveBeenCalled();
+});
+
+it('offers a separately focusable history and leaves keyboard focus in the composer after send', async () => {
+  const transport = transportFixture();
+  transport.start.mockResolvedValue({
+    kind: 'ready', messages: [{ id: 'initial', role: 'assistant', text: 'Earlier reply' }],
+  });
+  transport.send.mockResolvedValue({
+    kind: 'ready', messages: [{ id: 'latest', role: 'assistant', text: 'Latest reply' }],
+  });
+  render(<PublicWebChat title="Ask Cedar" transport={transport} />);
+  const input = await screen.findByRole('textbox', { name: 'Message' });
+  const history = screen.getByRole('log', { name: 'Conversation' });
+  expect(history).toHaveAttribute('tabindex', '0');
+  expect(history).toHaveTextContent('Earlier reply');
+  expect(history).not.toContainElement(input);
+  input.focus();
+  fireEvent.change(input, { target: { value: 'Another question' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(await screen.findByText('Latest reply')).toBeVisible();
+  expect(input).toHaveFocus();
 });
