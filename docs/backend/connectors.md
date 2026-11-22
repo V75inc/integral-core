@@ -148,6 +148,45 @@ boundary bursts. Provide a retention policy for abandoned workspace/provision
 rows without resetting active budgets. No host wiring, provider capacity, or
 traffic volume is established by the detached adapter.
 
+### Full-page API and optional server integration
+
+Deliver the full-page UI first, backed by the existing same-origin
+`POST /api/public/web-chat/{route}/session` (`mode: new | resume`) and
+`POST /api/public/web-chat/{route}/messages` (`id`, `text`). Both require
+canonical HTTPS and an exact origin; sessions use a route-scoped Secure,
+HttpOnly, SameSite=Strict cookie. The browser API is detached and qualified with
+synthetic inputs; it is not mounted by Core startup or a cross-origin client
+API. Do not relax the browser gate to accommodate an integration.
+
+If server-to-server clients need direct access, add a separate **versioned
+transport for the same Web Chat connector**, not another connector, profile
+assignment, or approval path. Proposed v1 (not implemented):
+
+| Request | Authorization and result |
+| --- | --- |
+| `POST /api/v1/web-chat/sessions` | Revocable per-provision client bearer; create a visitor session and return a short-lived opaque session bearer with an empty snapshot. |
+| `GET /api/v1/web-chat/session` | Session bearer; resume that conversation and return its bounded history. |
+| `POST /api/v1/web-chat/session/messages` | Session bearer with `{id, text}`; return bounded history on completion or pending while the outcome remains uncertain. |
+
+The server derives workspace, provision, route generation, exact published
+profile/version, and client grant. No caller-supplied scope, browser cookies,
+keys in URLs, CORS access, or Integral workspace role. Check the current grant,
+route, and tool-free publication before each history read and turn and again
+before exposing a reply. Grant revocation, disablement, expiry, or a change of
+route or publication cuts off existing sessions. Reuse the bounded history,
+durable receipt, and rate-budget boundaries; enforce deployment, workspace,
+provision, client, and visitor limits on a dedicated public capacity budget.
+Exact retries must not re-run a turn; changed payloads using the same ID must
+conflict. Return bounded plain text with no-store responses; redact credentials,
+text, and provider details from diagnostics.
+
+Qualify on detached ASGI with disposable PostgreSQL and a synthetic model.
+Prove two clients and two visitors stay isolated; concurrent/replayed requests
+run the model once; altered retries conflict; rate, expiry and revocation
+apply, including during inference. Verify browser authorization is unchanged,
+workspace tools are never available, and no anonymous API is mounted by Core
+startup. This exercise does not establish live capacity or a real provider.
+
 ## Native synchronization
 
 A native connector implements the registered sync interface and binds to a Track through `IS_CONNECTED_TO`. It supplies stable external identity, record transformation, credential requirements, and deduplication semantics. Scope and policy gates precede synchronization.
