@@ -254,6 +254,16 @@ exact scoped claim through the injected store. It does not mint sessions, run a
 model, send replies, or provide a durable store. A production host still needs
 to implement those dependencies and recover unfinished claims safely.
 
+The unregistered [text inference composition](../../backend/app/agentive/services/web_chat_profile_inference.py)
+requires an approved injected plain-text model port, a verified current
+visitor, the exact published persona, and same-visitor history bounded to
+eight completed exchanges and 8,000 characters. It supplies no native
+workspace harness, user identity, tools, skills, or credentials to the model.
+Only the durable claim owner calls the model; replies require current
+authorization and durable receipt readback. Provider selection, isolated
+history storage, rate limits, and production model qualification remain
+host integration requirements.
+
 Component tests and injected backend dependencies qualify the code paths they
 exercise; they are not evidence that provisioning, a live model, or a public
 URL works. Once the full page passes, test the embed against the same host and
