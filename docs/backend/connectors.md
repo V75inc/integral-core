@@ -129,8 +129,13 @@ fence, workspace, connector, provision, route epoch, and exact published
 profile/version to the current view, and rejects malformed or extra fields.
 Hide while checking or when inactive, and invalidate the read on publication
 changes even if the channel epoch remains the same. The host must independently
-deny obsolete links before Settings refetches. No share endpoint is exposed by
-this source contract, and embed policy remains separate.
+deny obsolete links before Settings refetches. A reviewed host may explicitly
+inject the read control into standard Configure. It is opt-in, requires an
+active install and the same exact configuration's eligible published version
+(not its profile revision), and reads only after a user gesture. The read has
+no cache and is discarded when the session, selection, or publication changes.
+The default Settings composition does not inject this capability. Embed policy
+remains separate.
 
 The detached [public request budget](../../backend/app/agentive/services/web_chat_request_budget.py)
 requires an explicitly supplied PostgreSQL adapter and identical fixed-window

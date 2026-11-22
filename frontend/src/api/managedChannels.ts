@@ -34,6 +34,7 @@ export type ManagedChannel =
 export interface ManagedChannelProfileConfiguration extends ManagedChannelGeneration {
   kind: 'published-public-profile-v1';
   profile_revision: number;
+  published_version?: number;
   profile_key: string | null;
   eligible_profiles: Array<{key: string; name: string}>;
   editable: boolean;
@@ -126,6 +127,9 @@ function decodeProfileConfiguration(value: unknown, generation: ManagedChannelGe
     kind: row.kind,
     profile_revision: row.profile_revision,
     profile_key: row.profile_key,
+    ...(row.profile_key !== null && profiles.has(row.profile_key) &&
+      typeof row.published_version === 'number' && Number.isSafeInteger(row.published_version) &&
+      row.published_version > 0 ? { published_version: row.published_version } : {}),
     eligible_profiles: [...profiles.values()],
     editable: row.editable,
     ...generation,

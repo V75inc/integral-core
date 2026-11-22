@@ -51,7 +51,8 @@ function safeFullPageUrl(raw: unknown): string | null {
     const loopback = host === 'localhost' || host.endsWith('.localhost') || host.startsWith('127.') ||
       host === '[::1]' || host === '0.0.0.0';
     if (url.protocol !== 'https:' || !host || loopback || url.username || url.password ||
-        url.search || url.hash || url.port === '0' || url.href !== raw) return null;
+        url.search || url.hash || url.port === '0' || url.href !== raw ||
+        !/^\/chat\/[A-Za-z0-9_-]{1,128}$/.test(url.pathname)) return null;
     return url.href;
   } catch {
     return null;

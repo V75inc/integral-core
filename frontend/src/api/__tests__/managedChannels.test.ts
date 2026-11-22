@@ -79,6 +79,28 @@ describe('managed channel transport', () => {
       }));
   });
 
+  it('treats only a paired positive integer as the current publication version', async () => {
+    const generation = { provision_id: 'p1', route_epoch: 'e2' };
+    const base = { ...generation, kind: 'published-public-profile-v1', profile_revision: 9,
+      profile_key: 'p', eligible_profiles: [{ key: 'p', name: 'A profile' }], editable: false };
+    for (const row of [
+      { ...base },
+      { ...base, published_version: 0 },
+      { ...base, published_version: '2' },
+      { ...base, published_version: 7.5 },
+      { ...base, profile_key: null, published_version: 2 },
+      { ...base, profile_key: 'other', published_version: 2 },
+    ]) {
+      vi.mocked(apiClient.get).mockResolvedValue({ data: row });
+      const decoded = await managedChannelsApi.profileConfiguration('workspace', 'example_text', generation);
+      expect(decoded).not.toHaveProperty('published_version');
+      expect(decoded.profile_revision).toBe(9);
+    }
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { ...base, published_version: 2 } });
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'example_text', generation))
+      .resolves.toMatchObject({ profile_revision: 9, published_version: 2 });
+  });
+
   it('does not turn an invalid response into a successful empty listing', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {} });
     await expect(managedChannelsApi.list('workspace')).rejects.toThrow('Invalid managed channel listing');

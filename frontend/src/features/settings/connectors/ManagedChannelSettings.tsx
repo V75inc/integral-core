@@ -7,6 +7,7 @@ import { Modal } from '../../../components/ui/Modal';
 import { Text } from '../../../ui';
 import { StatusPill } from '../components/Field';
 import { ManagedChannelProfileAssignment } from './ManagedChannelProfileAssignment';
+import { ManagedChannelShareControl, type ManagedChannelShareSource } from './ManagedChannelShareControl';
 import { currentManagedChannels, managedProfileOptions } from './managedChannelQueries';
 
 export function ManagedChannelStatus({ channel }: { channel: ManagedChannel }) {
@@ -36,7 +37,7 @@ export function ManagedChannelLoadNotice({ query }: { query: UseQueryResult<Mana
   return null;
 }
 
-export function ManagedChannelSettings({ selection, query, principalId, workspaceId, onClose, onInstalled, onAbandoned }: {
+export function ManagedChannelSettings({ selection, query, principalId, workspaceId, onClose, onInstalled, onAbandoned, shareSource }: {
   selection: { slug: string; name: string; action: ManagedChannel['action'] };
   query: UseQueryResult<ManagedChannel[]>;
   principalId: string;
@@ -44,6 +45,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   onClose: () => void;
   onInstalled: () => void;
   onAbandoned: () => void;
+  shareSource?: ManagedChannelShareSource;
 }) {
   const qc = useQueryClient();
   const submitting = useRef(false);
@@ -207,6 +209,15 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                     <Text as="p" variant="body-sm" role="status" tone="muted">Checking the published profile assignment…</Text>
                   )}
                 </>
+              )}
+              {shareSource && channel.connected && channel.state === 'active' &&
+                  shareSource.scope.principalId === principalId && shareSource.scope.workspaceId === workspaceId &&
+                  profile && profile.provision_id === channel.provision_id && profile.route_epoch === channel.route_epoch &&
+                  assignedEligible && profile.profile_key && profile.published_version &&
+                  !busy && !confirmingRemove && (
+                <ManagedChannelShareControl channel={channel} source={shareSource}
+                  profileRevision={profile.profile_revision}
+                  publication={{ profileKey: profile.profile_key, publishedVersion: profile.published_version }} />
               )}
               {confirmingRemove && (
                 <Text as="p" variant="body-sm">Remove this channel from the workspace? It will no longer receive messages here.</Text>
