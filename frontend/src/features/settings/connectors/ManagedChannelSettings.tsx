@@ -11,11 +11,18 @@ import { ManagedChannelProfileAssignment } from './ManagedChannelProfileAssignme
 import { ManagedChannelShareControl, type ManagedChannelShareSource } from './ManagedChannelShareControl';
 import { currentManagedChannels, managedProfileOptions } from './managedChannelQueries';
 
+function isPendingWebChatSetup(channel: ManagedChannel): boolean {
+  return channel.definition.slug === 'public_web_chat' && channel.connected &&
+    channel.configuration_kind === 'published-public-profile-v1' &&
+    channel.state === 'inactive' && !channel.can_enable;
+}
+
 export function ManagedChannelStatus({ channel }: { channel: ManagedChannel }) {
+  const pending = isPendingWebChatSetup(channel);
   return (
-    <StatusPill state={channel.state === 'active' ? 'ok' : channel.state === 'unavailable' ? 'warn' : 'idle'}>
+    <StatusPill state={channel.state === 'active' ? 'ok' : channel.state === 'unavailable' || pending ? 'warn' : 'idle'}>
       {channel.state === 'active' ? 'Active' : channel.state === 'unavailable' ? 'Unavailable' :
-        channel.state === 'inactive' ? 'Inactive' : 'Not installed'}
+        pending ? 'Setup pending' : channel.state === 'inactive' ? 'Inactive' : 'Not installed'}
     </StatusPill>
   );
 }
@@ -76,12 +83,14 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
     setPendingEnable(null);
   }
 
+  const webChatDraft = channel && isPendingWebChatSetup(channel);
   const hasProfileAssignment = channel?.connected && channel.configuration_kind === 'published-public-profile-v1';
   const profileQuery = useQuery(managedProfileOptions(principalId, workspaceId, selection.slug,
     hasProfileAssignment ? generation : null));
   const profile = hasProfileAssignment && profileQuery.isSuccess && profileQuery.fetchStatus === 'idle'
     ? profileQuery.data : null;
-  const assignedEligible = profile?.eligible_profiles.some(choice => choice.key === profile.profile_key) === true;
+  const assignedProfile = profile?.eligible_profiles.find(choice => choice.key === profile.profile_key);
+  const assignedEligible = assignedProfile !== undefined;
   const canEnable = channel?.connected && channel.can_enable && (!hasProfileAssignment || assignedEligible);
   const canEditProfile = profile?.editable === true && channel?.state !== 'active';
 
@@ -211,10 +220,27 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                   <Button type="button" variant="ghost" size="sm" disabled={busy}
                     onClick={() => void retryProfileCheck()}>Refresh channel status</Button>
                 </div>
+              ) : webChatDraft && !confirmingRemove ? (
+                <div className="flex flex-col items-start gap-2">
+                  <Text as="p" variant="body-sm" tone="muted">
+                    Web Chat is added but not live. You can save a published public profile now.
+                    Pairing and publishing require a ready host.
+                  </Text>
+                  {profile && (
+                    <Text as="p" variant="body-sm">
+                      {assignedProfile ? `Saved profile: ${assignedProfile.name}` :
+                        profile.profile_key ? 'The saved profile is no longer eligible.' : 'No profile saved yet.'}
+                    </Text>
+                  )}
+                  <Button type="button" variant="ghost" size="sm" disabled={busy}
+                    onClick={() => void retryProfileCheck()}>Refresh setup status</Button>
+                </div>
               ) : (
                 <Text as="p" variant="body-sm" tone="muted">
                   {!channel.connected
-                    ? 'Adding installs this channel for the workspace. It does not turn on messaging.'
+                    ? channel.definition.slug === 'public_web_chat'
+                      ? 'Adding saves Web Chat to this workspace for setup. It does not publish a chat or turn on messaging.'
+                      : 'Adding installs this channel for the workspace. It does not turn on messaging.'
                     : channel.state === 'unavailable' || (channel.state === 'inactive' && !channel.can_enable)
                       ? 'This channel cannot be enabled right now.'
                       : 'Manage whether this channel can receive messages for the workspace.'}

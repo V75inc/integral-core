@@ -794,6 +794,90 @@ describe('<ConnectorsSection />', () => {
     expect(connectionProfilesApi.setPublicWebChatEnabled).not.toHaveBeenCalled();
   });
 
+  it('adds managed Web Chat while the host is unavailable, saves only a published public profile, and keeps it pending', async () => {
+    selectWorkspace('shared');
+    const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' };
+    const draft = (epoch: string): ManagedChannel => ({
+      ...configurable('inactive', epoch), definition, can_enable: false,
+    });
+    let channel: ManagedChannel = { ...available, definition };
+    let config = profileConfig(0, '1', null);
+    vi.mocked(managedChannelsApi.list).mockImplementation(async () => [channel]);
+    vi.mocked(managedChannelsApi.change).mockImplementation(async (_workspace, _slug, change) => {
+      if (change.kind === 'add') channel = draft('1');
+    });
+    vi.mocked(managedChannelsApi.profileConfiguration).mockImplementation(async () => config);
+    vi.mocked(managedChannelsApi.assignProfile).mockImplementation(async () => {
+      channel = draft('2');
+      config = { ...profileConfig(1, '2', 'greeter'), published_version: 2 };
+    });
+
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    const addWebChat = await screen.findByRole('button', { name: 'Add Web Chat' });
+    expect(addWebChat).toBeEnabled();
+    fireEvent.click(addWebChat);
+    const add = within(screen.getByRole('dialog', { name: 'Add Web Chat' }));
+    expect(add.getByText(/does not publish a chat or turn on messaging/)).toBeVisible();
+    fireEvent.click(add.getByRole('button', { name: 'Add channel' }));
+    await waitFor(() => expect(screen.getByTestId('settings-hash')).toHaveTextContent('#connectors'));
+    expect(screen.queryByRole('dialog', { name: 'Add Web Chat' })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    const configure = within(await screen.findByRole('dialog', { name: 'Configure Web Chat' }));
+    const picker = await configure.findByRole('combobox', { name: 'Published public profile' });
+    expect(picker).toBeEnabled();
+    expect(configure.getByText('Setup pending')).toBeVisible();
+    expect(configure.getByText(/added but not live/)).toBeVisible();
+    expect(configure.getByText('No profile saved yet.')).toBeVisible();
+    expect(within(picker).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['No profile assigned', 'Public greeter']);
+    expect(configure.queryByRole('button', { name: /enable|disable|pair|publish|embed|full.page/i })).not.toBeInTheDocument();
+    expect(configure.queryByRole('link')).not.toBeInTheDocument();
+
+    fireEvent.change(picker, { target: { value: 'greeter' } });
+    expect(configure.getByText('No profile saved yet.')).toBeVisible();
+    fireEvent.click(configure.getByRole('button', { name: 'Save profile' }));
+    expect(await configure.findByText('Saved profile: Public greeter')).toBeVisible();
+    expect(configure.getByText('Profile assignment saved.')).toBeVisible();
+    expect(configure.getByText('Setup pending')).toBeVisible();
+    expect(managedChannelsApi.assignProfile).toHaveBeenCalledExactlyOnceWith(
+      'shared', 'public_web_chat', { provision_id: 'provision-1', route_epoch: '1' }, 0, 'greeter');
+    expect(managedChannelsApi.change).toHaveBeenCalledExactlyOnceWith('shared', 'public_web_chat', { kind: 'add' });
+    expect(connectionProfilesApi.setPublicWebChatEnabled).not.toHaveBeenCalled();
+
+    fireEvent.click(configure.getAllByRole('button', { name: 'Close' })[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    const reopened = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
+    expect(await reopened.findByText('Saved profile: Public greeter')).toBeVisible();
+    fireEvent.click(reopened.getByRole('button', { name: 'Refresh setup status' }));
+    await waitFor(() => expect(managedChannelsApi.list).toHaveBeenCalledTimes(4));
+    expect(await reopened.findByText('Saved profile: Public greeter')).toBeVisible();
+    expect(reopened.queryByRole('button', { name: /enable|pair|publish|embed|full.page/i })).not.toBeInTheDocument();
+    expect(managedChannelsApi.assignProfile).toHaveBeenCalledTimes(1);
+    expect(managedChannelsApi.change).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains when a pending Web Chat draft has no eligible published public profile', async () => {
+    selectWorkspace('shared');
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{
+      ...configurable('inactive', '1'), can_enable: false,
+      definition: { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' },
+    }]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
+      ...profileConfig(1, '1', 'removed-profile'), eligible_profiles: [],
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    const picker = await screen.findByRole('combobox', { name: 'Published public profile' });
+    expect(screen.getByText('No eligible published public profiles are available.')).toBeVisible();
+    expect(screen.getByText('The saved profile is no longer eligible.')).toBeVisible();
+    expect(within(picker).getByRole('option', { name: 'Current profile is no longer eligible' })).toBeDisabled();
+    expect(screen.queryByRole('option', { name: 'removed-profile' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /enable|pair|publish/i })).not.toBeInTheDocument();
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
   it('honors the managed Web Chat entry rather than the legacy fallback', async () => {
     selectWorkspace('shared');
     vi.mocked(managedChannelsApi.list).mockResolvedValue([{
