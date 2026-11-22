@@ -12,7 +12,7 @@ A connector registers atomically. Core accepts the descriptor, typed setup and l
 | Admission | Inspect reviewable metadata and verify the approved artifact and dependency provenance before loading executable code. Reject missing, incompatible, incomplete, ambiguous or duplicate packages. A distribution/version/import pin is useful in qualification but is not a signature, proof of integrity, or a sandbox. Untrusted code is not imported into Core. |
 | Install and Configure | Derive both from the same schema and current caller/scope. Validate non-secret configuration server-side; store credentials as scoped references through Core, never send them back in settings responses. Use explicit installed instances and atomic cardinality. Add installs disabled. Configure has own permission checks, observes current provision and revision, and never skips validation or activates implicitly. |
 | Hooks | Stable, typed hooks for observing, installing, updating/validating, probing, enabling/disabling, upgrading and removing, as applicable to declared capabilities. Dispatch uses the registered capability adapter and a narrow Core-provided scope, not arbitrary browser method names or package-supplied React, HTML, or commands. Trusted adapters still enforce exact workspace, instance and revision at commit. |
-| Readiness | An enabled flag is not a health result. Verify capabilities in the current provision and revision before serving. List a complete admitted but unready package with Add disabled. Keep installed inactive or unavailable instances visible under Connected, with authorized safe recovery, disable and removal. No active or sharing affordance without current authorization and readiness. Reject partial artifacts; preserve unavailable management records where previously installed. |
+| Readiness | An enabled flag is not a health result. Verify capabilities in the current provision and revision before serving. List a complete admitted but unready package with Add disabled unless its trusted lifecycle explicitly supports authorized inactive preparation without serving readiness. Keep installed inactive or unavailable instances visible under Connected, with authorized safe recovery, disable and removal. No active or sharing affordance without current authorization and readiness. Reject partial artifacts; preserve unavailable management records where previously installed. |
 | Runtime | Core owns tenant and actor checks, resource grants, timeout and capacity rules, normalized health, redaction and audit receipts. Authorize again at execution and on delivery when authority can change. Persist idempotency, retry/recovery and checkpoints as needed; do not treat an in-process lock or registry as multi-worker proof. Expose bounded diagnostic categories and a correlation reference, not credentials, prompts, raw provider errors or internal endpoints. |
 | Upgrade and removal | Keep stable IDs, canonical routing, auth and provenance. Apply reversible data/credential migrations. Verify rollback without restoring revoked grants or secrets. Disable/revoke effective authority first; finish external cleanup idempotently. Retain a managed state on partial failure. |
 
@@ -44,10 +44,10 @@ Out of this catalog migration: Workspace Email outbound delivery, the server exp
 See the [source audit](connector-extension-audit.md), [Connector implementation guide](connectors.md), and [ADR 010](adr/010-connector-subsystem-architecture.md).
 
 The detached full-page Web Chat reference authority reads the same persisted
-workspace profile-route policy used by the managed provision store. Add
-requires separate host evidence for exact workspace infrastructure and verified
-absence of a provision; a disabled assigned provision can be ready for enable
-without admitting visitors. Public page/API loading requires an enabled
+workspace profile-route policy used by the managed provision store. Add and
+candidate-profile configuration require verified workspace authority and
+durable storage, not visitor transport readiness. A disabled assigned
+provision can be ready for enable without admitting visitors. Public page/API loading requires an enabled
 provision, canonical approved HTTPS origin, exact route epoch and eligible
 published profile version. A host reference is immutable: issue a different
 opaque key after epoch, publication, provision, or origin changes, and maintain
@@ -81,9 +81,9 @@ and supply the existing link read and current route resolver.
 
 The detached host assembly returns one Web Chat registry, authenticated-share
 router, visitor router, and a read-only page context lookup. Its trusted
-platform owner must provide exact workspace install readiness and the approved
-HTTPS origin for each observed assignment, including disabled pre-enable
-checks. No output is mounted or installed by constructing the assembly.
+platform owner must provide approved HTTPS origin evidence for each observed
+assignment, including disabled pre-enable checks. That hosting evidence
+is not a prerequisite for disabled Add or Configure. No output is mounted or installed by constructing the assembly.
 After the durable assign commits, the trusted owner reconciles that provision
 before Enable. Enable advances the epoch; the owner reconciles the new epoch
 before any share, page or browser API is admitted. The same flow applies after

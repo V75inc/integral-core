@@ -46,8 +46,8 @@ class WebChatProvisionStore(Protocol):
         """Atomically CAS provision and profile revision using owning policy service.
 
         Recheck manager authority and the tool-free profile in the transaction.
-        Install requires still-current host readiness, creates a fresh provision
-        disabled, and does not adopt a legacy enablement. Enable requires fresh
+        Install creates a fresh provision disabled under owning storage authority
+        and does not adopt a legacy enablement. Enable requires fresh
         readiness at commit. Assignment, enablement and removal must invalidate
         old sessions (rotate epoch), and removal must leave no enabled route.
         """
@@ -83,7 +83,13 @@ class ManagedWebChatPackage:
                 "A public text chat for one published agent profile.",
                 "managed-text-v1",
             ),
-            ChannelLifecycle(self.observe, self.install, self.set_enabled, self.remove),
+            ChannelLifecycle(
+                self.observe,
+                self.install,
+                self.set_enabled,
+                self.remove,
+                can_install_inactive=self.can_install_inactive,
+            ),
             ChannelServing(self.probe, self.receive),
             ChannelProfileSetup(self.describe_profile, self.assign_profile),
         )
@@ -170,12 +176,14 @@ class ManagedWebChatPackage:
             "unavailable",
         )
 
+    async def can_install_inactive(self, scope: ChannelScope) -> bool:
+        """Prove authorized durable absence without consulting public ingress."""
+        return await self.observe(scope) is None
+
     async def install(self, scope: ChannelScope) -> ChannelInstallation:
         """Create an explicitly disabled provision, never adopt an enabled flag."""
         if await self.observe(scope) is not None:
             raise ResourceConflictError("Web Chat is already installed")
-        if (await self._readiness(scope, None)).state != "ready":
-            raise ResourceConflictError("Web Chat host is not ready")
         revision, _, _ = await self._profile(scope)
         result = await self._store.commit(
             scope, WebChatProvisionChange("install_disabled", None, revision)

@@ -68,6 +68,7 @@ class ChannelServingStatus:
 
 Observe = Callable[[ChannelScope], Awaitable[ChannelInstallation | None]]
 Install = Callable[[ChannelScope], Awaitable[ChannelInstallation]]
+CanInstallInactive = Callable[[ChannelScope], Awaitable[bool]]
 SetEnabled = Callable[[ChannelScope, ChannelInstallation, bool], Awaitable[None]]
 Remove = Callable[[ChannelScope, ChannelInstallation], Awaitable[None]]
 Probe = Callable[
@@ -85,6 +86,7 @@ class ChannelLifecycle:
     install: Install
     set_enabled: SetEnabled
     remove: Remove
+    can_install_inactive: CanInstallInactive | None = None
 
 
 @dataclass(frozen=True)
@@ -198,6 +200,10 @@ def _validate_package(package: ChannelPackage) -> None:
         serving.probe,
         serving.receive,
     )
+    if lifecycle.can_install_inactive is not None and not iscoroutinefunction(
+        lifecycle.can_install_inactive
+    ):
+        raise TypeError("Inactive installation must have an async authority check")
     if not all(iscoroutinefunction(fn) for fn in callbacks) or (
         serving.full_page_link is not None
         and not iscoroutinefunction(serving.full_page_link)
@@ -326,12 +332,28 @@ async def _project(
         installation, scope, definition.slug
     ):
         return None
+    can_prepare = package.lifecycle.can_install_inactive
     if installation is None:
         unavailable = ChannelListing(definition, "registered", False, "add", False)
+        if can_prepare is not None:
+            try:
+                if await can_prepare(scope) is not True:
+                    return unavailable
+                if await package.lifecycle.observe(scope) is not None:
+                    return None
+            except Exception:
+                return unavailable
+            return ChannelListing(
+                definition, "registered", False, "add", False, can_install=True
+            )
     else:
         unavailable = ChannelListing(
             definition,
-            "unavailable",
+            (
+                "inactive"
+                if can_prepare is not None and not installation.enabled
+                else "unavailable"
+            ),
             True,
             "configure",
             False,

@@ -151,15 +151,15 @@ async def test_real_managed_web_chat_configure_enable_disable(
     enabled_path = f"{CONNECTOR}/enabled"
     add = await owner.get(PATH, **options)
     row = _only_channel(add)
-    assert row["action"] == "add" and not row["can_install"] and not row["connected"]
-    assert (await owner.post(f"{CONNECTOR}/install", **options)).status_code == 409
+    assert row["action"] == "add" and row["can_install"] and not row["connected"]
+    assert not state.ready
+    assert (
+        await second_user_client.post(f"{CONNECTOR}/install", **options)
+    ).status_code == 403
     writes.assert_not_awaited()
-
-    state.ready = True  # Only the explicitly injected fixture host can attest this.
-    row = _only_channel(await owner.get(PATH, **options))
-    assert row["can_install"] and not row["connected"]
     installed = _only_channel(await owner.post(f"{CONNECTOR}/install", **options))
     assert installed["action"] == "configure" and installed["connected"]
+    assert installed["state"] == "inactive"
     assert not installed["can_enable"]  # No profile assigned yet.
     assert state.public_web_chat["enabled"] is False
     assert installed["configuration_kind"] == "published-public-profile-v1"
@@ -207,7 +207,8 @@ async def test_real_managed_web_chat_configure_enable_disable(
     assert writes.await_count == 1
 
     assigned = _only_channel(await owner.put(configuration, **options, json=command))
-    assert assigned["state"] == "inactive" and assigned["can_enable"]
+    assert assigned["state"] == "inactive" and not assigned["can_enable"]
+    assert not state.public_web_chat["enabled"]
     assert _match(assigned) == {**_match(installed), "route_epoch": "2"}
     assert state.revision == 6 and state.public_web_chat["profile_key"] == "public"
 
@@ -216,6 +217,13 @@ async def test_real_managed_web_chat_configure_enable_disable(
             enabled_path, **options, json={**_match(installed), "enabled": True}
         )
     ).status_code == 409
+    assert (
+        await owner.put(
+            enabled_path, **options, json={**_match(assigned), "enabled": True}
+        )
+    ).status_code == 409
+    assert writes.await_count == 2
+    state.ready = True
     enabled = _only_channel(
         await owner.put(
             enabled_path, **options, json={**_match(assigned), "enabled": True}

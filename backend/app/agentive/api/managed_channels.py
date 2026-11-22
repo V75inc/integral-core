@@ -124,7 +124,7 @@ async def list_managed_channels(request: Request) -> dict:
 
 @endpoint(f"{_PATH}/{{slug}}/install", methods=["POST"], auth=True, tags=["Agentive"])
 async def install_managed_channel(request: Request, slug: str) -> dict:
-    """Install a ready package in its disabled state without publishing it."""
+    """Install an authorized package in its disabled state without publishing it."""
     scope = await _scope(request)
     registry = _registry(request)
     package = _package(registry, slug)

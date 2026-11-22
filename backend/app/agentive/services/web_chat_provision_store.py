@@ -76,7 +76,6 @@ class ProfileRouteWebChatProvisionStore:
             if change.action == "install_disabled":
                 if current is not None:
                     raise ResourceConflictError("Web Chat is already installed")
-                await self._assert_ready(scope, None)
                 route.provision_id = uuid4().hex
                 # Explicitly start fresh, not as an implicit legacy migration.
                 route.enabled = False
