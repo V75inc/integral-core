@@ -122,3 +122,37 @@ and recovery require separate provider qualification.
 Register the implementation through its reviewed module path, declare its package/schema dependencies, and use generic hooks where domain transformation is required. Do not hardcode a domain connector into Core services.
 
 Test authentication failure, scope denial, repeat-sync identity, malformed records, conflicts, revocation, cancellation, and external failures. Qualify the actual provider and credentials; registry presence is not proof that every advertised service works in production.
+
+## External chat channel foundation
+
+Inbound chat channels are separate from `AgentChatConnector`, which dispatches
+an Integral user's chat turn **out** to an external agent runtime. The inert
+[external chat contract](../../backend/app/agentive/connectors/external_chat.py)
+defines text events and replies; it does not install, expose, or enable a
+connector.
+
+- The trusted host resolves the workspace and exact channel provision, verifies
+  the source and sender, and then normalizes the opaque conversation and event
+  IDs. A sender identity is not an Integral principal or a permission grant.
+- The event key is the exact workspace, connector kind, provision,
+  conversation and event tuple. The host must atomically enforce replay
+  idempotency: a matching retry returns the existing outcome or in-progress
+  status; reuse with a different verified sender or message is a conflict.
+- The host, not the event or model, resolves the current published profile
+  and authority. Replies reference only the admitted event. The adapter
+  resolves delivery from that event's conversation.
+
+The standalone preview is not a live transport. The isolated hosted prototype
+used canned replies and kept HMAC material, visitor sessions, and rate counters
+in process memory; it did not prove shared serving. For a hosted integration,
+first qualify a trusted host with
+server-owned route provisioning, shared visitor-session and rate-limit state,
+and durable, atomic admission/outcome records across workers. Public profiles
+should have no tools by default; qualify any explicitly granted capabilities
+against current profile permissions. Then qualify
+the hosted page and cross-site embed against the same current publication and
+origin policy, including disablement and reassignment invalidation, abuse
+limits, and retry behavior. Other channel
+adapters supply their own transport verification and identity normalization;
+they do not inherit a browser visitor session. No new catalogue entry,
+public URL, or production readiness is implied by these contracts.
