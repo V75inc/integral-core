@@ -1,12 +1,13 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { UseQueryResult } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
 import { managedChannelsApi, type ManagedChannel, type ManagedChannelChange } from '../../../api/managedChannels';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
 import { Text } from '../../../ui';
 import { StatusPill } from '../components/Field';
-import { currentManagedChannels } from './managedChannelQueries';
+import { ManagedChannelProfileAssignment } from './ManagedChannelProfileAssignment';
+import { currentManagedChannels, managedProfileOptions } from './managedChannelQueries';
 
 export function ManagedChannelStatus({ channel }: { channel: ManagedChannel }) {
   return (
@@ -35,14 +36,16 @@ export function ManagedChannelLoadNotice({ query }: { query: UseQueryResult<Mana
   return null;
 }
 
-export function ManagedChannelSettings({ selection, query, workspaceId, onClose, onInstalled, onAbandoned }: {
+export function ManagedChannelSettings({ selection, query, principalId, workspaceId, onClose, onInstalled, onAbandoned }: {
   selection: { slug: string; name: string; action: ManagedChannel['action'] };
   query: UseQueryResult<ManagedChannel[]>;
+  principalId: string;
   workspaceId: string;
   onClose: () => void;
   onInstalled: () => void;
   onAbandoned: () => void;
 }) {
+  const qc = useQueryClient();
   const submitting = useRef(false);
   const mounted = useRef(true);
   useLayoutEffect(() => {
@@ -50,6 +53,7 @@ export function ManagedChannelSettings({ selection, query, workspaceId, onClose,
     return () => { mounted.current = false; };
   }, []);
   const [busy, setBusy] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Keep a deliberate remove confirmation bound to the observed generation.
   const [removeGeneration, setRemoveGeneration] = useState<string | null>(null);
@@ -59,16 +63,51 @@ export function ManagedChannelSettings({ selection, query, workspaceId, onClose,
   const generationKey = generation ? JSON.stringify(generation) : null;
   const confirmingRemove = removeGeneration !== null && removeGeneration === generationKey;
 
-  async function submit(change: ManagedChannelChange) {
+  const hasProfileAssignment = channel?.connected && channel.configuration_kind === 'published-public-profile-v1';
+  const profileQuery = useQuery(managedProfileOptions(principalId, workspaceId, selection.slug,
+    hasProfileAssignment ? generation : null));
+  const profile = hasProfileAssignment && profileQuery.isSuccess && profileQuery.fetchStatus === 'idle'
+    ? profileQuery.data : null;
+  const assignedEligible = profile?.eligible_profiles.some(choice => choice.key === profile.profile_key) === true;
+  const canEnable = channel?.connected && channel.can_enable && (!hasProfileAssignment || assignedEligible);
+  const canEditProfile = profile?.editable === true && channel?.state !== 'active';
+
+  async function retryProfileCheck() {
+    try {
+      // First refresh stale scope/provision evidence, then check the exact current configuration.
+      const latest = await query.refetch();
+      if (!mounted.current || !latest.isSuccess) return;
+      const next = latest.data.find(row => row.definition.slug === selection.slug);
+      if (next?.connected && next.configuration_kind === 'published-public-profile-v1') {
+        await qc.fetchQuery(managedProfileOptions(principalId, workspaceId, selection.slug,
+          { provision_id: next.provision_id, route_epoch: next.route_epoch }));
+      }
+    } catch {
+      // Query panels render the read failure without leaking adapter diagnostics.
+    }
+  }
+
+  type Change = ManagedChannelChange | { kind: 'profile'; profileKey: string | null };
+  async function submit(change: Change) {
     if (!channel || submitting.current || !mounted.current) return;
+    if (change.kind === 'profile' &&
+        (!profile || !generation || !canEditProfile || confirmingRemove ||
+          profile.profile_key === change.profileKey ||
+          (change.profileKey !== null && !profile.eligible_profiles.some(choice => choice.key === change.profileKey)))) return;
+    if (change.kind === 'enabled' && change.enabled && !canEnable) return;
     submitting.current = true;
     setBusy(true);
     setError(null);
+    setProfileSaved(false);
     setRemoveGeneration(null);
     let saved = false;
     try {
       try {
-        await managedChannelsApi.change(workspaceId, selection.slug, change);
+        if (change.kind === 'profile' && profile && generation) {
+          await managedChannelsApi.assignProfile(workspaceId, selection.slug, generation, profile.profile_revision, change.profileKey);
+        } else if (change.kind !== 'profile') {
+          await managedChannelsApi.change(workspaceId, selection.slug, change);
+        }
         saved = true;
       } catch {
         // Do not divulge provider errors or retry mutations. Read back before retrying.
@@ -79,6 +118,30 @@ export function ManagedChannelSettings({ selection, query, workspaceId, onClose,
       }
       const fresh = await query.refetch();
       if (!mounted.current) return;
+      if (change.kind === 'profile') {
+        const next = fresh.isSuccess ? fresh.data.find(row => row.definition.slug === selection.slug) : null;
+        const sameProvision = next?.connected && next.configuration_kind === 'published-public-profile-v1' &&
+          next.provision_id === generation?.provision_id;
+        let currentProfile;
+        if (sameProvision) {
+          // Request the exact post-write epoch. Never read back through a pre-write observer.
+          const nextGeneration = { provision_id: next.provision_id, route_epoch: next.route_epoch };
+          try {
+            currentProfile = await qc.fetchQuery(managedProfileOptions(principalId, workspaceId, selection.slug, nextGeneration));
+          } catch {
+            // A failed readback cannot confirm persistence.
+          }
+        }
+        if (!mounted.current) return;
+        if (saved && profile && currentProfile &&
+            currentProfile.profile_revision > profile.profile_revision &&
+            currentProfile.profile_key === change.profileKey) {
+          setProfileSaved(true);
+        } else {
+          setError('Could not verify the profile assignment. Review the current settings before trying again.');
+        }
+        return;
+      }
       if (!saved) {
         setError('Could not confirm the change. Review the current status before trying again.');
         return;
@@ -124,11 +187,33 @@ export function ManagedChannelSettings({ selection, query, workspaceId, onClose,
                     ? 'This channel cannot be enabled right now.'
                     : 'Manage whether this channel can receive messages for the workspace.'}
               </Text>
+              {hasProfileAssignment && !confirmingRemove && (
+                <>
+                  {profile ? (
+                    <ManagedChannelProfileAssignment
+                      key={JSON.stringify([generationKey, profile.profile_revision])}
+                      configuration={profile}
+                      locked={busy || !canEditProfile}
+                      onSave={profileKey => void submit({ kind: 'profile', profileKey })}
+                    />
+                  ) : profileQuery.isError && profileQuery.fetchStatus === 'idle' ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Text as="p" variant="body-sm" role="alert" tone="danger">Could not check the published profile assignment.</Text>
+                      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void retryProfileCheck()}>
+                        Retry profile check
+                      </Button>
+                    </div>
+                  ) : (
+                    <Text as="p" variant="body-sm" role="status" tone="muted">Checking the published profile assignment…</Text>
+                  )}
+                </>
+              )}
               {confirmingRemove && (
                 <Text as="p" variant="body-sm">Remove this channel from the workspace? It will no longer receive messages here.</Text>
               )}
             </>
           )}
+          {profileSaved && <Text as="p" variant="body-sm" role="status">Profile assignment saved.</Text>}
           {error && <Text as="p" variant="body-sm" tone="danger" role="alert">{error}</Text>}
         </div>
       </Modal.Body>
@@ -140,7 +225,7 @@ export function ManagedChannelSettings({ selection, query, workspaceId, onClose,
         {channel?.action === 'configure' && generation && (
           <>
             {!confirmingRemove && (channel.can_enable || channel.state === 'active' || channel.state === 'unavailable') && (
-              <Button type="button" size="sm" variant={channel.can_enable ? 'primary' : 'secondary'} disabled={busy}
+              <Button type="button" size="sm" variant={channel.can_enable ? 'primary' : 'secondary'} disabled={busy || (channel.can_enable && !canEnable)}
                 onClick={() => void submit({ kind: 'enabled', enabled: channel.can_enable, generation })}>
                 {channel.can_enable ? 'Enable channel' : 'Disable channel'}
               </Button>

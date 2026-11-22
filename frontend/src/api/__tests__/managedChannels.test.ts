@@ -38,6 +38,47 @@ describe('managed channel transport', () => {
     }));
   });
 
+
+  it('admits the supported profile capability only on installed channels and disables activation for unknown kinds', async () => {
+    const installed = { ...registered, state: 'inactive', connected: true, action: 'configure',
+      can_enable: true, provision_id: 'p1', route_epoch: 'e2' };
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { channels: [
+      { ...installed, configuration_kind: 'published-public-profile-v1' },
+      { ...installed, definition: { ...definition, slug: 'other_text' }, configuration_kind: 'unknown-picker' },
+      { ...registered, definition: { ...definition, slug: 'not_connected' }, configuration_kind: 'published-public-profile-v1' },
+    ] } });
+    const rows = await managedChannelsApi.list('workspace');
+    expect(rows[0]).toMatchObject({ can_enable: true, configuration_kind: 'published-public-profile-v1' });
+    expect(rows[1]).toMatchObject({ can_enable: false });
+    expect(rows[1]).not.toHaveProperty('configuration_kind');
+    expect(rows[2]).not.toHaveProperty('configuration_kind');
+  });
+
+  it('gets/sets only the scoped typed profile config and rejects mismatched or ambiguous evidence', async () => {
+    const generation = { provision_id: 'p1', route_epoch: 'e2' };
+    const signal = new AbortController().signal;
+    const base = { ...generation, kind: 'published-public-profile-v1', profile_revision: 3, profile_key: null,
+      eligible_profiles: [{ key: 'p', name: 'A profile' }], editable: true };
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ data: { ...base, route_epoch: 'stale' } })
+      .mockResolvedValueOnce({ data: { ...base, eligible_profiles: [...base.eligible_profiles, ...base.eligible_profiles] } })
+      .mockResolvedValueOnce({ data: { ...base, full_page_url: 'https://example.test', provider_secret: 'hidden' } });
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'example_text', generation, signal))
+      .rejects.toThrow('Invalid managed channel profile configuration');
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'example_text', generation, signal))
+      .rejects.toThrow('Invalid managed channel profile choices');
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'example_text', generation, signal))
+      .resolves.toEqual(base);
+    expect(apiClient.get).toHaveBeenCalledWith('/agentive/managed-channels/example_text/configuration', expect.objectContaining({
+      signal, params: { workspace_id: 'workspace', ...generation }, headers: { 'X-Integral-Scope': 'ws:workspace' },
+    }));
+    await managedChannelsApi.assignProfile('workspace', 'example_text', generation, 3, null);
+    expect(apiClient.put).toHaveBeenCalledWith('/agentive/managed-channels/example_text/configuration',
+      { ...generation, expected_profile_revision: 3, profile_key: null }, expect.objectContaining({
+        params: { workspace_id: 'workspace' }, headers: { 'X-Integral-Scope': 'ws:workspace' },
+      }));
+  });
+
   it('does not turn an invalid response into a successful empty listing', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {} });
     await expect(managedChannelsApi.list('workspace')).rejects.toThrow('Invalid managed channel listing');

@@ -874,6 +874,7 @@ function ScopedConnectorsSection({
       {canReadManaged && managedSelection && (
         <ManagedChannelSettings
           selection={managedSelection}
+          principalId={principalId}
           workspaceId={workspaceId}
           query={managed}
           onAbandoned={() => { void qc.invalidateQueries({ queryKey: managedQueryKey, exact: true }); }}

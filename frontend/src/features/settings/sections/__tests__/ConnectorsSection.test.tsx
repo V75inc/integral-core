@@ -73,7 +73,7 @@ vi.mock('../../../../api/connectionProfiles', () => ({
 }));
 
 vi.mock('../../../../api/managedChannels', () => ({
-  managedChannelsApi: { list: vi.fn(), change: vi.fn() },
+  managedChannelsApi: { list: vi.fn(), change: vi.fn(), profileConfiguration: vi.fn(), assignProfile: vi.fn() },
 }));
 
 vi.mock('../../../../api/agentive', () => ({
@@ -100,7 +100,7 @@ import {
   type ConnectorResponse,
 } from '../../../../api/connectors';
 import { connectionProfilesApi } from '../../../../api/connectionProfiles';
-import { managedChannelsApi, type ManagedChannel } from '../../../../api/managedChannels';
+import { managedChannelsApi, type ManagedChannel, type ManagedChannelProfileConfiguration } from '../../../../api/managedChannels';
 import { useAgentiveCapability } from '../../hooks/useAgentiveCapability';
 import { ConnectorsSection } from '../ConnectorsSection';
 import { ToastProvider } from '../../../../context/ToastContext';
@@ -180,6 +180,8 @@ beforeEach(() => {
   mockedList.mockReset().mockResolvedValue({ connectors: [], total: 0 });
   vi.mocked(managedChannelsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(managedChannelsApi.change).mockReset().mockResolvedValue(undefined);
+  vi.mocked(managedChannelsApi.profileConfiguration).mockReset();
+  vi.mocked(managedChannelsApi.assignProfile).mockReset().mockResolvedValue(undefined);
   vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
     revision: 1, profile_key: null, enabled: false, transport_ready: false,
     active: false, eligible_profiles: [],
@@ -417,6 +419,7 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(setup.getByRole('button', { name: 'Add channel' }));
     expect(await screen.findByRole('heading', { name: 'Connectors' })).toBeVisible();
     expect(screen.getByText('Inactive')).toBeVisible();
+    expect(managedChannelsApi.profileConfiguration).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure Outside Text' }));
     const configure = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
@@ -437,6 +440,117 @@ describe('<ConnectorsSection />', () => {
       ['shared', 'outside_text_fixture', { kind: 'remove', generation: { provision_id: 'provision-1', route_epoch: 'r3' } }],
     ]);
     expect(managedChannelsApi.list).toHaveBeenCalledTimes(5);
+  });
+
+
+  function configurable(state: 'inactive' | 'unavailable' | 'active', epoch: string): ManagedChannel {
+    return {
+      ...installed(state, epoch), connected: true, state, action: 'configure',
+      can_enable: state === 'inactive', provision_id: 'provision-1', route_epoch: epoch,
+      configuration_kind: 'published-public-profile-v1',
+    };
+  }
+  function profileConfig(revision: number, epoch: string, key: string | null, editable = true): ManagedChannelProfileConfiguration {
+    return {
+      kind: 'published-public-profile-v1', profile_revision: revision, profile_key: key, editable,
+      eligible_profiles: [{ key: 'greeter', name: 'Public greeter' }],
+      provision_id: 'provision-1', route_epoch: epoch,
+    };
+  }
+
+  it('configures a generic installed channel without a profile, verifies its new revision, and enables separately', async () => {
+    selectWorkspace('shared');
+    let channel = configurable('unavailable', 'r1');
+    let config = profileConfig(4, 'r1', null);
+    vi.mocked(managedChannelsApi.list).mockImplementation(async () => [channel]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockImplementation(async () => config);
+    vi.mocked(managedChannelsApi.assignProfile).mockImplementation(async () => {
+      channel = configurable('inactive', 'r2');
+      config = profileConfig(5, 'r2', 'greeter');
+    });
+    vi.mocked(managedChannelsApi.change).mockImplementation(async () => {
+      channel = configurable('active', 'r3');
+      config = profileConfig(6, 'r3', 'greeter', false);
+    });
+
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
+    const picker = await dialog.findByRole('combobox', { name: 'Published public profile' });
+    expect(picker).toBeEnabled();
+    expect(dialog.queryByRole('button', { name: 'Enable channel' })).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Save profile' })).toBeDisabled();
+    fireEvent.change(picker, { target: { value: 'greeter' } });
+    const save = dialog.getByRole('button', { name: 'Save profile' });
+    fireEvent.click(save);
+    fireEvent.click(save);
+    expect(await dialog.findByText('Profile assignment saved.')).toBeVisible();
+    expect(managedChannelsApi.assignProfile).toHaveBeenCalledExactlyOnceWith(
+      'shared', 'outside_text_fixture', { provision_id: 'provision-1', route_epoch: 'r1' }, 4, 'greeter');
+    expect(managedChannelsApi.profileConfiguration).toHaveBeenCalledWith(
+      'shared', 'outside_text_fixture', { provision_id: 'provision-1', route_epoch: 'r2' }, expect.any(AbortSignal));
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
+    const enable = dialog.getByRole('button', { name: 'Enable channel' });
+    await waitFor(() => expect(enable).toBeEnabled());
+    fireEvent.click(enable);
+    await waitFor(() => {
+      expect(dialog.getByRole('combobox')).toBeDisabled();
+      expect(dialog.getByRole('button', { name: 'Disable channel' })).toBeEnabled();
+    });
+    expect(managedChannelsApi.change).toHaveBeenCalledExactlyOnceWith(
+      'shared', 'outside_text_fixture', { kind: 'enabled', enabled: true, generation: { provision_id: 'provision-1', route_epoch: 'r2' } });
+    expect(dialog.getByRole('button', { name: 'Disable channel' })).toBeEnabled();
+    expect(dialog.getByRole('button', { name: 'Save profile' })).toBeDisabled();
+    expect(dialog.queryByRole('button', { name: /share|copy link/i })).not.toBeInTheDocument();
+  });
+
+  it('fails closed for a missing configuration, then refreshes and does not claim an unverified assignment', async () => {
+    selectWorkspace('shared');
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([configurable('inactive', 'r1')]);
+    vi.mocked(managedChannelsApi.profileConfiguration)
+      .mockRejectedValueOnce(new Error('sensitive diagnostics'))
+      .mockResolvedValue(profileConfig(3, 'r1', 'no_longer_public'));
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
+    expect(await dialog.findByText(/Could not check the published profile assignment/)).toBeVisible();
+    expect(dialog.getByRole('button', { name: 'Enable channel' })).toBeDisabled();
+    expect(dialog.getByRole('button', { name: 'Remove channel' })).toBeEnabled();
+    expect(dialog.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(dialog.queryByText(/sensitive diagnostics/)).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Retry profile check' }));
+    const picker = await dialog.findByRole('combobox');
+    expect(picker).toHaveDisplayValue('Current profile is no longer eligible');
+    expect(dialog.getByRole('button', { name: 'Enable channel' })).toBeDisabled();
+    fireEvent.change(picker, { target: { value: '' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save profile' }));
+    expect(await dialog.findByText(/Could not verify the profile assignment/)).toBeVisible();
+    expect(managedChannelsApi.assignProfile).toHaveBeenCalledExactlyOnceWith(
+      'shared', 'outside_text_fixture', { provision_id: 'provision-1', route_epoch: 'r1' }, 3, null);
+    expect(dialog.queryByText('Profile assignment saved.')).not.toBeInTheDocument();
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+  it('does not apply an in-flight profile result after leaving the workspace', async () => {
+    selectWorkspace('original');
+    let finishWrite: () => void = () => { throw new Error('Write did not start'); };
+    vi.mocked(managedChannelsApi.list).mockImplementation(async workspace =>
+      workspace === 'original' ? [configurable('unavailable', 'r1')] : []);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue(profileConfig(4, 'r1', null));
+    vi.mocked(managedChannelsApi.assignProfile).mockImplementation(() => new Promise<void>(resolve => { finishWrite = resolve; }));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = renderPanel(qc);
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'greeter' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    expect(managedChannelsApi.assignProfile).toHaveBeenCalledTimes(1);
+    selectWorkspace('another');
+    panel.rerender(panelWithProviders(qc));
+    await waitFor(() => expect(managedChannelsApi.list).toHaveBeenCalledWith('another', expect.any(AbortSignal)));
+    await act(async () => finishWrite());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('Profile assignment saved.')).not.toBeInTheDocument();
+    expect(managedChannelsApi.profileConfiguration).toHaveBeenCalledTimes(1);
   });
 
   it('discards old setup on workspace switch without replaying an in-flight change or changing the new route', async () => {
