@@ -54,3 +54,28 @@ visitor/conversation IDs are independent of full-page context. No route invokes
 these methods yet. HTTP delivery still needs a vetted origin-bound bootstrap,
 no-storage/no-cookie transport, issuance and request quotas, retention, and
 browser qualification. Until then, no embed share or admission is exposed.
+
+
+## Separate embed build
+
+Build `npm run build:web-chat-embed` independently of the full-page build and
+the signed-in application. Review the two hashed outputs under
+`/web-chat-embed-assets/assets/`. The approved distinct HTTPS host composes
+`compose_web_chat_embed` with trusted current per-reference policy, explicit
+host readiness, bounded public database/model capacity, and a separate budget
+for document opens, seed exchanges, history reads, and sends. Its document
+router sends only the current embed's `frame-ancestors` allow-list and one
+short-lived seed in the uncacheable iframe HTML. Do not log response bodies or
+Authorization. Do not share this origin with staff cookies or loosen the
+full-page anti-framing rules. Visitors reopen the embed for a new session;
+an expired session cannot restore earlier history.
+
+Run `test_web_chat_embed_composition_postgres.py` on a disposable PostgreSQL
+store with `INTEGRAL_TEST_WEB_CHAT_EMBED_DIST` pointing to the reviewed build.
+It qualifies artifact delivery, atomic bootstrap, no cookie dependence,
+independent sessions, idempotent text turns, and policy revocation mid-reply.
+It does not prove browser enforcement, live provisioning, or serving
+capacity. Confirm the real HTTPS host's headers in supported browsers,
+including an unauthorized parent refusal and an authorized parent with
+third-party cookies blocked. This does not authorize enabling a connector,
+issuing a production link, or adding data or tools to the public profile.
