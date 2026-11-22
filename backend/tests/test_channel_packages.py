@@ -87,8 +87,8 @@ async def test_metadata_partial_and_duplicate_package_never_change_registration(
 @pytest.mark.parametrize(
     "installed,state,expected",
     [
-        (None, "unavailable", None),
-        (None, "accepting", None),
+        (None, "unavailable", ("registered", False)),
+        (None, "accepting", ("registered", False)),
         (replace(INSTALLATION, enabled=False), "ready", ("inactive", True)),
         (replace(INSTALLATION, enabled=False), "unavailable", ("unavailable", False)),
         (replace(INSTALLATION, enabled=False), "accepting", ("unavailable", False)),
@@ -112,7 +112,9 @@ async def test_projects_add_configure_installation_and_operational_state(
     else:
         (entry,) = result
         assert (entry.state, entry.can_enable) == expected
-        assert entry.connected and entry.action == "configure"
+        assert entry.connected is (installed is not None)
+        assert entry.action == ("configure" if installed else "add")
+        assert entry.can_install is False
         assert entry.full_page_url == (
             "https://public.example/chat/route" if entry.state == "active" else None
         )

@@ -269,3 +269,26 @@ short-lived visitor sessions for browser clients and scoped, revocable
 credentials for authorized server-to-server clients. API clients get their own
 rate limits and no ambient workspace or tool access. The hosted page does not
 imply that this external API has been enabled or delivered.
+
+### Managed channel Settings API
+
+A trusted host may inject a reviewed `ChannelPackageRegistry` into its app at
+bootstrap. The management API does not load packages or mount their transports.
+Without injection, the catalogue is empty. The authenticated manager sends the
+exact workspace in both the `workspace_id` query and `X-Integral-Scope`.
+The endpoints under `/api/agentive/managed-channels` return the same scoped
+catalogue projection for reads and successful changes:
+
+- `GET /` lists admitted packages. A known uninstalled package can be listed
+  even when Add is not ready, but an unknown installation state cannot offer
+  Add. Installed unavailable and disabled channels stay manageable.
+- `POST /{slug}/install` requires fresh readiness and creates a disabled
+  installation. It does not start serving.
+- `PUT /{slug}/enabled` uses the exact installed provision and route epoch;
+  enabling requires current readiness. Disabling does not.
+- `DELETE /{slug}` uses the same provision and route epoch in the query; an
+  outage does not block removal.
+
+The owning adapter must atomically compare installation identity and epoch and
+enforce readiness at commit where needed. The management API never returns
+sharing URLs, credentials, or adapter exceptions.

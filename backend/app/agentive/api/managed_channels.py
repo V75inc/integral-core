@@ -1,0 +1,189 @@
+"""Authenticated, explicitly composed managed channel catalogue and lifecycle."""
+
+from dataclasses import asdict
+from typing import Awaitable, TypeVar
+
+from fastapi import FastAPI, Request
+from jvspatial.api import endpoint
+
+from app.agentive.services.profile_management import require_profile_manager
+from app.api.errors import (
+    BadRequestError,
+    MissingAuthenticationError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+    ServiceUnavailableError,
+)
+from app.api.utils import resolve_principal_id
+from app.connectors.channel_packages import (
+    ChannelInstallation,
+    ChannelPackage,
+    ChannelPackageRegistry,
+    ChannelScope,
+)
+from app.schemas.agentive.managed_channels import (
+    ManageChannelEnablement,
+    ManageChannelProvision,
+)
+from app.services.permissions import get_user_node
+from app.services.scope_header import parse_scope_header
+
+_PATH = "/agentive/managed-channels"
+_STATE_KEY = "integral_managed_channel_registry"
+
+
+def install_managed_channel_registry(
+    app: FastAPI, registry: ChannelPackageRegistry
+) -> None:
+    """Explicit trusted bootstrap injection; never import or install packages here."""
+    if not isinstance(registry, ChannelPackageRegistry):
+        raise TypeError("A managed channel package registry is required")
+    if hasattr(app.state, _STATE_KEY):
+        raise ValueError("Managed channel registry already configured")
+    setattr(app.state, _STATE_KEY, registry)
+
+
+def _registry(request: Request) -> ChannelPackageRegistry:
+    return getattr(request.app.state, _STATE_KEY, None) or ChannelPackageRegistry()
+
+
+async def _scope(request: Request) -> ChannelScope:
+    actor = await get_user_node(resolve_principal_id(request))
+    if actor is None:
+        raise MissingAuthenticationError("Authentication required")
+    selected = parse_scope_header(request.headers.get("X-Integral-Scope"))
+    workspace = request.query_params.get("workspace_id")
+    if not workspace or selected is None or selected.get("workspace_id") != workspace:
+        raise BadRequestError("An exact workspace scope is required")
+    await require_profile_manager(actor.id, workspace)
+    return ChannelScope(actor.id, workspace)
+
+
+async def _projection(registry: ChannelPackageRegistry, scope: ChannelScope) -> dict:
+    rows = []
+    for row in await registry.discover(scope):
+        item = asdict(row)
+        item.pop("full_page_url", None)
+        rows.append(item)
+    return {"channels": rows}
+
+
+def _package(registry: ChannelPackageRegistry, slug: str) -> ChannelPackage:
+    package = registry.resolve(slug)
+    if package is None:
+        raise ResourceNotFoundError("Unknown managed channel")
+    return package
+
+
+_Result = TypeVar("_Result")
+
+
+async def _lifecycle(operation: Awaitable[_Result]) -> _Result:
+    """Do not expose arbitrary external adapter diagnostics over management APIs."""
+    try:
+        return await operation
+    except ResourceConflictError:
+        raise ResourceConflictError(
+            "Managed channel changed. Refresh and try again."
+        ) from None
+    except Exception:
+        raise ServiceUnavailableError(
+            "Managed channel operation is unavailable"
+        ) from None
+
+
+async def _installation(
+    package: ChannelPackage, scope: ChannelScope, match: ManageChannelProvision
+) -> ChannelInstallation:
+    current = await _lifecycle(package.lifecycle.observe(scope))
+    if (
+        not isinstance(current, ChannelInstallation)
+        or current.workspace_id != scope.workspace_id
+        or current.slug != package.definition.slug
+        or current.provision_id != match.provision_id
+        or current.route_epoch != match.route_epoch
+        or type(current.enabled) is not bool
+    ):
+        raise ResourceConflictError("Managed channel changed. Refresh and try again.")
+    return current
+
+
+@endpoint(_PATH, methods=["GET"], auth=True, tags=["Agentive"])
+async def list_managed_channels(request: Request) -> dict:
+    """Show management-safe channel catalogue data for a workspace manager."""
+    return await _projection(_registry(request), await _scope(request))
+
+
+@endpoint(f"{_PATH}/{{slug}}/install", methods=["POST"], auth=True, tags=["Agentive"])
+async def install_managed_channel(request: Request, slug: str) -> dict:
+    """Install a ready package in its disabled state without publishing it."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    row = await registry.describe_one(scope, slug)
+    if row is None or not row.can_install:
+        raise ResourceConflictError("Managed channel is not available to install")
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    installed = await _lifecycle(package.lifecycle.install(scope))
+    if (
+        not isinstance(installed, ChannelInstallation)
+        or installed.workspace_id != scope.workspace_id
+        or installed.slug != slug
+        or installed.enabled is not False
+        or not isinstance(installed.provision_id, str)
+        or not installed.provision_id.strip()
+        or not isinstance(installed.route_epoch, str)
+        or not installed.route_epoch.strip()
+    ):
+        raise ServiceUnavailableError(
+            "Managed channel installation could not be verified"
+        )
+    return await _projection(registry, scope)
+
+
+@endpoint(f"{_PATH}/{{slug}}/enabled", methods=["PUT"], auth=True, tags=["Agentive"])
+async def set_managed_channel_enabled(request: Request, slug: str) -> dict:
+    """Change exact installed enablement; disabling does not require readiness."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    try:
+        change = ManageChannelEnablement.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError("Invalid managed channel enablement") from None
+    current = await _installation(package, scope, change)
+    if change.enabled:
+        row = await registry.describe_one(scope, slug)
+        if (
+            row is None
+            or (row.provision_id, row.route_epoch)
+            != (current.provision_id, current.route_epoch)
+            or (not row.can_enable and row.state != "active")
+        ):
+            raise ResourceConflictError("Managed channel is not ready to enable")
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    # Adapter must atomically compare the same provision/epoch at commit.
+    if current.enabled != change.enabled:
+        await _lifecycle(package.lifecycle.set_enabled(scope, current, change.enabled))
+    return await _projection(registry, scope)
+
+
+@endpoint(f"{_PATH}/{{slug}}", methods=["DELETE"], auth=True, tags=["Agentive"])
+async def remove_managed_channel(request: Request, slug: str) -> dict:
+    """Remove only the exact authorized provision, including during outages."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    try:
+        match = ManageChannelProvision.model_validate(
+            {
+                "provision_id": request.query_params.get("provision_id"),
+                "route_epoch": request.query_params.get("route_epoch"),
+            }
+        )
+    except ValueError:
+        raise BadRequestError("Invalid managed channel removal") from None
+    current = await _installation(package, scope, match)
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    await _lifecycle(package.lifecycle.remove(scope, current))
+    return await _projection(registry, scope)

@@ -115,6 +115,9 @@ class ChannelListing:
     action: Literal["add", "configure"]
     can_enable: bool
     full_page_url: str | None = None
+    can_install: bool = False
+    provision_id: str | None = None
+    route_epoch: str | None = None
 
 
 def _validate_package(package: ChannelPackage) -> None:
@@ -236,6 +239,15 @@ class ChannelPackageRegistry:
         with self._lock:
             return self._packages.get(slug)
 
+    async def describe_one(
+        self, scope: ChannelScope, slug: str
+    ) -> ChannelListing | None:
+        """Read only the requested registered channel in an authorized scope."""
+        package = self.resolve(slug)
+        if package is None:
+            return None
+        return await _project(scope, package, include_sharing=False)
+
     async def discover(
         self, scope: ChannelScope, *, include_sharing: bool = False
     ) -> list[ChannelListing]:
@@ -273,11 +285,18 @@ async def _project(
         installation, scope, definition.slug
     ):
         return None
-    unavailable = (
-        ChannelListing(definition, "unavailable", True, "configure", False)
-        if installation is not None
-        else None
-    )
+    if installation is None:
+        unavailable = ChannelListing(definition, "registered", False, "add", False)
+    else:
+        unavailable = ChannelListing(
+            definition,
+            "unavailable",
+            True,
+            "configure",
+            False,
+            provision_id=installation.provision_id,
+            route_epoch=installation.route_epoch,
+        )
     try:
         evidence = await package.serving.probe(scope, installation)
         if not _valid_evidence(evidence, scope, definition.slug, installation):
@@ -288,10 +307,20 @@ async def _project(
             return None
         if installation is None:
             if evidence.state == "ready":
-                return ChannelListing(definition, "registered", False, "add", False)
-            return None
+                return ChannelListing(
+                    definition, "registered", False, "add", False, can_install=True
+                )
+            return unavailable
         if evidence.state == "ready" and not installation.enabled:
-            return ChannelListing(definition, "inactive", True, "configure", True)
+            return ChannelListing(
+                definition,
+                "inactive",
+                True,
+                "configure",
+                True,
+                provision_id=installation.provision_id,
+                route_epoch=installation.route_epoch,
+            )
         if evidence.state != "accepting" or not installation.enabled:
             return unavailable
 
@@ -309,6 +338,15 @@ async def _project(
                 return None
             if current != evidence:
                 return unavailable
-        return ChannelListing(definition, "active", True, "configure", False, link)
+        return ChannelListing(
+            definition,
+            "active",
+            True,
+            "configure",
+            False,
+            link,
+            provision_id=installation.provision_id,
+            route_epoch=installation.route_epoch,
+        )
     except Exception:
         return unavailable
