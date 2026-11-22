@@ -177,6 +177,7 @@ beforeEach(() => {
     width: 240, height: 40, toJSON: () => ({}),
   });
   mockedScope.mockReturnValue(null);
+  mockedList.mockReset().mockResolvedValue({ connectors: [], total: 0 });
   vi.mocked(managedChannelsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(managedChannelsApi.change).mockReset().mockResolvedValue(undefined);
   vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
