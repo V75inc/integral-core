@@ -184,6 +184,11 @@ store runtime as signed-in Integral chat. The connector supplies plain-text
 history and keeps a controlled composer so pending or ambiguous sends retry
 the original event ID rather than append a new draft. It clears the old
 conversation on expiry and is not mounted in the product router.
+The unregistered full-page admission adapter checks an already verified visitor
+session against the exact workspace, provision, and conversation, then projects
+the current public profile revision and independent route generation. It does
+not issue visitor credentials or make a host ready.
+
 Component tests and injected backend dependencies qualify the code paths they
 exercise; they are not evidence that provisioning, a live model, or a public
 URL works. Once the full page passes, test the embed against the same host and
