@@ -78,6 +78,18 @@ including an unauthorized parent refusal and an authorized parent with
 third-party cookies blocked. This does not authorize enabling a connector,
 issuing a production link, or adding data or tools to the public profile.
 
+## Approved manager sharing read
+
+A separate detached manager route
+`GET /api/agentive/managed-channels/public_web_chat/embed-share` can read an
+already-issued embed link only. It takes the exact full-page scope query plus
+`embed_policy_revision` and canonical `parent_origin`. The authenticated
+manager and current host policy are rechecked before the no-store
+`approved-web-chat-embed-v1` proof returns. It neither issues the reference nor
+returns an embed credential, full-page link, or general configuration.
+An eventual approved host must explicitly mount the read with normal API
+authentication and trusted current embed readiness/share providers.
+
 ## Release evidence and gates
 
 The disposable PostgreSQL contracts use a synthetic text-only model. A

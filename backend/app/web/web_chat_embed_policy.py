@@ -16,7 +16,8 @@ _MAX_SAFE_INTEGER = 9007199254740991
 _CREDENTIAL_TEXT = re.compile(r"(?:iweb|iwes)_[A-Za-z0-9_-]{32,128}")
 
 
-def _is_embed_origin(value: str) -> bool:
+def is_canonical_embed_origin(value: str) -> bool:
+    """Validate a canonical public-facing HTTPS origin without resolving it."""
     if not is_canonical_web_chat_origin(value):
         return False
     hostname = urlsplit(value).hostname or ""
@@ -68,8 +69,8 @@ class ManagedWebChatEmbedPolicy:
             and _identity(self.profile_key)
             and _version(self.published_version)
             and _version(self.policy_revision)
-            and _is_embed_origin(self.parent_origin)
-            and _is_embed_origin(self.embed_origin)
+            and is_canonical_embed_origin(self.parent_origin)
+            and is_canonical_embed_origin(self.embed_origin)
             and self.parent_origin != self.embed_origin
             and is_web_chat_route_reference(self.embed_reference)
             and not _CREDENTIAL_TEXT.search(self.embed_reference)
