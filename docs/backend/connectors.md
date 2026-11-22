@@ -112,6 +112,22 @@ and embed must use that same route and policy. Real embeds also need explicit
 workspace-authorized origins and an origin-scoped frame policy. An inactive or
 unassigned route must expose neither a link nor embed code.
 
+The detached [public request budget](../../backend/app/agentive/services/web_chat_request_budget.py)
+requires an explicitly supplied PostgreSQL adapter and identical fixed-window
+policy across its workers. It atomically charges deployment, workspace, and
+exact provision limits for starts and sends, plus a provision-local send limit
+for the verified visitor. A missed deadline or uncertain commit does not admit a
+request. It stores bounded hashed visitor counters, with one stable row per
+workspace and provision rather than one row per request or time window.
+
+Before enabling a host, qualify a separate bounded public connection pool and
+reserve worker and model capacity for staff; rate counters alone are not
+resource isolation. Set bounded deadlines, coordinate policy changes and clocks,
+and test the effect of the shared public counter's lock and fixed-window
+boundary bursts. Provide a retention policy for abandoned workspace/provision
+rows without resetting active budgets. No host wiring, provider capacity, or
+traffic volume is established by the detached adapter.
+
 ## Native synchronization
 
 A native connector implements the registered sync interface and binds to a Track through `IS_CONNECTED_TO`. It supplies stable external identity, record transformation, credential requirements, and deduplication semantics. Scope and policy gates precede synchronization.
