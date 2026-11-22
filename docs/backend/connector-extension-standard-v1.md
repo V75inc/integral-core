@@ -78,3 +78,18 @@ URL must be the verified canonical HTTPS origin followed by
 origin are accepted. The API does not issue links or register on import.
 An authorized host must explicitly mount it behind standard API authentication
 and supply the existing link read and current route resolver.
+
+The detached host assembly returns one Web Chat registry, authenticated-share
+router, visitor router, and a read-only page context lookup. Its trusted
+platform owner must provide exact workspace install readiness and the approved
+HTTPS origin for each observed assignment, including disabled pre-enable
+checks. No output is mounted or installed by constructing the assembly.
+After the durable assign commits, the trusted owner reconciles that provision
+before Enable. Enable advances the epoch; the owner reconciles the new epoch
+before any share, page or browser API is admitted. The same flow applies after
+republication or an approved origin change. The old route fails closed while
+the owner is reconciling. The private reconciler accepts only a provision
+identity, rereads managed state, and never takes a browser-supplied key,
+assignment, or origin. On remove, reconcile the retired provision to retire
+its stored reference. Generic normalized event dispatch is not a substitute
+for the cookie-bound browser ingress.
