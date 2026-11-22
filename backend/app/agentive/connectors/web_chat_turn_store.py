@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from secrets import compare_digest, token_hex
 
 from jvspatial.core.context import GraphContext, scoped_default_context_async
@@ -11,6 +12,7 @@ from jvspatial.db.postgres import PostgresDB
 
 from app.agentive.connectors.external_chat import (
     ExternalChatAssignment,
+    ExternalChatConversation,
     ExternalChatEventKey,
     ExternalChatReply,
     VerifiedExternalChatMessage,
@@ -55,6 +57,29 @@ def _assignment_values(assignment: ExternalChatAssignment) -> list[str]:
     ]
 
 
+def history_scope_digest(
+    conversation: ExternalChatConversation,
+    assignment: ExternalChatAssignment,
+    visitor_id: str,
+) -> str:
+    """Index completed receipts by exact server scope, without exposing contents."""
+    scope = conversation.provision
+    if scope != assignment.provision:
+        raise ValueError("Invalid Web Chat history scope")
+    return _sha256(
+        _canonical(
+            [
+                scope.workspace_id,
+                scope.connector_kind,
+                scope.provision_id,
+                conversation.external_conversation_id,
+                visitor_id,
+                *_assignment_values(assignment),
+            ]
+        )
+    )
+
+
 def _seal(value: str, aad: str) -> str:
     return encrypt_secret_for_storage(value, aad=aad)
 
@@ -83,6 +108,39 @@ def _open_request(record_id: str, ciphertext: str) -> list[str]:
 
 def _reply_aad(record_id: str, request_ciphertext: str) -> str:
     return f"{record_id}:reply:{_sha256(request_ciphertext)}"
+
+
+def open_history_receipt(
+    doc: dict,
+    conversation: ExternalChatConversation,
+    assignment: ExternalChatAssignment,
+    visitor_id: str,
+) -> tuple[str, str, str, str]:
+    """Check and decrypt one completed exact-scope receipt for history."""
+    record_id, state = doc["id"], doc["context"]
+    digest = history_scope_digest(conversation, assignment, visitor_id)
+    if (
+        doc["entity"] != "WebChatTurnReceipt"
+        or state["history_scope_digest"] != digest
+        or state["fence_digest"] != ""
+        or not state["history_completed_at"]
+    ):
+        raise ValueError("Invalid Web Chat history receipt")
+    event = _open(state["history_event_ciphertext"], f"{record_id}:history:{digest}")
+    key = ExternalChatEventKey(conversation, event)
+    if _record_id(key) != record_id:
+        raise ValueError("Invalid Web Chat history event identity")
+    request = state["request_ciphertext"]
+    data = _open_request(record_id, request)
+    if data[:4] != [*_assignment_values(assignment), visitor_id]:
+        raise ValueError("Invalid Web Chat history receipt scope")
+    reply = _open(state["reply_ciphertext"], _reply_aad(record_id, request))
+    return state["history_completed_at"], event, data[4], reply
+
+
+def history_event_record_id(key: ExternalChatEventKey) -> str:
+    """Resolve a known event without scanning unrelated receipts."""
+    return _record_id(key)
 
 
 class JvSpatialWebChatTurnStore:
@@ -120,6 +178,9 @@ class JvSpatialWebChatTurnStore:
         ]
         fence = token_hex(32)
         try:
+            indexed_scope = history_scope_digest(
+                message.key.conversation, assignment, message.verified_sender_id
+            )
             async with scoped_default_context_async(self._context):
                 receipt, created = await WebChatTurnReceipt.create_if_absent(
                     id=record_id,
@@ -127,6 +188,11 @@ class JvSpatialWebChatTurnStore:
                         _canonical(request), f"{record_id}:request"
                     ),
                     fence_digest=_sha256(fence),
+                    history_scope_digest=indexed_scope,
+                    history_event_ciphertext=_seal(
+                        message.key.external_event_id,
+                        f"{record_id}:history:{indexed_scope}",
+                    ),
                 )
             if receipt.id != record_id:
                 raise ValueError("Wrong Web Chat receipt identity")
@@ -192,6 +258,9 @@ class JvSpatialWebChatTurnStore:
                 {
                     "$set": {
                         "context.fence_digest": "",
+                        "context.history_completed_at": datetime.now(
+                            timezone.utc
+                        ).isoformat(timespec="microseconds"),
                         "context.reply_ciphertext": _seal(
                             reply.text, _reply_aad(record_id, request_ciphertext)
                         ),

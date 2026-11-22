@@ -367,3 +367,14 @@ conversation with a single compare-and-set; an old or foreign credential
 cannot reopen the conversation. Credentials are handed to a future trusted
 host separately from browser reply data. Cookie handling, shared request
 budgets, cleanup, and PostgreSQL serving qualification remain host work.
+
+Browser history is a bounded read of the same completed encrypted turn receipts,
+not a second append or a new inference. The reply and completion marker are
+committed by one fenced compare-and-set. It returns up to eight completed
+exchanges and 8,000 text characters for the exact verified visitor,
+conversation, workspace, provision, publication and route epoch. Results are
+displayed in completion order. An exact completed event can be recovered even
+if it is outside the recent tail. Unfinished reservations are not history;
+older receipt formats keep exact-event replay but are not backfilled by guess.
+This reader does not register a host or serve traffic; production needs a
+receipt retention policy and query/index qualification at expected volumes.

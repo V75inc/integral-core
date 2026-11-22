@@ -9,3 +9,6 @@ class WebChatTurnReceipt(Object):
     request_ciphertext: str = ""
     fence_digest: str = ""
     reply_ciphertext: str = ""
+    history_scope_digest: str = ""
+    history_event_ciphertext: str = ""
+    history_completed_at: str = ""
