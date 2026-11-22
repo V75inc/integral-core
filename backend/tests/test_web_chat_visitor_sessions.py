@@ -167,3 +167,15 @@ async def test_simultaneous_rotation_reaches_cas_but_only_one_commits(ports):
     assert sorted(result.kind for result in results) == ["current", "expired"]
     assert sum(bool(request.take_issued_credential()) for request in requests) == 1
     assert len(ports.rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_fresh_session_cannot_cross_request_publication_pin(ports):
+    """Even a fresh cookie cannot move from the resolved publication to a newer one."""
+    bound = ports.manager.bind(ROUTE, "4", None, publication=("public", 8))
+    ports.active["version"] = 9
+    assert (await bound.ports.open("resume")).kind != "current"
+    assert bound.take_issued_credential() is None
+    assert not ports.rows
+    current = ports.manager.bind(ROUTE, "4", None, publication=("public", 9))
+    assert (await current.ports.open("resume")).kind == "current"

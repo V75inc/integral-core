@@ -59,6 +59,8 @@ class PostgresBrowserVisitorSessions:
         provision: ExternalChatProvision,
         route_epoch: str,
         credential: str | None,
+        *,
+        publication: tuple[str, int] | None = None,
     ) -> BoundVisitorSession:
         """Create per-request ports from trusted route and private credential input."""
         if (
@@ -67,7 +69,9 @@ class PostgresBrowserVisitorSessions:
             or not route_epoch
         ):
             raise ValueError("Expected an exact Web Chat route")
-        return BoundVisitorSession(self, provision, route_epoch, credential)
+        return BoundVisitorSession(
+            self, provision, route_epoch, credential, publication=publication
+        )
 
 
 class BoundVisitorSession:
@@ -83,12 +87,15 @@ class BoundVisitorSession:
         provision: ExternalChatProvision,
         epoch: str,
         credential: str | None,
+        *,
+        publication: tuple[str, int] | None = None,
     ) -> None:
         """Keep route identity immutable for this request."""
         self._store = store
         self._provision = provision
         self._epoch = epoch
         self._credential = credential
+        self._publication = publication
         self._issued: str | None = None
         self.ports = BrowserVisitorSessions(open=self.open, current=self.current)
 
@@ -110,7 +117,10 @@ class BoundVisitorSession:
             transport_ready=await self._store.readiness(self._provision, self._epoch)
             is True,
         )
-        if str(scope.route_generation) != self._epoch:
+        if str(scope.route_generation) != self._epoch or (
+            self._publication is not None
+            and (scope.profile_key, scope.published_version) != self._publication
+        ):
             raise ProfileDenied("Visitor route unavailable")
         return scope
 

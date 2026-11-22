@@ -42,3 +42,16 @@ Inventory baseline: Core catalog and built-ins at `206ffa81`. Eleven curated ent
 Out of this catalog migration: Workspace Email outbound delivery, the server exposing Integral over inbound MCP, the quarantine-only outbound agent stub, and in-app notifications. A separately delivered email-as-agent channel should register as a new connector when implemented.
 
 See the [source audit](connector-extension-audit.md), [Connector implementation guide](connectors.md), and [ADR 010](adr/010-connector-subsystem-architecture.md).
+
+The detached full-page Web Chat reference authority reads the same persisted
+workspace profile-route policy used by the managed provision store. Add
+requires separate host evidence for exact workspace infrastructure and verified
+absence of a provision; a disabled assigned provision can be ready for enable
+without admitting visitors. Public page/API loading requires an enabled
+provision, canonical approved HTTPS origin, exact route epoch and eligible
+published profile version. A host reference is immutable: issue a different
+opaque key after epoch, publication, provision, or origin changes, and maintain
+consistent key and provision lookups. Neither the reference reader, its
+transport check, nor the page/API boot wiring is supplied by this detached
+authority. An installed but unassigned provision remains configurable without
+being eligible for enablement.

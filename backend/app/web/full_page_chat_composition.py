@@ -32,6 +32,7 @@ class ResolvedWebChatRoute(TrustedFullPageRoute):
 
     route_key: str
     route_epoch: str
+    publication: tuple[str, int] | None = None
 
 
 RouteResolver = Callable[[str], Awaitable[ResolvedWebChatRoute | None]]
@@ -100,7 +101,10 @@ def compose_full_page_web_chat(
             )
 
         bound = PostgresBrowserVisitorSessions(database=database, readiness=ready).bind(
-            current.provision, current.route_epoch, credential
+            current.provision,
+            current.route_epoch,
+            credential,
+            publication=current.publication,
         )
 
         async def read_session():

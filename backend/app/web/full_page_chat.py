@@ -94,7 +94,8 @@ class _Rejected(Exception):
         self.status = status
 
 
-def _is_canonical_origin(value: str) -> bool:
+def is_canonical_web_chat_origin(value: str) -> bool:
+    """Validate the canonical HTTPS origin spelling without network access."""
     if not isinstance(value, str) or len(value) > 261 or not _ORIGIN.fullmatch(value):
         return False
     parsed = urlsplit(value)
@@ -115,6 +116,11 @@ def _is_canonical_origin(value: str) -> bool:
     )
 
 
+def is_web_chat_route_reference(value: str) -> bool:
+    """Validate an opaque, single-segment host route reference."""
+    return isinstance(value, str) and bool(_SEGMENT.fullmatch(value))
+
+
 def _header(request: Request, name: str) -> str | None:
     values = request.headers.getlist(name)
     if len(values) > 1:
@@ -123,7 +129,7 @@ def _header(request: Request, name: str) -> str | None:
 
 
 def _gate_request(request: Request, route: str, action: _Action) -> str:
-    if not _SEGMENT.fullmatch(route):
+    if not is_web_chat_route_reference(route):
         raise _Rejected(404)
     expected_path = f"{_PATH}/{route}/{action}"
     # Only the canonical spelling is accepted; cookie scope uses this path.
@@ -139,7 +145,7 @@ def _gate_request(request: Request, route: str, action: _Action) -> str:
     fetch_site = _header(request, "sec-fetch-site")
     if (
         origin is None
-        or not _is_canonical_origin(origin)
+        or not is_canonical_web_chat_origin(origin)
         or request.scope.get("scheme") != "https"
         or _header(request, "host") != urlsplit(origin).netloc
         or fetch_site not in (None, "same-origin")
@@ -303,7 +309,7 @@ def create_full_page_web_chat_router(
                 not isinstance(trusted, TrustedFullPageRoute)
                 or not isinstance(trusted.provision, ExternalChatProvision)
                 or trusted.provision.connector_kind != "public_web_chat"
-                or not _is_canonical_origin(trusted.origin)
+                or not is_canonical_web_chat_origin(trusted.origin)
                 or trusted.origin != origin
             ):
                 raise _Rejected(403)
