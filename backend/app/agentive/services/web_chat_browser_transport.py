@@ -13,7 +13,10 @@ from app.agentive.connectors.external_chat import (
 )
 from app.agentive.connectors.web_chat_turn import WebChatTurnStore
 from app.agentive.services import public_web_chat
-from app.agentive.services.web_chat_admission import VerifiedFullPageSession
+from app.agentive.services.web_chat_admission import (
+    VerifiedFullPageSession,
+    WorkspaceReadiness,
+)
 from app.agentive.services.web_chat_profile_inference import (
     MAX_HISTORY_CHARACTERS,
     MAX_HISTORY_EXCHANGES,
@@ -165,6 +168,8 @@ class BrowserWebChatController:
         history: BrowserWebChatHistory,
         store: WebChatTurnStore,
         complete: TextModel,
+        *,
+        readiness: WorkspaceReadiness | None = None,
     ) -> None:
         if provision.connector_kind != "public_web_chat":
             raise ValueError("Expected a trusted Web Chat provision")
@@ -174,6 +179,7 @@ class BrowserWebChatController:
         self._history = history
         self._store = store
         self._complete = complete
+        self._readiness = readiness or public_web_chat.transport_ready
 
     def _expect_session(self, access: BrowserSessionAccess) -> VerifiedFullPageSession:
         if not isinstance(access, BrowserSessionAccess):
@@ -201,7 +207,7 @@ class BrowserWebChatController:
             scope.visitor_id,
             existing=scope,
             expected_provision_id=self._provision.provision_id,
-            transport_ready=await public_web_chat.transport_ready(scope.workspace_id),
+            transport_ready=await self._readiness(scope.workspace_id) is True,
         )
         if self._expect_session(await self._sessions.current()) != session:
             raise _SessionExpired
@@ -269,7 +275,11 @@ class BrowserWebChatController:
                 return session
 
             inference = FullPageWebChatProfileInference(
-                read_exact, self._store, self._history.prior, self._complete
+                read_exact,
+                self._store,
+                self._history.prior,
+                self._complete,
+                readiness=self._readiness,
             )
             outcome = await inference.submit(event_id, text)
             if outcome.state == "conflict":

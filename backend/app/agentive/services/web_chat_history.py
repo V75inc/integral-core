@@ -19,6 +19,7 @@ from app.agentive.connectors.web_chat_turn_store import (
 from app.agentive.services.web_chat_admission import (
     FullPageWebChatAdmission,
     VerifiedFullPageSession,
+    WorkspaceReadiness,
 )
 from app.agentive.services.web_chat_browser_transport import BrowserWebChatHistory
 from app.agentive.services.web_chat_profile_inference import (
@@ -38,12 +39,15 @@ class PostgresWebChatHistory:
         *,
         database: PostgresDB,
         read_verified_session: Callable[[], Awaitable[VerifiedFullPageSession | None]],
+        readiness: WorkspaceReadiness | None = None,
     ) -> None:
         """Require a request-bound session reader and the shared receipt database."""
         if not isinstance(database, PostgresDB):
             raise TypeError("Web Chat history requires PostgreSQL")
         self._database = database
-        self._admission = FullPageWebChatAdmission(read_verified_session)
+        self._admission = FullPageWebChatAdmission(
+            read_verified_session, readiness=readiness
+        )
         self.ports = BrowserWebChatHistory(prior=self.prior, recent=self.recent)
 
     async def _read(

@@ -20,6 +20,7 @@ from app.agentive.services.connection_profiles import ProfileDenied
 from app.agentive.services.web_chat_admission import (
     FullPageWebChatAdmission,
     VerifiedFullPageSession,
+    WorkspaceReadiness,
 )
 
 _EVENT_ID = re.compile(r"[a-zA-Z0-9_-]{1,128}")
@@ -47,12 +48,15 @@ class FullPageWebChatRequests:
         self,
         read_verified_session: Callable[[], Awaitable[VerifiedFullPageSession | None]],
         store: WebChatTurnStore,
+        *,
+        readiness: WorkspaceReadiness | None = None,
     ) -> None:
         """Require real authority and store ports; do not supply fallbacks."""
         self._read_session = read_verified_session
         self._store = store
+        self._readiness = readiness
         self._turns = WebChatTurnCoordinator(
-            FullPageWebChatAdmission(read_verified_session), store
+            FullPageWebChatAdmission(read_verified_session, readiness=readiness), store
         )
 
     async def begin(self, event_id: str, text: str) -> PreparedWebChatTurn:
@@ -82,7 +86,10 @@ class FullPageWebChatRequests:
             return verified if verified == session else None
 
         coordinator = WebChatTurnCoordinator(
-            FullPageWebChatAdmission(current_request_session), self._store
+            FullPageWebChatAdmission(
+                current_request_session, readiness=self._readiness
+            ),
+            self._store,
         )
         assignment, claim = await coordinator.begin(message)
         return PreparedWebChatTurn(message, assignment, claim)

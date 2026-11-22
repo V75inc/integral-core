@@ -40,10 +40,10 @@ class FakeTransaction:
     async def advisory_lock(self, namespace, key):
         self.locks.append((namespace, key))
 
-    async def get_many(self, collection, ids):
+    async def get(self, collection, record_id):
         assert collection == "object"
         assert self.locks == [(budget._NAMESPACE, "public")]
-        return {key: deepcopy(self.store[key]) for key in ids if key in self.store}
+        return deepcopy(self.store.get(record_id))
 
     async def save(self, collection, row):
         assert collection == "object"

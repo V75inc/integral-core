@@ -16,6 +16,7 @@ from app.agentive.services import profile_management, public_web_chat
 from app.agentive.services.web_chat_admission import (
     FullPageWebChatAdmission,
     VerifiedFullPageSession,
+    WorkspaceReadiness,
 )
 from app.agentive.services.web_chat_request import (
     FullPageWebChatRequests,
@@ -167,11 +168,14 @@ class FullPageWebChatProfileInference:
         store: WebChatTurnStore,
         read_history: HistoryReader,
         complete: TextModel,
+        *,
+        readiness: WorkspaceReadiness | None = None,
     ) -> None:
         self._read_session = read_verified_session
         self._store = store
         self._read_history = read_history
         self._complete = complete
+        self._readiness = readiness
 
     async def submit(self, event_id: str, text: str) -> WebChatTextResult:
         """Run inference for the single durable owner, or read its saved result."""
@@ -184,13 +188,17 @@ class FullPageWebChatProfileInference:
                 current = await self._read_session()
                 return current if current == session else None
 
-            requests = FullPageWebChatRequests(bound_session, self._store)
+            requests = FullPageWebChatRequests(
+                bound_session, self._store, readiness=self._readiness
+            )
             visitor_text = _text(text, _MAX_INPUT)
             prepared = await requests.begin(event_id, text)
             if prepared.claim.state != "claimed":
                 return _readback(prepared)
 
-            admission = FullPageWebChatAdmission(bound_session)
+            admission = FullPageWebChatAdmission(
+                bound_session, readiness=self._readiness
+            )
             persona = await _published_persona(prepared.assignment)
             if await admission.text_only_assignment(prepared.message) != (
                 prepared.assignment

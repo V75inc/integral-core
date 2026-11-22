@@ -408,3 +408,12 @@ if it is outside the recent tail. Unfinished reservations are not history;
 older receipt formats keep exact-event replay but are not backfilled by guess.
 This reader does not register a host or serve traffic; production needs a
 receipt retention policy and query/index qualification at expected volumes.
+
+The detached full-page composition factory requires an explicit trusted route
+resolver, exact readiness check, prepared PostgreSQL adapter, rate policy and
+bounded tool-free text model. It combines those with visitor sessions, encrypted
+turn receipts and bounded history. It re-resolves the same route key and epoch
+throughout request admission; a rotated or revoked route does not receive an
+in-flight answer. The factory never mounts the router or creates a provision.
+The host still owns HTTPS/bootstrap, storage readiness, model timeouts and
+limits, retirement/reset policy, and production qualification.

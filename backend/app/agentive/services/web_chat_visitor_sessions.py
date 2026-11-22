@@ -26,7 +26,7 @@ from app.agentive.services.web_chat_browser_transport import (
 from app.models.web_chat_visitor_session import WebChatVisitorSession
 
 _TOKEN = re.compile(r"([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})")
-_TTL_SECONDS = 24 * 60 * 60
+VISITOR_SESSION_TTL_SECONDS = 24 * 60 * 60
 RouteReadiness = Callable[[ExternalChatProvision, str], Awaitable[bool]]
 
 
@@ -216,7 +216,7 @@ class BoundVisitorSession:
                 "conversation_id": token_urlsafe(32),
                 "profile_key": scope.profile_key,
                 "published_version": scope.published_version,
-                "expires_at": int(time.time()) + _TTL_SECONDS,
+                "expires_at": int(time.time()) + VISITOR_SESSION_TTL_SECONDS,
                 "revoked": False,
             }
             record_id = _record_id(selector)

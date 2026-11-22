@@ -268,13 +268,12 @@ class PostgresWebChatRequestBudget:
             if type(now) not in (int, float) or not math.isfinite(now) or now < 0:
                 return False
             window = math.floor(now / self._policy.window_seconds)
-            rows = await tx.get_many("object", [bucket.record_id for bucket in buckets])
             updates = []
             for bucket in buckets:
                 # The provision row also holds per-visitor sends even for a start.
                 counter = _read_counter(
                     bucket,
-                    rows.get(bucket.record_id),
+                    await tx.get("object", bucket.record_id),
                     window,
                     self._fingerprint,
                     self._policy.visitor_sends,

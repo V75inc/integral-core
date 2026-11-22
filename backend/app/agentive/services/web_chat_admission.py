@@ -24,15 +24,21 @@ class VerifiedFullPageSession:
     scope: public_web_chat.PublicWebChatScope
 
 
+WorkspaceReadiness = Callable[[str], Awaitable[bool]]
+
+
 class FullPageWebChatAdmission:
     """Bind an admitted visitor session to the current text-only assignment."""
 
     def __init__(
         self,
         read_verified_session: Callable[[], Awaitable[VerifiedFullPageSession | None]],
+        *,
+        readiness: WorkspaceReadiness | None = None,
     ) -> None:
         """Require a request-scoped trusted reader; no session is minted here."""
         self._read_verified_session = read_verified_session
+        self._readiness = readiness or public_web_chat.transport_ready
 
     async def text_only_assignment(
         self, message: VerifiedExternalChatMessage
@@ -58,9 +64,7 @@ class FullPageWebChatAdmission:
             current = await public_web_chat.admit(
                 scope.workspace_id,
                 scope.visitor_id,
-                transport_ready=await public_web_chat.transport_ready(
-                    scope.workspace_id
-                ),
+                transport_ready=await self._readiness(scope.workspace_id) is True,
                 existing=scope,
                 expected_provision_id=provision.provision_id,
             )
