@@ -1,6 +1,7 @@
 """Detach the production Web Chat components for a whole lifecycle proof."""
 
 import os
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
@@ -51,11 +52,19 @@ class _FixturePlatform:
 
 
 @pytest.fixture
-async def detached_delivery(authenticated_client, test_user, second_user, monkeypatch):
+async def detached_delivery(
+    authenticated_client, test_user, second_user, monkeypatch, with_document
+):
     """Compose an isolated visitor ASGI app and a managed test workspace."""
     if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
         pytest.skip("Detached durable Web Chat test requires disposable PostgreSQL")
     assert str(authenticated_client.base_url) == "http://test"
+
+    directory = os.environ.get("INTEGRAL_TEST_WEB_CHAT_DIST") if with_document else None
+    if with_document and directory is None:
+        pytest.skip(
+            "Set INTEGRAL_TEST_WEB_CHAT_DIST to the reviewed standalone Vite build"
+        )
 
     from app.main import app
     from app.web.web_chat_host_assembly import assemble_web_chat_host
@@ -116,23 +125,44 @@ async def detached_delivery(authenticated_client, test_user, second_user, monkey
         app.include_router(assembled.share_router)
         visitor_app = FastAPI()
         visitor_app.include_router(assembled.browser_router)
+        assets = None
+        if directory is not None:
+            from app.web.web_chat_page_shell import (
+                StandaloneWebChatAssets,
+                create_web_chat_page_shell_router,
+            )
+
+            assets = StandaloneWebChatAssets.from_vite_build(Path(directory).resolve())
+
+            async def host_ready(origin):
+                return origin == ORIGIN
+
+            visitor_app.include_router(
+                create_web_chat_page_shell_router(
+                    served_origin=ORIGIN,
+                    host_ready=host_ready,
+                    page_context=assembled.page_context,
+                    assets=assets,
+                )
+            )
         async with AsyncClient(
             transport=ASGITransport(app=visitor_app),
             base_url=ORIGIN,
             headers={"Origin": ORIGIN, "Sec-Fetch-Site": "same-origin"},
         ) as visitor:
-            yield assembled, platform, calls, workspace_id, visitor
+            yield assembled, platform, calls, workspace_id, visitor, assets
     finally:
         await database.close()
 
 
+@pytest.mark.parametrize("with_document", [False, True], ids=["api", "built-document"])
 async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
-    detached_delivery, authenticated_client, second_user_client
+    with_document, detached_delivery, authenticated_client, second_user_client
 ):
     """Exercise authenticated management and anonymous visitor I/O together."""
     from app.web.web_chat_host_assembly import ManagedWebChatHostRoute
 
-    assembled, platform, calls, workspace_id, visitor = detached_delivery
+    assembled, platform, calls, workspace_id, visitor, assets = detached_delivery
     headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
     params = {"workspace_id": workspace_id}
     options = {"headers": headers, "params": params}
@@ -220,7 +250,22 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     assert page_context is not None and page_context.route == key
     assert page_context.title == "Web Chat"
     assert await assembled.page_context(key, "https://other.example.invalid") is None
-    # The assembly exposes browser JSON APIs, not the actual hosted HTML page.
+    if with_document:
+        document = await visitor.get(share.json()["full_page_url"])
+        assert document.status_code == 200
+        assert document.headers["cache-control"] == "no-store"
+        assert 'id="public-web-chat-root"' in document.text
+        assert f'data-web-chat-route="{key}"' in document.text
+        assert 'data-web-chat-title="Web Chat"' in document.text
+        assert workspace_id not in document.text and PERSONA not in document.text
+        assert assets is not None
+        for file in (assets.script, assets.stylesheet):
+            path = f"/web-chat-assets/assets/{file.filename}"
+            assert path in document.text and file.integrity in document.text
+            body = await visitor.get(path)
+            assert body.status_code == 200 and body.content == file.content
+        other = await visitor.get(f"https://other.example.invalid{url.path}")
+        assert other.status_code == 404 and key not in other.text
     session = f"/api/public/web-chat/{key}/session"
     messages = f"/api/public/web-chat/{key}/messages"
     start = await visitor.post(session, json={"mode": "new"})
@@ -252,6 +297,9 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     )
     assert stale_share.status_code == 404, stale_share.text
     assert await assembled.page_context(key, ORIGIN) is None
+    if with_document:
+        stale_document = await visitor.get(share.json()["full_page_url"])
+        assert stale_document.status_code == 404 and key not in stale_document.text
     for stale in (
         await visitor.post(session, json={"mode": "resume"}),
         await visitor.post(messages, json=second),

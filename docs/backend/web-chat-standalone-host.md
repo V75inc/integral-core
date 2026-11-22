@@ -19,3 +19,11 @@ The same-origin visitor API and authenticated share API are separate router
 outputs. Nothing mounts automatically, issues public URLs, changes provisioning,
 or opens a listener. HTTPS, transport assurance, and explicit mounting remain
 owned by the approved deployment.
+
+For qualification, run `test_managed_web_chat_delivery_postgres.py` with the
+standard isolated PostgreSQL test environment and point
+`INTEGRAL_TEST_WEB_CHAT_DIST` at the built artifact. The built-document variant
+navigates the manager's issued URL over detached ASGI, verifies the standalone
+mount and exact asset bytes, then verifies the alternate origin and disabled
+route are not served. The API-only variant remains available without assets.
+This does not launch a browser engine or prove a production mount.
