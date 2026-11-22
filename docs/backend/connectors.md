@@ -191,6 +191,12 @@ session against the exact workspace, provision, and conversation, then projects
 the current public profile revision and independent route generation. It does
 not issue visitor credentials or make a host ready.
 
+The unmounted request service accepts only the visitor's event ID and text.
+It resolves the conversation and sender from the trusted session and submits an
+exact scoped claim through the injected store. It does not mint sessions, run a
+model, send replies, or provide a durable store. A production host still needs
+to implement those dependencies and recover unfinished claims safely.
+
 Component tests and injected backend dependencies qualify the code paths they
 exercise; they are not evidence that provisioning, a live model, or a public
 URL works. Once the full page passes, test the embed against the same host and
