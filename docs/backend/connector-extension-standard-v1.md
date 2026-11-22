@@ -65,3 +65,16 @@ On uncertain commit, reread instead of replaying an unconditional issue. This
 store neither verifies domain ownership nor mounts routes, emits URLs, or changes
 connector/profile state. The host must supply domain/transport attestations
 and own retention of retired provision tombstones.
+
+The detached Web Chat share read is
+`GET /api/agentive/managed-channels/public_web_chat/share`. Standard Integral
+authentication, an exact `X-Integral-Scope: ws:<workspace_id>`, and manager
+authority are required. The read takes `workspace_id`, `provision_id`,
+`route_epoch`, `profile_key`, and `published_version` for one observed
+selection. It returns only the scoped `approved-full-page-share-v1` proof
+with a host-issued `full_page_url`, or a generic unavailable response. The
+URL must be the verified canonical HTTPS origin followed by
+`/chat/<opaque-reference>`; no query, fragment, credentials or alternate
+origin are accepted. The API does not issue links or register on import.
+An authorized host must explicitly mount it behind standard API authentication
+and supply the existing link read and current route resolver.

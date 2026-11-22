@@ -1,5 +1,7 @@
 """Optimistic mutation bodies for authorized workspace channel management."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -22,3 +24,19 @@ class ManageChannelProfileAssignment(ManageChannelProvision):
 
     expected_profile_revision: int = Field(ge=0)
     profile_key: str | None = Field(min_length=1, max_length=128)
+
+
+class ManageChannelShareQuery(ManageChannelProvision):
+    """Bind the read to the exact scoped publication."""
+
+    workspace_id: str = Field(min_length=1, max_length=256)
+    profile_key: str = Field(min_length=1, max_length=128)
+    published_version: int = Field(ge=1, le=9007199254740991)
+
+
+class ApprovedFullPageShare(ManageChannelShareQuery):
+    """Allowlisted response for one issued share."""
+
+    kind: Literal["approved-full-page-share-v1"] = "approved-full-page-share-v1"
+    slug: Literal["public_web_chat"] = "public_web_chat"
+    full_page_url: str
