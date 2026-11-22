@@ -41,6 +41,9 @@ const ChatActivityContext = createContext<{
   /** ChatThread node id for the open thread — what the questions/staging
    *  REST surface keys on (distinct from the provider session id). */
   activeThreadId: string | null;
+  voiceAwareComposerKey?: string;
+  adoptNativeVoiceThread?: (threadId: string, opening: { workspace_id: string; profile_key: string; thread_id: string }) => Promise<void>;
+  refreshNativeVoiceThread?: (threadId: string, workspace: string) => void;
   composerReady: boolean;
   switchProfile?: (key: string) => Promise<void>;
   profileFilter?: string;
@@ -184,6 +187,9 @@ function AIChatRuntimeBoundaryInner({
     appendAssistantNote,
     activeProviderSessionId,
     activeThreadId,
+    voiceAwareComposerKey,
+    adoptNativeVoiceThread,
+    refreshNativeVoiceThread,
     composerReady,
     switchProfile,
     profileFilter,
@@ -226,6 +232,9 @@ function AIChatRuntimeBoundaryInner({
           activeProviderSessionId,
           activeProviderId: provider.id,
           activeThreadId,
+          voiceAwareComposerKey,
+          adoptNativeVoiceThread,
+          refreshNativeVoiceThread,
           composerReady,
           switchProfile,
           profileFilter,

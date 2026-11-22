@@ -23,6 +23,7 @@ from app.services.native_voice import (
     VoiceScope,
     authorize,
     open_upstream,
+    voice_thread_continuity,
 )
 from app.services.permissions import get_user_node
 from app.services.voice_configuration import resolve_realtime_credential
@@ -64,7 +65,8 @@ async def native_voice(browser: WebSocket):
             scope = VoiceScope(
                 principal, opening.workspace_id, opening.profile_key, opening.thread_id
             )
-            await authorize(scope)
+            thread = await authorize(scope)
+            continuity = voice_thread_continuity(thread)
             credential = await resolve_realtime_credential(scope.workspace)
             if credential is None:
                 await browser.send_json(
@@ -100,7 +102,7 @@ async def native_voice(browser: WebSocket):
 
         upstream = await open_upstream(credential)
         await VoiceRelay(browser, upstream, scope, check=still_authorized).run(
-            identity.persona, name=identity.name
+            identity.persona, name=identity.name, continuity=continuity
         )
     except WebSocketDisconnect:
         pass

@@ -927,10 +927,16 @@ export function useAIChatRuntime(
   const activeAgentId = activeAgent?.id ?? null;
   const [threads, setThreads] = useState<AIChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [freshComposerVersion, setFreshComposerVersion] = useState(0);
+  const [voiceComposerAnchor, setVoiceComposerAnchor] = useState<{ threadId: string; key: string } | null>(null);
+  const freshComposerVersionRef = useRef(freshComposerVersion);
+  freshComposerVersionRef.current = freshComposerVersion;
   const selectionKey = JSON.stringify([principalId, workspaceId, provider.id, activeAgentId]);
   const [draftFilter, setDraftFilter] = useState<{ scope: string; key: string } | null>(null);
   const selectedFilter = draftFilter?.scope === selectionKey ? draftFilter.key : WORKSPACE_ASSISTANT.key;
   const profileFilter = profileChoices?.length === 0 ? WORKSPACE_ASSISTANT.key : selectedFilter;
+  const voiceAdmissionScopeRef = useRef({ selectionKey, profileFilter });
+  voiceAdmissionScopeRef.current = { selectionKey, profileFilter };
   const draftFilterRef = useRef(draftFilter);
   draftFilterRef.current = draftFilter;
   const needsDraftAgent = managedDraft && !activeThreadId && (
@@ -1309,7 +1315,7 @@ export function useAIChatRuntime(
             }
             // Do not overwrite a cache that started streaming while we fetched.
             if (peekStreamingThreadIds().includes(threadId)) return "skip";
-            if (t.agent_profile_key && activeThreadIdRef.current === threadId) {
+            if (activeThreadIdRef.current === threadId) {
               // A direct link can open an authorized thread missing from the
               // current rail list. Keep its own profile association available.
               const { messages: _messages, ...thread } = t;
@@ -1353,6 +1359,47 @@ export function useAIChatRuntime(
     },
     [updateSession],
   );
+
+  const adoptNativeVoiceThread = useCallback(async (
+    threadId: string, opening: { workspace_id: string; profile_key: string; thread_id: string },
+  ) => {
+    const version = freshComposerVersion;
+    const stillCurrent = () => navigationMountedRef.current &&
+      provider.id === "integral_native" && workspaceIdRef.current === opening.workspace_id &&
+      principalIdRef.current === principalId && freshComposerVersionRef.current === version &&
+      !activeThreadIdRef.current && !threadCreationPromiseRef.current &&
+      voiceAdmissionScopeRef.current.selectionKey === selectionKey &&
+      voiceAdmissionScopeRef.current.profileFilter === profileFilter;
+    if (opening.thread_id || !threadId || !stillCurrent()) return;
+    try {
+      const thread = await aiChatApi.getThread(threadId);
+      const profile = thread.agent_profile_key === WORKSPACE_ASSISTANT.key ? "" : thread.agent_profile_key ?? "";
+      if (!stillCurrent() || thread.id !== threadId || thread.provider_id !== "integral_native" ||
+          profile !== opening.profile_key || thread.archived) return;
+      const { messages: transcript, ...metadata } = thread;
+      activeThreadIdRef.current = threadId;
+      setThreads(previous => [metadata, ...previous.filter(item => item.id !== threadId)]);
+      updateSession(threadId, session => ({
+        ...session,
+        messages: transcript.filter(message => message.role !== "system").map(persistedToMessage),
+        lastLoadedAt: Date.now(),
+        transcriptRevision: thread.updated_at,
+        activeWorkItemId: thread.active_work_item_id ?? thread.parked_work_item_id ?? null,
+      }));
+      skipLoadForThreadIdRef.current = threadId;
+      setVoiceComposerAnchor({ threadId, key: `fresh:${version}:${profileFilter ?? ""}` });
+      selectThread(threadId);
+    } catch (error) {
+      if (stillCurrent()) console.warn("AI chat: could not open the new voice conversation", error);
+    }
+  }, [freshComposerVersion, principalId, profileFilter, provider.id, selectThread, selectionKey, updateSession]);
+
+  const refreshNativeVoiceThread = useCallback((threadId: string, workspace: string) => {
+    if (workspaceIdRef.current !== workspace || principalIdRef.current !== principalId ||
+        activeThreadIdRef.current !== threadId || peekStreamingThreadIds().includes(threadId)) return;
+    const revision = peekSessions()[threadId]?.transcriptRevision;
+    void loadThread(threadId, false, revision);
+  }, [loadThread, principalId]);
 
   // A worker on another process can commit an alert without reaching this
   // tab's WebSocket. Probe only the visible thread and only fetch changes.
@@ -2210,6 +2257,9 @@ export function useAIChatRuntime(
     rememberActiveChatThreadId(null, workspaceId);
     consumeChatHandoff();
     activeThreadIdRef.current = null;
+    freshComposerVersionRef.current += 1;
+    setFreshComposerVersion(freshComposerVersionRef.current);
+    setVoiceComposerAnchor(null);
     if (profileChoices?.length === 0) {
       draftFilterRef.current = null;
       setDraftFilter(null);
@@ -2393,6 +2443,10 @@ export function useAIChatRuntime(
     return groupThreadsByRecency(ordered, Date.now());
   }, [threads]);
 
+  const voiceAwareComposerKey = activeThreadId
+    ? (voiceComposerAnchor?.threadId === activeThreadId ? voiceComposerAnchor.key : activeThreadId)
+    : `fresh:${freshComposerVersion}:${profileFilter ?? ""}`;
+
   return useMemo(
     () => ({
       runtime,
@@ -2400,6 +2454,9 @@ export function useAIChatRuntime(
       threads,
       threadGroups,
       activeThreadId,
+      voiceAwareComposerKey,
+      adoptNativeVoiceThread,
+      refreshNativeVoiceThread,
       composerReady: composerReady && (!managedDraft || Boolean(activeThreadId) || profileChoices !== undefined),
       switchProfile,
       profileFilter,
@@ -2432,6 +2489,9 @@ export function useAIChatRuntime(
       switchToNewThread,
       selectThread,
       activeThreadId,
+      voiceAwareComposerKey,
+      adoptNativeVoiceThread,
+      refreshNativeVoiceThread,
       composerReady,
       switchProfile,
       profileFilter,

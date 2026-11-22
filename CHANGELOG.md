@@ -6,9 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
-- Save provider and supported default model roles from Quick Setup using the same settings as Models and Providers, preserving explicit voice and embedding choices. Keep individual model sections collapsible without a separate Advanced gate.
+- Save provider and supported default model roles from Quick Setup using the same settings as Models and Providers, preserving explicit voice and embedding choices. Group Providers & Models and Model Assignments under a collapsible Advanced Configuration section.
 
-- Reconcile personal WhatsApp text chat with native threads and approvals; require an account-issued one-time code for new phone pairing. Add an opt-in server connection-profile execution boundary for local host pilots, with current authorization and scoped sessions. Public provisioning and realtime voice remain unavailable.
+- Polish the in-app voice controls and request one greeting per call. Voice-first calls attach to a saved conversation once ready; delegated work uses that same conversation.
+
+- Align Settings page layouts, open agent profiles in dialogs, and move workspace chat visibility to each eligible profile. Fix a missed initial Approvals read and keep internal conversation-title jobs out of the active work list.
+
+- Reconcile personal WhatsApp text chat with native threads and approvals; require an account-issued one-time code for new phone pairing. Add an opt-in server connection-profile execution boundary for local host pilots, with current authorization and scoped sessions. Public provisioning and WhatsApp realtime voice remain unavailable. Authenticated in-app realtime voice is a separate opt-in pilot.
 
 - Move domain form workflows, document UI, template selection and legacy App aliases to explicit host contracts; Core renders declared groups, review and acknowledgment steps without inferring business policy from field names. Host migration/readiness and paired artifact qualification are required before adoption.
 - Require declared create-action argument names and import eligibility; remove implicit record-copy and identifier-preview behavior from Core forms. Enforce an app-neutral runtime and SDK architecture gate without named-App exceptions.

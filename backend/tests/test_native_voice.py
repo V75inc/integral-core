@@ -91,7 +91,7 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     )
     assert [tool["name"] for tool in event_config["session"]["tools"]] == [DELEGATE]
     await provider.inbox.put({"type": "session.updated"})
-    assert await event(browser.outbox) == {"type": "ready"}
+    assert await event(browser.outbox) == {"type": "ready", "thread_id": "thread"}
     await browser.inbox.put({"type": "websocket.receive", "bytes": b"\x00\x01"})
     assert await event(provider.outbox) == {
         "type": "input_audio_buffer.append",
@@ -105,7 +105,10 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     output = await event(provider.outbox)
     assert output["item"]["call_id"] == "lookup-1"
     assert json.loads(output["item"]["output"]) == {"result": "Cedar fixture found."}
-    assert await event(provider.outbox) == {"type": "response.create"}
+    spoken_result = await event(provider.outbox)
+    assert spoken_result["type"] == "response.create"
+    assert spoken_result["response"]["tool_choice"] == "none"
+    assert "without greeting" in spoken_result["response"]["instructions"]
     await provider.inbox.put({"type": "response.created", "response": {"id": "r2"}})
     audio = b"\x01\x00\x03\x00"
     await provider.inbox.put(
@@ -144,7 +147,7 @@ async def test_delayed_work_and_audio_do_not_survive_interrupt_or_hangup(hang_up
     task = asyncio.create_task(relay.run())
     await event(provider.outbox)
     await provider.inbox.put({"type": "session.updated"})
-    assert await event(browser.outbox) == {"type": "ready"}
+    assert await event(browser.outbox) == {"type": "ready", "thread_id": "thread"}
     await provider.inbox.put({"type": "response.created", "response": {"id": "r1"}})
     await provider.inbox.put(request("lookup-1", "r1", "Read Cedar-981"))
     await asyncio.wait_for(started.wait(), 2)
@@ -400,3 +403,186 @@ async def test_delegate_disconnect_requests_review_preserving_cancel(monkeypatch
     with pytest.raises(asyncio.CancelledError):
         await native_voice.delegate(scope, "call", "Read the current status")
     cancel.assert_awaited_once_with("work", preserve_human_review=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interrupted", [True, False])
+async def test_tagged_opening_cannot_claim_or_replace_ordinary_response(
+    monkeypatch, interrupted
+):
+    from app.services import native_voice as service
+
+    monkeypatch.setattr(service, "OPENING_GRACE_SECONDS", 0)
+    browser, provider = Browser(), Provider()
+    relay = VoiceRelay(
+        browser,
+        provider,
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=authorize,
+    )
+    call = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await browser.inbox.put(
+            {"type": "websocket.receive", "text": '{"type":"opening"}'}
+        )
+        opening = (await event(provider.outbox))["response"]
+        assert opening["conversation"] == "none"
+        if interrupted:
+            await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+            assert await event(browser.outbox) == {"type": "flush"}
+            await provider.inbox.put(
+                {"type": "response.created", "response": {"id": "normal"}}
+            )
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "greeting",
+                    "conversation_id": None,
+                    "metadata": opening["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "greeting",
+                "delta": "AAE=",
+            }
+        )
+        if interrupted:
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": "normal",
+                    "delta": "AAI=",
+                }
+            )
+            assert await event(browser.outbox) == b"\x00\x02"
+        else:
+            assert await event(browser.outbox) == b"\x00\x01"
+        assert browser.outbox.empty()
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await call
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("speech_first", [True, False])
+async def test_opening_is_one_shot_and_yields_to_speech(monkeypatch, speech_first):
+    from app.services import native_voice
+
+    monkeypatch.setattr(native_voice, "OPENING_GRACE_SECONDS", 0.01)
+    browser, provider = Browser(), Provider()
+    relay = VoiceRelay(
+        browser,
+        provider,
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=authorize,
+    )
+    task = asyncio.create_task(
+        relay.run("A helpful persona.", name="Nia", continuity="new")
+    )
+    try:
+        assert (await event(provider.outbox))["type"] == "session.update"
+        await provider.inbox.put({"type": "session.updated"})
+        assert await event(browser.outbox) == {"type": "ready", "thread_id": "thread"}
+        opening = {"type": "websocket.receive", "text": '{"type":"opening"}'}
+        await browser.inbox.put(opening)
+        await browser.inbox.put(opening)
+        if speech_first:
+            await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+            assert await event(browser.outbox) == {"type": "flush"}
+        else:
+            response = await event(provider.outbox)
+            assert response["response"]["tool_choice"] == "none"
+            assert (
+                'introduce yourself once as "Nia"'
+                in response["response"]["instructions"]
+            )
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.05)
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await task
+
+
+def test_authorized_thread_continuity_uses_only_activity_recency():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.services.native_voice import voice_thread_continuity
+
+    now = datetime(2026, 11, 22, 2, tzinfo=timezone.utc)
+    assert voice_thread_continuity(None, now=now) == "new"
+    recent = SimpleNamespace(last_message_at="2026-11-22T01:40:00+00:00")
+    old = SimpleNamespace(last_message_at="2026-11-22T01:00:00+00:00")
+    not_metadata = SimpleNamespace(last_message_at="wrong")
+    assert voice_thread_continuity(recent, now=now) == "recent"
+    assert voice_thread_continuity(old, now=now) == "older"
+    assert voice_thread_continuity(not_metadata, now=now) == "unknown"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_ready", [True, False])
+async def test_voice_first_creates_one_scoped_thread_only_on_provider_ready(
+    monkeypatch, provider_ready
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.api import ai_chat
+    from app.services import chat_threads
+    from app.services.chat_providers import registry
+
+    monkeypatch.setattr(
+        ai_chat,
+        "_resolve_agent_for_new_thread",
+        AsyncMock(return_value="catalog-agent"),
+    )
+    monkeypatch.setattr(
+        registry,
+        "get_registry",
+        lambda: SimpleNamespace(get=lambda _: "native-provider"),
+    )
+    create = AsyncMock(return_value=SimpleNamespace(id="voice-first"))
+    monkeypatch.setattr(chat_threads, "create_thread", create)
+    browser, provider = Browser(), Provider()
+    scope = VoiceScope("caller", "workspace", "profile", "")
+    work = AsyncMock(return_value="Done.")
+    relay = VoiceRelay(browser, provider, scope, check=AsyncMock(), work=work)
+    task = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        create.assert_not_awaited()
+        if provider_ready:
+            await provider.inbox.put({"type": "session.updated"})
+            assert await event(browser.outbox) == {
+                "type": "ready",
+                "thread_id": "voice-first",
+            }
+            await provider.inbox.put({"type": "session.updated"})
+            await provider.inbox.put(
+                {"type": "response.created", "response": {"id": "response"}}
+            )
+            await provider.inbox.put(request("tool", "response", "Read a record"))
+            await event(provider.outbox)
+            work.assert_awaited_once_with(scope, "tool", "Read a record")
+            assert scope.thread == "voice-first"
+            create.assert_awaited_once_with(
+                user_id="caller",
+                workspace_id="workspace",
+                provider_id="integral_native",
+                agent_id="catalog-agent",
+                agent_profile_key="profile",
+            )
+            assert browser.outbox.empty()
+        else:
+            assert scope.thread == ""
+            create.assert_not_awaited()
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await task

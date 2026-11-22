@@ -104,6 +104,23 @@ its model is reassigned. After ownership transfer, a former owner can still
 remove their private provider; stale foreign-workspace references cannot block
 revocation and cannot fund model requests.
 
+## In-app realtime calls
+
+The waveform control starts a call in the selected authenticated workspace and
+agent profile. The relay requests one opening after readiness and yields to a
+caller who speaks first. Recent activity in that same conversation may guide a
+welcome back; this does not load a recap of past conversations. A voice-first
+call creates and selects a conversation after provider readiness, and reuses
+it on the next call. Delegated work is linked to that conversation. Integral
+does not automatically publish an ordinary spoken transcript to chat. To share
+regular spoken content in chat, use the composer; the pilot does not post it
+on a spoken request.
+
+Use the authenticated approval card to approve or reject a proposed change.
+Spoken acknowledgments and model tool calls do not authorize a decision.
+Ending a call does not
+cancel a pending approval. This pilot does not enable phone or WhatsApp voice.
+
 ## Invariants preserved
 
 - I-GRAPH-01/02: choices live in a singleton WorkspaceModelConfiguration node

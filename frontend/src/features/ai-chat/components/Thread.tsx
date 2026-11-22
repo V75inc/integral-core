@@ -111,8 +111,9 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
-  const { activeProviderId, activeThreadId, profileFilter } = useChatActivity();
+  const { activeProviderId, activeThreadId, profileFilter, voiceAwareComposerKey } = useChatActivity();
   const { scope: mandateScope } = useScope();
+  const voiceStartedThread = Boolean(activeThreadId && voiceAwareComposerKey?.startsWith("fresh:"));
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
   // region or a dismissed popover moves focus off it and typing then went
@@ -179,7 +180,9 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
             which reads as clipped when the transcript is scrolled to top. */}
         <div className="mx-auto flex w-full max-w-[var(--thread-max-width)] flex-1 flex-col px-4 pt-10">
           <AuiIf condition={(s) => s.thread.isEmpty}>
-            <ThreadWelcome />
+            {voiceStartedThread
+              ? <Text as="p" variant="body-sm" tone="muted" className="my-auto text-center">Voice conversation</Text>
+              : <ThreadWelcome />}
           </AuiIf>
 
           <div className="mb-10 flex flex-col gap-y-8 empty:hidden">
@@ -205,7 +208,7 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
                   {sheet}
                   <ChatFollowUps locked={composerLocked} />
                   <Composer
-                    key={activeThreadId ?? `fresh:${profileFilter ?? ""}`}
+                    key={voiceAwareComposerKey ?? activeThreadId ?? `fresh:${profileFilter ?? ""}`}
                     locked={
                       composerLocked &&
                       !(activeProviderId === 'integral_native' && canReplyInChat)

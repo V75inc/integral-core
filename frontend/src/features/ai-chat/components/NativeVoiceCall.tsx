@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Phone, PhoneOff } from "lucide-react";
+import { AudioLines, Loader2, Square } from "lucide-react";
 import { REALTIME_VOICE_QUERY_KEY, realtimeVoiceConfigurationApi } from "../../../api/aiConfiguration";
 import { ALL_WORKSPACE_ASSISTANTS, WORKSPACE_ASSISTANT } from "../../../api/chatAssistantIdentity";
 import { mintWsTicket } from "../../../api/wsTicket";
 import { Button } from "../../../components/ui/Button";
+import { HoverTooltip } from "../../../components/ui/HoverTooltip";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { useComposerDictation, useComposerDictationActions } from "../../speech/ComposerDictationContext";
@@ -54,21 +55,31 @@ interface VoiceOpening {
   thread_id: string;
 }
 
-export function NativeVoiceControls({ eligible, opening, playingDictation, dictationActive = false }: {
+export function NativeVoiceControls({ eligible, opening, playingDictation, dictationActive = false, onThreadReady, onThreadRefresh }: {
   eligible: boolean;
   dictationActive?: boolean;
   opening: VoiceOpening;
   playingDictation: () => boolean;
+  onThreadReady?: (threadId: string, opening: VoiceOpening) => Promise<void>;
+  onThreadRefresh?: (threadId: string, workspace: string) => void;
 }) {
   const [state, setState] = useState<NativeVoiceState>("idle");
   const [error, setError] = useState("");
-  const call = useRef<{ close: () => void } | null>(null);
+  const call = useRef<{ close: () => void; matchesThread: (id: string) => boolean } | null>(null);
   const { workspace_id, profile_key, thread_id } = opening;
   useEffect(() => {
     setState("idle");
     setError("");
     return () => call.current?.close();
-  }, [workspace_id, profile_key, thread_id, eligible]);
+  }, [workspace_id, profile_key, eligible]);
+
+  useEffect(() => {
+    if (call.current && !call.current.matchesThread(thread_id)) {
+      call.current.close();
+      setState("idle");
+      setError("");
+    }
+  }, [thread_id]);
 
   useEffect(() => {
     if (dictationActive && call.current) {
@@ -92,12 +103,16 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     let input: MediaStreamAudioSourceNode | undefined;
     let playback: ReturnType<typeof createVoicePlayback> | undefined;
     let ready = false;
+    let acceptedThreadId = "";
+    let refreshTimer: number | undefined;
     let ended = false;
     const close = () => {
       if (ended) return;
       ended = true;
       if (call.current?.close === close) call.current = null;
       window.clearTimeout(deadline);
+      window.clearInterval(refreshTimer);
+      if (acceptedThreadId) onThreadRefresh?.(acceptedThreadId, workspace_id);
       if (capture) { capture.port.onmessage = null; capture.disconnect(); }
       input?.disconnect();
       media?.getTracks().forEach(track => track.stop());
@@ -115,7 +130,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       setError(message);
     };
     const deadline = window.setTimeout(() => fail("The voice call did not connect."), 20000);
-    call.current = { close };
+    call.current = { close, matchesThread: id => id === (acceptedThreadId || thread_id) };
     try {
       audio = new AudioContext({ sampleRate: SAMPLE_RATE });
       await audio.resume();
@@ -144,13 +159,36 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       socket.onopen = () => socket?.send(JSON.stringify({ ticket, ...opening }));
       socket.onmessage = ({ data }) => {
         if (ended) return;
-        if (data instanceof ArrayBuffer) { playback?.enqueue(data); return; }
-        const event = JSON.parse(String(data)) as { type: string; message?: string };
+        if (data instanceof ArrayBuffer) {
+          if (ready) playback?.enqueue(data);
+          return;
+        }
+        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string };
         if (event.type === "flush") playback?.flush();
-        if (event.type === "ready") {
+        // Transport open is not provider ready. Request one opening only
+        // after the relay acknowledges the session. The relay gives early
+        // user speech precedence and owns the generated turn.
+        if (event.type === "ready" && !ready) {
+          if (event.thread_id && thread_id && event.thread_id !== thread_id) {
+            fail("The voice call returned a different conversation.");
+            return;
+          }
+          acceptedThreadId = event.thread_id || thread_id;
+          if (acceptedThreadId) {
+            void onThreadReady?.(acceptedThreadId, opening);
+            if (onThreadRefresh) {
+              refreshTimer = window.setInterval(() => {
+                if (document.visibilityState === "visible") onThreadRefresh(acceptedThreadId, workspace_id);
+              }, 2500);
+            }
+          }
           ready = true;
           window.clearTimeout(deadline);
           setState("live");
+          if (socket?.readyState === WebSocket.OPEN) {
+            try { socket.send(JSON.stringify({ type: "opening" })); }
+            catch { fail("The voice call ended."); }
+          }
         }
         if (event.type === "error") fail(event.message || "The voice call ended.");
       };
@@ -162,17 +200,30 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
   }
 
   if (!eligible && state === "idle") return null;
-  const label = state === "idle" ? "Start voice call" : "End voice call";
-  return <div className="relative shrink-0">
-    <Button type="button" variant={state === "idle" ? "ghost" : "danger"} size="sm"
-      className="h-10 w-10 rounded-full !p-0" aria-label={label} title={label}
-      icon={state === "idle" ? <Phone size={16} aria-hidden /> : <PhoneOff size={16} aria-hidden />}
-      onClick={() => {
-        if (state === "idle") void start();
-        else { call.current?.close(); setState("idle"); }
-      }} />
-    {state === "connecting" && <span className="sr-only" role="status">Connecting voice call</span>}
-    {state === "live" && <span className="sr-only" role="status">Voice call connected</span>}
+  const idle = state === "idle";
+  const action = idle ? "Start voice call" : state === "connecting" ? "Cancel voice call" : "End call";
+  return <div className="group/voice relative shrink-0">
+    {!idle && <Surface role="status" radius="input" elevation="sm" padding="xs"
+      className="absolute bottom-full right-0 z-10 mb-2 inline-flex w-max items-center gap-2 group-hover/voice:-translate-y-8 group-focus-within/voice:-translate-y-8">
+      {state === "connecting"
+        ? <Loader2 size={14} aria-hidden className="motion-safe:animate-spin" />
+        : <AudioLines size={14} aria-hidden />}
+      <Text as="span" variant="body-sm">
+        {state === "connecting" ? "Connecting voice…" : "Voice call live"}
+      </Text>
+    </Surface>}
+    <HoverTooltip label={action} placement="top">
+      <Button type="button" variant={idle ? "ghost" : "danger"} size="xs"
+        className={idle ? "h-10 w-10 rounded-full !p-0" : "h-10 whitespace-nowrap rounded-full px-3"}
+        aria-label={state === "live" ? undefined : action}
+        icon={idle ? <AudioLines size={17} aria-hidden /> : <Square size={12} aria-hidden />}
+        onClick={() => {
+          if (idle) void start();
+          else { call.current?.close(); setState("idle"); }
+        }}>
+        {!idle && "End call"}
+      </Button>
+    </HoverTooltip>
     {error && <Surface role="status" radius="input" elevation="sm" padding="sm"
       className="absolute bottom-full right-0 z-10 mb-2 w-56"><Text as="p" variant="body-sm">{error}</Text></Surface>}
   </div>;
@@ -198,6 +249,8 @@ export function NativeVoiceCall() {
     (!activity.activeThreadId || Boolean(thread)) && !activity.needsDraftAgent;
   return <NativeVoiceControls eligible={eligible}
     opening={{ workspace_id: workspace, profile_key: profile, thread_id: activity.activeThreadId ?? "" }}
+    onThreadReady={activity.adoptNativeVoiceThread}
+    onThreadRefresh={activity.refreshNativeVoiceThread}
     playingDictation={() => dictation?.isListening() ?? false}
     dictationActive={Boolean(dictationStatus && ["connecting", "listening", "finalizing"].includes(dictationStatus))} />;
 }
