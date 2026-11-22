@@ -40,13 +40,12 @@ or sharing. An active channel requires a matching, accepting current provision.
 Full-page links are optional, server-issued HTTPS URLs and excluded from default
 discovery. An eventual API must authorize sharing separately.
 
-The next step is an authenticated Connector Library and Connected read
-projection for this contract, with management actions dispatched through each
-package's existing authorization and revision checks. The generic UI should use
-the versioned setup kind; it must not evaluate remote configuration or assets.
+Connector Library and Connected consume the same authenticated management
+projection. The generic frontend handles the versioned setup kind rather than
+a connector's slug; it does not evaluate package-supplied UI code or assets.
 Register a channel only after its hosted transport, installation and lifecycle
-are wired and qualified. This source slice does not mount anything or register
-Web Chat, Facebook, or Signal.
+are wired and qualified. The default host does not register Web Chat,
+Facebook or Signal.
 
 An isolated qualification harness can explicitly load one installed
 distribution using the [approved package loader](../../backend/app/connectors/channel_package_discovery.py).
@@ -57,6 +56,14 @@ before import, then accepts only one complete matching package into the
 registry. There is no startup scan, installation, route mount or automatic
 workspace enablement. The separate first-party wheel in the tests is an
 in-memory, synthetic fixture, not a shipping connector.
+
+The [out-of-tree conformance test](../../backend/tests/test_out_of_tree_channel_smoke.py)
+builds the test wheel offline, explicitly loads it and exercises the actual
+authenticated management API: discover/Add, install disabled/Configure, enable,
+reject a stale epoch, and remove back to Add. Generic UI tests cover the same
+states against the wire contract. These checks do not certify durable lifecycle
+storage, an external provider, public serving, browser-to-live deployment, or
+upgrade/rollback. Those remain separate qualification gates.
 
 Version and import-origin pins are not signatures, artifact integrity, or a
 sandbox. Approved factories execute as trusted Python. Before any production
