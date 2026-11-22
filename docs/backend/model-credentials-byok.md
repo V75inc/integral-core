@@ -2,8 +2,9 @@
 
 Settings → AI Models provides a simple setup: choose a provider and save its API
 key once. Quick setup saves the provider connection and chooses the supported
-defaults; the Models and Providers tabs below show those same saved settings.
-Open an individual model section to set its assignment. The registered model
+defaults. Open Advanced Configuration, then Providers & Models to see the same
+saved settings in the Models and Providers tabs. Open an individual section
+under Model Assignments to set its model. The registered model
 catalog supplies compatible models; it is separate from the active assignments.
 Dictation preferences are available separately inside Speech to Text.
 

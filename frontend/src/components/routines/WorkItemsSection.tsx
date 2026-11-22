@@ -10,6 +10,7 @@ import { formatRelativeTime } from '../../utils';
 
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'expired', 'dead_letter']);
 const completedWorkStatuses = new Set(['succeeded', 'cancelled', 'expired']);
+const nonWorkspaceMonitorKinds = new Set(['routine_turn', 'chat_turn', 'chat_title']);
 const operationLabels: Record<string, string> = { install: 'App install', upgrade: 'App update', uninstall: 'App uninstall', resume: 'App resume' };
 const statusLabels: Record<string, string> = {
   queued: 'Queued', running: 'Running', waiting_for_human: 'Awaiting your input',
@@ -73,16 +74,13 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
     void load();
   }, [load]);
   useSerialPolling(load, 5000, items.some(item =>
-    item.kind !== 'routine_turn' && item.kind !== 'chat_turn' && !terminal.has(item.status)));
+    !nonWorkspaceMonitorKinds.has(item.kind) && !terminal.has(item.status)));
 
 
-  // This panel is an operational monitor, not a history feed. Routine runs
-  // and chat turns have dedicated activity views; successful/cancelled work
-  // is complete and does not need a permanent row here.
+  // Routine runs and chat turns have their own views. Optional chat title
+  // updates are housekeeping, not tasks that workspace users need to track.
   const visibleItems = items.filter(item =>
-    item.kind !== 'routine_turn'
-      && item.kind !== 'chat_turn'
-      && !completedWorkStatuses.has(item.status),
+    !nonWorkspaceMonitorKinds.has(item.kind) && !completedWorkStatuses.has(item.status),
   );
 
   if (!loading && !error && visibleItems.length === 0 && !cursor) return null;

@@ -13,6 +13,16 @@ vi.mock('./RoutinesListBody', () => ({ RoutinesListBody: ({ rows, selectedRoutin
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe('Background Tasks navigation', () => {
+  it('places the standard page separator between the heading and task sections', async () => {
+    render(<MemoryRouter><BackgroundTasksPage /></MemoryRouter>);
+    const heading = screen.getByRole('heading', { name: 'Background Tasks' });
+    const separator = screen.getByRole('separator', { hidden: true });
+    const tasks = screen.getByRole('region', { name: 'Scheduled routines' });
+    expect(heading.compareDocumentPosition(separator) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(separator.compareDocumentPosition(tasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Refresh scheduled routines' })).toBeEnabled();
+  });
+
   it('resolves the scheduled-routines link on client navigation', async () => {
     const scroll = vi.fn();
     const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');

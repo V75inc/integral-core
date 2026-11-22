@@ -55,7 +55,7 @@ export function ApprovalsListBody({
 
   if (loading) {
     return (
-      <div className={compact ? 'space-y-2' : 'space-y-3'}>
+      <div role="status" aria-label="Loading approvals" aria-busy="true" className={compact ? 'space-y-2' : 'space-y-3'}>
         {(compact ? [1, 2, 3, 4] : [1, 2, 3, 4, 5]).map(i => (
           <div
             key={i}

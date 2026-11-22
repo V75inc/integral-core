@@ -47,6 +47,7 @@ import { useToast } from "../../../context/ToastContext";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { SettingsSection, StatusPill } from "../components/Field";
+import { SettingsPageHeader } from "../components/SettingsPageHeader";
 import { ConnectorEditModal } from "./ConnectorEditModal";
 import { ConnectorBrandIcon } from "../connectors/ConnectorBrandIcon";
 import { WhatsAppConnectorSettings } from "../connectors/WhatsAppConnectorSettings";
@@ -424,39 +425,42 @@ function ScopedConnectorsSection({
   return (
     <div className="flex flex-col gap-5">
       {showLibrary ? (
-        <SettingsSection
-          title="Connector library"
-          description="Find API integrations, MCP servers, and messaging channels."
-          actions={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              icon={<ArrowLeft size={14} />}
-              onClick={() => navigate("/settings#connectors")}
-              aria-label="Back to connectors"
-            >
-              Back
-            </Button>
-          }
-        >
-          <ConnectorCatalogPanel
-            catalog={catalog}
-            whatsappEnabled={whatsappEnabled}
-            whatsappStatus={whatsappStatus}
-            onInstalled={() => {
-              refetchConnectors();
-              navigate("/settings#connectors");
-            }}
+        <>
+          <SettingsPageHeader
+            title="Connector library"
+            description="Find API integrations, MCP servers, and messaging channels."
+            actions={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                icon={<ArrowLeft size={14} />}
+                onClick={() => navigate("/settings#connectors")}
+                aria-label="Back to connectors"
+              >
+                Back
+              </Button>
+            }
           />
-        </SettingsSection>
+          <Surface border="subtle" radius="card" padding="lg">
+            <ConnectorCatalogPanel
+              catalog={catalog}
+              whatsappEnabled={whatsappEnabled}
+              whatsappStatus={whatsappStatus}
+              onInstalled={() => {
+                refetchConnectors();
+                navigate("/settings#connectors");
+              }}
+            />
+          </Surface>
+        </>
       ) : (
         <>
-          <SettingsSection
+          <SettingsPageHeader
             title="Connectors"
             description="Configure integrations for Integral and manage connected tools."
             actions={
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {canMountCustomMcp ? (
                   <Button
                     type="button"
@@ -483,9 +487,7 @@ function ScopedConnectorsSection({
                 </Button>
               </div>
             }
-          >
-            {null}
-          </SettingsSection>
+          />
 
           <SettingsSection
             title="Connected"

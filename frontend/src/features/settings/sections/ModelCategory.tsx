@@ -1,7 +1,8 @@
 import { ChevronDown, type LucideIcon } from "lucide-react";
-import { Text } from "../../../ui";
+import { Surface, Text } from "../../../ui";
 import { IconWell, LINE_ICON_STROKE } from "../../../components/ui/IconWell";
 import type { ReactNode } from "react";
+import { SETTINGS_PANEL_BORDER } from "../components/settingsPanelBorder";
 
 /** One predictable disclosure row for each type of AI model. */
 export function ModelCategory({
@@ -12,6 +13,8 @@ export function ModelCategory({
   open,
   onToggle,
   children,
+  heading: Heading = "h3",
+  prominent = false,
 }: {
   id: string;
   title: string;
@@ -20,10 +23,18 @@ export function ModelCategory({
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
+  heading?: "h3" | "h4" | "h5";
+  prominent?: boolean;
 }) {
   return (
-    <section className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--border-subtle)]">
-      <h3 aria-label={title}>
+    <Surface
+      as="section"
+      tone={prominent ? "panel" : "transparent"}
+      border="none"
+      radius="card"
+      className={`overflow-hidden ${SETTINGS_PANEL_BORDER}`}
+    >
+      <Heading aria-label={title}>
         <button
           type="button"
           aria-label={title}
@@ -32,13 +43,13 @@ export function ModelCategory({
           aria-expanded={open}
           aria-controls={`${id}-content`}
           onClick={onToggle}
-          className="flex min-h-16 w-full items-center gap-3 p-4 text-left transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring-color)] sm:p-5"
+          className={`flex w-full items-center gap-3 p-4 text-left transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring-color)] sm:p-5 ${prominent ? "min-h-24" : "min-h-16"}`}
         >
-          <IconWell size="sm" aria-hidden>
+          <IconWell size={prominent ? "md" : "sm"} aria-hidden>
             <Icon size={19} strokeWidth={LINE_ICON_STROKE} />
           </IconWell>
           <span className="min-w-0 flex-1 space-y-1">
-            <Text as="span" weight="semibold" className="block">
+            <Text as="span" variant={prominent ? "heading-sm" : undefined} weight="semibold" className="block">
               {title}
             </Text>
             <Text
@@ -56,16 +67,16 @@ export function ModelCategory({
             className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
           />
         </button>
-      </h3>
+      </Heading>
       <div
         id={`${id}-content`}
         role="region"
         aria-labelledby={`${id}-heading`}
         hidden={!open}
-        className="border-t border-[var(--border-subtle)] p-4 sm:p-5"
+        className="border-t border-[var(--panel-border)] p-4 sm:p-5"
       >
         {children}
       </div>
-    </section>
+    </Surface>
   );
 }

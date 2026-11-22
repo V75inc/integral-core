@@ -434,8 +434,8 @@ describe('<ConnectorsSection />', () => {
     await waitFor(() => {
       expect(screen.getByText(/No connectors yet\./i)).toBeInTheDocument();
     });
-    expect(screen.getByRole('heading', { name: 'Connectors' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Connected' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Connectors', level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Connected', level: 3 })).toBeInTheDocument();
     expect(screen.queryByText('Setup wizards')).not.toBeInTheDocument();
     expect(screen.queryByText('All connectors')).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Search MCP servers/i)).not.toBeInTheDocument();
@@ -527,7 +527,7 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
     await waitFor(() => {
       expect(
-        screen.getByRole('heading', { name: 'Connector library' }),
+        screen.getByRole('heading', { name: 'Connector library', level: 2 }),
       ).toBeInTheDocument();
     });
     expect(screen.getByPlaceholderText(/Search connectors/i)).toBeInTheDocument();

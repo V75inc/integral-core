@@ -1,5 +1,6 @@
 import type { ModelConnection, ModelProfile } from "../../../api/aiConfiguration";
 import { isRealtimeVoiceModel, isTranscriptionModel } from "../../../api/modelProfileKinds";
+import { profileAssignmentLabel } from "./ModelAssignmentField";
 
 export type VoiceRole = "transcription" | "realtime";
 
@@ -20,7 +21,7 @@ export function voiceRoleOptions(
   const options = profiles.flatMap(profile => {
     const connection = connections.find(item => item.id === profile.connection_id);
     return allowsVoiceRole(connection, profile.model, role)
-      ? [{ id: `profile:${profile.id}`, label: `${profile.name} · ${connection?.name}`, connectionId: profile.connection_id, model: profile.model }]
+      ? [{ id: `profile:${profile.id}`, label: profileAssignmentLabel(profile, connections), connectionId: profile.connection_id, model: profile.model }]
       : [];
   });
   if (current?.mode === "provider" && current.model && current.connection_id) {

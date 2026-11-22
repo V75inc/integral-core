@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mic } from "lucide-react";
 import {
   voiceConfigurationApi,
   VOICE_CONFIGURATION_QUERY_KEY,
@@ -65,22 +64,14 @@ function ScopedVoiceConfiguration({
     }
   }
   return <section aria-label="Speech to text assignment" className={embedded ? "space-y-3" : "space-y-3 border-t border-[var(--border-subtle)] pt-5"}>
-    <div className="flex min-w-0 flex-wrap items-start gap-3">
-      {!embedded && <Mic size={18} className="mt-1 shrink-0" />}
-      <div className="min-w-0 flex-1 space-y-1">
-        <Text as={embedded ? "p" : "h3"} weight="medium">Dictation</Text>
-        {data && <Text as="p" variant="body-sm" className="break-words">
-          Active: {data.effective_model || "Browser recognition when available"}
-        </Text>}
-        {query.isError && <Text as="p" role="alert" variant="body-sm">
-          Transcription settings could not be loaded.{" "}
-          <button className="underline" onClick={() => void query.refetch()}>Retry</button>
-        </Text>}
-      </div>
-      {secondaryAction}
-    </div>
-    {data?.editable && <VoiceRoleAssignment
+    {query.isError && <Text as="p" role="alert" variant="body-sm">
+      Transcription settings could not be loaded.{" "}
+      <button className="underline" onClick={() => void query.refetch()}>Retry</button>
+    </Text>}
+    {data && <VoiceRoleAssignment
       label="Transcription model"
+      active={data.effective_model || "Browser recognition when available"}
+      secondary={secondaryAction}
       options={[
         { id: "inherit", label: "Deployment default" },
         { id: "disabled", label: "Browser recognition only" },
@@ -89,17 +80,18 @@ function ScopedVoiceConfiguration({
       selected={dirty && currentDraft ? currentDraft.id : selected}
       dirty={dirty}
       pending={save.isPending}
-      onChange={id => {
+      onChange={data.editable ? id => {
         save.reset();
         setDraft(id === selected ? null : { id, revision: data.revision });
-      }}
+      } : undefined}
       onSave={submit}
       onCancel={() => { setDraft(null); save.reset(); }}
       error={save.isError ? errorMessageFromAxios(save.error, "Could not save transcription settings.") : undefined}
-      helper={options.some(option => option.id !== "legacy")
+      helper={data.editable && (options.some(option => option.id !== "legacy")
         ? "Provider-backed dictation sends audio to the assigned provider."
-        : "Register a compatible transcription model to assign it here."}
+        : "Register a compatible transcription model to assign it here.")}
     />}
+    {!data && secondaryAction}
     {navigateToSection && <Button variant="ghost" size="sm" onClick={() => navigateToSection("voice-input")}>
       Voice input preferences
     </Button>}

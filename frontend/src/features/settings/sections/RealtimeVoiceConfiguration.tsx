@@ -50,30 +50,27 @@ function ScopedRealtimeVoiceConfiguration({ workspace, user, connections, profil
     }
   }
   return <section aria-label="Live voice assignment" className="space-y-3">
-    <div className="space-y-1">
-      <Text as="h3" weight="medium">Live voice calls</Text>
-      {data && <Text as="p" variant="body-sm" className="break-words">Active: {data.effective_model || "Off"}</Text>}
-      {query.isError && <Text as="p" role="alert" variant="body-sm">
-        Live voice settings could not be loaded.{" "}
-        <button className="underline" onClick={() => void query.refetch()}>Retry</button>
-      </Text>}
-    </div>
-    {data?.editable && <VoiceRoleAssignment
+    {query.isError && <Text as="p" role="alert" variant="body-sm">
+      Live voice settings could not be loaded.{" "}
+      <button className="underline" onClick={() => void query.refetch()}>Retry</button>
+    </Text>}
+    {data && <VoiceRoleAssignment
       label="Realtime model"
+      active={data.effective_model || "Off"}
       options={[{ id: "disabled", label: "Off" }, ...options]}
       selected={dirty && currentDraft ? currentDraft.id : selected}
       dirty={dirty}
       pending={save.isPending}
-      onChange={id => {
+      onChange={data.editable ? id => {
         save.reset();
         setDraft(id === selected ? null : { id, revision: data.revision });
-      }}
+      } : undefined}
       onSave={submit}
       onCancel={() => { setDraft(null); save.reset(); }}
       error={save.isError ? errorMessageFromAxios(save.error, "Could not save live voice settings.") : undefined}
-      helper={options.some(option => option.id !== "legacy")
+      helper={data.editable && (options.some(option => option.id !== "legacy")
         ? "Call audio is processed by the assigned provider."
-        : "Register a compatible realtime model to assign it here."}
+        : "Register a compatible realtime model to assign it here.")}
     />}
   </section>;
 }

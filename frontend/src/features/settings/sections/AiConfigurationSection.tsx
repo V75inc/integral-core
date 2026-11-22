@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   aiConfigurationApi,
@@ -49,6 +49,7 @@ import {
   Trash2,
   Pencil,
   Image,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Modal, Badge } from "../../../components/ui";
 import { LINE_ICON_STROKE } from "../../../components/ui/IconWell";
@@ -94,7 +95,7 @@ const freshProfile = (): ProfileWrite => ({
 
 export function AiConfigurationSection({
   initialCategory,
-}: { initialCategory?: "speech-to-text" | "realtime-voice" } = {}) {
+}: { initialCategory?: "embeddings" | "speech-to-text" | "realtime-voice" } = {}) {
   const { showToast } = useToast();
   const query = useAIConfiguration();
   const userId = useAuthOptional()?.user?.id;
@@ -120,7 +121,42 @@ export function AiConfigurationSection({
   const [profile, setProfile] = useState<ProfileWrite | null>(null);
   const [tab, setTab] = useState<"models" | "connections">("models");
   const [search, setSearch] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initialCategory));
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [limitsOpen, setLimitsOpen] = useState(false);
   const [category, setCategory] = useState<string | null>(initialCategory ?? null);
+  useEffect(() => {
+    if (!initialCategory) return;
+    setAdvancedOpen(true);
+    setCategory(initialCategory);
+  }, [initialCategory]);
+  const revealEmbeddingPending = useRef(true);
+  const configurationReady = Boolean(query.data && !query.isPending && !query.isError);
+  useEffect(() => {
+    if (initialCategory !== "embeddings") {
+      revealEmbeddingPending.current = true;
+      return;
+    }
+    if (!configurationReady || !advancedOpen || category !== "embeddings" ||
+        !revealEmbeddingPending.current) return;
+
+    // The Settings route and its data can both resolve asynchronously.
+    // Wait until the disclosed controls are mounted, then let layout settle.
+    let scrollFrame = 0;
+    const layoutFrame = window.requestAnimationFrame(() => {
+      scrollFrame = window.requestAnimationFrame(() => {
+        const target = document.getElementById("embedding-models-heading");
+        if (!target || target.closest("[hidden]")) return;
+        revealEmbeddingPending.current = false;
+        target.focus({ preventScroll: true });
+        target.scrollIntoView?.({ block: "start", inline: "nearest" });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(layoutFrame);
+      window.cancelAnimationFrame(scrollFrame);
+    };
+  }, [initialCategory, configurationReady, advancedOpen, category]);
   const toggleCategory = (name: string) =>
     setCategory((current) => (current === name ? null : name));
   const [removeTarget, setRemoveTarget] = useState<{
@@ -267,6 +303,12 @@ export function AiConfigurationSection({
   const legacyAssignments = assignments.filter(a => !data.profiles.some(p => p.model === a.model && p.connection_id === a.connectionId));
   const shownLegacy = legacyAssignments.filter(a => `${a.role} ${a.model}`.toLowerCase().includes(needle));
   const roleFor = (p: ModelProfile) => assignments.find(a => a.model === p.model && a.connectionId === p.connection_id)?.role;
+  const catalogStatus = (p: ModelProfile) => {
+    if (p.id === data.default_profile_id) return `${data.routing?.mode === "light_heavy" ? "Heavy" : "Main"} model · Assigned`;
+    if (p.id === data.routing?.light_profile_id && data.routing?.mode === "light_heavy") return "Light model · Assigned";
+    const role = roleFor(p);
+    return role ? `${role} · Assigned` : specializedModel(p.model);
+  };
   const profiles = data.profiles.filter((p) =>
     `${p.name} ${p.model}`.toLowerCase().includes(needle),
   );
@@ -289,11 +331,25 @@ export function AiConfigurationSection({
   return (
     <Stack gap="lg">
       <QuickProviderSetup key={data.effective.workspace_id} data={data} disabled={mutation.isPending} onBusyChange={setQuickPending} />
-      <div id="advanced-ai-configuration" className="space-y-5">
-      <Text as="h3" variant="heading-sm">Advanced configuration</Text>
-      <section aria-label="Providers & Models" className="space-y-3 rounded-[var(--radius-card)] border border-[var(--border-subtle)] p-4 sm:p-5">
-        <Text as="h4" variant="heading-sm">Providers &amp; Models</Text>
-        <Text as="p" variant="body-sm" tone="muted">Connect providers and register the models you want to use. Assign them below.</Text>
+      <ModelCategory
+        id="advanced-ai-configuration"
+        title="Advanced Configuration"
+        description="Manage providers, register models, and choose where to use them."
+        icon={SlidersHorizontal}
+        open={advancedOpen}
+        onToggle={() => setAdvancedOpen(value => !value)}
+        prominent
+      >
+      <div className="space-y-5">
+      <ModelCategory
+        id="ai-provider-model-catalog"
+        title="Providers & Models"
+        description="Connect providers and register models to use in your workspace."
+        icon={KeyRound}
+        heading="h4"
+        open={catalogOpen}
+        onToggle={() => setCatalogOpen(value => !value)}
+      >
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-3">
           <div
             role="tablist"
@@ -391,11 +447,7 @@ export function AiConfigurationSection({
                               <Text weight="medium" className="break-words">
                                 {p.name}
                               </Text>
-                              {p.id === data.default_profile_id && (
-                                <Badge>Main model</Badge>
-                              )}
-                              {roleFor(p) ? <Badge>{roleFor(p)} · Assigned</Badge> :
-                                specializedModel(p.model) && <Badge>{specializedModel(p.model)}</Badge>}
+                              {catalogStatus(p) && <Badge>{catalogStatus(p)}</Badge>}
                             </div>
                             <Text
                               as="p"
@@ -411,8 +463,10 @@ export function AiConfigurationSection({
                               tone="muted"
                               className="break-words"
                             >
-                              {profileSummary(p.generation_settings)}
-                              {p.harness_policy && !p.harness_policy.recommended && (p.harness_policy.tier !== "light" || p.id === data.default_profile_id) && ` · ${p.harness_policy.message}`}
+                              {isChatProfile(p)
+                                ? profileSummary(p.generation_settings)
+                                : data.connections.find(c => c.id === p.connection_id)?.name ?? "Saved provider"}
+                              {isChatProfile(p) && p.harness_policy && !p.harness_policy.recommended && (p.harness_policy.tier !== "light" || p.id === data.default_profile_id) && ` · ${p.harness_policy.message}`}
                             </Text>
                           </Stack>
                         </div>
@@ -462,12 +516,17 @@ export function AiConfigurationSection({
                       </div>
                     ))}
                     {shownLegacy.map(a => (
-                      <div key={`${a.role}:${a.connectionId}:${a.model}`} className="flex items-center gap-3 py-4">
+                      <div key={`${a.role}:${a.connectionId}:${a.model}`} className="flex items-start gap-3 py-5 first:pt-2">
+                        <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] border border-[var(--border-subtle)]">
+                          <Brain size={17} strokeWidth={LINE_ICON_STROKE} />
+                        </span>
                         <Stack gap="xs" className="min-w-0 flex-1">
-                          <Text weight="medium" className="break-words">{a.model}</Text>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Text weight="medium" className="break-words">{a.model}</Text>
+                            <Badge>{a.role} · Assigned</Badge>
+                          </div>
                           <Text variant="body-sm" tone="muted">{data.connections.find(c => c.id === a.connectionId)?.name ?? "Saved provider"}</Text>
                         </Stack>
-                        <Badge>{a.role} · Assigned</Badge>
                       </div>
                     ))}
                     {!profiles.length && !shownLegacy.length && (
@@ -636,12 +695,12 @@ export function AiConfigurationSection({
             </div>
           )}
         </div>
-      </section>
+      </ModelCategory>
       <section aria-label="Model assignments" className="space-y-3">
         <Text as="h4" variant="heading-sm">Model assignments</Text>
         <Text as="p" variant="body-sm" tone="muted">Choose which saved model each part of Integral uses.</Text>
         <ModelCategory
-          id="language-models"
+          id="language-models" heading="h5"
           title="Language & multimodal"
           description="Choose the models for chat, reasoning, and image understanding"
           icon={Brain}
@@ -658,7 +717,7 @@ export function AiConfigurationSection({
           />
         </ModelCategory>
               <ModelCategory
-                id="embedding-models"
+                id="embedding-models" heading="h5"
                 title="Embeddings"
                 description="Help search find related information"
                 icon={Database}
@@ -672,7 +731,7 @@ export function AiConfigurationSection({
                 />
               </ModelCategory>
               <ModelCategory
-                id="speech-to-text-models"
+                id="speech-to-text-models" heading="h5"
                 title="Speech to Text"
                 description="Choose the model that turns speech into text"
                 icon={Mic}
@@ -686,39 +745,36 @@ export function AiConfigurationSection({
                   secondaryAction={<VoiceInputSection embedded />}
                 />
               </ModelCategory>
-              <ModelCategory id="realtime-voice-models" title="Realtime Voice"
+              <ModelCategory id="realtime-voice-models" heading="h5" title="Realtime Voice"
                 description="Two-way voice calls with an assistant" icon={Mic}
                 open={category === "realtime-voice"} onToggle={() => toggleCategory("realtime-voice")}>
                 <RealtimeVoiceConfiguration connections={data.connections} profiles={data.profiles} />
               </ModelCategory>
-              <ModelCategory id="attachment-models" title="Images and documents"
+              <ModelCategory id="attachment-models" heading="h5" title="Images and documents"
                 description="Make attachments searchable" icon={Image}
                 open={category === "attachments"} onToggle={() => toggleCategory("attachments")}>
                 <AttachmentAnalysisConfiguration />
               </ModelCategory>
           </section>
-      <details className="group border-t border-[var(--border-subtle)] pt-4">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
-          <span className="flex items-center gap-3">
-            <ShieldCheck size={18} strokeWidth={LINE_ICON_STROKE} />
-            <Text weight="medium">Deployment limits</Text>
-          </span>
-          <ChevronDown
-            size={16}
-            className="transition-transform group-open:rotate-180"
-          />
-        </summary>
-        <div className="pt-4">
-          <Text as="p" variant="body-sm" tone="muted">
-            Up to {data.harness_limits.request_limit} model requests, 32 tool
-            calls, {data.harness_limits.token_limit.toLocaleString()} total
-            tokens and {Math.round(data.harness_limits.run_seconds / 60)}{" "}
-            minutes per turn. Model profiles can use lower limits. Approval and
-            access checks always apply.
-          </Text>
-        </div>
-      </details>
       </div>
+      </ModelCategory>
+      <ModelCategory
+        id="ai-deployment-limits"
+        title="Deployment Limits"
+        description="See the maximum requests, tool calls, tokens, and time per turn."
+        icon={ShieldCheck}
+        open={limitsOpen}
+        onToggle={() => setLimitsOpen(value => !value)}
+        prominent
+      >
+        <Text as="p" variant="body-sm" tone="muted">
+          Up to {data.harness_limits.request_limit} model requests, 32 tool
+          calls, {data.harness_limits.token_limit.toLocaleString()} total
+          tokens and {Math.round(data.harness_limits.run_seconds / 60)}{" "}
+          minutes per turn. Model profiles can use lower limits. Approval and
+          access checks always apply.
+        </Text>
+      </ModelCategory>
       <Modal
         open={!!connection}
         title={connection?.id ? "Edit provider" : "Connect a provider"}

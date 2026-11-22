@@ -8,6 +8,7 @@ import {
   type ModelConnection,
   type ModelProfile,
 } from "../../../api/aiConfiguration";
+import { ModelAssignmentField, profileAssignmentLabel } from "./ModelAssignmentField";
 import { isEmbeddingProfile } from "../../../api/modelProfileKinds";
 import { PROVIDER_LABELS } from "../../../api/modelCredentials";
 import { useScopeOptional } from "../../../context/ScopeContext";
@@ -174,7 +175,7 @@ export function EmbeddingConfiguration({
               Powers semantic search in this workspace. Separate from chat and
               voice.
             </Text>
-            {data && (
+            {data && !embedded && (
               <Text as="p" variant="body-sm" className="break-words">
                 {data.effective_provider === "local"
                   ? localLabel
@@ -269,24 +270,24 @@ export function EmbeddingConfiguration({
       </div>
       {embedded && data && (
         <div className="mt-3 space-y-2">
-          <Text as="label" variant="body-sm" className="flex flex-col gap-1">
-            Embedding model
-            <Select
-              value={selection}
-              disabled={!data.editable || busy}
-              onChange={(event) => openSettings(event.target.value)}
-            >
+          <ModelAssignmentField
+            label="Embedding model"
+            value={selection}
+            active={data.effective_model ? `${data.effective_model} · ${data.dimensions} dimensions` : undefined}
+            disabled={!data.editable || busy}
+            onChange={openSettings}
+            options={<>
               <option value="deployment">{localLabel} · default</option>
               {selection === "legacy" && (
                 <option value="legacy">{data.configuration?.model} · current configuration</option>
               )}
-              {eligibleProfiles.map((profile) => (
+              {eligibleProfiles.map(profile => (
                 <option key={profile.id} value={profile.id} disabled={!data.provider_overrides_supported}>
-                  {profile.name} · {profile.model}
+                  {profileAssignmentLabel(profile, connections)}
                 </option>
               ))}
-            </Select>
-          </Text>
+            </>}
+          />
           <Text as="p" variant="meta" tone="muted">
             Select a registered embedding model to review dimensions and consent before saving.
             No workspace text is sent until you confirm. Changing models rebuilds search.

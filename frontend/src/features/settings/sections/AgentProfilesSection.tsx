@@ -1,6 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type MutableRefObject } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import {
   connectionProfilesApi as api,
   type Audience,
@@ -10,17 +10,18 @@ import {
 } from '../../../api/connectionProfiles';
 import { WORKSPACE_ASSISTANT, type ChatAgentIdentity } from '../../../api/chatAssistantIdentity';
 import { useScopeOptional } from '../../../context/ScopeContext';
-import { ViewTabs } from '../../../components/ui';
+import { Modal, ViewTabs } from '../../../components/ui';
 import { AgentAvatar } from '../../../components/ui/AgentAvatar';
 import { Button } from '../../../components/ui/Button';
-import { Input, Select, StatusBadge, Text, Textarea } from '../../../ui';
-import { Field, Section } from '../../../patterns';
+import { Input, Select, StatusBadge, Surface, Text, Textarea } from '../../../ui';
+import { Field } from '../../../patterns';
 import { AgentAvatarEditor } from '../components/AgentAvatarEditor';
-import { WorkspaceChatProfiles } from './WorkspaceChatProfiles';
+import { SettingsPageHeader } from '../components/SettingsPageHeader';
 
 type Profile = ProfileSettings['profiles'][string];
 type Catalogue = ProfileSettings['catalogue'][Audience];
-type Screen = { kind: 'index' | 'create' | 'base' } | { kind: 'edit'; key: string };
+type EditorScreen = { kind: 'create' | 'base' } | { kind: 'edit'; key: string };
+type Screen = { kind: 'index' } | EditorScreen;
 type Step = 'identity' | 'capabilities' | 'publish';
 type Action = 'save' | 'publish' | 'native-chat';
 const EMPTY_DRAFT: ProfileDraft = { key: '', audience: 'staff', name: '', description: '', persona: '', tools: [], omissions: [] };
@@ -82,25 +83,18 @@ function ProfileControl({ workspaceId, workspaceName }: { workspaceId: string; w
   const restoreFocus = useRef(false);
   const returnKey = useRef<string | null>(null);
   const returnRow = useRef<HTMLButtonElement>(null);
-  const location = screen.kind === 'edit' ? screen.key : screen.kind;
   useLayoutEffect(() => {
-    if (!restoreFocus.current) return;
+    if (screen.kind !== 'index' || !restoreFocus.current) return;
     restoreFocus.current = false;
-    if (location === 'index') {
-      (returnRow.current ?? heading.current)?.focus();
-    } else {
-      const page = document.scrollingElement;
-      if (page) page.scrollTop = 0;
-      heading.current?.focus({ preventScroll: true });
-    }
-  }, [location]);
-  const navigate = (next: Screen) => {
-    restoreFocus.current = true;
+    (returnRow.current ?? heading.current)?.focus();
+  }, [screen.kind]);
+  const navigate = (next: EditorScreen) => {
+    returnKey.current = next.kind === 'edit' ? next.key : next.kind;
     setScreen(next);
   };
   const back = () => {
-    returnKey.current = screen.kind === 'edit' ? screen.key : screen.kind === 'base' ? 'base' : 'create';
-    navigate({ kind: 'index' });
+    restoreFocus.current = true;
+    setScreen({ kind: 'index' });
   };
   const refreshSettings = (next: ProfileSettings) => cache.setQueryData(queryKey, next);
 
@@ -115,34 +109,50 @@ function ProfileControl({ workspaceId, workspaceName }: { workspaceId: string; w
     : screen.kind === 'base' ? base.name
     : profile?.draft.name ?? 'Profile unavailable';
 
-  const headingContent = <span ref={heading} tabIndex={-1}>{title}</span>;
   const workspaceLabel = `Workspace: ${workspaceName}`;
-  if (screen.kind === 'create' || (screen.kind === 'edit' && profile)) {
-    return <ProfileEditor title={headingContent} workspaceLabel={workspaceLabel}
-      workspaceId={workspaceId} settings={settings} profile={profile} onUpdate={refreshSettings} back={back}
-      onCreated={key => navigate({ kind: 'edit', key })} />;
-  }
+  const editor = screen.kind === 'create' || (screen.kind === 'edit' && profile)
+    ? <ProfileEditor title={title} workspaceLabel={workspaceLabel}
+        workspaceId={workspaceId} settings={settings} profile={profile} onUpdate={refreshSettings} back={back}
+        onCreated={key => setScreen({ kind: 'edit', key })} />
+    : null;
 
-  if (screen.kind === 'index') return <Section title={headingContent} description={workspaceLabel}>
-    <ProfileIndex settings={settings} base={base} navigate={navigate} returnKey={returnKey.current} returnRow={returnRow} />
-    <WorkspaceChatProfiles workspaceId={workspaceId} />
-  </Section>;
-  if (screen.kind === 'base') return <WorkspaceAssistantEditor workspaceId={workspaceId} revision={settings.revision}
-    identity={base} title={headingContent} workspaceLabel={workspaceLabel} back={back} />;
-  return <ProfileScreen title={headingContent} workspaceLabel={workspaceLabel} back={back}>
-    <Text as="p">This profile is no longer available in this workspace.</Text>
-  </ProfileScreen>;
+  // Dialogs stay local to this Settings route. Keep the list mounted so
+  // creating a profile can update it without losing the original opener.
+  return <>
+    <div className="flex min-w-0 flex-col gap-5">
+      <SettingsPageHeader
+        title={<span ref={heading} tabIndex={-1}>Agent profiles</span>}
+        description={workspaceLabel}
+        actions={<Button ref={returnKey.current === 'create' ? returnRow : undefined} size="sm" onClick={() => navigate({ kind: 'create' })}>New profile</Button>}
+      />
+      <Surface border="subtle" radius="card" padding="lg">
+        <ProfileIndex settings={settings} base={base} navigate={navigate} returnKey={returnKey.current} returnRow={returnRow} />
+      </Surface>
+    </div>
+    {screen.kind === 'base' && <WorkspaceAssistantEditor workspaceId={workspaceId} revision={settings.revision}
+      identity={base} title={title} workspaceLabel={workspaceLabel} back={back} />}
+    {editor}
+    {screen.kind === 'edit' && !profile && <ProfileScreen title={title} workspaceLabel={workspaceLabel} back={back}>
+      <Text as="p">This profile is no longer available in this workspace.</Text>
+    </ProfileScreen>}
+  </>;
 }
 
 function ProfileScreen({ title, workspaceLabel, back, busy, backRef, children }: {
   title: ReactNode; workspaceLabel: string; back: () => void; busy?: boolean;
-  backRef?: Ref<HTMLButtonElement>; children: ReactNode;
+  backRef?: MutableRefObject<HTMLElement | null>; children: ReactNode;
 }) {
-  return <div className="flex min-w-0 flex-col items-stretch gap-2 [overflow-anchor:none]">
-    <Button className="self-start" ref={backRef} variant="ghost" size="sm" icon={<ArrowLeft size={16} aria-hidden="true" />}
-      onClick={back} disabled={busy}>Back to profiles</Button>
-    <Section title={title} description={workspaceLabel}>{children}</Section>
-  </div>;
+  const dialogHeading = useRef<HTMLSpanElement | null>(null);
+  return <Modal open title={<span ref={element => {
+    dialogHeading.current = element;
+    if (backRef) backRef.current = element;
+  }} tabIndex={-1}>{title}</span>}
+    initialFocusRef={dialogHeading} onClose={() => { if (!busy) back(); }}>
+    <Modal.Body>
+      <Text as="p" variant="body-sm" tone="muted">{workspaceLabel}</Text>
+      {children}
+    </Modal.Body>
+  </Modal>;
 }
 
 function ProfileIdentityFields({ appearance, name, description, disabled, onAvatarChange, onReadingAvatar, onNameChange, onDescriptionChange }: {
@@ -187,44 +197,38 @@ function ProfilePersonaField({ persona, disabled, onChange }: {
 }
 
 function ProfileIndex({ settings, base, navigate, returnKey, returnRow }: {
-  settings: ProfileSettings; base: ChatAgentIdentity; navigate: (screen: Screen) => void;
+  settings: ProfileSettings; base: ChatAgentIdentity; navigate: (screen: EditorScreen) => void;
   returnKey: string | null; returnRow: Ref<HTMLButtonElement>;
 }) {
   const profiles = Object.entries(settings.profiles);
-  return <>
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <Text as="h4" weight="semibold">Workspace assistants and public profiles</Text>
-      <Button ref={returnKey === 'create' ? returnRow : undefined} onClick={() => navigate({ kind: 'create' })}>New profile</Button>
-    </div>
-    <ul className="divide-y divide-[var(--border-subtle)] rounded-[var(--radius-card)] border border-[var(--border-subtle)]">
-      <ProfileRow name={base.name} description={base.description} icon={base.icon} avatar={base.avatar}
-        audience="Default" buttonRef={returnKey === 'base' ? returnRow : undefined} onOpen={() => navigate({ kind: 'base' })} />
-      {profiles.map(([key, profile]) => <ProfileRow key={key} name={profile.draft.name} description={profile.draft.description}
-        icon={profile.draft.icon} avatar={profile.draft.avatar} audience={audienceOf(profile.draft) === 'public' ? 'Public' : 'Specialist'} status={profileStatus(profile)}
-        buttonRef={returnKey === key ? returnRow : undefined} onOpen={() => navigate({ kind: 'edit', key })} />)}
-    </ul>
-    {!profiles.length && <Text as="p" variant="body-sm" tone="muted">Create a profile to set up a specialist or a public assistant.</Text>}
-  </>;
+  return <ul aria-label="Agent profiles" className="grid gap-2 sm:grid-cols-2">
+    <ProfileCard name={base.name} description={base.description} icon={base.icon} avatar={base.avatar}
+      audience="Default" buttonRef={returnKey === 'base' ? returnRow : undefined} onOpen={() => navigate({ kind: 'base' })} />
+    {profiles.map(([key, profile]) => <ProfileCard key={key} name={profile.draft.name} description={profile.draft.description}
+      icon={profile.draft.icon} avatar={profile.draft.avatar} audience={audienceOf(profile.draft) === 'public' ? 'Public' : 'Specialist'} status={profileStatus(profile)}
+      buttonRef={returnKey === key ? returnRow : undefined} onOpen={() => navigate({ kind: 'edit', key })} />)}
+  </ul>;
 }
 
-function ProfileRow({ name, description, icon, avatar, audience, status, onOpen, buttonRef }: {
+function ProfileCard({ name, description, icon, avatar, audience, status, onOpen, buttonRef }: {
   name: string; description?: string; icon?: string; avatar?: string | null; audience: string; status?: string; onOpen: () => void; buttonRef?: Ref<HTMLButtonElement>;
 }) {
-  return <li>
-    <button ref={buttonRef} type="button" aria-label={`Configure ${name}`} onClick={onOpen}
-      className="flex w-full items-center gap-2 rounded-[var(--radius-input)] px-3 py-2 text-left interactive-panel-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring-color)]">
+  return <Surface as="li" tone="panel-2" border="subtle" radius="card" padding="md" className="flex flex-col gap-3">
+    <div className="flex items-start gap-3">
       <AgentAvatar icon={icon} avatar={avatar} />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <Text as="span" variant="body-sm" weight="semibold" className="break-words">{name}</Text>
-        {description && <Text as="span" variant="meta" tone="muted" className="line-clamp-1">{description}</Text>}
-        <span className="flex flex-wrap items-center gap-1.5">
-          <Text as="span" variant="meta" tone="muted">{audience}</Text>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Text as="h4" variant="body" weight="semibold" className="break-words">{name}</Text>
+          <StatusBadge>{audience}</StatusBadge>
           {status && <StatusBadge tone={status === 'Published' ? 'success' : 'neutral'}>{status}</StatusBadge>}
-        </span>
-      </span>
-      <Text as="span" tone="muted" className="shrink-0"><ChevronRight aria-hidden="true" size={16} /></Text>
-    </button>
-  </li>;
+        </div>
+        {description && <Text as="p" variant="body-sm" tone="subtle" className="mt-1">{description}</Text>}
+      </div>
+    </div>
+    <div className="mt-auto flex justify-end">
+      <Button ref={buttonRef} type="button" aria-label={`Configure ${name}`} size="xs" variant="primary" onClick={onOpen}>Configure</Button>
+    </div>
+  </Surface>;
 }
 
 function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, onUpdate, onCreated, back }: {
@@ -234,7 +238,7 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
   const cache = useQueryClient();
   const [step, setStep] = useState<Step>('identity');
   const tabsId = useId();
-  const backButton = useRef<HTMLButtonElement>(null);
+  const backButton = useRef<HTMLElement | null>(null);
   const keepEditing = useRef<HTMLButtonElement>(null);
   const [edit, setEdit] = useState<{ draft: ProfileDraft; revision: number } | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
@@ -264,6 +268,8 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
   const eligibleConnections = settings.connections.filter(connection =>
     canSelectConnection(connection, audience, settings.bindings));
   const hasRouteSelection = offerInChat || selectedConnections.length > 0;
+  const canUpdateChat = !dirty && !busy && !readingAvatar && !hasRouteSelection &&
+    (Boolean(offeredInChat) || (publishedAudience === 'staff' && audience === 'staff'));
   const routeSelectionStale = (offerInChat && (audience !== 'staff' || offeredInChat)) ||
     selectedConnections.some(id => !eligibleConnections.some(connection => connection.id === id));
   const canPublish = Boolean(profile && !dirty && !readingAvatar && !removed.length && !audienceConflict && !routeSelectionStale &&
@@ -330,12 +336,13 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
       }[action]);
     } catch (failure) {
       setError(errorMessage(failure, 'Could not update this profile. Your edits are still here.'));
+      if (action === 'native-chat') void cache.invalidateQueries({ queryKey: ['connection-profiles', workspaceId] });
     } finally {
       setBusy(null);
     }
   }
 
-  return <ProfileScreen title={title} workspaceLabel={workspaceLabel} busy={Boolean(busy)} backRef={backButton}
+  return <ProfileScreen title={title} workspaceLabel={workspaceLabel} busy={Boolean(busy) || readingAvatar} backRef={backButton}
     back={() => dirty || hasRouteSelection ? setLeave(true) : back()}>
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge>Specialist Assistant</StatusBadge>
@@ -395,10 +402,12 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
             </div>
             <ProfileAvailability draftAudience={audience} publishedAudience={publishedAudience} profileKey={profileKey}
               connections={settings.connections} bindings={settings.bindings} offeredInChat={Boolean(offeredInChat)}
-              offerInChat={offerInChat} setOfferInChat={setOfferInChat}
+              offerInChat={offerInChat} onToggleChat={() => {
+                if (offeredInChat || publishedAudience === 'staff') void act('native-chat');
+                else setOfferInChat(!offerInChat);
+              }}
               selectedConnections={selectedConnections} setSelectedConnections={setSelectedConnections}
-              disabled={Boolean(busy)} canRemoveFromChat={!dirty && !busy && !hasRouteSelection}
-              onRemoveFromChat={() => void act('native-chat')} />
+              disabled={Boolean(busy)} canUpdateChat={canUpdateChat} />
           </>}
         </div>}
       </div>)}
@@ -452,14 +461,14 @@ function capabilityName(label?: string) {
 
 function ProfileAvailability({
   draftAudience, publishedAudience, profileKey, connections, bindings, offeredInChat,
-  offerInChat, setOfferInChat, selectedConnections, setSelectedConnections, disabled,
-  canRemoveFromChat, onRemoveFromChat,
+  offerInChat, onToggleChat, selectedConnections, setSelectedConnections, disabled,
+  canUpdateChat,
 }: {
   draftAudience: Audience; publishedAudience?: Audience; profileKey: string;
   connections: ProfileSettings['connections']; bindings: ProfileSettings['bindings'];
-  offeredInChat: boolean; offerInChat: boolean; setOfferInChat: (value: boolean) => void;
+  offeredInChat: boolean; offerInChat: boolean; onToggleChat: () => void;
   selectedConnections: string[]; setSelectedConnections: (value: string[]) => void;
-  disabled: boolean; canRemoveFromChat: boolean; onRemoveFromChat: () => void;
+  disabled: boolean; canUpdateChat: boolean;
 }) {
   const shownConnections = connections.filter(connection =>
     !connection.verification_path &&
@@ -467,7 +476,7 @@ function ProfileAvailability({
   const missingAssignments = Object.entries(bindings).filter(([id, key]) =>
     key === profileKey && !shownConnections.some(connection => connection.id === id)).length;
   const showWorkspaceChat = draftAudience === 'staff' || offeredInChat;
-  const chatStatus = offeredInChat ? 'Offered' : 'Not offered';
+  const chatStatus = offeredInChat ? 'Offered' : offerInChat ? 'On publish' : 'Not offered';
 
   return <section aria-label="Availability" className="flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-4">
     <div className="flex flex-col gap-1">
@@ -481,14 +490,18 @@ function ProfileAvailability({
         <Text as="h5" variant="body-sm" weight="semibold">Workspace chat</Text>
         <StatusBadge tone={offeredInChat ? 'success' : 'neutral'}>{chatStatus}</StatusBadge>
       </div>
-      {offeredInChat ? <>
-        <Text as="p" variant="body-sm" tone="muted">Eligible workspace members can choose this published profile in the assistant picker.</Text>
-        <div><Button size="sm" variant="secondary" disabled={!canRemoveFromChat} onClick={onRemoveFromChat}>Remove from workspace chat</Button></div>
-      </> : <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={offerInChat} disabled={disabled} onChange={event => setOfferInChat(event.target.checked)} />
-        Offer in workspace chat when published
-      </label>}
-      <a href="/settings#agent-profiles" target="_blank" rel="noreferrer" className="self-start text-sm underline">Manage workspace chat profiles</a>
+      <label className="flex items-center gap-2">
+        <input type="checkbox" role="switch" checked={offeredInChat || offerInChat}
+          disabled={disabled || ((offeredInChat || publishedAudience === 'staff') && !canUpdateChat)}
+          onChange={onToggleChat} />
+        <Text as="span" variant="body-sm" weight="medium">Show in workspace chat</Text>
+      </label>
+      <Text as="p" variant="body-sm" tone="muted">
+        {publishedAudience === 'staff' || offeredInChat
+          ? 'Eligible workspace members can choose this profile in the assistant picker. Existing conversations keep their assigned profile.'
+          : 'This setting takes effect when you publish a workspace profile.'}
+      </Text>
+      <a href="/agent" className="self-start text-sm underline">Open workspace chat</a>
     </div>}
     {(shownConnections.length > 0 || missingAssignments > 0) && <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-[var(--border-subtle)] p-3">
       <Text as="h5" variant="body-sm" weight="semibold">External connections</Text>
@@ -592,7 +605,7 @@ function WorkspaceAssistantEditor({ workspaceId, revision, identity, title, work
   const [leave, setLeave] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const backButton = useRef<HTMLButtonElement>(null);
+  const backButton = useRef<HTMLElement | null>(null);
   const keepEditing = useRef<HTMLButtonElement>(null);
   const value = edit?.name ?? identity.name;
   const originalPersona = identity.persona ?? '';
@@ -637,7 +650,7 @@ function WorkspaceAssistantEditor({ workspaceId, revision, identity, title, work
     }
   }
 
-  return <ProfileScreen title={title} workspaceLabel={workspaceLabel} busy={busy} backRef={backButton}
+  return <ProfileScreen title={title} workspaceLabel={workspaceLabel} busy={busy || readingAvatar} backRef={backButton}
     back={() => dirty ? setLeave(true) : back()}>
     <div><StatusBadge>Default Workspace Assistant</StatusBadge></div>
     {leave && <div className="flex flex-wrap items-center gap-2" role="status">

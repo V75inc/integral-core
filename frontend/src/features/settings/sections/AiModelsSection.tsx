@@ -7,7 +7,7 @@ import { AiConfigurationSection } from "./AiConfigurationSection";
 
 export function AiModelsSection({
   initialCategory,
-}: { initialCategory?: "speech-to-text" | "realtime-voice" } = {}) {
+}: { initialCategory?: "embeddings" | "speech-to-text" | "realtime-voice" } = {}) {
   return (
     <div className="flex flex-col gap-6">
       <div>

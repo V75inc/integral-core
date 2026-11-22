@@ -5,6 +5,7 @@ import { PageMeta } from '../../../components/ui';
  * from this surface.
  */
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 
 import {
   retrievalConfigApi,
@@ -46,7 +47,10 @@ export function RetrievalConfigSection({ embedded }: RetrievalConfigSectionProps
           <>
             <SettingsField
               label="Pre-load AI model"
-              hint="When enabled, the semantic model is ready the moment Integral starts."
+              hint={<>
+                When enabled, the semantic model is ready the moment Integral starts.
+                {embedded && <> <Link to="/settings#embedding-models" className="underline">Manage embedding model</Link></>}
+              </>}
               inline
             >
               {data.embedding_model_eager_load ? (

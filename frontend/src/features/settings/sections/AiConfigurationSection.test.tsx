@@ -6,9 +6,20 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { Link, MemoryRouter, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { aiConfigurationApi } from "../../../api/aiConfiguration";
 import { AiConfigurationSection } from "./AiConfigurationSection";
+import { RetrievalConfigSection } from "./RetrievalConfigSection";
+
+vi.mock("../../../api/retrievalConfig", () => ({
+  retrievalConfigApi: {
+    get: vi.fn().mockResolvedValue({
+      embedding_model_eager_load: true, retrieve_k_default: 100,
+      retrieve_top_n_default: 20, embedding_store_backend: "pgvector",
+    }),
+  },
+}));
 
 it("shows model-specific Max effort without inventing intermediate levels", async () => {
   vi.mocked(aiConfigurationApi.capabilities).mockResolvedValue({
@@ -152,17 +163,27 @@ vi.mock("../../../api/modelCredentials", async (original) => ({
 vi.mock("../../../context/ToastContext", () => ({
   useToast: () => ({ showToast: fixture.showToast }),
 }));
-function show({ language = true } = {}) {
+function show({
+  advanced = true, catalog = true, language = true, initialCategory,
+}: {
+  advanced?: boolean; catalog?: boolean; language?: boolean;
+  initialCategory?: "speech-to-text" | "realtime-voice";
+} = {}) {
   const result = render(
     <QueryClientProvider
       client={
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
       }
     >
-      <AiConfigurationSection />
+      <AiConfigurationSection initialCategory={initialCategory} />
     </QueryClientProvider>,
   );
-  if (language && screen.queryByRole("button", { name: "Language & multimodal" })) fireEvent.click(screen.getByRole("button", { name: "Language & multimodal" }));
+  const advancedToggle = screen.queryByRole("button", { name: "Advanced Configuration" });
+  if (advanced && advancedToggle?.getAttribute("aria-expanded") === "false") fireEvent.click(advancedToggle);
+  const catalogToggle = screen.queryByRole("button", { name: "Providers & Models" });
+  if (catalog && catalogToggle?.getAttribute("aria-expanded") === "false") fireEvent.click(catalogToggle);
+  const languageToggle = screen.queryByRole("button", { name: "Language & multimodal" });
+  if (language && languageToggle?.getAttribute("aria-expanded") === "false") fireEvent.click(languageToggle);
   return result;
 }
 beforeEach(() => {
@@ -412,11 +433,101 @@ it("starts categories collapsed and opens one at a time", () => {
 });
 
 
-it("shows provider setup and advanced model categories without an extra disclosure", () => {
-  show({ language: false });
+it("keeps Quick Setup visible while both advanced controls start closed independently", () => {
+  show({ advanced: false, catalog: false, language: false });
+  const advanced = screen.getByRole("button", { name: "Advanced Configuration" });
   expect(screen.getByText("Your AI is connected")).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Advanced configuration" })).toBeVisible();
+  expect(advanced).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("button", { name: "Providers & Models" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Model assignments" })).not.toBeInTheDocument();
+
+  fireEvent.click(advanced);
+  const catalog = screen.getByRole("button", { name: "Providers & Models" });
+  const assignments = screen.getByRole("region", { name: "Model assignments" });
+  expect(advanced).toHaveAttribute("aria-expanded", "true");
+  expect(catalog).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("tablist", { name: "AI configuration" })).not.toBeInTheDocument();
+  expect(catalog.compareDocumentPosition(assignments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(assignments).getByRole("button", { name: "Speech to Text" })).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(catalog);
   expect(screen.getByRole("tablist", { name: "AI configuration" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Speech to Text" })).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByRole("button", { name: /show advanced configuration/i })).not.toBeInTheDocument();
+  fireEvent.click(catalog);
+  expect(screen.queryByRole("tablist", { name: "AI configuration" })).not.toBeInTheDocument();
+  expect(assignments).toBeVisible();
+  expect(screen.getByText("Your AI is connected")).toBeVisible();
+});
+
+it("opens only the relevant assignment when following a legacy settings link", () => {
+  show({ advanced: false, catalog: false, language: false, initialCategory: "speech-to-text" });
+  expect(screen.getByRole("button", { name: "Advanced Configuration" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "Providers & Models" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("button", { name: "Speech to Text" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "Realtime Voice" })).toHaveAttribute("aria-expanded", "false");
+});
+
+it("puts Deployment Limits last and opens it independently of Advanced Configuration", () => {
+  show({ advanced: false, catalog: false, language: false });
+  const advanced = screen.getByRole("button", { name: "Advanced Configuration" });
+  const limits = screen.getByRole("button", { name: "Deployment Limits" });
+  expect(advanced.compareDocumentPosition(limits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(advanced).toHaveClass("min-h-24", "w-full");
+  expect(limits).toHaveClass("min-h-24", "w-full");
+  expect(limits).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(limits);
+  const content = screen.getByRole("region", { name: "Deployment Limits" });
+  expect(limits).toHaveAttribute("aria-expanded", "true");
+  expect(advanced).toHaveAttribute("aria-expanded", "false");
+  expect(content).toHaveTextContent(/20 model requests, 32 tool calls.*1,200,000 total tokens and 15 minutes per turn/);
+  expect(content).toHaveTextContent("Approval and access checks always apply.");
+  fireEvent.click(limits);
+  expect(screen.queryByRole("region", { name: "Deployment Limits" })).not.toBeInTheDocument();
+});
+
+it("opens Advanced and Embeddings from Search, then scrolls only once mounted on each visit", async () => {
+  const scroll = vi.fn(function (this: HTMLElement) {
+    expect(this).toHaveAttribute("id", "embedding-models-heading");
+    expect(this).toHaveAttribute("aria-expanded", "true");
+    expect(this.closest("[hidden]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Advanced Configuration" })).toHaveAttribute("aria-expanded", "true");
+  });
+  const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+  function SettingsRouteFixture() {
+    const { hash } = useLocation();
+    if (hash === "#retrieval") return <RetrievalConfigSection embedded />;
+    return <>
+      <Link to="/settings#retrieval">Return to Search</Link>
+      <AiConfigurationSection key={hash} initialCategory={hash === "#embedding-models" ? "embeddings" : undefined} />
+    </>;
+  }
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const page = () => <QueryClientProvider client={client}>
+    <MemoryRouter initialEntries={["/settings#ai-models"]}><SettingsRouteFixture /></MemoryRouter>
+  </QueryClientProvider>;
+  try {
+    const view = render(page());
+    expect(screen.getByRole("button", { name: "Advanced Configuration" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("link", { name: "Return to Search" }));
+    const link = await screen.findByRole("link", { name: "Manage embedding model" });
+    fixture.isPending = true;
+    fireEvent.click(link);
+    expect(screen.getByText("Loading your models")).toBeVisible();
+    expect(scroll).not.toHaveBeenCalled();
+    fixture.isPending = false;
+    view.rerender(page());
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Embeddings" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Embeddings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced Configuration" }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("link", { name: "Return to Search" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Manage embedding model" }));
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
+  } finally {
+    if (previous) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", previous);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
 });

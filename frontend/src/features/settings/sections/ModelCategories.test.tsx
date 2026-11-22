@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EmbeddingConfiguration } from "./EmbeddingConfiguration";
 import { VoiceConfiguration } from "./VoiceConfiguration";
 import { RealtimeVoiceConfiguration } from "./RealtimeVoiceConfiguration";
+import { ModelRoutingSection } from "./ModelRoutingSection";
 import {
   embeddingConfigurationApi,
   realtimeVoiceConfigurationApi,
@@ -224,4 +225,43 @@ it("keeps assigned realtime model visible to a non-editor", async () => {
   show(<RealtimeVoiceConfiguration connections={[]} profiles={profiles} />);
   expect(await screen.findByText("Active: gpt-realtime-mini")).toBeInTheDocument();
   expect(screen.queryByRole("combobox", { name: "Realtime model" })).not.toBeInTheDocument();
+});
+
+
+it("uses the same assignment label, active readout and selector for Main, Speech to Text and Realtime", async () => {
+  vi.mocked(voiceConfigurationApi.get).mockResolvedValue({
+    workspace_id: "workspace", editable: true, revision: 2, effective_provider: "openai",
+    effective_model: "gpt-4o-mini-transcribe",
+    configuration: { mode: "provider", model: "gpt-4o-mini-transcribe", connection_id: "openai" },
+  });
+  vi.mocked(realtimeVoiceConfigurationApi.get).mockResolvedValue({
+    editable: true, revision: 6, effective_model: "gpt-realtime-2.1-mini",
+    configuration: { mode: "provider", model: "gpt-realtime-2.1-mini", connection_id: "openai" },
+  });
+  show(<>
+    <ModelRoutingSection inline onEdit={vi.fn()} data={{
+      connections, profiles: [
+        ...profiles.filter(p => p.id === "chat"),
+        { ...profiles[2], id: "second-chat", model: "gpt-6.2-sol" },
+      ],
+      default_profile_id: "chat", key_policy: "hybrid",
+      effective: { workspace_id: "workspace", source: "workspace_owner", editable: true, provider: "openai", model: "gpt-6.1-sol", generation_settings: {} },
+      harness_limits: { request_limit: 20, token_limit: 1000, run_seconds: 60, request_timeout: 60, idle_timeout: 30 },
+    }} />
+    <VoiceConfiguration connections={connections} profiles={profiles} />
+    <RealtimeVoiceConfiguration connections={connections} profiles={profiles} />
+  </>);
+  const main = await screen.findByRole("combobox", { name: "Main model" });
+  expect(screen.getByRole("option", { name: "Chat model · Saved OpenAI · gpt-6.1-sol" })).toHaveValue("chat");
+  expect(screen.getByRole("option", { name: "Chat model · Saved OpenAI · gpt-6.2-sol" })).toHaveValue("second-chat");
+  for (const [label, active, name] of [
+    ["Main model", "gpt-6.1-sol", "Chat model"],
+    ["Transcription model", "gpt-4o-mini-transcribe", "STT model"],
+    ["Realtime model", "gpt-realtime-2.1-mini", "Live model"],
+  ]) {
+    const select = await screen.findByRole("combobox", { name: label });
+    expect(select).toHaveAccessibleDescription(`Active: ${active}`);
+    expect(select.parentElement?.className).toBe(main.parentElement?.className);
+    expect((select as HTMLSelectElement).selectedOptions[0]).toHaveTextContent(`${name} · Saved OpenAI · ${active}`);
+  }
 });

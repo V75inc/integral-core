@@ -1,11 +1,11 @@
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { AgentProfilesSection } from './AgentProfilesSection';
 
 const mocks = vi.hoisted(() => ({
   scope: { activeWorkspace: { id: 'ws', name: 'Test Workspace', your_role: 'owner' } },
-  get: vi.fn(), save: vi.fn(), action: vi.fn(), create: vi.fn(), publish: vi.fn(), renameWorkspaceAssistant: vi.fn(),
+  get: vi.fn(), save: vi.fn(), action: vi.fn(), create: vi.fn(), publish: vi.fn(), renameWorkspaceAssistant: vi.fn(), setNativeChatProfiles: vi.fn(),
 }));
 vi.mock('../../../context/ScopeContext', () => ({ useScopeOptional: () => mocks.scope }));
 vi.mock('../../../api/connectionProfiles', () => ({ connectionProfilesApi: mocks }));
@@ -65,12 +65,12 @@ it('lands in the index and keeps edits isolated when opening another profile', a
   expect(screen.queryByLabelText('Profile name')).not.toBeInTheDocument();
   await open('Public');
   fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'Unsaved public name' } });
-  click('Back to profiles');
+  click('Close');
   expect(screen.getByText('Discard unsaved changes?')).toBeVisible();
   click('Discard and go back');
   await open('Staff');
   expect(screen.getByLabelText('Profile name')).toHaveValue('Staff');
-  click('Back to profiles');
+  click('Close');
   await open('Public');
   expect(screen.getByLabelText('Profile name')).toHaveValue('Public');
 });
@@ -82,7 +82,7 @@ it('uses shared identity controls for the Workspace Assistant and saves through 
   const avatar = screen.getByRole('button', { name: 'Choose avatar' });
   expect(avatar.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByText('Brief description')).toBeVisible();
-  expect(screen.getByText('Your workspace assistant')).toBeVisible();
+  expect(within(screen.getByRole('dialog', { name: 'Integral AI' })).getByText('Your workspace assistant')).toBeVisible();
   expect(screen.queryByRole('textbox', { name: 'Brief description' })).not.toBeInTheDocument();
   expect(screen.getByRole('textbox', { name: 'Persona' })).toHaveValue('');
   expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
@@ -100,7 +100,7 @@ it('uses shared identity controls for the Workspace Assistant and saves through 
   expect(mocks.renameWorkspaceAssistant).toHaveBeenCalledWith('ws', 1, 'Workspace guide', { persona: 'Keep answers brief.' });
   expect(mocks.save).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Save assistant' })).toBeDisabled();
-  click('Back to profiles');
+  click('Close');
   await open('Workspace guide');
   expect(screen.getByRole('textbox', { name: 'Persona' })).toHaveValue('Keep answers brief.');
 });
@@ -113,16 +113,20 @@ it('opens a newly created profile and shows it again in the index', async () => 
     profiles: { ...settings.profiles, new: { draft: { ...staff, key: 'new', audience: 'staff', name: 'Field guide' } } },
   });
   click('New profile');
+  const dialog = screen.getByRole('dialog', { name: 'New profile' });
   fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'Field guide' } });
   fireEvent.change(screen.getByLabelText('Brief description'), { target: { value: 'A short guide' } });
   fireEvent.change(screen.getByLabelText('Persona'), { target: { value: 'Keep it practical.' } });
   expect(screen.getByRole('switch', { name: 'Public' })).toHaveAttribute('aria-checked', 'false');
   click('Save draft');
   await waitFor(() => expect(mocks.create).toHaveBeenCalledWith('ws', 1, expect.objectContaining({ audience: 'staff', description: 'A short guide', persona: 'Keep it practical.' })));
-  expect(await screen.findByRole('heading', { name: 'Field guide' })).toBeVisible();
+  expect(await screen.findByRole('dialog', { name: 'Field guide' })).toBe(dialog);
+  expect(within(dialog).getByText('Draft saved.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Configure Field guide' })).toBeVisible();
   expect(screen.getByLabelText('Profile name')).toHaveValue('Field guide');
-  click('Back to profiles');
+  click('Close');
   expect(await screen.findByRole('button', { name: 'Configure Field guide' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'New profile' })).toHaveFocus();
 });
 
 it('uses primary Next on both steps and disables secondary Save for pristine, reverted, and saved drafts', async () => {
@@ -137,7 +141,7 @@ it('uses primary Next on both steps and disables secondary Save for pristine, re
   expect(save()).toBeEnabled();
   fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: '' } });
   expect(save()).toBeDisabled();
-  click('Back to profiles');
+  click('Close');
   await open('Public');
   expect(save()).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Brief description'), { target: { value: 'Keep this' } });
@@ -193,17 +197,39 @@ it('shows active routes and sends only new eligible selections through Publish',
   await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith('ws', 3, 'staff', false, ['ready']));
 });
 
-it('places the shared back control above the base and create titles and restores opener focus', async () => {
+it('keeps the index visible and restores focus when closing the workspace assistant dialog', async () => {
   mount();
-  for (const [opener, title] of [['Configure Integral AI', 'Integral AI'], ['New profile', 'New profile']]) {
-    const indexButton = await screen.findByRole('button', { name: opener });
-    fireEvent.click(indexButton);
-    const back = screen.getByRole('button', { name: 'Back to profiles' });
-    const heading = screen.getByRole('heading', { name: title });
-    expect(back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(back);
-    expect(await screen.findByRole('button', { name: opener })).toHaveFocus();
-  }
+  const opener = await screen.findByRole('button', { name: 'Configure Integral AI' });
+  opener.focus();
+  fireEvent.click(opener);
+  const dialog = screen.getByRole('dialog', { name: 'Integral AI' });
+  expect(dialog).toContainElement(screen.getByRole('heading', { name: 'Integral AI', level: 2 }));
+  expect(screen.getByRole('heading', { name: 'Agent profiles' })).toBeVisible();
+  click('Close');
+  expect(screen.queryByRole('dialog', { name: 'Integral AI' })).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
+});
+
+it('opens creation over the card grid and guards unsaved changes on Escape', async () => {
+  mount();
+  const opener = await screen.findByRole('button', { name: 'New profile' });
+  const grid = screen.getByRole('list', { name: 'Agent profiles' });
+  fireEvent.click(opener);
+  const dialog = screen.getByRole('dialog', { name: 'New profile' });
+  expect(grid).toBeVisible();
+  expect(within(dialog).getByRole('heading', { name: 'New profile', level: 2 })).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'New draft' } });
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(dialog).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus();
+  click('Keep editing');
+  expect(screen.getByLabelText('Profile name')).toHaveValue('New draft');
+  click('Close');
+  click('Discard and go back');
+  expect(dialog).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
+  expect(screen.getByRole('list', { name: 'Agent profiles' })).toBe(grid);
+  expect(mocks.create).not.toHaveBeenCalled();
 });
 
 it('shows avatar and instructions directly and saves an explicit preset as a draft', async () => {
@@ -224,12 +250,12 @@ it('shows avatar and instructions directly and saves an explicit preset as a dra
 });
 
 it('takes a local file for avatar preview and sends it only on save', async () => {
-  const { container } = mount();
+  mount();
   await open('Public');
   const image = new File([Uint8Array.from(atob(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+k/GsAAAAASUVORK5CYII='
   ), character => character.charCodeAt(0))], 'fixture.png', { type: 'image/png' });
-  fireEvent.change(container.querySelector('input[type=file]')!, { target: { files: [image] } });
+  fireEvent.change(screen.getByRole('dialog', { name: 'Public' }).querySelector('input[type=file]')!, { target: { files: [image] } });
   await waitFor(() => expect(screen.getByRole('img', { name: 'Avatar preview' }).querySelector('img')).toBeInTheDocument());
   const preview = screen.getByRole('img', { name: 'Avatar preview' }).querySelector('img')?.getAttribute('src');
   expect(preview).toMatch(/^data:image\/png;base64,/);
@@ -278,9 +304,8 @@ it('preserves the edited revision and field value after a server refetch and sav
 it('moves between tabs with the keyboard, retains edits, and returns focus to the row', async () => {
   mount();
   await open('Public');
-  const back = screen.getByRole('button', { name: 'Back to profiles' });
-  const heading = screen.getByRole('heading', { name: 'Public' });
-  expect(back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const dialog = screen.getByRole('dialog', { name: 'Public' });
+  expect(dialog).toContainElement(screen.getByRole('tablist', { name: 'Profile editor' }));
   fireEvent.change(screen.getByLabelText('Brief description'), { target: { value: 'Still here' } });
   const identity = screen.getByRole('tab', { name: 'Identity' });
   const capabilities = screen.getByRole('tab', { name: 'Capabilities' });
@@ -291,8 +316,12 @@ it('moves between tabs with the keyboard, retains edits, and returns focus to th
   expect(screen.getByRole('tabpanel', { name: 'Capabilities' })).toHaveAttribute('id', capabilities.getAttribute('aria-controls'));
   fireEvent.keyDown(capabilities, { key: 'Home' });
   expect(screen.getByLabelText('Brief description')).toHaveValue('Still here');
-  click('Back to profiles');
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(dialog).toBeVisible();
   expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus();
+  click('Keep editing');
+  expect(screen.getByLabelText('Brief description')).toHaveValue('Still here');
+  click('Close');
   click('Discard and go back');
   expect(screen.getByRole('button', { name: 'Configure Public' })).toHaveFocus();
 });
@@ -317,4 +346,50 @@ it('lists unavailable allowed and blocked tasks and removes them only after an e
   mocks.save.mockResolvedValue(settings);
   click('Save draft');
   await waitFor(() => expect(mocks.save).toHaveBeenCalledWith('ws', 1, expect.objectContaining({ tools: ['read'], omissions: [] })));
+});
+
+it('shows one card for each profile and manages published staff availability without republishing', async () => {
+  const published = { ...settings, revision: 7, native_chat_profiles: ['other'], profiles: {
+    ...settings.profiles, staff: { draft: staff, published: { ...staff, version: 2 } },
+  } };
+  mocks.get.mockResolvedValue(published);
+  mocks.setNativeChatProfiles
+    .mockResolvedValueOnce({ ...published, revision: 8, native_chat_profiles: ['other', 'staff'] })
+    .mockResolvedValueOnce({ ...published, revision: 9 });
+  mount();
+  const grid = await screen.findByRole('list', { name: 'Agent profiles' });
+  expect(within(grid).getAllByRole('listitem')).toHaveLength(3);
+  const header = screen.getByRole('heading', { name: 'Agent profiles', level: 2 }).closest('header');
+  expect(header).toContainElement(screen.getByRole('button', { name: 'New profile' }));
+  expect(grid.parentElement).not.toContainElement(screen.getByRole('button', { name: 'New profile' }));
+  expect(screen.queryByText('Workspace assistants and public profiles')).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Workspace chat profiles' })).not.toBeInTheDocument();
+  await open('Staff');
+  selectTab('Publish');
+  const toggle = screen.getByRole('switch', { name: 'Show in workspace chat' });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  await waitFor(() => expect(toggle).toBeChecked());
+  expect(mocks.setNativeChatProfiles).toHaveBeenNthCalledWith(1, 'ws', 7, ['other', 'staff']);
+  fireEvent.click(toggle);
+  await waitFor(() => expect(toggle).not.toBeChecked());
+  expect(mocks.setNativeChatProfiles).toHaveBeenNthCalledWith(2, 'ws', 8, ['other']);
+  expect(mocks.publish).not.toHaveBeenCalled();
+  click('Close');
+  await open('Public');
+  selectTab('Publish');
+  expect(screen.queryByRole('switch', { name: 'Show in workspace chat' })).not.toBeInTheDocument();
+});
+
+it('only stages workspace chat availability until the first publication succeeds', async () => {
+  mocks.publish.mockResolvedValue(settings);
+  mount();
+  await open('Staff');
+  selectTab('Publish');
+  fireEvent.click(screen.getByRole('switch', { name: 'Show in workspace chat' }));
+  expect(mocks.setNativeChatProfiles).not.toHaveBeenCalled();
+  expect(mocks.publish).not.toHaveBeenCalled();
+  expect(screen.getByText('On publish')).toBeVisible();
+  click('Publish profile');
+  await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith('ws', 1, 'staff', true, []));
 });

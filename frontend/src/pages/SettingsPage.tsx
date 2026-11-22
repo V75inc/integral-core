@@ -225,6 +225,12 @@ const SECTIONS: Section[] = [
     render: () => <SharingSection />,
   },
   {
+    id: 'embedding-models',
+    label: 'Embeddings',
+    icon: Brain,
+    render: () => <AiModelsSection key="embeddings" initialCategory="embeddings" />,
+  },
+  {
     id: 'voice-input',
     label: 'Speech to Text',
     keywords: 'voice input STT dictation microphone',
@@ -238,18 +244,15 @@ const SECTIONS: Section[] = [
   },
 ];
 
-const DETAIL_PARENTS: Record<string, string> = { 'connector-library': 'connectors', whatsapp: 'connectors', 'voice-input': 'ai-models', 'realtime-voice': 'ai-models' };
+const DETAIL_PARENTS: Record<string, string> = { 'connector-library': 'connectors', whatsapp: 'connectors', 'embedding-models': 'ai-models', 'voice-input': 'ai-models', 'realtime-voice': 'ai-models' };
 
-type SettingsGroup = { label: string; groups: { label?: string; ids: string[] }[] };
+type SettingsGroup = { label: string; ids: string[] };
 const GROUPS: SettingsGroup[] = [
-  { label: 'Your account', groups: [{ ids: ['profile', 'appearance', 'notifications'] }] },
-  { label: 'AI & connections', groups: [
-    { label: 'Agent Setup', ids: ['ai-models', 'skills', 'agent-profiles'] },
-    { label: 'Integrations', ids: ['agents', 'connectors'] },
-  ] },
-  { label: 'Workspace', groups: [{ ids: ['retrieval', 'sharing', 'email'] }] },
-  { label: 'Governance', groups: [{ ids: ['policies', 'conflicts', 'audit-log'] }] },
-  { label: 'Help', groups: [{ ids: ['help'] }] },
+  { label: 'Your account', ids: ['profile', 'appearance', 'notifications'] },
+  { label: 'AI & connections', ids: ['ai-models', 'skills', 'agent-profiles', 'agents', 'connectors'] },
+  { label: 'Workspace', ids: ['retrieval', 'sharing', 'email'] },
+  { label: 'Governance', ids: ['policies', 'conflicts', 'audit-log'] },
+  { label: 'Help', ids: ['help'] },
 ];
 const SECTION_ALIASES: Record<string, string> = { about: 'help', 'get-started': 'help', channels: 'connectors', 'in-app-interfaces': 'agent-profiles' };
 
@@ -266,58 +269,44 @@ function SettingsNavigation({ sections, active, query, onQuery, onSelect }: {
   onQuery: (value: string) => void;
   onSelect: (id: string) => void;
 }) {
-  const known = new Set([...GROUPS.flatMap(g => g.groups.flatMap(subgroup => subgroup.ids)), ...Object.keys(DETAIL_PARENTS)]);
+  const known = new Set([...GROUPS.flatMap(group => group.ids), ...Object.keys(DETAIL_PARENTS)]);
   const groups: SettingsGroup[] = [...GROUPS, {
-    label: 'Extensions', groups: [{ ids: sections.filter(s => !known.has(s.id)).map(s => s.id) }],
+    label: 'Extensions', ids: sections.filter(section => !known.has(section.id)).map(section => section.id),
   }];
   const needle = query.trim().toLowerCase();
-  const filtered = groups.map(group => ({
-    ...group,
-    groups: group.groups.map(subgroup => {
-      const ids = needle ? subgroup.ids.flatMap(id => [id, ...Object.keys(DETAIL_PARENTS).filter(child => DETAIL_PARENTS[child] === id)]) : subgroup.ids;
-      return {
-        ...subgroup,
-        items: ids.map(id => sections.find(section => section.id === id)).filter((section): section is Section => Boolean(section))
-          .filter(section => !needle || `${section.label} ${section.keywords ?? ''} ${group.label} ${subgroup.label ?? ''}`.toLowerCase().includes(needle)),
-      };
-    }).filter(subgroup => subgroup.items.length),
-  })).filter(group => group.groups.length);
+  const filtered = groups.map(group => {
+    const ids = needle
+      ? group.ids.flatMap(id => [id, ...Object.keys(DETAIL_PARENTS).filter(child => DETAIL_PARENTS[child] === id)])
+      : group.ids;
+    const items = ids.map(id => sections.find(section => section.id === id))
+      .filter((section): section is Section => Boolean(section))
+      .filter(section => !needle || `${section.label} ${section.keywords ?? ''} ${group.label}`.toLowerCase().includes(needle));
+    return { label: group.label, items };
+  }).filter(group => group.items.length);
   return (
     <nav aria-label="Settings sections" className="flex flex-col gap-3">
       <Input aria-label="Find a setting" placeholder="Find a setting…" value={query} onChange={e => onQuery(e.target.value)} />
-      {filtered.map(group => {
-        const grouped = group.groups.some(subgroup => subgroup.label);
-        return (
-          <div key={group.label} role={grouped ? 'group' : undefined}
-            aria-label={grouped ? group.label : undefined} className="settings-nav-group">
-            <Text as="p" variant="body-sm" weight="semibold" className="settings-nav-group-label">
-              {group.label}
-            </Text>
-            <div className={grouped ? 'settings-nav-branch' : undefined}>
-              {group.groups.map(subgroup => (
-                <div key={subgroup.label ?? group.label} role={subgroup.label ? 'group' : undefined}
-                  aria-label={subgroup.label} className="flex flex-col">
-                  {subgroup.label && (
-                    <Text as="p" variant="label" tone="muted" className="settings-nav-subheading">{subgroup.label}</Text>
-                  )}
-                  {subgroup.items.map(section => {
-                    const Icon = section.icon;
-                    const selected = section.id === active || (!needle && DETAIL_PARENTS[active] === section.id);
-                    return (
-                      <button key={section.id} type="button" onClick={() => onSelect(section.id)}
-                        aria-current={selected ? 'page' : undefined}
-                        className={`settings-nav-row inline-flex w-full items-center gap-2 rounded-[var(--radius-input)] text-left transition-colors ${grouped ? 'min-h-9 px-3 py-1.5' : 'min-h-10 px-3 py-2'} ${selected ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'settings-nav-item'}`}>
-                        <Icon size={16} strokeWidth={1.75} aria-hidden />
-                        <Text as="span" variant="body-sm" tone={selected ? 'inherit' : 'muted'}>{section.label}</Text>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
+      {filtered.map(group => (
+        <div key={group.label} role="group" aria-label={group.label} className="settings-nav-group">
+          <Text as="p" variant="body-sm" weight="semibold" className="settings-nav-group-label">
+            {group.label}
+          </Text>
+          <div className="flex flex-col">
+            {group.items.map(section => {
+              const Icon = section.icon;
+              const selected = section.id === active || (!needle && DETAIL_PARENTS[active] === section.id);
+              return (
+                <button key={section.id} type="button" onClick={() => onSelect(section.id)}
+                  aria-current={selected ? 'page' : undefined}
+                  className={`settings-nav-row inline-flex min-h-10 w-full items-center gap-2 rounded-[var(--radius-input)] px-3 py-2 text-left transition-colors ${selected ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'settings-nav-item'}`}>
+                  <Icon size={16} strokeWidth={1.75} aria-hidden />
+                  <Text as="span" variant="body-sm" tone={selected ? 'inherit' : 'muted'}>{section.label}</Text>
+                </button>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
       {!filtered.length && <Text as="p" variant="body-sm" tone="muted">No matching settings.</Text>}
     </nav>
   );

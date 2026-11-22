@@ -79,10 +79,10 @@ export function BackgroundTasksPage() {
         <PageHeading className="mb-8 md:mb-10 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip">Background Tasks</PageHeading>
       </PageSection>
 
-      {workspaceId && <PageSection>
-        <WorkItemsSection key={workspaceId} workspaceId={workspaceId} />
-      </PageSection>}
-      <PageSection className="mt-8">
+      <PageSection.Separator />
+
+      <PageSection className="mt-8" innerClassName="grid gap-8">
+        {workspaceId && <WorkItemsSection key={workspaceId} workspaceId={workspaceId} />}
         <Surface id="scheduled-routines" as="section" aria-label="Scheduled routines" tone="panel" border="subtle" radius="card" padding="lg">
           <header className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1 basis-64">

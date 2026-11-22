@@ -15,6 +15,7 @@ import {
 import { MODEL_CREDENTIALS_QUERY_KEY } from "../../../api/modelCredentials";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { useToast } from "../../../context/ToastContext";
+import { ModelAssignmentField, profileAssignmentLabel } from "./ModelAssignmentField";
 import { LINE_ICON_STROKE } from "../../../components/ui/IconWell";
 
 function ModelRoleReadout({
@@ -266,48 +267,41 @@ export function ModelRoutingSection({
           (choice.mode === "single" || selected(choice.light_profile_id))) save.mutate(choice);
     }}>
       <Stack gap="md">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <Stack gap="xs">
-            <Text weight="medium">Chat and reasoning</Text>
-            <Text variant="body-sm" tone="muted">
-              Active: {effective?.heavy_model || data.effective.model || "No model assigned"}
-              {data.effective.source === "deployment" ? " · Server default" : ""}
-              {dual && effective.light_model ? ` · Light: ${effective.light_model}` : ""}
-            </Text>
-          </Stack>
-          {selected(routing.heavy_profile_id) && data.effective.source === "workspace_owner" && !disabled && (
-            <Button type="button" variant="ghost" size="sm" disabled={save.isPending}
-              onClick={() => editFromRouting(selected(routing.heavy_profile_id)!)}>
-              {dual ? "Heavy model settings" : "Model settings"}
-            </Button>
-          )}
-        </div>
-        <fieldset disabled={disabled || save.isPending} className="grid min-w-0 gap-3 sm:grid-cols-2">
-          <Text as="label" variant="body-sm" className="flex min-w-0 flex-col gap-1">
-            Routing mode
-            <Select value={choice.mode} onChange={e => setDraft({ ...choice, mode: e.target.value as ModelRouting["mode"] })}>
+        <fieldset disabled={disabled || save.isPending} className="grid min-w-0 gap-3">
+          <ModelAssignmentField
+            label="Routing mode"
+            value={choice.mode}
+            onChange={mode => setDraft({ ...choice, mode: mode as ModelRouting["mode"] })}
+            options={<>
               <option value="single">Single model</option>
               <option value="light_heavy">Light + Heavy</option>
-            </Select>
-          </Text>
+            </>}
+          />
           {(choice.mode === "light_heavy" ? ["heavy", "light"] : ["heavy"]).map(role => {
             const key = role === "light" ? "light_profile_id" : "heavy_profile_id";
             const activeProfile = selected(routing[key]);
+            const activeModel = role === "light"
+              ? (dual && effective.light_model) || "No model assigned"
+              : `${effective?.heavy_model || data.effective.model || "No model assigned"}${data.effective.source === "deployment" ? " · Server default" : ""}`;
             return (
-              <div className="flex min-w-0 items-end gap-2" key={role}>
-                <Text as="label" variant="body-sm" className="flex min-w-0 flex-1 flex-col gap-1">
-                  {role === "light" ? "Light model" : choice.mode === "single" ? "Main model" : "Heavy model"}
-                  <Select value={selected(choice[key]) ? choice[key] : ""} onChange={e => setDraft({ ...choice, [key]: e.target.value })}>
-                    <option value="" disabled>{role === "heavy" && data.effective.model ? `Current: ${data.effective.model}` : "Choose a saved model"}</option>
-                    {data.profiles.map(p => <option key={p.id} value={p.id} disabled={role === "heavy" && p.harness_policy?.tier === "light"}>
-                      {p.name === p.model ? p.name : `${p.name} · ${p.model}`}
-                    </option>)}
-                  </Select>
-                </Text>
-                {role === "light" && activeProfile && (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => editFromRouting(activeProfile)}>Light model settings</Button>
+              <ModelAssignmentField
+                key={role}
+                label={role === "light" ? "Light model" : choice.mode === "single" ? "Main model" : "Heavy model"}
+                active={activeModel}
+                value={selected(choice[key]) ? choice[key] : ""}
+                onChange={id => setDraft({ ...choice, [key]: id })}
+                options={<>
+                  <option value="" disabled>{role === "heavy" && data.effective.model ? `Current: ${data.effective.model}` : "Choose a saved model"}</option>
+                  {data.profiles.map(p => <option key={p.id} value={p.id} disabled={role === "heavy" && p.harness_policy?.tier === "light"}>
+                    {profileAssignmentLabel(p, data.connections)}
+                  </option>)}
+                </>}
+                secondary={activeProfile && !disabled && (role === "light" || data.effective.source === "workspace_owner") && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => editFromRouting(activeProfile)}>
+                    {role === "light" ? "Light model settings" : dual ? "Heavy model settings" : "Model settings"}
+                  </Button>
                 )}
-              </div>
+              />
             );
           })}
         </fieldset>

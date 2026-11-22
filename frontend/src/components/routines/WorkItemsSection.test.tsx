@@ -33,6 +33,15 @@ describe('Active workspace tasks', () => {
     await screen.findByText('Older update failed');
     expect(list).toHaveBeenCalledWith('workspace-1', 'next');
   });
+  it('conceals optional chat title jobs even when running or failed', async () => {
+    list.mockResolvedValueOnce({ items: [
+      { ...activeUpdate, work_item_id: 'title-running', kind: 'chat_title' },
+      { ...failedUpdate, work_item_id: 'title-failed', kind: 'chat_title' },
+    ], next_cursor: null });
+    renderWithRouter(<WorkItemsSection workspaceId="workspace-1" />);
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Active workspace tasks' })).not.toBeInTheDocument());
+    expect(list).toHaveBeenCalledOnce();
+  });
   it('keeps pagination available when the first page contains only routine history', async () => {
     list.mockResolvedValueOnce({ items: [routineRun], next_cursor: 'older' }).mockResolvedValueOnce({ items: [failedUpdate], next_cursor: null });
     renderWithRouter(<WorkItemsSection workspaceId="workspace-1" />);
