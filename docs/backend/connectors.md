@@ -197,6 +197,11 @@ URL works. Once the full page passes, test the embed against the same host and
 profile, including approved and rejected origins and browsers that block
 third-party storage.
 
+**Settings visibility:** Owners and admins see Web Chat setup in Settings → Connectors only when the server confirms that the
+workspace transport is ready. Unready or unavailable channels remain hidden
+and do not appear in Connector Library. The setup dialog separates saving a
+published public profile from enabling the channel. It does not generate links.
+
 ### Sharing belongs to the same connector
 
 In the Web Chat connector's settings dialog, manage the selected published

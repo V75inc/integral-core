@@ -66,6 +66,11 @@ vi.mock('../../../../components/settings/QuickBooksConnectorSettings', () => ({
   ),
 }));
 
+vi.mock('../../../../api/connectionProfiles', () => ({
+  connectionProfilesApi: { publicWebChat: vi.fn(), assignPublicWebChat: vi.fn(), setPublicWebChatEnabled: vi.fn() },
+  publicWebChatSettingsKey: (id: string) => ['public-web-chat-settings', id],
+}));
+
 vi.mock('../../../../api/agentive', () => ({
   getWhatsAppChannelBinding: vi.fn(),
   listChannelIdentities: vi.fn(),
@@ -89,6 +94,7 @@ import {
   connectorsApi,
   type ConnectorResponse,
 } from '../../../../api/connectors';
+import { connectionProfilesApi } from '../../../../api/connectionProfiles';
 import { useAgentiveCapability } from '../../hooks/useAgentiveCapability';
 import { ConnectorsSection } from '../ConnectorsSection';
 import { ToastProvider } from '../../../../context/ToastContext';
@@ -165,6 +171,10 @@ beforeEach(() => {
     width: 240, height: 40, toJSON: () => ({}),
   });
   mockedScope.mockReturnValue(null);
+  vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
+    revision: 1, profile_key: null, enabled: false, transport_ready: false,
+    active: false, eligible_profiles: [],
+  });
   vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({ binding: null });
   vi.mocked(listChannelIdentities).mockResolvedValue({ identities: [] });
   // Default: agentive layer ON
@@ -364,6 +374,71 @@ describe('<ConnectorsSection />', () => {
       activeWorkspace: { your_role: 'owner' },
     } as NonNullable<ReturnType<typeof useScopeOptional>>);
   }
+
+  it('shows a manager setup status only when the server confirms readiness', async () => {
+    selectWorkspace('shared');
+    vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
+      revision: 2, profile_key: 'public', enabled: true, transport_ready: true,
+      active: true, eligible_profiles: [{ key: 'public', name: 'Visitor guide' }],
+    });
+    renderPanel();
+    expect(await screen.findByText('Assigned profile: Visitor guide')).toBeVisible();
+    expect(screen.getByText('Active')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /enable|publish|share/i })).not.toBeInTheDocument();
+    expect(connectionProfilesApi.publicWebChat).toHaveBeenCalledWith('shared');
+    fireEvent.click(screen.getByRole('button', { name: 'Open Agent profiles' }));
+    expect(screen.getByTestId('settings-hash')).toHaveTextContent('#agent-profiles');
+  });
+
+  it('saves and enables separately with the server revisions and refetches', async () => {
+    selectWorkspace('shared');
+    const initial = {
+      revision: 2, profile_key: null, enabled: false, transport_ready: true,
+      active: false, eligible_profiles: [{ key: 'public', name: 'Visitor guide' }],
+    };
+    const assigned = { ...initial, revision: 3, profile_key: 'public' };
+    const enabled = { ...assigned, revision: 4, enabled: true, active: true };
+    vi.mocked(connectionProfilesApi.publicWebChat)
+      .mockResolvedValueOnce(initial).mockResolvedValueOnce(assigned).mockResolvedValue(enabled);
+    vi.mocked(connectionProfilesApi.assignPublicWebChat).mockResolvedValue(assigned);
+    vi.mocked(connectionProfilesApi.setPublicWebChatEnabled).mockResolvedValue(enabled);
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
+    expect(dialog.getByRole('button', { name: 'Enable Web Chat' })).toBeDisabled();
+    fireEvent.change(dialog.getByRole('combobox', { name: 'Published public profile' }), { target: { value: 'public' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save profile' }));
+    await waitFor(() => expect(dialog.getByRole('button', { name: 'Enable Web Chat' })).toBeEnabled());
+    expect(connectionProfilesApi.assignPublicWebChat).toHaveBeenCalledWith('shared', 2, 'public');
+    expect(connectionProfilesApi.setPublicWebChatEnabled).not.toHaveBeenCalled();
+    fireEvent.click(dialog.getByRole('button', { name: 'Enable Web Chat' }));
+    expect(await dialog.findByRole('button', { name: 'Disable Web Chat' })).toBeVisible();
+    expect(connectionProfilesApi.setPublicWebChatEnabled).toHaveBeenCalledWith('shared', 3, true);
+    await waitFor(() => expect(connectionProfilesApi.publicWebChat).toHaveBeenCalledTimes(3));
+    expect(dialog.getByRole('button', { name: 'Save profile' })).toBeDisabled();
+    expect(dialog.queryByRole('button', { name: /share|copy link/i })).not.toBeInTheDocument();
+  });
+
+  it('hides Web Chat when the server cannot serve it, including from the library', async () => {
+    selectWorkspace('shared');
+    renderPanel();
+    await waitFor(() => expect(connectionProfilesApi.publicWebChat).toHaveBeenCalledWith('shared'));
+    expect(screen.queryByRole('heading', { name: 'Web Chat' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(await screen.findByRole('heading', { name: 'Connector library' })).toBeVisible();
+    expect(screen.queryByText('Web Chat')).not.toBeInTheDocument();
+  });
+
+  it('does not query or show manager setup for a workspace member', async () => {
+    mockedScope.mockReturnValue({
+      scope: { workspaceId: 'shared' },
+      activeWorkspace: { your_role: 'member' },
+    } as NonNullable<ReturnType<typeof useScopeOptional>>);
+    renderPanel();
+    expect(await screen.findByRole('heading', { name: 'Connectors' })).toBeVisible();
+    expect(connectionProfilesApi.publicWebChat).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'Web Chat' })).not.toBeInTheDocument();
+  });
 
   it('replaces mounted rows and closes the old inspector on workspace switch', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -31,6 +31,7 @@ import {
   type CatalogEntry,
   type ConnectorResponse,
 } from "../../../api/connectors";
+import { connectionProfilesApi, publicWebChatSettingsKey } from "../../../api/connectionProfiles";
 import { getWhatsAppChannelBinding } from "../../../api/agentive";
 import { useAgentive } from "../../../context/AgentiveContext";
 import { WHATSAPP_CONNECTOR } from "../connectors/connectorDefinitions";
@@ -50,6 +51,7 @@ import { SettingsSection, StatusPill } from "../components/Field";
 import { SettingsPageHeader } from "../components/SettingsPageHeader";
 import { ConnectorEditModal } from "./ConnectorEditModal";
 import { ConnectorBrandIcon } from "../connectors/ConnectorBrandIcon";
+import { WebChatConnectorSettings } from "../connectors/WebChatConnectorSettings";
 import { WhatsAppConnectorSettings } from "../connectors/WhatsAppConnectorSettings";
 import { ConnectorCatalogPanel } from "../connectors/ConnectorCatalogPanel";
 import { CustomMcpMountModal } from "../connectors/CustomMcpMountModal";
@@ -215,6 +217,7 @@ function ScopedConnectorsSection({
   const showLibrary = hash === "#connector-library";
   const [customMcpOpen, setCustomMcpOpen] = useState(false);
   const [whatsappOpen, setWhatsAppOpen] = useState(false);
+  const [webChatOpen, setWebChatOpen] = useState(false);
   const addConnector = useRef<HTMLButtonElement>(null);
   const wasLibrary = useRef(showLibrary);
   useEffect(() => {
@@ -250,6 +253,21 @@ function ScopedConnectorsSection({
   const whatsappStatus = whatsapp.isError ? "unavailable"
     : whatsapp.isPending ? "loading" : whatsapp.data ? "existing" : "new";
   const showWhatsApp = whatsappEnabled && whatsappStatus === "existing" && scopeFilter !== "per_user";
+
+  const canReadWebChatSetup = Boolean(
+    workspaceId && isWsAdmin && !scope?.isPersonal && !showLibrary && scopeFilter !== "per_user",
+  );
+  const webChatSetup = useQuery({
+    queryKey: [...publicWebChatSettingsKey(workspaceId), principalId],
+    queryFn: () => connectionProfilesApi.publicWebChat(workspaceId),
+    enabled: canReadWebChatSetup,
+    refetchOnMount: "always",
+    retry: false,
+  });
+  // Missing or stale host evidence must not advertise a working channel.
+  const webChat = canReadWebChatSetup && webChatSetup.isSuccess &&
+    (webChatOpen || !webChatSetup.isFetching) && webChatSetup.data.transport_ready === true
+    ? webChatSetup.data : null;
 
   const inspecting =
     (list.data?.connectors ?? []).find((c) => c.id === inspectingId) ?? null;
@@ -489,6 +507,32 @@ function ScopedConnectorsSection({
             }
           />
 
+          {webChat && (
+            <SettingsSection title="Web Chat" description="Review your workspace's public text chat setup.">
+              <Surface border="subtle" radius="card" padding="md" className="flex flex-col items-start gap-3">
+                <StatusPill state={webChat.active ? "ok" : "idle"}>
+                  {webChat.active ? "Active" : webChat.enabled ? "Needs attention" : "Not active"}
+                </StatusPill>
+                <Text as="p" variant="body-sm">
+                  {webChat.profile_key
+                    ? `Assigned profile: ${webChat.eligible_profiles.find(profile => profile.key === webChat.profile_key)?.name ?? "Unavailable"}`
+                    : "No published profile is assigned."}
+                </Text>
+                <Text as="p" variant="body-sm" tone="muted">
+                  {webChat.eligible_profiles.length === 0
+                    ? "Publish a public agent profile without tools in Agent profiles."
+                    : "Manage eligible public profiles in Agent profiles."}
+                </Text>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setWebChatOpen(true)}>
+                  Configure Web Chat
+                </Button>
+                <Button type="button" variant="secondary" size="sm"
+                  onClick={() => navigate("/settings#agent-profiles")}>
+                  Open Agent profiles
+                </Button>
+              </Surface>
+            </SettingsSection>
+          )}
           <SettingsSection
             title="Connected"
             description="Manage your connections and check that their tools are available."
@@ -763,6 +807,10 @@ function ScopedConnectorsSection({
         </>
       )}
 
+      {webChatOpen && webChat && (
+        <WebChatConnectorSettings workspaceId={workspaceId} principalId={principalId}
+          settings={webChat} refreshing={webChatSetup.isFetching} onClose={() => setWebChatOpen(false)} />
+      )}
       {!showLibrary && whatsappOpen && (
         <WhatsAppConnectorSettings dialog={{
           mode: isWsAdmin ? "Configure" : "View",
