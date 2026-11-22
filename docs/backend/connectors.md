@@ -190,6 +190,12 @@ The unregistered full-page admission adapter checks an already verified visitor
 session against the exact workspace, provision, and conversation, then projects
 the current public profile revision and independent route generation. It does
 not issue visitor credentials or make a host ready.
+The unregistered PostgreSQL receipt adapter uses one scalar-keyed Object per
+workspace, connector provision, conversation and event. It seals the request
+and receipt with the installation storage key and atomically consumes one
+reservation fence. An interrupted reservation stays in progress; it does not
+trigger another model turn. Product enablement still needs an explicit
+recovery, retention and key-rotation policy for these receipts.
 
 The unmounted request service accepts only the visitor's event ID and text.
 It resolves the conversation and sender from the trusted session and submits an
