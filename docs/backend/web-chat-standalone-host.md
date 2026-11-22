@@ -28,14 +28,14 @@ mount and exact asset bytes, then verifies the alternate origin and disabled
 route are not served. The API-only variant remains available without assets.
 This does not launch a browser engine or prove a production mount.
 
-## Partner-site embedding is a separate, non-serving contract
+## Partner-site embed policy and credentials
 
 The detached embed policy pins the exact provision, route epoch, published
 profile, embed policy revision, parent HTTPS origin, and distinct embed HTTPS
 origin plus the dedicated `/embed/<opaque-reference>` path. It checks a fresh
-matching host attestation; it emits no document, link, share proof, session,
-cookie, or token, and it is not a mounted endpoint. An eventual live embed
-page must enforce the exact approved parent in `frame-ancestors`.
+matching host attestation. The policy alone emits no document, link, share
+proof, session, cookie, or token. The separate document adapter enforces the
+exact approved parent in `frame-ancestors`.
 
 The full-page Vite client is not reused for embed: it currently uses the
 same-origin full-page cookie session. A production embed requires a distinct
@@ -50,11 +50,9 @@ embed session. Wire values are `iweb_` or `iwes_` followed by 86 base64url
 characters, without a delimiter. Persistence contains only hashes of the
 credential and exact policy scope and a hashed selector record key. Seeds live
 at most 60 seconds; sessions live at most 300 seconds, without refresh. Embedded
-visitor/conversation IDs are independent of full-page context. No route invokes
-these methods yet. HTTP delivery still needs a vetted origin-bound bootstrap,
-no-storage/no-cookie transport, issuance and request quotas, retention, and
-browser qualification. Until then, no embed share or admission is exposed.
-
+visitor/conversation IDs are independent of full-page context. The detached
+composition below invokes the store; Core startup does not mount it. A hosting
+operator still needs to qualify retention, quota policy and browser behavior.
 
 ## Separate embed build
 
@@ -79,3 +77,27 @@ capacity. Confirm the real HTTPS host's headers in supported browsers,
 including an unauthorized parent refusal and an authorized parent with
 third-party cookies blocked. This does not authorize enabling a connector,
 issuing a production link, or adding data or tools to the public profile.
+
+## Release evidence and gates
+
+The disposable PostgreSQL contracts use a synthetic text-only model. A
+successful run is evidence of transport and persistence behavior, not evidence
+of installation in the active demo, browser enforcement, or live model
+capacity. Use these evidence levels when handing off a change:
+
+| Path | Detached qualification | Still required on an approved host |
+| --- | --- | --- |
+| Full-page link | `test_managed_web_chat_delivery_postgres.py` with its built document; `test_full_page_web_chat_composition_postgres.py` for real persistence and turns | An authorized manager retrieves the exact share URL after readiness, and a signed-out browser receives a real reply and can continue its own conversation. Check alternate origins and disable/reassignment. |
+| Embed | `test_web_chat_embed_composition_postgres.py` with its separate built document | The same reviewed configuration serves only the authorized parent. Verify a real turn with third-party cookies blocked, refusal from a different parent, and no usable old session after a policy change. |
+| Server-to-server | `test_web_chat_client_composition_postgres.py` for separate grant/session credentials, same-event retries, and revocation before a reply | An authorized manager can issue and revoke an exact scoped key; an approved non-browser client exchanges it, sends a real turn, and cannot continue after revocation. Display the key only at issuance and never in an embed or link. |
+
+Before any public traffic, review where anonymous traffic enters relative to
+signed-in Integral. Bound requests at the edge before route resolution,
+enforce request and model deadlines, and reserve separate capacity for staff
+in the worker, database connection, and model queues. Measure staff latency
+and error rate while the public path is at its configured limits, including
+concurrent retries, slow model responses, and a stalled dependency. An API
+budget reached after lookup and a bounded model adapter are not by themselves
+proof that staff capacity is protected. Do not send browser frames, copied
+snippets, or key material to logs. Keep the release text-only and tool-free;
+a healthy transport is not proof of public resource authorization.
