@@ -458,7 +458,7 @@ describe('<ConnectorsSection />', () => {
   });
 
 
-  function configurable(state: 'inactive' | 'unavailable' | 'active', epoch: string): ManagedChannel {
+  function configurable(state: 'inactive' | 'unavailable' | 'active', epoch: string): Extract<ManagedChannel, { connected: true }> {
     return {
       ...installed(state, epoch), connected: true, state, action: 'configure',
       can_enable: state === 'inactive', provision_id: 'provision-1', route_epoch: epoch,
@@ -551,6 +551,61 @@ describe('<ConnectorsSection />', () => {
       user: { id }, token: 'synthetic-auth-fixture', loading: false,
     } as NonNullable<ReturnType<typeof useAuthOptional>>);
   }
+
+  it('shows a neutral pending enablement until the exact host-ready generation is read back', async () => {
+    selectWorkspace('shared');
+    authenticateManager('original-manager');
+    let channel = configurable('inactive', 'r2');
+    vi.mocked(managedChannelsApi.list).mockImplementation(async () => [channel]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockImplementation(async (_workspace, _slug, generation) => ({
+      ...profileConfig(5, generation.route_epoch, 'greeter', channel.state === 'inactive'), published_version: 7,
+    }));
+    vi.mocked(managedChannelsApi.change).mockImplementation(async () => {
+      channel = configurable('unavailable', 'r3');
+    });
+    const read = vi.fn<ManagedChannelShareSource['read']>();
+    const source = { scope: { principalId: 'original-manager', workspaceId: 'shared', sessionFence: '1' }, read };
+    render(panelWithProviders(new QueryClient({ defaultOptions: { queries: { retry: false } } }), source));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
+    const enable = dialog.getByRole('button', { name: 'Enable channel' });
+    await waitFor(() => expect(enable).toBeEnabled());
+    fireEvent.click(enable);
+    expect(await dialog.findByText('Enable request accepted. Waiting for the host to be ready.')).toBeVisible();
+    expect(dialog.getByText('Unavailable')).toBeVisible();
+    expect(dialog.queryByRole('alert')).not.toBeInTheDocument();
+    expect(dialog.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
+
+    channel = configurable('active', 'r3');
+    fireEvent.click(dialog.getByRole('button', { name: 'Refresh channel status' }));
+    expect(await dialog.findByText('Active')).toBeVisible();
+    expect(await dialog.findByRole('button', { name: 'Check full-page link' })).toBeVisible();
+    expect(dialog.queryByText(/enable request accepted/i)).not.toBeInTheDocument();
+    expect(managedChannelsApi.change).toHaveBeenCalledExactlyOnceWith(
+      'shared', 'outside_text_fixture', { kind: 'enabled', enabled: true, generation: { provision_id: 'provision-1', route_epoch: 'r2' } });
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each(['same epoch', 'another provision'])('does not claim pending enablement with %s', async change => {
+    selectWorkspace('shared');
+    let channel = configurable('inactive', 'r2');
+    vi.mocked(managedChannelsApi.list).mockImplementation(async () => [channel]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue(profileConfig(5, 'r2', 'greeter'));
+    vi.mocked(managedChannelsApi.change).mockImplementation(async () => {
+      channel = change === 'same epoch' ? configurable('unavailable', 'r2')
+        : { ...configurable('unavailable', 'r3'), provision_id: 'different-provision' };
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
+    const enable = dialog.getByRole('button', { name: 'Enable channel' });
+    await waitFor(() => expect(enable).toBeEnabled());
+    fireEvent.click(enable);
+    expect(await dialog.findByRole('alert')).toHaveTextContent('The requested channel status could not be confirmed.');
+    expect(dialog.queryByText(/enable request accepted/i)).not.toBeInTheDocument();
+    expect(dialog.queryByRole('button', { name: 'Refresh channel status' })).not.toBeInTheDocument();
+    expect(managedChannelsApi.change).toHaveBeenCalledTimes(1);
+  });
 
   it('forwards an approved source only to the exact active managed Configure and drops it on session or actor change', async () => {
     selectWorkspace('shared');

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
 import { managedChannelsApi, type ManagedChannel, type ManagedChannelChange } from '../../../api/managedChannels';
+import { getSessionGeneration } from '../../../api/session';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
 import { Text } from '../../../ui';
@@ -57,6 +58,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   const [busy, setBusy] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingEnable, setPendingEnable] = useState<{ scope: string; generation: string; observedAt: number } | null>(null);
   // Keep a deliberate remove confirmation bound to the observed generation.
   const [removeGeneration, setRemoveGeneration] = useState<string | null>(null);
   const channel = currentManagedChannels(query).find(row =>
@@ -64,6 +66,15 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   const generation = channel?.connected ? { provision_id: channel.provision_id, route_epoch: channel.route_epoch } : null;
   const generationKey = generation ? JSON.stringify(generation) : null;
   const confirmingRemove = removeGeneration !== null && removeGeneration === generationKey;
+  const scopeKey = JSON.stringify([principalId, workspaceId, selection.slug, getSessionGeneration()]);
+  const awaitingReadiness = pendingEnable?.scope === scopeKey && pendingEnable.generation === generationKey &&
+    channel?.state === 'unavailable';
+  // A settled read of another generation or state retires the local receipt.
+  // A later outage on the old generation is not the original pending enable.
+  if (pendingEnable && (pendingEnable.scope !== scopeKey ||
+      (query.isSuccess && query.fetchStatus === 'idle' && query.dataUpdatedAt > pendingEnable.observedAt && !awaitingReadiness))) {
+    setPendingEnable(null);
+  }
 
   const hasProfileAssignment = channel?.connected && channel.configuration_kind === 'published-public-profile-v1';
   const profileQuery = useQuery(managedProfileOptions(principalId, workspaceId, selection.slug,
@@ -101,6 +112,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
     setBusy(true);
     setError(null);
     setProfileSaved(false);
+    setPendingEnable(null);
     setRemoveGeneration(null);
     let saved = false;
     try {
@@ -157,6 +169,15 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
         onInstalled();
       } else if (change.kind === 'remove' && next?.connected !== true) {
         onClose();
+      } else if (change.kind === 'enabled' && change.enabled && channel.connected && channel.configuration_kind === 'published-public-profile-v1' &&
+          next?.connected && next.configuration_kind === 'published-public-profile-v1' &&
+          next.state === 'unavailable' && next.provision_id === change.generation.provision_id &&
+          next.route_epoch !== change.generation.route_epoch) {
+        // Acceptance and the exact provision's new epoch confirm the request
+        // returned, not that the host is admitting visitors or issuing links.
+        setPendingEnable({ scope: scopeKey, observedAt: fresh.dataUpdatedAt, generation: JSON.stringify({
+          provision_id: next.provision_id, route_epoch: next.route_epoch,
+        }) });
       } else if (!next?.connected ||
           (change.kind === 'enabled' && (change.enabled ? next.state !== 'active' : next.state !== 'inactive'))) {
         setError('The requested channel status could not be confirmed. Review the current status.');
@@ -182,13 +203,23 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
             <>
               <Text as="p">{channel.definition.description}</Text>
               <div><ManagedChannelStatus channel={channel} /></div>
-              <Text as="p" variant="body-sm" tone="muted">
-                {!channel.connected
-                  ? 'Adding installs this channel for the workspace. It does not turn on messaging.'
-                  : channel.state === 'unavailable' || (channel.state === 'inactive' && !channel.can_enable)
-                    ? 'This channel cannot be enabled right now.'
-                    : 'Manage whether this channel can receive messages for the workspace.'}
-              </Text>
+              {awaitingReadiness && !confirmingRemove ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Text as="p" variant="body-sm" role="status" tone="muted">
+                    Enable request accepted. Waiting for the host to be ready.
+                  </Text>
+                  <Button type="button" variant="ghost" size="sm" disabled={busy}
+                    onClick={() => void retryProfileCheck()}>Refresh channel status</Button>
+                </div>
+              ) : (
+                <Text as="p" variant="body-sm" tone="muted">
+                  {!channel.connected
+                    ? 'Adding installs this channel for the workspace. It does not turn on messaging.'
+                    : channel.state === 'unavailable' || (channel.state === 'inactive' && !channel.can_enable)
+                      ? 'This channel cannot be enabled right now.'
+                      : 'Manage whether this channel can receive messages for the workspace.'}
+                </Text>
+              )}
               {hasProfileAssignment && !confirmingRemove && (
                 <>
                   {profile ? (
