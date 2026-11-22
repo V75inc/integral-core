@@ -268,3 +268,71 @@ async def test_postcommit_manager_downgrade_discloses_no_secret(
     revoke = replace(change, action="revoke", actor_id="new manager")
     approved.add(revoke)
     assert await store.revoke(revoke) is True
+
+
+async def test_reviewed_inspection_is_metadata_only_on_live_and_stale_routes(
+    postgres_raw_db, authority
+):
+    """Read only the exact reviewed grant, including after route removal."""
+    _, assignment, approved, _, _, current = authority
+    store = _store(postgres_raw_db, authority)
+    change = _issue(assignment)
+    revoke = replace(change, action="revoke")
+    approved.add(change)
+    issued = await store.issue(change)
+    assert issued is not None
+    assert await store.inspect_for_revocation(change) is None
+    assert await store.inspect_for_revocation(revoke) is None
+    approved.add(revoke)
+    metadata = await store.inspect_for_revocation(revoke)
+    assert metadata is not None and metadata.grant == change.grant
+    assert metadata.retirement == "unretired" and metadata.assignment_current
+    assert issued.secret not in repr(metadata)
+    assert set(vars(metadata)) == {"grant", "retirement", "assignment_current"}
+    assert (
+        await store.inspect_for_revocation(replace(revoke, actor_id="other manager"))
+        is None
+    )
+    wrong = replace(
+        revoke, grant=replace(revoke.grant, expires_at=revoke.grant.expires_at + 1)
+    )
+    approved.add(wrong)
+    assert await store.inspect_for_revocation(wrong) is None
+    current.side_effect = lambda _assignment: False
+    stale = await store.inspect_for_revocation(revoke)
+    assert stale.retirement == "unretired" and not stale.assignment_current
+    assert await store.current(issued.secret) is None
+    assert await store.revoke(revoke)
+    retired = await store.inspect_for_revocation(revoke)
+    assert retired.retirement == "retired" and not retired.assignment_current
+
+
+async def test_late_review_or_record_change_denies_inspection(
+    postgres_raw_db, authority
+):
+    """A read in flight does not survive authority loss or concurrent retirement."""
+    _, assignment, approved, _, review, current = authority
+    store = _store(postgres_raw_db, authority)
+    change = _issue(assignment)
+    revoke = replace(change, action="revoke")
+    approved.update((change, revoke))
+    assert await store.issue(change)
+    review.side_effect = [True, False]
+    assert await store.inspect_for_revocation(revoke) is None
+    review.side_effect = lambda exact: exact in approved
+    entered = asyncio.Event()
+    resume = asyncio.Event()
+
+    async def route_in_flight(_assignment):
+        entered.set()
+        await resume.wait()
+        return True
+
+    current.side_effect = route_in_flight
+    reading = asyncio.create_task(store.inspect_for_revocation(revoke))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        assert await store.revoke(revoke)
+    finally:
+        resume.set()
+    assert await reading is None

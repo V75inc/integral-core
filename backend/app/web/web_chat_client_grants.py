@@ -58,6 +58,15 @@ class IssuedWebChatClientGrant:
     secret: str = field(repr=False)
 
 
+@dataclass(frozen=True)
+class ReviewedWebChatGrantMetadata:
+    """Metadata only; current assignment is not a bearer admission result."""
+
+    grant: WebChatClientGrant
+    retirement: Literal["unretired", "expired", "retired"]
+    assignment_current: bool
+
+
 ReviewAuthority = Callable[[WebChatGrantReview], Awaitable[bool]]
 CurrentAuthority = Callable[[ExternalChatAssignment], Awaitable[bool]]
 
@@ -277,6 +286,39 @@ class PostgresWebChatClientGrants:
             and await self._get(found.grant.grant_id) == found
             and found.active
         )
+
+    async def inspect_for_revocation(
+        self, review: WebChatGrantReview
+    ) -> ReviewedWebChatGrantMetadata | None:
+        """Inspect one exact grant using the existing trusted revocation review.
+
+        The host supplies independently verified manager and operator authority.
+        An old assignment need not serve for maintenance to read its retirement
+        status. This method never reads the digest index or returns a bearer.
+        """
+        if (
+            not _review_shape(review, "revoke")
+            or await self._review(review) is not True
+        ):
+            return None
+        grant = review.grant
+        found = await self._get(grant.grant_id)
+        if found is None or found.grant != grant:
+            return None
+        current = await self._current(grant.assignment) is True
+        if (
+            await self._review(review) is not True
+            or await self._get(grant.grant_id) != found
+        ):
+            return None
+        retirement: Literal["unretired", "expired", "retired"]
+        if found.revoked:
+            retirement = "retired"
+        elif not found.active:
+            retirement = "expired"
+        else:
+            retirement = "unretired"
+        return ReviewedWebChatGrantMetadata(grant, retirement, current)
 
     async def revoke(self, review: WebChatGrantReview) -> bool:
         """Durably retire the exact grant, even if its route no longer serves."""

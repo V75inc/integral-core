@@ -113,3 +113,13 @@ budget reached after lookup and a bounded model adapter are not by themselves
 proof that staff capacity is protected. Do not send browser frames, copied
 snippets, or key material to logs. Keep the release text-only and tool-free;
 a healthy transport is not proof of public resource authorization.
+
+For grant maintenance, an authorized trusted operator with an exact reviewed
+revocation may inspect metadata for a known grant ID even if its former route
+does not serve. The inspection reports retirement and assignment currentness,
+does not grant admission, and never returns credentials or digests. It is not
+an HTTP route. A lost or uncertain issuance response must not disclose or
+regenerate the original bearer. A future operator flow should inspect and
+revoke the exact reviewed grant, then obtain new review for a fresh grant ID
+before reissue. This does not guarantee the absence of active orphan grants
+after lost delivery; that requires a separate delivery/activation protocol.
