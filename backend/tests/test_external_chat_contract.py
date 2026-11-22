@@ -41,7 +41,9 @@ def test_replay_has_same_key_and_conflicting_content_does_not_create_new_identit
 def test_assignment_is_host_owned_and_reply_has_only_admitted_event_destinations():
     key = event_key()
     message = VerifiedExternalChatMessage(key, "sender", " Hello!\n")
-    assignment = ExternalChatAssignment(key.conversation.provision, "profile", "7")
+    assignment = ExternalChatAssignment(
+        key.conversation.provision, "profile", "7", "epoch-1"
+    )
     reply = ExternalChatReply(message.key, "Welcome.")
     assert message.text == " Hello!\n"
     assert assignment.provision == reply.in_reply_to.conversation.provision

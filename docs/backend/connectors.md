@@ -139,8 +139,13 @@ connector.
   idempotency: a matching retry returns the existing outcome or in-progress
   status; reuse with a different verified sender or message is a conflict.
 - The host, not the event or model, resolves the current published profile
-  and authority. Replies reference only the admitted event. The adapter
-  resolves delivery from that event's conversation.
+  and authority. A separate route epoch changes on disable/re-enable or
+  reassignment, even if the publication revision does not. Replies reference
+  only the admitted event. The adapter resolves delivery from that event's
+  conversation. The [turn coordinator](../../backend/app/agentive/connectors/web_chat_turn.py)
+  checks the current assignment and reservation around replay and completion.
+  An approved host must supply real admission and durable storage; the
+  coordinator is not mounted and never invokes a model.
 
 The standalone preview is not a live transport. The isolated hosted prototype
 used canned replies and kept HMAC material, visitor sessions, and rate counters
@@ -156,3 +161,59 @@ limits, and retry behavior. Other channel
 adapters supply their own transport verification and identity normalization;
 they do not inherit a browser visitor session. No new catalogue entry,
 public URL, or production readiness is implied by these contracts.
+
+### Web Chat: qualify the full page first
+
+The first release is an anonymous, text-only full-page chat. Keep the embed,
+other channel adapters, attachments, and voice out of this qualification.
+Keep the catalogue entry hidden on deployments that cannot serve it. Prove the
+following on an approved, isolated host before calling the connector usable:
+
+| Check | Expected result |
+| --- | --- |
+| Owner lifecycle | An authorized manager explicitly configures a disabled connector, selects an eligible published public profile, then enables it. A member cannot perform management actions. |
+| Real turn | A new visitor, without an Integral login, receives the selected public profile's real reply. A second turn uses that visitor's history. The public profile has no tools, scaffolding, or access to workspace records for this first release. |
+| Isolation | Visitors using the same page cannot read or append to one another's conversation. The host, not browser input, chooses workspace, provision, profile and publication revision. |
+| Retry | Losing the response and retrying the same event on another worker yields the original result or in-progress status, not a second model turn. Reusing an event ID for different input returns a conflict. |
+| Disable or change | Disabling the connector or replacing its publication invalidates prior visitor access. Re-read the effective assignment before accepting turns and before exposing a completed reply. |
+| Failure and abuse | Rate and message limits work across workers. An unavailable model or expired session yields a recoverable user-facing state without leaking internal exceptions. |
+
+The [full-page component](../../frontend/src/features/public-web-chat/PublicWebChat.tsx)
+requires an injected host transport. It retains the same event ID on retry and
+clears the old conversation on expiry; it is not mounted in the product router.
+Component tests and injected backend dependencies qualify the code paths they
+exercise; they are not evidence that provisioning, a live model, or a public
+URL works. Once the full page passes, test the embed against the same host and
+profile, including approved and rejected origins and browsers that block
+third-party storage.
+
+### Sharing belongs to the same connector
+
+In the Web Chat connector's settings dialog, manage the selected published
+profile, readiness and enablement, and the two sharing options together:
+
+- **Full page:** open or copy the server-issued HTTPS link.
+- **Embed:** manage exact approved HTTPS site origins and copy the iframe
+  snippet. The snippet is available only when the host can enforce the
+  configured origin policy. Do not assume third-party cookies are available.
+
+These are two presentations of one connector, not separate installs or
+profile bindings. The visitor interface and admission rules should be the
+same for both. Each visitor session still belongs to one conversation and is
+not silently shared across sites or presentations. The public base origin and
+opaque channel link come from the trusted host; never derive a public link
+from the admin browser URL or put a visitor session token into a link or
+snippet. Suppress both sharing actions if the channel is not active. Hiding a
+button is not revocation: disablement or an invalid assignment must stop
+existing links and sessions on the server. If origins change, stale embed
+sessions must not retain the old permissions.
+
+A separately enabled **API access** presentation is a follow-up, not required
+for the first full-page release. Reuse the same server-owned assignment,
+revocation, conversation isolation, and idempotency. The proposed versioned
+surface is session creation, message submission, and session history only.
+Do not put a long-lived credential in custom browser code: use origin-scoped,
+short-lived visitor sessions for browser clients and scoped, revocable
+credentials for authorized server-to-server clients. API clients get their own
+rate limits and no ambient workspace or tool access. The hosted page does not
+imply that this external API has been enabled or delivered.

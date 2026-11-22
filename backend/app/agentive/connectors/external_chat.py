@@ -84,18 +84,22 @@ class ExternalChatAssignment:
 
     An assignment is not admission; its published revision and live authority
     must be resolved and rechecked by the trusted host around each operation.
+    The host must rotate the route epoch on disable/re-enable or reassignment,
+    even when the new route uses the same published profile revision.
     """
 
     provision: ExternalChatProvision
     profile_key: str
     publication_revision: str
+    route_epoch: str
 
     def __post_init__(self) -> None:
-        """Require a specific profile and publication revision."""
+        """Require the published revision and an independent route epoch."""
         if not isinstance(self.provision, ExternalChatProvision):
             raise TypeError("provision must be a server-resolved scope")
         _require_text(self.profile_key, "profile_key")
         _require_text(self.publication_revision, "publication_revision")
+        _require_text(self.route_epoch, "route_epoch")
 
 
 @dataclass(frozen=True)
