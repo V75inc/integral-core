@@ -55,3 +55,13 @@ consistent key and provision lookups. Neither the reference reader, its
 transport check, nor the page/API boot wiring is supplied by this detached
 authority. An installed but unassigned provision remains configurable without
 being eligible for enablement.
+
+An unmounted PostgreSQL host reference store supports this read port with a
+current provision record and an opaque-key index updated in one transaction.
+Only trusted host code may supply approved origin/scope/publication and invoke
+issue/revoke after its own authorization. Rotate on every change. Revoke
+retains a revision tombstone, so old host decisions cannot restore a route.
+On uncertain commit, reread instead of replaying an unconditional issue. This
+store neither verifies domain ownership nor mounts routes, emits URLs, or changes
+connector/profile state. The host must supply domain/transport attestations
+and own retention of retired provision tombstones.
