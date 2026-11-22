@@ -127,15 +127,19 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("hang_up", [False, True])
-async def test_delayed_work_and_audio_do_not_survive_interrupt_or_hangup(hang_up):
+async def test_barge_in_fences_audio_without_cancelling_delegate(hang_up):
     browser, provider = Browser(), Provider()
     started = asyncio.Event()
     cancelled = asyncio.Event()
+    finish = asyncio.Event()
+    observed = asyncio.Event()
 
     async def uncooperative_fixture(_scope, _call_id, _text):
         started.set()
         try:
-            await asyncio.Future()
+            await finish.wait()
+            observed.set()
+            return "Old delayed result"
         except asyncio.CancelledError:
             cancelled.set()
             return "Old delayed result"
@@ -154,7 +158,9 @@ async def test_delayed_work_and_audio_do_not_survive_interrupt_or_hangup(hang_up
     if not hang_up:
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         assert await event(browser.outbox) == {"type": "flush"}
-        await asyncio.wait_for(cancelled.wait(), 2)
+        assert not cancelled.is_set()
+        finish.set()
+        await asyncio.wait_for(observed.wait(), 2)
         await provider.inbox.put(
             {
                 "type": "response.output_audio.delta",
@@ -173,7 +179,7 @@ async def test_delayed_work_and_audio_do_not_survive_interrupt_or_hangup(hang_up
         assert await event(browser.outbox) == b"\x00\x00"
     await browser.inbox.put({"type": "websocket.disconnect"})
     await asyncio.wait_for(task, 2)
-    assert cancelled.is_set()
+    assert cancelled.is_set() == hang_up
     assert provider.outbox.empty()
 
 
@@ -376,7 +382,7 @@ async def test_voice_cancellation_preserves_human_review(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_delegate_disconnect_requests_review_preserving_cancel(monkeypatch):
+async def test_delegate_disconnect_does_not_cancel_durable_work(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -402,7 +408,7 @@ async def test_delegate_disconnect_requests_review_preserving_cancel(monkeypatch
     monkeypatch.setattr(work_items, "cancel_work_item", cancel)
     with pytest.raises(asyncio.CancelledError):
         await native_voice.delegate(scope, "call", "Read the current status")
-    cancel.assert_awaited_once_with("work", preserve_human_review=True)
+    cancel.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -609,3 +615,167 @@ def test_speech_projection_preserves_new_details_and_written_answer(result, spok
     from app.services.native_voice import _speech_ready_result
 
     assert _speech_ready_result(result) == spoken
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [False, True])
+async def test_delegate_observer_timeout_never_cancels_and_only_reports_known_receipt(
+    monkeypatch, accepted
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.agentive.services import work_items
+    from app.services import chat_turn_submissions, native_voice
+
+    receipt = SimpleNamespace(work_item_id="work", message_id="message")
+    calls = []
+    cancel = AsyncMock()
+    monkeypatch.setattr(work_items, "cancel_work_item", cancel)
+    monkeypatch.setattr(
+        native_voice, "authorize", AsyncMock(return_value=SimpleNamespace(id="thread"))
+    )
+    monkeypatch.setattr(native_voice, "DELEGATE_WAIT_SECONDS", 0.02)
+
+    async def submit(query):
+        calls.append(query)
+        if accepted:
+            return receipt
+        await asyncio.Future()
+
+    async def observe(*_args):
+        await asyncio.Future()
+
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    monkeypatch.setattr(native_voice, "_delegated_status", observe)
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    answer = await native_voice.delegate(scope, "id", "Explain Integral")
+    assert ("was accepted" in answer) == accepted
+    assert ("couldn't confirm" in answer) != accepted
+    assert len(calls) == 1 and calls[0].thread_id == "thread"
+    assert calls[0].client_request_id.startswith("voice.")
+    cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_late_tagged_delegate_audio_cannot_replace_next_response():
+    browser, provider = Browser(), Provider()
+    work_calls = []
+
+    async def answer(_scope, call_id, text):
+        work_calls.append((call_id, text))
+        return "Finished exact durable request"
+
+    relay = VoiceRelay(
+        browser,
+        provider,
+        VoiceScope("caller", "workspace", "", "thread"),
+        check=authorize,
+        work=answer,
+    )
+    call = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "first"}}
+        )
+        await provider.inbox.put(request("id", "first", "Explain Integral"))
+        await event(provider.outbox)  # function_call_output
+        delivery = await event(provider.outbox)
+        marker = delivery["response"]["metadata"]
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "new"}}
+        )
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "late", "metadata": marker}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "late",
+                "delta": "AAE=",
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "new",
+                "delta": "AAI=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x02"
+        assert browser.outbox.empty()
+        assert work_calls == [("id", "Explain Integral")]
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await call
+
+
+@pytest.mark.asyncio
+async def test_vad_during_acceptance_keeps_exact_same_thread_submission(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.agentive.services import work_items
+    from app.services import chat_turn_submissions, native_voice
+
+    browser, provider = Browser(), Provider()
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = []
+    receipt = SimpleNamespace(work_item_id="work", message_id="accepted")
+    cancel = AsyncMock()
+    monkeypatch.setattr(work_items, "cancel_work_item", cancel)
+    monkeypatch.setattr(
+        native_voice, "authorize", AsyncMock(return_value=SimpleNamespace(id="thread"))
+    )
+    status = AsyncMock(return_value=("succeeded", "Same-thread result"))
+    monkeypatch.setattr(native_voice, "_delegated_status", status)
+
+    async def submit(submission):
+        calls.append(submission)
+        started.set()
+        await release.wait()
+        return receipt
+
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    scope = VoiceScope("caller", "workspace", "", "thread")
+    relay = VoiceRelay(browser, provider, scope, check=authorize)
+    call = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "first"}}
+        )
+        await provider.inbox.put(request("id", "first", "Explain Integral"))
+        await asyncio.wait_for(started.wait(), 2)
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        release.set()
+        await asyncio.wait_for(asyncio.shield(relay.pending), 2)
+        # Replayed provider event is not another durable submission.
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "duplicate"}}
+        )
+        await provider.inbox.put(request("id", "duplicate", "Explain Integral"))
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        assert provider.outbox.empty()
+        assert len(calls) == 1
+        assert (calls[0].thread_id, calls[0].principal_id, calls[0].workspace_id) == (
+            "thread",
+            "caller",
+            "workspace",
+        )
+        status.assert_awaited_once()
+        assert status.await_args.args[2] is receipt
+        cancel.assert_not_awaited()
+    finally:
+        release.set()
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await call
