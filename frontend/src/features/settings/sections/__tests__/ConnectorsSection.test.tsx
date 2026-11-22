@@ -652,14 +652,81 @@ describe('<ConnectorsSection />', () => {
     expect(dialog.queryByRole('button', { name: /share|copy link/i })).not.toBeInTheDocument();
   });
 
-  it('hides Web Chat when the server cannot serve it, including from the library', async () => {
+  it('shows only a read-only Web Chat library entry for known unavailable transport', async () => {
     selectWorkspace('shared');
     renderPanel();
     await waitFor(() => expect(connectionProfilesApi.publicWebChat).toHaveBeenCalledWith('shared'));
     expect(screen.queryByRole('heading', { name: 'Web Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Web Chat', { exact: true })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
     expect(await screen.findByRole('heading', { name: 'Connector library' })).toBeVisible();
-    expect(screen.queryByText('Web Chat')).not.toBeInTheDocument();
+    expect(await screen.findByText('Gmail', { selector: ':not(title)' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
+    fireEvent.change(screen.getByPlaceholderText('Search connectors…'), { target: { value: 'Web Chat' } });
+    const notice = (await screen.findByText('Web Chat', { exact: true })).closest('li') as HTMLLIElement;
+    expect(within(notice).getByText('Unavailable')).toBeVisible();
+    expect(within(notice).getByText(/no ready Web Chat host/)).toBeVisible();
+    expect(within(notice).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(notice).queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Connected' })).not.toBeInTheDocument();
+    expect(connectorsApi.installFromCatalog).not.toHaveBeenCalled();
+    expect(connectionProfilesApi.setPublicWebChatEnabled).not.toHaveBeenCalled();
+  });
+
+  it('honors the managed Web Chat entry rather than the legacy fallback', async () => {
+    selectWorkspace('shared');
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{
+      ...available,
+      definition: {
+        ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat',
+      },
+      can_install: false,
+    }]);
+    vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
+      revision: 2, profile_key: null, enabled: false, transport_ready: true,
+      active: false, eligible_profiles: [],
+    });
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(await screen.findByRole('button', { name: 'Add Web Chat' })).toBeDisabled();
+    expect(screen.getAllByText('Web Chat', { exact: true })).toHaveLength(1);
+    expect(screen.queryByText('Setup in Connectors')).not.toBeInTheDocument();
+  });
+
+  it('does not show the legacy Web Chat entry when managed listing fails', async () => {
+    selectWorkspace('shared');
+    vi.mocked(managedChannelsApi.list).mockRejectedValue(new Error('Unavailable'));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(await screen.findByText('Gmail', { selector: ':not(title)' })).toBeVisible();
+    await waitFor(() => expect(connectionProfilesApi.publicWebChat).toHaveBeenCalledWith('shared'));
+    expect(screen.queryByText('Web Chat', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it.each([403, 404, 'network'])('does not advertise an unverified service (%s)', async status => {
+    selectWorkspace('shared');
+    vi.mocked(connectionProfilesApi.publicWebChat).mockRejectedValue({ status });
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(await screen.findByText('Gmail', { selector: ':not(title)' })).toBeVisible();
+    await waitFor(() => expect(connectionProfilesApi.publicWebChat).toHaveBeenCalledWith('shared'));
+    expect(screen.queryByText('Web Chat', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('points a ready manager to existing Connectors setup without adding a library action', async () => {
+    selectWorkspace('shared');
+    vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
+      revision: 2, profile_key: null, enabled: false, transport_ready: true,
+      active: false, eligible_profiles: [],
+    });
+    renderPanel();
+    expect(await screen.findByRole('button', { name: 'Configure Web Chat' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    const notice = (await screen.findByText('Web Chat', { exact: true })).closest('li') as HTMLLIElement;
+    expect(within(notice).getByText('Setup in Connectors')).toBeVisible();
+    expect(within(notice).queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Configure Web Chat' })).not.toBeInTheDocument();
   });
 
   it('does not query or show manager setup for a workspace member', async () => {
@@ -672,6 +739,22 @@ describe('<ConnectorsSection />', () => {
     expect(connectionProfilesApi.publicWebChat).not.toHaveBeenCalled();
     expect(managedChannelsApi.list).not.toHaveBeenCalled();
     expect(screen.queryByRole('heading', { name: 'Web Chat' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(await screen.findByRole('heading', { name: 'Connector library' })).toBeVisible();
+    expect(screen.queryByText('Web Chat', { exact: true })).not.toBeInTheDocument();
+    expect(connectionProfilesApi.publicWebChat).not.toHaveBeenCalled();
+  });
+
+  it('does not advertise the organization channel in a personal workspace', async () => {
+    mockedScope.mockReturnValue({
+      scope: { workspaceId: 'personal' }, isPersonal: true,
+      activeWorkspace: { your_role: 'owner' },
+    } as NonNullable<ReturnType<typeof useScopeOptional>>);
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(await screen.findByRole('heading', { name: 'Connector library' })).toBeVisible();
+    expect(screen.queryByText('Web Chat', { exact: true })).not.toBeInTheDocument();
+    expect(connectionProfilesApi.publicWebChat).not.toHaveBeenCalled();
   });
 
   it('replaces mounted rows and closes the old inspector on workspace switch', async () => {

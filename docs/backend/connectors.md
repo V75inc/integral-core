@@ -280,9 +280,14 @@ profile, including approved and rejected origins and browsers that block
 third-party storage.
 
 **Settings visibility:** Owners and admins see Web Chat setup in Settings → Connectors only when the server confirms that the
-workspace transport is ready. Unready or unavailable channels remain hidden
-and do not appear in Connector Library. The setup dialog separates saving a
-published public profile from enabling the channel. It does not generate links.
+workspace transport is ready. If the settled managed registry has no Web Chat row, after a successful
+workspace-authorized status read Connector Library can identify Web Chat as **Unavailable** and explain
+that setup requires a ready host. The informational item has no install,
+enablement, or sharing action and does not add a **Connected** entry. Failed or
+unauthorized status reads do not advertise Web Chat. An admitted managed
+entry replaces the legacy notice and setup. The legacy setup dialog still
+separates saving a published public profile from enabling the channel. It does
+not generate links.
 
 ### Sharing belongs to the same connector
 

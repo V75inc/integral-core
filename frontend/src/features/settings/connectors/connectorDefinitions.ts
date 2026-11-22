@@ -33,13 +33,36 @@ const CUSTOM_MCP_CONNECTOR = {
   setup: 'custom-mcp',
 } satisfies Definition & { setup: 'custom-mcp' };
 
+export type InformationalConnector = Definition & {
+  setup: 'information';
+  status: 'unavailable' | 'managed-elsewhere';
+  detail: string;
+};
+
+export function webChatCatalogueInformation(ready: boolean): InformationalConnector {
+  return {
+    id: 'public_web_chat',
+    provider: 'Integral',
+    name: 'Web Chat',
+    description: 'Offer a text chat powered by a published public agent profile.',
+    scopes: { shared: 'one' },
+    capabilities: ['channel'],
+    setup: 'information',
+    status: ready ? 'managed-elsewhere' : 'unavailable',
+    detail: ready
+      ? 'Manage setup from Settings → Connectors.'
+      : 'This workspace has no ready Web Chat host. Ask your Integral administrator to check hosting.',
+  };
+}
+
 type CatalogPackage = Definition & { setup: 'package'; package: CatalogEntry };
 type ManagedChannelDefinition = Definition & { setup: 'managed-channel'; channel: ManagedChannel };
 export type ConnectorDefinition =
   | typeof WHATSAPP_CONNECTOR
   | typeof CUSTOM_MCP_CONNECTOR
   | CatalogPackage
-  | ManagedChannelDefinition;
+  | ManagedChannelDefinition
+  | InformationalConnector;
 
 const PACKAGE_PROVIDERS: Readonly<Record<string, string>> = {
   calendly: 'Calendly',
@@ -57,7 +80,12 @@ const PACKAGE_PROVIDERS: Readonly<Record<string, string>> = {
 
 export function connectorDefinitions(
   packages: CatalogEntry[],
-  { whatsapp, customMcp, managedChannels = [] }: { whatsapp: boolean; customMcp: boolean; managedChannels?: ManagedChannel[] },
+  { whatsapp, customMcp, managedChannels = [], information = [] }: {
+    whatsapp: boolean;
+    customMcp: boolean;
+    managedChannels?: readonly ManagedChannel[];
+    information?: readonly InformationalConnector[];
+  },
 ): ConnectorDefinition[] {
   const entries: ConnectorDefinition[] = [];
   if (whatsapp) entries.push(WHATSAPP_CONNECTOR);
@@ -87,6 +115,9 @@ export function connectorDefinitions(
       setup: 'managed-channel',
       channel,
     });
+  }
+  for (const notice of information) {
+    if (!entries.some(entry => entry.id === notice.id)) entries.push(notice);
   }
   return entries;
 }

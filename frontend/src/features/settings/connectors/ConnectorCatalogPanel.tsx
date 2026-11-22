@@ -19,6 +19,7 @@ import {
   connectorDefinitions,
   type ConnectorCapability,
   type ConnectorDefinition,
+  type InformationalConnector,
 } from './connectorDefinitions';
 
 const FILTERS = { all: 'All', api: 'API', mcp: 'MCP', channel: 'Channels' } as const;
@@ -28,6 +29,7 @@ export function ConnectorCatalogPanel({
   catalog,
   whatsappEnabled,
   whatsappStatus,
+  information,
   onInstalled,
   managed,
   onManageChannel,
@@ -35,6 +37,7 @@ export function ConnectorCatalogPanel({
   catalog: UseQueryResult<CatalogListResponse>;
   whatsappEnabled: boolean;
   whatsappStatus: 'loading' | 'unavailable' | 'new' | 'existing';
+  information?: readonly InformationalConnector[];
   onInstalled: () => void;
   managed?: UseQueryResult<ManagedChannel[]>;
   onManageChannel?: (channel: ManagedChannel) => void;
@@ -51,6 +54,7 @@ export function ConnectorCatalogPanel({
     whatsapp: whatsappEnabled && (canManage || whatsappStatus === 'existing'),
     customMcp: canManage,
     managedChannels: managed ? currentManagedChannels(managed) : [],
+    information,
   }).filter((entry: ConnectorDefinition) => {
     if (filter !== 'all' && !entry.capabilities.some(capability => capability === filter)) return false;
     const needle = query.trim().toLowerCase();
@@ -92,7 +96,7 @@ export function ConnectorCatalogPanel({
                 padding="md" className="flex flex-col gap-3">
                 <div className="flex items-start gap-3">
                   {entry.setup === 'package' ? <ConnectorBrandIcon icon={entry.package.icon} label={entry.name} /> :
-                    (isWhatsApp || channel) ? <MessageCircle size={24} className="m-1 shrink-0" aria-hidden /> :
+                    (isWhatsApp || channel || entry.setup === 'information') ? <MessageCircle size={24} className="m-1 shrink-0" aria-hidden /> :
                       <Terminal size={24} className="m-1 shrink-0" aria-hidden />}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -108,6 +112,14 @@ export function ConnectorCatalogPanel({
                         {blocked && <Text variant="body-sm" tone="muted">Setup is not available right now.</Text>}
                       </div>
                     )}
+                    {entry.setup === 'information' && (
+                      <div className="mt-2 flex flex-col items-start gap-1">
+                        <StatusPill state={entry.status === 'unavailable' ? 'warn' : 'idle'}>
+                          {entry.status === 'unavailable' ? 'Unavailable' : 'Setup in Connectors'}
+                        </StatusPill>
+                        <Text variant="body-sm" tone="subtle" as="p">{entry.detail}</Text>
+                      </div>
+                    )}
                     {isWhatsApp && <Text variant="body-sm" tone="subtle" as="p" className="mt-1">
                       {existing ? 'Added to this workspace.' : whatsappStatus === 'new' ?
                         'One line per workspace.' : whatsappStatus === 'loading' ?
@@ -115,14 +127,14 @@ export function ConnectorCatalogPanel({
                     </Text>}
                   </div>
                 </div>
-                <div className="mt-auto flex justify-end">
+                {entry.setup !== 'information' && <div className="mt-auto flex justify-end">
                   <Button type="button" variant="primary" size="xs" onClick={() => channel ? onManageChannel?.(channel) : setSelected(entry)}
                     disabled={blocked}
                     aria-label={entry.setup === 'package' ? undefined : `${action} ${entry.name}`}
                     data-testid={entry.setup === 'custom-mcp' ? 'catalog-add-custom-mcp-btn' : undefined}>
                     {action}
                   </Button>
-                </div>
+                </div>}
               </Surface>
             );
           })}

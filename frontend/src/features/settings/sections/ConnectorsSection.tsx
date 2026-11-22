@@ -35,7 +35,7 @@ import { managedChannelsApi, type ManagedChannel } from "../../../api/managedCha
 import { connectionProfilesApi, publicWebChatSettingsKey } from "../../../api/connectionProfiles";
 import { getWhatsAppChannelBinding } from "../../../api/agentive";
 import { useAgentive } from "../../../context/AgentiveContext";
-import { WHATSAPP_CONNECTOR } from "../connectors/connectorDefinitions";
+import { webChatCatalogueInformation, WHATSAPP_CONNECTOR } from "../connectors/connectorDefinitions";
 import { Button } from "../../../components/ui/Button";
 import {
   KebabMenu,
@@ -283,8 +283,12 @@ function ScopedConnectorsSection({
   const showManaged = canReadManaged && scopeFilter !== "per_user";
   const connectedManaged = showManaged ? currentManagedChannels(managed).filter(row => row.connected) : [];
 
+  // The standard managed entry owns the UI once registered; a legacy notice
+  // is only safe after a successful, settled registry response.
+  const useLegacyWebChat = managed.isSuccess && managed.fetchStatus === "idle" &&
+    !currentManagedChannels(managed).some(row => row.definition.slug === "public_web_chat");
   const canReadWebChatSetup = Boolean(
-    workspaceId && isWsAdmin && !scope?.isPersonal && !showLibrary && scopeFilter !== "per_user",
+    workspaceId && isWsAdmin && !scope?.isPersonal && (showLibrary || scopeFilter !== "per_user"),
   );
   const webChatSetup = useQuery({
     queryKey: [...publicWebChatSettingsKey(workspaceId), principalId],
@@ -294,9 +298,14 @@ function ScopedConnectorsSection({
     retry: false,
   });
   // Missing or stale host evidence must not advertise a working channel.
-  const webChat = canReadWebChatSetup && webChatSetup.isSuccess &&
+  const webChat = !showLibrary && canReadWebChatSetup && useLegacyWebChat && webChatSetup.isSuccess &&
     (webChatOpen || !webChatSetup.isFetching) && webChatSetup.data.transport_ready === true
     ? webChatSetup.data : null;
+  // A successful scoped response can describe a shipped feature, not install it.
+  const webChatInformation = showLibrary && canReadWebChatSetup && useLegacyWebChat &&
+    webChatSetup.isSuccess && webChatSetup.fetchStatus === "idle" &&
+    typeof webChatSetup.data?.transport_ready === "boolean"
+    ? [webChatCatalogueInformation(webChatSetup.data.transport_ready)] : [];
 
   const inspecting =
     (list.data?.connectors ?? []).find((c) => c.id === inspectingId) ?? null;
@@ -496,6 +505,7 @@ function ScopedConnectorsSection({
               whatsappStatus={whatsappStatus}
               managed={canReadManaged ? managed : undefined}
               onManageChannel={canReadManaged ? selectManaged : undefined}
+              information={webChatInformation}
               onInstalled={() => {
                 refetchConnectors();
                 navigate("/settings#connectors");
