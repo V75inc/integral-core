@@ -24,6 +24,9 @@ export type ManagedChannelEmbedRead =
   | { state: 'checking' | 'unavailable' }
   | VerifiedManagedEmbed;
 
+// Match the host's policy: a public path cannot contain a bootstrap or session credential.
+const credentialText = /(?:iweb|iwes)_[A-Za-z0-9_-]{32,128}/;
+
 const fields = [
   'kind', 'workspace_id', 'slug', 'provision_id', 'route_epoch', 'profile_key',
   'published_version', 'embed_policy_revision', 'parent_origin', 'embed_page_url',
@@ -44,9 +47,11 @@ function canonicalHttps(raw: unknown): URL | null {
   try {
     const parsed = new URL(raw);
     const host = parsed.hostname;
+    const terminalLabel = host.slice(host.lastIndexOf('.') + 1);
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
         parsed.search || parsed.hash || parsed.port === '0' || host === 'localhost' || host.endsWith('.localhost') ||
         host.startsWith('127.') || host === '0.0.0.0' ||
+        /^[0-9]+$/.test(terminalLabel) || terminalLabel.startsWith('0x') ||
         !host.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
     return parsed;
   } catch {
@@ -109,7 +114,8 @@ export function decodeApprovedManagedEmbed(raw: unknown, requestedFor: ManagedEm
   const frame = canonicalHttps(response.embed_page_url);
   if (!parent || parent.origin !== response.parent_origin ||
       !frame || frame.href !== response.embed_page_url ||
-      !/^\/embed\/[A-Za-z0-9_-]{1,128}$/.test(frame.pathname) || frame.origin === parent.origin) return unavailable;
+      !/^\/embed\/[A-Za-z0-9_-]{1,128}$/.test(frame.pathname) ||
+      credentialText.test(frame.pathname) || frame.origin === parent.origin) return unavailable;
 
   const owner = Object.freeze({
     principalId: requestedFor.principalId,
