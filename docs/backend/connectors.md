@@ -48,6 +48,22 @@ Register a channel only after its hosted transport, installation and lifecycle
 are wired and qualified. This source slice does not mount anything or register
 Web Chat, Facebook, or Signal.
 
+An isolated qualification harness can explicitly load one installed
+distribution using the [approved package loader](../../backend/app/connectors/channel_package_discovery.py).
+Pin the distribution's exact identity and version, the channel slug and the
+`module:factory` target in the `integral.managed_channels.v1` entry-point group.
+The loader validates unique metadata and the factory's installed ownership
+before import, then accepts only one complete matching package into the
+registry. There is no startup scan, installation, route mount or automatic
+workspace enablement. The separate first-party wheel in the tests is an
+in-memory, synthetic fixture, not a shipping connector.
+
+Version and import-origin pins are not signatures, artifact integrity, or a
+sandbox. Approved factories execute as trusted Python. Before any production
+loading path, add an authenticated operator review and artifact verification
+policy (including dependencies), explicit host composition, and release
+qualification. Never use request values or unreviewed modules as approvals.
+
 ## WhatsApp (JV Connect)
 
 **Settings → Connectors → Add Connector → WhatsApp (JV Connect)** opens an
