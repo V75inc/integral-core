@@ -130,6 +130,7 @@ async def admit(
     *,
     transport_ready: bool,
     existing: PublicWebChatScope | None = None,
+    expected_provision_id: str | None = None,
 ) -> PublicWebChatScope:
     """Check admission before loading history or starting a model turn."""
 
@@ -142,7 +143,12 @@ async def admit(
         )
     except (BadRequestError, ValidationError):
         raise ProfileDenied("Public Web Chat unavailable") from None
-    if not route.enabled or not route.profile_key or found is None:
+    if (
+        not route.enabled
+        or not route.profile_key
+        or found is None
+        or route.provision_id != expected_provision_id
+    ):
         raise ProfileDenied("Public Web Chat unavailable")
     published = eligible_publication(found.profiles, route.profile_key)
     if published is None:

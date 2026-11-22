@@ -1,3 +1,5 @@
+"""Verify Web Chat session admission against the canonical route."""
+
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -20,6 +22,7 @@ from app.agentive.services.web_chat_admission import (
 
 @pytest.fixture
 def admitted(monkeypatch):
+    """Create an exact scoped session with a mutable simulated route."""
     provision = ExternalChatProvision("workspace", "public_web_chat", "provision")
     chat = ExternalChatConversation(provision, "conversation")
     message = VerifiedExternalChatMessage(
@@ -33,6 +36,7 @@ def admitted(monkeypatch):
         "profile_key": "public",
         "enabled": True,
         "generation": 3,
+        "provision_id": provision.provision_id,
     }
     publication = {"key": "public", "audience": "public", "tools": [], "version": 7}
     record = AsyncMock(
@@ -57,6 +61,7 @@ def admitted(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_adapter_projects_exact_current_assignment(admitted):
+    """Project a ready assignment scoped to the verified conversation."""
     assert await admitted.adapter.text_only_assignment(
         admitted.message
     ) == ExternalChatAssignment(admitted.provision, "public", "7", "3")
@@ -77,6 +82,7 @@ async def test_adapter_projects_exact_current_assignment(admitted):
     ],
 )
 async def test_scope_mismatches_deny_before_route_read(admitted, field):
+    """Reject incorrect selectors before resolving host state."""
     message = admitted.message
     chat = message.key.conversation
     if field == "no-session":
@@ -113,6 +119,7 @@ async def test_scope_mismatches_deny_before_route_read(admitted, field):
 async def test_fresh_lifecycle_denies_revoked_or_changed_assignment(
     admitted, disposition
 ):
+    """Deny when the route or current eligible publication changes."""
     if disposition == "disabled":
         admitted.route["enabled"] = False
     elif disposition == "new-epoch":
@@ -124,3 +131,12 @@ async def test_fresh_lifecycle_denies_revoked_or_changed_assignment(
     else:
         admitted.ready.return_value = False
     assert await admitted.adapter.text_only_assignment(admitted.message) is None
+
+
+async def test_rejects_legacy_or_replaced_provision_with_same_epoch(admitted):
+    """Exact installation identity matters even if a route reuses its epoch."""
+    adapter = FullPageWebChatAdmission(admitted.reader)
+    admitted.route.pop("provision_id")
+    assert await adapter.text_only_assignment(admitted.message) is None
+    admitted.route["provision_id"] = "replacement"
+    assert await adapter.text_only_assignment(admitted.message) is None

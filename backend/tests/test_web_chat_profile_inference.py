@@ -70,7 +70,12 @@ def turn(monkeypatch):
         "tools": [],
     }
     configuration = SimpleNamespace(
-        public_web_chat={"profile_key": "public", "enabled": True, "generation": 22},
+        public_web_chat={
+            "profile_key": "public",
+            "enabled": True,
+            "generation": 22,
+            "provision_id": provision.provision_id,
+        },
         profiles={
             "public": {
                 "published": profile,

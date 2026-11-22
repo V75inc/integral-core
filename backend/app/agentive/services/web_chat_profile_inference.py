@@ -130,7 +130,7 @@ def _history(
 
 async def _published_persona(assignment: ExternalChatAssignment) -> str:
     found = await profile_management.record(assignment.provision.workspace_id)
-    published = public_web_chat._eligible_publication(
+    published = public_web_chat.eligible_publication(
         found.profiles if found else {}, assignment.profile_key
     )
     if not published or str(published["version"]) != assignment.publication_revision:

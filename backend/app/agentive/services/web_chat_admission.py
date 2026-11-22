@@ -62,6 +62,7 @@ class FullPageWebChatAdmission:
                     scope.workspace_id
                 ),
                 existing=scope,
+                expected_provision_id=provision.provision_id,
             )
         except ProfileDenied:
             return None
