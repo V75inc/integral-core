@@ -23,6 +23,31 @@ multiple per-user connections and one workspace connection per package.
 members can use that connected account. The connection owner and authorized
 workspace admins and owners can manage it.
 
+### Managed inbound channel packages (source-only)
+
+The versioned [managed channel contract](../../backend/app/connectors/channel_packages.py)
+accepts one reviewed server package atomically: a stable catalogue definition,
+durable workspace lifecycle callbacks, and the serving adapter's readiness and
+verified-message entry point. This is separate from the sync and MCP execution
+registries. A planned name or metadata-only entry does not register a channel.
+
+Keep the definition, installation, and live route separate. A complete ready
+package with no provision can offer **Add**. **Connected** lists explicit
+durable installations, never agent-profile settings or an enabled flag alone.
+An installed, disabled channel can show **Configure** and enablement when ready;
+an installed outage can still show **Configure**, but must not offer enablement
+or sharing. An active channel requires a matching, accepting current provision.
+Full-page links are optional, server-issued HTTPS URLs and excluded from default
+discovery. An eventual API must authorize sharing separately.
+
+The next step is an authenticated Connector Library and Connected read
+projection for this contract, with management actions dispatched through each
+package's existing authorization and revision checks. The generic UI should use
+the versioned setup kind; it must not evaluate remote configuration or assets.
+Register a channel only after its hosted transport, installation and lifecycle
+are wired and qualified. This source slice does not mount anything or register
+Web Chat, Facebook, or Signal.
+
 ## WhatsApp (JV Connect)
 
 **Settings → Connectors → Add Connector → WhatsApp (JV Connect)** opens an
