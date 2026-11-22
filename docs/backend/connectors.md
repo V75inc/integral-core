@@ -167,22 +167,23 @@ API. Do not relax the browser gate to accommodate an integration.
 
 If server-to-server clients need direct access, add a separate **versioned
 transport for the same Web Chat connector**, not another connector, profile
-assignment, or approval path. The v1 HTTP adapter is implemented as a **detached contract** in
-`app/web/web_chat_client_http.py`. Core does not mount it; no public endpoint
-or manager-issued client keys are currently available. The adapter mounts only
-on an explicitly supplied canonical HTTPS origin, rejects query credentials,
-browser origin/cookie context and wrong credential classes, and checks the
-bound grant/session again immediately before returning any protected reply.
-The grant and session services are separate deployment prerequisites, as are
-authorization, expiry, revocation, dedicated capacity, and durable turn wiring.
+assignment, or approval path. The v1 HTTP adapter and PostgreSQL-backed grants,
+short-lived sessions, and durable turns are available through the **detached**
+`compose_web_chat_client_api` factory. Core does not mount it; no public endpoint
+or manager-issued client keys are currently available. The adapter requires a
+supplied canonical HTTPS origin, rejects query credentials, browser
+origin/cookie context, and wrong credential classes, and checks the bound
+grant/session again immediately before returning protected output. The host
+must supply the exact management review and assignment authority, bounded
+public model capacity, and a separate durable client request budget.
 
-Target v1 contract (request/response envelope covered in isolated tests):
+v1 isolated contract:
 
 | Request | Authorization and result |
 | --- | --- |
 | `POST /api/v1/web-chat/sessions` | Revocable per-provision client bearer; create a visitor session and return a short-lived opaque session bearer with an empty snapshot. |
 | `GET /api/v1/web-chat/session` | Session bearer; resume that conversation and return its bounded history. |
-| `POST /api/v1/web-chat/session/messages` | Session bearer with `{id, text}`; return bounded history on completion or pending while the outcome remains uncertain. |
+| `POST /api/v1/web-chat/session/messages` | Session bearer with `{id, text}`; return bounded history on completion, `202 pending` until durable, or `409 conflict` for changed input with the same ID. |
 
 Session issuance requires an empty request and returns only `session_token`,
 `expires_in` (at most 900 seconds), and an empty `messages` snapshot. Use the
@@ -410,8 +411,8 @@ profile, readiness and enablement, and the two sharing options together:
   configured origin policy. Do not assume third-party cookies are available.
 
 These are two presentations of one connector, not separate installs or
-profile bindings. The visitor interface and admission rules should be the
-same for both. Each visitor session still belongs to one conversation and is
+profile bindings. The visitor interface can be reused; full-page cookies must not be reused for
+cross-site embed admission. Each visitor session still belongs to one conversation and is
 not silently shared across sites or presentations. The public base origin and
 opaque channel link come from the trusted host; never derive a public link
 from the admin browser URL or put a visitor session token into a link or
@@ -419,6 +420,11 @@ snippet. Suppress both sharing actions if the channel is not active. Hiding a
 button is not revocation: disablement or an invalid assignment must stop
 existing links and sessions on the server. If origins change, stale embed
 sessions must not retain the old permissions.
+
+The embed snippet and matching policy validators are detached. An embed share
+control must not be wired until the actual host serves the distinct-origin
+iframe, restricts `frame-ancestors` to the current approved parent, and supports
+short-lived isolated visitor admission without relying on third-party cookies.
 
 A separately enabled **API access** presentation is a follow-up, not required
 for the first full-page release. Reuse the same server-owned assignment,

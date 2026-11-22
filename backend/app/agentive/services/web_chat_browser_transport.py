@@ -32,7 +32,7 @@ StartMode = Literal["new", "resume"]
 SessionKind = Literal["current", "expired", "unavailable"]
 Operation = Literal["start", "send"]
 MessageRole = Literal["visitor", "assistant"]
-ReplyKind = Literal["ready", "pending", "expired", "unavailable"]
+ReplyKind = Literal["ready", "pending", "expired", "unavailable", "conflict"]
 _EVENT_ID = re.compile(r"[a-zA-Z0-9_-]{1,128}")
 _TEXT_LIMIT = 1_000
 _REPLY_LIMIT = 4_000
@@ -170,6 +170,7 @@ class BrowserWebChatController:
         complete: TextModel,
         *,
         readiness: WorkspaceReadiness | None = None,
+        expose_conflict: bool = False,
     ) -> None:
         if provision.connector_kind != "public_web_chat":
             raise ValueError("Expected a trusted Web Chat provision")
@@ -180,6 +181,7 @@ class BrowserWebChatController:
         self._store = store
         self._complete = complete
         self._readiness = readiness or public_web_chat.transport_ready
+        self._expose_conflict = expose_conflict
 
     def _expect_session(self, access: BrowserSessionAccess) -> VerifiedFullPageSession:
         if not isinstance(access, BrowserSessionAccess):
@@ -283,7 +285,9 @@ class BrowserWebChatController:
             )
             outcome = await inference.submit(event_id, text)
             if outcome.state == "conflict":
-                return BrowserWebChatReply("unavailable")
+                return BrowserWebChatReply(
+                    "conflict" if self._expose_conflict else "unavailable"
+                )
             if await self._assignment(session) != assignment:
                 return BrowserWebChatReply("unavailable")
             if outcome.state == "in_progress":
