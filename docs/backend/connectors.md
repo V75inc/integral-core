@@ -120,6 +120,16 @@ Settings action. Do not include account, workspace, profile, model, or visitor
 credentials in page data. The host still owns its HTML bootstrap, response
 policies, and revalidation of the live route on every visitor request.
 
+The detached [Configure share view](../../frontend/src/features/settings/connectors/ManagedChannelFullPageShare.tsx)
+does not obtain, construct, or publish a link. A future authorized read must bind
+a current safe HTTPS link to the same manager, workspace, connector, provision
+and route epoch before the view can render it. Default catalogue, mutation and
+status reads do not establish share eligibility. Hide the view on recheck,
+readiness loss or a change in scope. A profile-only publication change may
+keep the same channel epoch; invalidate and refresh the authorized share read
+on publication changes, and independently deny obsolete links at the host even
+before Settings refetches. Embed policy remains separate.
+
 The detached [public request budget](../../backend/app/agentive/services/web_chat_request_budget.py)
 requires an explicitly supplied PostgreSQL adapter and identical fixed-window
 policy across its workers. It atomically charges deployment, workspace, and
