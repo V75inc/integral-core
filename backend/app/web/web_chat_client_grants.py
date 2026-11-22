@@ -177,6 +177,12 @@ class PostgresWebChatClientGrants:
     the exact actor/action/grant. Its current-authority port must resolve the
     live route and tool-free publication without trusting transport input. No
     default authorizes an action; this service mounts nothing.
+
+    These ports run while writes hold a database transaction. Supply bounded
+    nonblocking checks with independently available I/O (e.g. a separate
+    pool) and no reentry into this store or its lock namespace. Review must
+    revalidate the same approval without consuming it on each call; issuance
+    replay is fenced by the durable grant ID instead.
     """
 
     def __init__(
@@ -230,9 +236,9 @@ class PostgresWebChatClientGrants:
             pointer = WebChatClientGrantDigest(id=index_id, grant_id=grant.grant_id)
             await tx.save("object", await pointer.export())
             await tx.save("object", await saved.record().export())
-        if not await self.is_current(grant):
-            # Route/review does not itself guarantee live authority. Never hand
-            # out a new bearer for a snapshot no longer current after commit.
+        if await self._review(review) is not True or not await self.is_current(grant):
+            # Never hand out a bearer after review or live authority has been
+            # lost. The committed ID still fences a retry and can be revoked.
             return None
         return IssuedWebChatClientGrant(grant, secret)
 
