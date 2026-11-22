@@ -59,6 +59,11 @@ function canonicalHttps(raw: unknown): URL | null {
   }
 }
 
+/** A parent origin is canonical, HTTPS and never an address with a path. */
+export function isCanonicalManagedEmbedOrigin(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 261 && canonicalHttps(value)?.origin === value;
+}
+
 // This JavaScript is a convenience loader, not an enforcement boundary. The
 // frame is a different origin; same-origin permission keeps its own API origin
 // intact, not the parent's. Only its script runtime is otherwise permitted.
@@ -110,12 +115,12 @@ export function decodeApprovedManagedEmbed(raw: unknown, requestedFor: ManagedEm
       response.parent_origin !== requestedFor.policy.parentOrigin ||
       response.embed_policy_revision !== requestedFor.policy.policyRevision) return unavailable;
 
-  const parent = canonicalHttps(response.parent_origin);
+  const parentOrigin = response.parent_origin;
   const frame = canonicalHttps(response.embed_page_url);
-  if (!parent || parent.origin !== response.parent_origin ||
+  if (!isCanonicalManagedEmbedOrigin(parentOrigin) ||
       !frame || frame.href !== response.embed_page_url ||
       !/^\/embed\/[A-Za-z0-9_-]{1,128}$/.test(frame.pathname) ||
-      credentialText.test(frame.pathname) || frame.origin === parent.origin) return unavailable;
+      credentialText.test(frame.pathname) || frame.origin === parentOrigin) return unavailable;
 
   const owner = Object.freeze({
     principalId: requestedFor.principalId,
@@ -129,7 +134,7 @@ export function decodeApprovedManagedEmbed(raw: unknown, requestedFor: ManagedEm
       publishedVersion: requestedFor.publication.publishedVersion,
     }),
     policy: Object.freeze({
-      parentOrigin: parent.origin,
+      parentOrigin,
       policyRevision: requestedFor.policy.policyRevision,
     }),
   });
@@ -137,7 +142,7 @@ export function decodeApprovedManagedEmbed(raw: unknown, requestedFor: ManagedEm
     [embedProof]: true as const,
     state: 'verified' as const,
     owner,
-    snippet: buildSnippet(frame.href, parent.origin),
+    snippet: buildSnippet(frame.href, parentOrigin),
   });
   verified.add(proof);
   return proof;
