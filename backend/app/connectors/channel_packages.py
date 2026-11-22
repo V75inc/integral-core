@@ -96,6 +96,39 @@ class ChannelServing:
     full_page_link: FullPageLink | None = None
 
 
+PROFILE_CONFIGURATION = "published-public-profile-v1"
+
+
+@dataclass(frozen=True)
+class ChannelProfileOption:
+    """One eligible public profile with a safe display label."""
+
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ChannelProfileConfiguration:
+    """Current revision and selection, without persona or capabilities."""
+
+    profile_revision: int
+    profile_key: str | None
+    eligible_profiles: tuple[ChannelProfileOption, ...]
+    editable: bool
+
+
+@dataclass(frozen=True)
+class ChannelProfileSetup:
+    """Optional Core-known setup seam for published tool-free public profiles."""
+
+    describe: Callable[
+        [ChannelScope, ChannelInstallation], Awaitable[ChannelProfileConfiguration]
+    ]
+    assign: Callable[
+        [ChannelScope, ChannelInstallation, int, str | None], Awaitable[None]
+    ]
+
+
 @dataclass(frozen=True)
 class ChannelPackage:
     """A definition, durable lifecycle, and serving contract supplied together."""
@@ -103,6 +136,7 @@ class ChannelPackage:
     definition: ChannelDefinition
     lifecycle: ChannelLifecycle
     serving: ChannelServing
+    profile_setup: ChannelProfileSetup | None = None
 
 
 @dataclass(frozen=True)
@@ -149,6 +183,12 @@ def _validate_package(package: ChannelPackage) -> None:
         serving, ChannelServing
     ):
         raise TypeError("A channel requires lifecycle and serving adapters")
+    if package.profile_setup is not None and (
+        not isinstance(package.profile_setup, ChannelProfileSetup)
+        or not iscoroutinefunction(package.profile_setup.describe)
+        or not iscoroutinefunction(package.profile_setup.assign)
+    ):
+        raise TypeError("Managed channel profile setup must be complete")
     callbacks = (
         lifecycle.observe,
         lifecycle.install,

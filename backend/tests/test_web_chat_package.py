@@ -128,3 +128,21 @@ async def test_manager_and_outage_recovery_do_not_depend_on_serving(ports):
         "remove",
     ]
     ports.host.probe.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_profile_descriptor_projects_only_current_public_tool_free_options(ports):
+    ports.publication.update(
+        name="Visitor guide", persona="Not for management projection"
+    )
+    setup = ports.adapter.package.profile_setup
+    assert setup is not None
+    descriptor = await setup.describe(SCOPE, INSTALLATION)
+    assert descriptor.editable and descriptor.profile_revision == 5
+    assert [(option.key, option.name) for option in descriptor.eligible_profiles] == [
+        ("public", "Visitor guide")
+    ]
+    ports.publication["tools"] = ["not eligible"]
+    descriptor = await setup.describe(SCOPE, INSTALLATION)
+    assert descriptor.eligible_profiles == ()
+    ports.store.commit.assert_not_awaited()

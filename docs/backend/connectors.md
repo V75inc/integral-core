@@ -339,3 +339,13 @@ or enabled flag is not an installation; explicit installation creates a
 disabled provision, starting without an assigned profile. The legacy settings
 handlers cannot modify installed state. No bootstrap, transport or visitor
 endpoint is installed by this composition.
+
+
+A package can optionally declare the Core-owned `published-public-profile-v1`
+setup. For an installed channel this advertises `configuration_kind`, not a
+custom form or route. `GET /{slug}/configuration` uses the workspace and exact
+provision/epoch, returning only current profile keys/labels and the profile
+revision. `PUT /{slug}/configuration` checks the same provision and epoch plus
+the expected profile revision and eligibility. Selection is disabled while
+the channel is enabled; saving a profile does not enable or publish it. The
+owning store checks these conditions again at commit.

@@ -11,6 +11,9 @@ from app.connectors.channel_packages import (
     ChannelInstallation,
     ChannelLifecycle,
     ChannelPackage,
+    ChannelProfileConfiguration,
+    ChannelProfileOption,
+    ChannelProfileSetup,
     ChannelScope,
     ChannelServing,
     ChannelServingStatus,
@@ -82,6 +85,7 @@ class ManagedWebChatPackage:
             ),
             ChannelLifecycle(self.observe, self.install, self.set_enabled, self.remove),
             ChannelServing(self.probe, self.receive),
+            ChannelProfileSetup(self.describe_profile, self.assign_profile),
         )
 
     @staticmethod
@@ -179,6 +183,25 @@ class ManagedWebChatPackage:
         if result is None or self._validate_installation(scope, result).enabled:
             raise ResourceConflictError("Web Chat installation could not be verified")
         return result
+
+    async def describe_profile(
+        self, scope: ChannelScope, current: ChannelInstallation
+    ) -> ChannelProfileConfiguration:
+        """Return current eligible names and revision, never persona or tools."""
+        if await self.observe(scope) != current:
+            raise ResourceConflictError("Web Chat provision changed")
+        revision, route, profiles = await self._profile(scope)
+        eligible = []
+        for key in profiles:
+            published = public_web_chat.eligible_publication(profiles, key)
+            if published is not None:
+                eligible.append(ChannelProfileOption(key, published["name"]))
+        return ChannelProfileConfiguration(
+            revision,
+            route.profile_key,
+            tuple(sorted(eligible, key=lambda item: (item.name.casefold(), item.key))),
+            not current.enabled and not route.enabled,
+        )
 
     async def assign_profile(
         self,

@@ -13,6 +13,9 @@ from app.connectors.channel_packages import (
     ChannelLifecycle,
     ChannelPackage,
     ChannelPackageRegistry,
+    ChannelProfileConfiguration,
+    ChannelProfileOption,
+    ChannelProfileSetup,
     ChannelServing,
     ChannelServingStatus,
 )
@@ -31,7 +34,13 @@ async def endpoint_fixture(authenticated_client, monkeypatch):
     workspace = response.json()["workspace"]["id"]
     scope = {"X-Integral-Scope": f"ws:{workspace}"}
     registry = ChannelPackageRegistry()
-    state = {"installation": None, "ready": True, "epoch": 0}
+    state = {
+        "installation": None,
+        "ready": True,
+        "epoch": 0,
+        "profile": None,
+        "revision": 4,
+    }
     calls = []
     lock = asyncio.Lock()
 
@@ -78,6 +87,24 @@ async def endpoint_fixture(authenticated_client, monkeypatch):
             state["installation"] = None
             calls.append(("remove", ctx.actor_id))
 
+    async def describe_profile(ctx, current):
+        return ChannelProfileConfiguration(
+            state["revision"],
+            state["profile"],
+            (ChannelProfileOption("public", "Visitor guide"),),
+            not current.enabled,
+        )
+
+    async def assign_profile(ctx, current, revision, profile):
+        async with lock:
+            if state["installation"] != current or state["revision"] != revision:
+                raise ResourceConflictError("Fixture state changed")
+            state["epoch"] += 1
+            state["installation"] = replace(current, route_epoch=str(state["epoch"]))
+            state["revision"] += 1
+            state["profile"] = profile
+            calls.append(("assign", ctx.actor_id))
+
     async def never(*args):
         raise AssertionError("Transport or sharing is never called by management")
 
@@ -92,6 +119,7 @@ async def endpoint_fixture(authenticated_client, monkeypatch):
             ),
             ChannelLifecycle(observe, install, set_enabled, remove),
             ChannelServing(probe, never, never),
+            ChannelProfileSetup(describe_profile, assign_profile),
         )
     )
     from app.main import app
@@ -222,3 +250,48 @@ async def test_non_manager_cannot_observe_or_operate(
     )
     assert [response.status_code for response in attempts] == [403] * 4
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_optional_configuration_uses_exact_scope_provision_and_profile_revision(
+    endpoint_fixture,
+):
+    client, headers, params, state, calls = endpoint_fixture
+    target = f"{PATH}/{SLUG}/configuration"
+    response = await client.post(
+        f"{PATH}/{SLUG}/install", headers=headers, params=params
+    )
+    [row] = response.json()["channels"]
+    assert row["configuration_kind"] == "published-public-profile-v1"
+    ids = {key: row[key] for key in ("provision_id", "route_epoch")}
+    described = await client.get(target, headers=headers, params={**params, **ids})
+    assert described.status_code == 200, described.text
+    assert described.json() == {
+        **ids,
+        "kind": "published-public-profile-v1",
+        "profile_revision": 4,
+        "profile_key": None,
+        "eligible_profiles": [{"key": "public", "name": "Visitor guide"}],
+        "editable": True,
+    }
+    body = {**ids, "expected_profile_revision": 4, "profile_key": "public"}
+    for invalid in (
+        {**body, "expected_profile_revision": 3},
+        {**body, "profile_key": "staff"},
+        {**body, "route_epoch": "stale"},
+    ):
+        response = await client.put(
+            target, headers=headers, params=params, json=invalid
+        )
+        assert response.status_code == 409, response.text
+    assert [verb for verb, _ in calls] == ["install"]
+
+    response = await client.put(target, headers=headers, params=params, json=body)
+    assert response.status_code == 200, response.text
+    [new] = response.json()["channels"]
+    assert new["route_epoch"] != ids["route_epoch"] and state["profile"] == "public"
+    assert [verb for verb, _ in calls] == ["install", "assign"]
+    assert not state["installation"].enabled
+    assert (
+        await client.get(target, headers=headers, params={**params, **ids})
+    ).status_code == 409

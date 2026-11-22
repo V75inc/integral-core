@@ -15,3 +15,10 @@ class ManageChannelEnablement(ManageChannelProvision):
     """Enablement is separate from package installation."""
 
     enabled: bool
+
+
+class ManageChannelProfileAssignment(ManageChannelProvision):
+    """Select a nullable public profile at the exact observed revision."""
+
+    expected_profile_revision: int = Field(ge=0)
+    profile_key: str | None = Field(min_length=1, max_length=128)
