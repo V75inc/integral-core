@@ -152,7 +152,22 @@ async def _delegated_status(scope, thread, receipt):
 
 
 _COUNT_WORDS = dict(
-    zip("zero one two three four five six seven eight nine ten".split(), range(11))
+    zip(
+        [
+            "zero",
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+            "ten",
+        ],
+        range(11),
+    )
 )
 _COUNT_TOKEN = (
     r"(?<![\w.,-])(?:[0-9]+|" + "|".join(_COUNT_WORDS) + r")(?![\w,-]|\.[0-9])"
