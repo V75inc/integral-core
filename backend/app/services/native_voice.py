@@ -18,6 +18,7 @@ from app.services.workspace_permissions import can_access_workspace
 DELEGATE = "delegate_to_integral"
 MAX_AUDIO_CHUNK = 4800
 MAX_CALL_SECONDS = 600
+DELEGATE_WAIT_SECONDS = 90
 MAX_DELEGATIONS = 16
 OPENING_GRACE_SECONDS = 0.4
 TOOL = {
@@ -202,20 +203,19 @@ def _speech_ready_result(result: str) -> str:
 
 
 async def delegate(scope: VoiceScope, call_id: str, text: str) -> str:
-    """Run native chat and return the current authorized status."""
-    from app.agentive.services.work_items import cancel_work_item
+    """Submit durable native chat, then observe without owning its lifetime."""
     from app.schemas.agentive.work import (
         ChatTurnExecutionContext,
         ChatTurnSubmissionRequest,
     )
     from app.services.chat_turn_submissions import submit_chat_turn
 
-    item_id = None
+    receipt = None
     thread = await authorize(scope)
     if thread is None:
         raise InsufficientPermissionsError(message="Conversation unavailable")
     try:
-        async with asyncio.timeout(90):
+        async with asyncio.timeout(DELEGATE_WAIT_SECONDS):
             receipt = await submit_chat_turn(
                 ChatTurnSubmissionRequest(
                     principal_id=scope.principal,
@@ -229,7 +229,6 @@ async def delegate(scope: VoiceScope, call_id: str, text: str) -> str:
                     ),
                 )
             )
-            item_id = receipt.work_item_id
             while True:
                 status, result = await _delegated_status(scope, thread, receipt)
                 if status == "waiting_for_human":
@@ -240,14 +239,15 @@ async def delegate(scope: VoiceScope, call_id: str, text: str) -> str:
                 if result is not None:
                     return result
                 await asyncio.sleep(0.5)
-    except (asyncio.CancelledError, TimeoutError):
-        if item_id:
-            # Existing approvals retain their ordinary durable lifecycle.
-            try:
-                await cancel_work_item(item_id, preserve_human_review=True)
-            except Exception:
-                pass
-        raise
+    except TimeoutError:
+        if receipt is None:
+            # No durable acceptance was observed; do not claim a chat job.
+            return "I couldn't confirm that Integral accepted the workspace request."
+        await authorize(scope)
+        return (
+            "I stopped waiting on this call. Your request was accepted; "
+            "check its latest status in the Integral conversation."
+        )
 
 
 def voice_thread_continuity(thread, *, now: datetime | None = None) -> str:
@@ -363,6 +363,7 @@ class VoiceRelay:
         self.user_spoke = False
         self.opening_response_id: str | None = None
         self.opening_token: str | None = None
+        self.delegate_token: str | None = None
         self.opening_task: asyncio.Task | None = None
         self.name = "Integral AI"
         self.continuity = "unknown"
@@ -421,9 +422,10 @@ class VoiceRelay:
         self.response_generation = None
         self.opening_response_id = None
         self.opening_token = None
+        self.delegate_token = None
+        # Conversational barge-in fences only delivery. The authorized chat
+        # turn already has independent transactional admission and lifecycle.
         await self.browser.send_json({"type": "flush"})
-        if self.pending and not self.pending.done():
-            self.pending.cancel()
 
     async def _work(self, call_id, request, generation):
         try:
@@ -452,6 +454,7 @@ class VoiceRelay:
             }
         )
         if generation == self.generation:
+            self.delegate_token = secrets.token_hex(16)
             await self.send_event(
                 {
                     "type": "response.create",
@@ -463,6 +466,7 @@ class VoiceRelay:
                             "If a change needs approval, direct the caller to Integral."
                         ),
                         "tool_choice": "none",
+                        "metadata": {"integral_delegate": self.delegate_token},
                     },
                 }
             )
@@ -524,7 +528,17 @@ class VoiceRelay:
                 metadata = response.get("metadata") or {}
                 token = metadata.get("integral_opening")
                 response_id = response.get("id")
-                if token is not None or (
+                delivery = metadata.get("integral_delegate")
+                if delivery is not None:
+                    # A late response.created after VAD must not claim audio
+                    # generation or overwrite a subsequent ordinary response.
+                    if (
+                        delivery == self.delegate_token
+                        and self.response_generation is None
+                    ):
+                        self.response_generation = response_id
+                        self.delegate_token = None
+                elif token is not None or (
                     "conversation_id" in response
                     and response["conversation_id"] is None
                 ):

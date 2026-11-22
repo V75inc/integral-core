@@ -659,3 +659,10 @@ public CRM access, staff authorization inferred from phone numbers, or realtime
 voice. The separate connection-profile pilot is not registered on this webhook.
 Local qualification uses mocked transports and synthetic identities; operational
 activation still requires delivery/retry and durable ingress qualification.
+
+Native voice barge-in interrupts audio delivery, not an accepted durable
+workspace chat turn. Hanging up or reaching the call's bounded wait detaches
+the voice observer; a submitted turn remains in the same chat with ordinary
+worker authorization and approval. The caller can explicitly stop that turn
+in chat. A wait timeout reports acceptance only after the durable receipt
+was observed, never that an unverified operation completed.
