@@ -333,6 +333,9 @@ sharing URLs, credentials, or adapter exceptions.
 The unregistered Web Chat package composes this lifecycle with the existing
 tool-free published profile check. It requires a host that can attest the exact
 provision and epoch, and a durable store that commits provision and profile
-revision changes together. The package never treats profile assignment or an
-old enabled flag as installation. No store, bootstrap, or visitor endpoint is
-installed by this composition.
+revision changes together. The unmounted profile-route store performs that
+change with the existing workspace revision CAS. A legacy profile assignment
+or enabled flag is not an installation; explicit installation creates a
+disabled provision, starting without an assigned profile. The legacy settings
+handlers cannot modify installed state. No bootstrap, transport or visitor
+endpoint is installed by this composition.

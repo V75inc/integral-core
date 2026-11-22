@@ -64,6 +64,13 @@ class PublicWebChatRoute(BaseModel):
     profile_key: ProfileKey | None = None
     enabled: bool = False
     generation: int = Field(default=0, ge=0)
+    provision_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+    def persisted(self) -> dict:
+        """Keep legacy storage shape when there is no explicit provision."""
+        return self.model_dump(
+            exclude={"provision_id"} if self.provision_id is None else None
+        )
 
 
 class PublicWebChatAssignment(BaseModel):

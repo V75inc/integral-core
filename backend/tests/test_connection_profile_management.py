@@ -865,3 +865,106 @@ async def test_bind_applies_publish_assignment_rules(
         await service.bind("owner", "ws", command)
         update = database.find_one_and_update.await_args.args[2]["$set"]
         assert update["context.bindings"] == {"selected": "staff"}
+
+
+@pytest.mark.asyncio
+async def test_explicit_web_chat_provision_shares_profile_cas_without_adopting_legacy(
+    hosted_route,
+):
+    from app.agentive.services import public_web_chat
+    from app.agentive.services.web_chat_package import SLUG, WebChatProvisionChange
+    from app.agentive.services.web_chat_provision_store import (
+        ProfileRouteWebChatProvisionStore,
+    )
+    from app.api.errors import ResourceConflictError
+    from app.connectors.channel_packages import ChannelScope, ChannelServingStatus
+
+    found, database, _ = hosted_route
+    found.public_web_chat = {"profile_key": "public", "enabled": True, "generation": 11}
+    scope = ChannelScope("owner", "ws")
+    host = AsyncMock()
+    host.probe.return_value = ChannelServingStatus("ws", SLUG, None, None, "ready")
+    store = ProfileRouteWebChatProvisionStore(host)
+    assert await store.observe(scope) is None
+
+    installed = await store.commit(
+        scope, WebChatProvisionChange("install_disabled", None, 4)
+    )
+    assert installed is not None and installed.enabled is False
+    assert installed.route_epoch == "12"
+    assert found.public_web_chat == {
+        "provision_id": installed.provision_id,
+        "profile_key": None,
+        "enabled": False,
+        "generation": 12,
+    }
+    assert await store.observe(scope) == installed
+
+    with pytest.raises(BadRequestError, match="through its connector"):
+        await public_web_chat.assign_profile("owner", "ws", 5, "public")
+    with pytest.raises(BadRequestError, match="through its connector"):
+        await public_web_chat.set_enabled("owner", "ws", 5, True, transport_ready=True)
+    database.find_one_and_update.assert_awaited_once()
+
+    assigned = await store.commit(
+        scope, WebChatProvisionChange("assign", installed, 5, "public")
+    )
+    assert assigned is not None and assigned.route_epoch == "13"
+    with pytest.raises(ResourceConflictError):
+        await store.commit(scope, WebChatProvisionChange("remove", installed, 6))
+    with pytest.raises(ResourceConflictError):
+        await store.commit(scope, WebChatProvisionChange("remove", assigned, 5))
+
+    host.probe.return_value = ChannelServingStatus(
+        "ws", SLUG, assigned.provision_id, "old-epoch", "ready"
+    )
+    with pytest.raises(ResourceConflictError, match="not ready"):
+        await store.commit(scope, WebChatProvisionChange("enable", assigned, 6))
+    assert await store.observe(scope) == assigned
+    host.probe.return_value = ChannelServingStatus(
+        "ws", SLUG, assigned.provision_id, assigned.route_epoch, "ready"
+    )
+    enabled = await store.commit(scope, WebChatProvisionChange("enable", assigned, 6))
+    assert enabled is not None and enabled.enabled and enabled.route_epoch == "14"
+
+    host.probe.side_effect = RuntimeError("Unavailable host must not block removal")
+    disabled = await store.commit(scope, WebChatProvisionChange("disable", enabled, 7))
+    assert (
+        disabled is not None and not disabled.enabled and disabled.route_epoch == "15"
+    )
+    assert (
+        await store.commit(scope, WebChatProvisionChange("remove", disabled, 8)) is None
+    )
+    assert await store.observe(scope) is None
+    assert found.public_web_chat == {
+        "profile_key": None,
+        "enabled": False,
+        "generation": 16,
+    }
+    assert host.probe.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_web_chat_provision_denies_unauthorized_scope_and_cas_loss(hosted_route):
+    from app.agentive.services.web_chat_package import SLUG, WebChatProvisionChange
+    from app.agentive.services.web_chat_provision_store import (
+        ProfileRouteWebChatProvisionStore,
+    )
+    from app.api.errors import InsufficientPermissionsError, ResourceConflictError
+    from app.connectors.channel_packages import ChannelScope, ChannelServingStatus
+
+    found, database, _ = hosted_route
+    host = AsyncMock()
+    host.probe.return_value = ChannelServingStatus("ws", SLUG, None, None, "ready")
+    store = ProfileRouteWebChatProvisionStore(host)
+    request = WebChatProvisionChange("install_disabled", None, 4)
+    with pytest.raises(InsufficientPermissionsError):
+        await store.commit(ChannelScope("member", "ws"), request)
+    host.probe.assert_not_awaited()
+    database.find_one_and_update.assert_not_awaited()
+    database.find_one_and_update.side_effect = None
+    database.find_one_and_update.return_value = None
+    with pytest.raises(ResourceConflictError, match="Refresh"):
+        await store.commit(ChannelScope("owner", "ws"), request)
+    host.probe.assert_awaited_once()
+    assert found.public_web_chat == {}

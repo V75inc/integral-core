@@ -224,7 +224,7 @@ async def mutate_config(actor, workspace, revision, action):
         profiles, bindings = deepcopy(found.profiles), deepcopy(found.bindings)
         native = list(found.native_chat_profiles)
         public_web_chat = PublicWebChatRoute.model_validate(found.public_web_chat)
-        original_route = public_web_chat.model_dump()
+        original_route = public_web_chat.persisted()
         await action(profiles, bindings, native, public_web_chat)
         values = {
             "context.profiles": profiles,
@@ -232,7 +232,7 @@ async def mutate_config(actor, workspace, revision, action):
             "context.native_chat_profiles": native,
             "context.revision": found.revision + 1,
         }
-        route = public_web_chat.model_dump()
+        route = public_web_chat.persisted()
         if route != original_route:
             values["context.public_web_chat"] = route
         updated = await get_default_context().database.find_one_and_update(

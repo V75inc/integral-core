@@ -69,6 +69,8 @@ async def assign_profile(
     """Change the assignment of a disabled route without enabling it."""
 
     async def assign(profiles, _bindings, _native, route):
+        if route.provision_id is not None:
+            raise BadRequestError("Configure installed Web Chat through its connector")
         if route.enabled:
             raise BadRequestError("Disable Public Web Chat before changing its profile")
         if profile_key is not None:
@@ -94,6 +96,8 @@ async def set_enabled(
     """Change availability independently. Readiness belongs to the trusted host."""
 
     async def change(profiles, _bindings, _native, route):
+        if route.provision_id is not None:
+            raise BadRequestError("Configure installed Web Chat through its connector")
         if enabled:
             if (
                 not transport_ready
