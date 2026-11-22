@@ -233,15 +233,16 @@ public URL, or production readiness is implied by these contracts.
 
 The first release is an anonymous, text-only full-page chat. Keep the embed,
 other channel adapters, attachments, and voice out of this qualification.
-Keep the catalogue entry hidden on deployments that cannot serve it. Prove the
-following on an approved, isolated host before calling the connector usable:
+Keep setup and sharing disabled when the host cannot serve the channel. A
+verified catalogue entry may explain why it is unavailable. Prove the following
+on an approved, isolated host before calling the connector usable:
 
 | Check | Expected result |
 | --- | --- |
 | Owner lifecycle | An authorized manager explicitly configures a disabled connector, selects an eligible published public profile, then enables it. A member cannot perform management actions. |
 | Real turn | A new visitor, without an Integral login, receives the selected public profile's real reply. A second turn uses that visitor's history. The public profile has no tools, scaffolding, or access to workspace records for this first release. |
 | Isolation | Visitors using the same page cannot read or append to one another's conversation. The host, not browser input, chooses workspace, provision, profile and publication revision. |
-| Retry | Losing the response and retrying the same event on another worker yields the original result or in-progress status, not a second model turn. Reusing an event ID for different input returns a conflict. |
+| Retry | Losing the response and retrying the same event on another worker yields the original result or in-progress status, not a second model turn. Reusing an event ID for different input is rejected without redispatch; the browser receives a generic unavailable result, not internal conflict details. |
 | Disable or change | Disabling the connector or replacing its publication invalidates prior visitor access. Re-read the effective assignment before accepting turns and before exposing a completed reply. |
 | Failure and abuse | Rate and message limits work across workers. An unavailable model or expired session yields a recoverable user-facing state without leaking internal exceptions. |
 
