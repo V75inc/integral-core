@@ -49,20 +49,29 @@ class _Denied(Exception):
         self.status = status
 
 
-def _query(request: Request) -> ManageChannelShareQuery:
+def _share_query_values(request: Request, *versions: str) -> dict[str, str | int]:
     raw = dict(request.query_params)
-    version = raw.get("published_version", "")
-    if (
-        len(raw) != len(request.query_params.multi_items())
-        or len(version) > 16
-        or not version.isascii()
-        or not version.isdecimal()
-        or version.startswith("0")
-        or any(val != val.strip() for val in raw.values())
+    if len(raw) != len(request.query_params.multi_items()) or any(
+        val != val.strip() for val in raw.values()
     ):
         raise _Denied(400)
+    result: dict[str, str | int] = dict(raw)
+    for key in versions:
+        version = raw.get(key, "")
+        if (
+            len(version) > 16
+            or not version.isascii()
+            or not version.isdecimal()
+            or version.startswith("0")
+        ):
+            raise _Denied(400)
+        result[key] = int(version)
+    return result
+
+
+def _query(request: Request) -> ManageChannelShareQuery:
     return ManageChannelShareQuery.model_validate(
-        {**raw, "published_version": int(version)}
+        _share_query_values(request, "published_version")
     )
 
 

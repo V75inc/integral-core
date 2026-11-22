@@ -40,3 +40,18 @@ class ApprovedFullPageShare(ManageChannelShareQuery):
     kind: Literal["approved-full-page-share-v1"] = "approved-full-page-share-v1"
     slug: Literal["public_web_chat"] = "public_web_chat"
     full_page_url: str
+
+
+class ManageChannelEmbedShareQuery(ManageChannelShareQuery):
+    """Pin one approved parent origin and independent embed policy revision."""
+
+    embed_policy_revision: int = Field(ge=1, le=9007199254740991)
+    parent_origin: str = Field(min_length=1, max_length=261)
+
+
+class ApprovedWebChatEmbedShare(ManageChannelEmbedShareQuery):
+    """Allowlisted proof of one already issued, currently authorized embed route."""
+
+    kind: Literal["approved-web-chat-embed-v1"] = "approved-web-chat-embed-v1"
+    slug: Literal["public_web_chat"] = "public_web_chat"
+    embed_page_url: str
