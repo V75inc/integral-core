@@ -27,3 +27,19 @@ navigates the manager's issued URL over detached ASGI, verifies the standalone
 mount and exact asset bytes, then verifies the alternate origin and disabled
 route are not served. The API-only variant remains available without assets.
 This does not launch a browser engine or prove a production mount.
+
+## Partner-site embedding is a separate, non-serving contract
+
+The detached embed policy pins the exact provision, route epoch, published
+profile, embed policy revision, parent HTTPS origin, and distinct embed HTTPS
+origin plus the dedicated `/embed/<opaque-reference>` path. It checks a fresh
+matching host attestation; it emits no document, link, share proof, session,
+cookie, or token, and it is not a mounted endpoint. An eventual live embed
+page must enforce the exact approved parent in `frame-ancestors`.
+
+The full-page Vite client is not reused for embed: it currently uses the
+same-origin full-page cookie session. A production embed requires a distinct
+credential and storage design that does not rely on third-party cookies, fresh
+parent-origin/assignment admission, revocation and browser qualification. The
+parent is not an Integral principal; no parent-provided identity is admitted.
+Full-page anti-framing remains unchanged.
