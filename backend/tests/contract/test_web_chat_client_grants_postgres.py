@@ -245,3 +245,26 @@ async def test_failed_grant_write_rolls_back_digest_index(
     )
     assert await store.current(fixture_secret) is None
     assert await store.issue(change) is not None
+
+
+async def test_postcommit_manager_downgrade_discloses_no_secret(
+    postgres_raw_db, authority
+):
+    _, assignment, approved, _, review, _ = authority
+    store = _store(postgres_raw_db, authority)
+    change = _issue(assignment)
+    approved.add(change)
+    seen = []
+
+    async def allow_until_downgrade(exact):
+        seen.append(exact)
+        return exact == change and len(seen) == 1
+
+    review.side_effect = allow_until_downgrade
+    assert await store.issue(change) is None
+    assert seen == [change, change]
+    review.side_effect = lambda exact: exact in approved
+    assert await store.issue(change) is None
+    revoke = replace(change, action="revoke", actor_id="new manager")
+    approved.add(revoke)
+    assert await store.revoke(revoke) is True
