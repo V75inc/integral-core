@@ -2,7 +2,7 @@
 
 import re
 import time
-from typing import Awaitable, Callable, Literal
+from typing import Awaitable, Callable
 
 from fastapi.routing import APIRouter
 from jvspatial.db.postgres import PostgresDB
@@ -10,12 +10,6 @@ from jvspatial.db.postgres import PostgresDB
 from app.agentive.connectors.web_chat_turn_store import JvSpatialWebChatTurnStore
 from app.agentive.services.public_web_chat import PublicWebChatScope
 from app.agentive.services.web_chat_admission import VerifiedFullPageSession
-from app.agentive.services.web_chat_browser_transport import (
-    BrowserSessionAccess,
-    BrowserVisitorSessions,
-    BrowserWebChatController,
-)
-from app.agentive.services.web_chat_history import PostgresWebChatHistory
 from app.agentive.services.web_chat_profile_inference import TextModel
 from app.web.web_chat_client_grants import PostgresWebChatClientGrants
 from app.web.web_chat_client_http import (
@@ -27,8 +21,11 @@ from app.web.web_chat_client_sessions import (
     PostgresWebChatClientSessions,
     WebChatClientSession,
 )
+from app.web.web_chat_verified_conversation import (
+    Operation,
+    bind_verified_web_chat_conversation,
+)
 
-Operation = Literal["read", "send"]
 ClientRequestBudget = Callable[[Operation, WebChatClientSession], Awaitable[bool]]
 _REVISION = re.compile(r"[1-9][0-9]{0,18}|0")
 
@@ -104,53 +101,20 @@ def compose_web_chat_client_api(
         if exact is None or not await grants.is_current(exact.grant):
             return None
         visitor = _visitor(exact)
-        provision = visitor.conversation.provision
 
         async def current() -> bool:
             return await sessions.current(session_bearer) == exact
 
-        async def read_verified() -> VerifiedFullPageSession | None:
-            return visitor if await current() else None
+        async def metered(operation: Operation) -> bool:
+            return await request_budget(operation, exact)
 
-        async def read_session() -> BrowserSessionAccess:
-            result = await read_verified()
-            if result is None:
-                return BrowserSessionAccess("expired")
-            return BrowserSessionAccess("current", result)
-
-        async def open_session(mode: str) -> BrowserSessionAccess:
-            # Reserved for verified GET history. This path cannot mint/rotate.
-            if mode != "resume":
-                return BrowserSessionAccess("unavailable")
-            return await read_session()
-
-        async def ready(workspace: str) -> bool:
-            return (
-                workspace == provision.workspace_id
-                and await grants.is_current(exact.grant)
-                and await current()
-            )
-
-        async def budget(operation, verified_provision, verified_session):
-            if verified_provision != provision or not await current():
-                return False
-            if operation == "send" and verified_session == visitor:
-                return await request_budget("send", exact)
-            if operation == "start" and verified_session is None:
-                return await request_budget("read", exact)
-            return False
-
-        history = PostgresWebChatHistory(
-            database=database, read_verified_session=read_verified, readiness=ready
-        )
-        controller = BrowserWebChatController(
-            provision,
-            BrowserVisitorSessions(open=open_session, current=read_session),
-            budget,
-            history.ports,
-            store,
-            complete,
-            readiness=ready,
+        controller = bind_verified_web_chat_conversation(
+            database=database,
+            turns=store,
+            visitor=visitor,
+            current=current,
+            budget=metered,
+            complete=complete,
             expose_conflict=True,
         )
 

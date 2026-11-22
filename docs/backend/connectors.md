@@ -421,10 +421,16 @@ button is not revocation: disablement or an invalid assignment must stop
 existing links and sessions on the server. If origins change, stale embed
 sessions must not retain the old permissions.
 
-The embed snippet and matching policy validators are detached. An embed share
-control must not be wired until the actual host serves the distinct-origin
-iframe, restricts `frame-ancestors` to the current approved parent, and supports
-short-lived isolated visitor admission without relying on third-party cookies.
+The detached `compose_web_chat_embed` factory composes a separate built iframe
+document, exact parent `frame-ancestors`, a one-use seed, and short-lived
+memory-only visitor sessions. It rejects ambient cookie credentials. Use a
+dedicated embed origin without staff cookies and configure a bounded embed
+budget before shipping. Reopening the embedded document starts an empty
+conversation; in-frame session rotation is not enabled. Ordinary fetch
+metadata is a navigation hint, not proof of the parent or visitor identity.
+Do not wire the manager embed share control before the actual host qualifies
+the policy, artifacts, isolated admission, budgets, and supported browsers.
+Public embed paths never contain seed or session credentials.
 
 A separately enabled **API access** presentation is a follow-up, not required
 for the first full-page release. Reuse the same server-owned assignment,

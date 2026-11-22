@@ -1,5 +1,6 @@
 """Detached exact-ancestor embed policy for a future trusted visitor bootstrap."""
 
+import re
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 from urllib.parse import urlsplit
@@ -12,6 +13,7 @@ from app.web.full_page_chat import (
 )
 
 _MAX_SAFE_INTEGER = 9007199254740991
+_CREDENTIAL_TEXT = re.compile(r"(?:iweb|iwes)_[A-Za-z0-9_-]{32,128}")
 
 
 def _is_embed_origin(value: str) -> bool:
@@ -70,6 +72,7 @@ class ManagedWebChatEmbedPolicy:
             and _is_embed_origin(self.embed_origin)
             and self.parent_origin != self.embed_origin
             and is_web_chat_route_reference(self.embed_reference)
+            and not _CREDENTIAL_TEXT.search(self.embed_reference)
         )
 
     def matches(self, *, origin: str, path: str) -> bool:

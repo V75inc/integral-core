@@ -54,9 +54,11 @@ def _file(root: Path, path: Path, limit: int) -> bytes:
 
 
 class _ViteEntries(HTMLParser):
-    def __init__(self) -> None:
+    def __init__(self, asset_path: str, filename: re.Pattern[str]) -> None:
         super().__init__()
         self.entries: dict[str, str] = {}
+        self.asset_path = asset_path
+        self.filename = filename
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Read only the standalone build's external module and stylesheet paths."""
@@ -76,12 +78,12 @@ class _ViteEntries(HTMLParser):
         if (
             len(attrs) != len(attributes)
             or source is None
-            or not source.startswith(_ASSET_PATH)
+            or not source.startswith(self.asset_path)
             or extension in self.entries
         ):
             raise ValueError("Invalid standalone Web Chat entries")
-        name = source.removeprefix(_ASSET_PATH)
-        match = _FILE.fullmatch(name)
+        name = source.removeprefix(self.asset_path)
+        match = self.filename.fullmatch(name)
         if not match or match.group(1) != extension:
             raise ValueError("Invalid standalone Web Chat asset name")
         self.entries[extension] = name
@@ -110,33 +112,49 @@ class StandaloneWebChatAssets:
     @classmethod
     def from_vite_build(cls, directory: Path) -> "StandaloneWebChatAssets":
         """Load precisely the standard standalone Vite module and stylesheet."""
-        root = directory.absolute()
-        if root.resolve() != root:
-            raise ValueError("Expected a canonical trusted Web Chat build directory")
-        manifest = _file(root, root / "public-web-chat.html", 16 * 1024)
-        entries = _ViteEntries()
-        entries.feed(manifest.decode("utf-8"))
-        entries.close()
-        if set(entries.entries) != {"js", "css"}:
-            raise ValueError("Incomplete standalone Web Chat build")
-        script, stylesheet = entries.entries["js"], entries.entries["css"]
-        asset_dir = root / "assets"
-        if asset_dir.resolve() != asset_dir or {
-            child.name for child in islice(asset_dir.iterdir(), 3)
-        } != {script, stylesheet}:
-            raise ValueError("Unexpected standalone Web Chat asset inventory")
-        return cls(
-            script=_Asset(
-                script,
-                _file(root, root / "assets" / script, _MAX_BUNDLE),
-                "text/javascript",
-            ),
-            stylesheet=_Asset(
-                stylesheet,
-                _file(root, root / "assets" / stylesheet, _MAX_BUNDLE),
-                "text/css",
-            ),
+        return _load_web_chat_assets(
+            directory,
+            manifest_name="public-web-chat.html",
+            asset_path=_ASSET_PATH,
+            filename=_FILE,
         )
+
+
+def _load_web_chat_assets(
+    directory: Path,
+    *,
+    manifest_name: str,
+    asset_path: str,
+    filename: re.Pattern[str],
+) -> StandaloneWebChatAssets:
+    """Load immutable exact build entries for a reviewed standalone variant."""
+    root = directory.absolute()
+    if root.resolve() != root:
+        raise ValueError("Expected a canonical trusted Web Chat build directory")
+    manifest = _file(root, root / manifest_name, 16 * 1024)
+    entries = _ViteEntries(asset_path, filename)
+    entries.feed(manifest.decode("utf-8"))
+    entries.close()
+    if set(entries.entries) != {"js", "css"}:
+        raise ValueError("Incomplete standalone Web Chat build")
+    script, stylesheet = entries.entries["js"], entries.entries["css"]
+    asset_dir = root / "assets"
+    if asset_dir.resolve() != asset_dir or {
+        child.name for child in islice(asset_dir.iterdir(), 3)
+    } != {script, stylesheet}:
+        raise ValueError("Unexpected standalone Web Chat asset inventory")
+    return StandaloneWebChatAssets(
+        script=_Asset(
+            script,
+            _file(root, root / "assets" / script, _MAX_BUNDLE),
+            "text/javascript",
+        ),
+        stylesheet=_Asset(
+            stylesheet,
+            _file(root, root / "assets" / stylesheet, _MAX_BUNDLE),
+            "text/css",
+        ),
+    )
 
 
 def create_web_chat_page_shell_router(
