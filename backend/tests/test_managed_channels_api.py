@@ -40,6 +40,7 @@ async def endpoint_fixture(authenticated_client, monkeypatch):
         "epoch": 0,
         "profile": None,
         "revision": 4,
+        "share_reads": 0,
     }
     calls = []
     lock = asyncio.Lock()
@@ -106,7 +107,11 @@ async def endpoint_fixture(authenticated_client, monkeypatch):
             calls.append(("assign", ctx.actor_id))
 
     async def never(*args):
-        raise AssertionError("Transport or sharing is never called by management")
+        raise AssertionError("Transport is never called by management")
+
+    async def full_page_link(ctx, current):
+        state["share_reads"] += 1
+        return "https://synthetic-visitor.example.invalid/chat/opaque-fixture"
 
     registry.register(
         ChannelPackage(
@@ -118,7 +123,7 @@ async def endpoint_fixture(authenticated_client, monkeypatch):
                 "managed-text-v1",
             ),
             ChannelLifecycle(observe, install, set_enabled, remove),
-            ChannelServing(probe, never, never),
+            ChannelServing(probe, never, full_page_link),
             ChannelProfileSetup(describe_profile, assign_profile),
         )
     )
@@ -295,3 +300,42 @@ async def test_optional_configuration_uses_exact_scope_provision_and_profile_rev
     assert (
         await client.get(target, headers=headers, params={**params, **ids})
     ).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_management_reads_never_project_public_share_or_mutate(
+    endpoint_fixture, second_user_client
+):
+    client, headers, params, state, calls = endpoint_fixture
+    workspace = params["workspace_id"]
+    target = f"{PATH}/{SLUG}/configuration"
+    ids = {"provision_id": "synthetic-provision", "route_epoch": "2"}
+    for enabled, ready, status in (
+        (False, True, "inactive"),
+        (True, True, "active"),
+        (True, False, "unavailable"),
+    ):
+        # Synthetic in-process state only; never install, enable, or bind a route.
+        state.update(
+            installation=ChannelInstallation(
+                workspace, SLUG, ids["provision_id"], ids["route_epoch"], enabled
+            ),
+            ready=ready,
+            profile="public",
+        )
+        before = dict(state)
+        listed = await client.get(PATH, headers=headers, params=params)
+        configured = await client.get(target, headers=headers, params={**params, **ids})
+        assert listed.status_code == configured.status_code == 200
+        [row] = listed.json()["channels"]
+        assert row["state"] == status
+        for response in (listed, configured):
+            assert "full_page_url" not in response.text
+            assert "approved-full-page-share-v1" not in response.text
+        assert state == before
+    denied = await second_user_client.get(
+        target, headers=headers, params={**params, **ids}
+    )
+    assert denied.status_code == 403
+    assert "full_page_url" not in denied.text
+    assert state["share_reads"] == 0 and calls == []

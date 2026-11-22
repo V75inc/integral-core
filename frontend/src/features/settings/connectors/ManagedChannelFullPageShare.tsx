@@ -1,57 +1,34 @@
 import type { ManagedChannel } from '../../../api/managedChannels';
 import { Text } from '../../../ui';
 
-interface ShareScope {
-  principalId: string;
-  workspaceId: string;
-}
-
-interface ShareOwner extends ShareScope {
-  slug: string;
-  provision_id: string;
-  route_epoch: string;
-}
-
-/** Local ownership of an independently authorized, current server read. Never cache as catalogue data. */
-export type ManagedChannelFullPageShareRead =
-  | { state: 'unavailable' | 'checking' }
-  | { state: 'verified'; owner: ShareOwner; fullPageUrl: unknown };
-
-function safeFullPageUrl(raw: unknown): string | null {
-  if (typeof raw !== 'string' || raw.length > 2048 || !raw.startsWith('https://') ||
-      !/^[\x21-\x7e]+$/.test(raw) || /[\\?#]/.test(raw)) return null;
-  try {
-    const url = new URL(raw);
-    const host = url.hostname.replace(/\.$/, '');
-    const loopback = host === 'localhost' || host.endsWith('.localhost') || host.startsWith('127.') ||
-      host === '[::1]' || host === '0.0.0.0';
-    if (url.protocol !== 'https:' || !host || loopback || url.username || url.password ||
-        url.search || url.hash || url.port === '0' || url.href !== raw) return null;
-    return url.href;
-  } catch {
-    return null;
-  }
-}
+import {
+  currentManagedShareUrl,
+  type ManagedChannelFullPageShareRead,
+  type ManagedSharePublication,
+  type ManagedShareScope,
+} from './managedChannelShareProof';
 
 /**
  * Detached presentation for the managed Configure dialog. An authorized host
  * must first supply a fresh share read for the exact current identity,
  * independently of catalogue/status data. This never fetches or derives a URL.
  */
-export function ManagedChannelFullPageShare({ scope, channel, read, canInteract }: {
-  scope: ShareScope;
+export function ManagedChannelFullPageShare({ scope, channel, publication, read, canInteract }: {
+  scope: ManagedShareScope;
   channel: ManagedChannel | null;
+  publication: ManagedSharePublication | null;
   read: ManagedChannelFullPageShareRead;
   canInteract: boolean;
 }) {
-  if (canInteract !== true || read.state !== 'verified' ||
-      !scope.principalId || !scope.workspaceId ||
+  if (canInteract !== true || !publication ||
       !channel?.connected || channel.action !== 'configure' || channel.state !== 'active') return null;
-  const { owner } = read;
-  if (!owner || owner.principalId !== scope.principalId || owner.workspaceId !== scope.workspaceId ||
-      owner.slug !== channel.definition.slug || owner.provision_id !== channel.provision_id ||
-      owner.route_epoch !== channel.route_epoch) return null;
-  const url = safeFullPageUrl(read.fullPageUrl);
+  const url = currentManagedShareUrl(read, {
+    ...scope,
+    slug: channel.definition.slug,
+    provisionId: channel.provision_id,
+    routeEpoch: channel.route_epoch,
+    publication,
+  });
   if (!url) return null;
 
   return (
