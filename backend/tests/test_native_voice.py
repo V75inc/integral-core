@@ -72,7 +72,7 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
 
     async def heavy(request_scope, call_id, text):
         calls.append((request_scope, call_id, text))
-        return "Cedar fixture found."
+        return "You have six contacts. Data: six."
 
     relay = VoiceRelay(browser, provider, scope, check=authorize, work=heavy)
     task = asyncio.create_task(
@@ -104,7 +104,7 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     await provider.inbox.put(completed)
     output = await event(provider.outbox)
     assert output["item"]["call_id"] == "lookup-1"
-    assert json.loads(output["item"]["output"]) == {"result": "Cedar fixture found."}
+    assert output["item"]["output"] == "You have six contacts."
     spoken_result = await event(provider.outbox)
     assert spoken_result["type"] == "response.create"
     assert spoken_result["response"]["tool_choice"] == "none"
@@ -586,3 +586,26 @@ async def test_voice_first_creates_one_scoped_thread_only_on_provider_ready(
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await task
+
+
+@pytest.mark.parametrize(
+    ("result", "spoken"),
+    [
+        ("You have **6** contacts.\n**Data:** 6.", "You have **6** contacts."),
+        ("You have six contacts. Data: 6.", "You have six contacts."),
+        (
+            "You have six contacts. Data: two archived.",
+            "You have six contacts. Data: two archived.",
+        ),
+        ("You have six contacts. Data: 5.", "You have six contacts. Data: 5."),
+        (
+            "You have six contacts, two inactive. Result: 6.",
+            "You have six contacts, two inactive. Result: 6.",
+        ),
+        ("Data: six", "Data: six"),
+    ],
+)
+def test_speech_projection_preserves_new_details_and_written_answer(result, spoken):
+    from app.services.native_voice import _speech_ready_result
+
+    assert _speech_ready_result(result) == spoken

@@ -87,6 +87,7 @@ it("uses a waveform and waits for provider readiness before requesting one openi
   const socket = await startCall();
   expect(screen.getByRole("button", { name: "Cancel voice call" })).toHaveFocus();
   expect(screen.getByText("Cancel voice call", { selector: "[role=tooltip]" })).toBeInTheDocument();
+  expect(screen.queryByText("End call")).not.toBeInTheDocument();
   act(() => socket.open());
   expect(socket.send).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("test-ticket"));
   const frame = new ArrayBuffer(16);
@@ -96,7 +97,10 @@ it("uses a waveform and waits for provider readiness before requesting one openi
 
   act(() => socket.receive("ready"));
   expect(screen.getByRole("status")).toHaveTextContent("Voice call live");
-  expect(screen.getByText("End call", { selector: "[role=tooltip]" })).toBeInTheDocument();
+  expect(screen.queryByText("End call", { selector: "[role=tooltip]" })).not.toBeInTheDocument();
+  expect(screen.getAllByText("End call")).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "End call" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Cancel voice call" })).not.toBeInTheDocument();
   expect(socket.send).toHaveBeenNthCalledWith(2, JSON.stringify({ type: "opening" }));
   act(() => {
     socket.receive("ready");

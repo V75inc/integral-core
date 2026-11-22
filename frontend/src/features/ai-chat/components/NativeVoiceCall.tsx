@@ -201,10 +201,12 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
 
   if (!eligible && state === "idle") return null;
   const idle = state === "idle";
-  const action = idle ? "Start voice call" : state === "connecting" ? "Cancel voice call" : "End call";
-  return <div className="group/voice relative shrink-0">
+  const live = state === "live";
+  const action = idle ? "Start voice call" : live ? "End call" : "Cancel voice call";
+  const liftAboveTooltip = "group-hover/voice:-translate-y-8 group-focus-within/voice:-translate-y-8";
+  return <div className="group/voice relative shrink-0 hover:z-20 focus-within:z-20">
     {!idle && <Surface role="status" radius="input" elevation="sm" padding="xs"
-      className="absolute bottom-full right-0 z-10 mb-2 inline-flex w-max items-center gap-2 group-hover/voice:-translate-y-8 group-focus-within/voice:-translate-y-8">
+      className={`absolute bottom-full right-0 z-10 mb-2 inline-flex w-max items-center gap-2 ${live ? "" : liftAboveTooltip}`}>
       {state === "connecting"
         ? <Loader2 size={14} aria-hidden className="motion-safe:animate-spin" />
         : <AudioLines size={14} aria-hidden />}
@@ -212,20 +214,22 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         {state === "connecting" ? "Connecting voice…" : "Voice call live"}
       </Text>
     </Surface>}
-    <HoverTooltip label={action} placement="top">
+    {/* The full-width red action already renders its name. A second floating
+        copy while focused or hovered reads as a second End call button. */}
+    <HoverTooltip label={action} placement="top" disabled={live}>
       <Button type="button" variant={idle ? "ghost" : "danger"} size="xs"
-        className={idle ? "h-10 w-10 rounded-full !p-0" : "h-10 whitespace-nowrap rounded-full px-3"}
-        aria-label={state === "live" ? undefined : action}
+        className={live ? "h-10 whitespace-nowrap rounded-full px-3" : "h-10 w-10 rounded-full !p-0"}
+        aria-label={live ? undefined : action}
         icon={idle ? <AudioLines size={17} aria-hidden /> : <Square size={12} aria-hidden />}
         onClick={() => {
           if (idle) void start();
           else { call.current?.close(); setState("idle"); }
         }}>
-        {!idle && "End call"}
+        {live && action}
       </Button>
     </HoverTooltip>
     {error && <Surface role="status" radius="input" elevation="sm" padding="sm"
-      className="absolute bottom-full right-0 z-10 mb-2 w-56"><Text as="p" variant="body-sm">{error}</Text></Surface>}
+      className={`absolute bottom-full right-0 z-10 mb-2 w-56 ${liftAboveTooltip}`}><Text as="p" variant="body-sm">{error}</Text></Surface>}
   </div>;
 }
 
