@@ -143,9 +143,15 @@ def create_web_chat_client_router(
             if action == "read":
                 response = _reply(await session.read(), "session")
             else:
-                response = _reply(
-                    await session.send(message.id, message.text), "messages"
-                )
+                result = await session.send(message.id, message.text)
+                if result == BrowserWebChatReply("conflict"):
+                    response = JSONResponse(
+                        {"kind": "conflict"}, status_code=409, headers=_HEADERS
+                    )
+                else:
+                    response = _reply(result, "messages")
+                    if result.kind == "pending":
+                        response.status_code = 202
             # The transport's last server-side guard protects both returned
             # history and current-turn text. Already sent bytes cannot be recalled.
             if await session.is_current() is not True:
