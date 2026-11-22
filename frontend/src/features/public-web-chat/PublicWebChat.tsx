@@ -54,9 +54,10 @@ function fromSession(reply: SessionReply): ChatState {
 }
 
 /** Unmounted text-only visitor surface. Requires an explicitly wired host. */
-export function PublicWebChat({ title, transport }: {
+export function PublicWebChat({ title, transport, restartMode = 'transport' }: {
   title: string;
   transport: PublicWebChatTransport;
+  restartMode?: 'transport' | 'reopen-embed';
 }) {
   const [view, setView] = useState<{ transport: PublicWebChatTransport; chat: ChatState }>({ transport, chat: INITIAL });
   const operation = useRef<AbortController | null>(null);
@@ -126,15 +127,22 @@ export function PublicWebChat({ title, transport }: {
           {chat.phase === 'loading' && <Text as="p" role="status">Opening chat…</Text>}
           {chat.phase === 'unavailable' && <>
             <Text as="p" role="status">This chat is unavailable.</Text>
-            <Button variant="secondary" size="sm" onClick={() => retryStart('resume')}>Check again</Button>
+            {restartMode === 'transport' &&
+              <Button variant="secondary" size="sm" onClick={() => retryStart('resume')}>Check again</Button>}
           </>}
           {chat.phase === 'expired' && <>
-            <Text as="p" role="status">This chat has expired. Start a new one to continue.</Text>
-            <Button size="sm" onClick={() => retryStart('new')}>Start a new chat</Button>
+            <Text as="p" role="status">{restartMode === 'transport'
+              ? 'This chat has expired. Start a new one to continue.'
+              : 'This chat has expired. Reopen this chat from the website to start again.'}</Text>
+            {restartMode === 'transport' &&
+              <Button size="sm" onClick={() => retryStart('new')}>Start a new chat</Button>}
           </>}
           {chat.phase === 'load-error' && <>
-            <Text as="p" role="alert">Could not open chat. Try again.</Text>
-            <Button variant="secondary" size="sm" onClick={() => retryStart(chat.mode)}>Retry opening chat</Button>
+            <Text as="p" role="alert">{restartMode === 'transport'
+              ? 'Could not open chat. Try again.'
+              : 'Could not open chat. Reopen this chat from the website to try again.'}</Text>
+            {restartMode === 'transport' &&
+              <Button variant="secondary" size="sm" onClick={() => retryStart(chat.mode)}>Retry opening chat</Button>}
           </>}
         </Surface>
       ) : (

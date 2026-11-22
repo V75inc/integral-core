@@ -88,6 +88,7 @@ lerna-debug.log*
 # Build outputs
 frontend/dist/
 frontend/dist-web-chat/
+frontend/dist-web-chat-embed/
 frontend/build/
 frontend/.vite
 *.local
