@@ -179,8 +179,11 @@ following on an approved, isolated host before calling the connector usable:
 | Failure and abuse | Rate and message limits work across workers. An unavailable model or expired session yields a recoverable user-facing state without leaking internal exceptions. |
 
 The [full-page component](../../frontend/src/features/public-web-chat/PublicWebChat.tsx)
-requires an injected host transport. It retains the same event ID on retry and
-clears the old conversation on expiry; it is not mounted in the product router.
+requires an injected host transport and uses the same assistant-ui external
+store runtime as signed-in Integral chat. The connector supplies plain-text
+history and keeps a controlled composer so pending or ambiguous sends retry
+the original event ID rather than append a new draft. It clears the old
+conversation on expiry and is not mounted in the product router.
 Component tests and injected backend dependencies qualify the code paths they
 exercise; they are not evidence that provisioning, a live model, or a public
 URL works. Once the full page passes, test the embed against the same host and

@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+
+import {
+  AssistantRuntimeProvider,
+  MessagePrimitive,
+  ThreadPrimitive,
+  useAuiState,
+  useExternalStoreRuntime,
+  type AppendMessage,
+  type ThreadMessageLike,
+} from '@assistant-ui/react';
 
 import { Button } from '../../components/ui/Button';
 import { Surface, Text, Textarea } from '../../ui';
@@ -50,8 +60,6 @@ export function PublicWebChat({ title, transport }: {
 }) {
   const [view, setView] = useState<{ transport: PublicWebChatTransport; chat: ChatState }>({ transport, chat: INITIAL });
   const operation = useRef<AbortController | null>(null);
-  const form = useRef<HTMLFormElement>(null);
-  const messageId = useId();
   const chat = view.transport === transport ? view.chat : INITIAL;
   const update = useCallback((next: ChatState) => setView({ transport, chat: next }), [transport]);
 
@@ -87,9 +95,9 @@ export function PublicWebChat({ title, transport }: {
     void start(mode);
   }
 
-  async function send() {
+  async function send(input?: string) {
     if (chat.phase !== 'ready' || operation.current) return;
-    const text = chat.draft.trim();
+    const text = input?.trim() ?? '';
     if (!chat.attempt && (!text || text.length > MESSAGE_LIMIT)) return;
     const attempt = chat.attempt ?? { id: globalThis.crypto.randomUUID(), text };
     const owner = new AbortController();
@@ -128,51 +136,123 @@ export function PublicWebChat({ title, transport }: {
           </>}
         </Surface>
       ) : (
-        <>
-          <div className="flex min-w-0 flex-1 flex-col gap-3">
-            {chat.messages.length === 0 && <Text as="p" tone="muted">Send a message to begin.</Text>}
-            <div role="log" aria-label="Conversation" aria-relevant="additions text" className="min-w-0">
-              <ol className="flex min-w-0 flex-col gap-3">
-                {chat.messages.map(message => (
-                  <Surface as="li" key={message.id} tone={message.role === 'visitor' ? 'panel-2' : 'panel'}
-                    border="subtle" radius="card" padding="md"
-                    className={message.role === 'visitor' ? 'max-w-full self-end' : 'max-w-full self-start'}>
-                    <Text as="p" variant="meta" tone="muted">{message.role === 'visitor' ? 'You' : 'Assistant'}</Text>
-                    <Text as="p" className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.text}</Text>
-                  </Surface>
-                ))}
-              </ol>
-            </div>
-          </div>
-          <Surface border="subtle" radius="card" padding="md">
-            <form ref={form} className="flex min-w-0 flex-col gap-3" onSubmit={event => { event.preventDefault(); void send(); }}>
-              <Text as="label" htmlFor={messageId} variant="body-sm" weight="medium">Message</Text>
-              <Textarea
-                id={messageId}
-                value={chat.draft}
-                maxLength={MESSAGE_LIMIT}
-                readOnly={Boolean(chat.attempt)}
-                onChange={event => { if (!chat.attempt) update({ ...chat, draft: event.target.value }); }}
-                onKeyDown={event => {
-                  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
-                  event.preventDefault();
-                  form.current?.requestSubmit();
-                }}
-              />
-              {chat.sendStatus === 'sending' && <Text as="p" variant="body-sm" role="status">Waiting for a reply…</Text>}
-              {chat.sendStatus === 'pending' && <Text as="p" variant="body-sm" role="status">Your message is still being processed.</Text>}
-              {chat.sendStatus === 'error' && <Text as="p" variant="body-sm" role="alert">Could not confirm delivery. Retry the same message.</Text>}
-              <div className="flex justify-end">
-                <Button type="submit" disabled={chat.sendStatus === 'sending' || !chat.draft.trim()} size="sm" className="min-h-11">
-                  {chat.sendStatus === 'sending' ? 'Sending…'
-                    : chat.sendStatus === 'pending' ? 'Check for reply'
-                    : chat.sendStatus === 'error' ? 'Retry message' : 'Send message'}
-                </Button>
-              </div>
-            </form>
-          </Surface>
-        </>
+        <ReadyVisitorChat chat={chat} onSend={send} onDraft={draft => update({ ...chat, draft })} />
       )}
     </main>
+  );
+}
+
+type ReadyChatState = Extract<ChatState, { phase: 'ready' }>;
+
+function convertVisitorMessage(message: VisitorMessage): ThreadMessageLike {
+  return {
+    id: message.id,
+    role: message.role === 'visitor' ? 'user' : 'assistant',
+    content: [{ type: 'text', text: message.text }],
+  };
+}
+
+function LiteralMessageText({ text }: { text: string }) {
+  return <Text as="p" className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</Text>;
+}
+
+const literalParts = { Text: LiteralMessageText };
+
+function VisitorThreadMessage() {
+  const fromVisitor = useAuiState(state => state.message.role === 'user');
+  const hasParts = useAuiState(state => state.message.parts.length > 0);
+  // The connector has one accessible status; don't render the runtime's
+  // empty optimistic assistant item as a second waiting indicator.
+  if (!hasParts) return null;
+  return (
+    <Surface as="li" tone={fromVisitor ? 'panel-2' : 'panel'}
+      border="subtle" radius="card" padding="md"
+      className={fromVisitor ? 'max-w-full self-end' : 'max-w-full self-start'}>
+      <Text as="p" variant="meta" tone="muted">{fromVisitor ? 'You' : 'Assistant'}</Text>
+      <MessagePrimitive.Parts components={literalParts} />
+    </Surface>
+  );
+}
+
+const messageComponents = { Message: VisitorThreadMessage };
+
+function ReadyVisitorChat({ chat, onSend, onDraft }: {
+  chat: ReadyChatState;
+  onSend: (input?: string) => Promise<void>;
+  onDraft: (draft: string) => void;
+}) {
+  const form = useRef<HTMLFormElement>(null);
+  const messageId = useId();
+  const active = useRef(false);
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
+  const onNew = useCallback(async (message: AppendMessage) => {
+    if (!active.current || message.role !== 'user' || message.content.length !== 1) return;
+    const [part] = message.content;
+    if (part.type === 'text') await onSend(part.text);
+  }, [onSend]);
+  const running = chat.sendStatus === 'sending';
+  // The same external-store runtime drives Integral's signed-in chat.
+  // The visitor transport still owns durable history, attempts and retries.
+  const store = useMemo(() => ({
+    messages: chat.messages,
+    convertMessage: convertVisitorMessage,
+    isRunning: running,
+    onNew,
+  }), [chat.messages, running, onNew]);
+  const runtime = useExternalStoreRuntime(store);
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        {chat.messages.length === 0 && <Text as="p" tone="muted">Send a message to begin.</Text>}
+        <div role="log" aria-label="Conversation" aria-relevant="additions text" className="min-w-0">
+          <ol className="flex min-w-0 flex-col gap-3">
+            <ThreadPrimitive.Messages components={messageComponents} />
+          </ol>
+        </div>
+      </div>
+      <Surface border="subtle" radius="card" padding="md">
+        <form ref={form} className="flex min-w-0 flex-col gap-3" onSubmit={event => {
+          event.preventDefault();
+          if (running) return;
+          if (chat.attempt) {
+            // Pending/ambiguous sends must replay the original connector ID,
+            // not append a new draft to the assistant-ui thread.
+            void onSend();
+            return;
+          }
+          const text = chat.draft.trim();
+          if (!text || text.length > MESSAGE_LIMIT) return;
+          void runtime.thread.append({ role: 'user', content: [{ type: 'text', text }] });
+        }}>
+          <Text as="label" htmlFor={messageId} variant="body-sm" weight="medium">Message</Text>
+          <Textarea
+            id={messageId}
+            value={chat.draft}
+            maxLength={MESSAGE_LIMIT}
+            readOnly={Boolean(chat.attempt)}
+            onChange={event => { if (!chat.attempt) onDraft(event.target.value); }}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              event.preventDefault();
+              form.current?.requestSubmit();
+            }}
+          />
+          {running && <Text as="p" variant="body-sm" role="status">Waiting for a reply…</Text>}
+          {chat.sendStatus === 'pending' && <Text as="p" variant="body-sm" role="status">Your message is still being processed.</Text>}
+          {chat.sendStatus === 'error' && <Text as="p" variant="body-sm" role="alert">Could not confirm delivery. Retry the same message.</Text>}
+          <div className="flex justify-end">
+            <Button type="submit" disabled={running || !chat.draft.trim()} size="sm" className="min-h-11">
+              {running ? 'Sending…'
+                : chat.sendStatus === 'pending' ? 'Check for reply'
+                : chat.sendStatus === 'error' ? 'Retry message' : 'Send message'}
+            </Button>
+          </div>
+        </form>
+      </Surface>
+    </AssistantRuntimeProvider>
   );
 }

@@ -44,7 +44,9 @@ it('locks a pending attempt and reuses its original identity and text even after
   const input = await screen.findByRole('textbox', { name: 'Message' });
   fireEvent.change(input, { target: { value: 'Hello there' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  expect(screen.getByRole('status')).toHaveTextContent('Waiting for a reply');
+  expect(await screen.findByRole('status')).toHaveTextContent('Waiting for a reply');
+  expect(screen.getAllByRole('status')).toHaveLength(1);
+  expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
   expect(input).toHaveAttribute('readonly');
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(transport.send).toHaveBeenCalledTimes(1);
@@ -118,8 +120,22 @@ it('rejects oversized input and aborts an outstanding send on unmount', async ()
   expect(transport.send).not.toHaveBeenCalled();
   fireEvent.change(input, { target: { value: 'Valid message' } });
   fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(transport.send).toHaveBeenCalledTimes(1));
   const [{ signal }] = transport.send.mock.calls[0];
   expect(signal.aborted).toBe(false);
   view.unmount();
   expect(signal.aborted).toBe(true);
+});
+
+it('does not append queued composer text from an old runtime on route change', async () => {
+  const previous = transportFixture();
+  const next = transportFixture();
+  const view = render(<PublicWebChat title="Old chat" transport={previous} />);
+  const input = await screen.findByRole('textbox', { name: 'Message' });
+  fireEvent.change(input, { target: { value: 'Belongs to the old conversation' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  view.rerender(<PublicWebChat title="New chat" transport={next} />);
+  expect(await screen.findByRole('textbox', { name: 'Message' })).toHaveValue('');
+  expect(previous.send).not.toHaveBeenCalled();
+  expect(next.send).not.toHaveBeenCalled();
 });
