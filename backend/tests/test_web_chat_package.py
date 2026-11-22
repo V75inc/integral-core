@@ -15,6 +15,7 @@ from app.agentive.services.web_chat_package import (
 from app.api.errors import InsufficientPermissionsError, ResourceConflictError
 from app.connectors.channel_packages import (
     ChannelInstallation,
+    ChannelPackageRegistry,
     ChannelScope,
     ChannelServingStatus,
 )
@@ -68,6 +69,7 @@ async def test_install_does_not_adopt_a_legacy_assigned_or_enabled_route(ports):
     ports.store.observe.return_value = None
     ports.store.commit.return_value = INSTALLATION
     ports.route["enabled"] = True
+    ports.host.probe.side_effect = RuntimeError("No public host")
     assert await ports.adapter.package.lifecycle.observe(SCOPE) is None
     assert await ports.adapter.package.lifecycle.install(SCOPE) == INSTALLATION
     ports.store.commit.assert_awaited_once_with(
@@ -75,6 +77,7 @@ async def test_install_does_not_adopt_a_legacy_assigned_or_enabled_route(ports):
     )
     assert ports.adapter.package.serving.full_page_link is None
     ports.host.receive_verified.assert_not_awaited()
+    ports.host.probe.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -145,4 +148,21 @@ async def test_profile_descriptor_projects_only_current_public_tool_free_options
     ports.publication["tools"] = ["not eligible"]
     descriptor = await setup.describe(SCOPE, INSTALLATION)
     assert descriptor.eligible_profiles == ()
+    ports.store.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_inactive_add_requires_proved_storage_absence(ports):
+    """Serving outages allow setup; unknown installation state does not."""
+    registry = ChannelPackageRegistry()
+    registry.register(ports.adapter.package)
+    ports.store.observe.return_value = None
+    ports.host.probe.side_effect = RuntimeError("No public host")
+    row = await registry.describe_one(SCOPE, SLUG)
+    assert row.can_install and not row.connected and not row.can_enable
+    ports.host.probe.assert_not_awaited()
+    ports.store.observe.side_effect = RuntimeError("Storage unavailable")
+    assert await registry.describe_one(SCOPE, SLUG) is None
+    with pytest.raises(RuntimeError):
+        await ports.adapter.install(SCOPE)
     ports.store.commit.assert_not_awaited()

@@ -941,7 +941,7 @@ async def test_explicit_web_chat_provision_shares_profile_cas_without_adopting_l
         "enabled": False,
         "generation": 16,
     }
-    assert host.probe.await_count == 3
+    assert host.probe.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -966,5 +966,5 @@ async def test_web_chat_provision_denies_unauthorized_scope_and_cas_loss(hosted_
     database.find_one_and_update.return_value = None
     with pytest.raises(ResourceConflictError, match="Refresh"):
         await store.commit(ChannelScope("owner", "ws"), request)
-    host.probe.assert_awaited_once()
+    host.probe.assert_not_awaited()
     assert found.public_web_chat == {}

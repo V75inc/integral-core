@@ -45,7 +45,8 @@ class _FixturePlatform:
         self.approved = set()
 
     async def install_ready(self, workspace):
-        return workspace == self.workspace
+        # Administrative setup must work without an available public host.
+        return False
 
     async def approved_ready_origin(self, route):
         return ORIGIN if route in self.approved else None
@@ -174,6 +175,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     assert offered["can_install"] and not offered["connected"]
     installed = _row(await owner.post(f"{CONNECTOR}/install", **options))
     assert installed["action"] == "configure" and not installed["can_enable"]
+    assert installed["state"] == "inactive" and installed["connected"]
     assert installed["route_epoch"] == "1"
     config = await owner.get(
         setup_path, headers=headers, params={**params, **_target(installed)}
@@ -195,6 +197,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
         )
     )
     assert assigned["route_epoch"] == "2" and not assigned["can_enable"]
+    assert assigned["state"] == "inactive"
     provision = ExternalChatProvision(workspace_id, SLUG, assigned["provision_id"])
 
     def share_query(row):
