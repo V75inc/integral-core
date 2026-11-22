@@ -4,6 +4,9 @@ Connectors give Integral declared paths to external information and capabilities
 
 ## Catalogue and connection lifecycle
 
+Use the [Connector Standard v1 and migration queue](connector-extension-standard-v1.md)
+for normative package, lifecycle, readiness and qualification requirements.
+
 The Connector Library presents one collection of definitions. The Settings
 catalogue projection gives each definition a stable ID, a provider, supported
 scopes with cardinality, a list of capabilities (`api`, `mcp`, `channel`), and
