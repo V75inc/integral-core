@@ -1,4 +1,5 @@
 import type { CatalogEntry, ConnectionMode } from '../../../api/connectors';
+import type { ManagedChannel } from '../../../api/managedChannels';
 
 export type ConnectorCapability = 'api' | 'mcp' | 'channel';
 type Cardinality = 'one' | 'many' | 'one-per-name';
@@ -33,10 +34,12 @@ const CUSTOM_MCP_CONNECTOR = {
 } satisfies Definition & { setup: 'custom-mcp' };
 
 type CatalogPackage = Definition & { setup: 'package'; package: CatalogEntry };
+type ManagedChannelDefinition = Definition & { setup: 'managed-channel'; channel: ManagedChannel };
 export type ConnectorDefinition =
   | typeof WHATSAPP_CONNECTOR
   | typeof CUSTOM_MCP_CONNECTOR
-  | CatalogPackage;
+  | CatalogPackage
+  | ManagedChannelDefinition;
 
 const PACKAGE_PROVIDERS: Readonly<Record<string, string>> = {
   calendly: 'Calendly',
@@ -54,7 +57,7 @@ const PACKAGE_PROVIDERS: Readonly<Record<string, string>> = {
 
 export function connectorDefinitions(
   packages: CatalogEntry[],
-  { whatsapp, customMcp }: { whatsapp: boolean; customMcp: boolean },
+  { whatsapp, customMcp, managedChannels = [] }: { whatsapp: boolean; customMcp: boolean; managedChannels?: ManagedChannel[] },
 ): ConnectorDefinition[] {
   const entries: ConnectorDefinition[] = [];
   if (whatsapp) entries.push(WHATSAPP_CONNECTOR);
@@ -70,6 +73,19 @@ export function connectorDefinitions(
       capabilities: [entry.kind === 'mcp' ? 'mcp' : 'api'],
       setup: 'package',
       package: entry,
+    });
+  }
+  for (const channel of managedChannels) {
+    const d = channel.definition;
+    entries.push({
+      id: d.slug,
+      provider: d.provider,
+      name: d.display_name,
+      description: d.description,
+      scopes: { shared: 'one' },
+      capabilities: ['channel'],
+      setup: 'managed-channel',
+      channel,
     });
   }
   return entries;

@@ -19,6 +19,7 @@ import {
   afterEach,
 } from 'vitest';
 import {
+  act,
   render,
   screen,
   fireEvent,
@@ -71,6 +72,10 @@ vi.mock('../../../../api/connectionProfiles', () => ({
   publicWebChatSettingsKey: (id: string) => ['public-web-chat-settings', id],
 }));
 
+vi.mock('../../../../api/managedChannels', () => ({
+  managedChannelsApi: { list: vi.fn(), change: vi.fn() },
+}));
+
 vi.mock('../../../../api/agentive', () => ({
   getWhatsAppChannelBinding: vi.fn(),
   listChannelIdentities: vi.fn(),
@@ -95,6 +100,7 @@ import {
   type ConnectorResponse,
 } from '../../../../api/connectors';
 import { connectionProfilesApi } from '../../../../api/connectionProfiles';
+import { managedChannelsApi, type ManagedChannel } from '../../../../api/managedChannels';
 import { useAgentiveCapability } from '../../hooks/useAgentiveCapability';
 import { ConnectorsSection } from '../ConnectorsSection';
 import { ToastProvider } from '../../../../context/ToastContext';
@@ -171,6 +177,8 @@ beforeEach(() => {
     width: 240, height: 40, toJSON: () => ({}),
   });
   mockedScope.mockReturnValue(null);
+  vi.mocked(managedChannelsApi.list).mockReset().mockResolvedValue([]);
+  vi.mocked(managedChannelsApi.change).mockReset().mockResolvedValue(undefined);
   vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
     revision: 1, profile_key: null, enabled: false, transport_ready: false,
     active: false, eligible_profiles: [],
@@ -375,6 +383,116 @@ describe('<ConnectorsSection />', () => {
     } as NonNullable<ReturnType<typeof useScopeOptional>>);
   }
 
+  const channelDefinition = {
+    slug: 'outside_text_fixture', provider: 'Third-party fixture', display_name: 'Outside Text',
+    description: 'A synthetic external text adapter.', setup_kind: 'managed-text-v1', version: 1,
+  } as const;
+  const available: ManagedChannel = {
+    definition: channelDefinition, connected: false, state: 'registered', action: 'add', can_install: true,
+  };
+  function installed(state: 'inactive' | 'unavailable' | 'active', routeEpoch: string): ManagedChannel {
+    return {
+      definition: channelDefinition, connected: true, state, action: 'configure',
+      can_enable: state === 'inactive', provision_id: 'provision-1', route_epoch: routeEpoch,
+    };
+  }
+
+  it('adds an unknown descriptor disabled, then configures enable, disable, and remove with fresh generations', async () => {
+    selectWorkspace('shared');
+    let channel: ManagedChannel = available;
+    vi.mocked(managedChannelsApi.list).mockImplementation(async () => [channel]);
+    vi.mocked(managedChannelsApi.change).mockImplementation(async (_workspace, _slug, change) => {
+      channel = change.kind === 'add' ? installed('inactive', 'r1')
+        : change.kind === 'remove' ? available : change.enabled ? installed('active', 'r2') : installed('inactive', 'r3');
+    });
+
+    renderPanel();
+    expect(screen.queryByText('Outside Text')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Outside Text' }));
+    const setup = within(screen.getByRole('dialog', { name: 'Add Outside Text' }));
+    expect(setup.getByText(/does not turn on messaging/)).toBeVisible();
+    fireEvent.click(setup.getByRole('button', { name: 'Add channel' }));
+    expect(await screen.findByRole('heading', { name: 'Connectors' })).toBeVisible();
+    expect(screen.getByText('Inactive')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Outside Text' }));
+    const configure = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
+    fireEvent.click(configure.getByRole('button', { name: 'Enable channel' }));
+    fireEvent.click(await configure.findByRole('button', { name: 'Disable channel' }));
+    await configure.findByRole('button', { name: 'Enable channel' });
+    fireEvent.click(configure.getByRole('button', { name: 'Remove channel' }));
+    fireEvent.click(configure.getByRole('button', { name: 'Cancel removal' }));
+    expect(managedChannelsApi.change).toHaveBeenCalledTimes(3);
+    fireEvent.click(configure.getByRole('button', { name: 'Remove channel' }));
+    fireEvent.click(configure.getByRole('button', { name: 'Confirm remove channel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'Outside Text' })).not.toBeInTheDocument();
+    expect(vi.mocked(managedChannelsApi.change).mock.calls).toEqual([
+      ['shared', 'outside_text_fixture', { kind: 'add' }],
+      ['shared', 'outside_text_fixture', { kind: 'enabled', enabled: true, generation: { provision_id: 'provision-1', route_epoch: 'r1' } }],
+      ['shared', 'outside_text_fixture', { kind: 'enabled', enabled: false, generation: { provision_id: 'provision-1', route_epoch: 'r2' } }],
+      ['shared', 'outside_text_fixture', { kind: 'remove', generation: { provision_id: 'provision-1', route_epoch: 'r3' } }],
+    ]);
+    expect(managedChannelsApi.list).toHaveBeenCalledTimes(5);
+  });
+
+  it('discards old setup on workspace switch without replaying an in-flight change or changing the new route', async () => {
+    selectWorkspace('original');
+    let finishWrite: () => void = () => { throw new Error('Write did not start'); };
+    vi.mocked(managedChannelsApi.list).mockImplementation(async workspace => workspace === 'original' ? [available] : []);
+    vi.mocked(managedChannelsApi.change).mockImplementation(() => new Promise<void>(resolve => { finishWrite = resolve; }));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = renderPanel(qc);
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Outside Text' }));
+    const button = screen.getByRole('button', { name: 'Add channel' });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    selectWorkspace('another');
+    panel.rerender(panelWithProviders(qc));
+    await waitFor(() => expect(managedChannelsApi.list).toHaveBeenCalledWith('another', expect.any(AbortSignal)));
+    await act(async () => finishWrite());
+    expect(screen.getByTestId('settings-hash')).toHaveTextContent('#connector-library');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(managedChannelsApi.change).toHaveBeenCalledTimes(1);
+    expect(managedChannelsApi.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows a registered but unavailable adapter without an enabled Add action', async () => {
+    selectWorkspace('shared');
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...available, can_install: false }]);
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    expect(await screen.findByRole('button', { name: 'Add Outside Text' })).toBeDisabled();
+    expect(screen.getByText('Setup is not available right now.')).toBeVisible();
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+  it('keeps an installed outage configurable without enable or sharing; a failed reread locks stale actions', async () => {
+    selectWorkspace('shared');
+    vi.mocked(managedChannelsApi.list)
+      .mockResolvedValueOnce([installed('unavailable', 'r8')])
+      .mockRejectedValueOnce(new Error('provider secrets must not be shown'))
+      .mockResolvedValueOnce([installed('inactive', 'r9')]);
+    vi.mocked(managedChannelsApi.change).mockRejectedValue(new Error('another sensitive failure'));
+    renderPanel();
+    expect(await screen.findByText('Unavailable')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Outside Text' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
+    expect(dialog.queryByRole('button', { name: /enable|share|copy link/i })).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Disable channel' }));
+    expect(await dialog.findByText('Could not check managed channels.')).toBeVisible();
+    expect(await dialog.findByText(/Could not confirm the change/)).toBeVisible();
+    expect(dialog.queryByRole('button', { name: /enable|disable|remove/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/sensitive|provider secrets/)).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Retry channel check' }));
+    expect(await dialog.findByRole('button', { name: 'Enable channel' })).toBeVisible();
+    expect(managedChannelsApi.change).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a manager setup status only when the server confirms readiness', async () => {
     selectWorkspace('shared');
     vi.mocked(connectionProfilesApi.publicWebChat).mockResolvedValue({
@@ -437,6 +555,7 @@ describe('<ConnectorsSection />', () => {
     renderPanel();
     expect(await screen.findByRole('heading', { name: 'Connectors' })).toBeVisible();
     expect(connectionProfilesApi.publicWebChat).not.toHaveBeenCalled();
+    expect(managedChannelsApi.list).not.toHaveBeenCalled();
     expect(screen.queryByRole('heading', { name: 'Web Chat' })).not.toBeInTheDocument();
   });
 

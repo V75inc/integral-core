@@ -31,6 +31,7 @@ import {
   type CatalogEntry,
   type ConnectorResponse,
 } from "../../../api/connectors";
+import { managedChannelsApi, type ManagedChannel } from "../../../api/managedChannels";
 import { connectionProfilesApi, publicWebChatSettingsKey } from "../../../api/connectionProfiles";
 import { getWhatsAppChannelBinding } from "../../../api/agentive";
 import { useAgentive } from "../../../context/AgentiveContext";
@@ -54,6 +55,8 @@ import { ConnectorBrandIcon } from "../connectors/ConnectorBrandIcon";
 import { WebChatConnectorSettings } from "../connectors/WebChatConnectorSettings";
 import { WhatsAppConnectorSettings } from "../connectors/WhatsAppConnectorSettings";
 import { ConnectorCatalogPanel } from "../connectors/ConnectorCatalogPanel";
+import { ManagedChannelLoadNotice, ManagedChannelSettings, ManagedChannelStatus } from "../connectors/ManagedChannelSettings";
+import { currentManagedChannels } from "../connectors/managedChannelQueries";
 import { CustomMcpMountModal } from "../connectors/CustomMcpMountModal";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import {
@@ -212,12 +215,26 @@ function ScopedConnectorsSection({
   // the control from members/guests so they don't fill a form that 403s.
   const canMountCustomMcp = !wsRole || isWsAdmin;
 
-  const { hash } = useLocation();
+  const { hash, key: locationKey } = useLocation();
   const navigate = useNavigate();
   const showLibrary = hash === "#connector-library";
   const [customMcpOpen, setCustomMcpOpen] = useState(false);
   const [whatsappOpen, setWhatsAppOpen] = useState(false);
   const [webChatOpen, setWebChatOpen] = useState(false);
+  const [managedSelection, setManagedSelection] = useState<{
+    slug: string; name: string; action: ManagedChannel["action"]; locationKey: string;
+  } | null>(null);
+  // Browser Back/Forward closes setup. Do not revive an old selection when
+  // revisiting a history entry or let its late mutation pull focus back here.
+  if (managedSelection && managedSelection.locationKey !== locationKey) {
+    setManagedSelection(null);
+  }
+  function selectManaged(channel: ManagedChannel) {
+    setManagedSelection({
+      slug: channel.definition.slug, name: channel.definition.display_name,
+      action: channel.action, locationKey,
+    });
+  }
   const addConnector = useRef<HTMLButtonElement>(null);
   const wasLibrary = useRef(showLibrary);
   useEffect(() => {
@@ -253,6 +270,18 @@ function ScopedConnectorsSection({
   const whatsappStatus = whatsapp.isError ? "unavailable"
     : whatsapp.isPending ? "loading" : whatsapp.data ? "existing" : "new";
   const showWhatsApp = whatsappEnabled && whatsappStatus === "existing" && scopeFilter !== "per_user";
+
+  const canReadManaged = Boolean(workspaceId && isWsAdmin && !scope?.isPersonal);
+  const managedQueryKey = ["connectors", "managed-channels", principalId, workspaceId] as const;
+  const managed = useQuery({
+    queryKey: managedQueryKey,
+    queryFn: ({ signal }) => managedChannelsApi.list(workspaceId, signal),
+    enabled: canReadManaged,
+    refetchOnMount: "always",
+    retry: false,
+  });
+  const showManaged = canReadManaged && scopeFilter !== "per_user";
+  const connectedManaged = showManaged ? currentManagedChannels(managed).filter(row => row.connected) : [];
 
   const canReadWebChatSetup = Boolean(
     workspaceId && isWsAdmin && !scope?.isPersonal && !showLibrary && scopeFilter !== "per_user",
@@ -465,6 +494,8 @@ function ScopedConnectorsSection({
               catalog={catalog}
               whatsappEnabled={whatsappEnabled}
               whatsappStatus={whatsappStatus}
+              managed={canReadManaged ? managed : undefined}
+              onManageChannel={canReadManaged ? selectManaged : undefined}
               onInstalled={() => {
                 refetchConnectors();
                 navigate("/settings#connectors");
@@ -558,7 +589,8 @@ function ScopedConnectorsSection({
             )}>
               {() => null}
             </AsyncBoundary>
-            {showWhatsApp || visibleConnectors.length > 0 ? (
+            {showManaged && <ManagedChannelLoadNotice query={managed} />}
+            {showWhatsApp || visibleConnectors.length > 0 || connectedManaged.length > 0 ? (
               <ul className="flex flex-col gap-2">
                 {showWhatsApp && (
                   <ConnectedConnectorRow>
@@ -580,6 +612,27 @@ function ScopedConnectorsSection({
                     </div>
                   </ConnectedConnectorRow>
                 )}
+                {connectedManaged.map(channel => (
+                  <ConnectedConnectorRow key={`managed:${channel.definition.slug}`}>
+                    <div className="flex min-w-0 items-start gap-3">
+                      <MessageCircle size={24} className="m-1 shrink-0" aria-hidden />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Text as="h3" variant="heading-sm" weight="semibold">{channel.definition.display_name}</Text>
+                          <ManagedChannelStatus channel={channel} />
+                          <StatusPill state="idle">Workspace</StatusPill>
+                        </div>
+                        <Text as="p" variant="body-sm" tone="subtle">{channel.definition.description}</Text>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
+                      <Button type="button" variant="secondary" size="sm" icon={<Settings size={14} />}
+                        onClick={() => selectManaged(channel)}>
+                        Configure {channel.definition.display_name}
+                      </Button>
+                    </div>
+                  </ConnectedConnectorRow>
+                ))}
                 {visibleConnectors.map((c) => {
                   const meta = instanceMeta(c);
                   const showConfig = configuringId === c.id;
@@ -795,7 +848,8 @@ function ScopedConnectorsSection({
                   );
                 })}
               </ul>
-            ) : list.isSuccess && (!whatsappEnabled || !whatsapp.isPending || scopeFilter === "per_user") ? (
+            ) : list.isSuccess && (!showManaged || (managed.isSuccess && managed.fetchStatus === "idle")) &&
+                (!whatsappEnabled || !whatsapp.isPending || scopeFilter === "per_user") ? (
               connectors.length > 0 ? (
                 <Text variant="body-sm" tone="subtle" as="p">No connectors match this filter.</Text>
               ) : (
@@ -816,6 +870,19 @@ function ScopedConnectorsSection({
           mode: isWsAdmin ? "Configure" : "View",
           onClose: () => setWhatsAppOpen(false),
         }} />
+      )}
+      {canReadManaged && managedSelection && (
+        <ManagedChannelSettings
+          selection={managedSelection}
+          workspaceId={workspaceId}
+          query={managed}
+          onAbandoned={() => { void qc.invalidateQueries({ queryKey: managedQueryKey, exact: true }); }}
+          onClose={() => setManagedSelection(null)}
+          onInstalled={() => {
+            setManagedSelection(null);
+            navigate("/settings#connectors");
+          }}
+        />
       )}
       <ConnectorEditModal
         open={editing !== null}
