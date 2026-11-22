@@ -7,7 +7,8 @@ type Reply =
   | { kind: 'ready'; messages: readonly VisitorMessage[] }
   | { kind: 'unavailable' | 'expired' | 'pending' };
 
-function isOpaqueSegment(value: string): boolean {
+/** Same opaque ASCII segment accepted by the detached HTTPS host. */
+export function isOpaqueWebChatSegment(value: string): boolean {
   return value.length > 0 && value.length <= 128 && !/[^A-Za-z0-9_-]/.test(value);
 }
 
@@ -32,7 +33,7 @@ function readReply(input: unknown, allowPending: boolean): Reply {
   const messages: VisitorMessage[] = [];
   for (const message of input.messages) {
     if (!exactObject(message, ['id', 'role', 'text']) ||
-      typeof message.id !== 'string' || !isOpaqueSegment(message.id) || seen.has(message.id) ||
+      typeof message.id !== 'string' || !isOpaqueWebChatSegment(message.id) || seen.has(message.id) ||
       (message.role !== 'visitor' && message.role !== 'assistant') ||
       typeof message.text !== 'string' || !message.text.trim()) {
       throw new Error('Invalid Web Chat response');
@@ -53,7 +54,7 @@ export function createBrowserWebChatTransport(
   route: string,
   fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
 ): PublicWebChatTransport {
-  if (!isOpaqueSegment(route)) throw new Error('Invalid Web Chat route');
+  if (!isOpaqueWebChatSegment(route)) throw new Error('Invalid Web Chat route');
   const base = `/api/public/web-chat/${route}`;
   async function post(
     endpoint: 'session' | 'messages',
@@ -87,7 +88,7 @@ export function createBrowserWebChatTransport(
       }
     },
     async send({ id, text, signal }) {
-      if (!isOpaqueSegment(id) || !text.trim() || Array.from(text).length > 1_000) {
+      if (!isOpaqueWebChatSegment(id) || !text.trim() || Array.from(text).length > 1_000) {
         throw new Error('Invalid Web Chat message');
       }
       const reply = await post('messages', { id, text }, signal);

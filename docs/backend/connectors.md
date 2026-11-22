@@ -112,6 +112,14 @@ and embed must use that same route and policy. Real embeds also need explicit
 workspace-authorized origins and an origin-scoped frame policy. An inactive or
 unassigned route must expose neither a link nor embed code.
 
+The detached [full-page visitor composition](../../frontend/src/features/public-web-chat/PublicWebChatPage.tsx)
+expects only public `{route, title}` configuration supplied by an approved host
+after verifying the active route. It uses that opaque route for same-origin
+visitor requests and creates no link, route mount, default configuration, or
+Settings action. Do not include account, workspace, profile, model, or visitor
+credentials in page data. The host still owns its HTML bootstrap, response
+policies, and revalidation of the live route on every visitor request.
+
 The detached [public request budget](../../backend/app/agentive/services/web_chat_request_budget.py)
 requires an explicitly supplied PostgreSQL adapter and identical fixed-window
 policy across its workers. It atomically charges deployment, workspace, and
