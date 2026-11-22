@@ -4,6 +4,10 @@ import type { PublicWebChatTransport, VisitorMessage } from './PublicWebChat';
 const BOOT_SEED = /^iweb_[A-Za-z0-9_-]{32,128}$/;
 const SESSION_TOKEN = /^iwes_[A-Za-z0-9_-]{32,128}$/;
 const CREDENTIAL_TEXT = /(?:iweb|iwes)_[A-Za-z0-9_-]{32,128}/;
+export function containsEmbedCredential(value: string): boolean {
+  return CREDENTIAL_TEXT.test(value);
+}
+
 const MAX_SESSION_SECONDS = 300;
 const MAX_HISTORY_MESSAGES = 16;
 const MAX_HISTORY_CHARACTERS = 8_000;
@@ -54,7 +58,7 @@ function inFrame(browser: Browser, origin: string): boolean {
 
 function messageText(value: unknown, limit: number): value is string {
   return typeof value === 'string' && Boolean(value.trim()) && Array.from(value).length <= limit &&
-    !/[\p{Cc}\p{Cs}]/u.test(value.replace(/[\r\n\t]/g, '')) && !CREDENTIAL_TEXT.test(value);
+    !/[\p{Cc}\p{Cs}]/u.test(value.replace(/[\r\n\t]/g, '')) && !containsEmbedCredential(value);
 }
 
 function messages(input: unknown): VisitorMessage[] {
@@ -64,7 +68,7 @@ function messages(input: unknown): VisitorMessage[] {
   const result: VisitorMessage[] = [];
   for (const item of input) {
     if (!matches(item, ['id', 'role', 'text']) || typeof item.id !== 'string' ||
-        !isOpaqueWebChatSegment(item.id) || CREDENTIAL_TEXT.test(item.id) || found.has(item.id) ||
+        !isOpaqueWebChatSegment(item.id) || containsEmbedCredential(item.id) || found.has(item.id) ||
         (item.role !== 'visitor' && item.role !== 'assistant') ||
         !messageText(item.text, item.role === 'visitor' ? MAX_VISITOR_CHARACTERS : MAX_ASSISTANT_CHARACTERS)) {
       throw unavailable();
@@ -131,7 +135,7 @@ export function createEmbedWebChatTransport(
   now: () => number = () => performance.now(),
 ): PublicWebChatTransport | null {
   if (!browser || !matches(config, ['route', 'origin', 'bootstrapSeed']) ||
-      typeof config.route !== 'string' || !isOpaqueWebChatSegment(config.route) || CREDENTIAL_TEXT.test(config.route) ||
+      typeof config.route !== 'string' || !isOpaqueWebChatSegment(config.route) || containsEmbedCredential(config.route) ||
       !exactOrigin(config.origin) || !inFrame(browser, config.origin) ||
       typeof config.bootstrapSeed !== 'string' || !BOOT_SEED.test(config.bootstrapSeed)) return null;
 
@@ -217,7 +221,7 @@ export function createEmbedWebChatTransport(
     },
     async send({ id, text, signal }) {
       before(signal);
-      if (!isOpaqueWebChatSegment(id) || CREDENTIAL_TEXT.test(id) || !messageText(text, MAX_VISITOR_CHARACTERS)) throw unavailable();
+      if (!isOpaqueWebChatSegment(id) || containsEmbedCredential(id) || !messageText(text, MAX_VISITOR_CHARACTERS)) throw unavailable();
       const authorized = session;
       if (!authorized) return { kind: 'expired' };
       inflight = true;

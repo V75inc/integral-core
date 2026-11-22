@@ -6,6 +6,7 @@
   "scripts": {
     "build": "npm run check:app-ui-guides && tsc && vite build && node scripts/verify-ui-runtime.mjs",
     "build:web-chat": "vite build --config vite.web-chat.config.ts",
+    "build:web-chat-embed": "vite build --config vite.web-chat-embed.config.ts",
     "build:assets": "npm run check:app-ui-guides && vite build && node scripts/verify-ui-runtime.mjs",
     "dev": "vite --port 9006 --host 0.0.0.0",
     "lint": "eslint src",
