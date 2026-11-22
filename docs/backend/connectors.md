@@ -264,6 +264,15 @@ authorization and durable receipt readback. Provider selection, isolated
 history storage, rate limits, and production model qualification remain
 host integration requirements.
 
+The unmounted [browser transport controller](../../backend/app/agentive/services/web_chat_browser_transport.py)
+accepts only resume/new or an exact event ID and text. A host must inject
+route-bound verified visitor sessions, a shared request budget and scoped
+durable history. The response contains only literal messages and presentation
+IDs, or a pending/expired/unavailable state. Send stays pending until the exact
+completed exchange is present in history and rechecked against current route
+authority. A future HTTP host must still enforce origin and body limits,
+session credentials and replay policy, and safe transport headers.
+
 Component tests and injected backend dependencies qualify the code paths they
 exercise; they are not evidence that provisioning, a live model, or a public
 URL works. Once the full page passes, test the embed against the same host and
