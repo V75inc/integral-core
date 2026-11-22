@@ -167,13 +167,29 @@ API. Do not relax the browser gate to accommodate an integration.
 
 If server-to-server clients need direct access, add a separate **versioned
 transport for the same Web Chat connector**, not another connector, profile
-assignment, or approval path. Proposed v1 (not implemented):
+assignment, or approval path. The v1 HTTP adapter is implemented as a **detached contract** in
+`app/web/web_chat_client_http.py`. Core does not mount it; no public endpoint
+or manager-issued client keys are currently available. The adapter mounts only
+on an explicitly supplied canonical HTTPS origin, rejects query credentials,
+browser origin/cookie context and wrong credential classes, and checks the
+bound grant/session again immediately before returning any protected reply.
+The grant and session services are separate deployment prerequisites, as are
+authorization, expiry, revocation, dedicated capacity, and durable turn wiring.
+
+Target v1 contract (request/response envelope covered in isolated tests):
 
 | Request | Authorization and result |
 | --- | --- |
 | `POST /api/v1/web-chat/sessions` | Revocable per-provision client bearer; create a visitor session and return a short-lived opaque session bearer with an empty snapshot. |
 | `GET /api/v1/web-chat/session` | Session bearer; resume that conversation and return its bounded history. |
 | `POST /api/v1/web-chat/session/messages` | Session bearer with `{id, text}`; return bounded history on completion or pending while the outcome remains uncertain. |
+
+Session issuance requires an empty request and returns only `session_token`,
+`expires_in` (at most 900 seconds), and an empty `messages` snapshot. Use the
+two bearer classes in the `Authorization` header only. Successful history
+and turn responses carry the same bounded plain-text message DTO as the
+full-page UI; they never return either credential. Never log the returned
+session bearer. There is no CORS or browser-cookie fallback.
 
 The server derives workspace, provision, route generation, exact published
 profile/version, and client grant. No caller-supplied scope, browser cookies,
