@@ -370,6 +370,17 @@ entry replaces the legacy notice and setup. The legacy setup dialog still
 separates saving a published public profile from enabling the channel. It does
 not generate links.
 
+The optional `npm run build:web-chat` from `frontend/` builds a separate
+visitor asset and HTML template in `dist-web-chat`. It is not part of the
+standard web app build. An approved host must resolve the route and current
+publication before rendering `public-web-chat.html` at `/chat/<opaque-route>`.
+Supply only the current `route` and public `title` as HTML-escaped
+`data-web-chat-route` and `data-web-chat-title` on the root element. Serve the
+hashed assets under the template's same-origin `/web-chat-assets/assets/`
+prefix. The empty template does not start a visitor session or infer a route
+from the address bar. Do not cache the rendered page or relax the separate API
+origin and cookie checks.
+
 ### Sharing belongs to the same connector
 
 In the Web Chat connector's settings dialog, manage the selected published
