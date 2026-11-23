@@ -1,6 +1,7 @@
 """Native voice socket for authenticated Integral web chat."""
 
 import asyncio
+import logging
 from contextlib import suppress
 from hmac import compare_digest
 
@@ -29,6 +30,7 @@ from app.services.permissions import get_user_node
 from app.services.voice_configuration import resolve_realtime_credential
 from app.services.ws_ticket import redeem_ws_ticket_shared
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 _active_calls: set[str] = set()
 
@@ -46,6 +48,7 @@ async def native_voice(browser: WebSocket):
     principal = None
     claimed = False
     upstream = None
+    provider_closed = False
     try:
         async with asyncio.timeout(8):
             payload = await browser.receive_text()
@@ -89,7 +92,7 @@ async def native_voice(browser: WebSocket):
                 identity = await workspace_voice_profile_identity(scope.workspace)
 
         async def still_authorized(current):
-            await authorize(current)
+            current_thread = await authorize(current)
             if binding:
                 await binding.current()
             fresh = await resolve_realtime_credential(scope.workspace)
@@ -99,8 +102,10 @@ async def native_voice(browser: WebSocket):
                 or not compare_digest(fresh.api_key, credential.api_key)
             ):
                 raise InsufficientPermissionsError(message="Voice settings changed")
+            return current_thread
 
         upstream = await open_upstream(credential)
+        logger.info("Native voice transport opened")
         await VoiceRelay(browser, upstream, scope, check=still_authorized).run(
             identity.persona, name=identity.name, continuity=continuity
         )
@@ -113,15 +118,25 @@ async def native_voice(browser: WebSocket):
             )
             await browser.close(code=4400)
     finally:
-        if (
-            browser.client_state
-            == browser.application_state
-            == WebSocketState.CONNECTED
-        ):
-            with suppress(RuntimeError, WebSocketDisconnect):
-                await browser.close()
-        if upstream is not None:
-            with suppress(Exception):
-                await upstream.close()
-        if claimed:
-            _active_calls.discard(principal)
+        try:
+            if (
+                browser.client_state
+                == browser.application_state
+                == WebSocketState.CONNECTED
+            ):
+                with suppress(RuntimeError, WebSocketDisconnect):
+                    await browser.close()
+        finally:
+            try:
+                if upstream is not None:
+                    with suppress(Exception):
+                        await upstream.close()
+                        provider_closed = True
+            finally:
+                if claimed:
+                    _active_calls.discard(principal)
+                if upstream is not None:
+                    logger.info(
+                        "Native voice transport released; provider_closed=%s",
+                        provider_closed,
+                    )
