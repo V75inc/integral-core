@@ -1,7 +1,11 @@
 """Detach the production Web Chat components for a whole lifecycle proof."""
 
 import os
+import re
+import time
 from pathlib import Path
+from secrets import token_urlsafe
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 import pytest
@@ -10,7 +14,10 @@ from httpx import ASGITransport, AsyncClient
 from jvspatial.db.factory import create_database
 
 from app.agentive.api.managed_channels import install_managed_channel_registry
-from app.agentive.connectors.external_chat import ExternalChatProvision
+from app.agentive.connectors.external_chat import (
+    ExternalChatAssignment,
+    ExternalChatProvision,
+)
 from app.agentive.services import profile_management
 from app.agentive.services.web_chat_package import SLUG
 from app.agentive.services.web_chat_request_budget import WebChatBudgetPolicy
@@ -27,6 +34,11 @@ pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 MANAGE = "/api/agentive/managed-channels"
 CONNECTOR = f"{MANAGE}/{SLUG}"
 ORIGIN = "https://conversation.example.invalid"
+EMBED_ORIGIN = "https://embed.example.invalid"
+CLIENT_ORIGIN = "https://client.example.invalid"
+EMBED_REF = "isolated-embed-reference"
+EMBED_PATH = f"/api/public/web-chat-embed/{EMBED_REF}"
+CLIENT_PATH = "/api/v1/web-chat"
 PROFILE = "public"
 PERSONA = "Provide concise synthetic test replies."
 
@@ -49,6 +61,8 @@ class _FixturePlatform:
         self.workspace = workspace
         self.approved = set()
         self.host_up = True
+        self.identity_denied = set()
+        self.embed_policy = None
 
     async def install_ready(self, workspace):
         # Administrative setup must work without an available public host.
@@ -71,6 +85,14 @@ async def detached_delivery(
     if with_document and directory is None:
         pytest.skip(
             "Set INTEGRAL_TEST_WEB_CHAT_DIST to the reviewed standalone Vite build"
+        )
+
+    embed_directory = (
+        os.environ.get("INTEGRAL_TEST_WEB_CHAT_EMBED_DIST") if with_document else None
+    )
+    if with_document and embed_directory is None:
+        pytest.skip(
+            "Set INTEGRAL_TEST_WEB_CHAT_EMBED_DIST to the reviewed standalone embed build"
         )
 
     from app.main import app
@@ -118,12 +140,52 @@ async def detached_delivery(
         await database.get("object", "o.missing")
         budget = WebChatBudgetPolicy(60, 80, 80, 60, 60, 30, 30, 16)
         assets = None
+        extra = None
         if directory is not None:
+            from app.web.web_chat_client_grants import PostgresWebChatClientGrants
             from app.web.web_chat_connector_runtime import (
+                WebChatClientServingConfiguration,
+                WebChatEmbedServingConfiguration,
                 WebChatServingConfiguration,
                 compose_web_chat_connector,
             )
+            from app.web.web_chat_embed_page_shell import load_web_chat_embed_assets
             from app.web.web_chat_page_shell import StandaloneWebChatAssets
+
+            async def reviewed(change):
+                return (
+                    change.actor_id == test_user.id
+                    and change.grant.assignment.provision.workspace_id == workspace_id
+                )
+
+            async def fixture_grant_scope(assignment):
+                return assignment.provision.workspace_id == workspace_id
+
+            grants = PostgresWebChatClientGrants(
+                database=database,
+                review_authority=reviewed,
+                current_authority=fixture_grant_scope,
+            )
+
+            async def embed_policy(reference):
+                return platform.embed_policy if reference == EMBED_REF else None
+
+            async def permit_budget(*_args):
+                return True
+
+            async def embed_ready(origin):
+                return origin == EMBED_ORIGIN
+
+            async def client_ready(origin):
+                return origin == CLIENT_ORIGIN
+
+            async def profile_authority(transport, assignment):
+                return (
+                    transport not in platform.identity_denied
+                    and assignment.provision.workspace_id == workspace_id
+                    and assignment.profile_key == PROFILE
+                    and assignment.publication_revision == "3"
+                )
 
             assets = StandaloneWebChatAssets.from_vite_build(Path(directory).resolve())
 
@@ -141,6 +203,25 @@ async def detached_delivery(
                     budget=budget,
                     budget_timeout_seconds=2.0,
                     max_parallel_budget_acquisitions=2,
+                    profile_authority=profile_authority,
+                    embed=WebChatEmbedServingConfiguration(
+                        EMBED_ORIGIN,
+                        database,
+                        load_web_chat_embed_assets(Path(embed_directory).resolve()),
+                        embed_ready,
+                        embed_policy,
+                        permit_budget,
+                        complete_text,
+                    ),
+                    client_api=WebChatClientServingConfiguration(
+                        CLIENT_ORIGIN,
+                        database,
+                        grants,
+                        client_ready,
+                        permit_budget,
+                        permit_budget,
+                        complete_text,
+                    ),
                 )
             )
             contribution = assembled.contribution
@@ -160,6 +241,17 @@ async def detached_delivery(
             )
         registry = ChannelPackageRegistry()
         mountable = register_channel_runtime(registry, contribution)
+        if with_document:
+            isolated = {}
+            for group in mountable.isolated:
+                edge = FastAPI()
+                for router in group.routers:
+                    edge.include_router(router)
+                isolated[group.origin] = edge
+            assert set(isolated) == {EMBED_ORIGIN, CLIENT_ORIGIN}
+            extra = SimpleNamespace(grants=grants, apps=isolated, actor=test_user.id)
+        else:
+            assert not mountable.isolated
         state_key = "integral_managed_channel_registry"
         monkeypatch.setattr(app.state, state_key, None, raising=False)
         delattr(app.state, state_key)
@@ -175,7 +267,7 @@ async def detached_delivery(
             base_url=ORIGIN,
             headers={"Origin": ORIGIN, "Sec-Fetch-Site": "same-origin"},
         ) as visitor:
-            yield assembled, platform, calls, workspace_id, visitor, assets
+            yield assembled, platform, calls, workspace_id, visitor, assets, extra
     finally:
         await database.close()
 
@@ -187,7 +279,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     """Exercise authenticated management and anonymous visitor I/O together."""
     from app.web.web_chat_host_assembly import ManagedWebChatHostRoute
 
-    assembled, platform, calls, workspace_id, visitor, assets = detached_delivery
+    assembled, platform, calls, workspace_id, visitor, assets, extra = detached_delivery
     headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
     params = {"workspace_id": workspace_id}
     options = {"headers": headers, "params": params}
@@ -324,6 +416,100 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
         assert len(calls) == 2
         platform.host_up = True
 
+    if with_document:
+        from app.web.web_chat_client_grants import (
+            WebChatClientGrant,
+            WebChatGrantReview,
+        )
+        from app.web.web_chat_embed_policy import ManagedWebChatEmbedPolicy
+
+        platform.embed_policy = ManagedWebChatEmbedPolicy(
+            provision,
+            "3",
+            PROFILE,
+            3,
+            1,
+            "https://parent.example.invalid",
+            EMBED_ORIGIN,
+            EMBED_REF,
+        )
+        assignment = ExternalChatAssignment(provision, PROFILE, "3", "3")
+        review = WebChatGrantReview(
+            extra.actor,
+            "issue",
+            WebChatClientGrant(
+                token_urlsafe(32),
+                assignment,
+                int(time.time()) + 500,
+            ),
+        )
+        client_key = await extra.grants.issue(review)
+        assert client_key is not None
+        embed_headers = {"Origin": EMBED_ORIGIN, "Sec-Fetch-Site": "same-origin"}
+        async with (
+            AsyncClient(
+                transport=ASGITransport(app=extra.apps[EMBED_ORIGIN]),
+                base_url=EMBED_ORIGIN,
+            ) as embed,
+            AsyncClient(
+                transport=ASGITransport(app=extra.apps[CLIENT_ORIGIN]),
+                base_url=CLIENT_ORIGIN,
+            ) as client,
+        ):
+            iframe_path = f"/embed/{EMBED_REF}"
+            iframe_headers = {"Sec-Fetch-Dest": "iframe"}
+            assert (
+                await visitor.get(iframe_path, headers=iframe_headers)
+            ).status_code == 404
+            page = await embed.get(iframe_path, headers=iframe_headers)
+            assert page.status_code == 200
+            [seed] = re.findall(
+                r'data-web-chat-embed-bootstrap-seed="(iweb_[A-Za-z0-9_-]{86})"',
+                page.text,
+            )
+            embed_session = await embed.post(
+                f"{EMBED_PATH}/session",
+                headers=embed_headers,
+                json={"mode": "resume", "bootstrap_seed": seed},
+            )
+            assert embed_session.status_code == 200, embed_session.text
+            visitor_headers = {
+                **embed_headers,
+                "Authorization": "Bearer " + embed_session.json()["session_token"],
+            }
+            send = await embed.post(
+                f"{EMBED_PATH}/messages",
+                headers=visitor_headers,
+                json={"id": "embed", "text": "Embed visitor"},
+            )
+            assert send.json()["messages"][-1]["text"] == "Synthetic reply 3"
+            service_start = await client.post(
+                f"{CLIENT_PATH}/sessions",
+                headers={"Authorization": "Bearer " + client_key.secret},
+            )
+            assert service_start.status_code == 201, service_start.text
+            service_headers = {
+                "Authorization": "Bearer " + service_start.json()["session_token"]
+            }
+            response = await client.post(
+                f"{CLIENT_PATH}/session/messages",
+                headers=service_headers,
+                json={"id": "service", "text": "Service client"},
+            )
+            assert response.json()["messages"][-1]["text"] == "Synthetic reply 4"
+            platform.identity_denied.add("client-api")
+            assert (
+                await client.get(f"{CLIENT_PATH}/session", headers=service_headers)
+            ).status_code == 401
+            assert (
+                await embed.get(iframe_path, headers=iframe_headers)
+            ).status_code == 200
+            platform.identity_denied.add("embed")
+            assert (
+                await embed.get(iframe_path, headers=iframe_headers)
+            ).status_code == 404
+            assert (await visitor.get(share.json()["full_page_url"])).status_code == 200
+
     disabled = _row(
         await owner.put(
             enabled_path, **options, json={**_target(enabled), "enabled": False}
@@ -344,4 +530,4 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     ):
         assert stale.status_code == 404, stale.text
         assert stale.json() == {"kind": "unavailable"}
-    assert len(calls) == 2
+    assert len(calls) == (4 if with_document else 2)
