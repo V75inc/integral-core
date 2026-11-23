@@ -50,6 +50,10 @@ from app.web.web_chat_page_shell import (
     StandaloneWebChatAssets,
     create_web_chat_page_shell_router,
 )
+from app.web.web_chat_private_test import (
+    WebChatPrivateTestConfiguration,
+    create_web_chat_private_test_router,
+)
 
 Transport = Literal["full-page", "embed", "client-api"]
 ProfileServingAuthority = Callable[[Transport, ExternalChatAssignment], Awaitable[bool]]
@@ -179,15 +183,24 @@ class _PinnedPlatform:
 
 def compose_web_chat_connector(
     serving: WebChatServingConfiguration | None = None,
+    *,
+    private_test: WebChatPrivateTestConfiguration | None = None,
 ) -> WebChatConnectorRuntime:
     """Construct a connector package with no routes unless hosting is explicit.
 
     This does not mount or activate any server. A reviewed host chooses where
     to mount each route group and owns reconciliation after durable commands.
     """
+    private_routes = (
+        ()
+        if private_test is None
+        else (create_web_chat_private_test_router(private_test),)
+    )
     if serving is None:
         return WebChatConnectorRuntime(
-            ChannelRuntimeContribution(build_web_chat_management_package())
+            ChannelRuntimeContribution(
+                build_web_chat_management_package(), management_routes=private_routes
+            )
         )
     if (
         not isinstance(serving, WebChatServingConfiguration)
@@ -239,7 +252,7 @@ def compose_web_chat_connector(
         page_context=hosted.page_context,
         assets=serving.assets,
     )
-    management = [hosted.share_router]
+    management = [hosted.share_router, *private_routes]
     isolated = []
     embed = serving.embed
     if embed is not None:

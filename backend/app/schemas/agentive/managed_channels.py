@@ -62,3 +62,19 @@ class ApprovedWebChatEmbedShare(ManageChannelEmbedShareQuery):
     kind: Literal["approved-web-chat-embed-v1"] = "approved-web-chat-embed-v1"
     slug: Literal["public_web_chat"] = "public_web_chat"
     embed_page_url: str
+
+
+class PrivateWebChatTestTurn(ManageChannelProvision):
+    """One stateless text turn against an exact selected publication."""
+
+    profile_key: str = Field(min_length=1, max_length=128)
+    published_version: int = Field(ge=1, le=9007199254740991)
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class PrivateWebChatTestReply(ManageChannelShareQuery):
+    """Allowlisted manager-only test response; no sessions or history."""
+
+    kind: Literal["private-web-chat-test-v1"] = "private-web-chat-test-v1"
+    slug: Literal["public_web_chat"] = "public_web_chat"
+    reply: str = Field(min_length=1, max_length=4000)

@@ -10,10 +10,12 @@ from starlette.routing import Match
 from app.schemas.agentive.managed_channels import ManageChannelShareQuery
 
 SHARE_READ_PATH = "/api/agentive/managed-channels/{slug}/share"
+PRIVATE_TEST_PATH = "/api/agentive/managed-channels/{slug}/test"
 EMBED_SHARE_READ_PATH = "/api/agentive/managed-channels/{slug}/embed-share"
 MAX_EMBED_DESCRIPTORS = 8
 ShareCheck = Callable[[Request, str, ManageChannelShareQuery], Awaitable[bool]]
 _MARKER = "_integral_effect_free_managed_share_check"
+_TEST_MARKER = "_integral_private_managed_chat_test_check"
 _EMBED_MARKER = "_integral_effect_free_managed_embed_descriptors"
 
 
@@ -42,14 +44,14 @@ def bind_mounted_share_check(endpoint: Callable, check: ShareCheck) -> None:
 
 
 def _mounted_reader(
-    request: Request, slug: str, template: str, marker: str
+    request: Request, slug: str, template: str, marker: str, method: str = "GET"
 ) -> Callable | None:
     path = template.format(slug=slug)
     scope = {
         **request.scope,
         "path": path,
         "raw_path": path.encode("ascii"),
-        "method": "GET",
+        "method": method,
         "root_path": "",
     }
     matches = [
@@ -71,6 +73,24 @@ def _mounted_reader(
         return None
     check = getattr(first.endpoint, marker, None)
     return check if callable(check) else None
+
+
+def bind_mounted_private_test(endpoint: Callable, check: ShareCheck) -> None:
+    """Attach private test availability to the exact mounted manager route."""
+    setattr(endpoint, _TEST_MARKER, check)
+
+
+async def mounted_private_test_available(
+    request: Request, slug: str, exact: ManageChannelShareQuery
+) -> bool:
+    """Return only a verified readiness bit; never invoke the test model."""
+    check = _mounted_reader(request, slug, PRIVATE_TEST_PATH, _TEST_MARKER, "POST")
+    if check is None:
+        return False
+    try:
+        return await check(request, slug, exact) is True
+    except Exception:
+        return False
 
 
 async def mounted_embed_descriptors(
