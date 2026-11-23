@@ -141,3 +141,61 @@ async def test_endpoint_releases_upstream_and_claim_even_when_browser_close_rais
         await task
     provider.close.assert_awaited_once()
     assert "caller" not in endpoint._active_calls
+
+
+@pytest.mark.asyncio
+async def test_disconnect_during_upstream_dial_abandons_provider_and_releases_claim(
+    monkeypatch,
+):
+    """A refresh before browser Ready cannot leave a provider dialing."""
+    browser, provider = _EndpointBrowser(), Provider()
+    _patch_endpoint(monkeypatch, provider)
+    opening, abandoned = asyncio.Event(), asyncio.Event()
+
+    async def dial(_credential):
+        opening.set()
+        try:
+            await asyncio.Future()
+        finally:
+            abandoned.set()
+
+    monkeypatch.setattr(endpoint, "open_upstream", dial)
+    task = asyncio.create_task(endpoint.native_voice(browser))
+    await asyncio.wait_for(opening.wait(), 2)
+    assert "caller" in endpoint._active_calls
+    await browser.inbox.put({"type": "websocket.disconnect"})
+    await asyncio.wait_for(task, 2)
+    assert abandoned.is_set()
+    assert "caller" not in endpoint._active_calls
+    assert provider.outbox.empty()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_after_admission_releases_provider_without_cancelling_work(
+    monkeypatch,
+):
+    """Endpoint teardown detaches its observer, not the admitted chat job."""
+    from app.agentive.services import work_items
+
+    browser, provider = _EndpointBrowser(), Provider()
+    _patch_endpoint(monkeypatch, provider)
+    submit = AsyncMock(
+        return_value=SimpleNamespace(work_item_id="work", message_id="user")
+    )
+    status = AsyncMock(return_value=("running", None))
+    cancel = AsyncMock()
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    monkeypatch.setattr(native_voice, "_delegated_status", status)
+    monkeypatch.setattr(work_items, "cancel_work_item", cancel)
+    task = asyncio.create_task(endpoint.native_voice(browser))
+    await event(provider.outbox)
+    await provider.inbox.put({"type": "session.updated"})
+    await event(browser.outbox)
+    await _send_tool(provider, "delegate", "work")
+    assert "accepted" in (await event(provider.outbox))["item"]["output"]
+    await browser.inbox.put({"type": "websocket.disconnect"})
+    await asyncio.wait_for(task, 2)
+    submit.assert_awaited_once()
+    cancel.assert_not_awaited()
+    provider.close.assert_awaited_once()
+    assert "caller" not in endpoint._active_calls

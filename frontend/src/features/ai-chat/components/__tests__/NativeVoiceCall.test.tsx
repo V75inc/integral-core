@@ -297,3 +297,27 @@ it("claims dictation for the entire connection and releases it on hangup or fail
   expect(release).toHaveBeenCalledTimes(2);
   expect(screen.getByRole("button", { name: "Start voice call" })).toBeEnabled();
 });
+
+it("releases voice and microphone on document pagehide without refreshing the dying view", async () => {
+  const release = vi.fn();
+  const refresh = vi.fn();
+  render(<NativeVoiceControls eligible opening={{
+    workspace_id: "workspace", profile_key: "staff", thread_id: "thread",
+  }} playingDictation={() => false} acquireVoiceInput={() => release} onThreadRefresh={refresh} />);
+  const socket = await startCall();
+  act(() => {
+    socket.open();
+    socket.onmessage?.({ data: JSON.stringify({ type: "ready", thread_id: "thread" }) });
+  });
+  const worklet = capturePorts[0];
+  expect(screen.getByRole("button", { name: "End call" })).toBeVisible();
+  act(() => window.dispatchEvent(new Event("pagehide")));
+  expect(socket.close).toHaveBeenCalledTimes(1);
+  expect(stopTrack).toHaveBeenCalledTimes(1);
+  expect(release).toHaveBeenCalledTimes(1);
+  expect(worklet.onmessage).toBeNull();
+  expect(refresh).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Start voice call" })).toBeEnabled();
+  act(() => window.dispatchEvent(new Event("pagehide")));
+  expect(socket.close).toHaveBeenCalledTimes(1);
+});
