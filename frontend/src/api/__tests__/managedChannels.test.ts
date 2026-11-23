@@ -120,6 +120,34 @@ describe('managed channel transport', () => {
     }
   });
 
+  it('accepts only bounded exact approved Web Chat embed policies without share references', async () => {
+    const generation = { provision_id: 'p1', route_epoch: 'e2' };
+    const base = { ...generation, kind: 'published-public-profile-v1', profile_revision: 9,
+      profile_key: 'p', eligible_profiles: [{ key: 'p', name: 'A profile' }], editable: false, published_version: 2 };
+    const approved = { parent_origin: 'https://approved.example.com', embed_policy_revision: 3 };
+    const policies = [approved, { parent_origin: 'https://other.example.com:8443', embed_policy_revision: 2 }];
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { ...base, approved_embed_policies: policies,
+      embed_page_url: 'https://fixture.invalid/embed/hidden' } });
+    const exact = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation);
+    expect(exact.approved_embed_policies).toEqual(policies);
+    expect(exact).not.toHaveProperty('embed_page_url');
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'different_channel', generation))
+      .resolves.not.toHaveProperty('approved_embed_policies');
+    for (const value of [[], {}, [approved, approved], [{ ...approved, embed_policy_revision: 0 }],
+      [{ ...approved, embed_policy_revision: '3' }], [{ ...approved, parent_origin: 'http://wrong.example.com' }],
+      [{ ...approved, parent_origin: 'https://approved.example.com/path' }],
+      [{ ...approved, parent_origin: 'https://localhost' }],
+      [{ ...approved, embed_page_url: 'https://fixture.invalid/embed/hidden' }],
+      Array.from({ length: 9 }, (_, i) => ({ ...approved, parent_origin: `https://site${i}.example.com` }))]) {
+      vi.mocked(apiClient.get).mockResolvedValue({ data: { ...base, approved_embed_policies: value } });
+      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+        .resolves.not.toHaveProperty('approved_embed_policies');
+    }
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { ...base, approved_embed_policies: policies, editable: true } });
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+      .resolves.not.toHaveProperty('approved_embed_policies');
+  });
+
   it('does not turn an invalid response into a successful empty listing', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {} });
     await expect(managedChannelsApi.list('workspace')).rejects.toThrow('Invalid managed channel listing');

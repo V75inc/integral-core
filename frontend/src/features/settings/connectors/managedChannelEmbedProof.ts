@@ -1,4 +1,7 @@
+import { canonicalManagedEmbedHttps, isCanonicalManagedEmbedOrigin } from '../../../api/managedChannelEmbedAuthority';
 import type { ManagedShareOwner } from './managedChannelShareProof';
+
+export { isCanonicalManagedEmbedOrigin } from '../../../api/managedChannelEmbedAuthority';
 
 /** Independent of the full-page link and the channel's route epoch. */
 export interface ManagedEmbedPolicy {
@@ -39,29 +42,6 @@ function key(value: unknown): value is string {
 
 function version(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
-}
-
-function canonicalHttps(raw: unknown): URL | null {
-  if (typeof raw !== 'string' || raw.length > 2048 || !raw.startsWith('https://') ||
-      !/^[\x21-\x7e]+$/.test(raw) || /[\\?#]/.test(raw)) return null;
-  try {
-    const parsed = new URL(raw);
-    const host = parsed.hostname;
-    const terminalLabel = host.slice(host.lastIndexOf('.') + 1);
-    if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
-        parsed.search || parsed.hash || parsed.port === '0' || host === 'localhost' || host.endsWith('.localhost') ||
-        host.startsWith('127.') || host === '0.0.0.0' ||
-        /^[0-9]+$/.test(terminalLabel) || terminalLabel.startsWith('0x') ||
-        !host.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-/** A parent origin is canonical, HTTPS and never an address with a path. */
-export function isCanonicalManagedEmbedOrigin(value: unknown): value is string {
-  return typeof value === 'string' && value.length <= 261 && canonicalHttps(value)?.origin === value;
 }
 
 // This JavaScript is a convenience loader, not an enforcement boundary. The
@@ -116,7 +96,7 @@ export function decodeApprovedManagedEmbed(raw: unknown, requestedFor: ManagedEm
       response.embed_policy_revision !== requestedFor.policy.policyRevision) return unavailable;
 
   const parentOrigin = response.parent_origin;
-  const frame = canonicalHttps(response.embed_page_url);
+  const frame = canonicalManagedEmbedHttps(response.embed_page_url);
   if (!isCanonicalManagedEmbedOrigin(parentOrigin) ||
       !frame || frame.href !== response.embed_page_url ||
       !/^\/embed\/[A-Za-z0-9_-]{1,128}$/.test(frame.pathname) ||
