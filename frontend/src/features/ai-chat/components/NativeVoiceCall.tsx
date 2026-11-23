@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AudioLines, Loader2, MicOff, Square } from "lucide-react";
+import { AudioLines, Loader2, Mic, MicOff, Square } from "lucide-react";
 import { REALTIME_VOICE_QUERY_KEY, realtimeVoiceConfigurationApi } from "../../../api/aiConfiguration";
 import { ALL_WORKSPACE_ASSISTANTS, WORKSPACE_ASSISTANT } from "../../../api/chatAssistantIdentity";
 import { mintWsTicket } from "../../../api/wsTicket";
@@ -270,11 +270,11 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         </div>
         <HoverTooltip label={microphoneAction} placement="top">
           <Button type="button" variant={muted ? "secondary" : "ghost"} size="xs"
-            className="h-9 whitespace-nowrap rounded-full px-2" aria-label={microphoneAction}
-            icon={<MicOff size={15} aria-hidden />}
-            onClick={() => call.current?.toggleMicrophone()}>
-            <span className="hidden sm:inline">{muted ? "Unmute" : "Mute"}</span>
-          </Button>
+            className="h-9 w-9 rounded-full !p-0" aria-label={microphoneAction}
+            icon={muted
+              ? <MicOff size={17} aria-hidden className="text-[var(--danger-fg)]" />
+              : <Mic size={17} aria-hidden />}
+            onClick={() => call.current?.toggleMicrophone()} />
         </HoverTooltip>
         <Button ref={endButton} type="button" variant="danger" size="xs" aria-label="End call"
           className="h-9 whitespace-nowrap rounded-full px-2"

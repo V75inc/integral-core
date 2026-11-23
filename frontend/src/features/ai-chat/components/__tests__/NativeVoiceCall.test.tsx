@@ -199,7 +199,8 @@ it("mutes socket input immediately, drops stale capture frames on resume, and ke
   const mutedFrame = new ArrayBuffer(16);
   const callWidget = screen.getByRole("group", { name: "Live voice call controls" });
   const mute = within(callWidget).getByRole("button", { name: "Mute microphone" });
-  expect(mute).toHaveTextContent("Mute");
+  expect(mute.textContent).toBe("");
+  expect(mute.querySelector(".lucide-mic")).not.toBeNull();
   expect(within(callWidget).getByRole("button", { name: "End call" })).toBeVisible();
   expect(within(callWidget).getByRole("status")).toHaveTextContent("Voice call live");
   expect(screen.getByText("Mute microphone", { selector: "[role=tooltip]" })).toBeInTheDocument();
@@ -211,7 +212,8 @@ it("mutes socket input immediately, drops stale capture frames on resume, and ke
   expect(track.enabled).toBe(false);
   const unmute = within(callWidget).getByRole("button", { name: "Unmute microphone" });
   expect(unmute).toHaveFocus();
-  expect(unmute).toHaveTextContent("Unmute");
+  expect(unmute.textContent).toBe("");
+  expect(unmute.querySelector(".lucide-mic-off")).toHaveClass("text-[var(--danger-fg)]");
   expect(screen.getByRole("status")).toHaveTextContent("Mic muted");
   expect(port.postMessage).toHaveBeenNthCalledWith(1, { muted: true, generation: 1 });
   expect(socket.send).toHaveBeenNthCalledWith(4, JSON.stringify({ type: "microphone", muted: true }));
