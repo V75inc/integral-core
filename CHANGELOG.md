@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Drop the cached conversation after a chat turn releases its admission, so a queued follow-up can start instead of seeing a stale busy thread.
+
 - Save provider and supported default model roles from Quick Setup using the same settings as Models and Providers, preserving explicit voice and embedding choices. Group Providers & Models and Model Assignments under a collapsible Advanced Configuration section.
 
 - Polish the in-app voice controls and request one greeting per call. Voice-first calls attach to a saved conversation once ready; delegated work uses that same conversation.

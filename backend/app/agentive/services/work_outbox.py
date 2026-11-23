@@ -566,7 +566,7 @@ async def _transition_postgres(
                 run_id=str(field_updates.get("run_id") or ctx.get("run_id") or ""),
             ),
         )
-        await _release_terminal_chat_admission(
+        released_thread = await _release_terminal_chat_admission(
             transaction=txn,
             context=ctx,
             work_item_id=bare_id,
@@ -574,6 +574,7 @@ async def _transition_postgres(
         )
         if owns_txn:
             await db.commit_transaction(txn)
+        await _forget_cached_thread(released_thread, committed=owns_txn)
         item = _hydrate_work_item(updated)
         await _refresh_work_item_cache(item)
         return item
@@ -798,20 +799,21 @@ async def _release_terminal_chat_admission(
     context: Dict[str, Any],
     work_item_id: str,
     target: Any,
-) -> None:
+) -> str | None:
     """Join chat admission cleanup to every shared-store terminal transition."""
     from app.schemas.agentive.work import TERMINAL_WORK_STATUSES
 
     if context.get("kind") != "chat_turn" or target not in TERMINAL_WORK_STATUSES:
-        return
+        return None
     from app.services.chat_turn_admission import (
         release_chat_turn_admission_in_transaction,
     )
 
+    thread_id = str(context.get("thread_id") or "")
     await release_chat_turn_admission_in_transaction(
         transaction=transaction,
         thread=None,
-        thread_id=str(context.get("thread_id") or ""),
+        thread_id=thread_id,
         work_item_id=work_item_id,
     )
     if target != "succeeded":
@@ -821,8 +823,29 @@ async def _release_terminal_chat_admission(
             transaction=transaction,
             principal_id=str(context.get("principal_id") or ""),
             workspace_id=str(context.get("workspace_id") or ""),
-            thread_id=str(context.get("thread_id") or ""),
+            thread_id=thread_id,
         )
+    return thread_id or None
+
+
+async def _forget_cached_thread(thread_id: str | None, *, committed: bool) -> None:
+    """Drop a thread cached before this admission release became visible.
+
+    The release writes through the database transaction, which does not update
+    the graph entity cache. A surrounding graph transaction evicts the id after
+    it commits; an owned transaction evicts immediately after its own commit.
+    """
+    if not thread_id:
+        return
+    from jvspatial.core.context import get_default_context
+
+    ctx = get_default_context()
+    pending = getattr(ctx, "_transaction_cache_keys", None)
+    if pending is not None:
+        pending.add(thread_id)
+        return
+    if committed:
+        await ctx._evict_from_cache(thread_id)
 
 
 async def _cas_postgres(
@@ -880,7 +903,7 @@ async def _cas_postgres(
                     created_at=now,
                 ),
             )
-        await _release_terminal_chat_admission(
+        released_thread = await _release_terminal_chat_admission(
             transaction=txn,
             context=ctx,
             work_item_id=bare_id,
@@ -888,6 +911,7 @@ async def _cas_postgres(
         )
         if owns_txn:
             await db.commit_transaction(txn)
+        await _forget_cached_thread(released_thread, committed=owns_txn)
         item = _hydrate_work_item(updated)
         await _refresh_work_item_cache(item)
         return item
