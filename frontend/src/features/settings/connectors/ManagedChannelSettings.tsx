@@ -8,6 +8,7 @@ import { Modal } from '../../../components/ui/Modal';
 import { Text } from '../../../ui';
 import { StatusPill } from '../components/Field';
 import { ManagedChannelProfileAssignment } from './ManagedChannelProfileAssignment';
+import { ManagedWebChatPrivateTest } from './ManagedWebChatPrivateTest';
 import { ManagedChannelApprovedEmbedSharing } from './ManagedChannelApprovedEmbedSharing';
 import { ManagedChannelShareControl, type ManagedChannelShareSource } from './ManagedChannelShareControl';
 import { readManagedChannelShare } from './managedChannelShareReader';
@@ -98,12 +99,17 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   const canEnable = channel?.connected && channel.can_enable && (!hasProfileAssignment || assignedEligible);
   const canEditProfile = profile?.editable === true && channel?.state !== 'active';
   const configuringWebChat = channel?.connected && channel.definition.slug === 'public_web_chat';
-  const currentPublication = channel?.connected && channel.state === 'active' && profile &&
+  const assignedPublication = channel?.connected && profile &&
     profile.provision_id === channel.provision_id && profile.route_epoch === channel.route_epoch &&
     assignedEligible && profile.profile_key && profile.published_version &&
     Number.isSafeInteger(profile.published_version) && profile.published_version > 0
     ? { profileKey: profile.profile_key, publishedVersion: profile.published_version }
     : null;
+  const currentPublication = channel?.state === 'active' ? assignedPublication : null;
+  const privateTestOwner = configuringWebChat && channel?.connected && assignedPublication &&
+    canReadPublishedShare && principalId && workspaceId && !busy && !confirmingRemove && profile?.private_test_available === true
+    ? { principalId, workspaceId, sessionFence, provisionId: channel.provision_id, routeEpoch: channel.route_epoch,
+      profileKey: assignedPublication.profileKey, publishedVersion: assignedPublication.publishedVersion } : null;
   // For Web Chat the authenticated, current Configure projection is the sole
   // authority to offer a check; an injected generic source cannot bypass it.
   const currentManagerScope = configuringWebChat && currentPublication && !busy && !confirmingRemove &&
@@ -295,6 +301,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                   )}
                 </>
               )}
+              {privateTestOwner && profile && <ManagedWebChatPrivateTest owner={privateTestOwner} profileRevision={profile.profile_revision} />}
               {configuringWebChat && !confirmingRemove && (
                 <div className="flex flex-col gap-2">
                   <Text as="h3" variant="body-sm" weight="semibold">Publishing and sharing</Text>

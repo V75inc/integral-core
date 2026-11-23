@@ -43,6 +43,7 @@ export interface ManagedChannelProfileConfiguration extends ManagedChannelGenera
   profile_revision: number;
   published_version?: number;
   full_page_share_check_available?: true;
+  private_test_available?: true;
   approved_embed_policies?: readonly ManagedChannelApprovedEmbedPolicy[];
   profile_key: string | null;
   eligible_profiles: Array<{key: string; name: string}>;
@@ -159,6 +160,8 @@ function decodeProfileConfiguration(value: unknown, slug: string, generation: Ma
     profile_revision: row.profile_revision,
     profile_key: row.profile_key,
     ...(publishedVersion !== undefined ? { published_version: publishedVersion } : {}),
+    ...(slug === 'public_web_chat' && publishedVersion !== undefined && row.private_test_available === true
+      ? { private_test_available: true as const } : {}),
     ...(mayReadSharing && row.full_page_share_check_available === true
       ? { full_page_share_check_available: true as const } : {}),
     ...(approvedEmbedPolicies ? { approved_embed_policies: approvedEmbedPolicies } : {}),
