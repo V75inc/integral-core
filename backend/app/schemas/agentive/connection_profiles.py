@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 Audience = Literal["public", "staff"]
 ProfileKey = Annotated[str, Field(pattern=r"^(public|staff|p_[a-f0-9]{32})$")]
@@ -40,6 +40,7 @@ class SaveProfileDraft(ProfileRevision):
 
 class PublishProfile(ProfileRevision):
     offer_in_workspace_chat: bool = False
+    enable_public_service_identity: StrictBool = False
     connection_ids: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
         default_factory=list, max_length=100
     )
