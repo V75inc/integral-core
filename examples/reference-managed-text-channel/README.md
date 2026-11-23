@@ -25,6 +25,9 @@ wheel. Use --offline with uv if reviewed build dependencies are already
 cached. For an installed Core wheel, use that Python interpreter and omit the
 checkout's backend directory from PYTHONPATH.
 
+The example declares the fixed Workspace scope (`install_scope="shared"`),
+not personal or dual-scope installation.
+
 Expected output: Add/registered, Configure/inactive, Configure/active,
 Configure/inactive, Add/registered. The verifier admits the installed wheel
 through the exact distribution/version/slug/factory allowlist. It does not

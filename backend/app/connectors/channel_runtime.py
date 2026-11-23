@@ -1,4 +1,4 @@
-"""Explicit trusted connector contributions; Core does not mount routes here."""
+"""Explicit connector contributions and trusted startup-only route admission."""
 
 import re
 from collections.abc import Mapping
