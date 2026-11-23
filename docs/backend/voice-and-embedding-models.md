@@ -111,7 +111,10 @@ agent profile. The relay requests one opening after readiness and yields to a
 caller who speaks first. Recent activity in that same conversation may guide a
 welcome back; this does not load a recap of past conversations. A voice-first
 call creates and selects a conversation after provider readiness, and reuses
-it on the next call. Delegated work is linked to that conversation. Integral
+it on the next call. Delegated work is linked to that conversation. One live
+call per person is enforced inside each API process; a deployment that runs
+more than one API worker can still host concurrent calls for the same person.
+Integral
 does not automatically publish an ordinary spoken transcript to chat. To share
 regular spoken content in chat, use the composer; the pilot does not post it
 on a spoken request.

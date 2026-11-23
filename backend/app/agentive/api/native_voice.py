@@ -32,6 +32,7 @@ from app.services.ws_ticket import redeem_ws_ticket_shared
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+# Per process. Another API worker does not see this set.
 _active_calls: set[str] = set()
 
 
