@@ -61,7 +61,7 @@ from app.agentive.tooling.list_pagination import (
     expand_agent_list_pages,
     project_agent_list_items,
 )
-from app.agentive.tooling.manifest import load_manifest
+from app.agentive.tooling.manifest import ToolSpec, load_manifest
 from app.agentive.tooling.policy_gate import enforce_tool_policy, sanitize_tool_args
 
 logger = logging.getLogger(__name__)
@@ -391,6 +391,7 @@ async def dispatch_tool(
     session_id: Optional[str] = None,
     interaction_id: Optional[str] = None,
     skill_tools_required: Optional[list] = None,
+    voice_read_offer: ToolSpec | None = None,
 ) -> ToolResult:
     """Dispatch manifest tool ``name`` under ``principal_id`` + bound ``scope``.
 
@@ -420,6 +421,30 @@ async def dispatch_tool(
     op_class = "unknown"
     result: Optional[ToolResult] = None
     try:
+        if voice_read_offer is not None:
+            # Do not use indefinite resident registry caching when redeeming a
+            # private negotiated read; revalidate the same authority we dispatch.
+            from app.agentive.tooling.catalogue import admits_voice_quick_read
+
+            spec = (await asyncio.to_thread(load_manifest)).get(name)
+            binding = TOOL_BINDINGS.get(name)
+            if (
+                not principal_id
+                or not scope
+                or session_id is not None
+                or interaction_id is not None
+                or args
+                or spec != voice_read_offer
+                or not admits_voice_quick_read(spec, binding)
+            ):
+                return ToolResult(
+                    is_error=True,
+                    error_code="not_available",
+                    message="The requested voice read is unavailable.",
+                )
+            assert spec is not None and spec.voice_quick_read is not None
+            args = {"limit": 20} if spec.voice_quick_read.page_limit else {}
+
         if name in {
             "integral_upsert_artifact",
             "integral_prepare_document_attachment",
@@ -556,8 +581,9 @@ async def dispatch_tool(
                 )
                 return result
 
-        spec = (await asyncio.to_thread(_registry)).get(name)
-        binding = TOOL_BINDINGS.get(name)
+        if voice_read_offer is None:
+            spec = (await asyncio.to_thread(_registry)).get(name)
+            binding = TOOL_BINDINGS.get(name)
 
         # Explicit user no-save intent is a host-enforced capability boundary,
         # not an instruction left to the resident prompt. Keep reads available
@@ -765,7 +791,7 @@ async def dispatch_tool(
                     message=data.get("message", ""),
                 )
                 return result
-            if isinstance(data, dict):
+            if isinstance(data, dict) and voice_read_offer is None:
                 data = await expand_agent_list_pages(
                     name,
                     safe_args=safe_args,

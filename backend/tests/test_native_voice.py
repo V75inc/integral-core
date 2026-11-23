@@ -92,7 +92,7 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     assert [tool["name"] for tool in event_config["session"]["tools"]] == [
         DELEGATE,
         "check_integral_chat",
-        "list_integral_context",
+        "find_integral_voice_capability",
         "queue_integral_follow_up",
         "revise_active_integral_request",
     ]

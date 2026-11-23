@@ -124,15 +124,26 @@ cancel a pending approval. This pilot does not enable phone or WhatsApp voice.
 
 ### Live voice tool boundary
 
-The realtime model uses a small, authenticated allowlist for quick reads:
-this conversation’s current request, the current workspace name, visible
-apps in that workspace, and the caller’s accessible workspace names.
-The server selects scope; the voice tool takes no workspace, thread, user, or
-WorkItem ID. Directory reads are for the default workspace assistant only.
-Other workspace requests still go through durable Heavy chat. A running
-Heavy request does not prevent quick reads or ordinary conversation.
-Dedicated queue and revise tools distinguish an independent next task from
-a correction explicitly aimed at this call’s exact current voice request.
+The realtime model can search the canonical tool catalogue while Heavy is
+running. Quick capability discovery is private to the default workspace
+assistant. The first reviewed reads are visible apps, visible tracks, and
+the caller’s accessible workspace names; workspace output identifies the
+current workspace without switching to another one. Chat status and the
+explicit queue and revise controls remain separate voice lifecycle tools.
+
+To add a quick capability, review a local, scoped, paginated GET binding and
+its data classification, then enroll its one label-only collection in the
+canonical manifest with `voice_quick_read`. No per-tool realtime schema
+is needed. The dispatcher compares the offered manifest row with the
+current row, applies normal tool/route policy, and reads one capped page.
+The model selects one single-use opaque offer in a correlated text-only
+response; it cannot send free tool arguments, target selectors, raw tool
+names or a workspace ID. Only projected labels enter the spoken response.
+A future argument-bearing enrollment would need an explicit reviewed
+per-field schema and binds that never accept identity, scope, URLs, or
+permissions from model input. Arbitrary app/connector queries, mutations,
+approval tools, and selected profiles are not enabled by this change.
+Unmatched or heavier work is still handed off to durable chat.
 
 Provider tool summaries record fixed categories and counts only. They do not
 record names returned by the tools, requests, transcripts, or identifiers.

@@ -3927,7 +3927,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_param_map=_pick("target_kind", "target_id", "view_id"),
     ),
     "integral_list_workspaces": ToolBinding(
-        _h("app.api.workspaces", "list_workspaces")
+        _h("app.api.workspaces", "list_workspaces"), _pick("limit")
     ),
     "integral_list_apps": ToolBinding(
         _h("app.api.apps", "list_apps"), _pick("cursor", "limit")
