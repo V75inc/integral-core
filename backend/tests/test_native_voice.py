@@ -180,6 +180,10 @@ async def test_barge_in_fences_audio_without_cancelling_delegate(hang_up):
     await browser.inbox.put({"type": "websocket.disconnect"})
     await asyncio.wait_for(task, 2)
     assert cancelled.is_set() == hang_up
+    if not hang_up:
+        closure = await event(provider.outbox)
+        assert closure["item"]["call_id"] == "lookup-1"
+        assert "Old delayed result" not in closure["item"]["output"]
     assert provider.outbox.empty()
 
 
@@ -765,6 +769,9 @@ async def test_vad_during_acceptance_keeps_exact_same_thread_submission(monkeypa
         await provider.inbox.put(request("id", "duplicate", "Explain Integral"))
         await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
         assert await event(browser.outbox) == {"type": "flush"}
+        closure = await event(provider.outbox)
+        assert closure["item"]["call_id"] == "id"
+        assert "Same-thread result" not in closure["item"]["output"]
         assert provider.outbox.empty()
         assert len(calls) == 1
         assert (calls[0].thread_id, calls[0].principal_id, calls[0].workspace_id) == (
