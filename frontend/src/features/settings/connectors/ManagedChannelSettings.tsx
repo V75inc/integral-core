@@ -237,6 +237,9 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
           {channel && (
             <>
               <Text as="p">{channel.definition.description}</Text>
+              <Text as="p" variant="body-sm" tone="muted">
+                Connection scope: Workspace. This channel is configured for the selected workspace.
+              </Text>
               <div><ManagedChannelStatus channel={channel} /></div>
               {awaitingReadiness && !confirmingRemove ? (
                 <div className="flex flex-wrap items-center gap-2">

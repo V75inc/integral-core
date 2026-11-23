@@ -5,6 +5,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ManageChannelInstall(BaseModel):
+    """The v1 workspace-only scope; omission retains the same install behavior."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    connection_mode: Literal["shared"] = "shared"
+
+
 class ManageChannelProvision(BaseModel):
     """Require exact installed provision and version; no client scope grants."""
 

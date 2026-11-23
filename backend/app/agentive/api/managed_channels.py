@@ -1,10 +1,12 @@
 """Authenticated, explicitly composed managed channel catalogue and lifecycle."""
 
+import json
 from dataclasses import asdict
 from typing import Awaitable, TypeVar
 
 from fastapi import FastAPI, Request
 from jvspatial.api import endpoint
+from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 
 from app.agentive.services.profile_management import require_profile_manager
@@ -32,6 +34,7 @@ from app.connectors.channel_share_check import (
 )
 from app.schemas.agentive.managed_channels import (
     ManageChannelEnablement,
+    ManageChannelInstall,
     ManageChannelProfileAssignment,
     ManageChannelProvision,
     ManageChannelShareQuery,
@@ -128,12 +131,47 @@ async def list_managed_channels(request: Request) -> dict:
     return await _projection(_registry(request), await _scope(request))
 
 
+def _exact_install_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate channel install field")
+        result[key] = value
+    return result
+
+
+async def _install_request(request: Request) -> ManageChannelInstall:
+    """A legacy empty body and an explicit shared install mean the same thing."""
+    error = "Managed channel install accepts only the Workspace connection scope"
+    if (
+        "connection_mode" in request.query_params
+        or "install_scope" in request.query_params
+    ):
+        raise BadRequestError(error)
+    try:
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > 256:
+                raise ValueError("Channel install body too large")
+            data.extend(chunk)
+        if not data:
+            return ManageChannelInstall()
+        return ManageChannelInstall.model_validate(
+            json.loads(data, object_pairs_hook=_exact_install_fields)
+        )
+    except (ClientDisconnect, ValueError):
+        raise BadRequestError(error) from None
+
+
 @endpoint(f"{_PATH}/{{slug}}/install", methods=["POST"], auth=True, tags=["Agentive"])
 async def install_managed_channel(request: Request, slug: str) -> dict:
     """Install an authorized package in its disabled state without publishing it."""
     scope = await _scope(request)
     registry = _registry(request)
     package = _package(registry, slug)
+    installation_request = await _install_request(request)
+    if installation_request.connection_mode != package.definition.install_scope:
+        raise BadRequestError("Managed channel install scope is not supported")
     row = await registry.describe_one(scope, slug)
     if row is None or not row.can_install:
         raise ResourceConflictError("Managed channel is not available to install")
