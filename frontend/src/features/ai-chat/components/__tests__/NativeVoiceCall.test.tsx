@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NativeVoiceControls } from "../NativeVoiceCall";
 
@@ -192,11 +192,16 @@ it("mutes socket input immediately, drops stale capture frames on resume, and ke
   show();
   const socket = await startCall();
   expect(screen.queryByRole("button", { name: "Mute microphone" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: "Live voice call controls" })).not.toBeInTheDocument();
   act(() => { socket.open(); socket.receive("ready"); });
   const port = capturePorts[0];
   const frame = new ArrayBuffer(16);
   const mutedFrame = new ArrayBuffer(16);
-  const mute = screen.getByRole("button", { name: "Mute microphone" });
+  const callWidget = screen.getByRole("group", { name: "Live voice call controls" });
+  const mute = within(callWidget).getByRole("button", { name: "Mute microphone" });
+  expect(mute).toHaveTextContent("Mute");
+  expect(within(callWidget).getByRole("button", { name: "End call" })).toBeVisible();
+  expect(within(callWidget).getByRole("status")).toHaveTextContent("Voice call live");
   expect(screen.getByText("Mute microphone", { selector: "[role=tooltip]" })).toBeInTheDocument();
   act(() => emitCapture(port, frame));
   expect(socket.send).toHaveBeenNthCalledWith(3, frame);
@@ -204,7 +209,9 @@ it("mutes socket input immediately, drops stale capture frames on resume, and ke
   mute.focus();
   fireEvent.click(mute);
   expect(track.enabled).toBe(false);
-  expect(screen.getByRole("button", { name: "Unmute microphone" })).toHaveFocus();
+  const unmute = within(callWidget).getByRole("button", { name: "Unmute microphone" });
+  expect(unmute).toHaveFocus();
+  expect(unmute).toHaveTextContent("Unmute");
   expect(screen.getByRole("status")).toHaveTextContent("Mic muted");
   expect(port.postMessage).toHaveBeenNthCalledWith(1, { muted: true, generation: 1 });
   expect(socket.send).toHaveBeenNthCalledWith(4, JSON.stringify({ type: "microphone", muted: true }));
@@ -265,4 +272,26 @@ it("ends the call and releases capture even if the final chat refresh throws", a
   expect(screen.getByRole("button", { name: "Start voice call" })).toBeVisible();
   expect(socket.close).toHaveBeenCalledTimes(1);
   expect(stopTrack).toHaveBeenCalledTimes(1);
+});
+
+it("claims dictation for the entire connection and releases it on hangup or failure, not mute", async () => {
+  const release = vi.fn();
+  const acquire = vi.fn(() => release);
+  render(<NativeVoiceControls eligible opening={{
+    workspace_id: "workspace", profile_key: "staff", thread_id: "thread",
+  }} playingDictation={() => false} acquireVoiceInput={acquire} />);
+  const first = await startCall();
+  expect(acquire).toHaveBeenCalledTimes(1);
+  expect(release).not.toHaveBeenCalled();
+  act(() => { first.open(); first.receive("ready"); });
+  fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+  expect(release).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "End call" }));
+  expect(release).toHaveBeenCalledTimes(1);
+
+  const second = await startCall(1);
+  expect(acquire).toHaveBeenCalledTimes(2);
+  act(() => second.onclose?.());
+  expect(release).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("button", { name: "Start voice call" })).toBeEnabled();
 });

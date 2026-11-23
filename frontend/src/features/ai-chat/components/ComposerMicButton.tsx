@@ -27,12 +27,12 @@ export function ComposerMicButton() {
   const dictation = useComposerDictation();
   if (!dictation || !dictation.available) return null;
 
-  const { status, level, error, hotkeyLabel, toggle } = dictation;
+  const { status, level, error, hotkeyLabel, toggle, voiceInputBlocked } = dictation;
   const listening = status === 'listening';
   const busy =
     status === 'requesting-permission' || status === 'connecting' || status === 'finalizing';
   const active = listening || busy;
-  const label = active ? `Stop dictation (${hotkeyLabel})` : `Dictate (${hotkeyLabel})`;
+  const label = voiceInputBlocked ? "Dictation unavailable during a voice call" : active ? `Stop dictation (${hotkeyLabel})` : `Dictate (${hotkeyLabel})`;
 
   return (
     <span className="inline-flex shrink-0 items-center gap-1">
@@ -43,6 +43,7 @@ export function ComposerMicButton() {
         shape="circle"
         tone="subtle"
         pressed={active}
+        disabled={voiceInputBlocked}
         onClick={toggle}
         data-dictation-status={status}
       >
@@ -65,7 +66,7 @@ export function ComposerMicButton() {
 /** ` · ⇧⌘Space dictate` for the composer's shortcut hint, when available. */
 export function ComposerDictationHint() {
   const dictation = useComposerDictation();
-  if (!dictation?.available) return null;
+  if (!dictation?.available || dictation.voiceInputBlocked) return null;
   return (
     <>
       {' · '}

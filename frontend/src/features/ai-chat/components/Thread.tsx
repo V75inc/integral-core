@@ -1508,8 +1508,8 @@ function ComposerAction({ home = false }: { home?: boolean }) {
   const hasAttachments = useAuiState(s => s.composer.attachments.length > 0);
   const actionRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={actionRef} className="relative flex min-w-0 items-center gap-2" role="group" aria-label="Message actions">
-      <div className="flex min-w-0 flex-1 items-center gap-1">
+    <div ref={actionRef} className="relative flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap" role="group" aria-label="Message actions">
+      <div className="flex min-w-0 flex-1 basis-36 items-center gap-1 sm:basis-0">
         <HoverTooltip label="Attach an image or file" placement="top"><ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
@@ -1535,9 +1535,9 @@ function ComposerAction({ home = false }: { home?: boolean }) {
         }))} /></HoverTooltip>
         <ConversationModelPicker />
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1 sm:flex-nowrap">
         {!home && steeringRunning && hasAttachments && (
-          <Text variant="meta" tone="subtle">Send attachments after this reply.</Text>
+          <Text variant="meta" tone="subtle" className="max-sm:basis-full">Send attachments after this reply.</Text>
         )}
         <ComposerMicButton />
         {!home && <NativeVoiceCall />}
