@@ -941,6 +941,7 @@ class VoiceRelay:
     async def _read_live_tool(self, call_id, name, value, generation) -> None:
         """Run explicit read-only tools without blocking microphone events."""
         work_id = None
+        call_scope = self._thread_status_scope()
         try:
             async with asyncio.timeout(2):
                 if name == CHECK_CHAT:
@@ -961,8 +962,11 @@ class VoiceRelay:
         except Exception:
             self.protocol_counts["read_unavailable"] += 1
             result = "I couldn't verify that information just now. Check the Integral conversation or workspace."
+        # Check once at provider handoff, after any asynchronous read. Browser
+        # playback has its own single first-byte check; do not reauthorize
+        # twice at this same boundary.
         await self.check(self.scope)
-        if not self.closing:
+        if not self.closing and call_scope == self._thread_status_scope():
             await self._function_output(call_id, "Integral checked your request.")
             await self._speak_result(generation, result=result, work_id=work_id)
 
@@ -1387,12 +1391,7 @@ class VoiceRelay:
             # The shared projection validates canonical CONTAINS membership and
             # excludes internal messages, tool output, reasoning, and attachments.
             messages = await recent_public_messages(thread)
-            current = await self.check(self.scope)
-            if (
-                current is None
-                or current.id != thread.id
-                or scope != self._thread_status_scope()
-            ):
+            if scope != self._thread_status_scope():
                 return "The conversation changed before I could verify its saved text."
             for item in reversed(public_dialogue(messages)):
                 typed = isinstance(item, ModelRequest)
