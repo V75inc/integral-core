@@ -110,7 +110,7 @@ export function connectorDefinitions(
       provider: d.provider,
       name: d.display_name,
       description: d.description,
-      scopes: { shared: 'one' },
+      scopes: { [d.install_scope ?? 'shared']: 'one' },
       capabilities: ['channel'],
       setup: 'managed-channel',
       channel,

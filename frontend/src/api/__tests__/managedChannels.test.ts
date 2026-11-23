@@ -39,6 +39,19 @@ describe('managed channel transport', () => {
   });
 
 
+  it('accepts legacy and explicit Workspace listings but rejects incompatible scope facts', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { channels: [
+      registered,
+      { ...registered, definition: { ...definition, slug: 'workspace_text', install_scope: 'shared' } },
+      { ...registered, definition: { ...definition, slug: 'personal_text', install_scope: 'per_user' } },
+      { ...registered, definition: { ...definition, slug: 'unknown_text', install_scope: 'any' } },
+      { ...registered, definition: { ...definition, slug: 'null_text', install_scope: null } },
+    ] } });
+    expect((await managedChannelsApi.list('workspace')).map(({ definition: d }) => [d.slug, d.install_scope]))
+      .toEqual([['example_text', 'shared'], ['workspace_text', 'shared']]);
+  });
+
+
   it('admits the supported profile capability only on installed channels and disables activation for unknown kinds', async () => {
     const installed = { ...registered, state: 'inactive', connected: true, action: 'configure',
       can_enable: true, provision_id: 'p1', route_epoch: 'e2' };
@@ -161,7 +174,7 @@ describe('managed channel transport', () => {
     await managedChannelsApi.change('workspace', 'example_text', { kind: 'add' });
     await managedChannelsApi.change('workspace', 'example_text', { kind: 'enabled', enabled: true, generation });
     await managedChannelsApi.change('workspace', 'example_text', { kind: 'remove', generation });
-    expect(apiClient.post).toHaveBeenCalledWith('/agentive/managed-channels/example_text/install', undefined, config);
+    expect(apiClient.post).toHaveBeenCalledWith('/agentive/managed-channels/example_text/install', { connection_mode: 'shared' }, config);
     expect(apiClient.put).toHaveBeenCalledWith('/agentive/managed-channels/example_text/enabled', { enabled: true, ...generation }, config);
     expect(apiClient.delete).toHaveBeenCalledWith('/agentive/managed-channels/example_text', expect.objectContaining({
       headers: { 'X-Integral-Scope': 'ws:workspace' }, params: { workspace_id: 'workspace', ...generation },
