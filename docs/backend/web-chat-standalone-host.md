@@ -38,6 +38,40 @@ synthetic, socket-free web routing, not a live deployment recipe: it does not
 install DNS, TLS, proxy rules or environment configuration, and it does not
 test browser cookie enforcement or a live inference provider.
 
+## Disposable loopback TLS proof
+
+From a clean test checkout with Core's test dependencies, the frontend build
+dependencies, PostgreSQL utilities and OpenSSL, run:
+
+```sh
+PREVIEW_SECONDS=120 bash backend/scripts/run_disposable_web_chat_tls.sh
+```
+
+The fixture builds the real standalone assets, creates a brand-new synthetic
+PostgreSQL store, runs the authenticated staff setup in ASGI without a staff
+listener, and exposes just the reviewed visitor route group on 127.0.0.1.
+The printed URL is a disposable route for a tool-free synthetic profile and
+deterministic model adapter. The listener and database stop on exit. No
+normal startup environment variable, live provider, public listener,
+system trust change or production configuration is involved.
+
+With the default synthetic certificate, use the printed certificate and
+visitor URL. For example, setting CERT and URL to those values:
+
+```sh
+curl --noproxy '*' --cacert "$CERT" \
+  --resolve conversation.example.invalid:58173:127.0.0.1 "$URL"
+```
+
+This explicitly pins trust in the command and does not weaken verification.
+Do not use insecure mode or click past a browser warning. For a browser run,
+supply PREVIEW_HOST and absolute PREVIEW_CERT/PREVIEW_KEY paths **only** when
+that exact hostname already routes to loopback and its TLS certificate is
+already trusted by the browser. Use a certificate approved for the isolated
+fixture, not staff or production key material. The runner does not change
+name resolution or install trust. An absent approved browser hostname/trust
+chain leaves browser enforcement pending.
+
 ## Connector registration and profile identity
 
 The Web Chat extension owns the public document, session and turn adapters as
