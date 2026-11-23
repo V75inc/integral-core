@@ -1,5 +1,8 @@
 """Durable managed provision backed by the existing profile-route revision CAS."""
 
+from asyncio import timeout
+from dataclasses import dataclass
+from typing import Awaitable, Callable
 from uuid import uuid4
 
 from app.agentive.services import profile_management, public_web_chat
@@ -15,6 +18,25 @@ from app.connectors.channel_packages import (
     ChannelServingStatus,
 )
 from app.schemas.agentive.connection_profiles import PublicWebChatRoute
+from app.services.app_operations.transaction_scope import (
+    require_outside_graph_transaction,
+)
+
+
+@dataclass(frozen=True)
+class CommittedWebChatRouteChange:
+    """Internal notification pinned to the exact committed CAS, not a request."""
+
+    action: str
+    previous: ChannelInstallation
+    current: ChannelInstallation | None
+    publication: tuple[str, int] | None
+
+
+PostCommitWebChatRouteChange = Callable[[CommittedWebChatRouteChange], Awaitable[None]]
+
+
+_POST_COMMIT_SECONDS = 2.0
 
 
 def _installation(
@@ -34,9 +56,15 @@ def _installation(
 class ProfileRouteWebChatProvisionStore:
     """Own exact provision and assignment CAS on the same persisted route record."""
 
-    def __init__(self, host: WebChatPackageHost) -> None:
+    def __init__(
+        self,
+        host: WebChatPackageHost,
+        *,
+        post_commit: PostCommitWebChatRouteChange | None = None,
+    ) -> None:
         """Require scoped readiness from the owner; supply no ready default."""
         self._host = host
+        self._post_commit = post_commit
 
     async def observe(self, scope: ChannelScope) -> ChannelInstallation | None:
         """Resolve current durable state for the authorized workspace manager."""
@@ -67,9 +95,10 @@ class ProfileRouteWebChatProvisionStore:
     ) -> ChannelInstallation | None:
         """Apply one action only at the expected profile revision and provision."""
         result = None
+        committed = None
 
         async def mutate(profiles, _bindings, _native, route):
-            nonlocal result
+            nonlocal result, committed
             current = _installation(scope, route)
             if current != change.expected_installation:
                 raise ResourceConflictError("Web Chat provision changed")
@@ -116,6 +145,20 @@ class ProfileRouteWebChatProvisionStore:
             )
             route.generation += 1
             result = _installation(scope, route)
+            if current is not None:
+                published = public_web_chat.eligible_publication(
+                    profiles, route.profile_key
+                )
+                committed = CommittedWebChatRouteChange(
+                    change.action,
+                    current,
+                    result,
+                    (
+                        (route.profile_key, published["version"])
+                        if published is not None
+                        else None
+                    ),
+                )
 
         try:
             await profile_management.mutate_config(
@@ -128,4 +171,18 @@ class ProfileRouteWebChatProvisionStore:
             raise ResourceConflictError(
                 "Web Chat settings changed. Refresh and try again."
             ) from None
+        if self._post_commit is not None and committed is not None:
+            try:
+                # Do not leak work outside a transaction an upstream caller still owns.
+                require_outside_graph_transaction()
+                async with timeout(_POST_COMMIT_SECONDS):
+                    await profile_management.require_profile_manager(
+                        scope.actor_id, scope.workspace_id
+                    )
+                    await self._post_commit(committed)
+            except Exception:
+                # Core CAS is already committed. A failed host notification is not
+                # a failed config write. The fresh serving probe denies missing proof.
+                # Only an explicit host operation may repair it.
+                pass
         return result
