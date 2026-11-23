@@ -89,7 +89,13 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
         ]
         is True
     )
-    assert [tool["name"] for tool in event_config["session"]["tools"]] == [DELEGATE]
+    assert [tool["name"] for tool in event_config["session"]["tools"]] == [
+        DELEGATE,
+        "check_integral_chat",
+        "list_integral_context",
+        "queue_integral_follow_up",
+        "revise_active_integral_request",
+    ]
     await provider.inbox.put({"type": "session.updated"})
     assert await event(browser.outbox) == {"type": "ready", "thread_id": "thread"}
     await browser.inbox.put({"type": "websocket.receive", "bytes": b"\x00\x01"})

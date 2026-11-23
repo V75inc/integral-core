@@ -257,6 +257,7 @@ async def test_realtime_tool_uses_canonical_queue_and_voice_steering(
     """One admitted spoken turn receives a separate queued job and a correction."""
     from app.services.chat_followups import list_chat_follow_ups
     from tests.test_native_voice_completion import _send_tool
+    from tests.test_native_voice_live_tools import _tool
 
     if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
         pytest.skip("Detached voice WorkItems require PostgreSQL")
@@ -283,11 +284,21 @@ async def test_realtime_tool_uses_canonical_queue_and_voice_steering(
         assert "accepted" in (await event(provider.outbox))["item"]["output"]
         accepted = relay.accepted
         assert accepted is not None
-        for operation, expected in (
-            ("queue", "queued"),
-            ("steer", "has not confirmed"),
+        for operation, tool_name, text, expected in (
+            (
+                "queue",
+                native_voice.QUEUE_FOLLOW_UP,
+                "Then summarize my projects.",
+                "queued",
+            ),
+            (
+                "steer",
+                native_voice.STEER_ACTIVE,
+                "For that task, use only March.",
+                "has not confirmed",
+            ),
         ):
-            await _send_tool(provider, operation, operation, operation)
+            await _tool(provider, operation, tool_name, {"request": text})
             closure = await event(provider.outbox)
             assert closure["item"]["call_id"] == operation
             assert expected in closure["item"]["output"]
@@ -312,6 +323,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
     from app.services.chat_followups import promote_next_chat_follow_up
     from app.services.chat_turn_transcript import persist_work_item_assistant_result
     from tests.test_native_voice_completion import _send_tool
+    from tests.test_native_voice_live_tools import _tool
 
     if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
         pytest.skip("Detached voice WorkItems require PostgreSQL")
@@ -404,7 +416,9 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert promoted is not None and promoted.work_item_id != first.work_item_id
 
         # No stale predecessor result when the latest admitted job is asserted.
-        await _send_tool(provider, "check-next", "check-next", "check_chat")
+        await _tool(
+            provider, "check-next", native_voice.CHECK_CHAT, {"view": "latest_chat"}
+        )
         await event(provider.outbox)
         check = (await event(provider.outbox))["response"]
         assert "latest follow-up is queued to start" in check["instructions"]

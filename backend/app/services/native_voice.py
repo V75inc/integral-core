@@ -4,8 +4,10 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import re
 import secrets
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -24,7 +26,14 @@ from app.services.native_voice_thread_status import (
 )
 from app.services.workspace_permissions import can_access_workspace
 
+logger = logging.getLogger(__name__)
+
 DELEGATE = "delegate_to_integral"
+CHECK_CHAT = "check_integral_chat"
+LIST_CONTEXT = "list_integral_context"
+QUEUE_FOLLOW_UP = "queue_integral_follow_up"
+STEER_ACTIVE = "revise_active_integral_request"
+MAX_CONTEXT_LABELS = 20
 MAX_AUDIO_CHUNK = 4800
 MAX_CALL_SECONDS = 600
 DELEGATE_WAIT_SECONDS = 90
@@ -46,12 +55,8 @@ TOOL = {
         "without guessing access. Do not invoke it for small talk; respond normally "
         "even while Integral is working. Set operation to rerun_stopped only if the "
         "caller explicitly asks to rerun the last stopped Integral request. "
-        "Set operation to check_chat only if explicitly asked to check this chat or the "
-        "status of its voice-submitted work. This is a read, not a new task. "
-        "While work is active, use queue only for a clearly separate task the caller wants "
-        "done next (the caller need not say queue), or steer only for a change expressly directed at the same running "
-        "voice request. Ask the caller if it is unclear. Never use either for small talk, "
-        "status, approving, or stopping work. Do not ask this tool to approve a change."
+        "Use the distinct status, navigation, queue or revise tools for their named purposes. "
+        "Do not ask this tool to approve or stop a change."
     ),
     "parameters": {
         "type": "object",
@@ -71,6 +76,59 @@ TOOL = {
         "additionalProperties": False,
     },
 }
+
+
+def _voice_tool(name, description, properties):
+    """Define exact provider-facing parameters, with no model-supplied scope."""
+    return {
+        "type": "function",
+        "name": name,
+        "description": description,
+        "parameters": {
+            "type": "object",
+            "properties": properties,
+            "required": list(properties),
+            "additionalProperties": False,
+        },
+    }
+
+
+_READ_TOOLS = {
+    CHECK_CHAT: _voice_tool(
+        CHECK_CHAT,
+        "Read the exact conversation while other requests run. Use current_task for what is running now; use latest_chat when asked to check the chat, latest queued task, or result. Never starts work.",
+        {"view": {"type": "string", "enum": ["current_task", "latest_chat"]}},
+    ),
+    LIST_CONTEXT: _voice_tool(
+        LIST_CONTEXT,
+        "Read the current workspace name and app names visible here, or list workspace names the caller can open. Use for basic navigation questions even while work is running. Does not switch workspace, run an app, or submit work.",
+        {
+            "view": {
+                "type": "string",
+                "enum": ["current_workspace", "apps_here", "workspaces"],
+            }
+        },
+    ),
+}
+_FOLLOW_UP_TOOLS = {
+    QUEUE_FOLLOW_UP: "queue",
+    STEER_ACTIVE: "steer",
+}
+_REALTIME_TOOLS = [
+    TOOL,
+    *_READ_TOOLS.values(),
+    _voice_tool(
+        QUEUE_FOLLOW_UP,
+        "Queue a clearly separate new workspace task the caller asks to do next while another task is active. No magic words required: for example, 'and after that, summarize my projects'. Does not cancel, replace, or edit the current task. Ask if unclear whether they want a separate task or a correction.",
+        {"request": {"type": "string", "maxLength": 2000}},
+    ),
+    _voice_tool(
+        STEER_ACTIVE,
+        "Submit a clear correction or addition expressly about the running voice task. For example, 'for that report you're working on, only include March'. This cannot approve, stop, or create another task. Never infer a correction merely because the topics are related.",
+        {"request": {"type": "string", "maxLength": 2000}},
+    ),
+]
+_VOICE_TOOL_NAMES = frozenset(tool["name"] for tool in _REALTIME_TOOLS)
 
 
 @dataclass
@@ -415,7 +473,11 @@ def session_update(
                 "and do not delegate small talk or treat interruption as Stop. Only if explicitly "
                 "asked to rerun stopped work, send operation rerun_stopped. "
                 "When explicitly asked to check the chat or this call’s workspace result, use "
-                "operation check_chat for current status without starting another task. "
+                "check_integral_chat for current status without starting another task. "
+                "Use list_integral_context for workspace name or visible app/workspace lists, even while busy. "
+                "For an unambiguously separate task to do next, call queue_integral_follow_up. "
+                "For an explicit correction to the same voice task, call revise_active_integral_request. "
+                "These tools remain usable while a delegated task runs. "
                 "While work is active, distinguish a separate task to do next (queue) from "
                 "an explicit correction to the same ongoing voice request (steer). "
                 "If ambiguous, ask whether to add it next or change the current work. "
@@ -444,7 +506,7 @@ def session_update(
                 },
                 "output": {"format": pcm, "voice": "marin"},
             },
-            "tools": [TOOL],
+            "tools": _REALTIME_TOOLS,
             "tool_choice": "auto",
         },
     }
@@ -492,6 +554,8 @@ class VoiceRelay:
         self.seen: set[str] = set()
         self.pending = None
         self.follow_up_task: asyncio.Task | None = None
+        self.live_read: asyncio.Task | None = None
+        self.protocol_counts: Counter[str] = Counter()
         self.closing = False
         self.accepted: _AcceptedVoiceTurn | None = None
         self.pending_accepted = False
@@ -815,6 +879,88 @@ class VoiceRelay:
             self._work(call_id, request, self.generation)
         )
 
+    async def _read_context(self, view: str) -> str:
+        """Project only scoped navigation labels; never infer an app permission."""
+        from app.services.permissions import get_user_accessible_apps_for_navigation
+        from app.services.request_scope import matches_workspace
+        from app.services.workspace_permissions import list_accessible_workspaces
+
+        if self.scope.profile:
+            return "This selected agent profile cannot list workspace navigation here."
+        expected_scope = self._thread_status_scope()
+        with isolated_permissions_cache():
+            if view == "apps_here":
+                records = await get_user_accessible_apps_for_navigation(
+                    self.scope.principal, workspace_id=self.scope.workspace
+                )
+                rows = [
+                    app
+                    for app in records
+                    if matches_workspace(app, self.scope.workspace)
+                    and (getattr(app, "lifecycle_state", None) or "active") == "active"
+                ]
+            else:
+                rows = await list_accessible_workspaces(self.scope.principal)
+                if view == "current_workspace":
+                    rows = [
+                        workspace
+                        for workspace in rows
+                        if workspace.id == self.scope.workspace
+                    ]
+        await self.check(self.scope)
+        if expected_scope != self._thread_status_scope() or self.scope.profile:
+            raise InsufficientPermissionsError(message="Conversation unavailable")
+
+        def label(row):
+            value = getattr(row, "name", "")
+            return " ".join(value.split())[:100] if isinstance(value, str) else ""
+
+        labels = sorted(filter(None, (label(row) for row in rows)), key=str.casefold)
+        if view == "current_workspace":
+            return (
+                f"The current workspace is {labels[0]}."
+                if labels
+                else "I could not verify the current workspace name."
+            )
+        noun = "app" if view == "apps_here" else "workspace"
+        noun_plural = "apps" if view == "apps_here" else "workspaces"
+        if not labels:
+            return f"No {noun_plural} are visible in this view."
+        listing = ", ".join(labels[:MAX_CONTEXT_LABELS])
+        if len(labels) > MAX_CONTEXT_LABELS:
+            return f"Showing {MAX_CONTEXT_LABELS} of {len(labels)} visible {noun_plural}: {listing}."
+        if len(labels) == 1:
+            return f"One visible {noun}: {listing}."
+        return f"Visible {noun_plural}: {listing}."
+
+    async def _read_live_tool(self, call_id, name, view, generation) -> None:
+        """Run explicit read-only tools without blocking microphone events."""
+        work_id = None
+        try:
+            async with asyncio.timeout(2):
+                if name == CHECK_CHAT:
+                    result, work_id = await self._check_chat(
+                        describe_active=view == "current_task"
+                    )
+                else:
+                    result = await self._read_context(view)
+            self.protocol_counts["read_projected"] += 1
+        except asyncio.CancelledError:
+            raise
+        except InsufficientPermissionsError:
+            return
+        except Exception:
+            self.protocol_counts["read_unavailable"] += 1
+            result = "I couldn't verify that information just now. Check the Integral conversation or workspace."
+        try:
+            await self.check(self.scope)
+        except InsufficientPermissionsError:
+            return
+        if self.closing:
+            return
+        await self._function_output(call_id, "Integral checked your request.")
+        await self._speak_result(generation, result=result, work_id=work_id)
+
     async def _completed_response(self, event):
         response = event.get("response") or {}
         if (
@@ -824,10 +970,22 @@ class VoiceRelay:
             or response.get("id") != self.response_generation
             or response.get("id") == self.speech_only_response_id
         ):
+            if any(
+                isinstance(item, dict) and item.get("type") == "function_call"
+                for item in response.get("output") or []
+            ):
+                self.protocol_counts["ignored_uncorrelated"] += 1
             return
         self.response_generation = None
         for item in response.get("output") or []:
-            if item.get("type") != "function_call" or item.get("name") != DELEGATE:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if (
+                item.get("type") != "function_call"
+                or not isinstance(name, str)
+                or name not in _VOICE_TOOL_NAMES
+            ):
                 continue
             call_id = item.get("call_id")
             args = item.get("arguments", "")
@@ -840,11 +998,48 @@ class VoiceRelay:
                 or not isinstance(args, str)
                 or len(args) > 10000
             ):
+                self.protocol_counts["ignored_invalid_or_repeated"] += 1
                 continue
             try:
                 request = json.loads(args)
             except ValueError:
                 continue
+            if not isinstance(request, dict):
+                continue
+            if name in _READ_TOOLS:
+                if (
+                    name == CHECK_CHAT
+                    and (
+                        set(request) != {"view"}
+                        or request["view"] not in ("current_task", "latest_chat")
+                    )
+                ) or (
+                    name == LIST_CONTEXT
+                    and (
+                        set(request) != {"view"}
+                        or request["view"]
+                        not in ("current_workspace", "apps_here", "workspaces")
+                    )
+                ):
+                    continue
+                await self.check(self.scope)
+                self.seen.add(call_id)
+                self.protocol_counts[name] += 1
+                if self.live_read and not self.live_read.done():
+                    await self._function_output(
+                        call_id, "A read is already in progress."
+                    )
+                else:
+                    self.live_read = asyncio.create_task(
+                        self._read_live_tool(
+                            call_id, name, request.get("view"), self.generation
+                        )
+                    )
+                continue
+            if name in _FOLLOW_UP_TOOLS:
+                if set(request) != {"request"}:
+                    continue
+                request["operation"] = _FOLLOW_UP_TOOLS[name]
             if (
                 not isinstance(request, dict)
                 or not {"request"} <= set(request) <= {"request", "operation"}
@@ -861,6 +1056,7 @@ class VoiceRelay:
                 continue
             await self.check(self.scope)
             self.seen.add(call_id)
+            self.protocol_counts[name] += 1
             await self._start_requested_work(
                 call_id, request["request"].strip(), request.get("operation", "request")
             )
@@ -960,8 +1156,28 @@ class VoiceRelay:
                     continue
                 raise RuntimeError("Realtime provider error")
 
-    async def _check_chat(self) -> tuple[str, str | None]:
+    async def _check_chat(
+        self, *, describe_active: bool = False
+    ) -> tuple[str, str | None]:
         """Read current status without submitting another durable turn."""
+        if describe_active and (foreground := self.accepted):
+            thread = await self.check(self.scope)
+            if thread is not None:
+                status, _ = await _delegated_status(self.scope, thread, foreground)
+                await self.check(self.scope)
+                if foreground is self.accepted:
+                    active = {
+                        "queued": "queued to start",
+                        "running": "running",
+                        "retry_wait": "waiting to retry",
+                        "waiting_for_event": "waiting for more information",
+                        "waiting_for_human": "waiting for your review; no change has been applied",
+                    }.get(status)
+                    if active is not None:
+                        return (
+                            f"The current request is {active}: {foreground.text[:300]}",
+                            None,
+                        )
         if successor := self.latest_queued_successor:
             from app.services.native_voice_followups import observe_spoken_follow_up
 
@@ -1040,6 +1256,11 @@ class VoiceRelay:
                     "The request is still in progress in this Integral conversation.",
                     None,
                 )
+        if self.pending and not self.pending.done():
+            return (
+                "Integral is checking whether the request was accepted. I do not have a confirmed job yet.",
+                None,
+            )
         scope = self._thread_status_scope()
         try:
             async with asyncio.timeout(1):
@@ -1072,6 +1293,8 @@ class VoiceRelay:
             and not self.speaking
             and not self.waiting_for_response
             and not self.response_generation
+            and not (self.live_read and not self.live_read.done())
+            and not (self.follow_up_task and not self.follow_up_task.done())
             and not self.delegate_token
             and not self.opening_response_id
             and not self.opening_token
@@ -1264,7 +1487,11 @@ class VoiceRelay:
                 tasks.append(self.opening_task)
             if self.follow_up_task:
                 tasks.append(self.follow_up_task)
+            if self.live_read:
+                tasks.append(self.live_read)
             for task in tasks:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            if self.ready:
+                logger.info("Native voice tool summary: %s", dict(self.protocol_counts))

@@ -122,6 +122,21 @@ Ending a call does not
 cancel a pending approval. This pilot does not enable phone or WhatsApp voice.
 
 
+### Live voice tool boundary
+
+The realtime model uses a small, authenticated allowlist for quick reads:
+this conversation’s current request, the current workspace name, visible
+apps in that workspace, and the caller’s accessible workspace names.
+The server selects scope; the voice tool takes no workspace, thread, user, or
+WorkItem ID. Directory reads are for the default workspace assistant only.
+Other workspace requests still go through durable Heavy chat. A running
+Heavy request does not prevent quick reads or ordinary conversation.
+Dedicated queue and revise tools distinguish an independent next task from
+a correction explicitly aimed at this call’s exact current voice request.
+
+Provider tool summaries record fixed categories and counts only. They do not
+record names returned by the tools, requests, transcripts, or identifiers.
+
 ### Durable continuation boundary
 
 The server-side continuation adapter supports one explicit next request in the

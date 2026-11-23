@@ -98,7 +98,13 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
             not private or private not in instructions
             for private in (scope.principal, scope.workspace, scope.thread, profile)
         )
-        assert [tool["name"] for tool in config["tools"]] == [native_voice.DELEGATE]
+        assert [tool["name"] for tool in config["tools"]] == [
+            native_voice.DELEGATE,
+            native_voice.CHECK_CHAT,
+            native_voice.LIST_CONTEXT,
+            native_voice.QUEUE_FOLLOW_UP,
+            native_voice.STEER_ACTIVE,
+        ]
         await provider.inbox.put({"type": "session.updated"})
         assert (await event(browser.outbox))["thread_id"] == scope.thread
         await provider.inbox.put({"type": "response.created", "response": {"id": "r1"}})
