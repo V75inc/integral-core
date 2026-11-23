@@ -72,6 +72,8 @@ vi.mock('../../../../api/connectionProfiles', () => ({
   publicWebChatSettingsKey: (id: string) => ['public-web-chat-settings', id],
 }));
 
+vi.mock('../../connectors/managedChannelShareReader', () => ({ readManagedChannelShare: vi.fn() }));
+
 vi.mock('../../../../api/managedChannels', () => ({
   managedChannelsApi: { list: vi.fn(), change: vi.fn(), profileConfiguration: vi.fn(), assignProfile: vi.fn() },
 }));
@@ -120,6 +122,7 @@ import { useScopeOptional } from '../../../../context/ScopeContext';
 import { useAuthOptional } from '../../../../context/AuthContext';
 import { getSessionGeneration } from '../../../../api/session';
 import type { ManagedChannelShareSource } from '../../connectors/ManagedChannelShareControl';
+import { readManagedChannelShare } from '../../connectors/managedChannelShareReader';
 
 const mockedList = connectorsApi.list as unknown as ReturnType<typeof vi.fn>;
 const mockedCatalog = connectorsApi.listCatalog as unknown as ReturnType<
@@ -192,6 +195,7 @@ beforeEach(() => {
   mockedScope.mockReturnValue(null);
   vi.mocked(useAuthOptional).mockReturnValue(null);
   vi.mocked(getSessionGeneration).mockReturnValue(1);
+  vi.mocked(readManagedChannelShare).mockReset();
   mockedList.mockReset().mockResolvedValue({ connectors: [], total: 0 });
   vi.mocked(managedChannelsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(managedChannelsApi.change).mockReset().mockResolvedValue(undefined);
@@ -882,12 +886,16 @@ describe('<ConnectorsSection />', () => {
 
   it('reports only verified publishing details in active Web Chat Configure without inventing a share source', async () => {
     selectWorkspace('shared');
+    authenticateManager('current-manager');
     const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' };
     vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable('active', '3'), definition }]);
     vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
       ...profileConfig(1, '3', 'greeter', false), published_version: 2,
     });
-    renderPanel();
+    const read = vi.fn<ManagedChannelShareSource['read']>();
+    const source = { scope: { principalId: 'current-manager', workspaceId: 'shared', sessionFence: '1' }, read };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(panelWithProviders(qc, source));
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
     expect(await dialog.findByText('No verified full-page link, embed code or API access details are available here.'))
@@ -896,6 +904,8 @@ describe('<ConnectorsSection />', () => {
     expect(dialog.queryByRole('link')).not.toBeInTheDocument();
     expect(dialog.queryByRole('button', { name: /full.page|embed|api access|publish|pair/i })).not.toBeInTheDocument();
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(readManagedChannelShare).not.toHaveBeenCalled();
   });
 
   it('drops verified full-page checks on non-active state and drops late replies after Configure closes', async () => {
@@ -906,26 +916,29 @@ describe('<ConnectorsSection />', () => {
     const inactive = { ...configurable('inactive', '3'), definition };
     vi.mocked(managedChannelsApi.list).mockResolvedValue([active]);
     vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
-      ...profileConfig(1, '3', 'greeter', false), published_version: 2,
+      ...profileConfig(1, '3', 'greeter', false), published_version: 2, full_page_share_check_available: true,
     });
     const checks: Array<{ signal: AbortSignal; finish: () => void }> = [];
-    const read = vi.fn<ManagedChannelShareSource['read']>((owner, signal) =>
+    const read = vi.mocked(readManagedChannelShare).mockImplementation((owner, signal) =>
       new Promise(resolve => checks.push({ signal, finish: () => resolve({
         kind: 'approved-full-page-share-v1', workspace_id: owner.workspaceId, slug: owner.slug,
         provision_id: owner.provisionId, route_epoch: owner.routeEpoch,
         profile_key: owner.publication.profileKey, published_version: owner.publication.publishedVersion,
         full_page_url: 'https://fixture-visitor.example.invalid/chat/unserved',
       }) })));
-    const source = { scope: { principalId: 'current-manager', workspaceId: 'shared', sessionFence: '1' }, read };
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const listKey = ['connectors', 'managed-channels', 'current-manager', 'shared'];
-    render(panelWithProviders(qc, source));
+    render(panelWithProviders(qc));
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
 
     expect(await dialog.findByText(/Check the full-page link below/)).toBeVisible();
     expect(read).not.toHaveBeenCalled();
     fireEvent.click(dialog.getByRole('button', { name: 'Check full-page link' }));
+    expect(read).toHaveBeenCalledExactlyOnceWith({
+      principalId: 'current-manager', workspaceId: 'shared', sessionFence: '1', slug: 'public_web_chat',
+      provisionId: 'provision-1', routeEpoch: '3', publication: { profileKey: 'greeter', publishedVersion: 2 },
+    }, expect.any(AbortSignal));
     expect(checks[0].signal.aborted).toBe(false);
     await act(async () => { qc.setQueryData(listKey, [inactive]); });
     expect(await dialog.findByText(/hosting is ready, but web chat is not live/i)).toBeVisible();
@@ -942,6 +955,70 @@ describe('<ConnectorsSection />', () => {
     expect(screen.queryByRole('dialog', { name: 'Configure Web Chat' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+
+  it('opens or copies only a fresh exact full-page share after an approved Configure gesture', async () => {
+    selectWorkspace('shared');
+    authenticateManager('current-manager');
+    const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' };
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable('active', '3'), definition }]);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
+      ...profileConfig(1, '3', 'greeter', false), published_version: 2, full_page_share_check_available: true,
+    });
+    const url = 'https://fixture-visitor.example.invalid/chat/unserved';
+    vi.mocked(readManagedChannelShare).mockImplementation(async owner => ({
+      kind: 'approved-full-page-share-v1', workspace_id: owner.workspaceId, slug: owner.slug,
+      provision_id: owner.provisionId, route_epoch: owner.routeEpoch, profile_key: owner.publication.profileKey,
+      published_version: owner.publication.publishedVersion, full_page_url: url,
+    }));
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    const check = await screen.findByRole('button', { name: 'Check full-page link' });
+    expect(readManagedChannelShare).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy full-page link' })).not.toBeInTheDocument();
+    fireEvent.click(check);
+    expect(await screen.findByRole('link', { name: 'Open full-page chat' })).toHaveAttribute('href', url);
+    expect(screen.getByRole('button', { name: 'Copy full-page link' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /embed|api access/i })).not.toBeInTheDocument();
+    expect(readManagedChannelShare).toHaveBeenCalledTimes(1);
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+  it('requires a new Configure admission after the signed-in session changes', async () => {
+    selectWorkspace('shared');
+    authenticateManager('current-manager');
+    const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' };
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable('active', '3'), definition }]);
+    const base = { ...profileConfig(1, '3', 'greeter', false), published_version: 2 };
+    vi.mocked(managedChannelsApi.profileConfiguration)
+      .mockResolvedValueOnce({ ...base, full_page_share_check_available: true })
+      .mockResolvedValue(base);
+    let finish!: () => void;
+    let signal!: AbortSignal;
+    const read = vi.mocked(readManagedChannelShare).mockImplementation((owner, abort) => {
+      signal = abort;
+      return new Promise(resolve => { finish = () => resolve({
+        kind: 'approved-full-page-share-v1', workspace_id: owner.workspaceId, slug: owner.slug,
+        provision_id: owner.provisionId, route_epoch: owner.routeEpoch,
+        profile_key: owner.publication.profileKey, published_version: owner.publication.publishedVersion,
+        full_page_url: 'https://fixture-visitor.example.invalid/chat/unserved',
+      }); });
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(panelWithProviders(qc));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Check full-page link' }));
+    vi.mocked(getSessionGeneration).mockReturnValue(2);
+    view.rerender(panelWithProviders(qc));
+    expect(signal.aborted).toBe(true);
+    await act(async () => finish());
+    expect(await screen.findByText('No verified full-page link, embed code or API access details are available here.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
+    expect(managedChannelsApi.profileConfiguration).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 
   it('honors the managed Web Chat entry rather than the legacy fallback', async () => {
