@@ -117,3 +117,15 @@ This is a trusted in-process composition hook. It does not change the v1
 third-party installed-distribution entry point, which still discovers a
 pure package and never mounts any runtime. Hosts mount only the separate route
 groups returned after successful catalogue registration.
+
+For trusted in-process runtime, `mount_trusted_channel_runtime` takes an
+explicit canonical staff origin and app plus a mapping from each exact
+connector-contributed visitor origin to its distinct approved app. Call it at
+synchronous bootstrap before requests or OpenAPI. It stages route lists and
+rejects ambiguous, broad, conflicting, or unrecognized routes before
+registering the package; only successful registration commits the lists.
+This is not dynamic DNS, proxy, auth, host dispatch, or listener setup. The
+caller enforces the actual secure origin split and staff authentication.
+Contributed routers do not install lifecycle callbacks. Independently
+reviewed distribution discovery remains the pure v1 package contract;
+it does not use this route admission path at import or discovery.

@@ -26,7 +26,7 @@ from app.agentive.services.web_chat_request_budget import WebChatBudgetPolicy
 from app.connectors.channel_packages import ChannelPackageRegistry
 from app.connectors.channel_runtime import (
     ChannelRuntimeContribution,
-    register_channel_runtime,
+    mount_trusted_channel_runtime,
 )
 from app.connectors.channel_share_check import ApprovedEmbedDescriptor
 from app.models.edges import IS_MEMBER_OF
@@ -281,32 +281,35 @@ async def detached_delivery(
                 assembled.registry.resolve(SLUG),
                 (assembled.share_router,),
                 (assembled.browser_router,),
+                visitor_origin=ORIGIN,
             )
         registry = ChannelPackageRegistry()
-        mountable = register_channel_runtime(registry, contribution)
+        visitor_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
         if with_document:
-            isolated = {}
-            for group in mountable.isolated:
-                edge = FastAPI()
-                for router in group.routers:
-                    edge.include_router(router)
-                isolated[group.origin] = edge
-            assert set(isolated) == {EMBED_ORIGIN, CLIENT_ORIGIN}
+            isolated = {
+                origin: FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+                for origin in (EMBED_ORIGIN, CLIENT_ORIGIN)
+            }
             extra = SimpleNamespace(
                 grants=grants, apps=isolated, actor=test_user.id, database=database
             )
         else:
-            assert not mountable.isolated
+            isolated = {}
+        monkeypatch.setattr(app.router, "routes", list(app.router.routes))
+        # The shared API fixture may have inspected docs while setting up the synthetic
+        # workspace. Model a fresh approved host before graph-specific admission.
+        monkeypatch.setattr(app, "openapi_schema", None)
+        mount_trusted_channel_runtime(
+            registry,
+            contribution,
+            staff_app=app,
+            staff_origin=STAFF_ORIGIN,
+            visitor_apps={ORIGIN: visitor_app, **isolated},
+        )
         state_key = "integral_managed_channel_registry"
         monkeypatch.setattr(app.state, state_key, None, raising=False)
         delattr(app.state, state_key)
         install_managed_channel_registry(app, registry)
-        monkeypatch.setattr(app.router, "routes", list(app.router.routes))
-        for router in mountable.management:
-            app.include_router(router)
-        visitor_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
-        for router in mountable.visitor:
-            visitor_app.include_router(router)
         if extra is not None:
             # Test-only vetted host dispatch: no socket, DNS, proxy, or trust store.
             apps = {
