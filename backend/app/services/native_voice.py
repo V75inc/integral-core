@@ -42,6 +42,10 @@ MAX_DELEGATIONS = 16
 OPENING_GRACE_SECONDS = 0.4
 RESULT_IDLE_SECONDS = 0.5
 RESULT_POLL_SECONDS = 1.0
+USER_REPLY_GRACE_SECONDS = 1.5
+READOUT_PROGRESS_SECONDS = 4.0
+READOUT_AUTH_SECONDS = 1.0
+MAX_SILENT_READOUT_ATTEMPTS = 2
 MAX_THREAD_STATUS_UPDATES = 20
 VOICE_FOLLOW_UP_OPERATIONS = ("queue", "steer")
 TOOL = {
@@ -573,6 +577,7 @@ class VoiceRelay:
         self.result_in_flight: str | None = None
         self.speaking = False
         self.waiting_for_response = False
+        self.user_reply_deadline: float | None = None
         self.quiet_since = 0.0
         self.response_generation: str | None = None
         self.speech_only_response_id: str | None = None
@@ -582,6 +587,11 @@ class VoiceRelay:
         self.opening_response_id: str | None = None
         self.opening_token: str | None = None
         self.delegate_token: str | None = None
+        self.readout_deadline: float | None = None
+        self.readout_event_id: str | None = None
+        self.readout_audio_verified = False
+        self.readout_events: set[str] = set()
+        self.silent_readouts: Counter[str] = Counter()
         self.opening_task: asyncio.Task | None = None
         self.name = "Integral AI"
         self.continuity = "unknown"
@@ -643,6 +653,8 @@ class VoiceRelay:
         self.opening_response_id = None
         self.opening_token = None
         self.delegate_token = None
+        self.readout_deadline = None
+        self.readout_event_id = None
         self.result_in_flight = None
         self.quiet_since = asyncio.get_running_loop().time()
         # Conversational barge-in fences only delivery. The authorized chat
@@ -694,25 +706,50 @@ class VoiceRelay:
             response["instructions"] += "\nAnswer data: " + json.dumps(
                 _speech_ready_result(result), ensure_ascii=False
             )
-        await self.send_event({"type": "response.create", "response": response})
+        event_id = "voice-readout-" + self.delegate_token
+        self.readout_events.add(event_id)
+        self.readout_event_id = event_id
+        self.readout_audio_verified = False
+        self.readout_deadline = (
+            asyncio.get_running_loop().time() + READOUT_PROGRESS_SECONDS
+        )
+        await self.send_event(
+            {"type": "response.create", "event_id": event_id, "response": response}
+        )
+
+    def _discard_silent_readout(self) -> None:
+        """Release a failed synthesis attempt without marking it delivered."""
+        if self.result_in_flight:
+            key = self.result_in_flight
+            self.silent_readouts[key] += 1
+            if self.silent_readouts[key] >= MAX_SILENT_READOUT_ATTEMPTS:
+                self.result_receipts.pop(key, None)
+                self.protocol_counts["readout_unsent"] += 1
+            else:
+                self.protocol_counts["readout_retry_pending"] += 1
+        self.result_in_flight = None
+        self.readout_deadline = None
+        self.readout_event_id = None
+        self.delegate_token = None
+        if self.speech_only_response_id == self.response_generation:
+            self.response_generation = None
+        self.speech_only_response_id = None
 
     async def _work(self, call_id, request, generation):
         acknowledged = False
+        immediate_terminal = None
 
         async def on_accepted(receipt, status, result):
-            nonlocal acknowledged
+            nonlocal acknowledged, immediate_terminal
             await self.check(self.scope)
             self.accepted = _AcceptedVoiceTurn(
                 receipt.work_item_id, receipt.message_id, request
             )
             self.pending_accepted = True
             self.latest_queued_successor = None
-            if (
-                result is None
-                or generation != self.generation
-                or self.response_generation
-            ):
-                self.result_receipts[self.accepted.work_item_id] = self.accepted
+            self.result_receipts[self.accepted.work_item_id] = self.accepted
+            if result is not None and status != "unavailable":
+                immediate_terminal = receipt.work_item_id
             if result is None and status != "waiting_for_human":
                 await self._function_output(
                     call_id,
@@ -746,7 +783,7 @@ class VoiceRelay:
             return
         if generation == self.generation:
             await self._function_output(call_id, result)
-            await self._speak_result(generation)
+            await self._speak_result(generation, work_id=immediate_terminal)
         else:
             await self._function_output(
                 call_id, "See the Integral conversation for the request status."
@@ -1192,6 +1229,9 @@ class VoiceRelay:
                         self.response_generation = response_id
                         self.speech_only_response_id = response_id
                         self.delegate_token = None
+                        self.readout_deadline = (
+                            asyncio.get_running_loop().time() + READOUT_PROGRESS_SECONDS
+                        )
                 elif token is not None or (
                     "conversation_id" in response
                     and response["conversation_id"] is None
@@ -1211,16 +1251,24 @@ class VoiceRelay:
                     self.response_generation = response_id
                     self.speech_only_response_id = None
                     self.waiting_for_response = False
+                    self.user_reply_deadline = None
+                    self.readout_deadline = None
+                    self.readout_event_id = None
                     self.result_in_flight = None
                     self.delegate_token = None
             elif kind == "input_audio_buffer.speech_started":
                 self.user_spoke = True
                 self.speaking = True
                 self.waiting_for_response = True
+                self.user_reply_deadline = None
                 await self._interrupt()
             elif kind == "input_audio_buffer.speech_stopped":
                 self.speaking = False
                 self.quiet_since = asyncio.get_running_loop().time()
+                if self.waiting_for_response:
+                    self.user_reply_deadline = (
+                        self.quiet_since + USER_REPLY_GRACE_SECONDS
+                    )
             elif kind == "response.output_audio.delta" and self.ready:
                 response_id = event.get("response_id")
                 if response_id and response_id in (
@@ -1229,14 +1277,30 @@ class VoiceRelay:
                 ):
                     audio = base64.b64decode(event["delta"], validate=True)
                     if audio and len(audio) <= 96_000 and not len(audio) % 2:
-                        if (
-                            response_id == self.response_generation
-                            and self.result_in_flight
-                        ):
-                            await self.check(self.scope)
-                            self.result_receipts.pop(self.result_in_flight, None)
-                            self.result_in_flight = None
+                        delivered = None
+                        if response_id == self.speech_only_response_id:
+                            self.readout_deadline = (
+                                asyncio.get_running_loop().time()
+                                + READOUT_PROGRESS_SECONDS
+                            )
+                            if not self.readout_audio_verified:
+                                try:
+                                    async with asyncio.timeout(READOUT_AUTH_SECONDS):
+                                        await self.check(self.scope)
+                                except TimeoutError:
+                                    if response_id == self.speech_only_response_id:
+                                        self._discard_silent_readout()
+                                    continue
+                                if response_id != self.speech_only_response_id:
+                                    continue
+                                self.readout_audio_verified = True
+                            delivered = self.result_in_flight
                         await self.browser.send_bytes(audio)
+                        if delivered:
+                            self.result_receipts.pop(delivered, None)
+                            if delivered == self.result_in_flight:
+                                self.result_in_flight = None
+                            self.protocol_counts["readout_sent"] += 1
             elif kind == "response.done":
                 response = event.get("response") or {}
                 if response.get("id") and response["id"] == self.capability_response_id:
@@ -1255,10 +1319,9 @@ class VoiceRelay:
                 response_id = (event.get("response") or {}).get("id")
                 if response_id in (self.response_generation, self.opening_response_id):
                     self.quiet_since = asyncio.get_running_loop().time()
-                if response_id and response_id == self.response_generation:
-                    if self.result_in_flight:
-                        self.result_receipts.pop(self.result_in_flight, None)
-                    self.result_in_flight = None
+                if response_id and response_id == self.speech_only_response_id:
+                    self._discard_silent_readout()
+                    continue
                 await self._completed_response(event)
                 if response_id == self.response_generation:
                     self.response_generation = None
@@ -1269,6 +1332,10 @@ class VoiceRelay:
             elif kind == "error":
                 error = event.get("error") or {}
                 related = error.get("event_id")
+                if isinstance(related, str) and related in self.readout_events:
+                    if related == self.readout_event_id:
+                        self._discard_silent_readout()
+                    continue
                 if isinstance(related, str) and related in self.capability_event_ids:
                     if (
                         self.capability_offer
@@ -1442,6 +1509,14 @@ class VoiceRelay:
 
         while True:
             await asyncio.sleep(RESULT_POLL_SECONDS)
+            now = asyncio.get_running_loop().time()
+            if self.user_reply_deadline is not None and now >= self.user_reply_deadline:
+                self.user_reply_deadline = None
+                self.waiting_for_response = False
+                self.protocol_counts["voice_reply_grace_expired"] += 1
+            if self.readout_deadline is not None and now >= self.readout_deadline:
+                self._discard_silent_readout()
+
             if (
                 self.capability_offer
                 and self.capability_offer[3] < asyncio.get_running_loop().time()

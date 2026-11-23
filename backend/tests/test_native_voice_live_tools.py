@@ -464,3 +464,73 @@ async def test_fourth_catalogue_enrollment_is_usable_without_new_realtime_tool(
 
     assert calls == [("ws:workspace", 20)]
     submit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("still_authorized", [False, True])
+async def test_quick_read_checks_authority_at_first_audio_not_each_chunk(
+    monkeypatch, still_authorized
+):
+    """Fence browser playback after upstream synthesis, without per-chunk auth."""
+    from app.api.errors import InsufficientPermissionsError
+
+    browser, provider = Browser(), Provider()
+    probes = []
+
+    async def authority(_scope):
+        probes.append(None)
+        if not still_authorized:
+            raise InsufficientPermissionsError("Conversation unavailable")
+
+    checked = AsyncMock(return_value=SimpleNamespace(id="thread"))
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=checked,
+    )
+    monkeypatch.setattr(
+        native_voice_capabilities,
+        "invoke_voice_read",
+        AsyncMock(return_value="A private answer."),
+    )
+    task = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        assert (await event(browser.outbox))["thread_id"] == "thread"
+        selection, offer = await _negotiate(
+            provider, "apps", "visible apps", "Visible apps here"
+        )
+        await _choose(provider, "apps", selection, offer)
+        speech = (await event(provider.outbox))["response"]
+        assert "A private answer." in speech["instructions"]
+
+        relay.check = authority
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "spoken", "metadata": speech["metadata"]},
+            }
+        )
+        for _ in range(2):
+            await provider.inbox.put(
+                {
+                    "type": "response.output_audio.delta",
+                    "response_id": "spoken",
+                    "delta": "AAE=",
+                }
+            )
+        if still_authorized:
+            assert await event(browser.outbox) == b"\x00\x01"
+            assert await event(browser.outbox) == b"\x00\x01"
+            assert len(probes) == 1
+        else:
+            with pytest.raises(InsufficientPermissionsError):
+                await asyncio.wait_for(task, 2)
+            assert browser.outbox.empty()
+            assert len(probes) == 1
+    finally:
+        if not task.done():
+            await browser.inbox.put({"type": "websocket.disconnect"})
+            await task
