@@ -144,3 +144,108 @@ async def test_live_voice_and_explicit_stop_rerun(
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await asyncio.wait_for(task, 3)
+
+
+async def test_durable_voice_completion_after_conversation_pause(
+    authenticated_client, test_user, monkeypatch
+):
+    """Persist fenced native chat output, then observe it through Realtime once."""
+    from app.agentive.services import work_execution, work_items
+    from app.services.chat_turn_transcript import persist_work_item_assistant_result
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Detached voice WorkItems require PostgreSQL")
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "29" * 32)
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.01)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.02)
+    response = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Isolated voice completion"}
+    )
+    assert response.status_code == 200
+    ws = response.json()["workspace"]["id"]
+    me = test_user.user_id
+    thread = await create_thread(
+        user_id=me, workspace_id=ws, provider_id="integral_native"
+    )
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser, provider, native_voice.VoiceScope(me, ws, "", thread.id)
+    )
+    task = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        assert (await event(browser.outbox))["thread_id"] == thread.id
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "delegate"}}
+        )
+        await provider.inbox.put(request("call", "delegate", "Explain Integral"))
+        assert "accepted" in (await event(provider.outbox))["item"]["output"]
+        accepted = relay.accepted
+        assert accepted is not None
+        item = await claim_due_candidate(
+            worker_id="synthetic-completion-worker",
+            lease_seconds=60,
+            work_item_id=accepted.work_item_id,
+        )
+        assert item is not None and item.status == "running"
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        ctx = work_execution.build_work_execution_context(
+            work_item=item,
+            logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
+        )
+        final = "Integral organizes work in your workspace."
+        msg = await persist_work_item_assistant_result(
+            context=ctx,
+            parts=[{"type": "text", "text": final}],
+            provider_metadata={},
+        )
+        assert msg.thread_id == thread.id and msg.parent_id == accepted.message_id
+        transitioned = await work_items.transition_leased(
+            item.work_item_id,
+            lease_token=item.lease_token,
+            lease_fence=int(item.lease_fence or 0),
+            expected_status="running",
+            target="succeeded",
+        )
+        assert transitioned.status == "succeeded"
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.05)
+        await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "ordinary"}}
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "ordinary", "status": "completed"},
+            }
+        )
+        rendered = (await event(provider.outbox))["response"]
+        assert final in rendered["instructions"]
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "completion", "metadata": rendered["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "completion",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "completion", "status": "completed"},
+            }
+        )
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.05)
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await asyncio.wait_for(task, 3)
