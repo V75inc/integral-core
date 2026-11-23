@@ -41,8 +41,16 @@ audio frame. Keep stream cursors scoped to the conversation; a reconnect
 should initialize from canonical data and not announce all prior messages as
 new. Do not promise that the user heard an item from a network send alone.
 
-Voice can pull current task status, latest task outcome, or saved conversation
-text on demand. These are distinct views: a previous result in chat must not
+On an existing conversation, Voice quietly receives up to eight recent saved
+user and assistant text excerpts before admitting audio. This is context for
+references in the caller's current turn, not a task, approval, or automatic
+recap. Voice uses the authorized native transcript, not a private checkpoint,
+browser draft, uncommitted branch, or other conversation. The native host
+does not persist an active UI branch selection; conflicting stored parent
+links are withheld rather than resolved by guessing.
+
+Voice can pull current task status, latest task outcome, or recent saved
+conversation text on demand. These are distinct views: a previous result in chat must not
 masquerade as the active task. Voice cannot infer a browser toast, an unsent
 draft, or an attachment processing result from text alone.
 
@@ -74,7 +82,7 @@ conversation text, user content, filenames, tokens, or provider payloads.
 | Voice delegates while caller chats | Background work remains active; completion stays in chat and is offered to the call once. Verify empty and missing provider replies as well. |
 | Queue, steer and stop | Separate work remains queued, a targeted correction stays on the active work, and only explicit authorized stop follows existing cancellation. |
 | Review item | Read pending and terminal outcomes from canonical same-thread authority; no inferred approval or unauthorized action. |
-| Reconnect and isolation | No replay of old chat as new speech, no duplicate submission, no cross-conversation response, no disclosure after revocation. |
+| Existing conversation and reconnect | Prior saved dialogue is usable for the next spoken follow-up without a recap or replay, and earlier exchanges are recallable. No duplicate submission, sibling/cross-conversation data, or disclosure after revocation. |
 | Latency | No new per-frame or always-on message polling; count protected-boundary checks and measure actual device/provider timings separately. |
 
 Automated provider-frame and disposable data tests validate the integration
