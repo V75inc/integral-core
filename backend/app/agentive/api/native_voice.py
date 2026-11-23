@@ -124,9 +124,9 @@ async def native_voice(browser: WebSocket):
             for task in (dial, browser_handshake):
                 if not task.done():
                     task.cancel()
-            _, first_frame = await asyncio.gather(
-                dial, browser_handshake, return_exceptions=True
-            )
+            first_frame = (
+                await asyncio.gather(dial, browser_handshake, return_exceptions=True)
+            )[1]
         if isinstance(first_frame, dict):
             if first_frame.get("type") == "websocket.disconnect":
                 return
