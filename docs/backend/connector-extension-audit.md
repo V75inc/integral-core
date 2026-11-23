@@ -2,6 +2,11 @@
 
 Source reviewed: `41867b70`, including the staged Web Chat request and receipt code. This is a source audit, not certification of a deployment, provider account, package installer, or the proposed third-party SDK.
 
+For implemented managed-text wheel discovery, current Settings behavior and the
+runnable sample, see the [current Connector Standard v1](connector-extension-standard-v1.md).
+That later work does not turn the historical findings below into claims about
+current source or production readiness.
+
 ## Decision
 
 A connector is a named, versioned product extension, not a single execution engine. Core must own one registration and lifecycle contract while keeping synchronization, outbound MCP calls, and inbound messaging separate at runtime. Outbound agents and Workspace Email keep their distinct execution/authorization models. Adoption into the Connector Library should not silently turn them into channels or grant new access.
