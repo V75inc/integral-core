@@ -33,6 +33,7 @@ from app.web.web_chat_embed_policy import (
     ReadCurrentEmbedPolicy,
 )
 from app.web.web_chat_embed_share import (
+    ReadApprovedEmbedDescriptors,
     ReadIssuedEmbedShare,
     create_managed_web_chat_embed_share_router,
 )
@@ -66,6 +67,7 @@ class WebChatEmbedServingConfiguration:
     budget: EmbedBudget
     complete: TextModel
     read_issued_share: ReadIssuedEmbedShare | None = None
+    read_approved_descriptors: ReadApprovedEmbedDescriptors | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +284,7 @@ def compose_web_chat_connector(
             management.append(
                 create_managed_web_chat_embed_share_router(
                     read_issued=embed.read_issued_share,
+                    read_approved_descriptors=embed.read_approved_descriptors,
                     read_current=read_embed,
                 )
             )

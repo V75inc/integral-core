@@ -243,6 +243,7 @@ async def test_real_managed_web_chat_configure_enable_disable(
     )
     assert "full_page_url" not in read.json()
     assert "full_page_share_check_available" not in read.json()
+    assert "approved_embed_policies" not in read.json()
     assert read.headers["cache-control"] == "no-store"
 
     state.ready = False
