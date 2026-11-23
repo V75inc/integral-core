@@ -272,8 +272,16 @@ domains:
         summary: "List workspaces the caller is a member/owner of (id, name, kind, role). For scope selection only — returns NO contents."
         http: "GET /api/workspaces"
         policy_action: null   # membership-filtered, not a single-resource gate (no workspace.read in the Literal); see genuinely_absent
-        params: {}
+        params:
+          limit: {type: integer, optional: true, desc: "Request bounded workspace names for navigation only (max 20)."}
         returns: { workspaces: [{id: str, name: str, kind: str, role: str}] }
+        voice_quick_read:
+          title: Accessible workspaces
+          terms: where am i current workspace workspaces membership
+          collection: workspaces
+          label_field: name
+          mark_current_workspace: true
+          page_limit: true
         privacy: "Membership-filtered. PC-2: listing a workspace != reading inside it."
       - name: integral_find_workspace_resources
         status: existing
@@ -320,6 +328,12 @@ domains:
           cursor: {type: string, optional: true, desc: "Opaque pagination cursor from a prior call's next_cursor; omit for the first page."}
           limit: {type: integer, default: 50, desc: "Maximum number of apps to return (default 50)."}
         returns: { apps: [{id: str, name: str, visibility: str, role: str}], next_cursor: str }
+        voice_quick_read:
+          title: Visible apps here
+          terms: list apps application applications app workspace installed available
+          collection: apps
+          label_field: name
+          page_limit: true
         privacy: "Per-app role cascade (I-ROLE-01). PC-3, PC-4."
       - name: integral_get_app
         status: existing
@@ -381,6 +395,12 @@ domains:
           limit: {type: integer, default: 100, desc: "Page size (max 100). Omit cursor+limit to auto-fetch ALL accessible tracks in the active workspace (agent dispatch expands pages). Pass cursor to paginate manually."}
           include_nav_hidden: {type: boolean, optional: true, default: false, desc: "When true, include tracks with nav_visible=false (e.g. document line-item tracks). Default false keeps human-facing nav lists clean."}
         returns: { tracks: [{id: str, title: str, visibility: str, workspace_id: str, role: str, nav_visible: bool}], total: integer, has_more: bool, next_cursor: str }
+        voice_quick_read:
+          title: Visible tracks here
+          terms: tracks track tables lists records find structure
+          collection: tracks
+          label_field: title
+          page_limit: true
         privacy: "Permission-filtered per track. PC-3, PC-4."
       - name: integral_get_track_schema
         status: existing

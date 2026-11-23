@@ -32,6 +32,7 @@ of the manifest ``params`` block into JSON Schema.
 
 from __future__ import annotations
 
+import re
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -284,6 +285,43 @@ def build_tool_catalogue() -> List[Dict[str, Any]]:
     """Share a cold build across executor threads; never expose partial state."""
     with _CATALOGUE_LOCK:
         return _build_tool_catalogue()
+
+
+def admits_voice_quick_read(spec, binding) -> bool:
+    """Require positive reviewed metadata and a local, read-only GET binding."""
+    if spec is None or (meta := spec.voice_quick_read) is None or binding is None:
+        return False
+    returned = (spec.returns or {}).get(meta.collection)
+    return bool(
+        spec.status == "existing"
+        and spec.op_class == "read"
+        and spec.staging_kind is None
+        and spec.http.method == "GET"
+        and re.fullmatch(r"/api/[a-z0-9_-]+(?:/[a-z0-9_-]+)*", spec.http.path)
+        and binding.handler_ref is not None
+        and binding.service_ref is None
+        and binding.direct_ref is None
+        and binding.stager is None
+        and binding.service_param_map is None
+        and binding.body_map is None
+        and binding.query_map is None
+        and meta.page_limit
+        and "limit" in spec.params
+        and isinstance(returned, list)
+        and len(returned) == 1
+        and isinstance(returned[0], dict)
+        and returned[0].get(meta.label_field) == "str"
+        and (not meta.mark_current_workspace or returned[0].get("id") == "str")
+    )
+
+
+def build_voice_quick_read_catalogue() -> dict:
+    """Project the reviewed subset of the canonical local tool catalogue."""
+    return {
+        name: spec
+        for name, spec in load_manifest().items()
+        if admits_voice_quick_read(spec, TOOL_BINDINGS.get(name))
+    }
 
 
 def _build_tool_catalogue() -> List[Dict[str, Any]]:

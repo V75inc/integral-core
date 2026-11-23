@@ -436,3 +436,57 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await asyncio.wait_for(task, 3)
+
+
+async def test_provider_discovers_and_uses_real_scoped_catalogue_reads(
+    authenticated_client, test_user, monkeypatch
+):
+    """Both generic provider stages reach the normal app/workspace permission gates."""
+    from tests.test_native_voice_live_tools import _quick_read
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Voice catalogue read qualification requires PostgreSQL")
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "29" * 32)
+    workspaces = []
+    for name in ("Spoken Operations", "Other Branch"):
+        response = await authenticated_client.post(
+            "/api/workspaces", json={"name": name}
+        )
+        assert response.status_code == 200
+        workspaces.append(response.json()["workspace"]["id"])
+    ws, other = workspaces
+    for scope, name in ((ws, "Visible Contracts"), (other, "Other Payroll")):
+        created = await authenticated_client.post(
+            "/api/apps",
+            headers={"X-Integral-Scope": f"ws:{scope}"},
+            json={"name": name, "visibility": "private"},
+        )
+        assert created.status_code == 200, created.text
+    thread = await create_thread(
+        user_id=test_user.user_id, workspace_id=ws, provider_id="integral_native"
+    )
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope(test_user.user_id, ws, "", thread.id),
+    )
+    task = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        assert (await event(browser.outbox))["thread_id"] == thread.id
+        apps = await _quick_read(provider, "apps", "show apps", "Visible apps here")
+        assert "Visible Contracts" in apps and "Other Payroll" not in apps
+        workspaces = await _quick_read(
+            provider, "workspaces", "current workspace", "Accessible workspaces"
+        )
+        assert "The current workspace is Spoken Operations." in workspaces
+        assert "Other Branch" in workspaces
+        assert all(
+            identifier not in apps + workspaces for identifier in (ws, other, thread.id)
+        )
+        assert relay.accepted is None
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await asyncio.wait_for(task, 3)
