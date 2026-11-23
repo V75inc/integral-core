@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AudioLines, Loader2, Mic, MicOff, Square } from "lucide-react";
+import { AudioLines, Loader2, MicOff, Square } from "lucide-react";
 import { REALTIME_VOICE_QUERY_KEY, realtimeVoiceConfigurationApi } from "../../../api/aiConfiguration";
 import { ALL_WORKSPACE_ASSISTANTS, WORKSPACE_ASSISTANT } from "../../../api/chatAssistantIdentity";
 import { mintWsTicket } from "../../../api/wsTicket";
@@ -55,17 +55,26 @@ interface VoiceOpening {
   thread_id: string;
 }
 
-export function NativeVoiceControls({ eligible, opening, playingDictation, dictationActive = false, onThreadReady, onThreadRefresh }: {
+export function NativeVoiceControls({ eligible, opening, playingDictation, dictationActive = false, acquireVoiceInput, onThreadReady, onThreadRefresh }: {
   eligible: boolean;
   dictationActive?: boolean;
   opening: VoiceOpening;
   playingDictation: () => boolean;
+  acquireVoiceInput?: () => (() => void) | null;
   onThreadReady?: (threadId: string, opening: VoiceOpening) => Promise<void>;
   onThreadRefresh?: (threadId: string, workspace: string) => void;
 }) {
   const [state, setState] = useState<NativeVoiceState>("idle");
   const [error, setError] = useState("");
   const [muted, setMuted] = useState(false);
+  const startButton = useRef<HTMLButtonElement>(null);
+  const endButton = useRef<HTMLButtonElement>(null);
+  const focusNext = useRef<"idle" | "live" | null>(null);
+  useEffect(() => {
+    if (focusNext.current !== state) return;
+    focusNext.current = null;
+    (state === "live" ? endButton : startButton).current?.focus();
+  }, [state]);
   const call = useRef<{
     close: () => void;
     matchesThread: (id: string) => boolean;
@@ -99,6 +108,11 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       setError("Stop dictation before starting a voice call.");
       return;
     }
+    const releaseVoiceInput = acquireVoiceInput?.();
+    if (acquireVoiceInput && !releaseVoiceInput) {
+      setError("Finish the other microphone session before starting voice.");
+      return;
+    }
     setError("");
     setMuted(false);
     setState("connecting");
@@ -120,15 +134,19 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       if (call.current?.close === close) call.current = null;
       window.clearTimeout(deadline);
       window.clearInterval(refreshTimer);
-      if (capture) { capture.port.onmessage = null; capture.disconnect(); }
-      input?.disconnect();
-      media?.getTracks().forEach(track => track.stop());
-      playback?.flush();
-      if (socket) {
-        socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
-        socket.close();
+      try {
+        if (capture) { capture.port.onmessage = null; capture.disconnect(); }
+        input?.disconnect();
+        media?.getTracks().forEach(track => track.stop());
+        playback?.flush();
+        if (socket) {
+          socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+          socket.close();
+        }
+        if (audio) void audio.close().catch(() => {});
+      } finally {
+        releaseVoiceInput?.();
       }
-      if (audio) void audio.close().catch(() => {});
       // A view refresh is best-effort, never a prerequisite to hanging up.
       if (acceptedThreadId) {
         try { onThreadRefresh?.(acceptedThreadId, workspace_id); }
@@ -219,6 +237,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           }
           ready = true;
           window.clearTimeout(deadline);
+          if (document.activeElement === startButton.current) focusNext.current = "live";
           setState("live");
           if (socket?.readyState === WebSocket.OPEN) {
             try { socket.send(JSON.stringify({ type: "opening" })); }
@@ -241,35 +260,52 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
   const microphoneAction = muted ? "Unmute microphone" : "Mute microphone";
   const liftAboveTooltip = "group-hover/voice:-translate-y-8 group-focus-within/voice:-translate-y-8";
   return <div className="group/voice relative inline-flex shrink-0 items-center gap-1 hover:z-20 focus-within:z-20">
-    {!idle && <Surface role="status" radius="input" elevation="sm" padding="xs"
-      className={`absolute bottom-full right-0 z-10 mb-2 inline-flex w-max items-center gap-2 ${liftAboveTooltip}`}>
-      {state === "connecting"
-        ? <Loader2 size={14} aria-hidden className="motion-safe:animate-spin" />
-        : <AudioLines size={14} aria-hidden />}
-      <Text as="span" variant="body-sm">
-        {state === "connecting" ? "Connecting voice…" : muted ? "Voice call live · Mic muted" : "Voice call live"}
-      </Text>
-    </Surface>}
-    {live && <HoverTooltip label={microphoneAction} placement="top">
-      <Button type="button" variant={muted ? "secondary" : "ghost"} size="xs"
-        className="h-10 w-10 rounded-full !p-0" aria-label={microphoneAction}
-        icon={muted ? <MicOff size={16} aria-hidden /> : <Mic size={16} aria-hidden />}
-        onClick={() => call.current?.toggleMicrophone()} />
-    </HoverTooltip>}
-    {/* The full-width red action already renders its name. A second floating
-        copy while focused or hovered reads as a second End call button. */}
-    <HoverTooltip label={action} placement="top" disabled={live}>
-      <Button type="button" variant={idle ? "ghost" : "danger"} size="xs"
-        className={live ? "h-10 whitespace-nowrap rounded-full px-3" : "h-10 w-10 rounded-full !p-0"}
-        aria-label={live ? undefined : action}
-        icon={idle ? <AudioLines size={17} aria-hidden /> : <Square size={12} aria-hidden />}
-        onClick={() => {
-          if (idle) void start();
-          else { call.current?.close(); setState("idle"); }
-        }}>
-        {live && action}
-      </Button>
-    </HoverTooltip>
+    {live ? (
+      <Surface role="group" aria-label="Live voice call controls" tone="panel-2" radius="pill"
+        border="default" padding="none" className="inline-flex max-w-full shrink-0 items-center gap-0.5 p-0.5">
+        <div role="status" className="inline-flex items-center gap-1 pl-2 pr-0.5">
+          <AudioLines size={14} aria-hidden />
+          <span className="sr-only">{muted ? "Voice call live · Mic muted" : "Voice call live"}</span>
+          <Text as="span" variant="body-sm" aria-hidden="true" className="hidden sm:inline">Live</Text>
+        </div>
+        <HoverTooltip label={microphoneAction} placement="top">
+          <Button type="button" variant={muted ? "secondary" : "ghost"} size="xs"
+            className="h-9 whitespace-nowrap rounded-full px-2" aria-label={microphoneAction}
+            icon={<MicOff size={15} aria-hidden />}
+            onClick={() => call.current?.toggleMicrophone()}>
+            <span className="hidden sm:inline">{muted ? "Unmute" : "Mute"}</span>
+          </Button>
+        </HoverTooltip>
+        <Button ref={endButton} type="button" variant="danger" size="xs" aria-label="End call"
+          className="h-9 whitespace-nowrap rounded-full px-2"
+          icon={<Square size={12} aria-hidden />}
+          onClick={() => {
+            if (document.activeElement === endButton.current) focusNext.current = "idle";
+            call.current?.close();
+            setState("idle");
+          }}>
+          <span className="hidden sm:inline">End call</span>
+        </Button>
+      </Surface>
+    ) : (
+      <>
+        {!idle && <Surface role="status" radius="input" elevation="sm" padding="xs"
+          className={`absolute bottom-full right-0 z-10 mb-2 inline-flex w-max items-center gap-2 ${liftAboveTooltip}`}>
+          <Loader2 size={14} aria-hidden className="motion-safe:animate-spin" />
+          <Text as="span" variant="body-sm">Connecting voice…</Text>
+        </Surface>}
+        <HoverTooltip label={action} placement="top">
+          <Button ref={startButton} type="button" variant={idle ? "ghost" : "danger"} size="xs"
+            className="h-10 w-10 rounded-full !p-0"
+            aria-label={action}
+            icon={idle ? <AudioLines size={17} aria-hidden /> : <Square size={12} aria-hidden />}
+            onClick={() => {
+              if (idle) void start();
+              else { call.current?.close(); setState("idle"); }
+            }} />
+        </HoverTooltip>
+      </>
+    )}
     {error && <Surface role="status" radius="input" elevation="sm" padding="sm"
       className={`absolute bottom-full right-0 z-10 mb-2 w-56 ${liftAboveTooltip}`}><Text as="p" variant="body-sm">{error}</Text></Surface>}
   </div>;
@@ -298,5 +334,6 @@ export function NativeVoiceCall() {
     onThreadReady={activity.adoptNativeVoiceThread}
     onThreadRefresh={activity.refreshNativeVoiceThread}
     playingDictation={() => dictation?.isListening() ?? false}
-    dictationActive={Boolean(dictationStatus && ["connecting", "listening", "finalizing"].includes(dictationStatus))} />;
+    acquireVoiceInput={dictation?.acquireVoiceInput}
+    dictationActive={Boolean(dictationStatus && ["requesting-permission", "connecting", "listening", "finalizing"].includes(dictationStatus))} />;
 }
