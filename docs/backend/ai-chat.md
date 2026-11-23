@@ -666,3 +666,13 @@ the voice observer; a submitted turn remains in the same chat with ordinary
 worker authorization and approval. The caller can explicitly stop that turn
 in chat. A wait timeout reports acceptance only after the durable receipt
 was observed, never that an unverified operation completed.
+
+After a voice delegation is durably accepted, the call's tool exchange closes
+without waiting for Heavy. The conversation stays open for small talk. A
+barge-in prevents a late result from taking over playback; it does not cancel
+the chat job. The durable result remains in chat. While an earlier request is
+being checked, a second workspace tool call gets a clear response and no
+implicit queued job. Explicit rerun targets only the last verified voice
+request in this call if it was cancelled before dispatch. An active, stopping,
+parked, or potentially partially executed request is not replayed. An allowed
+rerun is a new admitted chat turn, with no prior approval carried forward.
