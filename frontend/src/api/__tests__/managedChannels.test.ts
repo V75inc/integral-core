@@ -161,6 +161,25 @@ describe('managed channel transport', () => {
       .resolves.not.toHaveProperty('approved_embed_policies');
   });
 
+  it('accepts private-test admission only for an exact eligible Web Chat publication, even when editable', async () => {
+    const generation = { provision_id: 'p1', route_epoch: 'e2' };
+    const wire = { ...generation, kind: 'published-public-profile-v1', profile_revision: 9, profile_key: 'p',
+      eligible_profiles: [{ key: 'p', name: 'A profile' }], editable: true, published_version: 2,
+      private_test_available: true, test_reply: 'not a Configure field' };
+    vi.mocked(apiClient.get).mockResolvedValue({ data: wire });
+    const decoded = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation);
+    expect(decoded).toMatchObject({ private_test_available: true });
+    expect(decoded).not.toHaveProperty('test_reply');
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'example_text', generation))
+      .resolves.not.toHaveProperty('private_test_available');
+    for (const partial of [{ private_test_available: 'true' }, { private_test_available: false },
+      { private_test_available: undefined }, { published_version: null }, { profile_key: 'other' }]) {
+      vi.mocked(apiClient.get).mockResolvedValue({ data: { ...wire, ...partial } });
+      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+        .resolves.not.toHaveProperty('private_test_available');
+    }
+  });
+
   it('does not turn an invalid response into a successful empty listing', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {} });
     await expect(managedChannelsApi.list('workspace')).rejects.toThrow('Invalid managed channel listing');
