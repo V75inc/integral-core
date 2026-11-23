@@ -163,3 +163,69 @@ async def test_url_must_be_exact_approved_embed_page(ports, url):
     ports.read.return_value = IssuedWebChatEmbedShare(POLICY, url)
     _unavailable(await _get(ports), 404)
     ports.current.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode", ["ready", "no_discovery", "stale", "duplicate", "late_role_loss"]
+)
+async def test_mounted_discovery_returns_metadata_only_for_current_head(ports, mode):
+    """Require explicit mounted discovery, exact issue proof, and a current manager."""
+    from dataclasses import asdict
+
+    from app.connectors.channel_share_check import (
+        ApprovedEmbedDescriptor,
+        mounted_embed_descriptors,
+    )
+    from app.schemas.agentive.managed_channels import ManageChannelShareQuery
+
+    descriptor = ApprovedEmbedDescriptor(PARENT, POLICY.policy_revision)
+    discover = AsyncMock(return_value=(descriptor,))
+    if mode == "duplicate":
+        discover.return_value = (descriptor, descriptor)
+    if mode == "stale":
+        ports.current.return_value = replace(POLICY, policy_revision=9)
+    if mode == "late_role_loss":
+        ports.manager.side_effect = [
+            None,
+            None,
+            None,
+            InsufficientPermissionsError("no longer manager"),
+        ]
+    if mode != "no_discovery":
+        ports.app.router.routes = [
+            route
+            for route in ports.app.router.routes
+            if not route.path.endswith("/embed-share")
+        ]
+        ports.app.include_router(
+            create_managed_web_chat_embed_share_router(
+                read_issued=ports.read,
+                read_current=ports.current,
+                read_approved_descriptors=discover,
+            )
+        )
+
+    @ports.app.get("/fixture-config")
+    async def check(request: Request):
+        exact = ManageChannelShareQuery(
+            workspace_id="workspace",
+            provision_id="provision",
+            route_epoch="4",
+            profile_key="profile",
+            published_version=3,
+        )
+        rows = await mounted_embed_descriptors(request, "public_web_chat", exact)
+        return [asdict(row) for row in rows]
+
+    async with AsyncClient(
+        transport=ASGITransport(app=ports.app), base_url=HOST
+    ) as client:
+        response = await client.get("/fixture-config", headers=HEADERS)
+    assert response.status_code == 200
+    assert response.json() == (
+        [{"parent_origin": PARENT, "embed_policy_revision": 2}]
+        if mode == "ready"
+        else []
+    )
+    assert URL not in response.text and POLICY.embed_reference not in response.text
