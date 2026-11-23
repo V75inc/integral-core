@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Refuse loopback, private and link-local JV Connect hosts before sending the customer's API key, and pin checked DNS addresses. Self-hosted private JV Connect requires an operator `INTEGRAL_OUTBOUND_TRUSTED_HOSTS` entry.
+
 - Save provider and supported default model roles from Quick Setup using the same settings as Models and Providers, preserving explicit voice and embedding choices. Group Providers & Models and Model Assignments under a collapsible Advanced Configuration section.
 
 - Polish the in-app voice controls and request one greeting per call. Voice-first calls attach to a saved conversation once ready; delegated work uses that same conversation.

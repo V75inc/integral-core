@@ -8,6 +8,9 @@ from typing import Any, Optional
 
 import httpx
 
+from app.exceptions import BadRequestError
+from app.services.url_safety import pin_public_dns, validate_outbound_http_url
+
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_SECONDS = 10.0
@@ -164,8 +167,17 @@ async def _call(
     operation: str,
 ) -> JvconnectResult:
     if client is None:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as owned:
-            result = await _perform(owned, method, url, api_key, json_body)
+        # The base URL is customer-supplied and the request carries their key:
+        # refuse private/link-local targets and pin DNS against rebinding.
+        try:
+            await validate_outbound_http_url(url)
+            with pin_public_dns(url):
+                async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as owned:
+                    result = await _perform(owned, method, url, api_key, json_body)
+        except BadRequestError:
+            result = JvconnectResult(
+                ok=False, status_code=0, data={}, error="host not allowed"
+            )
     else:
         result = await _perform(client, method, url, api_key, json_body)
     _log_result(operation, result)

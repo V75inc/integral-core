@@ -40,6 +40,14 @@ PUT behavior. Workspace grant changes serialize by workspace in PostgreSQL,
 with an in-process lock used by the local JSON fixture. Disconnect removes the
 workspace's grant. Other workspace grants and personal number links remain.
 
+The JV Connect base URL is customer-supplied and every request carries the
+customer's API key, so calls use the shared outbound URL policy: loopback,
+private and link-local addresses are refused before any request is sent, and
+checked DNS addresses are pinned. A self-hosted JV Connect on a private network
+needs an exact operator-owned `INTEGRAL_OUTBOUND_TRUSTED_HOSTS` entry and, for a
+nonstandard port, `INTEGRAL_OUTBOUND_EXTRA_PORTS`
+(see [Configuration](../ops/CONFIGURATION.md)).
+
 [Workspace Email](../platform/workspace-email.md) stays under **Settings →
 Workspace → Email** for outbound delivery.
 
