@@ -719,3 +719,149 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
         assert stale.status_code == 404, stale.text
         assert stale.json() == {"kind": "unavailable"}
     assert len(calls) == (7 if with_document else 2)
+
+
+@pytest.mark.parametrize("with_document", [False], ids=["api"])
+@pytest.mark.parametrize("failure", ["none", "approval", "timeout", "disable-race"])
+async def test_configure_reconciles_exact_committed_transitions(
+    failure, detached_delivery, authenticated_client, monkeypatch
+):
+    from app.agentive.services import web_chat_provision_store
+    from app.web.web_chat_host_assembly import ManagedWebChatHostRoute
+
+    assembled, platform, _, workspace_id, _, _, _ = detached_delivery
+    owner = authenticated_client
+    headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+    options = {"headers": headers, "params": {"workspace_id": workspace_id}}
+    setup = f"{CONNECTOR}/configuration"
+    enabled_path = f"{CONNECTOR}/enabled"
+    share = f"{CONNECTOR}/share"
+    installed = _row(await owner.post(f"{CONNECTOR}/install", **options))
+    provision = ExternalChatProvision(workspace_id, SLUG, installed["provision_id"])
+    record = await profile_management.record(workspace_id)
+
+    prep = ManagedWebChatHostRoute(provision, "2", PROFILE, 3, False)
+    active = ManagedWebChatHostRoute(provision, "3", PROFILE, 3, True)
+    platform.approved.add(prep)
+    assigned = _row(
+        await owner.put(
+            setup,
+            **options,
+            json={
+                **_target(installed),
+                "profile_key": PROFILE,
+                "expected_profile_revision": record.revision,
+            },
+        )
+    )
+    assert assigned["route_epoch"] == "2" and assigned["can_enable"]
+    for epoch in ("2", "3"):
+        before = await owner.get(
+            share,
+            headers=headers,
+            params={
+                "workspace_id": workspace_id,
+                "provision_id": provision.provision_id,
+                "route_epoch": epoch,
+                "profile_key": PROFILE,
+                "published_version": 3,
+            },
+        )
+        assert before.status_code == 404
+
+    if failure != "approval":
+        platform.approved.add(active)
+    if failure == "timeout":
+        monkeypatch.setattr(web_chat_provision_store, "_POST_COMMIT_SECONDS", 0.05)
+        approved_origin = platform.approved_ready_origin
+
+        async def stall_exact_new_epoch(route):
+            if route == active:
+                await asyncio.Event().wait()
+            return await approved_origin(route)
+
+        monkeypatch.setattr(platform, "approved_ready_origin", stall_exact_new_epoch)
+    if failure == "disable-race":
+        entered, release = asyncio.Event(), asyncio.Event()
+        approved_origin = platform.approved_ready_origin
+
+        async def hold_exact_new_epoch(route):
+            if route == active:
+                entered.set()
+                await release.wait()
+            return await approved_origin(route)
+
+        monkeypatch.setattr(platform, "approved_ready_origin", hold_exact_new_epoch)
+        pending = asyncio.create_task(
+            owner.put(
+                enabled_path, **options, json={**_target(assigned), "enabled": True}
+            )
+        )
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            new_epoch = {**_target(assigned), "route_epoch": "3"}
+            disabled = _row(
+                await owner.put(
+                    enabled_path, **options, json={**new_epoch, "enabled": False}
+                )
+            )
+            assert disabled["route_epoch"] == "4" and not disabled["can_enable"]
+            assert disabled["state"] != "active"
+        finally:
+            release.set()
+            result = _row(await pending)
+        assert result["route_epoch"] == "4" and result["state"] != "active"
+        assert (
+            await owner.get(
+                share,
+                headers=headers,
+                params={
+                    "workspace_id": workspace_id,
+                    **new_epoch,
+                    "profile_key": PROFILE,
+                    "published_version": 3,
+                },
+            )
+        ).status_code == 404
+        return
+
+    enabled = _row(
+        await owner.put(
+            enabled_path, **options, json={**_target(assigned), "enabled": True}
+        )
+    )
+    query = {
+        "workspace_id": workspace_id,
+        **_target(enabled),
+        "profile_key": PROFILE,
+        "published_version": 3,
+    }
+    assert enabled["route_epoch"] == "3"
+    if failure != "none":
+        assert enabled["state"] != "active"
+        current = await profile_management.record(workspace_id)
+        assert current.public_web_chat["enabled"] is True
+        platform.approved.add(active)
+        if failure == "timeout":
+            monkeypatch.setattr(platform, "approved_ready_origin", approved_origin)
+        assert _row(await owner.get(MANAGE, **options))["state"] != "active"
+        assert (
+            await owner.get(share, headers=headers, params=query)
+        ).status_code == 404
+        assert await assembled.reconcile(provision)
+    else:
+        assert enabled["state"] == "active"
+
+    proof = await owner.get(share, headers=headers, params=query)
+    assert proof.status_code == 200
+    key = urlsplit(proof.json()["full_page_url"]).path.rsplit("/", 1)[1]
+    # Even pre-approval for the new disabled epoch must not mint on Disable.
+    platform.approved.add(ManagedWebChatHostRoute(provision, "4", PROFILE, 3, False))
+    disabled = _row(
+        await owner.put(
+            enabled_path, **options, json={**_target(enabled), "enabled": False}
+        )
+    )
+    assert disabled["route_epoch"] == "4" and not disabled["can_enable"]
+    assert await assembled.page_context(key, ORIGIN) is None
+    assert _row(await owner.get(MANAGE, **options))["can_enable"] is False
