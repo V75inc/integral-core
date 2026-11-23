@@ -149,3 +149,11 @@ regenerate the original bearer. A future operator flow should inspect and
 revoke the exact reviewed grant, then obtain new review for a fresh grant ID
 before reissue. This does not guarantee the absence of active orphan grants
 after lost delivery; that requires a separate delivery/activation protocol.
+
+Configure may project `approved_embed_policies` only when an optional
+mounted embed-share reader and an explicitly trusted descriptor port can
+verify currently issued policy for the exact enabled workspace, provision,
+epoch and publication. Each bounded descriptor is only a canonical approved
+`parent_origin` and `embed_policy_revision`. This is not a policy editor,
+share link, or visitor credential. The selected Check request independently
+revalidates the policy and manager.

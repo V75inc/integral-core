@@ -1,5 +1,6 @@
 """Discover a trusted, mounted and effect-free managed share check."""
 
+from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 from fastapi import Request
@@ -9,8 +10,30 @@ from starlette.routing import Match
 from app.schemas.agentive.managed_channels import ManageChannelShareQuery
 
 SHARE_READ_PATH = "/api/agentive/managed-channels/{slug}/share"
+EMBED_SHARE_READ_PATH = "/api/agentive/managed-channels/{slug}/embed-share"
+MAX_EMBED_DESCRIPTORS = 8
 ShareCheck = Callable[[Request, str, ManageChannelShareQuery], Awaitable[bool]]
 _MARKER = "_integral_effect_free_managed_share_check"
+_EMBED_MARKER = "_integral_effect_free_managed_embed_descriptors"
+
+
+@dataclass(frozen=True)
+class ApprovedEmbedDescriptor:
+    """Management-safe approved origin and its exact policy revision."""
+
+    parent_origin: str
+    embed_policy_revision: int
+
+
+EmbedDiscovery = Callable[
+    [Request, str, ManageChannelShareQuery],
+    Awaitable[tuple[ApprovedEmbedDescriptor, ...]],
+]
+
+
+def bind_mounted_embed_discovery(endpoint: Callable, discover: EmbedDiscovery) -> None:
+    """Attach a read-only descriptor discovery to the existing embed share reader."""
+    setattr(endpoint, _EMBED_MARKER, discover)
 
 
 def bind_mounted_share_check(endpoint: Callable, check: ShareCheck) -> None:
@@ -18,11 +41,10 @@ def bind_mounted_share_check(endpoint: Callable, check: ShareCheck) -> None:
     setattr(endpoint, _MARKER, check)
 
 
-async def mounted_share_check_available(
-    request: Request, slug: str, exact: ManageChannelShareQuery
-) -> bool:
-    """Report only a current proof from the first eligible mounted GET route."""
-    path = SHARE_READ_PATH.format(slug=slug)
+def _mounted_reader(
+    request: Request, slug: str, template: str, marker: str
+) -> Callable | None:
+    path = template.format(slug=slug)
     scope = {
         **request.scope,
         "path": path,
@@ -36,20 +58,47 @@ async def mounted_share_check_available(
         if route.matches(scope)[0] is Match.FULL
     ]
     if not matches:
-        return False
+        return None
     first = matches[0]
     if (
         not isinstance(first, APIRoute)
-        or first.path != SHARE_READ_PATH
+        or first.path != template
         or sum(
-            isinstance(route, APIRoute) and route.path == SHARE_READ_PATH
-            for route in matches
+            isinstance(route, APIRoute) and route.path == template for route in matches
         )
         != 1
     ):
-        return False
-    check = getattr(first.endpoint, _MARKER, None)
-    if not callable(check):
+        return None
+    check = getattr(first.endpoint, marker, None)
+    return check if callable(check) else None
+
+
+async def mounted_embed_descriptors(
+    request: Request, slug: str, exact: ManageChannelShareQuery
+) -> tuple[ApprovedEmbedDescriptor, ...]:
+    """Read metadata only through the exact mounted effect-free discovery."""
+    discover = _mounted_reader(request, slug, EMBED_SHARE_READ_PATH, _EMBED_MARKER)
+    if discover is None:
+        return ()
+    try:
+        value = await discover(request, slug, exact)
+        if (
+            isinstance(value, tuple)
+            and len(value) <= MAX_EMBED_DESCRIPTORS
+            and all(isinstance(entry, ApprovedEmbedDescriptor) for entry in value)
+        ):
+            return value
+    except Exception:
+        pass
+    return ()
+
+
+async def mounted_share_check_available(
+    request: Request, slug: str, exact: ManageChannelShareQuery
+) -> bool:
+    """Report only a current proof from the first eligible mounted GET route."""
+    check = _mounted_reader(request, slug, SHARE_READ_PATH, _MARKER)
+    if check is None:
         return False
     try:
         return await check(request, slug, exact) is True

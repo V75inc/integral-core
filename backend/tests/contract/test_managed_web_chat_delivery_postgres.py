@@ -27,6 +27,7 @@ from app.connectors.channel_runtime import (
     ChannelRuntimeContribution,
     register_channel_runtime,
 )
+from app.connectors.channel_share_check import ApprovedEmbedDescriptor
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import Workspace
 
@@ -176,6 +177,38 @@ async def detached_delivery(
             async def embed_policy(reference):
                 return platform.embed_policy if reference == EMBED_REF else None
 
+            async def issued_embed(
+                provision, epoch, publication, revision, parent_origin
+            ):
+                from app.web.web_chat_embed_share import IssuedWebChatEmbedShare
+
+                policy = platform.embed_policy
+                if policy is None or (
+                    policy.provision,
+                    policy.route_epoch,
+                    (policy.profile_key, policy.published_version),
+                    policy.policy_revision,
+                    policy.parent_origin,
+                ) != (provision, epoch, publication, revision, parent_origin):
+                    return None
+                return IssuedWebChatEmbedShare(
+                    policy, f"{EMBED_ORIGIN}/embed/{EMBED_REF}"
+                )
+
+            async def approved_descriptors(provision, epoch, publication):
+                policy = platform.embed_policy
+                if policy is None or (
+                    policy.provision,
+                    policy.route_epoch,
+                    (policy.profile_key, policy.published_version),
+                ) != (provision, epoch, publication):
+                    return ()
+                return (
+                    ApprovedEmbedDescriptor(
+                        policy.parent_origin, policy.policy_revision
+                    ),
+                )
+
             async def permit_budget(*_args):
                 return True
 
@@ -218,6 +251,8 @@ async def detached_delivery(
                         embed_policy,
                         permit_budget,
                         complete_text,
+                        read_issued_share=issued_embed,
+                        read_approved_descriptors=approved_descriptors,
                     ),
                     client_api=WebChatClientServingConfiguration(
                         CLIENT_ORIGIN,
@@ -417,6 +452,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     assert active_config.headers["cache-control"] == "no-store"
     assert active_config.json()["full_page_share_check_available"] is True
     assert "full_page_url" not in active_config.json()
+    assert "approved_embed_policies" not in active_config.json()
     assert (
         await second_user_client.get(
             setup_path, headers=headers, params=active_config_params
@@ -516,6 +552,32 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
             EMBED_ORIGIN,
             EMBED_REF,
         )
+        embedded_config = await owner.get(
+            setup_path, headers=headers, params=active_config_params
+        )
+        assert embedded_config.status_code == 200
+        assert embedded_config.json()["approved_embed_policies"] == [
+            {
+                "parent_origin": "https://parent.example.invalid",
+                "embed_policy_revision": 1,
+            }
+        ]
+        assert embedded_config.json()["full_page_share_check_available"] is True
+        assert EMBED_REF not in embedded_config.text
+        assert "embed_page_url" not in embedded_config.json()
+        check = await owner.get(
+            f"{CONNECTOR}/embed-share",
+            headers=headers,
+            params={
+                **share_query(enabled),
+                "parent_origin": "https://parent.example.invalid",
+                "embed_policy_revision": 1,
+            },
+        )
+        assert (
+            check.status_code == 200
+            and check.json()["embed_page_url"] == f"{EMBED_ORIGIN}/embed/{EMBED_REF}"
+        )
         assignment = ExternalChatAssignment(
             provision, PROFILE, str(publication), enabled["route_epoch"]
         )
@@ -590,6 +652,11 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
                 await embed.get(iframe_path, headers=iframe_headers)
             ).status_code == 200
             platform.identity_denied.add("embed")
+            unavailable_embed = await owner.get(
+                setup_path, headers=headers, params=active_config_params
+            )
+            assert "approved_embed_policies" not in unavailable_embed.json()
+            assert unavailable_embed.json()["full_page_share_check_available"] is True
             assert (
                 await embed.get(iframe_path, headers=iframe_headers)
             ).status_code == 404
