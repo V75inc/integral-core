@@ -30,6 +30,7 @@ from app.connectors.channel_packages import (
 )
 from app.connectors.channel_share_check import (
     mounted_embed_descriptors,
+    mounted_private_test_available,
     mounted_share_check_available,
 )
 from app.schemas.agentive.managed_channels import (
@@ -309,11 +310,8 @@ async def get_managed_channel_configuration(
     snapshot = await _configuration_snapshot(setup, scope, current)
     share_available = False
     embed_descriptors = ()
-    if (
-        current.enabled
-        and snapshot.profile_key is not None
-        and snapshot.published_version is not None
-    ):
+    private_test_available = False
+    if snapshot.profile_key is not None and snapshot.published_version is not None:
         exact = ManageChannelShareQuery(
             workspace_id=scope.workspace_id,
             provision_id=current.provision_id,
@@ -321,11 +319,15 @@ async def get_managed_channel_configuration(
             profile_key=snapshot.profile_key,
             published_version=snapshot.published_version,
         )
-        share_available = await mounted_share_check_available(request, slug, exact)
-        embed_descriptors = await mounted_embed_descriptors(request, slug, exact)
-    if (share_available or embed_descriptors) and await _configuration_snapshot(
-        setup, scope, current
-    ) != snapshot:
+        private_test_available = await mounted_private_test_available(
+            request, slug, exact
+        )
+        if current.enabled:
+            share_available = await mounted_share_check_available(request, slug, exact)
+            embed_descriptors = await mounted_embed_descriptors(request, slug, exact)
+    if (
+        share_available or embed_descriptors or private_test_available
+    ) and await _configuration_snapshot(setup, scope, current) != snapshot:
         raise ResourceConflictError(
             "Managed channel profile changed. Refresh and try again."
         )
@@ -335,6 +337,8 @@ async def get_managed_channel_configuration(
     projection = asdict(snapshot)
     if snapshot.published_version is None:
         projection.pop("published_version")
+    if private_test_available:
+        projection["private_test_available"] = True
     if share_available:
         projection["full_page_share_check_available"] = True
     if embed_descriptors:

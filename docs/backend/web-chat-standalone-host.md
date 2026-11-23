@@ -220,3 +220,13 @@ epoch and publication. Each bounded descriptor is only a canonical approved
 `parent_origin` and `embed_policy_revision`. This is not a policy editor,
 share link, or visitor credential. The selected Check request independently
 revalidates the policy and manager.
+
+Connector hosts may opt in to a separate authenticated **Test Web Chat**
+router with approved private model readiness and quota. It can test an exact
+saved publication in an inactive connector with a current service identity;
+public hosting, sharing and Enable are not required. Configure's no-store
+`private_test_available` bit calls readiness only, never inference. An
+explicit Send posts one short text turn. The model gets only the saved persona
+and user text; the result has no history, session, cookie, or credential.
+Current manager and exact identity/assignment are verified around inference.
+Default management-only registration does not add this test route.
