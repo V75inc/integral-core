@@ -28,6 +28,16 @@ mount and exact asset bytes, then verifies the alternate origin and disabled
 route are not served. The API-only variant remains available without assets.
 This does not launch a browser engine or prove a production mount.
 
+The same contract file includes a test-only two-origin HTTPS ASGI dispatcher.
+It exercises signed-in management on a staff hostname and a signed-out
+visitor reply on a separately approved hostname. It checks that neither host
+serves the other's routes, that cross-origin visitor requests do not get CORS
+grants, and that the visitor cookie is host-only and scoped to one route.
+Use both the full-page and embed artifact variables for this fixture. This is
+synthetic, socket-free web routing, not a live deployment recipe: it does not
+install DNS, TLS, proxy rules or environment configuration, and it does not
+test browser cookie enforcement or a live inference provider.
+
 ## Connector registration and profile identity
 
 The Web Chat extension owns the public document, session and turn adapters as

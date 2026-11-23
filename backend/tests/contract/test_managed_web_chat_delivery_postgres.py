@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from jvspatial.db.factory import create_database
+from starlette.responses import Response
 
 from app.agentive.api.managed_channels import install_managed_channel_registry
 from app.agentive.connectors.external_chat import (
@@ -36,6 +37,7 @@ pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 MANAGE = "/api/agentive/managed-channels"
 CONNECTOR = f"{MANAGE}/{SLUG}"
 ORIGIN = "https://conversation.example.invalid"
+STAFF_ORIGIN = "https://staff.example.test"
 EMBED_ORIGIN = "https://embed.example.invalid"
 CLIENT_ORIGIN = "https://client.example.invalid"
 EMBED_REF = "isolated-embed-reference"
@@ -302,9 +304,25 @@ async def detached_delivery(
         monkeypatch.setattr(app.router, "routes", list(app.router.routes))
         for router in mountable.management:
             app.include_router(router)
-        visitor_app = FastAPI()
+        visitor_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
         for router in mountable.visitor:
             visitor_app.include_router(router)
+        if extra is not None:
+            # Test-only vetted host dispatch: no socket, DNS, proxy, or trust store.
+            apps = {
+                urlsplit(STAFF_ORIGIN).netloc.encode(): app,
+                urlsplit(ORIGIN).netloc.encode(): visitor_app,
+            }
+
+            async def dispatch(scope, receive, send):
+                hosts = [value for name, value in scope["headers"] if name == b"host"]
+                target = apps.get(hosts[0]) if len(hosts) == 1 else None
+                if scope["scheme"] != "https" or target is None:
+                    await Response(status_code=421)(scope, receive, send)
+                    return
+                await target(scope, receive, send)
+
+            extra.two_origin = ASGITransport(app=dispatch)
         async with AsyncClient(
             transport=ASGITransport(app=visitor_app),
             base_url=ORIGIN,
@@ -932,3 +950,177 @@ async def test_configure_reconciles_exact_committed_transitions(
     assert disabled["route_epoch"] == "4" and not disabled["can_enable"]
     assert await assembled.page_context(key, ORIGIN) is None
     assert _row(await owner.get(MANAGE, **options))["can_enable"] is False
+
+
+@pytest.mark.parametrize("with_document", [True], ids=["built-document"])
+async def test_staff_and_public_web_chat_are_distinct_reviewed_hosts(
+    detached_delivery, authenticated_client
+):
+    """Drive real review, serving and cookies through an isolated two-host edge."""
+    from app.web.web_chat_host_assembly import ManagedWebChatHostRoute
+
+    _, platform, calls, workspace, _, assets, extra = detached_delivery
+    manager = {
+        "Authorization": authenticated_client.headers["Authorization"],
+        "X-Integral-Scope": f"ws:{workspace}",
+    }
+    params = {"workspace_id": workspace}
+    async with (
+        AsyncClient(transport=extra.two_origin, base_url=STAFF_ORIGIN) as staff,
+        AsyncClient(transport=extra.two_origin, base_url=ORIGIN) as visitor,
+    ):
+        assert (await staff.get("/api/auth/me", headers=manager)).status_code == 200
+        installed = _row(
+            await staff.post(f"{CONNECTOR}/install", params=params, headers=manager)
+        )
+        provision = ExternalChatProvision(workspace, SLUG, installed["provision_id"])
+        record = await profile_management.record(workspace)
+        published = await staff.post(
+            "/api/workspace/agent-profiles/publish",
+            headers=manager,
+            json={
+                "key": PROFILE,
+                "expected_revision": record.revision,
+                "enable_public_service_identity": True,
+            },
+        )
+        assert published.status_code == 200, published.text
+        record = await profile_management.record(workspace)
+        version = record.profiles[PROFILE]["published"]["version"]
+        epoch = int(installed["route_epoch"])
+        platform.approved.update(
+            {
+                ManagedWebChatHostRoute(
+                    provision, str(epoch + 1), PROFILE, version, False
+                ),
+                ManagedWebChatHostRoute(
+                    provision, str(epoch + 2), PROFILE, version, True
+                ),
+            }
+        )
+        assigned = _row(
+            await staff.put(
+                f"{CONNECTOR}/configuration",
+                params=params,
+                headers=manager,
+                json={
+                    **_target(installed),
+                    "profile_key": PROFILE,
+                    "expected_profile_revision": record.revision,
+                },
+            )
+        )
+        assert assigned["can_enable"]
+        enabled = _row(
+            await staff.put(
+                f"{CONNECTOR}/enabled",
+                params=params,
+                headers=manager,
+                json={**_target(assigned), "enabled": True},
+            )
+        )
+        assert enabled["state"] == "active"
+        proof = await staff.get(
+            f"{CONNECTOR}/share",
+            headers=manager,
+            params={
+                **params,
+                **_target(enabled),
+                "profile_key": PROFILE,
+                "published_version": version,
+            },
+        )
+        assert proof.status_code == 200
+        url = urlsplit(proof.json()["full_page_url"])
+        assert f"{url.scheme}://{url.netloc}" == ORIGIN
+        key = url.path.rsplit("/", 1)[1]
+        session = f"/api/public/web-chat/{key}/session"
+        messages = f"/api/public/web-chat/{key}/messages"
+        document = await visitor.get(url.path)
+        assert document.status_code == 200
+        assert f'data-web-chat-route="{key}"' in document.text
+        assert "frame-ancestors 'none'" in document.headers["Content-Security-Policy"]
+        for asset in (assets.stylesheet, assets.script):
+            path = f"/web-chat-assets/assets/{asset.filename}"
+            assert (await visitor.get(path)).content == asset.content
+            assert (await staff.get(path, headers=manager)).content != asset.content
+        for staff_path in (
+            "/api/auth/me",
+            MANAGE,
+            f"{CONNECTOR}/share",
+            "/docs",
+            "/openapi.json",
+        ):
+            assert (await visitor.get(staff_path, headers=manager)).status_code == 404
+        assert (await visitor.post("/api/auth/login", json={})).status_code == 404
+        staff_page = await staff.get(url.path, headers=manager)
+        assert "data-web-chat-route" not in staff_page.text
+        staff_session = await staff.post(
+            session,
+            json={"mode": "new"},
+            headers={
+                **manager,
+                "Origin": STAFF_ORIGIN,
+                "Sec-Fetch-Site": "same-origin",
+            },
+        )
+        assert staff_session.status_code == 404
+        assert "set-cookie" not in staff_session.headers
+
+        preflight = await visitor.options(
+            session,
+            headers={
+                "Origin": STAFF_ORIGIN,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert "access-control-allow-origin" not in preflight.headers
+        assert "access-control-allow-credentials" not in preflight.headers
+        cross = await visitor.post(
+            session,
+            json={"mode": "new"},
+            headers={
+                "Origin": STAFF_ORIGIN,
+                "Sec-Fetch-Site": "cross-site",
+            },
+        )
+        assert cross.status_code == 403 and "set-cookie" not in cross.headers
+        assert "access-control-allow-origin" not in cross.headers
+
+        same_origin = {"Origin": ORIGIN, "Sec-Fetch-Site": "same-origin"}
+        started = await visitor.post(session, json={"mode": "new"}, headers=same_origin)
+        assert started.status_code == 200 and started.json() == {
+            "kind": "ready",
+            "messages": [],
+        }
+        attrs = started.headers["set-cookie"].lower()
+        assert "__secure-integral_web_chat=" in attrs and "domain=" not in attrs
+        assert all(
+            item in attrs
+            for item in (
+                "secure",
+                "httponly",
+                "samesite=strict",
+                f"path=/api/public/web-chat/{key.lower()}",
+            )
+        )
+        assert (
+            "cookie"
+            not in visitor.build_request("POST", STAFF_ORIGIN + session).headers
+        )
+        assert "cookie" not in visitor.build_request("GET", url.path).headers
+        replied = await visitor.post(
+            messages,
+            headers=same_origin,
+            json={
+                "id": "two-host-turn",
+                "text": "Reviewed visitor test",
+            },
+        )
+        assert replied.status_code == 200
+        assert replied.json()["messages"][-1]["text"] == "Synthetic reply 1"
+        assert calls == ["Reviewed visitor test"]
+        assert (
+            await visitor.get("https://unknown.example.invalid" + url.path)
+        ).status_code == 421
