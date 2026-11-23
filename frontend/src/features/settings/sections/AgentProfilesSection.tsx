@@ -9,6 +9,7 @@ import {
   type ProfileSettings,
 } from '../../../api/connectionProfiles';
 import { WORKSPACE_ASSISTANT, type ChatAgentIdentity } from '../../../api/chatAssistantIdentity';
+import { getSessionGeneration } from '../../../api/session';
 import { useScopeOptional } from '../../../context/ScopeContext';
 import { Modal, ViewTabs } from '../../../components/ui';
 import { AgentAvatar } from '../../../components/ui/AgentAvatar';
@@ -248,6 +249,7 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
   const [error, setError] = useState('');
   const [offerInChat, setOfferInChat] = useState(false);
   const [selectedConnections, setSelectedConnections] = useState<string[]>([]);
+  const [serviceIdentityIntent, setServiceIdentityIntent] = useState<string | null>(null);
   const savedDraft = profile?.draft ?? EMPTY_DRAFT;
   const savedSignature = draftSignature(savedDraft);
   const draft = edit?.draft ?? savedDraft;
@@ -272,8 +274,16 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
     (Boolean(offeredInChat) || (publishedAudience === 'staff' && audience === 'staff'));
   const routeSelectionStale = (offerInChat && (audience !== 'staff' || offeredInChat)) ||
     selectedConnections.some(id => !eligibleConnections.some(connection => connection.id === id));
+  const publicationChanges = Boolean(profile && hasUnpublishedChanges(profile));
+  const currentServiceIdentity = publishedAudience === 'public' ? profile?.service_identity_ready : undefined;
+  const canSetUpServiceIdentity = Boolean(profile && !dirty && audience === 'public' && draft.tools.length === 0 &&
+    (!published || publishedAudience !== 'public' || typeof currentServiceIdentity === 'boolean') &&
+    (currentServiceIdentity !== true || publicationChanges));
+  const sessionGeneration = getSessionGeneration();
+  const identityIntentKey = JSON.stringify([workspaceId, profileKey, sessionGeneration, settings.revision, published?.version, savedSignature]);
+  const setUpServiceIdentity = canSetUpServiceIdentity && serviceIdentityIntent === identityIntentKey;
   const canPublish = Boolean(profile && !dirty && !readingAvatar && !removed.length && !audienceConflict && !routeSelectionStale &&
-    (hasUnpublishedChanges(profile) || hasRouteSelection));
+    (publicationChanges || hasRouteSelection || setUpServiceIdentity));
 
   useEffect(() => {
     if (leave) keepEditing.current?.focus();
@@ -281,6 +291,7 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
 
   function selectStep(next: Step) {
     setStep(next);
+    if (next !== 'publish') setServiceIdentityIntent(null);
     setMessage('');
     setError('');
   }
@@ -302,6 +313,7 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
   }
 
   function change(update: Partial<ProfileDraft>) {
+    setServiceIdentityIntent(null);
     if (update.audience && update.audience !== audience) clearRouteSelection();
     setEdit(previous => {
       const current = previous && draftSignature(previous.draft) !== savedSignature ? previous : null;
@@ -314,6 +326,14 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
   }
 
   async function act(action: Action) {
+    if (action === 'publish' && (!canPublish || busy)) return;
+    const requestedIdentity = action === 'publish' && setUpServiceIdentity;
+    if (requestedIdentity && getSessionGeneration() !== sessionGeneration) {
+      setServiceIdentityIntent(null);
+      setError('Your session changed. Reopen this profile and review the identity setup again.');
+      return;
+    }
+    if (action === 'publish') setServiceIdentityIntent(null);
     setBusy(action);
     setMessage('');
     setError('');
@@ -322,7 +342,8 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
       const next = action === 'save' ? (profile ? await api.save(workspaceId, revision, draft) : await api.create(workspaceId, revision, draft))
         : action === 'native-chat' ? await api.setNativeChatProfiles(workspaceId, settings.revision,
           offeredInChat ? settings.native_chat_profiles.filter(key => key !== profileKey) : [...(settings.native_chat_profiles ?? []), profileKey])
-        : await api.publish(workspaceId, settings.revision, profileKey, offerInChat, selectedConnections);
+        : await api.publish(workspaceId, settings.revision, profileKey, offerInChat, selectedConnections,
+          ...(requestedIdentity ? [true] as const : []));
       if (action === 'publish' || action === 'native-chat') void cache.invalidateQueries({ queryKey: ['native-chat-profiles', workspaceId] });
       if (!profile && !next.created_profile) throw new Error('Missing profile key');
       onUpdate(next);
@@ -330,8 +351,14 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
       setEdit(null);
       if (action === 'publish') clearRouteSelection();
       setLeave(false);
+      const publishedResult = next.profiles[profileKey];
+      const verifiedIdentity = publishedResult?.published?.version === settings.revision + 1 &&
+        audienceOf(publishedResult.published) === 'public' && publishedResult.service_identity_ready === true;
       setMessage({
-        save: 'Draft saved.', publish: 'Profile published.',
+        save: 'Draft saved.',
+        publish: !requestedIdentity ? 'Profile published.' : verifiedIdentity
+          ? 'Profile published. Service identity is ready with no workspace data access.'
+          : 'Profile published. Service identity setup could not be verified.',
         'native-chat': 'Workspace chat availability updated.',
       }[action]);
     } catch (failure) {
@@ -400,6 +427,40 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
                 <Button size="sm" variant="secondary" onClick={clearRouteSelection}>Clear channel selection</Button>
               </div>}
             </div>
+            {(audience === 'public' || publishedAudience === 'public') && (
+              <section aria-label="Service identity" className="flex flex-col gap-2 border-t border-[var(--border-subtle)] pt-4">
+                <Text as="h4" weight="semibold">Service identity</Text>
+                <Text as="p" variant="body-sm" tone="muted">
+                  {publishedAudience !== 'public'
+                    ? 'No public version is published yet.'
+                    : currentServiceIdentity === true
+                      ? 'Service identity ready for the published version. No workspace data access.'
+                      : currentServiceIdentity === false
+                        ? 'No service identity is ready for the published version.'
+                        : 'Service identity status is not verified for the published version.'}
+                </Text>
+                {audience === 'public' && draft.tools.length > 0 && (
+                  <Text as="p" variant="body-sm" tone="muted">Remove tools and save the draft before setting up a service identity.</Text>
+                )}
+                {audience === 'public' && draft.tools.length === 0 && (!profile || dirty) && (
+                  <Text as="p" variant="body-sm" tone="muted">Save the draft before choosing identity setup.</Text>
+                )}
+                {canSetUpServiceIdentity && <>
+                  <label className="flex items-center gap-2 self-start">
+                    <input type="checkbox" aria-describedby={`${tabsId}-service-identity-impact`}
+                      checked={setUpServiceIdentity} disabled={Boolean(busy) || readingAvatar}
+                      onChange={event => setServiceIdentityIntent(event.target.checked ? identityIntentKey : null)} />
+                    <Text as="span" variant="body-sm" weight="medium">Set up a service identity when publishing</Text>
+                  </label>
+                  <Text id={`${tabsId}-service-identity-impact`} as="p" variant="body-sm" tone="muted">
+                    This binds the publication to its own service identity for Web Chat. It does not grant workspace data access or make Web Chat live.
+                  </Text>
+                </>}
+                {currentServiceIdentity === true && publicationChanges && audience === 'public' && (
+                  <Text as="p" variant="body-sm" tone="muted">A new version does not inherit the current version’s identity readiness.</Text>
+                )}
+              </section>
+            )}
             <ProfileAvailability draftAudience={audience} publishedAudience={publishedAudience} profileKey={profileKey}
               connections={settings.connections} bindings={settings.bindings} offeredInChat={Boolean(offeredInChat)}
               offerInChat={offerInChat} onToggleChat={() => {
@@ -414,7 +475,8 @@ function ProfileEditor({ title, workspaceLabel, workspaceId, settings, profile, 
       <ProfileActions message={message}>
         <Button variant="secondary" disabled={!canSave} onClick={() => void act('save')}>{busy === 'save' ? 'Saving…' : 'Save draft'}</Button>
         {step === 'publish'
-          ? <Button disabled={!canPublish || Boolean(busy)} onClick={() => void act('publish')}>{busy === 'publish' ? 'Publishing…' : 'Publish profile'}</Button>
+          ? <Button disabled={!canPublish || Boolean(busy)} onClick={() => void act('publish')}>{busy === 'publish' ? 'Publishing…' :
+            setUpServiceIdentity ? 'Publish and set up identity' : 'Publish profile'}</Button>
           : <Button variant="primary" disabled={Boolean(busy)} onClick={() => goToStep(step === 'identity' ? 'capabilities' : 'publish')}>
             Next
             <ChevronRight size={16} aria-hidden="true" />
