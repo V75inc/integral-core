@@ -562,6 +562,7 @@ class VoiceRelay:
         self.live_read: asyncio.Task | None = None
         self.capability_offer = None
         self.capability_response_id: str | None = None
+        self.capability_event_ids: set[str] = set()
         self.protocol_counts: Counter[str] = Counter()
         self.closing = False
         self.accepted: _AcceptedVoiceTurn | None = None
@@ -956,10 +957,13 @@ class VoiceRelay:
             asyncio.get_running_loop().time() + CAPABILITY_OFFER_SECONDS,
             offers,
         )
+        event_id = "voice-capability-" + token
+        self.capability_event_ids.add(event_id)
         # Only this private text-only response can choose one offered read.
         await self.send_event(
             {
                 "type": "response.create",
+                "event_id": event_id,
                 "response": {
                     "conversation": "none",
                     "input": [],
@@ -993,7 +997,16 @@ class VoiceRelay:
             return
         result = None
         output = response.get("output") or []
-        if len(output) == 1 and isinstance(item := output[0], dict):
+        calls = [
+            item
+            for item in output
+            if isinstance(item, dict) and item.get("type") == "function_call"
+        ]
+        if len(calls) == 1 and all(
+            isinstance(row, dict) and row.get("type") in {"message", "function_call"}
+            for row in output
+        ):
+            item = calls[0]
             raw = item.get("arguments")
             if (
                 item.get("type") == "function_call"
@@ -1233,6 +1246,11 @@ class VoiceRelay:
                         self.live_read = asyncio.create_task(
                             self._invoke_capability(response, context)
                         )
+                    elif context:
+                        await self.check(self.scope)
+                        await self._speak_result(
+                            context[1], result="That quick lookup did not finish."
+                        )
                     continue
                 response_id = (event.get("response") or {}).get("id")
                 if response_id in (self.response_generation, self.opening_response_id):
@@ -1251,6 +1269,19 @@ class VoiceRelay:
             elif kind == "error":
                 error = event.get("error") or {}
                 related = error.get("event_id")
+                if isinstance(related, str) and related in self.capability_event_ids:
+                    if (
+                        self.capability_offer
+                        and related == "voice-capability-" + self.capability_offer[0]
+                    ):
+                        generation = self.capability_offer[1]
+                        self._clear_capability_offer()
+                        self.protocol_counts["capability_selection_unavailable"] += 1
+                        await self.check(self.scope)
+                        await self._speak_result(
+                            generation, result="That quick lookup is unavailable."
+                        )
+                    continue
                 if isinstance(related, str) and related in self.thread_status_events:
                     # This optional context event is not a live audio failure.
                     # Stop feeding rather than retrying an unsupported update.
@@ -1411,6 +1442,18 @@ class VoiceRelay:
 
         while True:
             await asyncio.sleep(RESULT_POLL_SECONDS)
+            if (
+                self.capability_offer
+                and self.capability_offer[3] < asyncio.get_running_loop().time()
+            ):
+                generation = self.capability_offer[1]
+                self._clear_capability_offer()
+                self.protocol_counts["capability_selection_unavailable"] += 1
+                await self.check(self.scope)
+                await self._speak_result(
+                    generation, result="That quick lookup did not finish."
+                )
+
             if (
                 not (self.result_receipts or self.queued_successors)
                 or not self._can_announce_result()
