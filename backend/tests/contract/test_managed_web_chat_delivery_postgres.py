@@ -326,6 +326,8 @@ async def detached_delivery(
                 await target(scope, receive, send)
 
             extra.two_origin = ASGITransport(app=dispatch)
+        if extra is not None:
+            extra.visitor_app = visitor_app
         async with AsyncClient(
             transport=ASGITransport(app=visitor_app),
             base_url=ORIGIN,
@@ -955,9 +957,62 @@ async def test_configure_reconciles_exact_committed_transitions(
     assert _row(await owner.get(MANAGE, **options))["can_enable"] is False
 
 
+@pytest.fixture
+def optional_live_web_chat_origin(monkeypatch):
+    """Configure only the opt-in fixture, never the Integral server."""
+    origin = os.getenv("INTEGRAL_FIXTURE_WEB_CHAT_ORIGIN")
+    if origin is not None:
+        from app.web.full_page_chat import is_canonical_web_chat_origin
+
+        assert is_canonical_web_chat_origin(origin)
+        parsed = urlsplit(origin)
+        assert parsed.port and 1024 <= parsed.port <= 65535
+        assert parsed.hostname != "localhost" and not parsed.hostname.endswith(
+            ".localhost"
+        )
+        assert not parsed.hostname.startswith("127.")
+        monkeypatch.setitem(globals(), "ORIGIN", origin)
+    return origin
+
+
+async def _run_manual_tls_preview(app, page_url):
+    """Serve only disposable visitor routes, with no trusted proxy headers."""
+    import uvicorn
+
+    origin = urlsplit(page_url)
+    duration = int(os.getenv("INTEGRAL_FIXTURE_WEB_CHAT_SECONDS", "900"))
+    assert 1 <= duration <= 3600
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=origin.port,
+        ssl_certfile=os.environ["INTEGRAL_FIXTURE_WEB_CHAT_CERT"],
+        ssl_keyfile=os.environ["INTEGRAL_FIXTURE_WEB_CHAT_KEY"],
+        lifespan="off",
+        proxy_headers=False,
+        access_log=False,
+        log_level="warning",
+        timeout_graceful_shutdown=3,
+    )
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    try:
+        async with asyncio.timeout(5):
+            while not server.started:
+                if task.done():
+                    await task
+                    raise RuntimeError("Could not start the loopback preview")
+                await asyncio.sleep(0.05)
+        print(f"Disposable Web Chat ready for {duration}s: {page_url}", flush=True)
+        await asyncio.wait({task}, timeout=duration)
+    finally:
+        server.should_exit = True
+        await task
+
+
 @pytest.mark.parametrize("with_document", [True], ids=["built-document"])
 async def test_staff_and_public_web_chat_are_distinct_reviewed_hosts(
-    detached_delivery, authenticated_client
+    optional_live_web_chat_origin, detached_delivery, authenticated_client
 ):
     """Drive real review, serving and cookies through an isolated two-host edge."""
     from app.web.web_chat_host_assembly import ManagedWebChatHostRoute
@@ -1127,3 +1182,6 @@ async def test_staff_and_public_web_chat_are_distinct_reviewed_hosts(
         assert (
             await visitor.get("https://unknown.example.invalid" + url.path)
         ).status_code == 421
+
+    if optional_live_web_chat_origin is not None:
+        await _run_manual_tls_preview(extra.visitor_app, proof.json()["full_page_url"])
