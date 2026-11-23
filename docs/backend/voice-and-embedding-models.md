@@ -124,6 +124,9 @@ cancel a pending approval. This pilot does not enable phone or WhatsApp voice.
 
 ### Live voice tool boundary
 
+The [shared text and voice conversation contract](voice-chat-conversation-contract.md)
+defines how both interfaces use the native harness and how to qualify live delivery.
+
 The realtime model can search the canonical tool catalogue while Heavy is
 running. Quick capability discovery is private to the default workspace
 assistant. The first reviewed reads are visible apps, visible tracks, and
