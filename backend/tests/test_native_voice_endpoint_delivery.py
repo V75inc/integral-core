@@ -199,3 +199,36 @@ async def test_disconnect_after_admission_releases_provider_without_cancelling_w
     cancel.assert_not_awaited()
     provider.close.assert_awaited_once()
     assert "caller" not in endpoint._active_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_closes", [False, True])
+async def test_simultaneous_refresh_balances_acquired_provider_markers(
+    monkeypatch, caplog, provider_closes
+):
+    """An acquired connection has a paired close marker even without Ready."""
+    import logging
+
+    browser, provider = _EndpointBrowser(), Provider()
+    _patch_endpoint(monkeypatch, provider)
+    if not provider_closes:
+        provider.close.side_effect = OSError("Synthetic failed upstream close")
+
+    async def dial(_credential):
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        return provider
+
+    monkeypatch.setattr(endpoint, "open_upstream", dial)
+    with caplog.at_level(logging.INFO, logger=endpoint.__name__):
+        await endpoint.native_voice(browser)
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == endpoint.__name__
+    ] == [
+        "Native voice transport opened",
+        f"Native voice transport released; provider_closed={provider_closes}",
+    ]
+    provider.close.assert_awaited_once()
+    assert provider.outbox.empty()
+    assert "caller" not in endpoint._active_calls
