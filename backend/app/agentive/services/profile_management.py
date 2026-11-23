@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from jvspatial.api.exceptions import InsufficientPermissionsError
 from jvspatial.core.context import get_default_context
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.agentive.services.connection_profiles import ProfileDenied
@@ -20,6 +21,7 @@ from app.models.edges import HAS_CONNECTION_PROFILES
 from app.models.nodes import Workspace, WorkspaceConnectionProfiles
 from app.schemas.agentive.connection_profiles import (
     PROFILE_AVATAR_MAX_BYTES,
+    ProfileKey,
     PublicWebChatRoute,
 )
 from app.schemas.avatar import AvatarValidationError
@@ -182,6 +184,140 @@ def eligible_public_web_chat_profile(profile):
     )
 
 
+class PublicProfileServiceIdentity(BaseModel):
+    """Internal non-human Web Chat actor; conveys no login or workspace rights."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    identity_id: str = Field(pattern=r"^wpsi_[a-f0-9]{32}$", repr=False)
+    workspace_id: str = Field(min_length=1, max_length=256)
+    profile_key: ProfileKey
+    published_version: int = Field(gt=0)
+    generation: int = Field(gt=0)
+
+
+def _public_service_identity(identities, workspace, key):
+    if (
+        not isinstance(identities, dict)
+        or len(identities) > 100
+        or type(key) is not str
+    ):
+        return None
+    try:
+        found = PublicProfileServiceIdentity.model_validate(identities.get(key))
+    except ValidationError:
+        return None
+    if (found.workspace_id, found.profile_key) != (workspace, key) or any(
+        other_key != key
+        and isinstance(other, dict)
+        and other.get("identity_id") == found.identity_id
+        for other_key, other in identities.items()
+    ):
+        return None
+    return found
+
+
+def current_public_profile_service_identity(
+    record, profile_key: str, published_version: int
+) -> PublicProfileServiceIdentity | None:
+    """Read an exact current identity from the already owner-verified profile node."""
+    if (
+        record is None
+        or type(profile_key) is not str
+        or type(published_version) is not int
+    ):
+        return None
+    revision = getattr(record, "revision", None)
+    if type(revision) is not int or not 0 < published_version <= revision:
+        return None
+    profiles = getattr(record, "profiles", None)
+    item = profiles.get(profile_key) if isinstance(profiles, dict) else None
+    published = item.get("published") if isinstance(item, dict) else None
+    if (
+        not isinstance(published, dict)
+        or published.get("key") != profile_key
+        or type(published.get("version")) is not int
+        or published["version"] != published_version
+        or not eligible_public_web_chat_profile(published)
+    ):
+        return None
+    found = _public_service_identity(
+        getattr(record, "public_profile_service_identities", None),
+        getattr(record, "workspace_id", None),
+        profile_key,
+    )
+    return (
+        found
+        if found is not None
+        and found.published_version == published_version
+        and found.generation <= published_version
+        else None
+    )
+
+
+def _profile_reply(record, key, item):
+    """Only the readiness bit belongs in the manager-facing profile projection."""
+    if not isinstance(item, dict):
+        return item
+    if "service_identity_ready" in item:
+        item = {
+            field: value
+            for field, value in item.items()
+            if field != "service_identity_ready"
+        }
+    published = item.get("published")
+    if isinstance(published, dict) and audience_of(published) == "public":
+        return {
+            **item,
+            "service_identity_ready": current_public_profile_service_identity(
+                record, key, published.get("version")
+            )
+            is not None,
+        }
+    return item
+
+
+def _bind_public_service_identity(
+    *, workspace, key, record, profiles, route, identities, next_revision
+):
+    if not isinstance(identities, dict) or len(identities) > 100:
+        raise BadRequestError("Public profile service identity needs repair")
+    publication = profiles[key]["published"]
+    if publication.get("key") != key or not eligible_public_web_chat_profile(
+        publication
+    ):
+        raise BadRequestError("Choose a public profile without tools")
+    was = _public_service_identity(identities, workspace, key)
+    if key in identities and (
+        was is None
+        or was.published_version > record.revision
+        or was.generation > was.published_version
+    ):
+        raise BadRequestError("Public profile service identity needs repair")
+    if (
+        was is not None
+        and current_public_profile_service_identity(
+            record, key, publication.get("version")
+        )
+        == was
+    ):
+        return False
+    if route.profile_key == key and route.enabled:
+        raise BadRequestError("Disable Web Chat before changing this service identity")
+    if was is None and len(identities) >= 100:
+        raise BadRequestError("Public profile service identity limit reached")
+    # Adoption of an unchanged legacy publication still creates a new version.
+    # A previously issued route or credential can never match it.
+    publication["version"] = next_revision
+    identities[key] = PublicProfileServiceIdentity(
+        identity_id=was.identity_id if was is not None else f"wpsi_{uuid4().hex}",
+        workspace_id=workspace,
+        profile_key=key,
+        published_version=next_revision,
+        generation=was.generation + 1 if was is not None else 1,
+    ).model_dump()
+    return True
+
+
 async def describe(actor, workspace):
     """Return guarded workspace settings for this surface."""
     await require_profile_manager(actor, workspace)
@@ -196,7 +332,7 @@ async def describe(actor, workspace):
         "profiles": {
             **{key: {"draft": starter(key)} for key in ("public", "staff")},
             **{
-                key: item
+                key: _profile_reply(found, key, item)
                 for key, item in profiles.items()
                 if key != WORKSPACE_ASSISTANT_KEY
             },
@@ -214,7 +350,9 @@ async def describe(actor, workspace):
     }
 
 
-async def mutate_config(actor, workspace, revision, action):
+async def mutate_config(
+    actor, workspace, revision, action, *, _public_identity_key=None
+):
     """Update profile configuration at the expected workspace revision."""
     async with postgres_graph_transaction():
         await require_profile_manager(actor, workspace)
@@ -226,12 +364,29 @@ async def mutate_config(actor, workspace, revision, action):
         public_web_chat = PublicWebChatRoute.model_validate(found.public_web_chat)
         original_route = public_web_chat.persisted()
         await action(profiles, bindings, native, public_web_chat)
+        identities = None
+        identity_changed = False
+        if _public_identity_key is not None:
+            identities = deepcopy(
+                getattr(found, "public_profile_service_identities", {})
+            )
+            identity_changed = _bind_public_service_identity(
+                workspace=workspace,
+                key=_public_identity_key,
+                record=found,
+                profiles=profiles,
+                route=public_web_chat,
+                identities=identities,
+                next_revision=found.revision + 1,
+            )
         values = {
             "context.profiles": profiles,
             "context.bindings": bindings,
             "context.native_chat_profiles": native,
             "context.revision": found.revision + 1,
         }
+        if identity_changed:
+            values["context.public_profile_service_identities"] = identities
         route = public_web_chat.persisted()
         if route != original_route:
             values["context.public_web_chat"] = route
@@ -245,7 +400,7 @@ async def mutate_config(actor, workspace, revision, action):
     return await describe(actor, workspace)
 
 
-async def mutate(actor, workspace, body, action):
+async def mutate(actor, workspace, body, action, *, _public_identity_key=None):
     """Apply a single-profile change through the configuration revision guard."""
 
     async def update(profiles, bindings, native, public_web_chat):
@@ -255,6 +410,14 @@ async def mutate(actor, workspace, body, action):
             raise BadRequestError("Profile unavailable")
         await action(profiles[body.key], bindings, native, public_web_chat)
 
+    if _public_identity_key is not None:
+        return await mutate_config(
+            actor,
+            workspace,
+            body.expected_revision,
+            update,
+            _public_identity_key=_public_identity_key,
+        )
     return await mutate_config(actor, workspace, body.expected_revision, update)
 
 
@@ -386,6 +549,11 @@ async def publish(actor, workspace, body):
         audience = audience_of(draft)
         ceiling = await catalogue(actor, workspace, audience)
         validate_draft(draft, ceiling)
+        if (
+            body.enable_public_service_identity
+            and not eligible_public_web_chat_profile(draft)
+        ):
+            raise BadRequestError("Choose a public profile without tools")
         published = item.get("published")
         if (
             public_web_chat.profile_key == body.key
@@ -429,7 +597,13 @@ async def publish(actor, workspace, body):
             native.append(body.key)
         bindings.update(dict.fromkeys(body.connection_ids, body.key))
 
-    return await mutate(actor, workspace, body, activate)
+    return await mutate(
+        actor,
+        workspace,
+        body,
+        activate,
+        _public_identity_key=body.key if body.enable_public_service_identity else None,
+    )
 
 
 async def bind(actor, workspace, body):
