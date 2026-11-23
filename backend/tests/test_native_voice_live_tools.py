@@ -344,3 +344,123 @@ async def test_optional_lookup_failure_keeps_call_ready(monkeypatch, provider_re
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await task
+
+
+@pytest.mark.asyncio
+async def test_fourth_catalogue_enrollment_is_usable_without_new_realtime_tool(
+    monkeypatch, tmp_path
+):
+    """Enroll a synthetic fourth read through normal manifest and route wiring."""
+    import yaml
+
+    from app.agentive.tooling import bindings, invoke
+    from app.agentive.tooling.catalogue import build_voice_quick_read_catalogue
+    from app.agentive.tooling.manifest import DEFAULT_MANIFEST_PATH, load_manifest
+
+    tool_name = "integral_list_fixture_observations"
+    title = "Visible observation stations"
+    manifest = yaml.safe_load(DEFAULT_MANIFEST_PATH.read_text())
+    manifest["domains"]["voice_catalogue_test"] = {
+        "tools": [
+            {
+                "name": tool_name,
+                "status": "existing",
+                "op_class": "read",
+                "priority": "P1",
+                "summary": "List the caller's fixture observation stations.",
+                "http": "GET /api/fixture-observation-stations",
+                "params": {"limit": {"type": "integer", "optional": True}},
+                "returns": {"stations": [{"name": "str"}]},
+                "voice_quick_read": {
+                    "title": title,
+                    "terms": "weather observation stations observatory",
+                    "collection": "stations",
+                    "label_field": "name",
+                    "page_limit": True,
+                },
+            }
+        ]
+    }
+    manifest_path = tmp_path / "tool_manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest))
+    monkeypatch.setenv("INTEGRAL_TOOL_MANIFEST", str(manifest_path))
+
+    calls = []
+
+    async def list_stations(request, limit):
+        calls.append((request.headers["X-Integral-Scope"], limit))
+        return {"stations": [{"name": "Pine Ridge Station", "id": "internal-station"}]}
+
+    monkeypatch.setitem(
+        bindings.TOOL_BINDINGS,
+        tool_name,
+        bindings.ToolBinding(handler_ref=lambda: list_stations),
+    )
+    assert tool_name in load_manifest()
+    assert len(build_voice_quick_read_catalogue()) == 4
+    monkeypatch.setattr(
+        invoke, "resolve_user", AsyncMock(return_value=SimpleNamespace(id="caller"))
+    )
+    submit = AsyncMock(
+        return_value=SimpleNamespace(work_item_id="foreground", message_id="accepted")
+    )
+    thread = SimpleNamespace(id="thread")
+    check = AsyncMock(return_value=thread)
+    monkeypatch.setattr(native_voice, "authorize", check)
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    monkeypatch.setattr(
+        native_voice, "_delegated_status", AsyncMock(return_value=("running", None))
+    )
+
+    for profile in ("", "restricted-profile"):
+        browser, provider = Browser(), Provider()
+        relay = native_voice.VoiceRelay(
+            browser,
+            provider,
+            native_voice.VoiceScope("caller", "workspace", profile, "thread"),
+            check=check,
+        )
+        task = asyncio.create_task(relay.run())
+        try:
+            setup = (await event(provider.outbox))["session"]
+            assert tool_name not in {tool["name"] for tool in setup["tools"]}
+            await provider.inbox.put({"type": "session.updated"})
+            assert (await event(browser.outbox))["thread_id"] == "thread"
+            if not profile:
+                await _tool(
+                    provider,
+                    "heavy",
+                    native_voice.DELEGATE,
+                    {"request": "Draft a report."},
+                )
+                assert "accepted" in (await event(provider.outbox))["item"]["output"]
+                assert not relay.pending.done()
+                answer = await _quick_read(
+                    provider, "stations", "weather observation stations", title
+                )
+                assert (
+                    "Pine Ridge Station" in answer and "internal-station" not in answer
+                )
+                assert not relay.pending.done()
+                assert relay.accepted.work_item_id == "foreground"
+            else:
+                await _tool(
+                    provider,
+                    "stations",
+                    native_voice.FIND_CAPABILITY,
+                    {"query": "weather observation stations"},
+                )
+                await event(provider.outbox)
+                denial = (await event(provider.outbox))["response"]
+                assert "unavailable in this selected profile" in denial["instructions"]
+                assert (
+                    title not in denial["instructions"]
+                    and "Pine Ridge Station" not in denial["instructions"]
+                )
+                assert "integral_capability_offer" not in denial["metadata"]
+        finally:
+            await browser.inbox.put({"type": "websocket.disconnect"})
+            await task
+
+    assert calls == [("ws:workspace", 20)]
+    submit.assert_awaited_once()
