@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { isCanonicalManagedEmbedOrigin } from './managedChannelEmbedAuthority';
 
 interface ManagedChannelDefinition {
   slug: string;
@@ -31,11 +32,17 @@ export type ManagedChannel =
       configuration_kind?: 'published-public-profile-v1';
     });
 
+export interface ManagedChannelApprovedEmbedPolicy {
+  parent_origin: string;
+  embed_policy_revision: number;
+}
+
 export interface ManagedChannelProfileConfiguration extends ManagedChannelGeneration {
   kind: 'published-public-profile-v1';
   profile_revision: number;
   published_version?: number;
   full_page_share_check_available?: true;
+  approved_embed_policies?: readonly ManagedChannelApprovedEmbedPolicy[];
   profile_key: string | null;
   eligible_profiles: Array<{key: string; name: string}>;
   editable: boolean;
@@ -107,6 +114,21 @@ function decodeListing(value: unknown): ManagedChannel[] {
   });
 }
 
+function decodeApprovedEmbedPolicies(value: unknown): readonly ManagedChannelApprovedEmbedPolicy[] | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 8) return undefined;
+  const choices = new Map<string, ManagedChannelApprovedEmbedPolicy>();
+  for (const item of value) {
+    const row = record(item);
+    if (!row || Object.keys(row).length !== 2 || !isCanonicalManagedEmbedOrigin(row.parent_origin) ||
+        typeof row.embed_policy_revision !== 'number' || !Number.isSafeInteger(row.embed_policy_revision) ||
+        row.embed_policy_revision < 1 || choices.has(row.parent_origin)) return undefined;
+    choices.set(row.parent_origin, {
+      parent_origin: row.parent_origin, embed_policy_revision: row.embed_policy_revision,
+    });
+  }
+  return [...choices.values()];
+}
+
 function decodeProfileConfiguration(value: unknown, slug: string, generation: ManagedChannelGeneration): ManagedChannelProfileConfiguration {
   const row = record(value);
   if (!row || row.kind !== 'published-public-profile-v1' ||
@@ -127,13 +149,16 @@ function decodeProfileConfiguration(value: unknown, slug: string, generation: Ma
   const publishedVersion = row.profile_key !== null && profiles.has(row.profile_key) &&
     typeof row.published_version === 'number' && Number.isSafeInteger(row.published_version) &&
     row.published_version > 0 ? row.published_version : undefined;
+  const mayReadSharing = slug === 'public_web_chat' && publishedVersion !== undefined && !row.editable;
+  const approvedEmbedPolicies = mayReadSharing ? decodeApprovedEmbedPolicies(row.approved_embed_policies) : undefined;
   return {
     kind: row.kind,
     profile_revision: row.profile_revision,
     profile_key: row.profile_key,
     ...(publishedVersion !== undefined ? { published_version: publishedVersion } : {}),
-    ...(slug === 'public_web_chat' && publishedVersion !== undefined && !row.editable && row.full_page_share_check_available === true
+    ...(mayReadSharing && row.full_page_share_check_available === true
       ? { full_page_share_check_available: true as const } : {}),
+    ...(approvedEmbedPolicies ? { approved_embed_policies: approvedEmbedPolicies } : {}),
     eligible_profiles: [...profiles.values()],
     editable: row.editable,
     ...generation,

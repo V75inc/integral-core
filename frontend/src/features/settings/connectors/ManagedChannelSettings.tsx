@@ -8,6 +8,7 @@ import { Modal } from '../../../components/ui/Modal';
 import { Text } from '../../../ui';
 import { StatusPill } from '../components/Field';
 import { ManagedChannelProfileAssignment } from './ManagedChannelProfileAssignment';
+import { ManagedChannelApprovedEmbedSharing } from './ManagedChannelApprovedEmbedSharing';
 import { ManagedChannelShareControl, type ManagedChannelShareSource } from './ManagedChannelShareControl';
 import { readManagedChannelShare } from './managedChannelShareReader';
 import { currentManagedChannels, managedProfileOptions } from './managedChannelQueries';
@@ -105,15 +106,19 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
     : null;
   // For Web Chat the authenticated, current Configure projection is the sole
   // authority to offer a check; an injected generic source cannot bypass it.
+  const currentManagerScope = configuringWebChat && currentPublication && !busy && !confirmingRemove &&
+    canReadPublishedShare && principalId && workspaceId && profile?.editable === false
+    ? { principalId, workspaceId, sessionFence } : null;
   const currentShareSource: ManagedChannelShareSource | null = !currentPublication || busy || confirmingRemove
     ? null
     : configuringWebChat
-      ? canReadPublishedShare && principalId && workspaceId && profile?.editable === false &&
-        profile.full_page_share_check_available === true
-        ? { scope: { principalId, workspaceId, sessionFence }, read: readManagedChannelShare }
+      ? currentManagerScope && profile?.full_page_share_check_available === true
+        ? { scope: currentManagerScope, read: readManagedChannelShare }
         : null
       : shareSource && shareSource.scope.principalId === principalId && shareSource.scope.workspaceId === workspaceId
         ? shareSource : null;
+  const currentEmbedPolicies = currentManagerScope && profile?.approved_embed_policies?.length
+    ? profile.approved_embed_policies : null;
 
   async function retryProfileCheck() {
     try {
@@ -300,15 +305,23 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                         : 'Hosting readiness is not confirmed. No full-page link, embed code or API access is available here.'
                       : !currentPublication
                         ? 'Sharing details require a verified current published public profile.'
-                        : currentShareSource
-                          ? 'Check the full-page link below. No verified embed code or API access details are available here.'
-                          : 'No verified full-page link, embed code or API access details are available here.'}
+                        : currentEmbedPolicies
+                          ? currentShareSource
+                            ? 'Check the full-page link or select an approved site to check embed code. No verified API access details are available here.'
+                            : 'Select an approved site to check embed code. No verified full-page link or API access details are available here.'
+                          : currentShareSource
+                            ? 'Check the full-page link below. No verified embed code or API access details are available here.'
+                            : 'No verified full-page link, embed code or API access details are available here.'}
                   </Text>
                 </div>
               )}
               {currentShareSource && currentPublication && profile && channel.connected && (
                 <ManagedChannelShareControl channel={channel} source={currentShareSource}
                   profileRevision={profile.profile_revision} publication={currentPublication} />
+              )}
+              {currentManagerScope && currentPublication && currentEmbedPolicies && profile && channel.connected && (
+                <ManagedChannelApprovedEmbedSharing scope={currentManagerScope} channel={channel}
+                  publication={currentPublication} profileRevision={profile.profile_revision} policies={currentEmbedPolicies} />
               )}
               {confirmingRemove && (
                 <Text as="p" variant="body-sm">Remove this channel from the workspace? It will no longer receive messages here.</Text>

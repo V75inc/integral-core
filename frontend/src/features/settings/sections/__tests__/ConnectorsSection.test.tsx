@@ -72,6 +72,7 @@ vi.mock('../../../../api/connectionProfiles', () => ({
   publicWebChatSettingsKey: (id: string) => ['public-web-chat-settings', id],
 }));
 
+vi.mock('../../connectors/managedChannelEmbedShareReader', () => ({ readManagedChannelEmbedShare: vi.fn() }));
 vi.mock('../../connectors/managedChannelShareReader', () => ({ readManagedChannelShare: vi.fn() }));
 
 vi.mock('../../../../api/managedChannels', () => ({
@@ -123,6 +124,9 @@ import { useAuthOptional } from '../../../../context/AuthContext';
 import { getSessionGeneration } from '../../../../api/session';
 import type { ManagedChannelShareSource } from '../../connectors/ManagedChannelShareControl';
 import { readManagedChannelShare } from '../../connectors/managedChannelShareReader';
+import { readManagedChannelEmbedShare } from '../../connectors/managedChannelEmbedShareReader';
+import { decodeApprovedManagedEmbed, type ManagedEmbedOwner } from '../../connectors/managedChannelEmbedProof';
+import { managedProfileOptions } from '../../connectors/managedChannelQueries';
 
 const mockedList = connectorsApi.list as unknown as ReturnType<typeof vi.fn>;
 const mockedCatalog = connectorsApi.listCatalog as unknown as ReturnType<
@@ -196,6 +200,7 @@ beforeEach(() => {
   vi.mocked(useAuthOptional).mockReturnValue(null);
   vi.mocked(getSessionGeneration).mockReturnValue(1);
   vi.mocked(readManagedChannelShare).mockReset();
+  vi.mocked(readManagedChannelEmbedShare).mockReset();
   mockedList.mockReset().mockResolvedValue({ connectors: [], total: 0 });
   vi.mocked(managedChannelsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(managedChannelsApi.change).mockReset().mockResolvedValue(undefined);
@@ -1019,6 +1024,79 @@ describe('<ConnectorsSection />', () => {
     expect(screen.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
     expect(managedChannelsApi.profileConfiguration).toHaveBeenCalledTimes(2);
     expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('only checks selected approved embed policies and drops stale results across origin, policy, and session changes', async () => {
+    selectWorkspace('shared');
+    authenticateManager('current-manager');
+    const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' };
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable('active', '3'), definition }]);
+    const one = { parent_origin: 'https://first.example.com', embed_policy_revision: 4 };
+    const two = { parent_origin: 'https://second.example.com', embed_policy_revision: 5 };
+    const projection = {
+      ...profileConfig(1, '3', 'greeter', false), published_version: 2, approved_embed_policies: [one, two],
+    };
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue(projection);
+    const url = 'https://fixture-embed.example.invalid/embed/unserved';
+    const checks: Array<{ signal: AbortSignal; finish: () => void; owner: ManagedEmbedOwner }> = [];
+    vi.mocked(readManagedChannelEmbedShare).mockImplementation((owner, signal) => new Promise(resolve =>
+      checks.push({ signal, owner, finish: () => resolve(decodeApprovedManagedEmbed({
+        kind: 'approved-web-chat-embed-v1', workspace_id: owner.workspaceId, slug: owner.slug,
+        provision_id: owner.provisionId, route_epoch: owner.routeEpoch, profile_key: owner.publication.profileKey,
+        published_version: owner.publication.publishedVersion, embed_policy_revision: owner.policy.policyRevision,
+        parent_origin: owner.policy.parentOrigin, embed_page_url: url,
+      }, owner)) })));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(panelWithProviders(qc));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
+    const picker = await dialog.findByRole('combobox', { name: 'Approved embedding site' });
+    expect(within(picker).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['Choose an approved site', one.parent_origin, two.parent_origin]);
+    expect(picker).toHaveValue('');
+    expect(readManagedChannelEmbedShare).not.toHaveBeenCalled();
+    expect(dialog.queryByRole('button', { name: 'Check embed code' })).not.toBeInTheDocument();
+    fireEvent.change(picker, { target: { value: one.parent_origin } });
+    expect(readManagedChannelEmbedShare).not.toHaveBeenCalled();
+    expect(dialog.queryByRole('textbox', { name: 'Embed code' })).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Check embed code' }));
+    expect(checks[0].owner).toMatchObject({
+      principalId: 'current-manager', workspaceId: 'shared', sessionFence: '1', slug: 'public_web_chat',
+      provisionId: 'provision-1', routeEpoch: '3', publication: { profileKey: 'greeter', publishedVersion: 2 },
+      policy: { parentOrigin: one.parent_origin, policyRevision: one.embed_policy_revision },
+    });
+    fireEvent.change(picker, { target: { value: two.parent_origin } });
+    expect(checks[0].signal.aborted).toBe(true);
+    await act(async () => checks[0].finish());
+    expect(dialog.queryByRole('textbox', { name: 'Embed code' })).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Check embed code' }));
+    await act(async () => checks[1].finish());
+    const snippet = await dialog.findByRole<HTMLTextAreaElement>('textbox', { name: 'Embed code' });
+    expect(snippet.value).toContain(url);
+    expect(snippet.value).toContain(two.parent_origin);
+    expect(dialog.getByRole('button', { name: 'Copy embed code' })).toBeVisible();
+    expect(dialog.queryByRole('button', { name: /full.page|api access/i })).not.toBeInTheDocument();
+
+    const generation = { provision_id: 'provision-1', route_epoch: '3' };
+    const cfgKey = managedProfileOptions('current-manager', 'shared', 'public_web_chat', generation).queryKey;
+    const changed = { ...projection, approved_embed_policies: [{ ...two, embed_policy_revision: 6 }] };
+    await act(async () => { qc.setQueryData(cfgKey, changed); });
+    await waitFor(() => expect(dialog.queryByRole('textbox', { name: 'Embed code' })).not.toBeInTheDocument());
+    const next = dialog.getByRole('combobox', { name: 'Approved embedding site' });
+    expect(next).toHaveValue('');
+    expect(within(next).queryByRole('option', { name: one.parent_origin })).not.toBeInTheDocument();
+    fireEvent.change(next, { target: { value: two.parent_origin } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Check embed code' }));
+    expect(checks[2].owner.policy.policyRevision).toBe(6);
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({ ...projection, approved_embed_policies: undefined });
+    vi.mocked(getSessionGeneration).mockReturnValue(2);
+    view.rerender(panelWithProviders(qc));
+    expect(checks[2].signal.aborted).toBe(true);
+    await act(async () => checks[2].finish());
+    expect(dialog.queryByRole('combobox', { name: 'Approved embedding site' })).not.toBeInTheDocument();
+    expect(dialog.queryByRole('textbox', { name: 'Embed code' })).not.toBeInTheDocument();
+    expect(readManagedChannelEmbedShare).toHaveBeenCalledTimes(3);
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
   });
 
   it('honors the managed Web Chat entry rather than the legacy fallback', async () => {
