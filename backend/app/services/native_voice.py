@@ -47,15 +47,16 @@ READOUT_PROGRESS_SECONDS = 4.0
 READOUT_AUTH_SECONDS = 1.0
 MAX_SILENT_READOUT_ATTEMPTS = 2
 MAX_THREAD_STATUS_UPDATES = 20
+MAX_CHAT_EXCERPT_CHARS = 500
+_CHAT_VIEWS = ("latest_chat", "latest_reply", "latest_typed")
+_CHAT_STATUS_VIEWS = ("current_task", "latest_task")
 VOICE_FOLLOW_UP_OPERATIONS = ("queue", "steer")
 TOOL = {
     "type": "function",
     "name": DELEGATE,
     "description": (
         "Send the requested workspace lookup or action to Integral so it can check "
-        "current capabilities and prepare supported changes for review. Also use "
-        "this tool for an explicit request to recall what the caller typed or what "
-        "chat replied in this same Integral conversation. Pass the "
+        "current capabilities and prepare supported changes for review. Pass the "
         "caller's request faithfully, including named targets and constraints, "
         "without guessing access. Do not invoke it for small talk; respond normally "
         "even while Integral is working. Set operation to rerun_stopped only if the "
@@ -101,8 +102,12 @@ def _voice_tool(name, description, properties):
 _READ_TOOLS = {
     CHECK_CHAT: _voice_tool(
         CHECK_CHAT,
-        "Read the exact conversation while other requests run. Use current_task for what is running now; use latest_chat when asked to check the chat, latest queued task, or result. Never starts work.",
-        {"view": {"type": "string", "enum": ["current_task", "latest_chat"]}},
+        "Read this conversation while other requests run. Use latest_chat when the caller "
+        "asks or signals that a message or update appeared in chat, for example "
+        "'something popped up in the chat there'. Use latest_typed for what the caller "
+        "typed, latest_reply for what chat replied, current_task for work running "
+        "now, and latest_task for the latest queued or delegated result. Never starts work.",
+        {"view": {"type": "string", "enum": [*_CHAT_VIEWS, *_CHAT_STATUS_VIEWS]}},
     ),
     FIND_CAPABILITY: _voice_tool(
         FIND_CAPABILITY,
@@ -470,17 +475,21 @@ def session_update(
                 "You are speaking to the signed-in Integral user. Keep answers brief. "
                 + workspace_mode
                 + "Use delegate_to_integral for workspace facts or a concrete workspace task, "
-                "including requests phrased as 'can you'. If explicitly asked what the caller typed "
-                "or what chat replied in this same Integral conversation, delegate that bounded lookup; "
-                "do not guess, search other conversations, or read typed content aloud unprompted. "
+                "including requests phrased as 'can you'. "
                 "Do not refuse a workspace request "
                 "merely because the voice model has no direct workspace tools. Let Integral "
                 "check the request, then report its actual result, denial, or need for review. "
                 "An accepted workspace request runs separately; speak normally about other topics "
                 "and do not delegate small talk or treat interruption as Stop. Only if explicitly "
                 "asked to rerun stopped work, send operation rerun_stopped. "
-                "When explicitly asked to check the chat or this call’s workspace result, use "
-                "check_integral_chat for current status without starting another task. "
+                "Use check_integral_chat for this conversation's saved text or task status, "
+                "including indirect requests like 'something popped up in the chat there' "
+                "(latest_chat). Use latest_typed for what the caller typed, latest_reply "
+                "for what chat replied, current_task for work running now, and latest_task "
+                "for a queued or delegated result. Check before answering; don't say you "
+                "can't check merely because you can't see the screen. Never identify a popup "
+                "from the saved text alone. Don't read chat aloud unprompted, search other "
+                "conversations, or hand these reads to the durable worker. "
                 "Use find_integral_voice_capability when looking up facts such as the "
                 "workspace name or visible apps, workspaces or tracks, even while busy. "
                 "Let the approved read return the facts. Delegate heavier work to durable chat. "
@@ -935,9 +944,12 @@ class VoiceRelay:
         try:
             async with asyncio.timeout(2):
                 if name == CHECK_CHAT:
-                    result, work_id = await self._check_chat(
-                        describe_active=value == "current_task"
-                    )
+                    if value in _CHAT_VIEWS:
+                        result = await self._read_chat_content(value)
+                    else:
+                        result, work_id = await self._check_chat(
+                            describe_active=value == "current_task"
+                        )
                 else:
                     await self._discover_capabilities(call_id, value, generation)
                     return
@@ -1138,7 +1150,7 @@ class VoiceRelay:
                     name == CHECK_CHAT
                     and (
                         set(request) != {"view"}
-                        or request["view"] not in ("current_task", "latest_chat")
+                        or request["view"] not in (*_CHAT_VIEWS, *_CHAT_STATUS_VIEWS)
                     )
                 ) or (
                     name == FIND_CAPABILITY
@@ -1355,6 +1367,55 @@ class VoiceRelay:
                     self.thread_status_updates = MAX_THREAD_STATUS_UPDATES
                     continue
                 raise RuntimeError("Realtime provider error")
+
+    async def _read_chat_content(self, view: str) -> str:
+        """Read bounded public text from the currently authorized conversation."""
+        from app.agentive.harness.adaptive import (
+            public_dialogue,
+            recent_public_messages,
+        )
+        from app.agentive.harness.pydantic_ai_compat import ModelRequest
+
+        scope = self._thread_status_scope()
+        thread = await self.check(self.scope)
+        labels = {
+            "latest_chat": "message",
+            "latest_reply": "reply",
+            "latest_typed": "message from you",
+        }
+        if thread is not None and thread.id == scope[2]:
+            # The shared projection validates canonical CONTAINS membership and
+            # excludes internal messages, tool output, reasoning, and attachments.
+            messages = await recent_public_messages(thread)
+            current = await self.check(self.scope)
+            if (
+                current is None
+                or current.id != thread.id
+                or scope != self._thread_status_scope()
+            ):
+                return "The conversation changed before I could verify its saved text."
+            for item in reversed(public_dialogue(messages)):
+                typed = isinstance(item, ModelRequest)
+                if (view == "latest_typed" and not typed) or (
+                    view == "latest_reply" and typed
+                ):
+                    continue
+                text = item.parts[0].content
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                text = text.strip()
+                excerpt = text[:MAX_CHAT_EXCERPT_CHARS]
+                if len(excerpt) < len(text):
+                    excerpt += "…"
+                role = "message from you" if typed else "reply"
+                answer = f"The latest saved {role} I can read in this conversation says: {excerpt}"
+                if view == "latest_chat":
+                    answer += " I can't see the popup itself."
+                return answer
+        return (
+            f"I couldn't find a recent saved {labels[view]} in this conversation. "
+            "I can't see unsaved text or interface popups."
+        )
 
     async def _check_chat(
         self, *, describe_active: bool = False

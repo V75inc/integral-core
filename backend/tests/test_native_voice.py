@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.services.native_voice import DELEGATE, VoiceRelay, VoiceScope
+from app.services.native_voice import CHECK_CHAT, DELEGATE, VoiceRelay, VoiceScope
 
 
 class Browser:
@@ -45,7 +45,7 @@ async def authorize(_scope):
     pass
 
 
-def request(call_id, response_id, text):
+def request(call_id, response_id, text, *, name=DELEGATE, args=None):
     return {
         "type": "response.done",
         "response": {
@@ -54,9 +54,11 @@ def request(call_id, response_id, text):
             "output": [
                 {
                     "type": "function_call",
-                    "name": DELEGATE,
+                    "name": name,
                     "call_id": call_id,
-                    "arguments": json.dumps({"request": text}),
+                    "arguments": json.dumps(
+                        args if args is not None else {"request": text}
+                    ),
                 }
             ],
         },
@@ -794,14 +796,23 @@ async def test_vad_during_acceptance_keeps_exact_same_thread_submission(monkeypa
         await call
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ["user", "assistant"])
-async def test_explicit_typed_recall_delegates_only_current_thread(monkeypatch, role):
-    """Exercise real rooted dialogue selection through a synthetic Heavy boundary."""
-    from types import SimpleNamespace
+@pytest.mark.parametrize(
+    ("question", "view", "role"),
+    [
+        ("Something popped up in the chat there.", "latest_chat", "assistant"),
+        ("What did I just type in this chat?", "latest_typed", "user"),
+        ("What did chat just reply in this conversation?", "latest_reply", "assistant"),
+        ("Something popped up in the chat there.", "latest_chat", None),
+    ],
+)
+async def test_spoken_chat_lookup_reads_current_thread_without_submitting(
+    monkeypatch, question, view, role
+):
+    """Run the advertised read tool against real scoped chat with a fake provider."""
     from unittest.mock import AsyncMock
 
-    from app.agentive.harness.adaptive import public_dialogue, recent_public_messages
     from app.api.errors import InsufficientPermissionsError
     from app.services import chat_turn_submissions, native_voice
     from app.services.chat_threads import append_message, create_thread
@@ -821,15 +832,28 @@ async def test_explicit_typed_recall_delegates_only_current_thread(monkeypatch, 
         provider_id="integral_native",
         agent_profile_key="guide",
     )
-    same = {"user": "Cedar meeting at noon.", "assistant": "I can summarize Cedar."}
+    same = {
+        "user": "Cedar meeting at noon.",
+        "assistant": "I can summarize Cedar. " + "A" * 500 + " NOT_IN_SPOKEN_EXCERPT",
+    }
     other = {"user": "Private Alder question.", "assistant": "Private Alder answer."}
     for side in ("user", "assistant"):
         await append_message(
-            thread=current, role=side, parts=[{"type": "text", "text": same[side]}]
-        )
-        await append_message(
             thread=private, role=side, parts=[{"type": "text", "text": other[side]}]
         )
+    await append_message(
+        thread=current,
+        role="assistant",
+        parts=[
+            {"type": "reasoning", "text": "HIDDEN_REASONING"},
+            {"type": "file", "data": "HIDDEN_ATTACHMENT"},
+        ],
+    )
+    await append_message(
+        thread=current,
+        role="system",
+        parts=[{"type": "text", "text": "HIDDEN_SYSTEM"}],
+    )
 
     require = AsyncMock()
     monkeypatch.setattr(native_voice, "require_native_chat_profile", require)
@@ -838,27 +862,9 @@ async def test_explicit_typed_recall_delegates_only_current_thread(monkeypatch, 
         await native_voice.authorize(
             VoiceScope(owner.id, workspace.id, "guide", private.id)
         )
-    question = (
-        "What did I just type in this chat?"
-        if role == "user"
-        else "What did chat just reply in this conversation?"
-    )
-    receipt = SimpleNamespace(work_item_id="synthetic-worker", message_id="accepted")
-    submit = AsyncMock(return_value=receipt)
+    submit = AsyncMock()
     monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
 
-    async def fake_heavy_status(active_scope, thread, accepted):
-        assert active_scope == scope and thread.id == current.id and accepted == receipt
-        history = await recent_public_messages(thread)
-        projected = str(public_dialogue(history))
-        assert all(text not in projected for text in other.values())
-        assert all(text in projected for text in same.values())
-        return "succeeded", next(
-            message.parts[0]["text"] for message in history if message.role == role
-        )
-
-    status = AsyncMock(side_effect=fake_heavy_status)
-    monkeypatch.setattr(native_voice, "_delegated_status", status)
     browser, provider = Browser(), Provider()
     relay = VoiceRelay(
         browser,
@@ -871,41 +877,56 @@ async def test_explicit_typed_recall_delegates_only_current_thread(monkeypatch, 
     task = asyncio.create_task(relay.run())
     try:
         config = await event(provider.outbox)
-        assert "same Integral conversation" in config["session"]["instructions"]
-        assert (
-            "explicit request to recall" in config["session"]["tools"][0]["description"]
+        instructions = config["session"]["instructions"]
+        assert question.lower().rstrip(".") in instructions or view != "latest_chat"
+        chat_tool = next(
+            t for t in config["session"]["tools"] if t["name"] == CHECK_CHAT
         )
+        assert view in chat_tool["parameters"]["properties"]["view"]["enum"]
         await provider.inbox.put({"type": "session.updated"})
         assert (await event(browser.outbox))["thread_id"] == current.id
         await relay._sync_thread_status()
         quiet = await event(provider.outbox)
         assert quiet["type"] == "conversation.item.create"
         assert quiet["item"]["role"] == "system"
-        assert not any(
-            text in json.dumps([config, quiet])
-            for text in [*same.values(), *other.values()]
-        )
-        assert provider.outbox.empty()
-        submit.assert_not_awaited()
-        status.assert_not_awaited()
+        assert "Cedar" not in json.dumps([config, quiet])
+        assert "Alder" not in json.dumps([config, quiet])
+        if role is not None:
+            # The chat update appears after voice joins, not in opening context.
+            for side in ("user", "assistant"):
+                await append_message(
+                    thread=current,
+                    role=side,
+                    parts=[{"type": "text", "text": same[side]}],
+                )
+        # Status ownership stays independent; this read must work while Heavy runs.
+        relay.pending = asyncio.create_task(asyncio.Event().wait())
 
         await provider.inbox.put(
-            {"type": "response.created", "response": {"id": "recall"}}
+            {"type": "response.created", "response": {"id": "lookup"}}
         )
-        await provider.inbox.put(request("recall-tool", "recall", question))
+        await provider.inbox.put(
+            request(
+                "read-tool", "lookup", question, name=CHECK_CHAT, args={"view": view}
+            )
+        )
         reply = await event(provider.outbox)
-        assert reply["item"]["output"] == same[role]
-        assert (await event(provider.outbox))["type"] == "response.create"
-        submit.assert_awaited_once()
-        checked = submit.await_args.args[0]
-        assert (checked.principal_id, checked.workspace_id, checked.thread_id) == (
-            owner.id,
-            workspace.id,
-            current.id,
-        )
-        assert checked.execution_context.extra_data == {"voice_delegate": True}
-        assert checked.parts == [{"type": "text", "text": question}]
-        assert provider.outbox.empty()
+        assert reply["item"]["output"] == "Integral checked your request."
+        spoken = await event(provider.outbox)
+        assert spoken["type"] == "response.create"
+        assert spoken["response"]["conversation"] == "none"
+        spoken_text = spoken["response"]["instructions"]
+        if role is None:
+            assert "couldn't find a recent saved message" in spoken_text
+            assert "can't see unsaved text or interface popups" in spoken_text
+        else:
+            assert same[role][:35].strip() in spoken_text
+            if view == "latest_chat":
+                assert "can't see the popup itself" in spoken_text
+        for excluded in (*other.values(), "HIDDEN_", "NOT_IN_SPOKEN_EXCERPT"):
+            assert excluded not in spoken_text
+        submit.assert_not_awaited()
+        assert not relay.pending.done()
         require.assert_awaited_with(workspace.id, owner.id, "guide")
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
