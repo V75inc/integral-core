@@ -75,6 +75,11 @@ vi.mock('../../../../api/connectionProfiles', () => ({
 vi.mock('../../connectors/managedChannelEmbedShareReader', () => ({ readManagedChannelEmbedShare: vi.fn() }));
 vi.mock('../../connectors/managedChannelShareReader', () => ({ readManagedChannelShare: vi.fn() }));
 
+vi.mock('../../../../api/managedWebChatPrivateTest', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../api/managedWebChatPrivateTest')>(),
+  runManagedWebChatPrivateTest: vi.fn(),
+}));
+
 vi.mock('../../../../api/managedChannels', () => ({
   managedChannelsApi: { list: vi.fn(), change: vi.fn(), profileConfiguration: vi.fn(), assignProfile: vi.fn() },
 }));
@@ -127,6 +132,7 @@ import { readManagedChannelShare } from '../../connectors/managedChannelShareRea
 import { readManagedChannelEmbedShare } from '../../connectors/managedChannelEmbedShareReader';
 import { decodeApprovedManagedEmbed, type ManagedEmbedOwner } from '../../connectors/managedChannelEmbedProof';
 import { managedProfileOptions } from '../../connectors/managedChannelQueries';
+import { runManagedWebChatPrivateTest } from '../../../../api/managedWebChatPrivateTest';
 
 const mockedList = connectorsApi.list as unknown as ReturnType<typeof vi.fn>;
 const mockedCatalog = connectorsApi.listCatalog as unknown as ReturnType<
@@ -199,6 +205,7 @@ beforeEach(() => {
   mockedScope.mockReturnValue(null);
   vi.mocked(useAuthOptional).mockReturnValue(null);
   vi.mocked(getSessionGeneration).mockReturnValue(1);
+  vi.mocked(runManagedWebChatPrivateTest).mockReset();
   vi.mocked(readManagedChannelShare).mockReset();
   vi.mocked(readManagedChannelEmbedShare).mockReset();
   mockedList.mockReset().mockResolvedValue({ connectors: [], total: 0 });
@@ -1099,6 +1106,95 @@ describe('<ConnectorsSection />', () => {
     expect(dialog.queryByRole('textbox', { name: 'Embed code' })).not.toBeInTheDocument();
     expect(readManagedChannelEmbedShare).toHaveBeenCalledTimes(3);
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+  it.each(['inactive', 'active', 'unavailable'] as const)(
+    'offers an explicit private test in the same Configure dialog for %s Web Chat with exact permission',
+    async state => {
+      selectWorkspace('shared');
+      authenticateManager('current-manager');
+      const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' };
+      vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable(state, '3'), definition }]);
+      vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
+        ...profileConfig(1, '3', 'greeter', state !== 'active'), published_version: 2, private_test_available: true,
+      });
+      let finish!: () => void;
+      const reply = '<a href="https://fixture.example.invalid">Literal test reply</a>';
+      const run = vi.mocked(runManagedWebChatPrivateTest).mockImplementation((_owner, _text, _signal) =>
+        new Promise(resolve => { finish = () => resolve(reply); }));
+      renderPanel();
+      fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+      const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
+      const openTest = await dialog.findByRole('button', { name: 'Test Web Chat' });
+      expect(run).not.toHaveBeenCalled();
+      fireEvent.click(openTest);
+      const pane = within(dialog.getByRole('region', { name: 'Test Web Chat' }));
+      expect(screen.getAllByRole('dialog')).toHaveLength(1);
+      expect(pane.getByText(/private test; does not publish or check public hosting/i)).toBeVisible();
+      const send = pane.getByRole('button', { name: 'Send test' });
+      expect(send).toBeDisabled();
+      fireEvent.change(pane.getByRole('textbox', { name: 'Test message' }), { target: { value: 'Try a greeting' } });
+      expect(run).not.toHaveBeenCalled();
+      fireEvent.click(send);
+      fireEvent.click(send);
+      expect(run).toHaveBeenCalledExactlyOnceWith({
+        principalId: 'current-manager', workspaceId: 'shared', sessionFence: '1', provisionId: 'provision-1',
+        routeEpoch: '3', profileKey: 'greeter', publishedVersion: 2,
+      }, 'Try a greeting', expect.any(AbortSignal));
+      await act(async () => finish());
+      expect(await pane.findByText(reply)).toBeVisible();
+      expect(pane.queryByRole('link')).not.toBeInTheDocument();
+      expect(dialog.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
+      expect(managedChannelsApi.change).not.toHaveBeenCalled();
+    },
+  );
+
+  it('never opens a test on missing admission and clears and aborts late sends on close or publication change', async () => {
+    selectWorkspace('shared');
+    authenticateManager('current-manager');
+    const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat' };
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable('inactive', '3'), definition }]);
+    const prior = { ...profileConfig(1, '3', 'greeter'), published_version: 2, private_test_available: true as const };
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue(prior);
+    const calls: Array<{signal: AbortSignal; finish: () => void}> = [];
+    vi.mocked(runManagedWebChatPrivateTest).mockImplementation((_owner, _text, signal) => new Promise(resolve => {
+      calls.push({ signal, finish: () => resolve('Do not show this late reply') });
+    }));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = render(panelWithProviders(qc));
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
+    const begin = async () => {
+      fireEvent.click(await dialog.findByRole('button', { name: 'Test Web Chat' }));
+      const box = dialog.getByRole('textbox', { name: 'Test message' });
+      expect(box).toHaveValue('');
+      fireEvent.change(box, { target: { value: 'A new private question' } });
+      fireEvent.click(dialog.getByRole('button', { name: 'Send test' }));
+    };
+    await begin();
+    fireEvent.click(dialog.getByRole('button', { name: 'Close test' }));
+    expect(calls[0].signal.aborted).toBe(true);
+    await act(async () => calls[0].finish());
+    expect(dialog.queryByText(/late reply/)).not.toBeInTheDocument();
+
+    await begin();
+    const cfgKey = managedProfileOptions('current-manager', 'shared', 'public_web_chat', {
+      provision_id: 'provision-1', route_epoch: '3',
+    }).queryKey;
+    await act(async () => { qc.setQueryData(cfgKey, { ...prior, published_version: 3 }); });
+    await waitFor(() => expect(calls[1].signal.aborted).toBe(true));
+    await act(async () => calls[1].finish());
+    expect(dialog.queryByText(/late reply/)).not.toBeInTheDocument();
+
+    await begin();
+    vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({ ...prior, private_test_available: undefined });
+    vi.mocked(getSessionGeneration).mockReturnValue(2);
+    panel.rerender(panelWithProviders(qc));
+    expect(calls[2].signal.aborted).toBe(true);
+    await act(async () => calls[2].finish());
+    expect(dialog.queryByRole('button', { name: 'Test Web Chat' })).not.toBeInTheDocument();
+    expect(dialog.queryByText(/late reply/)).not.toBeInTheDocument();
+    expect(runManagedWebChatPrivateTest).toHaveBeenCalledTimes(3);
   });
 
   it('honors the managed Web Chat entry rather than the legacy fallback', async () => {
