@@ -18,6 +18,7 @@ from app.api.errors import (
     OperationTransactionUnavailableError,
     ResourceConflictError,
     ResourceNotFoundError,
+    ServiceUnavailableError,
 )
 from app.middleware.permissions_cache import isolated_permissions_cache
 from app.services.native_voice_thread_status import (
@@ -47,6 +48,8 @@ READOUT_PROGRESS_SECONDS = 4.0
 READOUT_AUTH_SECONDS = 1.0
 MAX_SILENT_READOUT_ATTEMPTS = 2
 MAX_THREAD_STATUS_UPDATES = 20
+MAX_PEER_READOUTS = 24
+PEER_JOIN_SECONDS = 1.1
 MAX_CHAT_EXCERPT_CHARS = 500
 _CHAT_VIEWS = ("latest_chat", "latest_reply", "latest_typed")
 _CHAT_STATUS_VIEWS = ("current_task", "latest_task")
@@ -556,6 +559,8 @@ class VoiceRelay:
         check=authorize,
         work=delegate,
         thread_status=read_voice_thread_status,
+        conversation_subscribe=None,
+        conversation_snapshot=None,
     ):
         self.browser = browser
         self.upstream = upstream
@@ -563,6 +568,14 @@ class VoiceRelay:
         self.check = check
         self.work = work
         self.thread_status = thread_status
+        self.conversation_subscribe = conversation_subscribe
+        self.conversation_snapshot = conversation_snapshot
+        self.conversation_ready = asyncio.Event()
+        self.conversation_baselined = asyncio.Event()
+        self.peer_readouts: dict[tuple[str, str], str] = {}
+        self.peer_seen: set[tuple[str, str]] = set()
+        self.peer_in_flight: tuple[str, str] | None = None
+        self.peer_silent: Counter[tuple[str, str]] = Counter()
         self.last_thread_status = VoiceThreadStatus()
         self.review_proofs = ()
         self.review_scope = None
@@ -665,6 +678,7 @@ class VoiceRelay:
         self.readout_deadline = None
         self.readout_event_id = None
         self.result_in_flight = None
+        self.peer_in_flight = None
         self.quiet_since = asyncio.get_running_loop().time()
         # Conversational barge-in fences only delivery. The authorized chat
         # turn already has independent transactional admission and lifecycle.
@@ -683,7 +697,13 @@ class VoiceRelay:
         )
 
     async def _speak_result(
-        self, generation, *, result=None, work_id=None, queued_follow_up=False
+        self,
+        generation,
+        *,
+        result=None,
+        work_id=None,
+        queued_follow_up=False,
+        peer_key=None,
     ):
         if (
             generation != self.generation
@@ -694,6 +714,7 @@ class VoiceRelay:
             return
         self.delegate_token = secrets.token_hex(16)
         self.result_in_flight = work_id
+        self.peer_in_flight = peer_key
         response = {
             "instructions": (
                 "Speak the provided answer once, naturally, without greeting, internal "
@@ -704,6 +725,11 @@ class VoiceRelay:
             "tool_choice": "none",
             "metadata": {"integral_delegate": self.delegate_token},
         }
+        if peer_key is not None:
+            response["instructions"] += (
+                " This is an update from the text side of this same conversation. "
+                "Do not imply the caller just spoke or that you began a new task."
+            )
         if queued_follow_up:
             response[
                 "instructions"
@@ -736,6 +762,13 @@ class VoiceRelay:
                 self.protocol_counts["readout_unsent"] += 1
             else:
                 self.protocol_counts["readout_retry_pending"] += 1
+        if self.peer_in_flight is not None:
+            peer = self.peer_in_flight
+            self.peer_silent[peer] += 1
+            if self.peer_silent[peer] >= MAX_SILENT_READOUT_ATTEMPTS:
+                self.peer_readouts.pop(peer, None)
+                self.protocol_counts["peer_readout_unsent"] += 1
+        self.peer_in_flight = None
         self.result_in_flight = None
         self.readout_deadline = None
         self.readout_event_id = None
@@ -1214,6 +1247,13 @@ class VoiceRelay:
             if kind == "session.updated" and not self.ready:
                 await _bind_ready_thread(self.scope, self.check)
                 self.ready = True
+                self.conversation_ready.set()
+                try:
+                    async with asyncio.timeout(PEER_JOIN_SECONDS):
+                        await self.conversation_baselined.wait()
+                except TimeoutError:
+                    # Voice stays usable if the optional peer source is down.
+                    self.protocol_counts["peer_join_unavailable"] += 1
                 await self.browser.send_json(
                     {"type": "ready", "thread_id": self.scope.thread}
                 )
@@ -1271,6 +1311,7 @@ class VoiceRelay:
                     self.readout_deadline = None
                     self.readout_event_id = None
                     self.result_in_flight = None
+                    self.peer_in_flight = None
                     self.delegate_token = None
             elif kind == "input_audio_buffer.speech_started":
                 self.user_spoke = True
@@ -1294,6 +1335,7 @@ class VoiceRelay:
                     audio = base64.b64decode(event["delta"], validate=True)
                     if audio and len(audio) <= 96_000 and not len(audio) % 2:
                         delivered = None
+                        delivered_peer = None
                         if response_id == self.speech_only_response_id:
                             self.readout_deadline = (
                                 asyncio.get_running_loop().time()
@@ -1311,7 +1353,13 @@ class VoiceRelay:
                                     continue
                                 self.readout_audio_verified = True
                             delivered = self.result_in_flight
+                            delivered_peer = self.peer_in_flight
                         await self.browser.send_bytes(audio)
+                        if delivered_peer is not None:
+                            self.peer_readouts.pop(delivered_peer, None)
+                            if delivered_peer == self.peer_in_flight:
+                                self.peer_in_flight = None
+                            self.protocol_counts["peer_readout_sent"] += 1
                         if delivered:
                             self.result_receipts.pop(delivered, None)
                             if delivered == self.result_in_flight:
@@ -1590,14 +1638,18 @@ class VoiceRelay:
                 )
 
             if (
-                not (self.result_receipts or self.queued_successors)
+                not (
+                    self.result_receipts or self.queued_successors or self.peer_readouts
+                )
                 or not self._can_announce_result()
             ):
                 continue
             generation = self.generation
-            thread = await self.check(self.scope)
-            if thread is None:
-                continue
+            thread = None
+            if self.result_receipts or self.queued_successors:
+                thread = await self.check(self.scope)
+                if thread is None:
+                    continue
             for successor in tuple(self.queued_successors):
                 try:
                     async with asyncio.timeout(1):
@@ -1647,6 +1699,107 @@ class VoiceRelay:
                         queued_follow_up=receipt.queued_follow_up,
                     )
                 break
+            if (
+                generation == self.generation
+                and self.peer_readouts
+                and self._can_announce_result()
+            ):
+                peer, text = next(iter(self.peer_readouts.items()))
+                await self.check(self.scope)
+                if (
+                    generation == self.generation
+                    and peer in self.peer_readouts
+                    and self._can_announce_result()
+                ):
+                    await self._speak_result(generation, result=text, peer_key=peer)
+
+    @staticmethod
+    def _peer_readout(update) -> str | None:
+        """Turn authorized peer projections into bounded speech, not commands."""
+        if getattr(update, "source", None) != "typed":
+            return None
+        if update.kind == "attachments" and update.attachment_count > 0:
+            return "A file is attached in this conversation. You can check it in chat."
+        if update.kind != "message":
+            return None
+        if update.role == "user":
+            return "I see your typed message in this conversation."
+        if (
+            update.role == "assistant"
+            and isinstance(update.text, str)
+            and update.text.strip()
+        ):
+            text = update.text.strip()
+            suffix = (
+                " The full reply is in chat."
+                if len(text) > MAX_CHAT_EXCERPT_CHARS
+                else ""
+            )
+            return f"The chat reply says: {text[:MAX_CHAT_EXCERPT_CHARS]}{suffix}"
+        return None
+
+    async def _watch_peer_conversation(self) -> None:
+        """Subscribe once and re-read on committed wake, never polling chat history."""
+        await self.conversation_ready.wait()
+        pinned = self._thread_status_scope()
+        if not pinned[2]:
+            self.conversation_baselined.set()
+            return
+        subscribe, read = self.conversation_subscribe, self.conversation_snapshot
+        if subscribe is None or read is None:
+            from app.services.chat_conversation_updates import (
+                read_conversation_snapshot,
+                subscribe_conversation_updates,
+            )
+
+            subscribe = subscribe_conversation_updates
+            read = read_conversation_snapshot
+        subscription = subscribe(*pinned[:3])
+
+        async def snapshot(cursor):
+            async with asyncio.timeout(1):
+                # The shared snapshot reader authorizes stored scope itself.
+                # Provider and first-audio egress are independently rechecked.
+                result = await read(*pinned[:3], profile_key=pinned[3], cursor=cursor)
+                if self.closing or pinned != self._thread_status_scope():
+                    return None
+                return result
+
+        try:
+            try:
+                baseline = await snapshot(None)
+            except (ServiceUnavailableError, TimeoutError):
+                baseline = None
+            cursor = baseline.cursor if baseline is not None else None
+            self.conversation_baselined.set()
+            while not self.closing and pinned == self._thread_status_scope():
+                await subscription.wait()
+                try:
+                    update = await snapshot(cursor)
+                except (ServiceUnavailableError, TimeoutError):
+                    continue
+                if update is None:
+                    continue
+                previous, cursor = cursor, update.cursor
+                if update.gap:
+                    self.peer_readouts.clear()
+                    continue
+                if previous is None:
+                    continue
+                for row in update.updates:
+                    if len(self.peer_seen) >= MAX_PEER_READOUTS:
+                        break
+                    text = self._peer_readout(row)
+                    key = (row.message_id, row.kind)
+                    if text and key not in self.peer_seen:
+                        self.peer_seen.add(key)
+                        self.peer_readouts[key] = text
+        except (InsufficientPermissionsError, ResourceNotFoundError):
+            # The main authority watcher continues to own call revocation.
+            self.peer_readouts.clear()
+        finally:
+            self.conversation_baselined.set()
+            subscription.close()
 
     async def _watch_authority(self):
         while True:
@@ -1754,6 +1907,7 @@ class VoiceRelay:
                 self._watch_results,
             )
         ]
+        peer_task = asyncio.create_task(self._watch_peer_conversation())
         try:
             async with asyncio.timeout(MAX_CALL_SECONDS):
                 done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -1761,6 +1915,7 @@ class VoiceRelay:
                     task.result()
         finally:
             self.closing = True
+            tasks.append(peer_task)
             self.generation += 1
             if self.pending:
                 tasks.append(self.pending)
