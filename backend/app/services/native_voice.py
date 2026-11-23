@@ -638,6 +638,7 @@ class VoiceRelay:
         self.latest_queued_successor: str | None = None
         self.result_in_flight: str | None = None
         self.speaking = False
+        self.microphone_muted = False
         self.waiting_for_response = False
         self.user_reply_deadline: float | None = None
         self.quiet_since = 0.0
@@ -686,7 +687,25 @@ class VoiceRelay:
                 return
             raw_control = message.get("text")
             if raw_control is not None:
-                if not self.ready or raw_control != '{"type":"opening"}':
+                if not self.ready:
+                    raise ValueError("Invalid voice control frame")
+                if raw_control == '{"type":"microphone","muted":true}':
+                    if not self.microphone_muted:
+                        self.microphone_muted = True
+                        # No future silence frames will arrive to end an
+                        # unfinished utterance. Drop only uncommitted input;
+                        # do not cancel a response or already admitted work.
+                        if self.speaking:
+                            self.speaking = False
+                            self.waiting_for_response = False
+                            self.user_reply_deadline = None
+                            self.quiet_since = asyncio.get_running_loop().time()
+                        await self.send_event({"type": "input_audio_buffer.clear"})
+                    continue
+                if raw_control == '{"type":"microphone","muted":false}':
+                    self.microphone_muted = False
+                    continue
+                if raw_control != '{"type":"opening"}':
                     raise ValueError("Invalid voice control frame")
                 if not self.opening_requested:
                     self.opening_requested = True
@@ -700,6 +719,8 @@ class VoiceRelay:
                 or len(audio) % 2
             ):
                 raise ValueError("Invalid voice frame")
+            if self.microphone_muted:
+                continue
             await self.send_event(
                 {
                     "type": "input_audio_buffer.append",
@@ -1389,12 +1410,16 @@ class VoiceRelay:
                     self.peer_in_flight = None
                     self.delegate_token = None
             elif kind == "input_audio_buffer.speech_started":
+                if self.microphone_muted:
+                    continue
                 self.user_spoke = True
                 self.speaking = True
                 self.waiting_for_response = True
                 self.user_reply_deadline = None
                 await self._interrupt()
             elif kind == "input_audio_buffer.speech_stopped":
+                if self.microphone_muted:
+                    continue
                 self.speaking = False
                 self.quiet_since = asyncio.get_running_loop().time()
                 if self.waiting_for_response:
