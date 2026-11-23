@@ -9,6 +9,7 @@ from pydantic import TypeAdapter
 
 from app.agentive.harness.turn_input import thread_scope_key
 from app.api.errors import (
+    InsufficientPermissionsError,
     OperationTransactionUnavailableError,
     ResourceConflictError,
     ResourceNotFoundError,
@@ -27,6 +28,11 @@ from app.services.app_operations.transaction_scope import (
     postgres_graph_transaction,
 )
 from app.services.chat_turn_submissions import _submission_identity
+from app.services.chat_voice_fence import (
+    VoiceFollowUpFence,
+    is_workspace_voice_thread,
+    require_voice_workspace_role,
+)
 from app.services.credential_crypto import (
     decrypt_secret_from_storage,
     encrypt_secret_for_storage,
@@ -34,7 +40,20 @@ from app.services.credential_crypto import (
 from app.services.workspace_permissions import can_access_workspace
 
 _MAX_PENDING = 16
-_FOLLOW_UPS = TypeAdapter(list[ChatFollowUpRequest])
+
+
+class _StoredFollowUp(ChatFollowUpRequest):
+    """Encrypted worker input, never accepted by or serialized to the HTTP API."""
+
+    voice_origin: Literal[True] | None = None
+
+    def public_request(self) -> ChatFollowUpRequest:
+        return ChatFollowUpRequest.model_validate(
+            self.model_dump(exclude={"voice_origin"})
+        )
+
+
+_FOLLOW_UPS = TypeAdapter(list[_StoredFollowUp])
 
 
 async def _owned_scope(*, principal_id: str, workspace_id: str, thread_id: str) -> str:
@@ -57,7 +76,7 @@ def _inbox_id(scope_key: str) -> str:
     return f"o.HarnessFollowUpInbox.{scope_key}"
 
 
-def _decode(inbox_id: str, ciphertext: str) -> list[ChatFollowUpRequest]:
+def _decode(inbox_id: str, ciphertext: str) -> list[_StoredFollowUp]:
     return _FOLLOW_UPS.validate_json(
         decrypt_secret_from_storage(ciphertext, aad=inbox_id)
     )
@@ -70,7 +89,7 @@ def _disposition_id(scope_key: str, client_request_id: str) -> str:
 
 async def _lock_pending(
     transaction: Any, scope_key: str
-) -> tuple[list[ChatFollowUpRequest], str]:
+) -> tuple[list[_StoredFollowUp], str]:
     inbox_id = _inbox_id(scope_key)
     row = await transaction.find_one_and_update(
         "object",
@@ -86,11 +105,11 @@ async def _lock_pending(
 
 
 async def _save_pending(
-    transaction: Any, scope_key: str, pending: list[ChatFollowUpRequest]
+    transaction: Any, scope_key: str, pending: list[_StoredFollowUp]
 ) -> None:
     inbox_id = _inbox_id(scope_key)
     ciphertext = encrypt_secret_for_storage(
-        _FOLLOW_UPS.dump_json(pending).decode(), aad=inbox_id
+        _FOLLOW_UPS.dump_json(pending, exclude_none=True).decode(), aad=inbox_id
     )
     await transaction.find_one_and_update(
         "object",
@@ -113,10 +132,24 @@ async def accept_chat_follow_up(
     workspace_id: str,
     thread_id: str,
     request: ChatFollowUpRequest,
+    voice_fence: VoiceFollowUpFence | None = None,
 ) -> FollowUpStatus:
     """Commit a FIFO input independently of worker or browser lifetime."""
     if not graph_transaction_available():
         raise OperationTransactionUnavailableError()
+    if voice_fence is not None and (
+        voice_fence
+        != VoiceFollowUpFence(
+            principal_id, workspace_id, thread_id, request.after_work_item_id
+        )
+        or not request.after_work_item_id
+        or request.entity_refs
+    ):
+        raise ResourceConflictError(message="Invalid voice follow-up scope")
+    stored = _StoredFollowUp(
+        **request.model_dump(include=set(ChatFollowUpRequest.model_fields)),
+        voice_origin=True if voice_fence is not None else None,
+    )
     async with postgres_graph_transaction() as transaction:
         scope_key = await _owned_scope(
             principal_id=principal_id, workspace_id=workspace_id, thread_id=thread_id
@@ -141,6 +174,8 @@ async def accept_chat_follow_up(
             if predecessor is None:
                 raise ResourceNotFoundError(message="Chat turn not found")
             predecessor_status = predecessor["context"]["status"]
+            if voice_fence is not None:
+                await voice_fence.lock_current(transaction, predecessor)
 
         inbox_id = _inbox_id(scope_key)
         now = datetime.now(timezone.utc)
@@ -160,7 +195,7 @@ async def accept_chat_follow_up(
         receipt = await transaction.get("object", receipt_id)
         if receipt is not None:
             if _decode(receipt_id, receipt["context"]["payload_ciphertext"]) != [
-                request
+                stored
             ]:
                 raise ResourceConflictError(
                     message="Follow-up request ID already used for different content"
@@ -172,7 +207,7 @@ async def accept_chat_follow_up(
             )
         for prior in pending:
             if prior.client_request_id == request.client_request_id:
-                if prior != request:
+                if prior != stored:
                     raise ResourceConflictError(
                         message="Follow-up request ID already used for different content"
                     )
@@ -202,7 +237,7 @@ async def accept_chat_follow_up(
             return "promoted"
         if len(pending) >= _MAX_PENDING:
             raise ResourceConflictError(message="Follow-up queue is full")
-        await _save_pending(transaction, scope_key, [*pending, request])
+        await _save_pending(transaction, scope_key, [*pending, stored])
         if predecessor_status in {"failed", "cancelled", "expired", "dead_letter"}:
             await pause_follow_ups_after_failure(
                 transaction=transaction,
@@ -227,7 +262,10 @@ async def list_chat_follow_ups(
         or inbox["context"]["expires_at"] <= datetime.now(timezone.utc).isoformat()
     ):
         return []
-    return _decode(inbox_id, inbox["context"]["payload_ciphertext"])
+    return [
+        item.public_request()
+        for item in _decode(inbox_id, inbox["context"]["payload_ciphertext"])
+    ]
 
 
 def _matches_content(
@@ -269,6 +307,22 @@ async def consume_chat_follow_up(
             message="Turn content differs from the queued follow-up"
         )
 
+    if pending[0].voice_origin:
+        # Admission has already locked the exact ChatThread before reaching
+        # the inbox. Reject principal/profile changes and require the worker
+        # execution marker that suppresses typed approval authority.
+        thread_row = await transaction.get("node", submission.thread_id)
+        if (
+            not is_workspace_voice_thread(
+                thread_row, submission.principal_id, submission.workspace_id
+            )
+            or submission.execution_context is None
+            or submission.execution_context.extra_data.get("voice_delegate") is not True
+        ):
+            raise ResourceConflictError(message="Voice follow-up scope changed")
+        await require_voice_workspace_role(
+            submission.principal_id, submission.workspace_id
+        )
     await _save_pending(transaction, scope_key, pending[1:])
 
 
@@ -289,6 +343,10 @@ async def convert_chat_follow_up_to_steering(
     for index, follow_up in enumerate(pending):
         if follow_up.client_request_id != client_request_id:
             continue
+        if follow_up.voice_origin:
+            raise ResourceConflictError(
+                message="Spoken follow-ups cannot be converted into typed refinement"
+            )
         if follow_up.text != text or follow_up.entity_refs:
             raise ResourceConflictError(
                 message="Only matching text-only follow-ups can be steered"
@@ -303,7 +361,7 @@ async def convert_chat_follow_up_to_steering(
 async def _settle_pending(
     transaction: Any,
     scope_key: str,
-    pending: list[ChatFollowUpRequest],
+    pending: list[_StoredFollowUp],
     index: int,
     expires_at: str,
     disposition: Literal["steered", "dismissed"],
@@ -316,7 +374,8 @@ async def _settle_pending(
         expires_at=expires_at,
         disposition=disposition,
         payload_ciphertext=encrypt_secret_for_storage(
-            _FOLLOW_UPS.dump_json([follow_up]).decode(), aad=receipt_id
+            _FOLLOW_UPS.dump_json([follow_up], exclude_none=True).decode(),
+            aad=receipt_id,
         ),
     )
     await _save_pending(transaction, scope_key, pending[:index] + pending[index + 1 :])
@@ -452,20 +511,33 @@ async def promote_next_chat_follow_up(
             if not pending:
                 continue
             head = pending[0]
-            refs = await resolve_entity_refs(
-                head.text, head.entity_refs, thread.user_id, thread.workspace_id
-            )
-            track_id, app_id = focused_ids_from_resolved(refs.resolved)
             extra_data: dict[str, Any] = {}
-            if thread.agent_id:
-                extra_data["agent_id"] = thread.agent_id
-            if refs.resolved:
-                extra_data["entities_referenced"] = entities_referenced_payload(
-                    refs.resolved
+            context_blocks: list[str] = []
+            track_id = app_id = None
+            if head.voice_origin:
+                current = await get_default_context().database.get("node", thread.id)
+                if not is_workspace_voice_thread(
+                    current, thread.user_id, thread.workspace_id
+                ):
+                    continue
+                await require_voice_workspace_role(thread.user_id, thread.workspace_id)
+                # Match ordinary voice admission: no composer context,
+                # inferred entity references, or typed approval access.
+                extra_data["voice_delegate"] = True
+            else:
+                refs = await resolve_entity_refs(
+                    head.text, head.entity_refs, thread.user_id, thread.workspace_id
                 )
-            context_blocks = [
-                wrap_injected_context("entity_refs", refs.context_preamble or "")
-            ]
+                track_id, app_id = focused_ids_from_resolved(refs.resolved)
+                if thread.agent_id:
+                    extra_data["agent_id"] = thread.agent_id
+                if refs.resolved:
+                    extra_data["entities_referenced"] = entities_referenced_payload(
+                        refs.resolved
+                    )
+                context_blocks.append(
+                    wrap_injected_context("entity_refs", refs.context_preamble or "")
+                )
             if fields.get("resumed_after_interruption", False):
                 context_blocks.append(
                     "[SYSTEM:FOLLOW-UP-AFTER-INTERRUPTION]\n"
@@ -501,7 +573,11 @@ async def promote_next_chat_follow_up(
                     from_follow_up_queue=True,
                 )
             )
-        except (ResourceConflictError, ResourceNotFoundError):
+        except (
+            InsufficientPermissionsError,
+            ResourceConflictError,
+            ResourceNotFoundError,
+        ):
             # A competing worker/foreground turn or live scope change won.
             # Admission and inbox consumption roll back together.
             continue

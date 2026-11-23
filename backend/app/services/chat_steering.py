@@ -24,6 +24,7 @@ from app.services.app_operations.transaction_scope import (
     postgres_graph_transaction,
 )
 from app.services.chat_followups import convert_chat_follow_up_to_steering
+from app.services.chat_voice_fence import VoiceFollowUpFence
 from app.services.credential_crypto import (
     decrypt_secret_from_storage,
     encrypt_secret_for_storage,
@@ -43,7 +44,11 @@ def _decode(inbox_id: str, ciphertext: str) -> dict[str, str]:
 
 
 async def accept_steering_correction(
-    work_item_id: str, principal_id: str, request: SteeringCorrectionRequest
+    work_item_id: str,
+    principal_id: str,
+    request: SteeringCorrectionRequest,
+    *,
+    voice_fence: VoiceFollowUpFence | None = None,
 ) -> dict[str, str]:
     """Serialize acceptance with cancellation and terminal WorkItem transitions."""
     if not graph_transaction_available():
@@ -63,6 +68,10 @@ async def accept_steering_correction(
         if row is None:
             raise ResourceNotFoundError(message="Chat turn not found")
         fields = row["context"]
+        if voice_fence is not None:
+            if request.from_follow_up_queue:
+                raise ResourceConflictError(message="Invalid voice refinement")
+            await voice_fence.lock_current(transaction, row, steering=True)
         thread = await ChatThread.get(fields["thread_id"])
         if (
             thread is None

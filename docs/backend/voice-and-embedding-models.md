@@ -121,6 +121,25 @@ Spoken acknowledgments and model tool calls do not authorize a decision.
 Ending a call does not
 cancel a pending approval. This pilot does not enable phone or WhatsApp voice.
 
+
+### Durable continuation boundary
+
+The server-side continuation adapter supports one explicit next request in the
+normal chat follow-up queue, or an explicit refinement of the current, still
+steerable voice-origin task. It does not change a typed worker's permissions,
+implicitly convert a new request into a refinement, or replay a previous task.
+A queued receipt is not a running or completed task. An accepted refinement is
+not proof a worker applied it. Following an interrupted task, the normal
+review-and-resume rule still governs the queue.
+
+This adapter is for the default workspace assistant. Selected staff profiles use
+a different execution path, so continuing work there requires separate profile
+revision and steering support. Observer or deployment wiring must explicitly
+opt in. Before a rollback to a build without this storage contract, disable
+new voice continuation intake and finish or dismiss pending spoken follow-ups
+in the supported build. Older workers reject the encrypted voice-marked queue
+instead of stripping its no-voice-approval provenance.
+
 ## Invariants preserved
 
 - I-GRAPH-01/02: choices live in a singleton WorkspaceModelConfiguration node
