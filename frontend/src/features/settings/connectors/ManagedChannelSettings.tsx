@@ -93,6 +93,16 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   const assignedEligible = assignedProfile !== undefined;
   const canEnable = channel?.connected && channel.can_enable && (!hasProfileAssignment || assignedEligible);
   const canEditProfile = profile?.editable === true && channel?.state !== 'active';
+  const configuringWebChat = channel?.connected && channel.definition.slug === 'public_web_chat';
+  const currentPublication = channel?.connected && channel.state === 'active' && profile &&
+    profile.provision_id === channel.provision_id && profile.route_epoch === channel.route_epoch &&
+    assignedEligible && profile.profile_key && profile.published_version &&
+    Number.isSafeInteger(profile.published_version) && profile.published_version > 0
+    ? { profileKey: profile.profile_key, publishedVersion: profile.published_version }
+    : null;
+  const currentShareSource = currentPublication && !busy && !confirmingRemove && shareSource &&
+    shareSource.scope.principalId === principalId && shareSource.scope.workspaceId === workspaceId
+    ? shareSource : null;
 
   async function retryProfileCheck() {
     try {
@@ -223,8 +233,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
               ) : webChatDraft && !confirmingRemove ? (
                 <div className="flex flex-col items-start gap-2">
                   <Text as="p" variant="body-sm" tone="muted">
-                    Web Chat is added but not live. You can save a published public profile now.
-                    Pairing and publishing require a ready host.
+                    Web Chat is added but not live. You can save an eligible published public profile while hosting setup is pending.
                   </Text>
                   {profile && (
                     <Text as="p" variant="body-sm">
@@ -267,14 +276,28 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                   )}
                 </>
               )}
-              {shareSource && channel.connected && channel.state === 'active' &&
-                  shareSource.scope.principalId === principalId && shareSource.scope.workspaceId === workspaceId &&
-                  profile && profile.provision_id === channel.provision_id && profile.route_epoch === channel.route_epoch &&
-                  assignedEligible && profile.profile_key && profile.published_version &&
-                  !busy && !confirmingRemove && (
-                <ManagedChannelShareControl channel={channel} source={shareSource}
-                  profileRevision={profile.profile_revision}
-                  publication={{ profileKey: profile.profile_key, publishedVersion: profile.published_version }} />
+              {configuringWebChat && !confirmingRemove && (
+                <div className="flex flex-col gap-2">
+                  <Text as="h3" variant="body-sm" weight="semibold">Publishing and sharing</Text>
+                  <Text as="p" variant="body-sm" tone="muted">
+                    Hosting and publishing belong to this Web Chat connector. There is no separate connector to install.
+                  </Text>
+                  <Text as="p" variant="body-sm" tone="muted">
+                    {channel.state !== 'active'
+                      ? channel.can_enable
+                        ? 'Hosting is ready, but Web Chat is not live. Full-page links, embed code and API access are not available yet.'
+                        : 'Hosting readiness is not confirmed. No full-page link, embed code or API access is available here.'
+                      : !currentPublication
+                        ? 'Sharing details require a verified current published public profile.'
+                        : currentShareSource
+                          ? 'Check the full-page link below. No verified embed code or API access details are available here.'
+                          : 'No verified full-page link, embed code or API access details are available here.'}
+                  </Text>
+                </div>
+              )}
+              {currentShareSource && currentPublication && profile && channel.connected && (
+                <ManagedChannelShareControl channel={channel} source={currentShareSource}
+                  profileRevision={profile.profile_revision} publication={currentPublication} />
               )}
               {confirmingRemove && (
                 <Text as="p" variant="body-sm">Remove this channel from the workspace? It will no longer receive messages here.</Text>
