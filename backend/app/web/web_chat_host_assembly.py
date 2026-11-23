@@ -24,6 +24,7 @@ from app.connectors.channel_packages import (
     ChannelScope,
     ChannelServingStatus,
 )
+from app.models.nodes import WorkspaceConnectionProfiles
 from app.schemas.agentive.connection_profiles import PublicWebChatRoute
 from app.web.full_page_chat import is_canonical_web_chat_origin
 from app.web.full_page_chat_composition import compose_full_page_web_chat
@@ -90,7 +91,14 @@ async def _managed_route(
     if provision.connector_kind != SLUG:
         return None
     record = await profile_management.record(provision.workspace_id)
-    if record is None:
+    return managed_route_from_record(provision, record)
+
+
+def managed_route_from_record(
+    provision: ExternalChatProvision, record: WorkspaceConnectionProfiles | None
+) -> ManagedWebChatHostRoute | None:
+    """Project an already owner-verified workspace profile-settings record."""
+    if provision.connector_kind != SLUG or record is None:
         return None
     policy = PublicWebChatRoute.model_validate(record.public_web_chat)
     if policy.provision_id != provision.provision_id or policy.profile_key is None:

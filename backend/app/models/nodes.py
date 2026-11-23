@@ -336,6 +336,8 @@ class WorkspaceConnectionProfiles(Node):
     bindings: Dict[str, Any] = Field(default_factory=dict)
     native_chat_profiles: List[str] = Field(default_factory=list)
     public_web_chat: Dict[str, Any] = Field(default_factory=dict)
+    # Private, independently validated authoring facts, never a workspace ACL.
+    public_profile_service_identities: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkspaceEmailConfiguration(Node):

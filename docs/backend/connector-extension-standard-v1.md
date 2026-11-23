@@ -104,10 +104,14 @@ reviewed standalone assets, PostgreSQL and explicit inference/budget ports.
 Optional embed and service-client route groups have distinct approved HTTPS
 origins and explicitly separate host readiness, policy/credentials and budgets.
 Neither is automatically mounted or activated. An approved transport also
-requires the exact current service identity for its published profile via a
-trusted authorization port. Identity replacement must invalidate the route
-epoch before any visitor can reuse an old session. This contract does not map
-profile identities itself or add server-side grant management.
+requires the exact current durable service identity for its published profile,
+resolved from the workspace-owned profile record. Any optional host authority
+can only narrow that result. The runtime rereads both the assignment and
+identity after host checks; neither is passed to visitors or model prompts.
+The identity binds to the publication, so a publication change invalidates
+old full-page, embed, and service-client authority. Adopting a service identity
+for an enabled Web Chat route first requires explicit Disable. This runtime
+does not add resource grants or server-side grant management.
 
 This is a trusted in-process composition hook. It does not change the v1
 third-party installed-distribution entry point, which still discovers a
