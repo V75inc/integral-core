@@ -35,6 +35,7 @@ export interface ManagedChannelProfileConfiguration extends ManagedChannelGenera
   kind: 'published-public-profile-v1';
   profile_revision: number;
   published_version?: number;
+  full_page_share_check_available?: true;
   profile_key: string | null;
   eligible_profiles: Array<{key: string; name: string}>;
   editable: boolean;
@@ -106,7 +107,7 @@ function decodeListing(value: unknown): ManagedChannel[] {
   });
 }
 
-function decodeProfileConfiguration(value: unknown, generation: ManagedChannelGeneration): ManagedChannelProfileConfiguration {
+function decodeProfileConfiguration(value: unknown, slug: string, generation: ManagedChannelGeneration): ManagedChannelProfileConfiguration {
   const row = record(value);
   if (!row || row.kind !== 'published-public-profile-v1' ||
       row.provision_id !== generation.provision_id || row.route_epoch !== generation.route_epoch ||
@@ -123,13 +124,16 @@ function decodeProfileConfiguration(value: unknown, generation: ManagedChannelGe
     }
     profiles.set(choice.key, { key: choice.key, name: choice.name });
   }
+  const publishedVersion = row.profile_key !== null && profiles.has(row.profile_key) &&
+    typeof row.published_version === 'number' && Number.isSafeInteger(row.published_version) &&
+    row.published_version > 0 ? row.published_version : undefined;
   return {
     kind: row.kind,
     profile_revision: row.profile_revision,
     profile_key: row.profile_key,
-    ...(row.profile_key !== null && profiles.has(row.profile_key) &&
-      typeof row.published_version === 'number' && Number.isSafeInteger(row.published_version) &&
-      row.published_version > 0 ? { published_version: row.published_version } : {}),
+    ...(publishedVersion !== undefined ? { published_version: publishedVersion } : {}),
+    ...(slug === 'public_web_chat' && publishedVersion !== undefined && !row.editable && row.full_page_share_check_available === true
+      ? { full_page_share_check_available: true as const } : {}),
     eligible_profiles: [...profiles.values()],
     editable: row.editable,
     ...generation,
@@ -151,7 +155,7 @@ export const managedChannelsApi = {
     const response = await apiClient.get<unknown>(configurationPath(slug), {
       ...options, params: { ...options.params, ...generation }, signal,
     });
-    return decodeProfileConfiguration(response.data, generation);
+    return decodeProfileConfiguration(response.data, slug, generation);
   },
   async assignProfile(workspaceId: string, slug: string, generation: ManagedChannelGeneration,
     expectedProfileRevision: number, profileKey: string | null): Promise<void> {

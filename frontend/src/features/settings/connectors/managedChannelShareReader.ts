@@ -16,7 +16,7 @@ export const readManagedChannelShare: ManagedChannelShareReader = async (owner, 
   // Keep credentials only inside the existing session/client boundary. Compare
   // the captured token locally to reject even cross-tab credential changes.
   const token = getAccessToken();
-  if (signal.aborted || !token || !owner.principalId || !owner.sessionFence ||
+  if (signal.aborted || !token || !owner.principalId || owner.sessionFence !== String(generation) ||
       !owner.workspaceId || !owner.provisionId || !owner.routeEpoch ||
       !owner.publication?.profileKey || !Number.isSafeInteger(owner.publication.publishedVersion) ||
       owner.publication.publishedVersion < 1 ||

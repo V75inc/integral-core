@@ -898,6 +898,7 @@ function ScopedConnectorsSection({
         <ManagedChannelSettings
           selection={managedSelection}
           shareSource={currentConfiguredShare}
+          canReadPublishedShare={Boolean(principalId && principalId === myId && auth?.token && !auth.loading)}
           principalId={principalId}
           workspaceId={workspaceId}
           query={managed}
