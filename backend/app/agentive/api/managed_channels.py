@@ -5,6 +5,7 @@ from typing import Awaitable, TypeVar
 
 from fastapi import FastAPI, Request
 from jvspatial.api import endpoint
+from starlette.responses import JSONResponse
 
 from app.agentive.services.profile_management import require_profile_manager
 from app.api.errors import (
@@ -25,10 +26,12 @@ from app.connectors.channel_packages import (
     ChannelProfileSetup,
     ChannelScope,
 )
+from app.connectors.channel_share_check import mounted_share_check_available
 from app.schemas.agentive.managed_channels import (
     ManageChannelEnablement,
     ManageChannelProfileAssignment,
     ManageChannelProvision,
+    ManageChannelShareQuery,
 )
 from app.services.permissions import get_user_node
 from app.services.scope_header import parse_scope_header
@@ -253,7 +256,9 @@ def _profile_text(value: str) -> bool:
 @endpoint(
     f"{_PATH}/{{slug}}/configuration", methods=["GET"], auth=True, tags=["Agentive"]
 )
-async def get_managed_channel_configuration(request: Request, slug: str) -> dict:
+async def get_managed_channel_configuration(
+    request: Request, slug: str
+) -> JSONResponse:
     """Describe the one Core-supported optional setup at an exact provision."""
     scope = await _scope(request)
     package = _package(_registry(request), slug)
@@ -261,18 +266,46 @@ async def get_managed_channel_configuration(request: Request, slug: str) -> dict
     match = _provision_query(request)
     current = await _installation(package, scope, match)
     snapshot = await _configuration_snapshot(setup, scope, current)
+    share_available = (
+        current.enabled
+        and snapshot.profile_key is not None
+        and snapshot.published_version is not None
+        and await mounted_share_check_available(
+            request,
+            slug,
+            ManageChannelShareQuery(
+                workspace_id=scope.workspace_id,
+                provision_id=current.provision_id,
+                route_epoch=current.route_epoch,
+                profile_key=snapshot.profile_key,
+                published_version=snapshot.published_version,
+            ),
+        )
+    )
+    if (
+        share_available
+        and await _configuration_snapshot(setup, scope, current) != snapshot
+    ):
+        raise ResourceConflictError(
+            "Managed channel profile changed. Refresh and try again."
+        )
     if await _installation(package, scope, match) != current:
         raise ResourceConflictError("Managed channel changed. Refresh and try again.")
     await require_profile_manager(scope.actor_id, scope.workspace_id)
     projection = asdict(snapshot)
     if snapshot.published_version is None:
         projection.pop("published_version")
-    return {
-        "kind": PROFILE_CONFIGURATION,
-        **projection,
-        "provision_id": current.provision_id,
-        "route_epoch": current.route_epoch,
-    }
+    if share_available:
+        projection["full_page_share_check_available"] = True
+    return JSONResponse(
+        {
+            "kind": PROFILE_CONFIGURATION,
+            **projection,
+            "provision_id": current.provision_id,
+            "route_epoch": current.route_epoch,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @endpoint(
