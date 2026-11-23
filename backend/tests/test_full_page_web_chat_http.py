@@ -18,6 +18,8 @@ from app.web.full_page_chat import (
     create_full_page_web_chat_router,
 )
 
+pytestmark = pytest.mark.smoke
+
 ORIGIN = "https://visit.example.test"
 ROUTE = "/api/public/web-chat/Routed_opaque"
 COOKIE = "__Secure-integral_web_chat"

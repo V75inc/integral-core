@@ -25,7 +25,7 @@ from app.agentive.services.web_chat_profile_inference import (
     WebChatHistorySnapshot,
 )
 
-pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
+pytestmark = [pytest.mark.unit, pytest.mark.smoke, pytest.mark.asyncio]
 
 
 class _Store:
