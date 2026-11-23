@@ -249,3 +249,56 @@ async def test_durable_voice_completion_after_conversation_pause(
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await asyncio.wait_for(task, 3)
+
+
+async def test_realtime_tool_uses_canonical_queue_and_voice_steering(
+    authenticated_client, test_user, monkeypatch
+):
+    """One admitted spoken turn receives a separate queued job and a correction."""
+    from app.services.chat_followups import list_chat_follow_ups
+    from tests.test_native_voice_completion import _send_tool
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Detached voice WorkItems require PostgreSQL")
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "29" * 32)
+    response = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Isolated spoken follow-up"}
+    )
+    assert response.status_code == 200
+    ws = response.json()["workspace"]["id"]
+    me = test_user.user_id
+    thread = await create_thread(
+        user_id=me, workspace_id=ws, provider_id="integral_native"
+    )
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser, provider, native_voice.VoiceScope(me, ws, "", thread.id)
+    )
+    task = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        assert (await event(browser.outbox))["thread_id"] == thread.id
+        await _send_tool(provider, "delegate", "delegate")
+        assert "accepted" in (await event(provider.outbox))["item"]["output"]
+        accepted = relay.accepted
+        assert accepted is not None
+        for operation, expected in (
+            ("queue", "queued"),
+            ("steer", "has not confirmed"),
+        ):
+            await _send_tool(provider, operation, operation, operation)
+            closure = await event(provider.outbox)
+            assert closure["item"]["call_id"] == operation
+            assert expected in closure["item"]["output"]
+            assert (await event(provider.outbox))["response"]["tool_choice"] == "none"
+        [queued] = await list_chat_follow_ups(
+            principal_id=me, workspace_id=ws, thread_id=thread.id
+        )
+        assert queued.after_work_item_id == accepted.work_item_id
+        active = await WorkItem.get(f"o.WorkItem.{accepted.work_item_id}")
+        assert active.status == "queued" and not active.cancel_requested_at
+        assert relay.accepted == accepted
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await asyncio.wait_for(task, 3)
