@@ -90,6 +90,7 @@ def build_channel() -> ChannelPackage:
             "External test channel",
             "Synthetic fixture installed separately from Core.",
             "managed-text-v1",
+            install_scope="shared",
         ),
         ChannelLifecycle(observe, install, set_enabled, remove),
         ChannelServing(probe, receive),

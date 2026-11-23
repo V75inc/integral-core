@@ -458,8 +458,10 @@ catalogue projection for reads and successful changes:
 - `GET /` lists admitted packages. A known uninstalled package can be listed
   even when Add is not ready, but an unknown installation state cannot offer
   Add. Installed unavailable and disabled channels stay manageable.
-- `POST /{slug}/install` requires fresh readiness and creates a disabled
-  installation. It does not start serving.
+- `POST /{slug}/install` creates a disabled Workspace installation. Supply
+  `{"connection_mode":"shared"}` or omit the body; managed v1 rejects other
+  modes. Add requires current readiness unless the package explicitly supports
+  verified inactive setup. It never starts serving.
 - `PUT /{slug}/enabled` uses the exact installed provision and route epoch;
   enabling requires current readiness. Disabling does not.
 - `DELETE /{slug}` uses the same provision and route epoch in the query; an

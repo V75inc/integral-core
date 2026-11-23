@@ -61,7 +61,7 @@ a stale mutation.
 | Operation | Exact route and input |
 | --- | --- |
 | Discover | GET the collection. |
-| Add | POST /{slug}/install. Installs disabled and returns the fresh projection. |
+| Add | POST /{slug}/install with optional JSON `{"connection_mode":"shared"}`. An omitted body remains compatible; personal or unknown modes are rejected. Installs disabled and returns the fresh projection. |
 | Configure read | GET /{slug}/configuration with provision_id and route_epoch in the query. Only for packages with the optional typed setup. |
 | Configure assignment | PUT /{slug}/configuration with provision_id, route_epoch, profile_key (or null), and expected_profile_revision in JSON. |
 | Enable or disable | PUT /{slug}/enabled with provision_id, route_epoch and enabled in JSON. Enable requires current readiness; disable does not. |
@@ -84,8 +84,11 @@ grant ownership, and any required consent; never silently carry over old
 credentials or duplicate grants. Unsupported transitions must be rejected.
 This is a design requirement, not an implemented cross-kind move API.
 
-**Current boundaries:** managed-text v1 is workspace-only and singleton per
-workspace/slug. It has no binding conversion operation. Existing curated
+**Current boundaries:** managed-text v1 declares `definition.install_scope: "shared"`
+and is singleton per workspace and slug. Settings calls this **Workspace** and
+shows it as fixed at Add. This descriptor does not broaden access, change
+legacy installations, or provide per-user managed storage. There is no binding
+conversion operation. Existing curated
 connectors use their own per-user and workspace/shared flows and cardinality;
 Custom MCP also has its specialized installation rules. Native sync and MCP
 keep separate execution registries, credential rules and runtime grants.
