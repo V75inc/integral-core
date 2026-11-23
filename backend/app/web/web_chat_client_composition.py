@@ -11,7 +11,11 @@ from app.agentive.connectors.web_chat_turn_store import JvSpatialWebChatTurnStor
 from app.agentive.services.public_web_chat import PublicWebChatScope
 from app.agentive.services.web_chat_admission import VerifiedFullPageSession
 from app.agentive.services.web_chat_profile_inference import TextModel
-from app.web.web_chat_client_grants import PostgresWebChatClientGrants
+from app.web.web_chat_client_grants import (
+    CurrentAuthority,
+    PostgresWebChatClientGrants,
+    WebChatClientGrant,
+)
 from app.web.web_chat_client_http import (
     BoundClientSession,
     IssuedClientSession,
@@ -59,6 +63,7 @@ def compose_web_chat_client_api(
     sessions: PostgresWebChatClientSessions,
     request_budget: ClientRequestBudget,
     complete: TextModel,
+    assignment_ready: CurrentAuthority | None = None,
 ) -> APIRouter:
     """Use the existing text-only turn pipeline with no browser or staff fallback.
 
@@ -73,13 +78,19 @@ def compose_web_chat_client_api(
         or not isinstance(sessions, PostgresWebChatClientSessions)
         or not callable(request_budget)
         or not callable(complete)
+        or (assignment_ready is not None and not callable(assignment_ready))
     ):
         raise TypeError("Web Chat client API requires explicit trusted composition")
     store = JvSpatialWebChatTurnStore(database=database)
 
+    async def ready(grant: WebChatClientGrant) -> bool:
+        return (
+            assignment_ready is None or await assignment_ready(grant.assignment) is True
+        )
+
     async def start(grant_bearer: str) -> IssuedClientSession | None:
         grant = await grants.current(grant_bearer)
-        if grant is None:
+        if grant is None or not await ready(grant):
             return None
         issued = await sessions.open(grant)
         if issued is None or issued.session.grant != grant:
@@ -90,20 +101,28 @@ def compose_web_chat_client_api(
             return None
 
         async def current() -> bool:
-            return await sessions.current(
-                issued.secret
-            ) == issued.session and await grants.is_current(grant)
+            return (
+                await sessions.current(issued.secret) == issued.session
+                and await grants.is_current(grant)
+                and await ready(grant)
+            )
 
         return IssuedClientSession(issued.secret, ttl, current)
 
     async def bind(session_bearer: str) -> BoundClientSession | None:
         exact = await sessions.current(session_bearer)
-        if exact is None or not await grants.is_current(exact.grant):
+        if (
+            exact is None
+            or not await grants.is_current(exact.grant)
+            or not await ready(exact.grant)
+        ):
             return None
         visitor = _visitor(exact)
 
         async def current() -> bool:
-            return await sessions.current(session_bearer) == exact
+            return await sessions.current(session_bearer) == exact and await ready(
+                exact.grant
+            )
 
         async def metered(operation: Operation) -> bool:
             return await request_budget(operation, exact)

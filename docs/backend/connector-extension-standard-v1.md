@@ -101,8 +101,13 @@ that registrar registers package metadata only. The approved host explicitly
 mounts each route group at the correct trust boundary. The full-page option
 requires canonical origin, current platform attestation and host readiness,
 reviewed standalone assets, PostgreSQL and explicit inference/budget ports.
-Embed and service-client adapters remain separate and are not activated by this
-full-page contribution.
+Optional embed and service-client route groups have distinct approved HTTPS
+origins and explicitly separate host readiness, policy/credentials and budgets.
+Neither is automatically mounted or activated. An approved transport also
+requires the exact current service identity for its published profile via a
+trusted authorization port. Identity replacement must invalidate the route
+epoch before any visitor can reuse an old session. This contract does not map
+profile identities itself or add server-side grant management.
 
 This is a trusted in-process composition hook. It does not change the v1
 third-party installed-distribution entry point, which still discovers a

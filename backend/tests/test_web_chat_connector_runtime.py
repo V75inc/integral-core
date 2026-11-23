@@ -12,7 +12,7 @@ def test_management_only_default_contributes_exact_package_and_no_routes():
     runtime = compose_web_chat_connector()
     registry = ChannelPackageRegistry()
     routes = register_channel_runtime(registry, runtime.contribution)
-    assert routes.management == routes.visitor == ()
+    assert routes.management == routes.visitor == routes.isolated == ()
     with pytest.raises(ValueError):
         register_channel_runtime(registry, runtime.contribution)
     assert registry.resolve("public_web_chat") is runtime.contribution.package
