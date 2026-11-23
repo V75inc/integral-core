@@ -101,6 +101,25 @@ describe('managed channel transport', () => {
       .resolves.toMatchObject({ profile_revision: 9, published_version: 2 });
   });
 
+  it('admits only an exact managed Web Chat full-page check capability without copying URL material', async () => {
+    const generation = { provision_id: 'p1', route_epoch: 'e2' };
+    const wire = { ...generation, kind: 'published-public-profile-v1', profile_revision: 9,
+      profile_key: 'p', eligible_profiles: [{ key: 'p', name: 'A profile' }], editable: false,
+      published_version: 2, full_page_share_check_available: true, full_page_url: 'https://fixture.invalid/chat/hidden' };
+    vi.mocked(apiClient.get).mockResolvedValue({ data: wire });
+    const exact = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation);
+    expect(exact).toMatchObject({ published_version: 2, full_page_share_check_available: true });
+    expect(exact).not.toHaveProperty('full_page_url');
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'different_channel', generation))
+      .resolves.not.toHaveProperty('full_page_share_check_available');
+    for (const partial of [{ published_version: undefined }, { profile_key: 'other' }, { editable: true },
+      { full_page_share_check_available: false }, { full_page_share_check_available: 'true' }]) {
+      vi.mocked(apiClient.get).mockResolvedValue({ data: { ...wire, ...partial } });
+      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+        .resolves.not.toHaveProperty('full_page_share_check_available');
+    }
+  });
+
   it('does not turn an invalid response into a successful empty listing', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {} });
     await expect(managedChannelsApi.list('workspace')).rejects.toThrow('Invalid managed channel listing');
