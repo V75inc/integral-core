@@ -93,3 +93,18 @@ identity, rereads managed state, and never takes a browser-supplied key,
 assignment, or origin. On remove, reconcile the retired provision to retire
 its stored reference. Generic normalized event dispatch is not a substitute
 for the cookie-bound browser ingress.
+
+The connector-owned runtime can contribute a management-only package (no
+routes) or a reviewed full-page package with separate authenticated share and
+visitor document/API routers. Both use the same generic contribution registrar;
+that registrar registers package metadata only. The approved host explicitly
+mounts each route group at the correct trust boundary. The full-page option
+requires canonical origin, current platform attestation and host readiness,
+reviewed standalone assets, PostgreSQL and explicit inference/budget ports.
+Embed and service-client adapters remain separate and are not activated by this
+full-page contribution.
+
+This is a trusted in-process composition hook. It does not change the v1
+third-party installed-distribution entry point, which still discovers a
+pure package and never mounts any runtime. Hosts mount only the separate route
+groups returned after successful catalogue registration.

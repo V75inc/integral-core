@@ -14,6 +14,11 @@ from app.agentive.connectors.external_chat import ExternalChatProvision
 from app.agentive.services import profile_management
 from app.agentive.services.web_chat_package import SLUG
 from app.agentive.services.web_chat_request_budget import WebChatBudgetPolicy
+from app.connectors.channel_packages import ChannelPackageRegistry
+from app.connectors.channel_runtime import (
+    ChannelRuntimeContribution,
+    register_channel_runtime,
+)
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import Workspace
 
@@ -43,6 +48,7 @@ class _FixturePlatform:
     def __init__(self, workspace):
         self.workspace = workspace
         self.approved = set()
+        self.host_up = True
 
     async def install_ready(self, workspace):
         # Administrative setup must work without an available public host.
@@ -110,42 +116,60 @@ async def detached_delivery(
     database = create_database(db_type="postgres")
     try:
         await database.get("object", "o.missing")
-        assembled = assemble_web_chat_host(
-            database=database,
-            platform=platform,
-            complete=complete_text,
-            budget_policy=WebChatBudgetPolicy(60, 80, 80, 60, 60, 30, 30, 16),
-            budget_timeout_seconds=2.0,
-            max_parallel_budget_acquisitions=2,
-        )
-        state_key = "integral_managed_channel_registry"
-        monkeypatch.setattr(app.state, state_key, None, raising=False)
-        delattr(app.state, state_key)
-        install_managed_channel_registry(app, assembled.registry)
-        monkeypatch.setattr(app.router, "routes", list(app.router.routes))
-        app.include_router(assembled.share_router)
-        visitor_app = FastAPI()
-        visitor_app.include_router(assembled.browser_router)
+        budget = WebChatBudgetPolicy(60, 80, 80, 60, 60, 30, 30, 16)
         assets = None
         if directory is not None:
-            from app.web.web_chat_page_shell import (
-                StandaloneWebChatAssets,
-                create_web_chat_page_shell_router,
+            from app.web.web_chat_connector_runtime import (
+                WebChatServingConfiguration,
+                compose_web_chat_connector,
             )
+            from app.web.web_chat_page_shell import StandaloneWebChatAssets
 
             assets = StandaloneWebChatAssets.from_vite_build(Path(directory).resolve())
 
             async def host_ready(origin):
-                return origin == ORIGIN
+                return origin == ORIGIN and platform.host_up
 
-            visitor_app.include_router(
-                create_web_chat_page_shell_router(
+            assembled = compose_web_chat_connector(
+                WebChatServingConfiguration(
                     served_origin=ORIGIN,
                     host_ready=host_ready,
-                    page_context=assembled.page_context,
+                    platform=platform,
+                    database=database,
                     assets=assets,
+                    complete=complete_text,
+                    budget=budget,
+                    budget_timeout_seconds=2.0,
+                    max_parallel_budget_acquisitions=2,
                 )
             )
+            contribution = assembled.contribution
+        else:
+            assembled = assemble_web_chat_host(
+                database=database,
+                platform=platform,
+                complete=complete_text,
+                budget_policy=budget,
+                budget_timeout_seconds=2.0,
+                max_parallel_budget_acquisitions=2,
+            )
+            contribution = ChannelRuntimeContribution(
+                assembled.registry.resolve(SLUG),
+                (assembled.share_router,),
+                (assembled.browser_router,),
+            )
+        registry = ChannelPackageRegistry()
+        mountable = register_channel_runtime(registry, contribution)
+        state_key = "integral_managed_channel_registry"
+        monkeypatch.setattr(app.state, state_key, None, raising=False)
+        delattr(app.state, state_key)
+        install_managed_channel_registry(app, registry)
+        monkeypatch.setattr(app.router, "routes", list(app.router.routes))
+        for router in mountable.management:
+            app.include_router(router)
+        visitor_app = FastAPI()
+        for router in mountable.visitor:
+            visitor_app.include_router(router)
         async with AsyncClient(
             transport=ASGITransport(app=visitor_app),
             base_url=ORIGIN,
@@ -288,6 +312,17 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
         "Synthetic reply 2",
     ]
     assert calls == [first["text"], second["text"]]
+
+    if with_document:
+        platform.host_up = False
+        assert (await visitor.get(share.json()["full_page_url"])).status_code == 404
+        assert (await visitor.post(session, json={"mode": "resume"})).status_code == 404
+        assert (await visitor.post(messages, json=second)).status_code == 404
+        assert (
+            await owner.get(share_path, headers=headers, params=share_query(enabled))
+        ).status_code == 404
+        assert len(calls) == 2
+        platform.host_up = True
 
     disabled = _row(
         await owner.put(

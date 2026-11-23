@@ -8,6 +8,7 @@ from app.agentive.services.web_chat_provision_store import (
 )
 from app.connectors.channel_packages import (
     ChannelInstallation,
+    ChannelPackage,
     ChannelPackageRegistry,
     ChannelScope,
     ChannelServingStatus,
@@ -30,6 +31,12 @@ class _ManagementOnlyHost:
         raise ProfileDenied("Web Chat serving is not configured")
 
 
+def build_web_chat_management_package() -> ChannelPackage:
+    """Construct disabled-only workspace setup with no public transport ports."""
+    host = _ManagementOnlyHost()
+    return ManagedWebChatPackage(ProfileRouteWebChatProvisionStore(host), host).package
+
+
 def register_web_chat_management(registry: ChannelPackageRegistry) -> None:
     """Opt an existing registry into workspace-owned disabled Web Chat setup.
 
@@ -40,7 +47,4 @@ def register_web_chat_management(registry: ChannelPackageRegistry) -> None:
     """
     if not isinstance(registry, ChannelPackageRegistry):
         raise TypeError("A managed channel package registry is required")
-    host = _ManagementOnlyHost()
-    registry.register(
-        ManagedWebChatPackage(ProfileRouteWebChatProvisionStore(host), host).package
-    )
+    registry.register(build_web_chat_management_package())
