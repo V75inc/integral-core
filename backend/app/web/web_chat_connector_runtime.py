@@ -319,6 +319,7 @@ def compose_web_chat_connector(
             management_routes=tuple(management),
             visitor_routes=(shell, hosted.browser_router),
             isolated_routes=tuple(isolated),
+            visitor_origin=serving.served_origin,
         ),
         reconcile=hosted.reconcile,
         page_context=hosted.page_context,
