@@ -1,0 +1,445 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://integral.dev/schemas/integral-connector-v1.schema.json",
+  "title": "Integral connector manifest v1 (proposed)",
+  "description": "connector.yaml for a drop-in connector package. Proposed contract (ADR 018); no loader enforces it yet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "publisher", "name", "description", "trust", "binding", "capabilities"],
+  "properties": {
+    "schema": { "const": "integral.connector/v1" },
+    "id": {
+      "description": "Stable catalogue identifier. Must equal the package folder name. Never reuse a retired id.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,62}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "publisher": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,62}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 400 },
+    "icon": { "description": "Relative path to an SVG or PNG inside the package.", "$ref": "#/$defs/relativePath" },
+    "core": {
+      "description": "Compatible Integral Core versions, as a PEP 440 specifier.",
+      "type": "string"
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier"],
+      "properties": {
+        "tier": {
+          "description": "declarative: manifest only, Core executes everything. trusted: in-process Python adapter, signature required. remote: out-of-process adapter over the remote protocol.",
+          "enum": ["declarative", "trusted", "remote"]
+        },
+        "adapter": {
+          "description": "trusted tier only: module:attribute inside the package adapter/ directory.",
+          "type": "string",
+          "pattern": "^adapter(\\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "remote": {
+          "description": "remote tier only.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["protocol", "base_url"],
+          "properties": {
+            "protocol": { "const": "integral.connector.remote/v1" },
+            "base_url": { "$ref": "#/$defs/template" }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "tier": { "const": "trusted" } } }, "then": { "required": ["adapter"], "not": { "required": ["remote"] } } },
+        { "if": { "properties": { "tier": { "const": "remote" } } }, "then": { "required": ["remote"], "not": { "required": ["adapter"] } } },
+        { "if": { "properties": { "tier": { "const": "declarative" } } }, "then": { "not": { "anyOf": [{ "required": ["adapter"] }, { "required": ["remote"] }] } } }
+      ]
+    },
+    "binding": {
+      "description": "Who an installation belongs to. Independent of capability kind.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopes"],
+      "properties": {
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["workspace", "personal"] }
+        },
+        "cardinality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workspace": { "enum": ["one", "many"], "default": "one" },
+            "personal": { "enum": ["one", "many"], "default": "many" }
+          }
+        }
+      }
+    },
+    "configuration": {
+      "description": "Fields rendered by Core's shared settings renderer for Add and Configure.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/field" }
+    },
+    "auth": { "$ref": "#/$defs/auth" },
+    "http": {
+      "description": "Defaults for every declarative request. The host always comes from base_url.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url"],
+      "properties": {
+        "base_url": { "$ref": "#/$defs/template" },
+        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 10 },
+        "max_response_bytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "default": 262144 }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "actions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/action" } },
+        "mcp": { "$ref": "#/$defs/mcp" },
+        "sync": { "$ref": "#/$defs/sync" },
+        "channel": { "$ref": "#/$defs/channel" }
+      }
+    },
+    "health": {
+      "description": "Readiness probe. Enable requires a passing probe against the current configuration revision.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request"],
+      "properties": {
+        "request": { "$ref": "#/$defs/request" },
+        "expect_status": { "type": "array", "items": { "type": "integer", "minimum": 200, "maximum": 399 }, "default": [200] }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "trust": { "properties": { "tier": { "const": "declarative" } } },
+          "capabilities": {
+            "anyOf": [
+              { "required": ["actions"] },
+              { "required": ["sync"], "properties": { "sync": { "required": ["source"] } } },
+              { "required": ["channel"], "properties": { "channel": { "properties": { "mode": { "const": "webhook" } } } } }
+            ]
+          }
+        }
+      },
+      "then": { "required": ["http"] }
+    },
+    {
+      "if": {
+        "required": ["capabilities"],
+        "properties": { "capabilities": { "required": ["mcp"], "properties": { "mcp": { "properties": { "transport": { "const": "stdio" } } } } } }
+      },
+      "then": { "properties": { "trust": { "properties": { "tier": { "const": "trusted" } } } } }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+    },
+    "template": {
+      "description": "String that may reference {{config.<key>}}, {{input.<key>}} or {{cursor}}. Secrets are never templated; they are injected only by the auth block.",
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "\\{\\{\\s*secret\\." }
+    },
+    "jsonPath": { "type": "string", "pattern": "^\\$" },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "type"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "help": { "type": "string", "maxLength": 400 },
+        "type": { "enum": ["string", "text", "url", "secret", "number", "boolean", "select"] },
+        "required": { "type": "boolean", "default": false },
+        "default": {},
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "label"],
+            "properties": { "value": { "type": "string" }, "label": { "type": "string" } }
+          }
+        },
+        "egress": {
+          "description": "url fields only. public: loopback/private/link-local hosts refused. trusted_host: operator INTEGRAL_OUTBOUND_TRUSTED_HOSTS entry required.",
+          "enum": ["public", "trusted_host"],
+          "default": "public"
+        },
+        "scope": { "description": "Restrict a field to one binding scope.", "enum": ["workspace", "personal"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "secret" } } }, "then": { "not": { "required": ["default"] } } },
+        { "if": { "properties": { "type": { "const": "select" } } }, "then": { "required": ["options"] } },
+        { "if": { "not": { "properties": { "type": { "const": "url" } } } }, "then": { "not": { "required": ["egress"] } } }
+      ]
+    },
+    "auth": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "none" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "secret", "inject"],
+          "properties": {
+            "type": { "const": "api_key" },
+            "secret": { "description": "Key of a configuration field of type secret.", "type": "string" },
+            "inject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["in", "name"],
+              "properties": {
+                "in": { "enum": ["header", "query"] },
+                "name": { "type": "string", "minLength": 1 },
+                "prefix": { "type": "string", "default": "" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "authorize_url", "token_url", "client"],
+          "properties": {
+            "type": { "const": "oauth2" },
+            "authorize_url": { "type": "string", "pattern": "^https://" },
+            "token_url": { "type": "string", "pattern": "^https://" },
+            "scopes": { "type": "array", "items": { "type": "string" } },
+            "extra_authorize_params": { "type": "object", "additionalProperties": { "type": "string" } },
+            "pkce": { "type": "boolean", "default": true },
+            "client": {
+              "description": "operator: client id/secret come from deployment configuration. installer: from secret configuration fields.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source"],
+              "properties": {
+                "source": { "enum": ["operator", "installer"] },
+                "id_field": { "type": "string" },
+                "secret_field": { "type": "string" }
+              }
+            }
+          }
+        },
+        {
+          "description": "MCP authorization: protected-resource and authorization-server discovery, dynamic client registration and PKCE, as defined by the MCP specification. mcp capability only.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "mcp_oauth" },
+            "scopes": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "description": "Credential supplied by the deployment, not the installer.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "env"],
+          "properties": {
+            "type": { "const": "operator" },
+            "env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" },
+            "inject": {
+              "description": "Required when a declarative request uses the credential.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["in", "name"],
+              "properties": {
+                "in": { "enum": ["header", "query"] },
+                "name": { "type": "string", "minLength": 1 },
+                "prefix": { "type": "string", "default": "" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "envValue": {
+      "description": "One environment variable for a stdio MCP server. Secrets and tokens are injected only through these typed references.",
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["value"], "properties": { "value": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["config"], "properties": { "config": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["secret"], "properties": { "secret": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["oauth"], "properties": { "oauth": { "enum": ["access_token", "refresh_token"] } } }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path"],
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "path": { "description": "Path appended to http.base_url; never a full URL.", "type": "string", "pattern": "^/" },
+        "query": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+        "headers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+        "body": { "description": "JSON body; string leaves may be templates." }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "effect", "input", "request"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,62}$" },
+        "title": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "effect": {
+          "description": "read runs directly after authorization; write always stages a review card.",
+          "enum": ["read", "write"]
+        },
+        "input": {
+          "description": "JSON Schema for the tool arguments (object).",
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "const": "object" } }
+        },
+        "request": { "$ref": "#/$defs/request" },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "select": { "$ref": "#/$defs/jsonPath" },
+            "max_items": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "effect": { "const": "read" } } }, "then": { "properties": { "request": { "properties": { "method": { "const": "GET" } } } } } }
+      ]
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport"],
+      "properties": {
+        "transport": { "enum": ["streamable_http", "stdio"] },
+        "url": { "$ref": "#/$defs/template" },
+        "command": {
+          "description": "stdio only; trusted tier only.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "env": {
+          "description": "stdio only. Environment passed to the server process; nothing else from Core's environment is inherited.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,62}$" },
+          "additionalProperties": { "$ref": "#/$defs/envValue" }
+        },
+        "read_only_tools": {
+          "description": "Tools that may run without review. Certify from a live tools/list; never trust the server's readOnlyHint at runtime.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "transport": { "const": "streamable_http" } } }, "then": { "required": ["url"], "not": { "anyOf": [{ "required": ["command"] }, { "required": ["env"] }] } } },
+        { "if": { "properties": { "transport": { "const": "stdio" } } }, "then": { "required": ["command"], "not": { "required": ["url"] } } }
+      ]
+    },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_type"],
+      "properties": {
+        "entry_type": { "description": "EntryType key materialized in the bound Track.", "type": "string" },
+        "interval_seconds": { "type": "integer", "minimum": 300, "default": 3600 },
+        "conflict_policy": { "enum": ["last_write_wins", "manual_resolve", "mirror_only"], "default": "mirror_only" },
+        "source": {
+          "description": "Declarative pull. Omit when a trusted/remote adapter implements sync.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request", "items"],
+          "properties": {
+            "request": { "$ref": "#/$defs/request" },
+            "items": { "$ref": "#/$defs/jsonPath" },
+            "paginate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["next_cursor"],
+              "properties": {
+                "next_cursor": { "$ref": "#/$defs/jsonPath" },
+                "max_pages": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 50 }
+              }
+            }
+          }
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["external_id", "title"],
+          "properties": {
+            "external_id": { "$ref": "#/$defs/jsonPath" },
+            "title": { "$ref": "#/$defs/jsonPath" },
+            "body": { "$ref": "#/$defs/jsonPath" },
+            "updated_at": { "$ref": "#/$defs/jsonPath" },
+            "fields": { "type": "object", "additionalProperties": { "$ref": "#/$defs/jsonPath" } }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "required": ["source"] }, "then": { "required": ["map"] } }
+      ]
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "description": "webhook: declarative signed inbound + outbound send. managed-text-v1: trusted/remote adapter implementing the ChannelPackage lifecycle.",
+          "enum": ["webhook", "managed-text-v1"]
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verify", "sender", "text"],
+          "properties": {
+            "verify": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scheme", "header", "secret"],
+              "properties": {
+                "scheme": { "enum": ["hmac_sha256"] },
+                "header": { "type": "string" },
+                "secret": { "description": "Key of a secret configuration field.", "type": "string" },
+                "max_skew_seconds": { "type": "integer", "minimum": 30, "maximum": 900, "default": 300 }
+              }
+            },
+            "event_id": { "$ref": "#/$defs/jsonPath" },
+            "sender": { "$ref": "#/$defs/jsonPath" },
+            "text": { "$ref": "#/$defs/jsonPath" }
+          }
+        },
+        "send": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request"],
+          "properties": { "request": { "$ref": "#/$defs/request" } }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "mode": { "const": "webhook" } } }, "then": { "required": ["ingress", "send"] } }
+      ]
+    }
+  }
+}

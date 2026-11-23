@@ -20,7 +20,7 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
-For independently packaged connectors, start with the [Connector Standard v1 and runnable managed-text example](backend/connector-extension-standard-v1.md).
+For independently packaged connectors, start with the [Connector Standard v1 and runnable managed-text example](backend/connector-extension-standard-v1.md). The proposed drop-in folder contract that will replace it is in [connector packages v1](platform/connector-extension-v1.md) (not implemented yet).
 
 Apps, Tracks and entry types can name an icon from a fixed list: see [App, Track and entry type icons](platform/app-icons.md).
 
