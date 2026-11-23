@@ -19,6 +19,8 @@ from app.agentive.services.web_chat_admission import (
     VerifiedFullPageSession,
 )
 
+pytestmark = pytest.mark.smoke
+
 
 @pytest.fixture
 def admitted(monkeypatch):

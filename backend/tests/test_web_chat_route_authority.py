@@ -15,6 +15,8 @@ from app.web.web_chat_route_authority import (
     WebChatRouteAuthority,
 )
 
+pytestmark = pytest.mark.smoke
+
 
 @pytest.fixture
 def route_authority(monkeypatch):
