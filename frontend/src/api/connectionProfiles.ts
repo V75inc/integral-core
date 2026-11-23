@@ -11,7 +11,13 @@ export interface ProfileCapability {
 export interface ProfileSettings {
   revision: number;
   workspace_assistant?: ChatAgentIdentity & { persona?: string };
-  profiles: Record<string, { draft: ProfileDraft; published?: ProfileDraft & { version: number }; test?: { offered: string[]; withheld: string[]; real_actions: number; simulated_calls: number } }>;
+  profiles: Record<string, {
+    draft: ProfileDraft;
+    published?: ProfileDraft & { version: number };
+    /** Verified exact published version; absent does not mean ready. */
+    service_identity_ready?: boolean;
+    test?: { offered: string[]; withheld: string[]; real_actions: number; simulated_calls: number };
+  }>;
   catalogue: Record<Audience, Record<string, ProfileCapability>>;
   connections: { id: string; label: string; audience: Audience; verification_path?: string; publish_assignable?: boolean }[];
   bindings: Record<string, string>;
@@ -44,9 +50,11 @@ export const connectionProfilesApi = {
     apiClient.put<ProfileSettings>('/workspace/agent-profiles/draft', { expected_revision: revision, key: draft.key, draft }, scope(workspace)).then(r => r.data),
   setNativeChatProfiles: (workspace: string, revision: number, profiles: string[]) =>
     apiClient.put<ProfileSettings>('/workspace/agent-profiles/native-chat', { expected_revision: revision, profiles }, scope(workspace)).then(r => r.data),
-  publish: (workspace: string, revision: number, key: string, offerInChat: boolean, connectionIds: string[]) =>
+  publish: (workspace: string, revision: number, key: string, offerInChat: boolean, connectionIds: string[],
+    enablePublicServiceIdentity?: true) =>
     apiClient.post<ProfileSettings>('/workspace/agent-profiles/publish', {
       expected_revision: revision, key, offer_in_workspace_chat: offerInChat, connection_ids: connectionIds,
+      ...(enablePublicServiceIdentity === true ? { enable_public_service_identity: true } : {}),
     }, scope(workspace)).then(r => r.data),
   action: (workspace: string, revision: number, key: string, action: 'test' | 'publish' | 'bind', connection_id?: string) => apiClient.post<ProfileSettings>(`/workspace/agent-profiles/${action}`, { expected_revision: revision, key, ...(connection_id ? { connection_id } : {}) }, scope(workspace)).then(r => r.data),
 };

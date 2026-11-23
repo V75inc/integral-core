@@ -393,3 +393,102 @@ it('only stages workspace chat availability until the first publication succeeds
   click('Publish profile');
   await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith('ws', 1, 'staff', true, []));
 });
+
+const toolFreePublic = { ...draft, tools: [] as string[] };
+const serviceIdentityCheckbox = () => screen.getByRole('checkbox', { name: 'Set up a service identity when publishing' });
+
+it('publishes a new public draft without provisioning anything unless explicitly opted in', async () => {
+  mocks.get.mockResolvedValue({ ...settings, profiles: { ...settings.profiles, public: { draft: toolFreePublic } } });
+  mocks.publish.mockResolvedValue({
+    ...settings, revision: 2,
+    profiles: { ...settings.profiles, public: {
+      draft: toolFreePublic, published: { ...toolFreePublic, version: 2 }, service_identity_ready: false,
+    } },
+  });
+  mount();
+  await open('Public');
+  selectTab('Publish');
+  expect(serviceIdentityCheckbox()).not.toBeChecked();
+  expect(screen.getByText(/does not grant workspace data access or make Web Chat live/)).toBeVisible();
+  click('Publish profile');
+  expect(await screen.findByText('Profile published.')).toBeVisible();
+  expect(screen.getByText('No service identity is ready for the published version.')).toBeVisible();
+  expect(mocks.publish).toHaveBeenCalledExactlyOnceWith('ws', 1, 'public', false, []);
+});
+
+it('allows deliberate legacy adoption even with an unchanged published version and reads back readiness', async () => {
+  const legacy = { draft: toolFreePublic, published: { ...toolFreePublic, version: 2 }, service_identity_ready: false };
+  mocks.get.mockResolvedValue({ ...settings, revision: 3, profiles: { ...settings.profiles, public: legacy } });
+  mocks.publish.mockResolvedValue({
+    ...settings, revision: 4,
+    profiles: { ...settings.profiles, public: { ...legacy,
+      published: { ...toolFreePublic, version: 4 }, service_identity_ready: true,
+    } },
+  });
+  mount();
+  await open('Public');
+  selectTab('Publish');
+  expect(screen.getByRole('button', { name: 'Publish profile' })).toBeDisabled();
+  expect(serviceIdentityCheckbox()).not.toBeChecked();
+  fireEvent.click(serviceIdentityCheckbox());
+  click('Publish and set up identity');
+  expect(mocks.publish).toHaveBeenCalledExactlyOnceWith('ws', 3, 'public', false, [], true);
+  expect(await screen.findByText('Profile published. Service identity is ready with no workspace data access.')).toBeVisible();
+  expect(screen.getByText(/Service identity ready for the published version/)).toBeVisible();
+  expect(screen.queryByRole('checkbox', { name: /set up a service identity/i })).not.toBeInTheDocument();
+});
+
+it('also allows first publication with opt-in but does not claim identity readiness without server proof', async () => {
+  mocks.get.mockResolvedValue({ ...settings, profiles: { ...settings.profiles, public: { draft: toolFreePublic } } });
+  mocks.publish.mockResolvedValue({
+    ...settings, revision: 2,
+    profiles: { ...settings.profiles, public: { draft: toolFreePublic, published: { ...toolFreePublic, version: 2 } } },
+  });
+  mount();
+  await open('Public');
+  selectTab('Publish');
+  fireEvent.click(serviceIdentityCheckbox());
+  click('Publish and set up identity');
+  expect(mocks.publish).toHaveBeenCalledExactlyOnceWith('ws', 1, 'public', false, [], true);
+  expect(await screen.findByText('Profile published. Service identity setup could not be verified.')).toBeVisible();
+  expect(screen.getByText('Service identity status is not verified for the published version.')).toBeVisible();
+});
+
+it('clears identity consent when the published revision changes or the editor closes', async () => {
+  const initial = { ...settings, revision: 3, profiles: { ...settings.profiles, public: {
+    draft: toolFreePublic, published: { ...toolFreePublic, version: 2 }, service_identity_ready: false,
+  } } };
+  mocks.get.mockResolvedValue(initial);
+  const { client } = mount();
+  await open('Public');
+  selectTab('Publish');
+  fireEvent.click(serviceIdentityCheckbox());
+  expect(serviceIdentityCheckbox()).toBeChecked();
+  await act(async () => {
+    client.setQueryData(['connection-profiles', 'ws'], { ...initial, revision: 4,
+      profiles: { ...initial.profiles, public: { ...initial.profiles.public, published: { ...toolFreePublic, version: 4 } } } });
+  });
+  await waitFor(() => expect(serviceIdentityCheckbox()).not.toBeChecked());
+  expect(screen.getByRole('button', { name: 'Publish profile' })).toBeDisabled();
+  fireEvent.click(serviceIdentityCheckbox());
+  click('Close');
+  await open('Public');
+  selectTab('Publish');
+  expect(serviceIdentityCheckbox()).not.toBeChecked();
+  expect(mocks.publish).not.toHaveBeenCalled();
+});
+
+it('never offers identity setup for installed tools or a workspace-only profile', async () => {
+  mount();
+  await open('Public');
+  selectTab('Publish');
+  expect(screen.getByText('Remove tools and save the draft before setting up a service identity.')).toBeVisible();
+  expect(screen.queryByRole('checkbox', { name: /set up a service identity/i })).not.toBeInTheDocument();
+  click('Close');
+  await open('Staff');
+  selectTab('Publish');
+  expect(screen.queryByRole('region', { name: 'Service identity' })).not.toBeInTheDocument();
+  mocks.publish.mockResolvedValue(settings);
+  click('Publish profile');
+  await waitFor(() => expect(mocks.publish).toHaveBeenCalledExactlyOnceWith('ws', 1, 'staff', false, []));
+});
