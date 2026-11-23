@@ -72,7 +72,17 @@ async def test_metadata_partial_and_duplicate_package_never_change_registration(
         registry.register(
             replace(package, definition=replace(package.definition, version=2))
         )
+    for invalid_scope in ("per_user", "workspace", None):
+        with pytest.raises(ValueError, match="Invalid managed channel"):
+            registry.register(
+                replace(
+                    package,
+                    definition=replace(package.definition, install_scope=invalid_scope),
+                )
+            )
+        assert registry.resolve(package.definition.slug) is None
     registry.register(package)
+    assert package.definition.install_scope == "shared"
     conflicting = replace(package, serving=replace(package.serving, probe=AsyncMock()))
     with pytest.raises(ValueError, match="already registered"):
         registry.register(conflicting)
