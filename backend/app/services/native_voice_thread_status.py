@@ -44,7 +44,7 @@ class _ReviewProof:
     request_hash: str = field(repr=False)
 
     @classmethod
-    def from_proposal(cls, data, scope):
+    def from_proposal(cls, data, scope) -> "_ReviewProof | None":
         token = data.get("token")
         kind = data.get("kind")
         payload = data.get("payload")
