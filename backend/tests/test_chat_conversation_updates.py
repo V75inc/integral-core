@@ -21,7 +21,17 @@ pytestmark = pytest.mark.smoke
 
 
 async def _thread_fixture():
+    from jvspatial.api.auth.models import User as AuthUser
+
     owner, outsider, workspace, _, _, _ = await rooted_graph()
+    # Both identities are real admitted participants, including when the
+    # PostgreSQL harness takes shared identity-admission locks.
+    for index, profile in enumerate((owner, outsider)):
+        auth = await AuthUser.create(
+            email=f"peer-voice-{index}@example.test", password_hash="fixture"
+        )
+        profile.user_id = auth.id
+        await profile.save()
     thread = await chat_threads.create_thread(
         user_id=owner.id,
         workspace_id=workspace.id,
