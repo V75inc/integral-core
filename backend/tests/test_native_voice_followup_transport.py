@@ -35,7 +35,11 @@ async def test_follow_up_disposition_is_explicit_and_never_falls_back(
     scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
     target = SimpleNamespace(fence=SimpleNamespace(work_item_id=active_id))
     resolve = AsyncMock(return_value=target if active_id else None)
-    route = AsyncMock(return_value=SimpleNamespace(status=result_status))
+    route = AsyncMock(
+        return_value=SimpleNamespace(
+            status=result_status, client_request_id="test-queue"
+        )
+    )
     if result_status is None and expected == "couldn't attach":
         route.side_effect = ResourceConflictError(message="private detail")
     monkeypatch.setattr(
@@ -93,7 +97,7 @@ async def test_spoken_follow_up_does_not_block_ordinary_conversation(monkeypatch
     async def route(_scope, _call_id, _text, *, target, operation, check):
         entered.set()
         await release.wait()
-        return SimpleNamespace(status="queued")
+        return SimpleNamespace(status="queued", client_request_id="test-queue")
 
     monkeypatch.setattr(native_voice_followups, "route_voice_follow_up", route)
     scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
