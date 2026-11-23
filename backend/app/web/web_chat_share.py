@@ -15,6 +15,7 @@ from app.agentive.services.profile_management import require_profile_manager
 from app.agentive.services.web_chat_package import SLUG
 from app.api.errors import InsufficientPermissionsError, MissingAuthenticationError
 from app.api.utils import resolve_principal_id
+from app.connectors.channel_share_check import bind_mounted_share_check
 from app.schemas.agentive.managed_channels import (
     ApprovedFullPageShare,
     ManageChannelShareQuery,
@@ -129,34 +130,46 @@ def create_managed_web_chat_share_router(
     if not callable(read_issued) or not callable(resolve_active_route):
         raise TypeError("Managed share requires explicit trusted read ports")
 
+    async def prove(
+        request: Request, slug: str, query: ManageChannelShareQuery
+    ) -> IssuedFullPageShare:
+        if slug != SLUG:
+            raise _Denied(404)
+        caller = await _manager(request, query.workspace_id)
+        provision = ExternalChatProvision(query.workspace_id, SLUG, query.provision_id)
+        epoch = query.route_epoch
+        publication = (query.profile_key, query.published_version)
+        issued = await read_issued(provision, epoch, publication)
+        if (
+            not isinstance(issued, IssuedFullPageShare)
+            or not is_web_chat_route_reference(issued.route_key)
+            or not isinstance(issued.full_page_url, str)
+        ):
+            raise _Denied(404)
+        route = await resolve_active_route(issued.route_key)
+        if not _matches(route, issued, provision, epoch, publication):
+            raise _Denied(404)
+        if await read_issued(provision, epoch, publication) != issued:
+            raise _Denied(404)
+        if await _manager(request, query.workspace_id) != caller:
+            raise _Denied(403)
+        if await resolve_active_route(issued.route_key) != route:
+            raise _Denied(404)
+        return issued
+
+    async def availability(
+        request: Request, slug: str, query: ManageChannelShareQuery
+    ) -> bool:
+        await prove(request, slug, query)
+        return True
+
     async def read_share(slug: str, request: Request) -> JSONResponse:
         status = 503
         try:
             if slug != SLUG:
                 raise _Denied(404)
             query = _query(request)
-            caller = await _manager(request, query.workspace_id)
-            provision = ExternalChatProvision(
-                query.workspace_id, SLUG, query.provision_id
-            )
-            epoch = query.route_epoch
-            publication = (query.profile_key, query.published_version)
-            issued = await read_issued(provision, epoch, publication)
-            if (
-                not isinstance(issued, IssuedFullPageShare)
-                or not is_web_chat_route_reference(issued.route_key)
-                or not isinstance(issued.full_page_url, str)
-            ):
-                raise _Denied(404)
-            route = await resolve_active_route(issued.route_key)
-            if not _matches(route, issued, provision, epoch, publication):
-                raise _Denied(404)
-            if await read_issued(provision, epoch, publication) != issued:
-                raise _Denied(404)
-            if await _manager(request, query.workspace_id) != caller:
-                raise _Denied(403)
-            if await resolve_active_route(issued.route_key) != route:
-                raise _Denied(404)
+            issued = await prove(request, slug, query)
             output = ApprovedFullPageShare(
                 **query.model_dump(), full_page_url=issued.full_page_url
             )
@@ -176,6 +189,7 @@ def create_managed_web_chat_share_router(
             {"kind": "unavailable"}, status_code=status, headers=_HEADERS
         )
 
+    bind_mounted_share_check(read_share, availability)
     router = BaseRouter()
     router.add_route(
         "/agentive/managed-channels/{slug}/share",

@@ -305,6 +305,8 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
         setup_path, headers=headers, params={**params, **_target(installed)}
     )
     assert config.status_code == 200, config.text
+    assert config.headers["cache-control"] == "no-store"
+    assert "full_page_share_check_available" not in config.json()
     assert config.json()["eligible_profiles"] == [
         {"key": PROFILE, "name": "Synthetic guide"}
     ]
@@ -407,6 +409,26 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     assert await assembled.reconcile(provision)
     assert _row(await owner.get(MANAGE, **options))["state"] == "active"
 
+    active_config_params = {**params, **_target(enabled)}
+    active_config = await owner.get(
+        setup_path, headers=headers, params=active_config_params
+    )
+    assert active_config.status_code == 200, active_config.text
+    assert active_config.headers["cache-control"] == "no-store"
+    assert active_config.json()["full_page_share_check_available"] is True
+    assert "full_page_url" not in active_config.json()
+    assert (
+        await second_user_client.get(
+            setup_path, headers=headers, params=active_config_params
+        )
+    ).status_code == 403
+    wrong_publication = await owner.get(
+        share_path,
+        headers=headers,
+        params={**share_query(enabled), "published_version": publication + 1},
+    )
+    assert wrong_publication.status_code == 404
+
     refused = await second_user_client.get(
         share_path, headers=headers, params=share_query(enabled)
     )
@@ -470,6 +492,10 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
         assert (
             await owner.get(share_path, headers=headers, params=share_query(enabled))
         ).status_code == 404
+        unready_config = await owner.get(
+            setup_path, headers=headers, params=active_config_params
+        )
+        assert "full_page_share_check_available" not in unready_config.json()
         assert len(calls) == 2
         platform.host_up = True
 
