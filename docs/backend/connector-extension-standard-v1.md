@@ -1,8 +1,120 @@
 # Integral Connector Standard v1
 
-**Status:** Accepted architecture and migration target. This is not a general production drop-in guarantee. The local conformance branch proved approved wheel discovery, the authenticated managed-channel lifecycle API, and the Settings contract in tests. Production trust, provider qualification, and migration of existing connectors remain separate gates.
+**Status:** Independent-wheel discovery, authenticated management and the
+managed-text v1 Settings contract are implemented and exercised in tests.
+The broader Connector Standard and migration queue remain architecture
+targets, not a general production drop-in guarantee. Artifact trust, provider
+qualification and migrations remain separate gates.
 
-## One product contract, multiple runtime adapters
+## Developer quickstart: installed managed-text v1
+
+Build and run the [independent sample wheel](../../examples/reference-managed-text-channel/README.md).
+It proves the adapter contract without a server, network, credentials or real provider.
+Its volatile fixture state is not durable or production-ready.
+
+- **Artifact and version.** The contract is managed-text-v1 with definition
+  version 1. Pin the distribution name and exact installed version separately
+  from that contract version; test compatibility against the reviewed Core build.
+  The wheel declares one canonical channel slug and one top-level module:factory
+  target under integral.managed_channels.v1. The synchronous, zero-argument
+  factory returns a complete ChannelPackage with asynchronous callbacks.
+- **Approve before loading.** The trusted operator independently verifies the
+  wheel's source, bytes and dependencies before installing it. At explicit
+  bootstrap, load_approved_channel_package accepts an ApprovedChannelDistribution
+  with the exact distribution, version, slug and factory. It rejects ambiguous,
+  shadowed, duplicate or incomplete packages and checks installed RECORD
+  ownership before import. These checks are not signature verification,
+  byte-integrity verification, a dependency resolver or a sandbox. Never use
+  browser request fields as approvals or import unreviewed Python into Core.
+- **Lifecycle.** Supply observe, disabled install, set_enabled and remove;
+  optionally provide can_install_inactive for authorized setup without serving
+  readiness. Store provision ID, route epoch and enabled state in the owning
+  service. Enforce singleton, fresh actor/workspace and exact instance/epoch at
+  commit. Advance the epoch when authority changes. The probe returns exact
+  ready, unavailable or accepting evidence; receive handles an independently
+  verified normalized event, not caller-supplied identity. Disable/remove must
+  remain possible during ingress failure without reviving old sessions.
+- **Scope and principals.** The authenticated management API resolves the
+  sign-in identity to the current Core actor, requires workspace owner/admin,
+  and matches X-Integral-Scope (ws:<workspace_id>) to the workspace query.
+  It passes the trusted actor/workspace pair as ChannelScope. Visitor identities,
+  provider principals and model service identities are not manager identities,
+  and never inherit staff access because a manager installed the connector.
+- **Settings.** List and mutation responses supply a redacted connector
+  definition, state, exact provision/epoch and Add/Configure/readiness flags.
+  Connected lists verified installations even when ingress is unavailable.
+  Optional ChannelProfileSetup supplies published-public-profile-v1:
+  eligible profile labels/keys, selected publication version, profile revision
+  and editability. Assign only an eligible existing publication to the exact
+  disabled provision and revision. Without this setup, render generic status,
+  enable/disable and remove only. Package-provided HTML, React, scripts,
+  arbitrary field schemas or secret readback are not supported.
+
+### Management API wire contract
+
+All operations below are relative to /api/agentive/managed-channels, with
+workspace_id in the query and X-Integral-Scope: ws:<workspace_id>. Take
+provision_id, route_epoch and profile revision from the last verified response,
+never from precomputed values. A conflict requires rereading; do not blindly retry
+a stale mutation.
+
+| Operation | Exact route and input |
+| --- | --- |
+| Discover | GET the collection. |
+| Add | POST /{slug}/install. Installs disabled and returns the fresh projection. |
+| Configure read | GET /{slug}/configuration with provision_id and route_epoch in the query. Only for packages with the optional typed setup. |
+| Configure assignment | PUT /{slug}/configuration with provision_id, route_epoch, profile_key (or null), and expected_profile_revision in JSON. |
+| Enable or disable | PUT /{slug}/enabled with provision_id, route_epoch and enabled in JSON. Enable requires current readiness; disable does not. |
+| Remove | DELETE /{slug} with provision_id and route_epoch in the query. |
+
+The [wire handlers](../../backend/app/agentive/api/managed_channels.py) and
+[package types](../../backend/app/connectors/channel_packages.py) are the
+source of truth. Configuration reads are no-store; neither the catalogue nor
+the configuration response is a share URL or credentials endpoint.
+
+### Binding scope is independent of connector kind
+
+**Cross-kind target:** channel, API, MCP and native sync describe what a
+connector does, not who its instance is bound to. A connector declares
+workspace-only, user-only or both and its cardinality. Install offers only the
+intersection of declared and requester-authorized scopes. Change a binding only
+when the adapter explicitly supports the transition and the actor authorizes it.
+Recheck source and destination authority, target cardinality, credential and
+grant ownership, and any required consent; never silently carry over old
+credentials or duplicate grants. Unsupported transitions must be rejected.
+This is a design requirement, not an implemented cross-kind move API.
+
+**Current boundaries:** managed-text v1 is workspace-only and singleton per
+workspace/slug. It has no binding conversion operation. Existing curated
+connectors use their own per-user and workspace/shared flows and cardinality;
+Custom MCP also has its specialized installation rules. Native sync and MCP
+keep separate execution registries, credential rules and runtime grants.
+An installed channel wheel cannot register a native-sync or MCP adapter.
+The reviewed MCP registry install source is not blanket stdio approval;
+the detached registry Browse panel is not mounted in standard Settings.
+
+### Explicit trusted host bootstrap
+
+The installed-wheel factory returns a ChannelPackage, not routers. The server
+does not scan packages or call the loader by default. Trusted bootstrap can
+install the registry into the authenticated Core app via
+install_managed_channel_registry. Separately reviewed in-process host code can
+build a ChannelRuntimeContribution and use register_channel_runtime to register
+the package and receive distinct management, visitor and isolated route groups.
+That registrar does not mount them or install or enable a workspace connector.
+The deployment owner explicitly places these groups behind the correct
+authentication and HTTPS origin boundaries; no stock ENV switch or public
+listener is supplied by the wheel. This is not a public SDK guarantee.
+
+The separate trusted host composition slice provides
+mount_trusted_channel_runtime for deliberate assembly before startup or OpenAPI
+generation. It takes a staff app and exact staff origin, and separate visitor
+apps keyed by every contributed origin. Route groups are validated and staged
+before publication to the catalogue. This helper is not called by the wheel
+loader or standard startup, does not establish DNS/TLS or proxy Host controls,
+and is not a public entry point or post-startup dynamic mount API.
+
+## One product contract, multiple runtime adapters (architecture target)
 
 A connector registers atomically. Core accepts the descriptor, typed setup and lifecycle contract, and implementation for every declared capability together or rejects the entire package. The definition is the source of truth for discovery. The owning service is the source of truth for each installation and its current authority. Sync, external MCP and inbound channels remain separate execution lanes; an adapter for one lane does not grant access in another.
 
@@ -84,15 +196,15 @@ router, visitor router, and a read-only page context lookup. Its trusted
 platform owner must provide approved HTTPS origin evidence for each observed
 assignment, including disabled pre-enable checks. That hosting evidence
 is not a prerequisite for disabled Add or Configure. No output is mounted or installed by constructing the assembly.
-After the durable assign commits, the trusted owner reconciles that provision
-before Enable. Enable advances the epoch; the owner reconciles the new epoch
-before any share, page or browser API is admitted. The same flow applies after
-republication or an approved origin change. The old route fails closed while
-the owner is reconciling. The private reconciler accepts only a provision
-identity, rereads managed state, and never takes a browser-supplied key,
-assignment, or origin. On remove, reconcile the retired provision to retire
-its stored reference. Generic normalized event dispatch is not a substitute
-for the cookie-bound browser ingress.
+On an explicitly configured serving host, a bounded post-commit attempt
+reconciles exact assignment and enablement. A disabled assignment can be prepared
+only with its own ready approval; enable advances the epoch and requires separate
+approval before serving. Disable and remove only retire references. Reads do
+not issue or repair references. After a miss or changed publication/origin, a
+trusted operator can explicitly reconcile the current provision after checking
+approval. The private operation rereads durable state and never accepts a
+browser-supplied key, profile, or origin. Generic normalized event dispatch
+does not replace the cookie-bound browser ingress.
 
 The connector-owned runtime can contribute a management-only package (no
 routes) or a reviewed full-page package with separate authenticated share and

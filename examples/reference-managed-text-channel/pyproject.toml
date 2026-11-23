@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "integral-external-channel-fixture"
+version = "1.0.0"
+description = "Synthetic Integral managed text channel developer example"
+requires-python = ">=3.11"
+
+[project.entry-points."integral.managed_channels.v1"]
+external_test_channel = "integral_external_channel_fixture:build_channel"
+
+[tool.setuptools]
+py-modules = ["integral_external_channel_fixture"]
