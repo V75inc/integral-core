@@ -415,9 +415,19 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         promoted = await promote_next_chat_follow_up({})
         assert promoted is not None and promoted.work_item_id != first.work_item_id
 
-        # No stale predecessor result when the latest admitted job is asserted.
+        # Saved chat text and the status of the latest admitted job are distinct.
         await _tool(
-            provider, "check-next", native_voice.CHECK_CHAT, {"view": "latest_chat"}
+            provider, "check-visible", native_voice.CHECK_CHAT, {"view": "latest_reply"}
+        )
+        await event(provider.outbox)
+        visible = (await event(provider.outbox))["response"]
+        assert "latest saved reply" in visible["instructions"]
+        assert earlier in visible["instructions"]
+        await finished_audio("check-visible-result", visible)
+
+        # Status should not fall back to that earlier result.
+        await _tool(
+            provider, "check-next", native_voice.CHECK_CHAT, {"view": "latest_task"}
         )
         await event(provider.outbox)
         check = (await event(provider.outbox))["response"]
