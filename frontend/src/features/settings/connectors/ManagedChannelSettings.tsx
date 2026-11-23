@@ -266,6 +266,12 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                         profile.profile_key ? 'The saved profile is no longer eligible.' : 'No profile saved yet.'}
                     </Text>
                   )}
+                  {profile?.editable && profile.eligible_profiles.length === 0 && (
+                    <Text as="p" variant="body-sm" tone="muted">
+                      In Agent Profiles, publish an eligible public profile with a service identity.
+                      Setting up the identity does not enable Web Chat or grant access to workspace data.
+                    </Text>
+                  )}
                   <Button type="button" variant="ghost" size="sm" disabled={busy}
                     onClick={() => void retryProfileCheck()}>Refresh setup status</Button>
                 </div>

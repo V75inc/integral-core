@@ -850,6 +850,7 @@ describe('<ConnectorsSection />', () => {
     expect(configure.getByText(/no separate connector to install/i)).toBeVisible();
     expect(configure.getByText(/hosting readiness is not confirmed/i)).toBeVisible();
     expect(configure.getByText('No profile saved yet.')).toBeVisible();
+    expect(configure.queryByText(/in agent profiles, publish/i)).not.toBeInTheDocument();
     expect(within(picker).getAllByRole('option').map(option => option.textContent))
       .toEqual(['No profile assigned', 'Public greeter']);
     expect(configure.queryByRole('button', { name: /enable|disable|pair|publish|embed|full.page/i })).not.toBeInTheDocument();
@@ -891,6 +892,8 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const picker = await screen.findByRole('combobox', { name: 'Published public profile' });
     expect(screen.getByText('No eligible published public profiles are available.')).toBeVisible();
+    expect(screen.getByText(/in agent profiles, publish an eligible public profile with a service identity/i)).toBeVisible();
+    expect(screen.getByText(/does not enable web chat or grant access to workspace data/i)).toBeVisible();
     expect(screen.getByText('The saved profile is no longer eligible.')).toBeVisible();
     expect(within(picker).getByRole('option', { name: 'Current profile is no longer eligible' })).toBeDisabled();
     expect(screen.queryByRole('option', { name: 'removed-profile' })).not.toBeInTheDocument();
