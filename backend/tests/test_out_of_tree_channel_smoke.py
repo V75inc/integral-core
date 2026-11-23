@@ -70,7 +70,13 @@ async def test_external_wheel_through_real_connector_routes(
         await request(
             "PUT", slug + "/enabled", json={**version, "enabled": False}, expected=409
         )
-        params.update({k: active[k] for k in ("provision_id", "route_epoch")})
+        active_version = {k: active[k] for k in ("provision_id", "route_epoch")}
+        disabled = await request(
+            "PUT", slug + "/enabled", json={**active_version, "enabled": False}
+        )
+        assert (disabled["state"], disabled["connected"]) == ("inactive", True)
+        assert disabled["route_epoch"] != active["route_epoch"]
+        params.update({k: disabled[k] for k in ("provision_id", "route_epoch")})
         removed = await request("DELETE", slug)
         assert (removed["state"], removed["action"], removed["connected"]) == (
             "registered",

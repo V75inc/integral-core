@@ -20,6 +20,8 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
+For independently packaged connectors, start with the [Connector Standard v1 and runnable managed-text example](backend/connector-extension-standard-v1.md).
+
 Apps, Tracks and entry types can name an icon from a fixed list: see [App, Track and entry type icons](platform/app-icons.md).
 
 All App authors follow the [App settings UI contract](platform/app-settings-ui.md):

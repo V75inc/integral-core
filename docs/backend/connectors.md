@@ -41,14 +41,15 @@ An installed, disabled channel can show **Configure** and enablement when ready;
 an installed outage can still show **Configure**, but must not offer enablement
 or sharing. An active channel requires a matching, accepting current provision.
 Full-page links are optional, server-issued HTTPS URLs and excluded from default
-discovery. An eventual API must authorize sharing separately.
+discovery. The separate share read must recheck manager and exact transport authority.
 
 Connector Library and Connected consume the same authenticated management
 projection. The generic frontend handles the versioned setup kind rather than
 a connector's slug; it does not evaluate package-supplied UI code or assets.
-Register a channel only after its hosted transport, installation and lifecycle
-are wired and qualified. The default host does not register Web Chat,
-Facebook or Signal.
+A reviewed management-only package may support inactive Add and Configure
+without a hosted transport. Serving requires a separately configured, ready
+host. Management-only registration does not activate routing. The standard
+server has no default Web Chat, Facebook or Signal package registration.
 
 An isolated qualification harness can explicitly load one installed
 distribution using the [approved package loader](../../backend/app/connectors/channel_package_discovery.py).
@@ -57,8 +58,9 @@ Pin the distribution's exact identity and version, the channel slug and the
 The loader validates unique metadata and the factory's installed ownership
 before import, then accepts only one complete matching package into the
 registry. There is no startup scan, installation, route mount or automatic
-workspace enablement. The separate first-party wheel in the tests is an
-in-memory, synthetic fixture, not a shipping connector.
+workspace enablement. The [independent sample wheel](../../examples/reference-managed-text-channel/README.md)
+is in-memory and synthetic, not a shipping connector. Native sync and curated
+MCP retain distinct installation and execution contracts.
 
 The [out-of-tree conformance test](../../backend/tests/test_out_of_tree_channel_smoke.py)
 builds the test wheel offline, explicitly loads it and exercises the actual
@@ -105,11 +107,11 @@ page remains unframeable. The preview has no catalogue entry or share URL in
 Settings.
 
 The managed route already records one eligible published public profile and a
-separate enabled flag. Product delivery still needs a trusted hosted adapter that
-supplies a server-issued visitor identity and checks the published profile,
-route generation, and enablement before every history read and turn. Hosted
-and embed must use that same route and policy. Real embeds also need explicit
-workspace-authorized origins and an origin-scoped frame policy. An inactive or
+separate enabled flag. Detached hosted adapters supply a server-issued visitor identity and recheck
+the publication, route generation, and enablement before history reads and
+turns. A deployment still needs explicit host readiness, approved origins and
+mounts. Embeds also require their own current origin and frame policy.
+An inactive or
 unassigned route must expose neither a link nor embed code.
 
 The detached [full-page visitor composition](../../frontend/src/features/public-web-chat/PublicWebChatPage.tsx)
@@ -134,10 +136,12 @@ inject the read control into standard Configure. It is opt-in, requires an
 active install and the same exact configuration's eligible published version
 (not its profile revision), and reads only after a user gesture. The read has
 no cache and is discarded when the session, selection, or publication changes.
-The default Settings composition does not inject this capability. A reviewed
-host can provide `managedChannelShareSource` to `SettingsPage`, scoped to the
-signed-in manager, selected workspace and `String(getSessionGeneration())`.
-Only the managed Configure dialog receives it. Embed policy remains separate.
+Standard Configure wires the Web Chat reader only when current server
+configuration supplies the exact full_page_share_check_available indicator
+and publication. A reviewed host can also supply a scoped
+managedChannelShareSource to SettingsPage. Embed controls require their own
+server-discovered approved_embed_policies. Neither reader mounts a route or
+authorizes new origins and neither makes an unconfigured host serve.
 
 The detached [public request budget](../../backend/app/agentive/services/web_chat_request_budget.py)
 requires an explicitly supplied PostgreSQL adapter and identical fixed-window

@@ -16,10 +16,13 @@ WHEEL_NAME = f"{DISTRIBUTION}-{VERSION}-py3-none-any.whl"
 
 def build(output: Path) -> Path:
     """Build a valid local wheel with an isolated entry point and RECORD."""
+    sample = (
+        Path(__file__).resolve().parents[4]
+        / "examples"
+        / "reference-managed-text-channel"
+    )
     modules = {
-        f"{DISTRIBUTION}.py": Path(__file__)
-        .with_name(f"{DISTRIBUTION}.py")
-        .read_bytes(),
+        f"{DISTRIBUTION}.py": (sample / f"{DISTRIBUTION}.py").read_bytes(),
         f"{METADATA_DIR}/METADATA": (
             "Metadata-Version: 2.1\n"
             "Name: integral-external-channel-fixture\n"
