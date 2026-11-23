@@ -102,8 +102,11 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
             native_voice.DELEGATE,
             native_voice.CHECK_CHAT,
             native_voice.FIND_CAPABILITY,
-            native_voice.QUEUE_FOLLOW_UP,
-            native_voice.STEER_ACTIVE,
+            *(
+                [native_voice.QUEUE_FOLLOW_UP, native_voice.STEER_ACTIVE]
+                if not profile
+                else []
+            ),
         ]
         await provider.inbox.put({"type": "session.updated"})
         assert (await event(browser.outbox))["thread_id"] == scope.thread

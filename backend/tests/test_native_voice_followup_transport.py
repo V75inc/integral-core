@@ -132,3 +132,66 @@ async def test_spoken_follow_up_does_not_block_ordinary_conversation(monkeypatch
         release.set()
         await browser.inbox.put({"type": "websocket.disconnect"})
         await task
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["queue", "steer"])
+async def test_selected_profile_does_not_advertise_or_accept_unavailable_continuations(
+    monkeypatch, operation
+):
+    """A stale legacy tool attempt cannot claim unsupported specialist work."""
+    resolve, route, delegate = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(
+        native_voice_followups, "resolve_voice_follow_up_target", resolve
+    )
+    monkeypatch.setattr(native_voice_followups, "route_voice_follow_up", route)
+    scope = native_voice.VoiceScope("caller", "workspace", "specialist", "thread")
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser, provider, scope, check=authorize, work=delegate
+    )
+    task = asyncio.create_task(relay.run())
+    try:
+        config = (await event(provider.outbox))["session"]
+        names = {tool["name"] for tool in config["tools"]}
+        assert names.isdisjoint(
+            {native_voice.QUEUE_FOLLOW_UP, native_voice.STEER_ACTIVE}
+        )
+        delegation = next(
+            tool for tool in config["tools"] if tool["name"] == native_voice.DELEGATE
+        )
+        allowed = delegation["parameters"]["properties"]["operation"]["enum"]
+        assert operation not in allowed
+        assert (
+            "does not support queuing or revising live work by voice"
+            in config["instructions"]
+        )
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await _send_tool(provider, "stale", "stale", operation)
+        output = (await event(provider.outbox))["item"]["output"]
+        assert "selected profile can't queue or revise live work by voice" in output
+        assert "didn't submit a follow-up or correction" in output
+        assert (await event(provider.outbox))["response"]["tool_choice"] == "none"
+        assert relay.protocol_counts[f"continuation_{operation}_requested"] == 1
+        assert relay.protocol_counts["continuation_unavailable_in_profile"] == 1
+        resolve.assert_not_awaited()
+        route.assert_not_awaited()
+        delegate.assert_not_awaited()
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await task
+
+
+@pytest.mark.smoke
+def test_workspace_assistant_advertises_intent_bound_continuations():
+    config = native_voice.session_update("")["session"]
+    tools = {tool["name"] for tool in config["tools"]}
+    assert {native_voice.QUEUE_FOLLOW_UP, native_voice.STEER_ACTIVE} <= tools
+    assert "After that, summarize my projects" in config["instructions"]
+    assert (
+        "changes that same task: call revise_active_integral_request"
+        in config["instructions"]
+    )
+    assert "rather than merely promising" in config["instructions"]
