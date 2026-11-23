@@ -9,6 +9,7 @@ from app.agentive.connectors.external_chat import (
     ExternalChatAssignment,
     ExternalChatProvision,
 )
+from app.agentive.services import profile_management
 from app.agentive.services.web_chat_package import SLUG
 from app.agentive.services.web_chat_profile_inference import TextModel
 from app.agentive.services.web_chat_request_budget import WebChatBudgetPolicy
@@ -38,8 +39,8 @@ from app.web.web_chat_embed_share import (
 from app.web.web_chat_host_assembly import (
     ManagedWebChatHostRoute,
     WebChatPlatform,
-    _managed_route,
     assemble_web_chat_host,
+    managed_route_from_record,
 )
 from app.web.web_chat_management_assembly import build_web_chat_management_package
 from app.web.web_chat_page_shell import (
@@ -93,7 +94,7 @@ class WebChatServingConfiguration:
     budget: WebChatBudgetPolicy
     budget_timeout_seconds: float
     max_parallel_budget_acquisitions: int
-    profile_authority: ProfileServingAuthority
+    profile_authority: ProfileServingAuthority | None = None
     embed: WebChatEmbedServingConfiguration | None = None
     client_api: WebChatClientServingConfiguration | None = None
 
@@ -120,16 +121,36 @@ async def _profile_ready(
     *,
     require_enabled: bool = True,
 ) -> bool:
-    # A transport-specific profile service identity is supplied by the host.
-    # Neither an authenticated manager nor a user's input can stand in for it.
-    current = await _managed_route(exact.provision)
-    return (
-        current is not None
-        and (current.enabled or not require_enabled)
-        and _assignment(current) == exact
-        and await config.profile_authority(transport, exact) is True
-        and await _managed_route(exact.provision) == current
-    )
+    async def snapshot():
+        record = await profile_management.record(exact.provision.workspace_id)
+        current = managed_route_from_record(exact.provision, record)
+        if (
+            record is None
+            or current is None
+            or (require_enabled and not current.enabled)
+            or _assignment(current) != exact
+        ):
+            return None
+        identity = profile_management.current_public_profile_service_identity(
+            record, current.profile_key, current.published_version
+        )
+        if (
+            identity is None
+            or identity.workspace_id != exact.provision.workspace_id
+            or identity.profile_key != current.profile_key
+            or identity.published_version != current.published_version
+        ):
+            return None
+        return current, identity
+
+    before = await snapshot()
+    if before is None:
+        return False
+    veto = config.profile_authority
+    if veto is not None and await veto(transport, exact) is not True:
+        return False
+    # Fail closed if durable acceptance changed while consulting the host.
+    return await snapshot() == before
 
 
 class _PinnedPlatform:
@@ -170,7 +191,10 @@ def compose_web_chat_connector(
         not isinstance(serving, WebChatServingConfiguration)
         or not is_canonical_web_chat_origin(serving.served_origin)
         or not callable(serving.host_ready)
-        or not callable(serving.profile_authority)
+        or (
+            serving.profile_authority is not None
+            and not callable(serving.profile_authority)
+        )
         or (
             serving.embed is not None
             and not isinstance(serving.embed, WebChatEmbedServingConfiguration)
