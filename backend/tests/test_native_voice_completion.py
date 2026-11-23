@@ -275,3 +275,81 @@ async def test_pending_completion_recovers_when_provider_neither_replies_nor_spe
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await call
+
+
+@pytest.mark.asyncio
+async def test_visible_admission_remains_watched_if_initial_status_is_unavailable(
+    monkeypatch,
+):
+    """An admitted turn may be visible in chat before voice can read its outcome."""
+    browser, provider = Browser(), Provider()
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    check = AsyncMock(return_value=SimpleNamespace(id=scope.thread))
+    submit = AsyncMock(
+        return_value=SimpleNamespace(work_item_id="admitted", message_id="user-message")
+    )
+    observed = AsyncMock(
+        side_effect=[
+            TimeoutError(),
+            ("unavailable", None),
+            ("succeeded", "Verified result from chat."),
+        ]
+    )
+    monkeypatch.setattr(native_voice, "authorize", check)
+    monkeypatch.setattr(native_voice, "_delegated_status", observed)
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.02)
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.01)
+    monkeypatch.setattr(native_voice, "RESULT_UNVERIFIED_BACKOFF_SECONDS", 0.02)
+
+    relay = native_voice.VoiceRelay(browser, provider, scope, check=check)
+    call = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await _send_tool(provider, "initial", "initial")
+        output = await event(provider.outbox)
+        assert "accepted" in output["item"]["output"]
+        assert relay.accepted.work_item_id == "admitted"
+        acknowledgment = await event(provider.outbox)
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "ack",
+                    "metadata": acknowledgment["response"]["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {"type": "response.done", "response": {"id": "ack", "status": "completed"}}
+        )
+        result = await event(provider.outbox)
+        assert "Verified result from chat." in result["response"]["instructions"]
+        assert relay.protocol_counts["durable_result_unverified"] == 1
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "terminal",
+                    "metadata": result["response"]["metadata"],
+                },
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "terminal",
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        assert relay.protocol_counts["durable_admitted"] == 1
+        assert relay.protocol_counts["durable_terminal_verified"] == 1
+        assert relay.protocol_counts["readout_sent"] == 1
+        assert relay.protocol_counts["delegate_operation_request"] == 1
+        submit.assert_awaited_once()
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await call

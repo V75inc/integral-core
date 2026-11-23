@@ -43,6 +43,7 @@ MAX_DELEGATIONS = 16
 OPENING_GRACE_SECONDS = 0.4
 RESULT_IDLE_SECONDS = 0.5
 RESULT_POLL_SECONDS = 1.0
+RESULT_UNVERIFIED_BACKOFF_SECONDS = 3.0
 USER_REPLY_GRACE_SECONDS = 1.5
 READOUT_PROGRESS_SECONDS = 4.0
 READOUT_AUTH_SECONDS = 1.0
@@ -314,7 +315,7 @@ def _speech_ready_result(result: str) -> str:
 
 
 async def delegate(
-    scope: VoiceScope, call_id: str, text: str, *, on_accepted=None
+    scope: VoiceScope, call_id: str, text: str, *, on_accepted=None, on_persisted=None
 ) -> str:
     """Submit durable native chat, then observe without owning its lifetime."""
     from app.schemas.agentive.work import (
@@ -342,6 +343,8 @@ async def delegate(
                     ),
                 )
             )
+            if on_persisted is not None:
+                on_persisted(receipt)
             notified = False
             while True:
                 status, result = await _delegated_status(scope, thread, receipt)
@@ -594,6 +597,8 @@ class VoiceRelay:
         self.accepted: _AcceptedVoiceTurn | None = None
         self.pending_accepted = False
         self.result_receipts: dict[str, _AcceptedVoiceTurn] = {}
+        self.observed_terminal_receipts: set[str] = set()
+        self.result_read_backoff: dict[str, float] = {}
         self.queued_successors: set[str] = set()
         self.latest_queued_successor: str | None = None
         self.result_in_flight: str | None = None
@@ -781,17 +786,27 @@ class VoiceRelay:
         acknowledged = False
         immediate_terminal = None
 
+        admitted = None
+
+        def on_persisted(receipt):
+            nonlocal admitted
+            admitted = _AcceptedVoiceTurn(
+                receipt.work_item_id, receipt.message_id, request
+            )
+            self.accepted = admitted
+            self.pending_accepted = True
+            self.latest_queued_successor = None
+            self.result_receipts[admitted.work_item_id] = admitted
+            self.protocol_counts["durable_admitted"] += 1
+
         async def on_accepted(receipt, status, result):
             nonlocal acknowledged, immediate_terminal
             await self.check(self.scope)
-            self.accepted = _AcceptedVoiceTurn(
-                receipt.work_item_id, receipt.message_id, request
-            )
-            self.pending_accepted = True
-            self.latest_queued_successor = None
-            self.result_receipts[self.accepted.work_item_id] = self.accepted
             if result is not None and status != "unavailable":
                 immediate_terminal = receipt.work_item_id
+                if immediate_terminal not in self.observed_terminal_receipts:
+                    self.observed_terminal_receipts.add(immediate_terminal)
+                    self.protocol_counts["durable_terminal_verified"] += 1
             if result is None and status != "waiting_for_human":
                 await self._function_output(
                     call_id,
@@ -802,7 +817,11 @@ class VoiceRelay:
         try:
             if self.work is delegate:
                 result = await self.work(
-                    self.scope, call_id, request, on_accepted=on_accepted
+                    self.scope,
+                    call_id,
+                    request,
+                    on_accepted=on_accepted,
+                    on_persisted=on_persisted,
                 )
             else:
                 result = await self.work(self.scope, call_id, request)
@@ -812,7 +831,11 @@ class VoiceRelay:
         except InsufficientPermissionsError:
             return
         except Exception:
-            result = "Integral could not finish the workspace request."
+            if admitted is not None:
+                self.protocol_counts["durable_observation_unavailable"] += 1
+                result = "Integral accepted the request. I could not verify its latest status yet."
+            else:
+                result = "Integral could not confirm the workspace request."
             try:
                 await self.check(self.scope)
             except InsufficientPermissionsError:
@@ -1236,6 +1259,9 @@ class VoiceRelay:
             await self.check(self.scope)
             self.seen.add(call_id)
             self.protocol_counts[name] += 1
+            operation = request.get("operation", "request")
+            if name == DELEGATE:
+                self.protocol_counts[f"delegate_operation_{operation}"] += 1
             await self._start_requested_work(
                 call_id, request["request"].strip(), request.get("operation", "request")
             )
@@ -1637,12 +1663,13 @@ class VoiceRelay:
                     generation, result="That quick lookup did not finish."
                 )
 
-            if (
-                not (
-                    self.result_receipts or self.queued_successors or self.peer_readouts
-                )
-                or not self._can_announce_result()
+            if not (
+                self.result_receipts or self.queued_successors or self.peer_readouts
             ):
+                continue
+            if not self._can_announce_result():
+                if self.result_receipts:
+                    self.protocol_counts["durable_readout_waiting_for_quiet"] += 1
                 continue
             generation = self.generation
             thread = None
@@ -1674,18 +1701,29 @@ class VoiceRelay:
             if generation != self.generation or not self._can_announce_result():
                 continue
             for key, receipt in tuple(self.result_receipts.items()):
+                if self.result_read_backoff.get(key, 0) > now:
+                    continue
                 try:
                     async with asyncio.timeout(1):
                         status, result = await _delegated_status(
                             self.scope, thread, receipt
                         )
-                except TimeoutError:
-                    continue
+                except InsufficientPermissionsError:
+                    raise
+                except Exception:
+                    status, result = "unavailable", None
                 if status == "unavailable":
-                    self.result_receipts.pop(key, None)
+                    self.protocol_counts["durable_result_unverified"] += 1
+                    self.result_read_backoff[key] = (
+                        now + RESULT_UNVERIFIED_BACKOFF_SECONDS
+                    )
                     continue
+                self.result_read_backoff.pop(key, None)
                 if result is None:
                     continue
+                if key not in self.observed_terminal_receipts:
+                    self.observed_terminal_receipts.add(key)
+                    self.protocol_counts["durable_terminal_verified"] += 1
                 await self.check(self.scope)
                 if (
                     key in self.result_receipts
