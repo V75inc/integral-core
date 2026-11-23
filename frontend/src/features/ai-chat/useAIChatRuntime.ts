@@ -2218,37 +2218,53 @@ export function useAIChatRuntime(
 
   const onCancel = useCallback(async () => {
     const threadId = activeThreadId;
-    if (!threadId || peekSessions()[threadId]?.cancellation === "pending") return;
-    const controller = peekSessions()[threadId]?.abortController;
-    const requestId = nextId("cancel");
+    const session = threadId ? peekSessions()[threadId] : undefined;
+    if (!threadId || session?.cancellation === "pending") return;
+    const controller = session?.abortController;
     const remoteTurn = getRemoteTurnsSnapshot()[threadId];
+    const target = session?.cancellationTarget ??
+      (controller && session?.steeringWorkItemId ? { work_item_id: session.steeringWorkItemId }
+        : !controller && remoteTurn?.turnId ? { turn_id: remoteTurn.turnId } : null);
+    const workspace = workspaceIdRef.current;
+    const principal = principalIdRef.current;
+    const requestId = nextId("cancel");
+    const serverOwned = provider.serverPersisted && !threadId.startsWith("local-");
     updateSession(threadId, { cancellation: "pending", cancellationRequestId: requestId,
-      activityText: "Stopping…", streamError: null });
-    const stillCurrent = () => peekSessions()[threadId]?.cancellationRequestId === requestId;
+      cancellationTarget: target, activityText: "Stopping…", streamError: null });
+    const stillCurrent = () => principalIdRef.current === principal &&
+      peekSessions()[threadId]?.cancellationRequestId === requestId;
     try {
-      if (provider.serverPersisted && !threadId.startsWith("local-")) {
-        await aiChatApi.cancelThread(threadId, peekSessions()[threadId]?.cancellationTarget,
-          target => { if (stillCurrent()) updateSession(threadId, { cancellationTarget: target }); });
-      }
+      const result = serverOwned
+        ? await aiChatApi.cancelThread(threadId, target,
+          observed => { if (stillCurrent()) updateSession(threadId, { cancellationTarget: observed }); })
+        : null;
       if (!stillCurrent()) return;
-      // Aborting only the SSE connection does not cancel durable backend work.
-      controller?.abort();
-      if (remoteTurn && getRemoteTurnsSnapshot()[threadId] === remoteTurn) {
+      // Close only the stream captured by this gesture, and only after verified
+      // cancellation. Its own finally path settles its assistant draft.
+      if ((result === null || result.cancelled) && peekSessions()[threadId]?.abortController === controller) {
+        controller?.abort();
+      }
+      if (remoteTurn && getRemoteTurnsSnapshot()[threadId] === remoteTurn &&
+          (result?.outcome === "no_active" ||
+            (result && "target" in result && result.target.turn_id === remoteTurn.turnId))) {
         markRemoteTurnFinished(threadId, remoteTurn.turnId);
       }
-      updateSession(threadId, (session) => ({
-        ...session, cancellation: null, cancellationTarget: null, cancellationRequestId: null, activityText: null,
-        messages: session.messages.map(message =>
-          message.role === "assistant" && message.status?.type === "running"
-            ? { ...message, status: { type: "incomplete", reason: "cancelled" } } : message),
-      }));
+      const status = result?.outcome === "no_active" ? "There is no active response to stop."
+        : result?.outcome === "settled" ? "The response already ended without a confirmed stop."
+        : result?.outcome === "not_confirmed" ? "Stop could not be confirmed. Check the current response before trying again."
+        : null;
+      updateSession(threadId, { cancellation: null, cancellationTarget: null, cancellationRequestId: null,
+        activityText: null, streamError: status });
       void refreshThreads();
+      if (serverOwned && workspace === workspaceIdRef.current && !peekStreamingThreadIds().includes(threadId)) {
+        void loadThread(threadId, true);
+      }
     } catch (error) {
       if (!stillCurrent()) return;
       updateSession(threadId, { cancellation: "failed", activityText: null,
         streamError: error instanceof Error ? error.message : "I couldn't stop this request. Please try Stop again." });
     }
-  }, [activeThreadId, provider.serverPersisted, updateSession, nextId, refreshThreads]);
+  }, [activeThreadId, provider.serverPersisted, updateSession, nextId, refreshThreads, loadThread]);
 
   const switchToNewThread = useCallback(() => {
     // An explicit choice wins over an initial list request still in flight.
