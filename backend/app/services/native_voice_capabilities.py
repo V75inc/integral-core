@@ -50,7 +50,7 @@ async def invoke_voice_read(
     records = response.data.get(meta.collection)
     if not isinstance(records, list):
         return None
-    labels = []
+    labels: list[str] = []
     visible = 0
     current = ""
     for row in records:

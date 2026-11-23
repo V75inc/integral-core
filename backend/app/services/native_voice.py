@@ -57,7 +57,7 @@ MAX_HISTORY_MESSAGES = 8
 _CHAT_VIEWS = ("latest_chat", "latest_reply", "latest_typed", "recent_history")
 _CHAT_STATUS_VIEWS = ("current_task", "latest_task")
 VOICE_FOLLOW_UP_OPERATIONS = ("queue", "steer")
-TOOL = {
+TOOL: dict = {
     "type": "function",
     "name": DELEGATE,
     "description": (
