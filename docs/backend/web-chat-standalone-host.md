@@ -54,6 +54,25 @@ that route first; future serving still requires explicit activation and a fresh
 authorized share. Per-app and per-track data grants are a separate feature,
 not part of the text-only release.
 
+### Full-page lifecycle reconciliation
+
+An explicitly composed serving host reconciles the exact committed Configure
+assignment or enablement. Assigning an already published profile can prepare a
+disabled route only after the platform approves that exact state. It does not
+publish a profile, enable the connector, or make a visitor page or share
+available. Enable still requires pre-enable readiness; its new epoch must
+separately have current host approval and serving readiness before it accepts
+traffic. Disable and removal retire prior references without issuing new ones.
+
+The post-commit attempt is bounded and does not roll back the saved settings.
+A route missing ready approval remains non-serving, even when enabled in
+settings. Read-only Configure, share checks, and visitor requests never repair
+or issue references. After checking current state and obtaining the required
+approval, the hosting operator can explicitly run the private host
+`reconcile(provision)` operation for the current state; retrying an old
+manager mutation is not recovery. A concurrent assignment, publication,
+disable or removal cannot make a stale reference serve.
+
 ## Partner-site embed policy and credentials
 
 The detached embed policy pins the exact provision, route epoch, published
