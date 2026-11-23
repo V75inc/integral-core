@@ -34,6 +34,7 @@ class ChannelDefinition:
     description: str
     setup_kind: Literal["managed-text-v1"]
     version: Literal[1] = 1
+    install_scope: Literal["shared"] = "shared"
 
 
 @dataclass(frozen=True)
@@ -180,6 +181,8 @@ def _validate_package(package: ChannelPackage) -> None:
         or type(definition.version) is not int
         or definition.version != 1
         or definition.setup_kind != "managed-text-v1"
+        or type(definition.install_scope) is not str
+        or definition.install_scope != "shared"
     ):
         raise ValueError("Invalid managed channel catalogue definition")
     if not isinstance(lifecycle, ChannelLifecycle) or not isinstance(

@@ -828,6 +828,8 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(addWebChat);
     const add = within(screen.getByRole('dialog', { name: 'Add Web Chat' }));
     expect(add.getByText(/does not publish a chat or turn on messaging/)).toBeVisible();
+    expect(add.getByText(/Connection scope: Workspace/)).toBeVisible();
+    expect(add.queryByRole('combobox')).not.toBeInTheDocument();
     fireEvent.click(add.getByRole('button', { name: 'Add channel' }));
     await waitFor(() => expect(screen.getByTestId('settings-hash')).toHaveTextContent('#connectors'));
     expect(screen.queryByRole('dialog', { name: 'Add Web Chat' })).not.toBeInTheDocument();

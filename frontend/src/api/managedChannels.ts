@@ -7,6 +7,7 @@ interface ManagedChannelDefinition {
   display_name: string;
   description: string;
   setup_kind: 'managed-text-v1';
+  install_scope?: 'shared'; // Older v1 servers omit the field but are still workspace-only.
   version: 1;
 }
 
@@ -76,10 +77,12 @@ function decode(value: unknown): ManagedChannel | undefined {
   const d = record(row?.definition);
   if (!row || !d || !nonempty(d.slug) || !/^[a-z][a-z0-9_]{0,63}$/.test(d.slug) ||
       !nonempty(d.provider) || !nonempty(d.display_name) || !nonempty(d.description) ||
-      d.setup_kind !== 'managed-text-v1' || d.version !== 1) return;
+      d.setup_kind !== 'managed-text-v1' || d.version !== 1 ||
+      (d.install_scope !== undefined && d.install_scope !== 'shared')) return;
   const definition: ManagedChannelDefinition = {
     slug: d.slug, provider: d.provider, display_name: d.display_name,
     description: d.description, setup_kind: d.setup_kind, version: d.version,
+    install_scope: d.install_scope ?? 'shared',
   };
   if (row.connected === false && row.state === 'registered' && row.action === 'add' &&
       row.provision_id == null && row.route_epoch == null) {
@@ -192,7 +195,7 @@ export const managedChannelsApi = {
     const url = `${path}/${encodeURIComponent(slug)}`;
     const options = config(workspaceId);
     if (change.kind === 'add') {
-      await apiClient.post(`${url}/install`, undefined, options);
+      await apiClient.post(`${url}/install`, { connection_mode: 'shared' }, options);
     } else if (change.kind === 'enabled') {
       await apiClient.put(`${url}/enabled`, { enabled: change.enabled, ...change.generation }, options);
     } else {

@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -208,6 +209,66 @@ async def test_managed_lifecycle_versioning_and_removal_with_transport_outage(
     [blocked] = removed.json()["channels"]
     assert blocked["state"] == "registered" and not blocked["can_install"]
     assert [verb for verb, _ in calls] == ["install", "enable", "disable", "remove"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [b"", b"{}", b'{"connection_mode":"shared"}'])
+async def test_workspace_scope_is_explicit_but_old_clients_still_install(
+    endpoint_fixture, body
+):
+    client, headers, params, state, calls = endpoint_fixture
+    [entry] = (await client.get(PATH, headers=headers, params=params)).json()[
+        "channels"
+    ]
+    assert entry["definition"]["install_scope"] == "shared"
+    assert not entry["connected"]
+    response = await client.post(
+        f"{PATH}/{SLUG}/install", headers=headers, params=params, content=body
+    )
+    assert response.status_code == 200, response.text
+    [installed] = response.json()["channels"]
+    assert installed["definition"]["install_scope"] == "shared"
+    assert installed["connected"] and installed["state"] == "inactive"
+    assert not state["installation"].enabled
+    assert [verb for verb, _ in calls] == ["install"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body, query",
+    [
+        (b'{"connection_mode":"per_user"}', {}),
+        (b'{"connection_mode":"another"}', {}),
+        (b'{"connection_mode":null}', {}),
+        (b'{"connection_mode":true}', {}),
+        (b'{"install_scope":"per_user"}', {}),
+        (b'{"connection_mode":"shared","workspace_id":"other"}', {}),
+        (b'{"connection_mode":"per_user","connection_mode":"shared"}', {}),
+        (b'{"connection_mode":"shared"', {}),
+        (b"null", {}),
+        (b"[]", {}),
+        (b" " * 257, {}),
+        (b"", {"connection_mode": "per_user"}),
+        (b"", {"install_scope": "personal"}),
+    ],
+)
+async def test_wrong_or_unknown_install_scope_is_denied_before_adapter(
+    endpoint_fixture, body, query, monkeypatch
+):
+    client, headers, params, state, calls = endpoint_fixture
+    describe = AsyncMock(side_effect=AssertionError("Wrong scope reached the adapter"))
+    monkeypatch.setattr(ChannelPackageRegistry, "describe_one", describe)
+    response = await client.post(
+        f"{PATH}/{SLUG}/install",
+        headers=headers,
+        params={**params, **query},
+        content=body,
+    )
+    assert response.status_code == 400, response.text
+    assert "Workspace connection scope" in response.text
+    describe.assert_not_awaited()
+    assert state["installation"] is None
+    assert calls == []
 
 
 @pytest.mark.asyncio
