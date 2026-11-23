@@ -31,7 +31,9 @@ TOOL = {
     "name": DELEGATE,
     "description": (
         "Send the requested workspace lookup or action to Integral so it can check "
-        "current capabilities and prepare supported changes for review. Pass the "
+        "current capabilities and prepare supported changes for review. Also use "
+        "this tool for an explicit request to recall what the caller typed or what "
+        "chat replied in this same Integral conversation. Pass the "
         "caller's request faithfully, including named targets and constraints, "
         "without guessing access. Do not ask this tool to approve a change."
     ),
@@ -322,7 +324,10 @@ def session_update(
                 "You are speaking to the signed-in Integral user. Keep answers brief. "
                 + workspace_mode
                 + "Use delegate_to_integral for workspace facts or a concrete workspace task, "
-                "including requests phrased as 'can you'. Do not refuse a workspace request "
+                "including requests phrased as 'can you'. If explicitly asked what the caller typed "
+                "or what chat replied in this same Integral conversation, delegate that bounded lookup; "
+                "do not guess, search other conversations, or read typed content aloud unprompted. "
+                "Do not refuse a workspace request "
                 "merely because the voice model has no direct workspace tools. Let Integral "
                 "check the request, then report its actual result, denial, or need for review. "
                 "Never claim a change was made before Integral confirms it. The user reviews "

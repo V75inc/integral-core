@@ -779,3 +779,121 @@ async def test_vad_during_acceptance_keeps_exact_same_thread_submission(monkeypa
         release.set()
         await browser.inbox.put({"type": "websocket.disconnect"})
         await call
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["user", "assistant"])
+async def test_explicit_typed_recall_delegates_only_current_thread(monkeypatch, role):
+    """Exercise real rooted dialogue selection through a synthetic Heavy boundary."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.agentive.harness.adaptive import public_dialogue, recent_public_messages
+    from app.api.errors import InsufficientPermissionsError
+    from app.services import chat_turn_submissions, native_voice
+    from app.services.chat_threads import append_message, create_thread
+    from app.services.native_voice_thread_status import VoiceThreadStatus
+    from tests.test_access_perimeter_regressions import rooted_graph
+
+    owner, outsider, workspace, _, _, _ = await rooted_graph()
+    current = await create_thread(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        provider_id="integral_native",
+        agent_profile_key="guide",
+    )
+    private = await create_thread(
+        user_id=outsider.id,
+        workspace_id=workspace.id,
+        provider_id="integral_native",
+        agent_profile_key="guide",
+    )
+    same = {"user": "Cedar meeting at noon.", "assistant": "I can summarize Cedar."}
+    other = {"user": "Private Alder question.", "assistant": "Private Alder answer."}
+    for side in ("user", "assistant"):
+        await append_message(
+            thread=current, role=side, parts=[{"type": "text", "text": same[side]}]
+        )
+        await append_message(
+            thread=private, role=side, parts=[{"type": "text", "text": other[side]}]
+        )
+
+    require = AsyncMock()
+    monkeypatch.setattr(native_voice, "require_native_chat_profile", require)
+    scope = VoiceScope(owner.id, workspace.id, "guide", current.id)
+    with pytest.raises(InsufficientPermissionsError):
+        await native_voice.authorize(
+            VoiceScope(owner.id, workspace.id, "guide", private.id)
+        )
+    question = (
+        "What did I just type in this chat?"
+        if role == "user"
+        else "What did chat just reply in this conversation?"
+    )
+    receipt = SimpleNamespace(work_item_id="synthetic-worker", message_id="accepted")
+    submit = AsyncMock(return_value=receipt)
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+
+    async def fake_heavy_status(active_scope, thread, accepted):
+        assert active_scope == scope and thread.id == current.id and accepted == receipt
+        history = await recent_public_messages(thread)
+        projected = str(public_dialogue(history))
+        assert all(text not in projected for text in other.values())
+        assert all(text in projected for text in same.values())
+        return "succeeded", next(
+            message.parts[0]["text"] for message in history if message.role == role
+        )
+
+    status = AsyncMock(side_effect=fake_heavy_status)
+    monkeypatch.setattr(native_voice, "_delegated_status", status)
+    browser, provider = Browser(), Provider()
+    relay = VoiceRelay(
+        browser,
+        provider,
+        scope,
+        thread_status=AsyncMock(
+            return_value=(VoiceThreadStatus(typed_turn="finished"), ())
+        ),
+    )
+    task = asyncio.create_task(relay.run())
+    try:
+        config = await event(provider.outbox)
+        assert "same Integral conversation" in config["session"]["instructions"]
+        assert (
+            "explicit request to recall" in config["session"]["tools"][0]["description"]
+        )
+        await provider.inbox.put({"type": "session.updated"})
+        assert (await event(browser.outbox))["thread_id"] == current.id
+        await relay._sync_thread_status()
+        quiet = await event(provider.outbox)
+        assert quiet["type"] == "conversation.item.create"
+        assert quiet["item"]["role"] == "system"
+        assert not any(
+            text in json.dumps([config, quiet])
+            for text in [*same.values(), *other.values()]
+        )
+        assert provider.outbox.empty()
+        submit.assert_not_awaited()
+        status.assert_not_awaited()
+
+        await provider.inbox.put(
+            {"type": "response.created", "response": {"id": "recall"}}
+        )
+        await provider.inbox.put(request("recall-tool", "recall", question))
+        reply = await event(provider.outbox)
+        assert reply["item"]["output"] == same[role]
+        assert (await event(provider.outbox))["type"] == "response.create"
+        submit.assert_awaited_once()
+        checked = submit.await_args.args[0]
+        assert (checked.principal_id, checked.workspace_id, checked.thread_id) == (
+            owner.id,
+            workspace.id,
+            current.id,
+        )
+        assert checked.execution_context.extra_data == {"voice_delegate": True}
+        assert checked.parts == [{"type": "text", "text": question}]
+        assert provider.outbox.empty()
+        require.assert_awaited_with(workspace.id, owner.id, "guide")
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await task
