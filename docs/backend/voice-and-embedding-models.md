@@ -163,7 +163,12 @@ review-and-resume rule still governs the queue.
 
 This adapter is for the default workspace assistant. Selected staff profiles use
 a different execution path, so continuing work there requires separate profile
-revision and steering support. Observer or deployment wiring must explicitly
+revision and steering support. Realtime voice does not advertise those tools or
+their legacy aliases for selected profiles; an attempted continuation is
+reported as unavailable without starting or editing another task. The default
+assistant uses distinct commands for an explicit next task and a correction to
+its current voice request. Diagnostics count requests and confirmed dispositions
+without recording spoken content. Observer or deployment wiring must explicitly
 opt in. Before a rollback to a build without this storage contract, disable
 new voice continuation intake and finish or dismiss pending spoken follow-ups
 in the supported build. Older workers reject the encrypted voice-marked queue
