@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { entryTypesForTrackQueryKey, invalidateFeedCaches, viewsForTrackQueryKey } from '../../queryKeys';
+import { refreshCommittedTrackEntries } from '../../services/graphMutationInvalidation';
 import {
   Edit2,
   X,
@@ -766,16 +767,12 @@ export function EntryDetail({
     const pendingId = showPendingToast('Deleting…');
     try {
       await entriesApi.delete(entry.id);
+      void refreshCommittedTrackEntries(queryClient, entry.track_id);
       resolveToast(pendingId, 'Entry deleted', 'success');
     } catch {
       resolveToast(pendingId, 'Failed to delete; restoring…', 'error');
       try {
-        await invalidateFeedCaches(queryClient);
-        if (entry.track_id) {
-          await queryClient.invalidateQueries({
-            queryKey: ['track', entry.track_id, 'entries']
-          });
-        }
+        await refreshCommittedTrackEntries(queryClient, entry.track_id);
       } catch {
         /* non-fatal */
       }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
+import { refreshCommittedTrackEntries } from '../../services/graphMutationInvalidation';
 import {
   DndContext,
   DragOverlay,
@@ -1792,6 +1793,7 @@ function KanbanWidgetInner({
         const pendingId = showPendingToast('Deleting…');
         try {
           await entriesApi.delete(activeIdStr);
+          void refreshCommittedTrackEntries(queryClient, track?.id ?? view.track_id);
           resolveToast(pendingId, 'Entry deleted', 'success');
         } catch {
           resolveToast(pendingId, 'Failed to delete entry', 'error');

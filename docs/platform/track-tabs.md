@@ -53,6 +53,14 @@ then only for the tabs that move.
 Not supported yet: a side placement for a track's views. It is deliberately refused so it cannot be declared before it
 exists.
 
+## Committed changes in record views
+
+A committed add, remove, or move reconciles the open record list and its count
+using the current saved view, filters, and order. A new record does not appear
+on a page it does not match. Paging normally reuses the filtered count; a
+committed change refreshes it. If removing a record makes the current page no
+longer exist, the view moves to the last available page.
+
 ## The Settings hub (`operations-ui/settings-hub`)
 
 Without options the hub keeps its original look: a generic header, a record count next to each section, and the
