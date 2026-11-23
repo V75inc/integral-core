@@ -18,6 +18,15 @@ and security parity before removing an existing safeguard. See
 
 **Drift cleared (Plan 06-05, Wave 4 directive-plan remediation).** Every file under `backend/app/agentive/api/` now uses `@endpoint` + `JVSpatialAPIException` + schemas-in-`schemas/agentive/`. The single carve-out is `agent_events.py`'s WebSocket route (jvspatial framework limitation — `@endpoint` does not support WebSocket; documented inline per `# deviation:` annotation). The pre-commit `jvspatial-drift-guard` hook is fully enforcing — any new raw-FastAPI pattern in this directory fails the hook.
 
+## Connector extensions
+
+Follow [the root connector instructions](../../../AGENTS.md#extending-core-through-connectors)
+and the [Connector Standard v1](../../../docs/backend/connector-extension-standard-v1.md)
+before adding or changing a connector. Keep authenticated management in the
+canonical agentive boundary. Connector-owned visitor routing is admitted only
+by the trusted host at startup; it is not a reason for raw routes here or a
+way to grant an external agent access outside the MCP boundary.
+
 ## Required Patterns for New Code in `agentive/`
 
 - HTTP routes: `@endpoint("/path", methods=[...], auth=True, tags=["Agentive"])` from `jvspatial.api` — never `@router.<method>` / `APIRouter`.

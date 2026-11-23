@@ -178,6 +178,44 @@ Stale or materially unverified release instructions block promotion. Keep Core
 contracts generic and document One/Business product behavior in their own repos.
 See [RELEASING.md](RELEASING.md) for the documentation acceptance checklist.
 
+### Extending Core through connectors
+
+Before adding or changing a connector, read the
+[Connector Standard v1](docs/backend/connector-extension-standard-v1.md),
+[connector architecture](docs/backend/connectors.md), and
+[reference managed-channel wheel](examples/reference-managed-text-channel/README.md).
+Keep provider behavior, routes and lifecycle in the connector. Use Core's
+typed registry and Settings contracts; do not add connector-name branches
+to Core startup or Settings to make an extension work.
+
+- **Choose the supported contract.** Connector kind (channel, API, MCP or
+  native sync) is separate from install binding (Workspace, Personal or both).
+  Managed text v1 is a Workspace singleton; it is not a general provider SDK.
+  Use the actual adapter contract and show only the scope choices it supports
+  and the caller is authorized to select. Do not invent a scope-switch control
+  or move credentials or grants across scopes. An adapter without a reviewed
+  transition requires a new explicitly authorized installation.
+- **Keep registration, installation and serving separate.** For a managed v1
+  wheel, use the pinned, reviewed `integral.managed_channels.v1` entry point
+  and a complete `ChannelPackage`. Discovery has no lifecycle side effects.
+  Add installs disabled; saving configuration must not enable, publish or
+  issue a link.
+  Revalidate the authenticated principal, scope, exact provision and revision
+  at the relevant read and effect boundaries. Unknown readiness fails closed;
+  preserve safe disable/remove, installed identity and legacy access.
+- **Use the trusted runtime boundary.** Connector-owned routes go through
+  explicit host startup admission, not import-time mounts or a UI request.
+  The deployment supplies approved origins, proxy/TLS and admission controls.
+  Separate staff from visitor traffic. Bind public execution to the exact
+  published profile's current service identity; do not borrow staff access
+  or default grants. Keep secrets out of settings projections, links and logs.
+- **Prove the contract, not just the UI.** Exercise a separately built
+  connector without editing Core, including install/configure/enable/disable/
+  remove as applicable. Test wrong scope, stale revisions, readiness loss
+  and revocation. For public routes, prove distinct staff/visitor boundaries;
+  distinguish isolated tests from real browser/provider checks and deployment.
+  Update the canonical connector docs when an extension contract changes.
+
 ### Chat identity and first-time guidance
 
 - Resolve chat identity through the shared authenticated profile resolver; an
