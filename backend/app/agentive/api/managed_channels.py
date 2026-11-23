@@ -26,7 +26,10 @@ from app.connectors.channel_packages import (
     ChannelProfileSetup,
     ChannelScope,
 )
-from app.connectors.channel_share_check import mounted_share_check_available
+from app.connectors.channel_share_check import (
+    mounted_embed_descriptors,
+    mounted_share_check_available,
+)
 from app.schemas.agentive.managed_channels import (
     ManageChannelEnablement,
     ManageChannelProfileAssignment,
@@ -266,26 +269,25 @@ async def get_managed_channel_configuration(
     match = _provision_query(request)
     current = await _installation(package, scope, match)
     snapshot = await _configuration_snapshot(setup, scope, current)
-    share_available = (
+    share_available = False
+    embed_descriptors = ()
+    if (
         current.enabled
         and snapshot.profile_key is not None
         and snapshot.published_version is not None
-        and await mounted_share_check_available(
-            request,
-            slug,
-            ManageChannelShareQuery(
-                workspace_id=scope.workspace_id,
-                provision_id=current.provision_id,
-                route_epoch=current.route_epoch,
-                profile_key=snapshot.profile_key,
-                published_version=snapshot.published_version,
-            ),
-        )
-    )
-    if (
-        share_available
-        and await _configuration_snapshot(setup, scope, current) != snapshot
     ):
+        exact = ManageChannelShareQuery(
+            workspace_id=scope.workspace_id,
+            provision_id=current.provision_id,
+            route_epoch=current.route_epoch,
+            profile_key=snapshot.profile_key,
+            published_version=snapshot.published_version,
+        )
+        share_available = await mounted_share_check_available(request, slug, exact)
+        embed_descriptors = await mounted_embed_descriptors(request, slug, exact)
+    if (share_available or embed_descriptors) and await _configuration_snapshot(
+        setup, scope, current
+    ) != snapshot:
         raise ResourceConflictError(
             "Managed channel profile changed. Refresh and try again."
         )
@@ -297,6 +299,10 @@ async def get_managed_channel_configuration(
         projection.pop("published_version")
     if share_available:
         projection["full_page_share_check_available"] = True
+    if embed_descriptors:
+        projection["approved_embed_policies"] = [
+            asdict(entry) for entry in embed_descriptors
+        ]
     return JSONResponse(
         {
             "kind": PROFILE_CONFIGURATION,
