@@ -28,7 +28,7 @@ async def _thread_fixture():
     # PostgreSQL harness takes shared identity-admission locks.
     for index, profile in enumerate((owner, outsider)):
         auth = await AuthUser.create(
-            email=f"peer-voice-{index}@example.test", password_hash="fixture"
+            email=f"peer-voice-{index}@example.com", password_hash="fixture"
         )
         profile.user_id = auth.id
         await profile.save()
