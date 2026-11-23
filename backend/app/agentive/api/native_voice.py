@@ -104,7 +104,31 @@ async def native_voice(browser: WebSocket):
                 raise InsufficientPermissionsError(message="Voice settings changed")
             return current_thread
 
-        upstream = await open_upstream(credential)
+        # Until Ready the browser sends no more frames. Race provider dialing
+        # against a refresh/disconnect so an abandoned call cannot open upstream.
+        dial = asyncio.create_task(open_upstream(credential))
+        browser_handshake = asyncio.create_task(browser.receive())
+        try:
+            done, _ = await asyncio.wait(
+                (dial, browser_handshake), return_when=asyncio.FIRST_COMPLETED
+            )
+            if dial in done:
+                upstream = dial.result()
+        finally:
+            for task in (dial, browser_handshake):
+                if not task.done():
+                    task.cancel()
+            opened, first_frame = await asyncio.gather(
+                dial, browser_handshake, return_exceptions=True
+            )
+            if upstream is None and not isinstance(opened, BaseException):
+                upstream = opened
+        if isinstance(first_frame, dict):
+            if first_frame.get("type") == "websocket.disconnect":
+                return
+            raise ValueError("Voice frames are not accepted before readiness")
+        if upstream is None:
+            raise WebSocketDisconnect()
         logger.info("Native voice transport opened")
         await VoiceRelay(browser, upstream, scope, check=still_authorized).run(
             identity.persona, name=identity.name, continuity=continuity

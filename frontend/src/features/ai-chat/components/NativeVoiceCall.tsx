@@ -76,7 +76,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     (state === "live" ? endButton : startButton).current?.focus();
   }, [state]);
   const call = useRef<{
-    close: () => void;
+    close: (refreshThread?: boolean) => void;
     matchesThread: (id: string) => boolean;
     toggleMicrophone: () => void;
   } | null>(null);
@@ -101,6 +101,18 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       setState("idle");
     }
   }, [dictationActive]);
+
+  useEffect(() => {
+    // A document refresh or BFCache navigation may not unmount React.
+    function closeOnPageHide() {
+      if (!call.current) return;
+      call.current.close(false);
+      setState("idle");
+      setError("");
+    }
+    window.addEventListener("pagehide", closeOnPageHide);
+    return () => window.removeEventListener("pagehide", closeOnPageHide);
+  }, []);
 
   async function start() {
     if (call.current || !eligible) return;
@@ -128,27 +140,33 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     let acceptedThreadId = "";
     let refreshTimer: number | undefined;
     let ended = false;
-    const close = () => {
+    const close = (refreshThread = true) => {
       if (ended) return;
       ended = true;
       if (call.current?.close === close) call.current = null;
       window.clearTimeout(deadline);
       window.clearInterval(refreshTimer);
+      const dispose = (operation: () => void) => {
+        try { operation(); } catch { /* Continue releasing independent resources. */ }
+      };
       try {
-        if (capture) { capture.port.onmessage = null; capture.disconnect(); }
-        input?.disconnect();
-        media?.getTracks().forEach(track => track.stop());
-        playback?.flush();
+        if (capture) {
+          capture.port.onmessage = null;
+          dispose(() => capture?.disconnect());
+        }
+        dispose(() => input?.disconnect());
+        media?.getTracks().forEach(track => dispose(() => track.stop()));
+        dispose(() => playback?.flush());
         if (socket) {
           socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
-          socket.close();
+          dispose(() => socket?.close());
         }
-        if (audio) void audio.close().catch(() => {});
+        dispose(() => { if (audio) void audio.close().catch(() => {}); });
       } finally {
         releaseVoiceInput?.();
       }
       // A view refresh is best-effort, never a prerequisite to hanging up.
-      if (acceptedThreadId) {
+      if (refreshThread && acceptedThreadId) {
         try { onThreadRefresh?.(acceptedThreadId, workspace_id); }
         catch { /* Media and transport have already been released. */ }
       }
