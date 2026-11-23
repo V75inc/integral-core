@@ -1,5 +1,6 @@
 """Unified but unmounted assembly of the managed full-page Web Chat host."""
 
+from asyncio import timeout
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Protocol
 
@@ -15,6 +16,7 @@ from app.agentive.services.connection_profiles import ProfileDenied
 from app.agentive.services.web_chat_package import SLUG, ManagedWebChatPackage
 from app.agentive.services.web_chat_profile_inference import TextModel
 from app.agentive.services.web_chat_provision_store import (
+    CommittedWebChatRouteChange,
     ProfileRouteWebChatProvisionStore,
 )
 from app.agentive.services.web_chat_request_budget import WebChatBudgetPolicy
@@ -164,17 +166,21 @@ def assemble_web_chat_host(
         raise TypeError("Web Chat requires explicit platform authority")
 
     async def origin_for(route: ManagedWebChatHostRoute) -> str | None:
-        origin = await platform.approved_ready_origin(route)
+        async with timeout(1.0):
+            origin = await platform.approved_ready_origin(route)
         return origin if is_canonical_web_chat_origin(origin) else None
 
     async def transport_ready(approved: ApprovedWebChatReference) -> bool:
         current = await _managed_route(approved.provision)
         if current is None or not _same_assignment(approved, current):
             return False
-        return (
-            await origin_for(current) == approved.origin
-            and await _managed_route(approved.provision) == current
-        )
+        try:
+            return (
+                await origin_for(current) == approved.origin
+                and await _managed_route(approved.provision) == current
+            )
+        except TimeoutError:
+            return False
 
     references = PostgresWebChatReferenceStore(
         database=database,
@@ -183,15 +189,16 @@ def assemble_web_chat_host(
     )
     authority = WebChatRouteAuthority(references)
     host = _Host(authority)
-    registry = ChannelPackageRegistry()
-    registry.register(
-        ManagedWebChatPackage(ProfileRouteWebChatProvisionStore(host), host).package
-    )
 
-    async def reconcile(provision: ExternalChatProvision) -> bool:
-        # Internal host operation only. Never pass browser intent directly.
+    async def sync_reference(
+        provision: ExternalChatProvision,
+        *,
+        expected: ManagedWebChatHostRoute | None = None,
+    ) -> bool:
         old = await references.observe(provision)
         current = await _managed_route(provision)
+        if expected is not None and current != expected:
+            return False
         origin = await origin_for(current) if current is not None else None
         if current != await _managed_route(provision):
             return False
@@ -220,6 +227,51 @@ def assemble_web_chat_host(
             and await references.by_provision(provision) == updated.approved
             and await origin_for(current) == origin
         )
+
+    async def reconcile(provision: ExternalChatProvision) -> bool:
+        # Explicit trusted host recovery; no read or default path calls this.
+        return await sync_reference(provision)
+
+    async def configuration_committed(change: CommittedWebChatRouteChange) -> None:
+        previous = change.previous
+        provision = ExternalChatProvision(
+            previous.workspace_id, SLUG, previous.provision_id
+        )
+        current = change.current
+        if change.action in {"disable", "remove"} or (
+            change.action == "assign" and change.publication is None
+        ):
+            # Retire only references at or before the exact prior route epoch.
+            # A newer explicit preparation/approval must not be cleared by an
+            # old notification, even if successive changes share a provision.
+            old = await references.observe(provision)
+            if old.approved is None or int(old.approved.epoch) <= int(
+                previous.route_epoch
+            ):
+                await references.revoke(provision, expected_revision=old.revision)
+            return
+
+        if (
+            change.action not in {"assign", "enable"}
+            or current is None
+            or change.publication is None
+        ):
+            return
+        profile, version = change.publication
+        expected = ManagedWebChatHostRoute(
+            provision, current.route_epoch, profile, version, current.enabled
+        )
+        await sync_reference(provision, expected=expected)
+
+    registry = ChannelPackageRegistry()
+    registry.register(
+        ManagedWebChatPackage(
+            ProfileRouteWebChatProvisionStore(
+                host, post_commit=configuration_committed
+            ),
+            host,
+        ).package
+    )
 
     async def read_issued(
         provision: ExternalChatProvision, epoch: str, publication: tuple[str, int]
