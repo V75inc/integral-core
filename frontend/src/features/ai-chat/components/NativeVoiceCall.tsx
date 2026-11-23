@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AudioLines, Loader2, Square } from "lucide-react";
+import { AudioLines, Loader2, Mic, MicOff, Square } from "lucide-react";
 import { REALTIME_VOICE_QUERY_KEY, realtimeVoiceConfigurationApi } from "../../../api/aiConfiguration";
 import { ALL_WORKSPACE_ASSISTANTS, WORKSPACE_ASSISTANT } from "../../../api/chatAssistantIdentity";
 import { mintWsTicket } from "../../../api/wsTicket";
@@ -65,7 +65,12 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
 }) {
   const [state, setState] = useState<NativeVoiceState>("idle");
   const [error, setError] = useState("");
-  const call = useRef<{ close: () => void; matchesThread: (id: string) => boolean } | null>(null);
+  const [muted, setMuted] = useState(false);
+  const call = useRef<{
+    close: () => void;
+    matchesThread: (id: string) => boolean;
+    toggleMicrophone: () => void;
+  } | null>(null);
   const { workspace_id, profile_key, thread_id } = opening;
   useEffect(() => {
     setState("idle");
@@ -95,6 +100,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       return;
     }
     setError("");
+    setMuted(false);
     setState("connecting");
     let media: MediaStream | undefined;
     let socket: WebSocket | undefined;
@@ -103,6 +109,8 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     let input: MediaStreamAudioSourceNode | undefined;
     let playback: ReturnType<typeof createVoicePlayback> | undefined;
     let ready = false;
+    let microphoneMuted = false;
+    let captureGeneration = 0;
     let acceptedThreadId = "";
     let refreshTimer: number | undefined;
     let ended = false;
@@ -112,7 +120,6 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       if (call.current?.close === close) call.current = null;
       window.clearTimeout(deadline);
       window.clearInterval(refreshTimer);
-      if (acceptedThreadId) onThreadRefresh?.(acceptedThreadId, workspace_id);
       if (capture) { capture.port.onmessage = null; capture.disconnect(); }
       input?.disconnect();
       media?.getTracks().forEach(track => track.stop());
@@ -122,6 +129,11 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         socket.close();
       }
       if (audio) void audio.close().catch(() => {});
+      // A view refresh is best-effort, never a prerequisite to hanging up.
+      if (acceptedThreadId) {
+        try { onThreadRefresh?.(acceptedThreadId, workspace_id); }
+        catch { /* Media and transport have already been released. */ }
+      }
     };
     const fail = (message: string) => {
       if (ended) return;
@@ -130,7 +142,29 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       setError(message);
     };
     const deadline = window.setTimeout(() => fail("The voice call did not connect."), 20000);
-    call.current = { close, matchesThread: id => id === (acceptedThreadId || thread_id) };
+    call.current = {
+      close,
+      matchesThread: id => id === (acceptedThreadId || thread_id),
+      toggleMicrophone: () => {
+        if (ended || !ready || !capture || !media) return;
+        microphoneMuted = !microphoneMuted;
+        captureGeneration += 1;
+        // Gate frames synchronously, even if already queued on the worklet port.
+        // The worklet also discards its partially filled block on every toggle.
+        const tracks = media.getAudioTracks();
+        if (microphoneMuted) for (const track of tracks) track.enabled = false;
+        try {
+          if (socket?.readyState !== WebSocket.OPEN) throw new Error("Voice transport is not open");
+          socket.send(JSON.stringify({ type: "microphone", muted: microphoneMuted }));
+          capture.port.postMessage({ muted: microphoneMuted, generation: captureGeneration });
+        } catch {
+          fail("The voice call ended.");
+          return;
+        }
+        if (!microphoneMuted) for (const track of tracks) track.enabled = true;
+        setMuted(microphoneMuted);
+      },
+    };
     try {
       audio = new AudioContext({ sampleRate: SAMPLE_RATE });
       await audio.resume();
@@ -145,8 +179,9 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       playback = createVoicePlayback(audio);
       input = audio.createMediaStreamSource(stream);
       capture = new AudioWorkletNode(audio, "integral-native-voice", { numberOfOutputs: 0 });
-      capture.port.onmessage = ({ data }: MessageEvent<ArrayBuffer>) => {
-        if (ready && socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 96_000) socket.send(data);
+      capture.port.onmessage = ({ data }: MessageEvent<{ generation: number; pcm: ArrayBuffer }>) => {
+        if (ended || microphoneMuted || data.generation !== captureGeneration) return;
+        if (ready && socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 96_000) socket.send(data.pcm);
       };
       input.connect(capture);
       const ticket = await mintWsTicket();
@@ -203,17 +238,24 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
   const idle = state === "idle";
   const live = state === "live";
   const action = idle ? "Start voice call" : live ? "End call" : "Cancel voice call";
+  const microphoneAction = muted ? "Unmute microphone" : "Mute microphone";
   const liftAboveTooltip = "group-hover/voice:-translate-y-8 group-focus-within/voice:-translate-y-8";
-  return <div className="group/voice relative shrink-0 hover:z-20 focus-within:z-20">
+  return <div className="group/voice relative inline-flex shrink-0 items-center gap-1 hover:z-20 focus-within:z-20">
     {!idle && <Surface role="status" radius="input" elevation="sm" padding="xs"
-      className={`absolute bottom-full right-0 z-10 mb-2 inline-flex w-max items-center gap-2 ${live ? "" : liftAboveTooltip}`}>
+      className={`absolute bottom-full right-0 z-10 mb-2 inline-flex w-max items-center gap-2 ${liftAboveTooltip}`}>
       {state === "connecting"
         ? <Loader2 size={14} aria-hidden className="motion-safe:animate-spin" />
         : <AudioLines size={14} aria-hidden />}
       <Text as="span" variant="body-sm">
-        {state === "connecting" ? "Connecting voice…" : "Voice call live"}
+        {state === "connecting" ? "Connecting voice…" : muted ? "Voice call live · Mic muted" : "Voice call live"}
       </Text>
     </Surface>}
+    {live && <HoverTooltip label={microphoneAction} placement="top">
+      <Button type="button" variant={muted ? "secondary" : "ghost"} size="xs"
+        className="h-10 w-10 rounded-full !p-0" aria-label={microphoneAction}
+        icon={muted ? <MicOff size={16} aria-hidden /> : <Mic size={16} aria-hidden />}
+        onClick={() => call.current?.toggleMicrophone()} />
+    </HoverTooltip>}
     {/* The full-width red action already renders its name. A second floating
         copy while focused or hovered reads as a second End call button. */}
     <HoverTooltip label={action} placement="top" disabled={live}>

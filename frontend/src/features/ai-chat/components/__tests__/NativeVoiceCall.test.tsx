@@ -26,9 +26,15 @@ class FakeSocket {
 }
 
 const sockets: FakeSocket[] = [];
-const stopTrack = vi.fn();
+const track = { stop: vi.fn(), enabled: true };
+const stopTrack = track.stop;
 const createPlaybackBuffer = vi.fn();
-const capturePorts: { onmessage: ((frame: { data: ArrayBuffer }) => void) | null }[] = [];
+const startPlayback = vi.fn();
+const capturePorts: FakeWorklet["port"][] = [];
+
+function emitCapture(port: FakeWorklet["port"], pcm: ArrayBuffer, generation = 0) {
+  port.onmessage?.({ data: { generation, pcm } });
+}
 
 class FakeAudioContext {
   resume = vi.fn().mockResolvedValue(undefined);
@@ -36,10 +42,16 @@ class FakeAudioContext {
   audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) };
   createMediaStreamSource() { return { connect: vi.fn(), disconnect: vi.fn() }; }
   createBuffer = createPlaybackBuffer;
+  createBufferSource() {
+    return { connect: vi.fn(), disconnect: vi.fn(), start: startPlayback, stop: vi.fn(), onended: null };
+  }
 }
 
 class FakeWorklet {
-  port = { onmessage: null };
+  port = {
+    onmessage: null as ((frame: { data: { generation: number; pcm: ArrayBuffer } }) => void) | null,
+    postMessage: vi.fn(),
+  };
   disconnect = vi.fn();
   constructor() { capturePorts.push(this.port); }
 }
@@ -49,12 +61,17 @@ beforeEach(() => {
   sockets.length = 0;
   capturePorts.length = 0;
   vi.clearAllMocks();
+  track.enabled = true;
+  createPlaybackBuffer.mockImplementation((_channels, samples: number) => ({
+    duration: samples / 24000,
+    getChannelData: () => new Float32Array(samples),
+  }));
   vi.stubGlobal("AudioContext", FakeAudioContext);
   vi.stubGlobal("AudioWorkletNode", FakeWorklet);
   vi.stubGlobal("WebSocket", FakeSocket);
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
-    value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] }) },
+    value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track], getAudioTracks: () => [track] }) },
   });
 });
 afterEach(() => {
@@ -91,7 +108,7 @@ it("uses a waveform and waits for provider readiness before requesting one openi
   act(() => socket.open());
   expect(socket.send).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("test-ticket"));
   const frame = new ArrayBuffer(16);
-  act(() => { capturePorts[0].onmessage?.({ data: frame }); socket.onmessage?.({ data: frame }); });
+  act(() => { emitCapture(capturePorts[0], frame); socket.onmessage?.({ data: frame }); });
   expect(socket.send).toHaveBeenCalledTimes(1);
   expect(createPlaybackBuffer).not.toHaveBeenCalled();
 
@@ -105,7 +122,7 @@ it("uses a waveform and waits for provider readiness before requesting one openi
   act(() => {
     socket.receive("ready");
     socket.receive("flush"); // A speech interruption or Heavy handoff is not a new call.
-    capturePorts[0].onmessage?.({ data: frame });
+    emitCapture(capturePorts[0], frame);
   });
   expect(socket.send).toHaveBeenCalledTimes(3);
   expect(socket.send).toHaveBeenNthCalledWith(3, frame);
@@ -168,4 +185,84 @@ it("never adopts a thread when voice fails before ready", async () => {
   act(() => { first.open(); first.receive("error"); });
   expect(adopt).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Start voice call" })).toBeVisible();
+});
+
+
+it("mutes socket input immediately, drops stale capture frames on resume, and keeps playback live", async () => {
+  show();
+  const socket = await startCall();
+  expect(screen.queryByRole("button", { name: "Mute microphone" })).not.toBeInTheDocument();
+  act(() => { socket.open(); socket.receive("ready"); });
+  const port = capturePorts[0];
+  const frame = new ArrayBuffer(16);
+  const mutedFrame = new ArrayBuffer(16);
+  const mute = screen.getByRole("button", { name: "Mute microphone" });
+  expect(screen.getByText("Mute microphone", { selector: "[role=tooltip]" })).toBeInTheDocument();
+  act(() => emitCapture(port, frame));
+  expect(socket.send).toHaveBeenNthCalledWith(3, frame);
+
+  mute.focus();
+  fireEvent.click(mute);
+  expect(track.enabled).toBe(false);
+  expect(screen.getByRole("button", { name: "Unmute microphone" })).toHaveFocus();
+  expect(screen.getByRole("status")).toHaveTextContent("Mic muted");
+  expect(port.postMessage).toHaveBeenNthCalledWith(1, { muted: true, generation: 1 });
+  expect(socket.send).toHaveBeenNthCalledWith(4, JSON.stringify({ type: "microphone", muted: true }));
+  act(() => {
+    emitCapture(port, frame); // Already queued before mute.
+    emitCapture(port, mutedFrame, 1);
+    socket.onmessage?.({ data: frame });
+  });
+  expect(socket.send).toHaveBeenCalledTimes(4);
+  expect(startPlayback).toHaveBeenCalledTimes(1);
+  expect(socket.close).not.toHaveBeenCalled();
+  expect(stopTrack).not.toHaveBeenCalled();
+
+  let trackEnabledAtUnmuteSend: boolean | undefined;
+  socket.send.mockImplementationOnce(() => { trackEnabledAtUnmuteSend = track.enabled; });
+  fireEvent.click(screen.getByRole("button", { name: "Unmute microphone" }));
+  expect(trackEnabledAtUnmuteSend).toBe(false);
+  expect(track.enabled).toBe(true);
+  expect(port.postMessage).toHaveBeenNthCalledWith(2, { muted: false, generation: 2 });
+  expect(socket.send).toHaveBeenNthCalledWith(5, JSON.stringify({ type: "microphone", muted: false }));
+  act(() => { emitCapture(port, frame); emitCapture(port, mutedFrame, 1); });
+  expect(socket.send).toHaveBeenCalledTimes(5);
+  act(() => emitCapture(port, frame, 2));
+  expect(socket.send).toHaveBeenNthCalledWith(6, frame);
+
+  const staleCapture = port.onmessage;
+  fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+  fireEvent.click(screen.getByRole("button", { name: "End call" }));
+  expect(socket.close).toHaveBeenCalledTimes(1);
+  expect(stopTrack).toHaveBeenCalledTimes(1);
+  expect(port.onmessage).toBeNull();
+  act(() => staleCapture?.({ data: { generation: 3, pcm: frame } }));
+  expect(socket.send).toHaveBeenCalledTimes(7);
+
+  // A new getUserMedia call has fresh, enabled tracks.
+  track.enabled = true;
+  const next = await startCall(1);
+  act(() => { next.open(); next.receive("ready"); });
+  expect(screen.getByRole("button", { name: "Mute microphone" })).toBeVisible();
+  act(() => emitCapture(capturePorts[1], frame));
+  expect(next.send).toHaveBeenNthCalledWith(3, frame);
+});
+
+it("ends the call and releases capture even if the final chat refresh throws", async () => {
+  let cleanedUpBeforeRefresh = false;
+  const refresh = vi.fn(() => {
+    cleanedUpBeforeRefresh = sockets[0].close.mock.calls.length === 1 && stopTrack.mock.calls.length === 1;
+    throw new Error("The view is no longer available");
+  });
+  render(<NativeVoiceControls eligible opening={{
+    workspace_id: "workspace", profile_key: "", thread_id: "thread",
+  }} playingDictation={() => false} onThreadRefresh={refresh} />);
+  const socket = await startCall();
+  act(() => { socket.open(); socket.receive("ready"); });
+  fireEvent.click(screen.getByRole("button", { name: "End call" }));
+  expect(refresh).toHaveBeenCalledExactlyOnceWith("thread", "workspace");
+  expect(cleanedUpBeforeRefresh).toBe(true);
+  expect(screen.getByRole("button", { name: "Start voice call" })).toBeVisible();
+  expect(socket.close).toHaveBeenCalledTimes(1);
+  expect(stopTrack).toHaveBeenCalledTimes(1);
 });
