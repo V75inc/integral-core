@@ -1,5 +1,6 @@
 """Detach the production Web Chat components for a whole lifecycle proof."""
 
+import asyncio
 import os
 import re
 import time
@@ -63,6 +64,8 @@ class _FixturePlatform:
         self.host_up = True
         self.identity_denied = set()
         self.embed_policy = None
+        self.model_entered = {}
+        self.release_model = asyncio.Event()
 
     async def install_ready(self, workspace):
         # Administrative setup must work without an available public host.
@@ -107,15 +110,13 @@ async def detached_delivery(
     await second_user.connect(workspace, edge=IS_MEMBER_OF, role="member")
 
     async def publish_fixture(profiles, _bindings, _native, _route):
-        profiles[PROFILE] = {
-            "published": {
-                **profile_management.starter(PROFILE),
-                "name": "Synthetic guide",
-                "persona": PERSONA,
-                "tools": [],
-                "version": 3,
-            }
+        draft = {
+            **profile_management.starter(PROFILE),
+            "name": "Synthetic guide",
+            "persona": PERSONA,
+            "tools": [],
         }
+        profiles[PROFILE] = {"draft": draft, "published": {**draft, "version": 3}}
 
     await profile_management.mutate_config(
         test_user.id, workspace_id, 0, publish_fixture
@@ -132,6 +133,11 @@ async def detached_delivery(
             "visitor_text",
         }
         calls.append(prompt.visitor_text)
+        entered = platform.model_entered.get(prompt.visitor_text)
+        if entered is not None:
+            entered.set()
+            await platform.release_model.wait()
+            return "Stale response must stay private"
         return f"Synthetic reply {len(calls)}"
 
     platform = _FixturePlatform(workspace_id)
@@ -184,7 +190,7 @@ async def detached_delivery(
                     transport not in platform.identity_denied
                     and assignment.provision.workspace_id == workspace_id
                     and assignment.profile_key == PROFILE
-                    and assignment.publication_revision == "3"
+                    and assignment.publication_revision.isdecimal()
                 )
 
             assets = StandaloneWebChatAssets.from_vite_build(Path(directory).resolve())
@@ -249,7 +255,9 @@ async def detached_delivery(
                     edge.include_router(router)
                 isolated[group.origin] = edge
             assert set(isolated) == {EMBED_ORIGIN, CLIENT_ORIGIN}
-            extra = SimpleNamespace(grants=grants, apps=isolated, actor=test_user.id)
+            extra = SimpleNamespace(
+                grants=grants, apps=isolated, actor=test_user.id, database=database
+            )
         else:
             assert not mountable.isolated
         state_key = "integral_managed_channel_registry"
@@ -316,12 +324,52 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     assert assigned["state"] == "inactive"
     provision = ExternalChatProvision(workspace_id, SLUG, assigned["provision_id"])
 
+    publication = 3
+    record = await profile_management.record(workspace_id)
+    if with_document:
+        # Even explicit fixture host approval is insufficient without a service identity.
+        platform.approved.add(
+            ManagedWebChatHostRoute(
+                provision,
+                assigned["route_epoch"],
+                PROFILE,
+                publication,
+                False,
+            )
+        )
+        assert not await assembled.reconcile(provision)
+        no_identity = await owner.put(
+            enabled_path, **options, json={**_target(assigned), "enabled": True}
+        )
+        assert no_identity.status_code == 409
+        opted_in = await owner.post(
+            "/api/workspace/agent-profiles/publish",
+            headers=headers,
+            json={
+                "key": PROFILE,
+                "expected_revision": record.revision,
+                "enable_public_service_identity": True,
+            },
+        )
+        assert opted_in.status_code == 200, opted_in.text
+        record = await profile_management.record(workspace_id)
+        publication = record.profiles[PROFILE]["published"]["version"]
+        identity = profile_management.current_public_profile_service_identity(
+            record,
+            PROFILE,
+            publication,
+        )
+        assert identity is not None and identity.workspace_id == workspace_id
+        assert identity.identity_id not in opted_in.text
+        assigned = _row(await owner.get(MANAGE, **options))
+        assert publication != 3 and not assigned["can_enable"]
+
     def share_query(row):
         return {
             **params,
             **_target(row),
             "profile_key": PROFILE,
-            "published_version": 3,
+            "published_version": publication,
         }
 
     assert not await assembled.reconcile(provision)
@@ -329,7 +377,11 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
         enabled_path, **options, json={**_target(assigned), "enabled": True}
     )
     assert unapproved.status_code == 409, unapproved.text
-    platform.approved.add(ManagedWebChatHostRoute(provision, "2", PROFILE, 3, False))
+    platform.approved.add(
+        ManagedWebChatHostRoute(
+            provision, assigned["route_epoch"], PROFILE, publication, False
+        )
+    )
     assert await assembled.reconcile(provision)
     assert _row(await owner.get(MANAGE, **options))["can_enable"]
     before_enable = await owner.get(
@@ -341,12 +393,17 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
             enabled_path, **options, json={**_target(assigned), "enabled": True}
         )
     )
-    assert enabled["route_epoch"] == "3" and enabled["state"] != "active"
+    assert int(enabled["route_epoch"]) == int(assigned["route_epoch"]) + 1
+    assert enabled["state"] != "active"
     before_approval = await owner.get(
         share_path, headers=headers, params=share_query(enabled)
     )
     assert before_approval.status_code == 404
-    platform.approved.add(ManagedWebChatHostRoute(provision, "3", PROFILE, 3, True))
+    platform.approved.add(
+        ManagedWebChatHostRoute(
+            provision, enabled["route_epoch"], PROFILE, publication, True
+        )
+    )
     assert await assembled.reconcile(provision)
     assert _row(await owner.get(MANAGE, **options))["state"] == "active"
 
@@ -358,7 +415,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     assert share.status_code == 200, share.text
     assert share.headers["cache-control"] == "no-store"
     assert share.json()["kind"] == "approved-full-page-share-v1"
-    assert share.json()["route_epoch"] == "3"
+    assert share.json()["route_epoch"] == enabled["route_epoch"]
     url = urlsplit(share.json()["full_page_url"])
     assert (
         f"{url.scheme}://{url.netloc}" == ORIGIN and not url.query and not url.fragment
@@ -425,15 +482,17 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
 
         platform.embed_policy = ManagedWebChatEmbedPolicy(
             provision,
-            "3",
+            enabled["route_epoch"],
             PROFILE,
-            3,
+            publication,
             1,
             "https://parent.example.invalid",
             EMBED_ORIGIN,
             EMBED_REF,
         )
-        assignment = ExternalChatAssignment(provision, PROFILE, "3", "3")
+        assignment = ExternalChatAssignment(
+            provision, PROFILE, str(publication), enabled["route_epoch"]
+        )
         review = WebChatGrantReview(
             extra.actor,
             "issue",
@@ -510,12 +569,115 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
             ).status_code == 404
             assert (await visitor.get(share.json()["full_page_url"])).status_code == 200
 
+            platform.identity_denied.clear()
+            batch = (
+                (visitor, messages, {}, "Stale full-page turn"),
+                (embed, f"{EMBED_PATH}/messages", visitor_headers, "Stale embed turn"),
+                (
+                    client,
+                    f"{CLIENT_PATH}/session/messages",
+                    service_headers,
+                    "Stale service turn",
+                ),
+            )
+            platform.model_entered = {text: asyncio.Event() for _, _, _, text in batch}
+
+            async def send_held(browser, path, request_headers, text):
+                return await browser.post(
+                    path, headers=request_headers, json={"id": "held", "text": text}
+                )
+
+            before_ids = {
+                row["id"]
+                for row in await extra.database.find(
+                    "object",
+                    {"entity": "WebChatTurnReceipt"},
+                    limit=30,
+                )
+            }
+            pending = [asyncio.create_task(send_held(*item)) for item in batch]
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *(entered.wait() for entered in platform.model_entered.values())
+                    ),
+                    timeout=8,
+                )
+                snapshot = await profile_management.record(workspace_id)
+                draft = {
+                    **snapshot.profiles[PROFILE]["draft"],
+                    "persona": "A new synthetic persona.",
+                }
+                saved = await owner.put(
+                    "/api/workspace/agent-profiles/draft",
+                    headers=headers,
+                    json={
+                        "key": PROFILE,
+                        "expected_revision": snapshot.revision,
+                        "draft": draft,
+                    },
+                )
+                assert saved.status_code == 200, saved.text
+                changed = await profile_management.record(workspace_id)
+                published = await owner.post(
+                    "/api/workspace/agent-profiles/publish",
+                    headers=headers,
+                    json={
+                        "key": PROFILE,
+                        "expected_revision": changed.revision,
+                        "enable_public_service_identity": False,
+                    },
+                )
+                assert published.status_code == 200, published.text
+                updated = await profile_management.record(workspace_id)
+                new_publication = updated.profiles[PROFILE]["published"]["version"]
+                new_identity = (
+                    profile_management.current_public_profile_service_identity(
+                        updated,
+                        PROFILE,
+                        new_publication,
+                    )
+                )
+                assert new_publication != publication and new_identity is None
+            finally:
+                platform.release_model.set()
+            rejected = await asyncio.gather(*pending)
+
+            def assert_denied(response):
+                assert response.status_code in {401, 404} or (
+                    response.status_code == 200
+                    and response.json() == {"kind": "expired"}
+                ), response.text
+                assert "Stale response" not in response.text
+
+            for response in rejected:
+                assert_denied(response)
+            for item in batch:
+                assert_denied(await send_held(*item))
+            held_rows = [
+                row["context"]
+                for row in await extra.database.find(
+                    "object",
+                    {"entity": "WebChatTurnReceipt"},
+                    limit=30,
+                )
+                if row["id"] not in before_ids
+            ]
+            assert len(held_rows) == 3
+            assert all(
+                not row.get("reply_ciphertext") and not row.get("history_completed_at")
+                for row in held_rows
+            )
+            assert len(calls) == 7
+
+    current_enabled = _row(await owner.get(MANAGE, **options))
     disabled = _row(
         await owner.put(
-            enabled_path, **options, json={**_target(enabled), "enabled": False}
+            enabled_path, **options, json={**_target(current_enabled), "enabled": False}
         )
     )
-    assert disabled["route_epoch"] == "4" and disabled["state"] != "active"
+    assert int(disabled["route_epoch"]) == int(current_enabled["route_epoch"]) + 1
+    assert disabled["state"] != "active"
     stale_share = await owner.get(
         share_path, headers=headers, params=share_query(enabled)
     )
@@ -530,4 +692,4 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     ):
         assert stale.status_code == 404, stale.text
         assert stale.json() == {"kind": "unavailable"}
-    assert len(calls) == (4 if with_document else 2)
+    assert len(calls) == (7 if with_document else 2)
