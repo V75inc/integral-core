@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ManagedChannel } from '../../../../api/managedChannels';
 import { ManagedChannelFullPageShare } from '../ManagedChannelFullPageShare';
@@ -39,7 +39,27 @@ describe('detached managed full-page sharing', () => {
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveAttribute('referrerpolicy', 'no-referrer');
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy full-page link' })).toBeVisible();
+  });
+
+  it('copies only after a gesture and discards a late clipboard receipt after scope changes', async () => {
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    let finish!: () => void;
+    const writeText = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      const { rerender } = render(share());
+      expect(writeText).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Copy full-page link' }));
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(url);
+      rerender(share({ scope: { ...scope, sessionFence: 'new-session' } }));
+      expect(screen.queryByRole('button', { name: 'Copy full-page link' })).not.toBeInTheDocument();
+      await act(async () => finish());
+      expect(screen.queryByText('Full-page link copied.')).not.toBeInTheDocument();
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   it('removes visibility immediately on readiness, view, or generation change', () => {

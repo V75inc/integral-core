@@ -9,6 +9,7 @@ import { Text } from '../../../ui';
 import { StatusPill } from '../components/Field';
 import { ManagedChannelProfileAssignment } from './ManagedChannelProfileAssignment';
 import { ManagedChannelShareControl, type ManagedChannelShareSource } from './ManagedChannelShareControl';
+import { readManagedChannelShare } from './managedChannelShareReader';
 import { currentManagedChannels, managedProfileOptions } from './managedChannelQueries';
 
 function isPendingWebChatSetup(channel: ManagedChannel): boolean {
@@ -45,7 +46,7 @@ export function ManagedChannelLoadNotice({ query }: { query: UseQueryResult<Mana
   return null;
 }
 
-export function ManagedChannelSettings({ selection, query, principalId, workspaceId, onClose, onInstalled, onAbandoned, shareSource }: {
+export function ManagedChannelSettings({ selection, query, principalId, workspaceId, onClose, onInstalled, onAbandoned, shareSource, canReadPublishedShare = false }: {
   selection: { slug: string; name: string; action: ManagedChannel['action'] };
   query: UseQueryResult<ManagedChannel[]>;
   principalId: string;
@@ -54,6 +55,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   onInstalled: () => void;
   onAbandoned: () => void;
   shareSource?: ManagedChannelShareSource;
+  canReadPublishedShare?: boolean;
 }) {
   const qc = useQueryClient();
   const submitting = useRef(false);
@@ -73,7 +75,8 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   const generation = channel?.connected ? { provision_id: channel.provision_id, route_epoch: channel.route_epoch } : null;
   const generationKey = generation ? JSON.stringify(generation) : null;
   const confirmingRemove = removeGeneration !== null && removeGeneration === generationKey;
-  const scopeKey = JSON.stringify([principalId, workspaceId, selection.slug, getSessionGeneration()]);
+  const sessionFence = String(getSessionGeneration());
+  const scopeKey = JSON.stringify([principalId, workspaceId, selection.slug, sessionFence]);
   const awaitingReadiness = pendingEnable?.scope === scopeKey && pendingEnable.generation === generationKey &&
     channel?.state === 'unavailable';
   // A settled read of another generation or state retires the local receipt.
@@ -100,9 +103,17 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
     Number.isSafeInteger(profile.published_version) && profile.published_version > 0
     ? { profileKey: profile.profile_key, publishedVersion: profile.published_version }
     : null;
-  const currentShareSource = currentPublication && !busy && !confirmingRemove && shareSource &&
-    shareSource.scope.principalId === principalId && shareSource.scope.workspaceId === workspaceId
-    ? shareSource : null;
+  // For Web Chat the authenticated, current Configure projection is the sole
+  // authority to offer a check; an injected generic source cannot bypass it.
+  const currentShareSource: ManagedChannelShareSource | null = !currentPublication || busy || confirmingRemove
+    ? null
+    : configuringWebChat
+      ? canReadPublishedShare && principalId && workspaceId && profile?.editable === false &&
+        profile.full_page_share_check_available === true
+        ? { scope: { principalId, workspaceId, sessionFence }, read: readManagedChannelShare }
+        : null
+      : shareSource && shareSource.scope.principalId === principalId && shareSource.scope.workspaceId === workspaceId
+        ? shareSource : null;
 
   async function retryProfileCheck() {
     try {

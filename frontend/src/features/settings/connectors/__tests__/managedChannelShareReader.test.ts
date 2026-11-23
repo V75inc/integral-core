@@ -9,7 +9,7 @@ vi.mock('../../../../api/client', () => ({ default: { get: vi.fn() }, getActiveS
 vi.mock('../../../../api/session', () => ({ getAccessToken: vi.fn(), getSessionGeneration: vi.fn() }));
 
 const owner: ManagedShareOwner = {
-  principalId: 'manager', workspaceId: 'shared', sessionFence: 'local-session', slug: 'synthetic',
+  principalId: 'manager', workspaceId: 'shared', sessionFence: '3', slug: 'synthetic',
   provisionId: 'installed', routeEpoch: 'epoch',
   publication: { profileKey: 'public', publishedVersion: 5 },
 };
@@ -43,6 +43,7 @@ describe('detached authenticated share reader', () => {
   it('never requests an invalid/default workspace, credentialless read, or invalid slug', async () => {
     const signal = new AbortController().signal;
     await expect(readManagedChannelShare({ ...owner, workspaceId: 'another' }, signal)).rejects.toThrow();
+    await expect(readManagedChannelShare({ ...owner, sessionFence: 'obsolete-session' }, signal)).rejects.toThrow();
     await expect(readManagedChannelShare({ ...owner, slug: 'other/path' }, signal)).rejects.toThrow();
     await expect(readManagedChannelShare({ ...owner, publication: { ...owner.publication, publishedVersion: 0 } }, signal))
       .rejects.toThrow();
