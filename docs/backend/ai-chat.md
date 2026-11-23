@@ -113,6 +113,24 @@ session's token stream or remote busy indicator. Existing persisted-state
 recovery remains available when a live notification is missed. No stored-data
 migration or model/provider call is introduced by this relay.
 
+The native voice adapter can subscribe to the same committed invalidations and
+read a bounded conversation snapshot; it does not execute another chat turn or
+poll the thread independently for new messages. The wake contains no content or
+authority. A read checks current identity, workspace membership, the exact
+rooted thread and selected profile. The snapshot uses a scope-bound transcript
+watermark, collapses duplicate invalidations, and reports a gap rather than
+claiming complete catch-up if the bounded history no longer overlaps.
+
+Voice may use a short recent visible text excerpt as untrusted data for an
+explicit readout. Automatic peer-interface notices require a durable typed
+submission proof: an accepted user message for that owner and thread, or the
+deterministic persisted reply to that submission. Unknown/legacy origins
+cannot prove a typed update. An attachment count means a file or image was
+attached to an accepted message; it does not affirm extraction, indexing,
+tool access, or current availability. The projection releases no attachment
+names, IDs, bytes, or extracted text, no internal tool parts or approvals,
+and no unsaved composer state or interface-only alerts.
+
 ## Image input
 
 Native chat accepts PNG, JPEG, WebP and GIF through the ordinary persisted
