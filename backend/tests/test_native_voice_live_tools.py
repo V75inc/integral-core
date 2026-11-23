@@ -59,6 +59,9 @@ async def _choose(provider, identifier, selection, offer):
     item.update(
         name=native_voice.INVOKE_CAPABILITY, arguments=json.dumps({"offer": offer})
     )
+    frame["response"]["output"].insert(
+        0, {"type": "message", "role": "assistant", "content": []}
+    )
     await provider.inbox.put(frame)
 
 
@@ -303,3 +306,41 @@ async def test_only_reviewed_routes_appear_and_changed_offer_never_reaches_route
     )
     assert result.is_error
     invoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_rejects", [False, True])
+async def test_optional_lookup_failure_keeps_call_ready(monkeypatch, provider_rejects):
+    """An optional correlated selection error is not a live audio failure."""
+    monkeypatch.setattr(native_voice, "CAPABILITY_OFFER_SECONDS", 0.2)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.02)
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(return_value=SimpleNamespace(id="thread")),
+    )
+    task = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await _tool(provider, "apps", native_voice.FIND_CAPABILITY, {"query": "apps"})
+        await event(provider.outbox)
+        created = await event(provider.outbox)
+        if provider_rejects:
+            await provider.inbox.put(
+                {"type": "error", "error": {"event_id": created["event_id"]}}
+            )
+        report = (await event(provider.outbox))["response"]
+        expected = (
+            "quick lookup is unavailable"
+            if provider_rejects
+            else "quick lookup did not finish"
+        )
+        assert expected in report["instructions"]
+        assert not task.done() and relay.capability_offer is None
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await task
