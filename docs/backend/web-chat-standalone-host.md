@@ -28,6 +28,32 @@ mount and exact asset bytes, then verifies the alternate origin and disabled
 route are not served. The API-only variant remains available without assets.
 This does not launch a browser engine or prove a production mount.
 
+## Connector registration and profile identity
+
+The Web Chat extension owns the public document, session and turn adapters as
+well as its manager configuration. Core registers the validated package once
+and returns explicit mount candidates. With no serving configuration, the
+connector still installs and opens Configure; it contributes no visitor,
+embed, client API or sharing routes. A hosting operator installs the approved
+mounts and readiness inputs. A workspace manager does not install a second
+connector or grant public traffic from the configuration dialog alone.
+
+A public profile can exist without a Web Chat service identity. A profile
+manager can explicitly set up that profile's non-human identity when publishing
+an eligible tool-free revision. Existing profiles do not acquire identities or
+permissions during reads, upgrades or connector installation. This identity
+has no staff login, workspace membership, tools or workspace resource grants.
+It is scoped to the exact workspace, profile and publication, and is distinct
+from browser visitor and API client credentials. Only readiness, not its
+identifier, is returned to the manager.
+
+A valid identity is necessary but not sufficient for Web Chat serving. The
+host, connector assignment, publication and transport must all remain current.
+If changing the identity of the profile used by an enabled Web Chat, disable
+that route first; future serving still requires explicit activation and a fresh
+authorized share. Per-app and per-track data grants are a separate feature,
+not part of the text-only release.
+
 ## Partner-site embed policy and credentials
 
 The detached embed policy pins the exact provision, route epoch, published
