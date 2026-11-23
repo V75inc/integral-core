@@ -268,6 +268,33 @@ async def list_chat_follow_ups(
     ]
 
 
+async def read_spoken_follow_up_disposition(
+    *, principal_id: str, workspace_id: str, thread_id: str, client_request_id: str
+) -> Literal["queued", "dismissed", "unavailable"]:
+    """Read only the disposition of an exact caller-owned spoken queue receipt."""
+    scope_key = await _owned_scope(
+        principal_id=principal_id, workspace_id=workspace_id, thread_id=thread_id
+    )
+    db = get_default_context().database
+    inbox_id = _inbox_id(scope_key)
+    receipt_id = _disposition_id(scope_key, client_request_id)
+    now = datetime.now(timezone.utc).isoformat()
+    for record_id in (receipt_id, inbox_id):
+        row = await db.get("object", record_id)
+        if row is None:
+            continue
+        fields = row["context"]
+        if fields.get("scope_key") != scope_key or fields["expires_at"] <= now:
+            continue
+        for item in _decode(record_id, fields["payload_ciphertext"]):
+            if item.voice_origin and item.client_request_id == client_request_id:
+                if record_id == inbox_id:
+                    return "queued"
+                if fields.get("disposition") == "dismissed":
+                    return "dismissed"
+    return "unavailable"
+
+
 def _matches_content(
     follow_up: ChatFollowUpRequest,
     parts: list[dict[str, Any]],

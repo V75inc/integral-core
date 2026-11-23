@@ -306,6 +306,7 @@ class _AcceptedVoiceTurn:
     work_item_id: str
     message_id: str
     text: str = field(repr=False)
+    queued_follow_up: bool = False
 
 
 async def _accepted_voice_work(scope: VoiceScope, accepted: _AcceptedVoiceTurn):
@@ -495,6 +496,8 @@ class VoiceRelay:
         self.accepted: _AcceptedVoiceTurn | None = None
         self.pending_accepted = False
         self.result_receipts: dict[str, _AcceptedVoiceTurn] = {}
+        self.queued_successors: set[str] = set()
+        self.latest_queued_successor: str | None = None
         self.result_in_flight: str | None = None
         self.speaking = False
         self.waiting_for_response = False
@@ -585,7 +588,9 @@ class VoiceRelay:
             }
         )
 
-    async def _speak_result(self, generation, *, result=None, work_id=None):
+    async def _speak_result(
+        self, generation, *, result=None, work_id=None, queued_follow_up=False
+    ):
         if (
             generation != self.generation
             or self.response_generation is not None
@@ -605,6 +610,10 @@ class VoiceRelay:
             "tool_choice": "none",
             "metadata": {"integral_delegate": self.delegate_token},
         }
+        if queued_follow_up:
+            response[
+                "instructions"
+            ] += " Identify this as the outcome of the separately queued follow-up, not the earlier task."
         if result is not None:
             # The tool call was already closed on acceptance. Deliver final
             # output to this turn only, without adding a second tool result.
@@ -624,6 +633,7 @@ class VoiceRelay:
                 receipt.work_item_id, receipt.message_id, request
             )
             self.pending_accepted = True
+            self.latest_queued_successor = None
             if (
                 result is None
                 or generation != self.generation
@@ -679,6 +689,7 @@ class VoiceRelay:
         )
 
         failed = "I couldn't confirm that follow-up. Check this Integral conversation before retrying."
+        successor = None
         try:
             await self.check(self.scope)
             target = await resolve_voice_follow_up_target(self.scope)
@@ -698,6 +709,8 @@ class VoiceRelay:
                     operation=operation,
                     check=self.check,
                 )
+                if operation == "queue" and routed.status in {"queued", "promoted"}:
+                    successor = routed.client_request_id
                 answer = {
                     "queued": "I queued that as a separate follow-up. It has not run yet.",
                     "promoted": "That separate follow-up has moved out of the queue. It is not confirmed complete.",
@@ -721,6 +734,10 @@ class VoiceRelay:
             return
         if self.closing:
             return
+        if successor is not None:
+            # Accepted provider tool calls are already capped by MAX_DELEGATIONS.
+            self.queued_successors.add(successor)
+            self.latest_queued_successor = successor
         await self._function_output(call_id, answer)
         await self._speak_result(generation)
 
@@ -945,6 +962,68 @@ class VoiceRelay:
 
     async def _check_chat(self) -> tuple[str, str | None]:
         """Read current status without submitting another durable turn."""
+        if successor := self.latest_queued_successor:
+            from app.services.native_voice_followups import observe_spoken_follow_up
+
+            try:
+                async with asyncio.timeout(1):
+                    observed = await observe_spoken_follow_up(self.scope, successor)
+            except TimeoutError:
+                return (
+                    "I couldn’t verify the latest queued follow-up. Check its status in Integral.",
+                    None,
+                )
+            thread = await self.check(self.scope)
+            if successor != self.latest_queued_successor:
+                return (
+                    "The latest task changed. Check its current status in Integral.",
+                    None,
+                )
+            if observed.receipt is not None and thread is not None:
+                status, result = await _delegated_status(
+                    self.scope, thread, observed.receipt
+                )
+                await self.check(self.scope)
+                if successor != self.latest_queued_successor:
+                    return (
+                        "The latest task changed. Check its current status in Integral.",
+                        None,
+                    )
+                if result is not None and successor in self.queued_successors:
+                    self.queued_successors.discard(successor)
+                    self.result_receipts.setdefault(
+                        observed.receipt.work_item_id,
+                        _AcceptedVoiceTurn(
+                            observed.receipt.work_item_id,
+                            observed.receipt.message_id,
+                            "",
+                            queued_follow_up=True,
+                        ),
+                    )
+                if result is not None:
+                    return result, observed.receipt.work_item_id
+                if status == "waiting_for_human":
+                    return (
+                        "Your follow-up is waiting for review in Integral. It has not been applied.",
+                        None,
+                    )
+                if status == "queued":
+                    return "Your latest follow-up is queued to start in Integral.", None
+                return "Your latest follow-up has started and is not complete.", None
+            if observed.state == "queued":
+                return (
+                    "Your latest follow-up is still in the queue behind earlier work.",
+                    None,
+                )
+            if observed.state == "dismissed":
+                return (
+                    "Your latest queued follow-up was dismissed and did not run.",
+                    None,
+                )
+            return (
+                "I couldn’t verify the latest queued follow-up. Check its status in Integral.",
+                None,
+            )
         if accepted := self.accepted:
             thread = await self.check(self.scope)
             if thread is not None:
@@ -1002,13 +1081,41 @@ class VoiceRelay:
 
     async def _watch_results(self) -> None:
         """Retry only unsent, exact durable outcomes after an ordinary quiet turn."""
+        from app.services.native_voice_followups import observe_spoken_follow_up
+
         while True:
             await asyncio.sleep(RESULT_POLL_SECONDS)
-            if not self.result_receipts or not self._can_announce_result():
+            if (
+                not (self.result_receipts or self.queued_successors)
+                or not self._can_announce_result()
+            ):
                 continue
             generation = self.generation
             thread = await self.check(self.scope)
             if thread is None:
+                continue
+            for successor in tuple(self.queued_successors):
+                try:
+                    async with asyncio.timeout(1):
+                        observation = await observe_spoken_follow_up(
+                            self.scope, successor
+                        )
+                except TimeoutError:
+                    continue
+                receipt = observation.receipt
+                if receipt is not None and successor in self.queued_successors:
+                    self.queued_successors.discard(successor)
+                    self.result_receipts[receipt.work_item_id] = _AcceptedVoiceTurn(
+                        receipt.work_item_id,
+                        receipt.message_id,
+                        "",
+                        queued_follow_up=True,
+                    )
+                elif observation.state in {"dismissed", "unavailable"}:
+                    self.queued_successors.discard(successor)
+                if generation != self.generation or not self._can_announce_result():
+                    break
+            if generation != self.generation or not self._can_announce_result():
                 continue
             for key, receipt in tuple(self.result_receipts.items()):
                 try:
@@ -1029,7 +1136,12 @@ class VoiceRelay:
                     and generation == self.generation
                     and self._can_announce_result()
                 ):
-                    await self._speak_result(generation, result=result, work_id=key)
+                    await self._speak_result(
+                        generation,
+                        result=result,
+                        work_id=key,
+                        queued_follow_up=receipt.queued_follow_up,
+                    )
                 break
 
     async def _watch_authority(self):

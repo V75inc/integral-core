@@ -302,3 +302,123 @@ async def test_realtime_tool_uses_canonical_queue_and_voice_steering(
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await asyncio.wait_for(task, 3)
+
+
+async def test_queued_voice_successor_is_checked_and_announced_once(
+    authenticated_client, test_user, monkeypatch
+):
+    """Establish actual queue promotion and fenced successor completion."""
+    from app.agentive.services import work_execution, work_items
+    from app.services.chat_followups import promote_next_chat_follow_up
+    from app.services.chat_turn_transcript import persist_work_item_assistant_result
+    from tests.test_native_voice_completion import _send_tool
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Detached voice WorkItems require PostgreSQL")
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "29" * 32)
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.01)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.02)
+    response = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Isolated queued voice completion"}
+    )
+    assert response.status_code == 200
+    ws = response.json()["workspace"]["id"]
+    me = test_user.user_id
+    thread = await create_thread(
+        user_id=me, workspace_id=ws, provider_id="integral_native"
+    )
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser, provider, native_voice.VoiceScope(me, ws, "", thread.id)
+    )
+    task = asyncio.create_task(relay.run())
+
+    async def settle(item_id, text):
+        item = await claim_due_candidate(
+            worker_id="synthetic-successor-worker",
+            lease_seconds=60,
+            work_item_id=item_id,
+        )
+        assert item is not None and item.status == "running"
+        ctx = work_execution.build_work_execution_context(
+            work_item=item,
+            logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
+        )
+        await persist_work_item_assistant_result(
+            context=ctx, parts=[{"type": "text", "text": text}], provider_metadata={}
+        )
+        return await work_items.transition_leased(
+            item_id,
+            lease_token=item.lease_token,
+            lease_fence=int(item.lease_fence or 0),
+            expected_status="running",
+            target="succeeded",
+        )
+
+    async def finished_audio(name, response):
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": name, "metadata": response["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": name,
+                "delta": "AAE=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x01"
+        await provider.inbox.put(
+            {"type": "response.done", "response": {"id": name, "status": "completed"}}
+        )
+
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        assert (await event(browser.outbox))["thread_id"] == thread.id
+        await _send_tool(provider, "delegate", "delegate")
+        assert "accepted" in (await event(provider.outbox))["item"]["output"]
+        first = relay.accepted
+        assert first is not None
+        await _send_tool(provider, "add-queued", "add-queued", "queue")
+        assert (
+            "queued that as a separate"
+            in (await event(provider.outbox))["item"]["output"]
+        )
+        await finished_audio("ack", (await event(provider.outbox))["response"])
+
+        await _send_tool(provider, "check", "check", "check_chat")
+        assert "Checked" in (await event(provider.outbox))["item"]["output"]
+        check = (await event(provider.outbox))["response"]
+        assert "latest follow-up is still in the queue" in check["instructions"]
+        await finished_audio("check-result", check)
+
+        earlier = "This is the earlier work result."
+        assert (await settle(first.work_item_id, earlier)).status == "succeeded"
+        readout = (await event(provider.outbox))["response"]
+        assert earlier in readout["instructions"]
+        await finished_audio("earlier-result", readout)
+        promoted = await promote_next_chat_follow_up({})
+        assert promoted is not None and promoted.work_item_id != first.work_item_id
+
+        # No stale predecessor result when the latest admitted job is asserted.
+        await _send_tool(provider, "check-next", "check-next", "check_chat")
+        await event(provider.outbox)
+        check = (await event(provider.outbox))["response"]
+        assert "latest follow-up is queued to start" in check["instructions"]
+        assert earlier not in check["instructions"]
+        await finished_audio("check-next-result", check)
+
+        final = "The separately queued summary finished."
+        assert (await settle(promoted.work_item_id, final)).status == "succeeded"
+        observed = (await event(provider.outbox))["response"]
+        assert final in observed["instructions"]
+        assert "outcome of the separately queued follow-up" in observed["instructions"]
+        await finished_audio("successor-result", observed)
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.1)
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await asyncio.wait_for(task, 3)
