@@ -116,6 +116,12 @@ does not automatically publish an ordinary spoken transcript to chat. To share
 regular spoken content in chat, use the composer; the pilot does not post it
 on a spoken request.
 
+During a live call, use the microphone button to mute or unmute your input.
+Mute disables the local audio track and drops queued capture frames, without
+disconnecting the call, muting the assistant, or cancelling delegated work.
+A new call starts with the microphone unmuted. Mute does not recall audio that
+has already been sent.
+
 Use the authenticated approval card to approve or reject a proposed change.
 Spoken acknowledgments and model tool calls do not authorize a decision.
 Ending a call does not
