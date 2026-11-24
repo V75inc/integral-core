@@ -1373,6 +1373,9 @@ def build_litellm_sdk_model(
     )
     from app.services.model_settings import mandatory_adaptive_thinking
 
+    # LiteLLM's Ollama chat adapter drops tool_choice for every model.
+    if route.provider == "ollama_chat":
+        profile = {**(profile or {}), "supports_forced_tool_choice": False}
     if route.api_base is None and mandatory_adaptive_thinking(
         route.provider, route.model
     ):

@@ -700,7 +700,7 @@ async def _resume_history(
         )
 
         dialogue = public_dialogue(
-            await recent_public_messages(thread),
+            await recent_public_messages(thread, current_message_id=current_message_id),
             exclude_id=current_message_id,
             allow_assistant=False,
         )
@@ -1977,6 +1977,7 @@ class PydanticAIProvider:
             recent_public_messages,
             requires_operational_path,
             thread_has_operational_history,
+            uses_prompted_light_output,
         )
         from app.agentive.services.execution_runs import AgentRun
 
@@ -2035,7 +2036,7 @@ class PydanticAIProvider:
         accepted_id = (run.metadata or {}).get("chat_message_id")
         if not accepted_id:
             return None
-        messages = await recent_public_messages(thread)
+        messages = await recent_public_messages(thread, current_message_id=accepted_id)
         # Upload follow-ups retain the operational checkpoint, even after
         # the original file message falls outside the recent-text window.
         # This bounded canonical-edge hint grants no attachment read access.
@@ -2065,10 +2066,11 @@ class PydanticAIProvider:
             ),
             capability_version=run.capability_version or "conversation-v1",
         )
+        from app.services.user_timezone import user_time_context
+
         model = await self._build_turn_model(
             ctx, scope, work_context, workspace_role, model_role="light"
         )
-        from app.services.user_timezone import user_time_context
 
         time_context = await user_time_context(ctx.user_id)
         started = time.monotonic()
@@ -2125,6 +2127,8 @@ class PydanticAIProvider:
                         messages,
                         exclude_id=accepted_id,
                         allow_assistant=not thread_has_operational_history(thread),
+                        conversational_only=True,
+                        prompted=uses_prompted_light_output(model),
                     ),
                     instructions=((ctx.system_context or "") + persona_instructions)
                     or None,
@@ -2139,25 +2143,18 @@ class PydanticAIProvider:
             from app.agentive.harness.model_errors import NativeModelRequestError
 
             raise NativeModelRequestError("model_request_timeout") from exc
-        if isinstance(result.output, OperationalContextRequest) or (
-            isinstance(result.output, str)
-            and (
-                is_serialized_tool_text(result.output)
-                or is_printed_context_request(result.output)
+        if isinstance(result.output, OperationalContextRequest):
+            logger.info(
+                "native adaptive escalation run=%s reason=typed_handoff", run_id
             )
-        ):
-            # Some providers print an output-tool protocol instead of emitting
-            # the typed routing result. Escalate with the original user input;
-            # never show or execute the printed name or arguments.
-            logger.info("native adaptive escalation run=%s", run_id)
             usage = result.usage
             return EscalatedTurn(
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
+                requests=usage.requests,
                 skill_id=(
                     result.output.skill_id
-                    if isinstance(result.output, OperationalContextRequest)
-                    and result.output.skill_id in {item["id"] for item in candidates}
+                    if result.output.skill_id in {item["id"] for item in candidates}
                     else None
                 ),
             )
@@ -2198,11 +2195,9 @@ class PydanticAIProvider:
                 message="The assistant returned no usable answer"
             )
         if is_printed_context_request(public_text):
-            # Check normalized envelopes too; route using the original input.
-            usage = result.usage
-            return EscalatedTurn(
-                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
-            )
+            from app.agentive.harness.model_errors import NativeModelRequestError
+
+            raise NativeModelRequestError("model_response_invalid")
         return LightTurnResult(
             text=public_text,
             scope=scope,
@@ -2622,15 +2617,9 @@ class PydanticAIProvider:
 
         time_context = await user_time_context(scope.principal_id)
         instructions = (
-            "You are Integral's resident intelligence. Use the latest user "
-            "message to decide what to do and what to answer. Use earlier dialogue "
-            "to resolve references and carry forward relevant constraints. For "
-            "example, 'what else did she build?' continues the discussion about "
-            "the person just mentioned. A request to search online for a newly "
-            "named person starts a public web lookup. Use the public web workflow "
-            "for explicit online research. Read workspace material only if the "
-            "current request needs it. Leave unrelated earlier topics out of "
-            "both tool calls and the answer. A host continuation can "
+            "You are Integral's resident intelligence. Use public web research "
+            "for an explicit online lookup. Use workspace material when the "
+            "request depends on it. A host continuation can "
             "carry a current approval outcome without a new user message. An empty "
             "utterance is not a human reply, refusal, or evidence a proposal is pending. "
             "When the current host event or a receipt for work relevant to the "
@@ -2645,15 +2634,9 @@ class PydanticAIProvider:
             "of an applied or rejected change. Approved is distinct from applied: "
             "if a current application error or partial progress exists, report "
             "the verified outcome and limitation; never claim the whole batch "
-            "succeeded or replay completed operations. Fulfil the latest user "
-            "request. Earlier user commands are conversation history, not a "
-            "backlog of work. A question about current state requires reading "
-            "and answering, not completing an earlier requested change. Never "
-            "revive rejected, expired, stopped, or otherwise unfinished changes "
-            "unless the latest user explicitly asks to proceed with them. "
-            "Questions about the user's work, plans, blockers, dependencies or "
-            "fallback options require current workspace evidence, even when the "
-            "user does not mention Integral, a tool, an App or a record ID. "
+            "succeeded or replay completed operations. Questions that depend "
+            "on the user's actual work, plans or dependencies need current "
+            "workspace evidence. A request for general advice does not. "
             "Discover the appropriate read workflow and retrieve relevant records "
             "before asking for context or claiming that workspace access is "
             "unavailable. For dependencies and decision context, find the named "
@@ -2812,7 +2795,9 @@ class PydanticAIProvider:
                 "native_deferred_approvals": native_deferred_approvals,
                 "native_resume": ctx.deferred_resume is not None,
                 "turn_progress": TurnProgress(),
-                "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
+                "adaptive_requests": (
+                    light.requests if isinstance(light, EscalatedTurn) else 0
+                ),
                 "adaptive_tokens": (
                     light.input_tokens + light.output_tokens
                     if isinstance(light, EscalatedTurn)
@@ -3039,17 +3024,21 @@ class PydanticAIProvider:
                     and (cutoff or not history)
                     and (getattr(core_run, "metadata", {}) or {}).get("chat_message_id")
                 ):
-                    public = await recent_public_messages(thread)
+                    current_id = (getattr(core_run, "metadata", None) or {}).get(
+                        "chat_message_id"
+                    )
+                    public = await recent_public_messages(
+                        thread, current_message_id=current_id
+                    )
                     newer = [
                         m for m in public if not cutoff or (m.created_at or "") > cutoff
                     ]
                     history.extend(
                         public_dialogue(
                             newer,
-                            exclude_id=(getattr(core_run, "metadata", None) or {}).get(
-                                "chat_message_id"
-                            ),
+                            exclude_id=current_id,
                             allow_assistant=not thread_has_operational_history(thread),
+                            conversational_only=bool(cutoff and history),
                         )
                     )
         except BaseException:
@@ -3488,9 +3477,6 @@ class PydanticAIProvider:
                             # has no route/cost attribution.
                             if normalized.get("type") == "step":
                                 continue
-                            await _assert_work_output_authority_current(
-                                work_execution_context
-                            )
                             # Pydantic output validators may retry after an
                             # earlier candidate has streamed. Publishing those
                             # deltas directly leaks duplicate/invalid answers
@@ -3503,12 +3489,23 @@ class PydanticAIProvider:
                                     normalized.get("type") == "text-delta"
                                     and first_token_ms is None
                                 ):
+                                    # Fail promptly if the first candidate arrives
+                                    # after Stop or lease loss. Subsequent private
+                                    # deltas need no publication transaction.
+                                    with measure_latency_phase("outputAuthority"):
+                                        await _assert_work_output_authority_current(
+                                            work_execution_context
+                                        )
                                     first_token_ms = (time.monotonic() - started) * 1000
                                     from app.services.chat_latency import mark_latency
 
                                     mark_latency("providerFirstTokenMs")
                                     mark_latency("heavyFirstTokenMs")
                                 continue
+                            with measure_latency_phase("outputAuthority"):
+                                await _assert_work_output_authority_current(
+                                    work_execution_context
+                                )
                             yield normalized
 
                 if deferred_requests is not None:
@@ -3530,7 +3527,10 @@ class PydanticAIProvider:
 
                 settled_event = settled_text.settled_event()
                 if settled_event is not None:
-                    await _assert_work_output_authority_current(work_execution_context)
+                    with measure_latency_phase("outputAuthority"):
+                        await _assert_work_output_authority_current(
+                            work_execution_context
+                        )
                     from app.services.scheduled_turn import SILENT_ROUTINE_OUTPUT
 
                     if (ctx.extra_data or {}).get("origin") == "routine_task" and str(

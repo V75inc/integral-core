@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Route native chat by the state or actions required, using completed exchanges and verified account context across phrasings. Keep routing format errors within Pydantic’s bounded output correction, preserve physical model usage, and send fewer unrelated skill descriptions. Check execution authority at public delivery while buffered candidate text stays private.
+
 - Preserve Firefox's browser-generated Origin on full-page Web Chat POSTs while keeping requests scoped to the visitor origin.
 
 - Admit operator-controlled declarative connector folders through Rescan. The project scaffold includes `integral-connectors/`, and the managed launcher discovers the sibling folder beside the configured App path.

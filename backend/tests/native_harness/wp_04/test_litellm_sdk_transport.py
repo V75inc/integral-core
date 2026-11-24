@@ -1749,6 +1749,7 @@ async def test_local_ollama_capacity_is_native_model_capacity():
         route=route, scope=_scope(), observer=_ignore_observation
     )
     try:
+        assert model.profile["supports_forced_tool_choice"] is False
         assert resolve_context_window(model) == 16384
     finally:
         await model.client.close()

@@ -533,6 +533,9 @@ async def test_provider_suppresses_output_after_work_item_fence_loss(
             async def events():
                 yield "first"
                 yield "late"
+                # The last candidate stays private. The next check belongs to
+                # the attempt to publish the settled result.
+                assert authority_checks == 2
 
             return events()
 

@@ -142,7 +142,8 @@ def test_profile_budgets_include_adaptive_pass_and_never_extend_host_limits():
         assert limits.request_limit == 2
         assert limits.tool_calls_limit == 5
         assert limits.total_tokens_limit == 4200
-        assert turn_usage_limits(light=True).request_limit == 1
+        assert turn_usage_limits(light=True).request_limit == 2
+        assert turn_usage_limits(light=True, adaptive_requests=2).request_limit == 1
         timing.model_settings = {
             "model_request_limit": 1000,
             "turn_token_limit": 9_000_000,

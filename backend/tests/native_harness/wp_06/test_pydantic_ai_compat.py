@@ -419,6 +419,34 @@ def test_old_discovery_does_not_select_a_new_user_workflow():
     assert choice(ctx)["tool_choice"] == ["search_capabilities"]
 
 
+def test_discovery_uses_the_same_task_boundary_for_steering_and_host_continuation():
+    """Steering retains current discovery while a fresh host event starts a new task."""
+    from app.agentive.harness.pydantic_ai_compat import build_integral_host_turn
+
+    choice = IntegralToolDisclosure().get_model_settings()
+    ctx = SimpleNamespace(
+        model=SimpleNamespace(profile={}),
+        active_capability_ids=set(),
+        messages=[
+            ModelRequest(parts=[UserPromptPart("Inspect current records")]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart("search_capabilities", {"matches": []}, "verified")
+                ]
+            ),
+            ModelRequest(
+                parts=[UserPromptPart("Keep the answer brief")],
+                metadata={"integral_steering": True},
+            ),
+        ],
+    )
+    assert "tool_choice" not in choice(ctx)
+    ctx.messages.append(
+        build_integral_host_turn("A new reviewed outcome is available.", run_id="new")
+    )
+    assert choice(ctx)["tool_choice"] == ["search_capabilities"]
+
+
 def test_application_code_uses_integral_adapter_for_pydantic_imports() -> None:
     """Keep third-party API/version coupling at the Integral binding seam."""
     app_root = Path(__file__).parents[3] / "app"

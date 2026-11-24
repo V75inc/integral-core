@@ -13,6 +13,15 @@ from app.services.speech_preferences import resolve_user
 from app.utils.time import utc_now_iso
 
 _LOCAL_LOCKS: dict[tuple[int, int, str], asyncio.Lock] = {}
+_WEEKDAYS = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
 
 
 async def get_user_timezone(principal_id: str) -> str:
@@ -25,9 +34,10 @@ async def user_time_context(principal_id: str) -> str:
     """Supply verified account-local clock context to the resident harness."""
     zone = await get_user_timezone(principal_id)
     now = datetime.now(timezone.utc).astimezone(ZoneInfo(zone))
+    weekday = _WEEKDAYS[now.weekday()]
     return (
         f"Account time zone (server-verified): {zone}. Current local time: "
-        f"{now.isoformat()}; local date: {now.date().isoformat()}. "
+        f"{now.isoformat()}; local date: {now.date().isoformat()} ({weekday}). "
         "Use this zone for local dates, reminders and schedules unless the user "
         "explicitly requests another zone. Absolute timestamps retain their offsets."
     )

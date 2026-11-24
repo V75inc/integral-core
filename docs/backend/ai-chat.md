@@ -497,8 +497,8 @@ host visibility override remains authoritative.
 Model routing coalesces workspace-owner credential reads only for one route
 resolution. Each physical request and its final readiness check resolve current
 authority again; no route, decrypted key or permission decision survives that
-boundary. Automatic Light routing has one transport attempt and a total eight-second
-deadline (`INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS`), including framework
+boundary. In dual-model mode each Light request has one transport attempt.
+The routing pass shares a total eight-second deadline (`INTEGRAL_NATIVE_LIGHT_ROUTING_TIMEOUT_SECONDS`), including framework
 schema retries. A known transient timeout requests Heavy context through its
 normal admission; cancellation and authority denials never become fallbacks.
 Single-model and Heavy request timeouts/retries retain their configured bounds.
@@ -617,6 +617,41 @@ passes the live broker. Missing, mismatched or denied pointers are not exposed.
 
 #### Sharing discovery with the Light pass
 
+Light chooses its route from the information and effects the current request
+requires. It can use general knowledge, supplied text, prior conversation and
+the authenticated account clock. Account-local time, date, weekday and zone
+are supplied on every turn, independent of the language or wording of the
+question. Clarification belongs in conversation when the goal is ambiguous.
+A mixed request that also needs workspace or external state takes the
+operational route. Thread-only recall stays conversational. Saving a record
+requires the governed workflow.
+
+The routing model sees at most six complete exchanges and 12,000 characters
+before the accepted message. The assistant receipt identifies its parent.
+Failed, cancelled, unpaired and later queued input cannot become earlier tasks
+to answer. For a previous operational turn, the user’s request and its handoff
+supply a referent. The governed checkpoint owns the actual results. For models
+using prompted JSON, completed replies are presented in that same format, so
+prior transcript prose does not demonstrate an invalid output protocol.
+The visible transcript remains in ordinary language.
+
+Candidate answer deltas stay private until the harness settles its output.
+The worker checks current execution authority on the first candidate and before
+releasing public progress or the settled answer. The `outputAuthority` phase
+measures those checks.
+Routing logs record a validated operational handoff without recording model text.
+
+Light uses Pydantic AI output tools when the model profile supports required
+tool choice. Otherwise it uses Pydantic AI’s validated `PromptedOutput`.
+The pinned LiteLLM Ollama chat adapter discards forced tool choice across its
+models, so its bridge declares that limitation through the Pydantic model
+profile. The prompted route checks decoded text for instruction disclosure.
+A malformed routing response can receive one Pydantic output-validation retry
+within the remaining turn budget and routing deadline. If validation still
+fails, the turn reports an error. A formatting failure alone cannot trigger
+workspace tools. A successful corrected handoff charges both model calls to
+the same turn. Configured transient-provider failover is independent.
+
 Automatic routing may nominate one exact skill from current,
 authorization-filtered public metadata candidates. This is a model choice in the
 existing Light request, not a host keyword router or execution authority. The
@@ -627,10 +662,15 @@ discovery. Initial activation and native `load_capability` use the same context
 admission budget. Do not impose a smaller body-length cutoff on the Light
 handoff: that forces the Heavy model to rediscover and load the identical body.
 The preparation log records the nominated and activated procedure IDs.
-Light receives a bounded Core procedure index (up to 24 descriptions) alongside
-up to eight ranked App procedures, each description capped at 500 characters.
-Generic Core skills remain eligible even when domain wording has no keyword
-overlap. The model chooses a fitting procedure or leaves the choice unset; this
+Light receives up to 24 Core procedure IDs and eight ranked App procedure
+IDs. Only the eight highest-ranked matches carry descriptions (up to 320
+characters each). Core IDs remain selectable without keyword overlap.
+The operational pass uses the pinned harness’s `Skills` and `load_capability`
+for procedure bodies. Pydantic AI manages deferred tool availability. Integral
+supplies the catalog filtered for the caller and checks each tool invocation.
+The pinned harness ignores the `allowed-tools` field when loading instructions.
+Integral reads that field and enforces the tool bindings at its broker boundary.
+The model chooses a fitting procedure or leaves the choice unset; this
 metadata cannot authorize any tool or bypass the live skill resolver. Other
 workflows stay deferred and remain discoverable.
 Social replies do not compose operational skill bodies or advance the operational

@@ -28,6 +28,7 @@ from pydantic_ai import (
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
+    PromptedOutput,
     RetryPromptPart,
     RunContext,
     TextOutput,
@@ -318,18 +319,7 @@ class IntegralToolDisclosure(ToolSearch):
             # Public message boundaries separate the current request from
             # restored discovery. This is structural turn state, not intent
             # classification or routing based on the user's wording.
-            turn_start = next(
-                (
-                    index
-                    for index in range(len(ctx.messages) - 1, -1, -1)
-                    if isinstance(ctx.messages[index], ModelRequest)
-                    and any(
-                        isinstance(part, UserPromptPart)
-                        for part in ctx.messages[index].parts
-                    )
-                ),
-                0,
-            )
+            turn_start = _active_turn_start(ctx.messages) or 0
             # A Core refusal can name its read-only recovery contract. Enforce
             # that contract before another broad read; availability and live
             # broker checks still apply. Never force an effect or replay a write.
@@ -530,18 +520,7 @@ class IntegralToolDisclosure(ToolSearch):
             or any(part.part_kind == "tool-call" for part in response.parts)
         ):
             return response
-        turn_start = next(
-            (
-                index
-                for index in range(len(ctx.messages) - 1, -1, -1)
-                if isinstance(ctx.messages[index], ModelRequest)
-                and any(
-                    isinstance(part, UserPromptPart)
-                    for part in ctx.messages[index].parts
-                )
-            ),
-            0,
-        )
+        turn_start = _active_turn_start(ctx.messages) or 0
         outcomes = [
             part
             for message in ctx.messages[turn_start:]
@@ -1951,6 +1930,7 @@ __all__ = [
     "PartDeltaEvent",
     "PartEndEvent",
     "PartStartEvent",
+    "PromptedOutput",
     "PlanItem",
     "PlanStore",
     "Planning",

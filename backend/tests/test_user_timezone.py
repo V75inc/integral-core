@@ -1,6 +1,8 @@
 """Self-only time-zone persistence and user-local reminder semantics."""
 
 import asyncio
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -71,6 +73,23 @@ async def test_inference_race_never_overwrites_manual_choice(test_user):
     assert "Account time zone (server-verified): Asia/Tokyo" in await user_time_context(
         principal
     )
+
+
+@pytest.mark.asyncio
+async def test_clock_context_weekday_uses_the_account_local_date(monkeypatch):
+    from app.services import user_timezone
+
+    class FrozenClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 24, 1, 30, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(user_timezone, "datetime", FrozenClock)
+    monkeypatch.setattr(
+        user_timezone, "get_user_timezone", AsyncMock(return_value="America/Guyana")
+    )
+    context = await user_time_context("synthetic-principal")
+    assert "2026-11-23T21:30:00-04:00; local date: 2026-11-23 (Monday)" in context
 
 
 @pytest.mark.asyncio

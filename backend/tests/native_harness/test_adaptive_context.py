@@ -1,8 +1,10 @@
 """Conversational mode cannot confer workspace or write authority."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
@@ -10,6 +12,7 @@ from app.agentive.harness.adaptive import (
     EscalatedTurn,
     LightTurnResult,
     OperationalContextRequest,
+    SimpleReminderRequest,
     build_light_agent,
     public_dialogue,
     requires_operational_path,
@@ -86,6 +89,59 @@ async def test_one_model_pass_can_answer_without_workspace_tools():
     result = await build_light_agent(FunctionModel(answer)).run("hello there")
     assert result.output == "Hello! What can I help with?"
     assert len(calls) == result.usage.requests == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"route": "answer_conversation", "text": "Green"}, "Green"),
+        (
+            {"route": "request_operational_context", "skill_id": "navigation"},
+            OperationalContextRequest(skill_id="navigation"),
+        ),
+        (
+            {
+                "route": "propose_simple_reminder",
+                "text": "Water the plants",
+                "cron": "0 10 * * *",
+            },
+            SimpleReminderRequest(message="Water the plants", cron="0 10 * * *"),
+        ),
+    ],
+)
+async def test_prompted_routes_use_native_validated_output(payload, expected):
+    def respond(messages, info):
+        assert not info.output_tools and not info.function_tools
+        assert "exactly one JSON object" in str(messages)
+        return ModelResponse(parts=[TextPart(json.dumps(payload))])
+
+    model = FunctionModel(respond, profile={"supports_forced_tool_choice": False})
+    result = await build_light_agent(model).run("Synthetic routing request")
+    assert result.output == expected
+    assert result.usage.requests == 1
+
+
+@pytest.mark.asyncio
+async def test_prompted_output_checks_decoded_text_for_disclosure():
+    from app.agentive.harness.adaptive import LIGHT_INSTRUCTIONS
+    from app.agentive.harness.disclosure import DISCLOSURE_RESPONSE
+
+    copied_instructions = " ".join(LIGHT_INSTRUCTIONS.split()[40:62])
+    model = FunctionModel(
+        lambda _messages, _info: ModelResponse(
+            parts=[
+                TextPart(
+                    json.dumps(
+                        {"route": "answer_conversation", "text": copied_instructions}
+                    )
+                )
+            ]
+        ),
+        profile={"supports_forced_tool_choice": False},
+    )
+    result = await build_light_agent(model).run("Synthetic protected-text check")
+    assert result.output == DISCLOSURE_RESPONSE
 
 
 @pytest.mark.asyncio
@@ -167,6 +223,148 @@ def test_public_projection_excludes_host_reasoning_tools_and_current_input():
         for i in range(30)
     ]
     assert len(public_dialogue(large)) == 6
+
+
+def test_dialogue_omits_stopped_turn_and_preserves_completed_light_exchange():
+    def message(id, role, text, *, parent_id=None, **metadata):
+        return SimpleNamespace(
+            id=id,
+            role=role,
+            parts=[{"type": "text", "text": text}],
+            parent_id=parent_id,
+            provider_metadata=metadata,
+        )
+
+    history = public_dialogue(
+        [
+            message("memory", "user", "Remember Copper Kite for this chat"),
+            message(
+                "reply",
+                "assistant",
+                "I will remember",
+                parent_id="memory",
+                steps=[{"modelRole": "light"}],
+            ),
+            message("story", "user", "Write a lighthouse story"),
+            message(
+                "stop",
+                "assistant",
+                "Partial story",
+                parent_id="story",
+                steps=[{"modelRole": "light"}],
+                error={"code": "work.cancelled"},
+            ),
+            message(
+                "workspace-request",
+                "user",
+                "List apps in this workspace",
+            ),
+            message(
+                "workspace",
+                "assistant",
+                "Protected workspace result",
+                parent_id="workspace-request",
+                steps=[{"modelRole": "light"}, {"modelRole": "heavy"}],
+            ),
+            message("clock", "user", "What time is it?"),
+            message(
+                "clock-reply",
+                "assistant",
+                "It's 16:00 in America/Guyana.",
+                parent_id="clock",
+                timing={"modelPassMs": 0},
+            ),
+            message("new", "user", "What color is blue plus yellow?"),
+        ],
+        exclude_id="new",
+        allow_assistant=False,
+        conversational_only=True,
+    )
+    assert [m.parts[0].content for m in history] == [
+        "Remember Copper Kite for this chat",
+        "I will remember",
+        "List apps in this workspace",
+        "This earlier request used workspace capabilities. Its result requires a current authorized lookup.",
+    ]
+
+
+@pytest.mark.parametrize("prompted", [True, False])
+def test_routing_history_uses_whole_prior_pairs_and_the_selected_output_protocol(
+    prompted,
+):
+    """Keep each eligible pair in the representation its model will actually see."""
+
+    def msg(id, role, text, parent=None, steps=()):
+        return SimpleNamespace(
+            id=id,
+            parent_id=parent,
+            role=role,
+            parts=[{"type": "text", "text": text}],
+            provider_metadata={"steps": steps},
+        )
+
+    quoted = 'A phrase containing "quotes", a newline\nand 日本語.'
+    messages = [
+        msg("one", "user", "Draft a caption"),
+        msg("two", "assistant", quoted, "one", [{"modelRole": "light"}]),
+        msg("unanswered", "user", "Do not replay this"),
+        msg("read", "user", "Review the supplier"),
+        msg(
+            "receipt", "assistant", "PRIVATE_SUPPLIER", "read", [{"modelRole": "heavy"}]
+        ),
+        msg("current", "user", "Current task"),
+        msg("later", "user", "Future task"),
+    ]
+    history = public_dialogue(
+        messages,
+        exclude_id="current",
+        allow_assistant=False,
+        conversational_only=True,
+        prompted=prompted,
+    )
+    parts = [item.parts[0].content for item in history]
+    assert len(parts) == 4
+    assert parts[::2] == ["Draft a caption", "Review the supplier"]
+    assert "PRIVATE_SUPPLIER" not in str(parts)
+    if prompted:
+        assert json.loads(parts[1]) == {"route": "answer_conversation", "text": quoted}
+        assert json.loads(parts[3]) == {"route": "request_operational_context"}
+    else:
+        assert parts[1] == quoted
+    assert "Future task" not in str(public_dialogue(messages, exclude_id="current"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompted", [False, True])
+async def test_harness_corrects_invalid_route_and_accounts_for_both_calls(
+    monkeypatch, prompted
+):
+    """A validated correction carries both physical requests into the operational budget."""
+    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    calls = []
+
+    def respond(messages, info):
+        calls.append(info)
+        if len(calls) == 1:
+            return ModelResponse(parts=[TextPart("unstructured response")])
+        part = (
+            TextPart('{"route":"request_operational_context"}')
+            if prompted
+            else ToolCallPart("request_operational_context", {}, "valid-route")
+        )
+        return ModelResponse(parts=[part])
+
+    model = FunctionModel(
+        respond, profile={"supports_forced_tool_choice": not prompted}
+    )
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider.build_litellm_sdk_model",
+        lambda **kwargs: model,
+    )
+    result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
+    assert isinstance(result, EscalatedTurn)
+    assert result.requests == len(calls) == 2
+    assert result.input_tokens > 0 and result.output_tokens > 0
 
 
 async def setup_turn(monkeypatch, *, escalation=False, origin="http"):
@@ -354,20 +552,33 @@ async def test_light_turn_does_not_reuse_unverified_assistant_text(
     from app.agentive.harness import adaptive
     from app.services.chat_threads import append_message
 
-    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    ctx, thread, run, _ = await setup_turn(monkeypatch)
     thread.harness_session_generation = operational_generation
     await thread.save()
     await append_message(
         thread=thread,
         role="assistant",
+        parent_id=run.metadata["chat_message_id"],
         parts=[{"type": "text", "text": "SOURCE_DERIVED_ASSISTANT_TEXT"}],
         provider_metadata=metadata,
     )
-    await append_message(
+    safe = await append_message(
         thread=thread,
         role="user",
         parts=[{"type": "text", "text": "SAFE_USER_HISTORY"}],
     )
+    await append_message(
+        thread=thread,
+        role="assistant",
+        parent_id=safe.id,
+        parts=[{"type": "text", "text": "Verified conversation reply"}],
+        provider_metadata={"steps": [{"modelRole": "light"}]},
+    )
+    current = await append_message(
+        thread=thread, role="user", parts=[{"type": "text", "text": ctx.text}]
+    )
+    run.metadata = {**run.metadata, "chat_message_id": current.id}
+    await run.save()
     original = adaptive.build_light_agent
     captured = {}
 
@@ -450,6 +661,26 @@ async def test_lookup_cache_cannot_expose_uncontained_message(monkeypatch):
     messages = await recent_public_messages(thread)
     assert forged.id not in {m.id for m in messages}
     assert "FORGED_UNCONTAINED" not in str(public_dialogue(messages))
+
+
+@pytest.mark.asyncio
+async def test_queued_turn_reads_its_own_history_window(monkeypatch):
+    """A backlog cannot move the accepted input outside its own context window."""
+    from app.agentive.harness.adaptive import recent_public_messages
+    from app.services.chat_threads import append_message
+
+    _, thread, _, _ = await setup_turn(monkeypatch)
+    current = await append_message(
+        thread=thread, role="user", parts=[{"type": "text", "text": "Accepted turn"}]
+    )
+    for index in range(14):
+        await append_message(
+            thread=thread,
+            role="user",
+            parts=[{"type": "text", "text": f"Future {index}"}],
+        )
+    window = await recent_public_messages(thread, current_message_id=current.id)
+    assert [m.parts[0]["text"] for m in window] == ["hello there", "Accepted turn"]
 
 
 @pytest.mark.asyncio
@@ -571,10 +802,10 @@ async def test_upload_context_survives_recent_text_window(monkeypatch):
         '{"thought":"PRIVATE", "content":"OperationalContextRequest"}',
     ],
 )
-async def test_printed_routing_protocol_escalates_without_becoming_an_answer(
+async def test_invalid_routing_output_never_becomes_a_workspace_request(
     monkeypatch, text
 ):
-    """A provider formatting failure requests real governed context, not execution."""
+    """Malformed prose alone cannot trigger workspace discovery."""
     ctx, thread, _, _ = await setup_turn(monkeypatch)
     monkeypatch.setattr(
         "app.services.chat_providers.pydantic_ai_provider.build_litellm_sdk_model",
@@ -582,8 +813,8 @@ async def test_printed_routing_protocol_escalates_without_becoming_an_answer(
             lambda m, i: ModelResponse(parts=[TextPart(text)])
         ),
     )
-    result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
-    assert isinstance(result, EscalatedTurn)
+    with pytest.raises(UnexpectedModelBehavior):
+        await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
 
 
 @pytest.mark.asyncio
@@ -619,11 +850,15 @@ async def test_explaining_a_routing_type_is_still_a_conversational_answer(monkey
     ],
 )
 async def test_untyped_light_answer_cannot_bypass_routing_or_lose_usage(text):
-    result = await build_light_agent(
-        FunctionModel(lambda m, i: ModelResponse(parts=[TextPart(text)]))
-    ).run("build it for me")
-    assert isinstance(result.output, OperationalContextRequest)
-    assert result.usage.requests == 1
+    calls = []
+
+    def reply(messages, info):
+        calls.append(info)
+        return ModelResponse(parts=[TextPart(text)])
+
+    with pytest.raises(UnexpectedModelBehavior):
+        await build_light_agent(FunctionModel(reply)).run("build it for me")
+    assert len(calls) == 2
 
 
 @pytest.mark.asyncio
@@ -715,7 +950,7 @@ async def test_light_bridge_requires_routing_choice_with_followup_history(
         )
         assert any(
             m["role"] in {"system", "developer"}
-            and "Prior assistant refusals" in m["content"]
+            and "request_operational_context" in m["content"]
             for m in captured["messages"]
         )
         assert result.usage.input_tokens == 50 and result.usage.output_tokens == 5
