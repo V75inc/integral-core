@@ -24,23 +24,8 @@ export interface ProfileSettings {
   native_chat_profiles: string[];
   created_profile?: string;
 }
-export interface PublicWebChatSettings {
-  revision: number;
-  profile_key: string | null;
-  enabled: boolean;
-  transport_ready: boolean;
-  active: boolean;
-  eligible_profiles: { key: string; name: string }[];
-}
-export const publicWebChatSettingsKey = (workspace: string) => ['public-web-chat-settings', workspace] as const;
-const publicWebChatPath = '/workspace/agent-profiles/public-web-chat';
 const scope = (workspace: string) => ({ headers: { 'X-Integral-Scope': `ws:${workspace}` } });
 export const connectionProfilesApi = {
-  publicWebChat: (workspace: string) => apiClient.get<PublicWebChatSettings>(publicWebChatPath, scope(workspace)).then(r => r.data),
-  assignPublicWebChat: (workspace: string, revision: number, profileKey: string | null) =>
-    apiClient.put<PublicWebChatSettings>(`${publicWebChatPath}/assignment`, { expected_revision: revision, profile_key: profileKey }, scope(workspace)).then(r => r.data),
-  setPublicWebChatEnabled: (workspace: string, revision: number, enabled: boolean) =>
-    apiClient.put<PublicWebChatSettings>(`${publicWebChatPath}/enablement`, { expected_revision: revision, enabled }, scope(workspace)).then(r => r.data),
   get: (workspace: string) => apiClient.get<ProfileSettings>('/workspace/agent-profiles', scope(workspace)).then(r => r.data),
   renameWorkspaceAssistant: (workspace: string, revision: number, name: string, settings?: ProfileAppearance & { persona?: string }) =>
     apiClient.put<ProfileSettings>('/workspace/agent-profiles/workspace-assistant', { expected_revision: revision, name, ...settings }, scope(workspace)).then(r => r.data),

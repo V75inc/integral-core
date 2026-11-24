@@ -208,3 +208,30 @@ async def test_sharing_is_opt_in_and_does_not_define_active_state():
     package.serving.full_page_link.side_effect = RuntimeError("sharing offline")
     (entry,) = await registry.discover(SCOPE, include_sharing=True)
     assert entry.state == "active" and entry.full_page_url is None
+
+
+async def test_private_test_uses_the_visitor_surface_flag():
+    """A configured registry admits the private test only for visitor_surface."""
+    from types import SimpleNamespace
+
+    from app.web.web_chat_private_test import visitor_channel_slug
+    from app.web.web_chat_share import _Denied
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    assert visitor_channel_slug(request, "public_web_chat") == "public_web_chat"
+    with pytest.raises(_Denied):
+        visitor_channel_slug(request, "other_chat")
+
+    registry = ChannelPackageRegistry()
+    registry.register(_fixture())
+    request.app.state.integral_managed_channel_registry = registry
+    with pytest.raises(_Denied):
+        visitor_channel_slug(request, "test_chat")
+    surfaced = replace(
+        _fixture(),
+        definition=replace(
+            _fixture().definition, slug="visitor_desk", visitor_surface=True
+        ),
+    )
+    registry.register(surfaced)
+    assert visitor_channel_slug(request, "visitor_desk") == "visitor_desk"

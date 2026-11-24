@@ -1,11 +1,8 @@
 """Phase 5 Plan 05-03 — core on-demand connector sync endpoint.
 
 ``POST /api/connectors/{id}/sync`` — trigger a synchronous sync for one
-connector. Distinct from ``backend/app/agentive/api/connectors.py`` (Connector
-CRUD), which stays AGENTIVE_ENABLED-gated. This handler is registered
-unconditionally via ``@endpoint`` per locked decision #12 so a non-agentive
-deployment with the agentive layer disabled can still expose the sync trigger
-when its operator opts in.
+connector. Connector CRUD and the on-demand sync handler are registered
+at boot.
 
 Policy gate: ``policy_engine.evaluate(action="connector.sync",
 resource=Resource(kind="connector", id=<id>))``. The per-connector Policy
@@ -56,9 +53,6 @@ async def sync_connector(request: Request, connector_id: str) -> Dict[str, Any]:
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
-    # Lazy import — the Connector Node lives in agentive/. The import
-    # works regardless of AGENTIVE_ENABLED (the class is always importable),
-    # but only succeeds in resolving real rows when the agentive layer is up.
     from app.agentive.nodes import Connector
 
     connector = await Connector.get(connector_id)

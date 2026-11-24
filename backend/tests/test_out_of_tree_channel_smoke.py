@@ -46,6 +46,9 @@ async def test_external_wheel_through_real_connector_routes(
             assert "full_page_url" not in entry
             return entry
 
+    previous = getattr(app.state, _STATE_KEY, None)
+    if previous is not None:
+        delattr(app.state, _STATE_KEY)
     install_managed_channel_registry(app, registry)
     try:
         entry = await request("GET")
@@ -84,4 +87,7 @@ async def test_external_wheel_through_real_connector_routes(
             False,
         )
     finally:
-        delattr(app.state, _STATE_KEY)
+        if hasattr(app.state, _STATE_KEY):
+            delattr(app.state, _STATE_KEY)
+        if previous is not None:
+            install_managed_channel_registry(app, previous)

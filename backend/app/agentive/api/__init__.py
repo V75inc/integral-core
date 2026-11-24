@@ -22,6 +22,7 @@ from app.agentive.api import (  # noqa: F401 — side-effect registration
     channels,
     chat,
     connection_profiles,
+    connector_packages,
     connectors,
     conversations,
     managed_channels,

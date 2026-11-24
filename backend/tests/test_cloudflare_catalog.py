@@ -18,7 +18,10 @@ def test_cloudflare_catalog_uses_official_dynamic_oauth_endpoint():
     assert entry["kind"] == "mcp"
     assert entry["transport"] == "streamable_http"
     assert entry["url"] == "https://mcp.cloudflare.com/mcp"
-    assert entry["auth"] == {"type": "none", "fields": []}
+    assert entry["auth"] == {"type": "mcp_oauth", "fields": []}
+    from app.agentive.api.connectors import _catalog_entry_wire
+
+    assert _catalog_entry_wire(entry).auth.type == "mcp_oauth"
     assert entry["oauth"] is None  # Provider metadata is discovered at mount.
     assert entry["vetted"] is True
     assert entry["hidden"] is False

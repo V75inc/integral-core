@@ -482,7 +482,12 @@ async def get_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, A
     user_id = _require_channel_user(request)
     workspace_id = await resolve_workspace_id_from_request(request, user_id)
     binding = None if not workspace_id else await binding_for_workspace(workspace_id)
-    return {"binding": None if binding is None else public_binding_view(binding)}
+    from app.connectors.package_channels import read_host_grant
+
+    return {
+        "binding": None if binding is None else public_binding_view(binding),
+        "grant": read_host_grant("whatsapp", binding),
+    }
 
 
 @endpoint(

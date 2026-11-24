@@ -1,6 +1,6 @@
 # ADR 018 — Drop-in connector packages
 
-**Status:** Proposed. Not implemented.
+**Status:** Implemented for declarative drop-ins and Core-owned integrations.
 
 ## Context
 
@@ -9,23 +9,24 @@ imported by name, the managed-channel wheel contract and a separate WhatsApp
 stack. Each has its own install record, API and Settings path, and Core
 branches on connector slugs. Adding a sync or API connector requires a Core
 change; only channels have an extension contract, and it requires a
-pip-installed wheel. A public marketplace is a stated eventual goal.
+pip-installed wheel.
 
 ## Decision
 
 1. A connector is a **package folder** with a `connector.yaml` manifest
    (`integral.connector/v1`), dropped into `integral-connectors/` or a root
    listed in `INTEGRAL_CONNECTOR_PATHS`. One registry admits packages from
-   these roots and from Core's first-party package folder. Core stops
-   importing connectors by name.
+   these roots and from Core's first-party package folder. Core resolves
+   first-party executable integrations from fixed startup code.
 2. A package declares one or more capabilities — `actions`, `mcp`, `sync`,
    `channel` — and a binding (`workspace`/`personal`, cardinality). Each
    capability is handed to its existing execution lane; lanes stay separate.
-3. Packages are **declarative first**. Three trust tiers: `declarative`
-   (manifest only, admitted automatically when valid, Core executes all
-   requests), `trusted` (in-process Python behind a narrow context, signature
-   required, loaded at startup) and `remote` (out-of-process adapter over a
-   signed protocol). Untrusted code never runs in the Core process.
+3. Operator roots admit only declarative manifests. Core runs declared
+   actions, HTTP MCP, sync and webhook steps through the existing guarded
+   runtime. First-party integrations ship as reviewed Core source.
+   A fixed startup mapping wires the sync and
+   channel adapters, and only bundled Core definitions select stdio commands.
+   Operator roots and saved installation snapshots cannot select code.
 4. Every kind uses **one installation record**, **one management API** and
    **one Settings projection**. Add and Configure are rendered from the
    manifest by Core's shared settings renderer, extended once for `secret`,
@@ -56,3 +57,11 @@ the developer guide is [connector packages v1](../../platform/connector-extensio
   it.
 - Substrate work (installation node, registry, renderer extension) requires
   reviewed plans against the invariants, phased as in the guide.
+
+## Native integrations
+
+Developers adding native connector code can fork Core and build it with their
+changes. The drop-in contract accepts declarative data from operator roots.
+`integral init` creates the connector directory beside `integral-apps/`.
+The managed launcher discovers the same sibling when starting an existing
+project with `integral up --apps`.

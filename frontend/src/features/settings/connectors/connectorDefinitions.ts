@@ -11,6 +11,7 @@ interface Definition {
   description: string;
   scopes: Partial<Record<ConnectionMode, Cardinality>>;
   capabilities: readonly ConnectorCapability[];
+  host_managed?: boolean;
 }
 
 export const WHATSAPP_CONNECTOR = {
@@ -20,8 +21,9 @@ export const WHATSAPP_CONNECTOR = {
   description: 'Connect a workspace WhatsApp line for messaging with verified personal numbers.',
   scopes: { shared: 'one' },
   capabilities: ['channel'],
+  host_managed: true,
   setup: 'whatsapp',
-} satisfies Definition & { setup: 'whatsapp' };
+} satisfies Definition & { setup: 'whatsapp'; host_managed: true };
 
 const CUSTOM_MCP_CONNECTOR = {
   id: 'custom_mcp',
@@ -30,6 +32,7 @@ const CUSTOM_MCP_CONNECTOR = {
   description: 'Connect your own MCP server over Streamable HTTP.',
   scopes: { per_user: 'many', shared: 'one-per-name' },
   capabilities: ['mcp'],
+  host_managed: false,
   setup: 'custom-mcp',
 } satisfies Definition & { setup: 'custom-mcp' };
 
@@ -39,66 +42,53 @@ export type InformationalConnector = Definition & {
   detail: string;
 };
 
-export function webChatCatalogueInformation(ready: boolean): InformationalConnector {
-  return {
-    id: 'public_web_chat',
-    provider: 'Integral',
-    name: 'Web Chat',
-    description: 'Offer a text chat powered by a published public agent profile.',
-    scopes: { shared: 'one' },
-    capabilities: ['channel'],
-    setup: 'information',
-    status: ready ? 'managed-elsewhere' : 'unavailable',
-    detail: ready
-      ? 'Manage setup from Settings → Connectors.'
-      : 'This workspace has no ready Web Chat host. Ask your Integral administrator to check hosting.',
-  };
-}
-
 type CatalogPackage = Definition & { setup: 'package'; package: CatalogEntry };
 type ManagedChannelDefinition = Definition & { setup: 'managed-channel'; channel: ManagedChannel };
+type HostManagedDefinition = Definition & { setup: 'host-managed'; host_managed: true };
 export type ConnectorDefinition =
   | typeof WHATSAPP_CONNECTOR
   | typeof CUSTOM_MCP_CONNECTOR
   | CatalogPackage
   | ManagedChannelDefinition
+  | HostManagedDefinition
   | InformationalConnector;
-
-const PACKAGE_PROVIDERS: Readonly<Record<string, string>> = {
-  calendly: 'Calendly',
-  cloudflare: 'Cloudflare',
-  github_issues: 'GitHub',
-  gmail: 'Google',
-  google_gmail: 'Google',
-  google_drive: 'Google',
-  google_sheets: 'Google',
-  notion: 'Notion',
-  quickbooks: 'Intuit',
-  quickbooks_mcp: 'Intuit',
-  serper_web_search: 'Serper',
-};
 
 export function connectorDefinitions(
   packages: CatalogEntry[],
-  { whatsapp, customMcp, managedChannels = [], information = [] }: {
-    whatsapp: boolean;
+  { includeHostManaged, hostManaged = [], customMcp, managedChannels = [], information = [] }: {
+    includeHostManaged: boolean;
+    hostManaged?: readonly { id: string; name: string; description: string }[];
     customMcp: boolean;
     managedChannels?: readonly ManagedChannel[];
     information?: readonly InformationalConnector[];
   },
 ): ConnectorDefinition[] {
   const entries: ConnectorDefinition[] = [];
-  if (whatsapp) entries.push(WHATSAPP_CONNECTOR);
+  if (includeHostManaged) {
+    for (const pkg of hostManaged) {
+      entries.push({
+        id: pkg.id,
+        provider: pkg.name,
+        name: pkg.name,
+        description: pkg.description,
+        scopes: { shared: 'one' },
+        capabilities: ['channel'],
+        host_managed: true,
+        setup: 'host-managed',
+      });
+    }
+  }
   if (customMcp) entries.push(CUSTOM_MCP_CONNECTOR);
   for (const entry of packages) {
     if (entry.hidden) continue;
     entries.push({
       id: entry.slug,
-      provider: PACKAGE_PROVIDERS[entry.slug] ?? entry.display_name,
+      provider: entry.display_name,
       name: entry.display_name,
       description: entry.description,
       scopes: { per_user: 'many', shared: 'one' },
       capabilities: [entry.kind === 'mcp' ? 'mcp' : 'api'],
+      host_managed: entry.host_managed === true,
       setup: 'package',
       package: entry,
     });

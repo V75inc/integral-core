@@ -15,7 +15,7 @@ import { readManagedChannelShare } from './managedChannelShareReader';
 import { currentManagedChannels, managedProfileOptions } from './managedChannelQueries';
 
 function isPendingWebChatSetup(channel: ManagedChannel): boolean {
-  return channel.definition.slug === 'public_web_chat' && channel.connected &&
+  return channel.definition.visitor_surface === true && channel.connected &&
     channel.configuration_kind === 'published-public-profile-v1' &&
     channel.state === 'inactive' && !channel.can_enable;
 }
@@ -90,15 +90,16 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
 
   const webChatDraft = channel && isPendingWebChatSetup(channel);
   const hasProfileAssignment = channel?.connected && channel.configuration_kind === 'published-public-profile-v1';
+  const visitorSurface = channel?.definition.visitor_surface === true;
   const profileQuery = useQuery(managedProfileOptions(principalId, workspaceId, selection.slug,
-    hasProfileAssignment ? generation : null));
+    hasProfileAssignment ? generation : null, visitorSurface));
   const profile = hasProfileAssignment && profileQuery.isSuccess && profileQuery.fetchStatus === 'idle'
     ? profileQuery.data : null;
   const assignedProfile = profile?.eligible_profiles.find(choice => choice.key === profile.profile_key);
   const assignedEligible = assignedProfile !== undefined;
   const canEnable = channel?.connected && channel.can_enable && (!hasProfileAssignment || assignedEligible);
   const canEditProfile = profile?.editable === true && channel?.state !== 'active';
-  const configuringWebChat = channel?.connected && channel.definition.slug === 'public_web_chat';
+  const configuringWebChat = channel?.connected && channel.definition.visitor_surface === true;
   const assignedPublication = channel?.connected && profile &&
     profile.provision_id === channel.provision_id && profile.route_epoch === channel.route_epoch &&
     assignedEligible && profile.profile_key && profile.published_version &&
@@ -108,7 +109,8 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   const currentPublication = channel?.state === 'active' ? assignedPublication : null;
   const privateTestOwner = configuringWebChat && channel?.connected && assignedPublication &&
     canReadPublishedShare && principalId && workspaceId && !busy && !confirmingRemove && profile?.private_test_available === true
-    ? { principalId, workspaceId, sessionFence, provisionId: channel.provision_id, routeEpoch: channel.route_epoch,
+    ? { principalId, workspaceId, sessionFence, slug: channel.definition.slug,
+      provisionId: channel.provision_id, routeEpoch: channel.route_epoch,
       profileKey: assignedPublication.profileKey, publishedVersion: assignedPublication.publishedVersion } : null;
   // For Web Chat the authenticated, current Configure projection is the sole
   // authority to offer a check; an injected generic source cannot bypass it.
@@ -134,7 +136,8 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
       const next = latest.data.find(row => row.definition.slug === selection.slug);
       if (next?.connected && next.configuration_kind === 'published-public-profile-v1') {
         await qc.fetchQuery(managedProfileOptions(principalId, workspaceId, selection.slug,
-          { provision_id: next.provision_id, route_epoch: next.route_epoch }));
+          { provision_id: next.provision_id, route_epoch: next.route_epoch },
+          next.definition.visitor_surface === true));
       }
     } catch {
       // Query panels render the read failure without leaking adapter diagnostics.
@@ -182,7 +185,10 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
           // Request the exact post-write epoch. Never read back through a pre-write observer.
           const nextGeneration = { provision_id: next.provision_id, route_epoch: next.route_epoch };
           try {
-            currentProfile = await qc.fetchQuery(managedProfileOptions(principalId, workspaceId, selection.slug, nextGeneration));
+            currentProfile = await qc.fetchQuery(managedProfileOptions(
+              principalId, workspaceId, selection.slug, nextGeneration,
+              next.definition.visitor_surface === true,
+            ));
           } catch {
             // A failed readback cannot confirm persistence.
           }
@@ -278,7 +284,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
               ) : (
                 <Text as="p" variant="body-sm" tone="muted">
                   {!channel.connected
-                    ? channel.definition.slug === 'public_web_chat'
+                    ? channel.definition.visitor_surface === true
                       ? 'Adding saves Web Chat to this workspace for setup. It does not publish a chat or turn on messaging.'
                       : 'Adding installs this channel for the workspace. It does not turn on messaging.'
                     : channel.state === 'unavailable' || (channel.state === 'inactive' && !channel.can_enable)

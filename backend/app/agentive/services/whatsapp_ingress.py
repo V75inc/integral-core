@@ -219,12 +219,17 @@ async def _sender_principal(resolved: dict) -> str:
 
 
 async def _accessible_workspaces(binding, principal: str) -> list:
-    from app.agentive.services.whatsapp_channel_binding import granted_workspace_ids
+    from app.agentive.services.whatsapp_channel_binding import (
+        granted_workspace_ids,
+        workspace_line_grant_id,
+    )
     from app.models.nodes import Workspace
     from app.services.workspace_permissions import user_in_workspace_member_pool
 
     workspaces = []
     for workspace_id in await granted_workspace_ids(binding):
+        if not await workspace_line_grant_id(workspace_id, binding.id):
+            continue
         if not await user_in_workspace_member_pool(principal, workspace_id):
             continue
         workspace = await Workspace.get(workspace_id)

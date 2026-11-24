@@ -1,0 +1,20 @@
+schema: integral.connector/v1
+id: notion
+version: 1.0.0
+publisher: integral
+name: Notion
+description: Read and update Notion pages, databases, and comments through Notion's
+  hosted MCP server. Requires OAuth into a Notion workspace.
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: declarative
+capabilities:
+  mcp:
+    transport: streamable_http
+    url: https://mcp.notion.com/mcp
+    read_only_tools: []
+auth:
+  type: mcp_oauth

@@ -491,7 +491,11 @@ async def refresh_mcp_connector(connector: Any) -> Any:
 
         await _refresh_oauth_if_needed(connector)
         auth_state = dict(getattr(connector, "auth_state", None) or {})
-        tools = await list_remote_tools(auth_state)
+        tools = await list_remote_tools(
+            auth_state,
+            getattr(connector, "package_config", None),
+            getattr(connector, "package_manifest", None),
+        )
         discovered = [
             {
                 "name": t.name,
@@ -548,7 +552,9 @@ async def health_check_mcp_connector(connector: Any) -> Dict[str, Any]:
             auth_state = dict(getattr(connector, "auth_state", None) or {})
         except Exception:  # noqa: BLE001
             logger.warning("mcp_mount: oauth refresh before health probe failed")
-        result = await probe_mcp_health(auth_state)
+        result = await probe_mcp_health(
+            auth_state, getattr(connector, "package_config", None)
+        )
     connector.health_status = result["status"]
     connector.last_error = result.get("error")
     connector.last_health_at = utc_now_iso()
@@ -597,20 +603,33 @@ async def unmount_mcp_connector(connector: Any) -> bool:
     return await delete_connector(connector.id)
 
 
-def _awaiting_quickbooks_oauth(auth_state: Dict[str, Any]) -> bool:
-    """Return whether a QuickBooks MCP row still lacks an Intuit token file.
+def _awaiting_stdio_oauth(auth_state: Dict[str, Any]) -> bool:
+    """Return whether a stdio OAuth package still lacks its token-store path.
 
-    Install creates the connector before the OAuth callback. Spawning
-    ``npx`` at boot for that row spends the first (slow) package build on
-    a process that cannot authenticate, and a 30s kill leaves a broken
-    cache for the callback that follows.
+    Install creates the connector before the OAuth callback. Spawning the
+    local server at boot spends the first package build on a process that
+    cannot authenticate.
     """
-    if str(auth_state.get("catalog_slug") or "") != "quickbooks_mcp":
-        return False
     if auth_state.get("discovered_tools"):
         return False
+    slug = str(auth_state.get("catalog_slug") or "").strip()
+    if not slug:
+        return False
+    from app.connectors.package_runtime import stdio_oauth_package
+
+    manifest = stdio_oauth_package(slug)
+    if not manifest:
+        return False
+    mcp = (manifest.get("capabilities") or {}).get("mcp") or {}
+    store_keys = [
+        str(key)
+        for key in (mcp.get("generated_env") or [])
+        if str(key).endswith("_TOKEN_STORE_PATH")
+    ]
+    if not store_keys:
+        return False
     env = auth_state.get("env") if isinstance(auth_state.get("env"), dict) else {}
-    return not str(env.get("QUICKBOOKS_TOKEN_STORE_PATH") or "").strip()
+    return not any(str(env.get(key) or "").strip() for key in store_keys)
 
 
 async def rehydrate_mcp_connectors() -> None:
@@ -635,9 +654,9 @@ async def rehydrate_mcp_connectors() -> None:
         if not workspace_id:
             continue
         auth_state = decrypt_auth_state(dict(getattr(c, "auth_state", None) or {}))
-        if _awaiting_quickbooks_oauth(auth_state):
+        if _awaiting_stdio_oauth(auth_state):
             logger.info(
-                "rehydrate_mcp_connectors: skip %s until QuickBooks sign-in finishes",
+                "rehydrate_mcp_connectors: skip %s until stdio OAuth sign-in finishes",
                 c.id,
             )
             continue
@@ -654,7 +673,9 @@ async def rehydrate_mcp_connectors() -> None:
                     if item.get("name")
                 ]
             else:
-                tools = await list_remote_tools(auth_state)
+                tools = await list_remote_tools(
+                    auth_state, getattr(c, "package_config", None)
+                )
             register_mcp_tools(
                 workspace_id,
                 c.id,

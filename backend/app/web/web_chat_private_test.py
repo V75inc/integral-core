@@ -12,7 +12,6 @@ from starlette.responses import JSONResponse
 
 from app.agentive.connectors.external_chat import ExternalChatProvision
 from app.agentive.services import profile_management
-from app.agentive.services.web_chat_package import SLUG
 from app.api.errors import InsufficientPermissionsError, MissingAuthenticationError
 from app.connectors.channel_share_check import bind_mounted_private_test
 from app.schemas.agentive.managed_channels import (
@@ -23,7 +22,7 @@ from app.schemas.agentive.managed_channels import (
 from app.web.full_page_chat import _body as read_bounded_json
 from app.web.full_page_chat import _Rejected as BodyRejected
 from app.web.web_chat_host_assembly import managed_route_from_record
-from app.web.web_chat_share import _HEADERS, _Denied, _manager
+from app.web.web_chat_share import _HEADERS, _Denied, _manager, visitor_channel_slug
 
 _TIMEOUT_SECONDS = 15
 
@@ -110,12 +109,11 @@ def create_web_chat_private_test_router(
     async def scope_for(
         request: Request, slug: str, query: ManageChannelShareQuery
     ) -> PrivateWebChatTestScope:
-        if slug != SLUG:
-            raise _Denied(404)
+        kind = visitor_channel_slug(request, slug)
         actor = await _manager(request, query.workspace_id)
         return PrivateWebChatTestScope(
             actor,
-            ExternalChatProvision(query.workspace_id, SLUG, query.provision_id),
+            ExternalChatProvision(query.workspace_id, kind, query.provision_id),
             query.route_epoch,
             query.profile_key,
             query.published_version,
@@ -179,7 +177,7 @@ def create_web_chat_private_test_router(
                 if deadline.expired():
                     raise TimeoutError
                 output = PrivateWebChatTestReply(
-                    **query.model_dump(), reply=reply.strip()
+                    **query.model_dump(), slug=slug, reply=reply.strip()
                 )
                 return JSONResponse(output.model_dump(), headers=_HEADERS)
         except (_Denied, BodyRejected) as failure:

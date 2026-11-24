@@ -66,7 +66,7 @@ GUARDS += module_boundary_check
 GUARDS += module_import_cycle_check app_boundary_guard
 
 .PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts verify-distribution test-backend test-frontend test-postgres test-postgres-ci types lint guards \
-        precommit format-check audit clean-pyc capability-map
+        precommit format-check audit clean-pyc capability-map connector-schema
 
 help:
 	@echo "Integral verification targets"
@@ -137,6 +137,10 @@ build-asset-register:
 ## W0.4 — regenerate docs/generated/capability-map.{json,md}; tests fail when stale
 capability-map:
 	@cd backend && $(PY) scripts/generate_capability_map.py
+
+## Refresh the packaged runtime copy from the canonical connector schema.
+connector-schema:
+	@cp docs/platform/schemas/integral-connector-v1.schema.json backend/app/connectors/integral-connector-v1.schema.json
 
 verify-distribution:
 	@command -v node >/dev/null && command -v npm >/dev/null

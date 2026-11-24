@@ -133,6 +133,59 @@ async def binding_for_workspace(workspace_id: str) -> WhatsAppChannelBinding | N
     return lines[0] if lines else None
 
 
+async def workspace_line_grant(workspace_id: str, binding_id: str):
+    """Read the sole grant from a workspace to an exact provider line."""
+    try:
+        workspace = await _workspace_node(workspace_id)
+    except ResourceNotFoundError:
+        return None
+    context = await workspace.get_context()
+    grants = await context.find_edges_between(
+        workspace.id, binding_id, edge_class=USES_WHATSAPP_LINE
+    )
+    return grants[0] if len(grants) == 1 else None
+
+
+async def workspace_line_grant_id(workspace_id: str, binding_id: str) -> str:
+    """Return the exact enabled grant identity or an empty string."""
+    grant = await workspace_line_grant(workspace_id, binding_id)
+    return grant.id if grant is not None and grant.enabled else ""
+
+
+def workspace_line_epoch(binding, grant) -> str:
+    """Bind a lifecycle request to both the grant and the line revision."""
+    return f"{grant.revision}:{binding.updated_at or binding.id}"
+
+
+async def set_workspace_line_enabled(
+    user_id: str, workspace_id: str, grant_id: str, route_epoch: str, enabled: bool
+) -> None:
+    """Toggle only the current workspace grant."""
+    await _require_line_admin(user_id, workspace_id)
+    async with _workspace_line_write(workspace_id):
+        binding = await binding_for_workspace(workspace_id)
+        grant = (
+            await workspace_line_grant(workspace_id, binding.id) if binding else None
+        )
+        if (
+            grant is None
+            or grant.id != grant_id
+            or workspace_line_epoch(binding, grant) != route_epoch
+        ):
+            raise ResourceConflictError(
+                "WhatsApp grant changed. Refresh and try again."
+            )
+        if enabled and not (
+            binding.enabled
+            and binding.webhook_secret_ciphertext
+            and binding.api_key_ciphertext
+        ):
+            raise ResourceConflictError("WhatsApp line is not ready")
+        grant.enabled = enabled
+        grant.revision += 1
+        await grant.save()
+
+
 async def _revoke_grant(workspace, binding: WhatsAppChannelBinding) -> None:
     context = await workspace.get_context()
     edges = await context.find_edges_between(
@@ -302,6 +355,7 @@ async def save_whatsapp_channel_credentials(
     client: Optional[Any] = None,
     expected_binding_id: str | None = None,
     check_expected_binding: bool = False,
+    activate: bool = True,
 ) -> tuple[WhatsAppChannelBinding, bool]:
     """Attach the active workspace to the jvconnect line this key controls.
 
@@ -352,7 +406,8 @@ async def save_whatsapp_channel_credentials(
         already_registered = False
         workspace = await _workspace_node(workspace_id)
         if existing is not None:
-            _store_api_key(existing, jvconnect_base_url, api_key)
+            if activate or (current and current.id == existing.id):
+                _store_api_key(existing, jvconnect_base_url, api_key)
             if display:
                 existing.display_phone = display
             existing.last_error = ""
@@ -379,8 +434,18 @@ async def save_whatsapp_channel_credentials(
             current.last_error = ""
             await current.save()
             binding = current
+        if not activate:
+            if not binding.phone_number_id and phone:
+                binding.phone_number_id = phone
+                await binding.save()
+            grant = await workspace_line_grant(workspace_id, binding.id)
+            if grant is None:
+                raise ResourceConflictError("WhatsApp grant was not saved")
+            grant.enabled = False
+            grant.revision += 1
+            await grant.save()
     await binding.set_context(get_default_context())
-    if already_registered:
+    if not activate or already_registered:
         return binding, created
     registered = await register_saved_whatsapp_channel(
         binding,
@@ -417,6 +482,7 @@ async def register_saved_whatsapp_channel(
     workspace_id: str,
     request_base_url: str,
     client: Optional[Any] = None,
+    expected_grant: tuple[str, str] | None = None,
 ) -> WhatsAppChannelBinding:
     """Register the webhook outside the transaction and guard the result write."""
     from app.agentive.clients.jvconnect_whatsapp import fetch_account, register_webhook
@@ -463,6 +529,15 @@ async def register_saved_whatsapp_channel(
             raise ResourceConflictError(
                 message="The workspace WhatsApp connection changed during registration."
             )
+        if expected_grant is not None:
+            grant = await workspace_line_grant(workspace_id, current.id)
+            if (
+                grant is None
+                or (grant.id, workspace_line_epoch(current, grant)) != expected_grant
+            ):
+                raise ResourceConflictError(
+                    "WhatsApp grant changed during registration"
+                )
         current.enabled = not error
         current.last_error = error
         if error:
@@ -500,7 +575,11 @@ async def disable_whatsapp_channel_binding(user_id: str) -> WhatsAppChannelBindi
 
 
 async def disconnect_workspace_whatsapp_line(
-    user_id: str, workspace_id: str, binding_id: str
+    user_id: str,
+    workspace_id: str,
+    binding_id: str,
+    *,
+    expected_grant: tuple[str, str] | None = None,
 ) -> WhatsAppChannelBinding:
     """Remove this workspace's grant. The last grant disables the line."""
     await _require_line_admin(user_id, workspace_id)
@@ -509,6 +588,15 @@ async def disconnect_workspace_whatsapp_line(
         granted = [] if binding is None else await granted_workspace_ids(binding)
         if binding is None or workspace_id not in granted:
             raise ResourceNotFoundError(message="WhatsApp channel is not configured")
+        if expected_grant is not None:
+            grant = await workspace_line_grant(workspace_id, binding_id)
+            if (
+                grant is None
+                or (grant.id, workspace_line_epoch(binding, grant)) != expected_grant
+            ):
+                raise ResourceConflictError(
+                    "WhatsApp grant changed. Refresh and try again."
+                )
         workspace = await _workspace_node(workspace_id)
         await _revoke_grant(workspace, binding)
         if not await granted_workspace_ids(binding):

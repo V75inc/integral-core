@@ -31,6 +31,7 @@ from app.agentive.services.web_chat_profile_inference import (
     _text,
 )
 from app.schemas.agentive.web_chat_http import FullPageWebChatSend, FullPageWebChatStart
+from app.web.visitor_channel import accepted_visitor_slug
 
 _API_PREFIX = "/api"
 _ROUTE_PATH = "/public/web-chat"
@@ -308,7 +309,8 @@ def create_full_page_web_chat_router(
             if (
                 not isinstance(trusted, TrustedFullPageRoute)
                 or not isinstance(trusted.provision, ExternalChatProvision)
-                or trusted.provision.connector_kind != "public_web_chat"
+                or accepted_visitor_slug(request, trusted.provision.connector_kind)
+                is None
                 or not is_canonical_web_chat_origin(trusted.origin)
                 or trusted.origin != origin
             ):

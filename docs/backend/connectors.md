@@ -48,8 +48,11 @@ projection. The generic frontend handles the versioned setup kind rather than
 a connector's slug; it does not evaluate package-supplied UI code or assets.
 A reviewed management-only package may support inactive Add and Configure
 without a hosted transport. Serving requires a separately configured, ready
-host. Management-only registration does not activate routing. The standard
-server has no default Web Chat, Facebook or Signal package registration.
+host. Management-only registration does not activate routing. Startup registers
+that management-only Web Chat package and refuses the managed-channel API
+when no registry is installed. It does not mount visitor routes or enable a
+workspace. Facebook and Signal stay unregistered. A serving host replaces
+the startup registry with its own composed registry before requests.
 
 An isolated qualification harness can explicitly load one installed
 distribution using the [approved package loader](../../backend/app/connectors/channel_package_discovery.py).

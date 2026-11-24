@@ -58,8 +58,29 @@ def install_managed_channel_registry(
     setattr(app.state, _STATE_KEY, registry)
 
 
+def configure_default_managed_channel_registry(app: FastAPI) -> ChannelPackageRegistry:
+    """Register the management-only Web Chat package and bind it to the app.
+
+    This does not mount visitor routes or enable a workspace. A host that
+    serves Web Chat replaces this registry before requests with its own
+    composed registry. A missing registry is not an empty catalogue.
+    """
+    from app.connectors.package_channels import register_packaged_managed_text
+    from app.connectors.package_discovery import start_package_discovery
+
+    start_package_discovery()
+    registry = ChannelPackageRegistry()
+    if not register_packaged_managed_text(registry):
+        raise RuntimeError("No packaged managed channels were admitted at boot")
+    install_managed_channel_registry(app, registry)
+    return registry
+
+
 def _registry(request: Request) -> ChannelPackageRegistry:
-    return getattr(request.app.state, _STATE_KEY, None) or ChannelPackageRegistry()
+    registry = getattr(request.app.state, _STATE_KEY, None)
+    if not isinstance(registry, ChannelPackageRegistry):
+        raise ServiceUnavailableError("Managed channels are not configured")
+    return registry
 
 
 async def _scope(request: Request) -> ChannelScope:
@@ -100,6 +121,8 @@ async def _lifecycle(operation: Awaitable[_Result]) -> _Result:
     """Do not expose arbitrary external adapter diagnostics over management APIs."""
     try:
         return await operation
+    except BadRequestError:
+        raise BadRequestError("Invalid managed channel operation") from None
     except ResourceConflictError:
         raise ResourceConflictError(
             "Managed channel changed. Refresh and try again."
@@ -191,6 +214,46 @@ async def install_managed_channel(request: Request, slug: str) -> dict:
         raise ServiceUnavailableError(
             "Managed channel installation could not be verified"
         )
+    return await _projection(registry, scope)
+
+
+@endpoint(
+    f"{_PATH}/{{slug}}/credentials", methods=["GET"], auth=True, tags=["Agentive"]
+)
+async def read_managed_channel_credentials(request: Request, slug: str) -> dict:
+    """Read the installed adapter's management-safe credential metadata."""
+    scope = await _scope(request)
+    package = _package(_registry(request), slug)
+    if package.read_credentials is None:
+        raise BadRequestError("This channel does not expose credential metadata")
+    return await _lifecycle(package.read_credentials(scope))
+
+
+@endpoint(
+    f"{_PATH}/{{slug}}/credentials", methods=["PUT"], auth=True, tags=["Agentive"]
+)
+async def configure_managed_channel_credentials(request: Request, slug: str) -> dict:
+    """Save credentials through the installed package's disabled setup path."""
+    scope = await _scope(request)
+    registry = _registry(request)
+    package = _package(registry, slug)
+    if package.configure_credentials is None:
+        raise BadRequestError("This channel does not accept credentials")
+    data = bytearray()
+    try:
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > 16_384:
+                raise ValueError("Credential configuration body too large")
+            data.extend(chunk)
+        values = json.loads(data, object_pairs_hook=_exact_install_fields)
+        if not isinstance(values, dict):
+            raise ValueError("Credential configuration must be an object")
+    except (ClientDisconnect, ValueError):
+        raise BadRequestError("Invalid managed channel credentials") from None
+    await require_profile_manager(scope.actor_id, scope.workspace_id)
+    await _lifecycle(
+        package.configure_credentials(scope, values, str(request.base_url))
+    )
     return await _projection(registry, scope)
 
 

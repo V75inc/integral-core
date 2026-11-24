@@ -8,7 +8,6 @@ import {
 } from './managedChannelEmbedProof';
 
 const UNAVAILABLE = Object.freeze({ state: 'unavailable' } as const);
-const WEB_CHAT_SLUG = 'public_web_chat';
 
 export type ManagedChannelEmbedShareReader = (
   owner: ManagedEmbedOwner,
@@ -25,7 +24,8 @@ function version(value: number): boolean {
 }
 
 function snapshot(owner: ManagedEmbedOwner): ManagedEmbedOwner | null {
-  if (!owner?.publication || !owner.policy || owner.slug !== WEB_CHAT_SLUG ||
+  if (!owner?.publication || !owner.policy || !identity(owner.slug, 64) ||
+      !/^[a-z][a-z0-9_]{0,63}$/.test(owner.slug) ||
       !identity(owner.principalId) || !identity(owner.sessionFence) ||
       !identity(owner.workspaceId) || !identity(owner.provisionId) ||
       typeof owner.routeEpoch !== 'string' || !/^(?:0|[1-9][0-9]{0,19})$/.test(owner.routeEpoch) ||

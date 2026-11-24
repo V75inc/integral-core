@@ -54,6 +54,56 @@ def test_forged_command_ignored_when_catalog_slug_present(
     assert not any("evil" in a for a in args)
 
 
+def test_core_stdio_command_wins_over_stored_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the admitted first-party package supplies a command."""
+    _no_freeform(monkeypatch)
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {
+                "trust": {"tier": "trusted"},
+                "capabilities": {
+                    "mcp": {
+                        "transport": "stdio",
+                        "command": ["npx", "-y", "admitted-server"],
+                    }
+                },
+            }
+            if package_id == "quickbooks_mcp"
+            else None
+        ),
+    )
+    stored = {
+        "id": "acme_stdio",
+        "capabilities": {
+            "mcp": {
+                "transport": "stdio",
+                "command": ["python", "-m", "acme_server"],
+            }
+        },
+    }
+    auth = {
+        "catalog_slug": "quickbooks_mcp",
+        "command": "/bin/sh",
+        "access_token": "tok",
+    }
+    command, args = mcp_client._resolve_trusted_stdio_command(auth, stored)
+    assert command == "npx"
+    assert args == ["-y", "admitted-server"]
+    assert auth["command"] == "/bin/sh"
+    assert auth["access_token"] == "tok"
+    older = {"capabilities": {"mcp": {"transport": "stdio"}}}
+    command, args = mcp_client._resolve_trusted_stdio_command(auth, older)
+    assert command == "npx"
+    assert args == ["-y", "admitted-server"]
+    assert mcp_client._resolve_trusted_stdio_command(
+        auth,
+        {"capabilities": {"mcp": {"transport": "stdio", "command": "npx"}}},
+    ) == ("npx", ["-y", "admitted-server"])
+
+
 def test_unknown_catalog_slug_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """A catalog slug that does not resolve is refused."""
     _no_freeform(monkeypatch)
@@ -91,7 +141,7 @@ def test_stdio_tool_call_waits_out_a_cold_npx_build(
             return SimpleNamespace(isError=False, structuredContent={"report": "ok"})
 
     @asynccontextmanager
-    async def _session(auth_state, *, timeout=mcp_client._DEFAULT_TIMEOUT):
+    async def _session(auth_state, *, timeout=mcp_client._DEFAULT_TIMEOUT, **_kwargs):
         seen["timeout"] = timeout
         yield _Session()
 
@@ -127,3 +177,82 @@ def test_spawn_env_is_allowlisted_not_denylisted() -> None:
 
     assert hasattr(mcp_client, "_build_spawn_env")
     assert not hasattr(mcp_client, "_FORBIDDEN_SPAWN_ENV_KEYS")
+
+
+def test_stored_http_mcp_url_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stored package URL wins. An older snapshot uses the admitted URL."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {
+                "capabilities": {
+                    "mcp": {
+                        "transport": "streamable_http",
+                        "url": "https://admitted.example/mcp",
+                    }
+                }
+            }
+            if package_id == "notion"
+            else None
+        ),
+    )
+    stored = {
+        "id": "acme_docs",
+        "capabilities": {
+            "mcp": {
+                "transport": "streamable_http",
+                "url": "https://docs.example/mcp",
+            }
+        },
+    }
+    auth = {
+        "catalog_slug": "notion",
+        "url": "https://evil.example/mcp",
+        "access_token": "tok",
+    }
+    assert mcp_client._resolve_http_mcp_url(auth, stored) == "https://docs.example/mcp"
+    assert auth["url"] == "https://evil.example/mcp"
+    assert auth["access_token"] == "tok"
+    older = {"capabilities": {"mcp": {"transport": "streamable_http"}}}
+    assert (
+        mcp_client._resolve_http_mcp_url(auth, older) == "https://admitted.example/mcp"
+    )
+    with pytest.raises(ValueError, match="does not declare an MCP URL"):
+        mcp_client._resolve_http_mcp_url(
+            auth,
+            {"capabilities": {"mcp": {"transport": "streamable_http", "url": ""}}},
+        )
+    plain = {"transport": "streamable_http", "url": "https://custom.example/mcp"}
+    assert mcp_client._resolve_http_mcp_url(plain) == "https://custom.example/mcp"
+
+
+def test_stored_mcp_transport_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stored package transport wins. An older snapshot uses the admitted one."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {"capabilities": {"mcp": {"transport": "stdio"}}}
+            if package_id == "notion"
+            else None
+        ),
+    )
+    stored = {
+        "id": "acme_docs",
+        "capabilities": {"mcp": {"transport": "streamable_http"}},
+    }
+    auth = {
+        "catalog_slug": "notion",
+        "transport": "stdio",
+        "access_token": "tok",
+    }
+    assert mcp_client._resolve_mcp_transport(auth, stored) == "streamable_http"
+    assert auth["transport"] == "stdio"
+    assert auth["access_token"] == "tok"
+    older = {"capabilities": {"mcp": {"url": "https://example.test/mcp"}}}
+    assert mcp_client._resolve_mcp_transport(auth, older) == "stdio"
+    with pytest.raises(ValueError, match="does not declare an MCP transport"):
+        mcp_client._resolve_mcp_transport(
+            auth, {"capabilities": {"mcp": {"transport": "websocket"}}}
+        )
+    plain = {"transport": "streamable_http"}
+    assert mcp_client._resolve_mcp_transport(plain) == "streamable_http"

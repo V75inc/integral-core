@@ -19,11 +19,9 @@ import base64
 import hashlib
 import hmac
 import logging
-import os
 import secrets
 import time
-from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlencode
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -31,14 +29,6 @@ from app.api.errors import ConnectorAuthError
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-GOOGLE_CONSENT_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
-
-# Read-only scope is the ONLY scope this phase requests. No send / modify /
-# settings scope, no openid / profile / email scopes. Adding any additional
-# scope requires an explicit follow-up plan + Decision Record.
-GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 
 _STATE_TTL_SECONDS = 600  # 10 minutes
 
@@ -125,73 +115,26 @@ def connector_id_from_state(state: str) -> Optional[str]:
         return None
 
 
-def _env_client_id() -> str:
-    from app.config import settings
+def _credential_from(auth: Dict[str, Any], field: str) -> str:
+    """Read one client credential from the env names declared by the package."""
+    from app.connectors.package_runtime import deployment_setting
 
-    return (
-        settings.GMAIL_OAUTH_CLIENT_ID or os.getenv("GMAIL_OAUTH_CLIENT_ID") or ""
-    ).strip() or (
-        settings.GOOGLE_OAUTH_CLIENT_ID or os.getenv("GOOGLE_OAUTH_CLIENT_ID") or ""
-    ).strip()
+    names = (auth.get("client") or {}).get(field) or []
+    if not isinstance(names, list):
+        return ""
+    return deployment_setting([str(name) for name in names if name])
+
+
+def _env_client_id() -> str:
+    from app.connectors.package_runtime import admitted_oauth
+
+    return _credential_from(admitted_oauth("gmail") or {}, "id_env")
 
 
 def _env_client_secret() -> str:
-    from app.config import settings
+    from app.connectors.package_runtime import admitted_oauth
 
-    return (
-        settings.GMAIL_OAUTH_CLIENT_SECRET
-        or os.getenv("GMAIL_OAUTH_CLIENT_SECRET")
-        or ""
-    ).strip() or (
-        settings.GOOGLE_OAUTH_CLIENT_SECRET
-        or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-        or ""
-    ).strip()
-
-
-def build_consent_url(
-    user_id: str,
-    *,
-    redirect_uri: Optional[str] = None,
-    client_id: Optional[str] = None,
-    connector_id: Optional[str] = None,
-) -> Tuple[str, str]:
-    """Build Google's consent URL + return the signed state token."""
-    from app.config import settings
-
-    resolved_client_id = (client_id or "").strip() or _env_client_id()
-    if not resolved_client_id:
-        raise ConnectorAuthError(
-            message=(
-                "Gmail Client ID is required. Enter it in the install form, "
-                "or set GMAIL_OAUTH_CLIENT_ID on the server."
-            ),
-            details={
-                "reauth_required": False,
-                "config_missing": "GMAIL_OAUTH_CLIENT_ID",
-            },
-        )
-    effective_redirect = (
-        redirect_uri
-        or settings.GMAIL_OAUTH_REDIRECT_URI
-        or os.getenv("GMAIL_OAUTH_REDIRECT_URI")
-        or ""
-    )
-    state = _build_state(user_id, connector_id=connector_id)
-    params = {
-        "client_id": resolved_client_id,
-        "scope": GMAIL_SCOPE,
-        "redirect_uri": effective_redirect,
-        "response_type": "code",
-        "state": state,
-        # access_type=offline so Google returns a refresh_token.
-        "access_type": "offline",
-        # prompt=consent forces a fresh refresh_token on re-consent.
-        "prompt": "consent",
-    }
-    url = f"{GOOGLE_CONSENT_URL}?{urlencode(params)}"
-    logger.info("gmail_oauth: built consent URL for user_id=%s", user_id)
-    return url, state
+    return _credential_from(admitted_oauth("gmail") or {}, "secret_env")
 
 
 async def _post_to_token_endpoint(
@@ -201,38 +144,37 @@ async def _post_to_token_endpoint(
     client_id: Optional[str] = None,
     client_secret: Optional[str] = None,
 ) -> Dict[str, Any]:
-    resolved_id = (client_id or "").strip() or _env_client_id()
-    resolved_secret = (client_secret or "").strip() or _env_client_secret()
+    from app.connectors.package_runtime import admitted_oauth, post_oauth_token
+
+    auth = admitted_oauth("gmail")
+    if auth is None:
+        raise ConnectorAuthError(
+            message="Gmail package is not admitted",
+            details={"reauth_required": False},
+        )
+    resolved_id = (client_id or "").strip() or _credential_from(auth, "id_env")
+    resolved_secret = (client_secret or "").strip() or _credential_from(
+        auth, "secret_env"
+    )
     if not resolved_id or not resolved_secret:
+        missing = (auth.get("client") or {}).get(
+            "id_env" if not resolved_id else "secret_env"
+        ) or []
+        missing_name = missing[0] if isinstance(missing, list) and missing else "client"
         raise ConnectorAuthError(
             message=(
-                "Gmail client credentials are required. Enter Client ID and "
-                "Client secret in the install form, or set "
-                "GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET on the server."
+                "Gmail client credentials are required. Enter them on the "
+                f"connector, or set {missing_name} on the server."
             ),
-            details={
-                "reauth_required": False,
-                "config_missing": (
-                    "GMAIL_OAUTH_CLIENT_ID"
-                    if not resolved_id
-                    else "GMAIL_OAUTH_CLIENT_SECRET"
-                ),
-            },
+            details={"reauth_required": False, "config_missing": missing_name},
         )
-    full_body = {**body, "client_id": resolved_id, "client_secret": resolved_secret}
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    owns = http_client is None
-    client = http_client or httpx.AsyncClient(timeout=15.0)
-    try:
-        resp = await client.post(
-            GOOGLE_TOKEN_ENDPOINT, headers=headers, content=urlencode(full_body)
-        )
-    finally:
-        if owns:
-            await client.aclose()
+    resp = await post_oauth_token(
+        auth,
+        body,
+        client_id=resolved_id,
+        client_secret=resolved_secret,
+        client=http_client,
+    )
     if resp.status_code != 200:
         reauth_required = False
         try:
@@ -269,13 +211,12 @@ async def exchange_code(
     client_secret: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Exchange an authorization-code for access + refresh tokens."""
-    from app.config import settings
+    from app.connectors.package_runtime import admitted_oauth, deployment_setting
 
-    effective_redirect = (
-        redirect_uri
-        or settings.GMAIL_OAUTH_REDIRECT_URI
-        or os.getenv("GMAIL_OAUTH_REDIRECT_URI")
-        or ""
+    auth = admitted_oauth("gmail") or {}
+    names = auth.get("redirect_env") or []
+    effective_redirect = (redirect_uri or "").strip() or deployment_setting(
+        [str(name) for name in names] if isinstance(names, list) else []
     )
     body = {
         "grant_type": "authorization_code",

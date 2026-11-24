@@ -54,7 +54,7 @@ export function ManagedChannelEmbedShareControl({
       source.scope.principalId !== scope.principalId ||
       source.scope.workspaceId !== scope.workspaceId || source.scope.sessionFence !== scope.sessionFence ||
       channel?.connected !== true || channel.action !== 'configure' || channel.state !== 'active' ||
-      channel.definition.slug !== 'public_web_chat' || channel.configuration_kind !== 'published-public-profile-v1' ||
+      channel.definition.visitor_surface !== true || channel.configuration_kind !== 'published-public-profile-v1' ||
       !identity(channel.provision_id) || !/^(?:0|[1-9][0-9]{0,19})$/.test(channel.route_epoch) ||
       !publication || !identity(publication.profileKey, 128) || !positive(publication.publishedVersion) ||
       !policy || !isCanonicalManagedEmbedOrigin(policy.parentOrigin) || !positive(policy.policyRevision) ||

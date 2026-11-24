@@ -186,10 +186,30 @@ async def invoke(
         actor_kind=getattr(ctx, "actor_kind", None) or "human",
     )
 
+    if getattr(connector, "mapping_profile", "") == "package":
+        from app.agentive.services.connector_packages import installation_package_id
+        from app.connectors.package_discovery import current_admission
+
+        fresh = await _load_connector(connector_id)
+        if (
+            not fresh.enabled
+            or fresh.workspace_id != ctx.workspace_id
+            or fresh.package_revision != connector.package_revision
+            or installation_package_id(fresh) not in current_admission().packages
+        ):
+            raise McpProxyError("Connector package is unavailable", "scope_mismatch")
+        connector = fresh
+
     auth_state = dict(getattr(connector, "auth_state", None) or {})
 
     try:
-        result = await call_remote_tool(auth_state, remote_name, payload)
+        result = await call_remote_tool(
+            auth_state,
+            remote_name,
+            payload,
+            config=getattr(connector, "package_config", None),
+            manifest=getattr(connector, "package_manifest", None),
+        )
     except Exception as exc:  # noqa: BLE001
         detail = describe_mcp_failure(exc)
         logger.warning(

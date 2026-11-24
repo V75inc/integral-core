@@ -120,7 +120,7 @@ describe('managed channel transport', () => {
       profile_key: 'p', eligible_profiles: [{ key: 'p', name: 'A profile' }], editable: false,
       published_version: 2, full_page_share_check_available: true, full_page_url: 'https://fixture.invalid/chat/hidden' };
     vi.mocked(apiClient.get).mockResolvedValue({ data: wire });
-    const exact = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation);
+    const exact = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation, undefined, true);
     expect(exact).toMatchObject({ published_version: 2, full_page_share_check_available: true });
     expect(exact).not.toHaveProperty('full_page_url');
     await expect(managedChannelsApi.profileConfiguration('workspace', 'different_channel', generation))
@@ -128,7 +128,7 @@ describe('managed channel transport', () => {
     for (const partial of [{ published_version: undefined }, { profile_key: 'other' }, { editable: true },
       { full_page_share_check_available: false }, { full_page_share_check_available: 'true' }]) {
       vi.mocked(apiClient.get).mockResolvedValue({ data: { ...wire, ...partial } });
-      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation, undefined, true))
         .resolves.not.toHaveProperty('full_page_share_check_available');
     }
   });
@@ -141,7 +141,7 @@ describe('managed channel transport', () => {
     const policies = [approved, { parent_origin: 'https://other.example.com:8443', embed_policy_revision: 2 }];
     vi.mocked(apiClient.get).mockResolvedValue({ data: { ...base, approved_embed_policies: policies,
       embed_page_url: 'https://fixture.invalid/embed/hidden' } });
-    const exact = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation);
+    const exact = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation, undefined, true);
     expect(exact.approved_embed_policies).toEqual(policies);
     expect(exact).not.toHaveProperty('embed_page_url');
     await expect(managedChannelsApi.profileConfiguration('workspace', 'different_channel', generation))
@@ -153,11 +153,11 @@ describe('managed channel transport', () => {
       [{ ...approved, embed_page_url: 'https://fixture.invalid/embed/hidden' }],
       Array.from({ length: 9 }, (_, i) => ({ ...approved, parent_origin: `https://site${i}.example.com` }))]) {
       vi.mocked(apiClient.get).mockResolvedValue({ data: { ...base, approved_embed_policies: value } });
-      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation, undefined, true))
         .resolves.not.toHaveProperty('approved_embed_policies');
     }
     vi.mocked(apiClient.get).mockResolvedValue({ data: { ...base, approved_embed_policies: policies, editable: true } });
-    await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+    await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation, undefined, true))
       .resolves.not.toHaveProperty('approved_embed_policies');
   });
 
@@ -167,7 +167,7 @@ describe('managed channel transport', () => {
       eligible_profiles: [{ key: 'p', name: 'A profile' }], editable: true, published_version: 2,
       private_test_available: true, test_reply: 'not a Configure field' };
     vi.mocked(apiClient.get).mockResolvedValue({ data: wire });
-    const decoded = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation);
+    const decoded = await managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation, undefined, true);
     expect(decoded).toMatchObject({ private_test_available: true });
     expect(decoded).not.toHaveProperty('test_reply');
     await expect(managedChannelsApi.profileConfiguration('workspace', 'example_text', generation))
@@ -175,7 +175,7 @@ describe('managed channel transport', () => {
     for (const partial of [{ private_test_available: 'true' }, { private_test_available: false },
       { private_test_available: undefined }, { published_version: null }, { profile_key: 'other' }]) {
       vi.mocked(apiClient.get).mockResolvedValue({ data: { ...wire, ...partial } });
-      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation))
+      await expect(managedChannelsApi.profileConfiguration('workspace', 'public_web_chat', generation, undefined, true))
         .resolves.not.toHaveProperty('private_test_available');
     }
   });

@@ -6,6 +6,19 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Preserve Firefox's browser-generated Origin on full-page Web Chat POSTs while keeping requests scoped to the visitor origin.
+
+- Admit operator-controlled declarative connector folders through Rescan. The project scaffold includes `integral-connectors/`, and the managed launcher discovers the sibling folder beside the configured App path.
+- Add an offline, repeatable catalog migration and rollback that preserve Connector IDs, credentials, bindings, and cursors.
+- Prepare WhatsApp credentials and manage workspace grants through the managed-channel lifecycle. Saving credentials leaves the grant disabled, and enabling or removing one grant preserves other workspaces’ access.
+
+- Authorize Gmail and QuickBooks workspace installs from the connector package panel, preserving the installation, Track binding and sync cursor on reauthorization. Enable checks the provider after consent.
+
+- Register management-only Web Chat in the managed-channel registry at startup, and refuse that API when no registry is installed.
+- Add an offline, reversible credential migration for legacy connector rows. Store package secret fields encrypted regardless of their names.
+- Ship the connector schema and first-party integrations in the Core wheel. Core wires built-in adapters through fixed imports at startup.
+- Run package MCP health and tool calls through the shared client, including OAuth credentials and supported stdio configuration.
+
 - Drop the cached conversation after a chat turn releases its admission, so a queued follow-up can start instead of seeing a stale busy thread.
 
 - Save provider and supported default model roles from Quick Setup using the same settings as Models and Providers, preserving explicit voice and embedding choices. Group Providers & Models and Model Assignments under a collapsible Advanced Configuration section.

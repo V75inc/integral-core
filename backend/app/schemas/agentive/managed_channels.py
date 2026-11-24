@@ -45,7 +45,7 @@ class ApprovedFullPageShare(ManageChannelShareQuery):
     """Allowlisted response for one issued share."""
 
     kind: Literal["approved-full-page-share-v1"] = "approved-full-page-share-v1"
-    slug: Literal["public_web_chat"] = "public_web_chat"
+    slug: str = Field(default="public_web_chat", pattern=r"^[a-z][a-z0-9_]{0,63}$")
     full_page_url: str
 
 
@@ -60,7 +60,7 @@ class ApprovedWebChatEmbedShare(ManageChannelEmbedShareQuery):
     """Allowlisted proof of one already issued, currently authorized embed route."""
 
     kind: Literal["approved-web-chat-embed-v1"] = "approved-web-chat-embed-v1"
-    slug: Literal["public_web_chat"] = "public_web_chat"
+    slug: str = Field(default="public_web_chat", pattern=r"^[a-z][a-z0-9_]{0,63}$")
     embed_page_url: str
 
 
@@ -76,5 +76,5 @@ class PrivateWebChatTestReply(ManageChannelShareQuery):
     """Allowlisted manager-only test response; no sessions or history."""
 
     kind: Literal["private-web-chat-test-v1"] = "private-web-chat-test-v1"
-    slug: Literal["public_web_chat"] = "public_web_chat"
+    slug: str = Field(default="public_web_chat", pattern=r"^[a-z][a-z0-9_]{0,63}$")
     reply: str = Field(min_length=1, max_length=4000)

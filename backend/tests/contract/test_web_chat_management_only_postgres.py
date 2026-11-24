@@ -46,7 +46,7 @@ async def test_setup_persists_but_cannot_enable_without_serving_composition(
     monkeypatch.setattr(app.state, state_key, None, raising=False)
     delattr(app.state, state_key)
     before = await authenticated_client.get(ROOT, params=query, headers=headers)
-    assert before.status_code == 200 and before.json() == {"channels": []}
+    assert before.status_code == 503
 
     async def publish_fixture(profiles, _bindings, _native, _route):
         profiles[PROFILE] = {

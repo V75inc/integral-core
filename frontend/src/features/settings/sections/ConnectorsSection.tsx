@@ -3,9 +3,6 @@
  * the in-repo vetted catalog (native + MCP). Gmail/QuickBooks wizards live
  * on a connected row after install, not on home.
  *
- * AGENTIVE_ENABLED=off behaviour (A3): the panel still loads with the
- * shared warning banner above the list. Admins can still read, edit, and
- * delete existing rows.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -33,10 +30,16 @@ import {
 } from "../../../api/connectors";
 import { getSessionGeneration } from "../../../api/session";
 import { managedChannelsApi, type ManagedChannel } from "../../../api/managedChannels";
-import { connectionProfilesApi, publicWebChatSettingsKey } from "../../../api/connectionProfiles";
-import { getWhatsAppChannelBinding } from "../../../api/agentive";
 import { useAgentive } from "../../../context/AgentiveContext";
-import { webChatCatalogueInformation, WHATSAPP_CONNECTOR } from "../connectors/connectorDefinitions";
+import {
+  configurationSchema,
+  ConnectorPackagePanel,
+} from "../connectors/ConnectorPackagePanel";
+import {
+  connectorPackagesApi,
+  type ConnectorPackageField,
+} from "../../../api/connectorPackages";
+import { AppSettingsForm } from "../../../components/apps/AppSettingsForm";
 import { Button } from "../../../components/ui/Button";
 import {
   KebabMenu,
@@ -53,8 +56,6 @@ import { SettingsSection, StatusPill } from "../components/Field";
 import { SettingsPageHeader } from "../components/SettingsPageHeader";
 import { ConnectorEditModal } from "./ConnectorEditModal";
 import { ConnectorBrandIcon } from "../connectors/ConnectorBrandIcon";
-import { WebChatConnectorSettings } from "../connectors/WebChatConnectorSettings";
-import { WhatsAppConnectorSettings } from "../connectors/WhatsAppConnectorSettings";
 import { ConnectorCatalogPanel } from "../connectors/ConnectorCatalogPanel";
 import type { ManagedChannelShareSource } from "../connectors/ManagedChannelShareControl";
 import { ManagedChannelLoadNotice, ManagedChannelSettings, ManagedChannelStatus } from "../connectors/ManagedChannelSettings";
@@ -66,8 +67,138 @@ import {
   toolCountLabel,
 } from "../connectors/McpToolsInspector";
 import { mcpConnectorDetails } from "../connectors/mcpConnectorDetails";
-import { QuickBooksConnectorSettings } from "../../../components/settings/QuickBooksConnectorSettings";
-import { GmailConnectorSetup } from "../../../components/settings/connectors/GmailConnectorSetup";
+
+function selectPath(body: unknown, path: string): unknown {
+  if (!path || path === "$") return body;
+  if (!path.startsWith("$.")) return undefined;
+  let current = body;
+  for (const part of path.slice(2).split(".")) {
+    if (Array.isArray(current)) {
+      current = current.map((item) =>
+        item && typeof item === "object"
+          ? (item as Record<string, unknown>)[part]
+          : undefined,
+      );
+    } else if (current && typeof current === "object") {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function PackageIntervalSettings({
+  connector,
+  fields,
+  onSaved,
+}: {
+  connector: ConnectorResponse;
+  fields: ConnectorPackageField[];
+  onSaved: () => void;
+}) {
+  const editable = fields.filter(
+    (field) =>
+      field.type === "number" ||
+      field.type === "boolean" ||
+      (field.type === "select" && (field.options || field.options_from)),
+  );
+  const saved = (key: string) => {
+    const value = connector.auth_state?.[key];
+    return Array.isArray(value) ? value.map(String) : value;
+  };
+  const [values, setValues] = useState<Record<string, unknown>>(() => {
+    const initial: Record<string, unknown> = {};
+    for (const field of editable) {
+      if (field.key === "sync_interval_seconds") {
+        initial[field.key] = connector.sync_interval_seconds;
+      } else if (field.options_from) {
+        initial[field.key] = saved(field.key) ?? (field.multiple ? [] : "");
+      }
+    }
+    return initial;
+  });
+  const [choices, setChoices] = useState<
+    Record<string, { value: string; label: string }[]>
+  >({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const actionKey = editable
+    .map((field) =>
+      field.options_from ? `${field.key}:${field.options_from.action}` : "",
+    )
+    .filter(Boolean)
+    .join(",");
+  useEffect(() => {
+    let cancelled = false;
+    for (const field of editable) {
+      const source = field.options_from;
+      if (!source) continue;
+      void connectorsApi.readAction(connector.id, source.action).then(
+        (result) => {
+          if (cancelled) return;
+          const items = selectPath(result.body, source.items);
+          const options = (Array.isArray(items) ? items : [])
+            .map((item) => ({
+              value: String(selectPath(item, source.value) ?? ""),
+              label: String(selectPath(item, source.label) ?? ""),
+            }))
+            .filter((option) => option.value);
+          setChoices((current) => ({ ...current, [field.key]: options }));
+        },
+        () => {
+          if (!cancelled) setError("Could not load choices");
+        },
+      );
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [connector.id, actionKey]);
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      const raw = values.sync_interval_seconds;
+      if (typeof raw === "number" && !Number.isNaN(raw)) {
+        await connectorsApi.patch(connector.id, {
+          sync_interval_seconds: Math.max(60, Math.trunc(raw)),
+        });
+      }
+      const selected: Record<string, unknown> = {};
+      for (const field of editable) {
+        if (field.options_from) selected[field.key] = values[field.key];
+      }
+      if (Object.keys(selected).length > 0) {
+        await connectorsApi.saveConfiguration(connector.id, selected);
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Settings update failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (editable.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <AppSettingsForm
+        schema={configurationSchema(editable, false, choices)}
+        value={values}
+        onChange={setValues}
+        idPrefix={connector.id}
+      />
+      {error ? (
+        <Text variant="body-sm" tone="subtle" as="p">
+          {error}
+        </Text>
+      ) : null}
+      <Button type="button" size="sm" onClick={() => void save()} disabled={saving}>
+        {saving ? "Saving…" : "Save settings"}
+      </Button>
+    </div>
+  );
+}
 
 function formatLastSynced(iso: string | null): string {
   if (!iso) return "never";
@@ -228,9 +359,29 @@ function ScopedConnectorsSection({
   const { hash, key: locationKey } = useLocation();
   const navigate = useNavigate();
   const showLibrary = hash === "#connector-library";
+  const libraryPackages = useQuery({
+    queryKey: ["connectors", "packages", workspaceId, "library"],
+    queryFn: () => connectorPackagesApi.list(workspaceId),
+    enabled: Boolean(workspaceId) && (showLibrary || whatsappEnabled),
+  });
+  const hostManagedPackages = (libraryPackages.data?.packages ?? [])
+    .filter((pkg) => pkg.host_managed && (pkg.channel_mode !== "managed-text-v1" || pkg.grant))
+    .map((pkg) => ({
+      id: pkg.id,
+      name: pkg.name,
+      description: pkg.description,
+    }));
+  const connectedHostLines = (libraryPackages.data?.packages ?? []).filter(
+    (pkg) => pkg.host_managed && pkg.grant?.present && pkg.channel_mode !== "managed-text-v1",
+  );
+  const hostLineStatus = libraryPackages.isError
+    ? "unavailable"
+    : libraryPackages.fetchStatus === "fetching"
+      ? "loading"
+      : connectedHostLines.length > 0
+        ? "existing"
+        : "new";
   const [customMcpOpen, setCustomMcpOpen] = useState(false);
-  const [whatsappOpen, setWhatsAppOpen] = useState(false);
-  const [webChatOpen, setWebChatOpen] = useState(false);
   const [managedSelection, setManagedSelection] = useState<{
     slug: string; name: string; action: ManagedChannel["action"]; locationKey: string;
   } | null>(null);
@@ -248,8 +399,7 @@ function ScopedConnectorsSection({
   const addConnector = useRef<HTMLButtonElement>(null);
   const wasLibrary = useRef(showLibrary);
   useEffect(() => {
-    if (showLibrary) setWhatsAppOpen(false);
-    else if (wasLibrary.current) addConnector.current?.focus({ preventScroll: true });
+    if (!showLibrary && wasLibrary.current) addConnector.current?.focus({ preventScroll: true });
     wasLibrary.current = showLibrary;
   }, [showLibrary]);
   const [editing, setEditing] = useState<ConnectorResponse | null>(null);
@@ -268,19 +418,6 @@ function ScopedConnectorsSection({
     queryFn: () => connectorsApi.list(),
   });
 
-  const whatsapp = useQuery({
-    queryKey: ["connectors", "whatsapp", principalId, workspaceId],
-    queryFn: async () => {
-      const { binding } = await getWhatsAppChannelBinding();
-      return binding ? { enabled: binding.enabled } : null;
-    },
-    enabled: whatsappEnabled,
-    retry: false,
-  });
-  const whatsappStatus = whatsapp.isError ? "unavailable"
-    : whatsapp.isPending ? "loading" : whatsapp.data ? "existing" : "new";
-  const showWhatsApp = whatsappEnabled && whatsappStatus === "existing" && scopeFilter !== "per_user";
-
   const canReadManaged = Boolean(workspaceId && isWsAdmin && !scope?.isPersonal);
   const managedQueryKey = ["connectors", "managed-channels", principalId, workspaceId] as const;
   const managed = useQuery({
@@ -296,29 +433,6 @@ function ScopedConnectorsSection({
     currentManagedChannels(managed).some(row => row.connected && row.state === "active" &&
       row.definition.slug === managedSelection.slug) ? shareSource : undefined;
 
-  // The standard managed entry owns the UI once registered; a legacy notice
-  // is only safe after a successful, settled registry response.
-  const useLegacyWebChat = managed.isSuccess && managed.fetchStatus === "idle" &&
-    !currentManagedChannels(managed).some(row => row.definition.slug === "public_web_chat");
-  const canReadWebChatSetup = Boolean(
-    workspaceId && isWsAdmin && !scope?.isPersonal && (showLibrary || scopeFilter !== "per_user"),
-  );
-  const webChatSetup = useQuery({
-    queryKey: [...publicWebChatSettingsKey(workspaceId), principalId],
-    queryFn: () => connectionProfilesApi.publicWebChat(workspaceId),
-    enabled: canReadWebChatSetup,
-    refetchOnMount: "always",
-    retry: false,
-  });
-  // Missing or stale host evidence must not advertise a working channel.
-  const webChat = !showLibrary && canReadWebChatSetup && useLegacyWebChat && webChatSetup.isSuccess &&
-    (webChatOpen || !webChatSetup.isFetching) && webChatSetup.data.transport_ready === true
-    ? webChatSetup.data : null;
-  // A successful scoped response can describe a shipped feature, not install it.
-  const webChatInformation = showLibrary && canReadWebChatSetup && useLegacyWebChat &&
-    webChatSetup.isSuccess && webChatSetup.fetchStatus === "idle" &&
-    typeof webChatSetup.data?.transport_ready === "boolean"
-    ? [webChatCatalogueInformation(webChatSetup.data.transport_ready)] : [];
 
   const inspecting =
     (list.data?.connectors ?? []).find((c) => c.id === inspectingId) ?? null;
@@ -454,10 +568,25 @@ function ScopedConnectorsSection({
 
   const connectors = list.isSuccess ? list.data.connectors : [];
   const visibleConnectors = connectors.filter(connector =>
-    scopeFilter === "all" || (connector.connection_mode || "per_user") === scopeFilter
+    (scopeFilter === "all" || (connector.connection_mode || "per_user") === scopeFilter) &&
+    !(canReadManaged && connector.mapping_profile === "package")
   );
   const catalogBySlug = new Map(
     (catalog.data?.entries ?? []).map((e: CatalogEntry) => [e.slug, e]),
+  );
+  const editingSettings = connectors.some(
+    (c) => c.id === configuringId && Boolean(c.settings_surface),
+  );
+  const packageCatalogue = useQuery({
+    queryKey: ["connectors", "packages", workspaceId],
+    queryFn: () => connectorPackagesApi.list(workspaceId),
+    enabled: Boolean(workspaceId) && editingSettings,
+  });
+  const packageFields = new Map(
+    (packageCatalogue.data?.packages ?? []).map((pkg) => [
+      pkg.id,
+      pkg.configuration,
+    ]),
   );
   const refetchConnectors = () => {
     qc.invalidateQueries({ queryKey: ["connectors"] });
@@ -515,10 +644,10 @@ function ScopedConnectorsSection({
             <ConnectorCatalogPanel
               catalog={catalog}
               whatsappEnabled={whatsappEnabled}
-              whatsappStatus={whatsappStatus}
+              whatsappStatus={hostLineStatus}
+              hostManaged={hostManagedPackages}
               managed={canReadManaged ? managed : undefined}
               onManageChannel={canReadManaged ? selectManaged : undefined}
-              information={webChatInformation}
               onInstalled={() => {
                 refetchConnectors();
                 navigate("/settings#connectors");
@@ -561,32 +690,7 @@ function ScopedConnectorsSection({
             }
           />
 
-          {webChat && (
-            <SettingsSection title="Web Chat" description="Review your workspace's public text chat setup.">
-              <Surface border="subtle" radius="card" padding="md" className="flex flex-col items-start gap-3">
-                <StatusPill state={webChat.active ? "ok" : "idle"}>
-                  {webChat.active ? "Active" : webChat.enabled ? "Needs attention" : "Not active"}
-                </StatusPill>
-                <Text as="p" variant="body-sm">
-                  {webChat.profile_key
-                    ? `Assigned profile: ${webChat.eligible_profiles.find(profile => profile.key === webChat.profile_key)?.name ?? "Unavailable"}`
-                    : "No published profile is assigned."}
-                </Text>
-                <Text as="p" variant="body-sm" tone="muted">
-                  {webChat.eligible_profiles.length === 0
-                    ? "Publish a public agent profile without tools in Agent profiles."
-                    : "Manage eligible public profiles in Agent profiles."}
-                </Text>
-                <Button type="button" variant="secondary" size="sm" onClick={() => setWebChatOpen(true)}>
-                  Configure Web Chat
-                </Button>
-                <Button type="button" variant="secondary" size="sm"
-                  onClick={() => navigate("/settings#agent-profiles")}>
-                  Open Agent profiles
-                </Button>
-              </Surface>
-            </SettingsSection>
-          )}
+          {canReadManaged ? <ConnectorPackagePanel workspaceId={workspaceId} managedSlugs={currentManagedChannels(managed).map(row => row.definition.slug)} /> : null}
           <SettingsSection
             title="Connected"
             description="Manage your connections and check that their tools are available."
@@ -604,8 +708,8 @@ function ScopedConnectorsSection({
                 ]}
               />
             </div>
-            {whatsappEnabled && whatsappStatus === "unavailable" && scopeFilter !== "per_user" && (
-              <Text as="p" variant="body-sm" tone="muted">Could not check the workspace WhatsApp connection.</Text>
+            {whatsappEnabled && hostLineStatus === "unavailable" && scopeFilter !== "per_user" && (
+              <Text as="p" variant="body-sm" tone="muted">Could not check host-managed lines.</Text>
             )}
             <AsyncBoundary query={list} emptyFallback={null} errorFallback={(err) => (
               <Text variant="body" tone="danger" as="p">Failed to load connectors: {err.message}</Text>
@@ -613,28 +717,27 @@ function ScopedConnectorsSection({
               {() => null}
             </AsyncBoundary>
             {showManaged && <ManagedChannelLoadNotice query={managed} />}
-            {showWhatsApp || visibleConnectors.length > 0 || connectedManaged.length > 0 ? (
+            {(whatsappEnabled && scopeFilter !== "per_user" && connectedHostLines.length > 0) || visibleConnectors.length > 0 || connectedManaged.length > 0 ? (
               <ul className="flex flex-col gap-2">
-                {showWhatsApp && (
-                  <ConnectedConnectorRow>
+                {whatsappEnabled && scopeFilter !== "per_user" && connectedHostLines.map((pkg) => (
+                  <ConnectedConnectorRow key={`host:${pkg.id}`}>
                     <div className="flex min-w-0 items-start gap-3">
                       <MessageCircle size={24} className="m-1 shrink-0" aria-hidden />
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Text variant="heading-sm" weight="semibold" as="h3">{WHATSAPP_CONNECTOR.name}</Text>
-                        <StatusPill state={whatsapp.data?.enabled ? "ok" : "idle"}>
-                          {whatsapp.data?.enabled ? "Enabled" : "Disabled"}
+                        <Text variant="heading-sm" weight="semibold" as="h3">{pkg.name}</Text>
+                        <StatusPill state={pkg.grant?.enabled ? "ok" : "idle"}>
+                          {pkg.grant?.enabled ? "Enabled" : "Disabled"}
                         </StatusPill>
                         <StatusPill state="idle">Workspace</StatusPill>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
-                      <Button type="button" variant="secondary" size="sm" icon={<Settings size={14} />}
-                        onClick={() => setWhatsAppOpen(true)}>
-                        {isWsAdmin ? "Configure WhatsApp" : "View WhatsApp"}
-                      </Button>
+                      <Text as="p" variant="body-sm" tone="muted">
+                        Configure this line in Dropped-in packages.
+                      </Text>
                     </div>
                   </ConnectedConnectorRow>
-                )}
+                ))}
                 {connectedManaged.map(channel => (
                   <ConnectedConnectorRow key={`managed:${channel.definition.slug}`}>
                     <div className="flex min-w-0 items-start gap-3">
@@ -728,26 +831,18 @@ function ScopedConnectorsSection({
                             )}
                           </div>
                         </div>
-                        {showConfig &&
-                        isMine &&
-                        c.subclass_slug === "gmail" ? (
-                          <div className="mt-3">
-                            <GmailConnectorSetup
-                              initialConnectorId={c.id}
-                              onActivated={refetchConnectors}
-                            />
-                          </div>
-                        ) : null}
-                        {showConfig &&
-                        isMine &&
-                        c.subclass_slug === "quickbooks" ? (
-                          <div className="mt-3">
-                            <QuickBooksConnectorSettings
-                              connector={c}
-                              onReconnect={refetchConnectors}
-                              onUpdated={refetchConnectors}
-                            />
-                          </div>
+                        {showConfig && isMine && c.settings_surface &&
+                        (packageFields.get(meta.slug || c.subclass_slug || "") ?? [])
+                          .length > 0 ? (
+                          <PackageIntervalSettings
+                            key={c.id}
+                            connector={c}
+                            fields={
+                              packageFields.get(meta.slug || c.subclass_slug || "") ??
+                              []
+                            }
+                            onSaved={refetchConnectors}
+                          />
                         ) : null}
                       </div>
                       <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
@@ -781,7 +876,8 @@ function ScopedConnectorsSection({
                               ? "Checking…"
                               : "Check connection"}
                           </Button>
-                        ) : canAdminister ? (
+                        ) : canAdminister &&
+                          (c.mapping_profile !== "package" || c.enabled) ? (
                           <Button
                             type="button"
                             variant="secondary"
@@ -797,7 +893,10 @@ function ScopedConnectorsSection({
                             Sync now
                           </Button>
                         ) : null}
-                        {canAdminister ? (
+                        {canAdminister &&
+                        (c.mapping_profile !== "package" ||
+                          meta.isMcp ||
+                          c.settings_surface) ? (
                           <div className="ml-auto shrink-0">
                             <KebabMenu
                               ariaLabel={`Manage ${meta.title}`}
@@ -830,9 +929,7 @@ function ScopedConnectorsSection({
                                         },
                                       ]
                                     : []),
-                                  ...(isMine &&
-                                  (c.subclass_slug === "gmail" ||
-                                    c.subclass_slug === "quickbooks")
+                                  ...(isMine && c.settings_surface
                                     ? [
                                         {
                                           key: "configure",
@@ -845,22 +942,26 @@ function ScopedConnectorsSection({
                                         },
                                       ]
                                     : []),
-                                  {
-                                    key: "edit",
-                                    label: "Configure connection",
-                                    icon: <Pencil size={14} />,
-                                    onClick: () => setEditing(c),
-                                  },
-                                  {
-                                    key: "delete",
-                                    label: "Remove connection",
-                                    icon: <Trash2 size={14} />,
-                                    danger: true,
-                                    dividerAbove: true,
-                                    onClick: () => {
-                                      void handleDelete(c);
-                                    },
-                                  },
+                                  ...(c.mapping_profile === "package"
+                                    ? []
+                                    : [
+                                        {
+                                          key: "edit",
+                                          label: "Configure connection",
+                                          icon: <Pencil size={14} />,
+                                          onClick: () => setEditing(c),
+                                        },
+                                        {
+                                          key: "delete",
+                                          label: "Remove connection",
+                                          icon: <Trash2 size={14} />,
+                                          danger: true,
+                                          dividerAbove: true,
+                                          onClick: () => {
+                                            void handleDelete(c);
+                                          },
+                                        },
+                                      ]),
                                 ] satisfies KebabMenuItem[]
                               }
                             />
@@ -872,7 +973,7 @@ function ScopedConnectorsSection({
                 })}
               </ul>
             ) : list.isSuccess && (!showManaged || (managed.isSuccess && managed.fetchStatus === "idle")) &&
-                (!whatsappEnabled || !whatsapp.isPending || scopeFilter === "per_user") ? (
+                (!whatsappEnabled || libraryPackages.fetchStatus !== "fetching" || scopeFilter === "per_user") ? (
               connectors.length > 0 ? (
                 <Text variant="body-sm" tone="subtle" as="p">No connectors match this filter.</Text>
               ) : (
@@ -884,16 +985,6 @@ function ScopedConnectorsSection({
         </>
       )}
 
-      {webChatOpen && webChat && (
-        <WebChatConnectorSettings workspaceId={workspaceId} principalId={principalId}
-          settings={webChat} refreshing={webChatSetup.isFetching} onClose={() => setWebChatOpen(false)} />
-      )}
-      {!showLibrary && whatsappOpen && (
-        <WhatsAppConnectorSettings dialog={{
-          mode: isWsAdmin ? "Configure" : "View",
-          onClose: () => setWhatsAppOpen(false),
-        }} />
-      )}
       {canReadManaged && managedSelection && (
         <ManagedChannelSettings
           selection={managedSelection}

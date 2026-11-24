@@ -21,7 +21,7 @@ export function ManagedChannelApprovedEmbedSharing({ scope, channel, publication
   const key = JSON.stringify([scope.principalId, scope.workspaceId, scope.sessionFence,
     channel.provision_id, channel.route_epoch, publication.profileKey, publication.publishedVersion, profileRevision,
     policies.map(policy => [policy.parent_origin, policy.embed_policy_revision])]);
-  if (channel.state !== 'active' || channel.definition.slug !== 'public_web_chat' || !policies.length) return null;
+  if (channel.state !== 'active' || channel.definition.visitor_surface !== true || !policies.length) return null;
   return <ApprovedPolicySelection key={key} scope={scope} channel={channel} publication={publication}
     profileRevision={profileRevision} policies={policies} />;
 }

@@ -72,6 +72,13 @@ fixture, not staff or production key material. The runner does not change
 name resolution or install trust. An absent approved browser hostname/trust
 chain leaves browser enforcement pending.
 
+Full-page session and message requests use Fetch's CORS mode with relative
+URLs, same-origin credentials, redirects disabled, and a document CSP that
+limits connections to its own origin. Firefox serializes the origin as
+`null` for same-origin mode POSTs under the document's `no-referrer`
+policy. CORS mode keeps the browser-generated origin while preserving the
+referrer policy. The server still requires an exact HTTPS origin.
+
 ## Connector registration and profile identity
 
 The Web Chat extension owns the public document, session and turn adapters as

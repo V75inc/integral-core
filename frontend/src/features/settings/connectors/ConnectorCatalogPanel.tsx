@@ -13,7 +13,6 @@ import { ConnectorInstallSheet } from './ConnectorInstallSheet';
 import { ManagedChannelLoadNotice, ManagedChannelStatus } from './ManagedChannelSettings';
 import { currentManagedChannels } from './managedChannelQueries';
 import { CustomMcpMountModal } from './CustomMcpMountModal';
-import { WhatsAppConnectorSettings } from './WhatsAppConnectorSettings';
 import { useScopeOptional } from '../../../context/ScopeContext';
 import {
   connectorDefinitions,
@@ -29,6 +28,7 @@ export function ConnectorCatalogPanel({
   catalog,
   whatsappEnabled,
   whatsappStatus,
+  hostManaged = [],
   information,
   onInstalled,
   managed,
@@ -37,6 +37,7 @@ export function ConnectorCatalogPanel({
   catalog: UseQueryResult<CatalogListResponse>;
   whatsappEnabled: boolean;
   whatsappStatus: 'loading' | 'unavailable' | 'new' | 'existing';
+  hostManaged?: readonly { id: string; name: string; description: string }[];
   information?: readonly InformationalConnector[];
   onInstalled: () => void;
   managed?: UseQueryResult<ManagedChannel[]>;
@@ -51,7 +52,8 @@ export function ConnectorCatalogPanel({
   const canManage = !role || role === 'admin' || role === 'owner';
   const sharingAllowed = !scope?.isPersonal && canManage;
   const entries = connectorDefinitions(catalog.data?.entries ?? [], {
-    whatsapp: whatsappEnabled && (canManage || whatsappStatus === 'existing'),
+    includeHostManaged: whatsappEnabled && (canManage || whatsappStatus === 'existing'),
+    hostManaged,
     customMcp: canManage,
     managedChannels: managed ? currentManagedChannels(managed) : [],
     information,
@@ -85,18 +87,16 @@ export function ConnectorCatalogPanel({
       {entries.length ? (
         <ul className="grid gap-2 sm:grid-cols-2">
           {entries.map(entry => {
-            const isWhatsApp = entry.setup === 'whatsapp';
-            const existing = isWhatsApp && whatsappStatus === 'existing';
+            const hostManaged = entry.host_managed === true;
             const channel = entry.setup === 'managed-channel' ? entry.channel : null;
-            const action = channel?.connected ? 'Configure' : existing ? (canManage ? 'Configure' : 'View') : 'Add';
-            const blocked = channel ? (!onManageChannel || (!channel.connected && !channel.can_install))
-              : isWhatsApp && whatsappStatus !== 'new' && !existing;
+            const action = channel?.connected ? 'Configure' : 'Add';
+            const blocked = Boolean(channel && (!onManageChannel || (!channel.connected && !channel.can_install)));
             return (
               <Surface key={`${entry.setup}:${entry.id}`} as="li" tone="panel-2" border="subtle" radius="card"
                 padding="md" className="flex flex-col gap-3">
                 <div className="flex items-start gap-3">
                   {entry.setup === 'package' ? <ConnectorBrandIcon icon={entry.package.icon} label={entry.name} /> :
-                    (isWhatsApp || channel || entry.setup === 'information') ? <MessageCircle size={24} className="m-1 shrink-0" aria-hidden /> :
+                    (hostManaged || channel || entry.setup === 'information') ? <MessageCircle size={24} className="m-1 shrink-0" aria-hidden /> :
                       <Terminal size={24} className="m-1 shrink-0" aria-hidden />}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -120,14 +120,12 @@ export function ConnectorCatalogPanel({
                         <Text variant="body-sm" tone="subtle" as="p">{entry.detail}</Text>
                       </div>
                     )}
-                    {isWhatsApp && <Text variant="body-sm" tone="subtle" as="p" className="mt-1">
-                      {existing ? 'Added to this workspace.' : whatsappStatus === 'new' ?
-                        'One line per workspace.' : whatsappStatus === 'loading' ?
-                          'Checking the workspace connection…' : 'Could not check the workspace connection.'}
+                    {hostManaged && <Text variant="body-sm" tone="subtle" as="p" className="mt-1">
+                      Configure this line in Dropped-in packages.
                     </Text>}
                   </div>
                 </div>
-                {entry.setup !== 'information' && <div className="mt-auto flex justify-end">
+                {entry.setup !== 'information' && !hostManaged && <div className="mt-auto flex justify-end">
                   <Button type="button" variant="primary" size="xs" onClick={() => channel ? onManageChannel?.(channel) : setSelected(entry)}
                     disabled={blocked}
                     aria-label={entry.setup === 'package' ? undefined : `${action} ${entry.name}`}
@@ -148,10 +146,6 @@ export function ConnectorCatalogPanel({
         sharingAllowed={sharingAllowed} onClose={close} onInstalled={finish} />}
       {selected?.setup === 'custom-mcp' && <CustomMcpMountModal open sharingAllowed={sharingAllowed}
         onClose={close} onMounted={finish} />}
-      {selected?.setup === 'whatsapp' && <WhatsAppConnectorSettings dialog={{
-        mode: whatsappStatus === 'existing' ? (canManage ? 'Configure' : 'View') : 'Add',
-        onClose: close,
-      }} />}
     </div>
   );
 }

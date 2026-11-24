@@ -1,13 +1,8 @@
-"""Connector dispatch registry — vendor-keyed lookup by AgentConfig.agent_type.
+"""Chat-agent dispatch. Not the connector package registry.
 
-Per AGT-04 + D-11: connector authors register via @register_connector("<kind>") decorator.
-No edit to this file is required to add a new connector kind — only the new module
-file with the decorator import. Side-effect imports below ensure built-in connectors
-register at module-load time.
-
-Aliases (e.g., "integral_assistant", "") are NOT spread into the registry — they
-are normalized at the get_chat_connector lookup boundary. This keeps the AgentType
-Literal as the single canonical key set (D-09 / RESEARCH Pitfall 3).
+External agent runtimes register with ``@register_chat_agent``. Connector
+packages (MCP, sync, actions, channels) use the connector catalogue and
+managed-channel registry instead.
 """
 
 from __future__ import annotations
@@ -19,14 +14,10 @@ from app.agentive.connectors.base import AgentChatConnector
 _REGISTRY: Dict[str, Type[AgentChatConnector]] = {}
 
 
-def register_connector(
+def register_chat_agent(
     agent_type: str,
 ) -> Callable[[Type[AgentChatConnector]], Type[AgentChatConnector]]:
-    """Class decorator. Registers the class as the connector for `agent_type`.
-
-    Aliases (e.g., "integral_assistant", "") are NOT spread into the registry —
-    they are normalized at the get_chat_connector lookup boundary. This keeps the
-    AgentType Literal as the single canonical key set (D-09).
+    """Register one external agent runtime for ``agent_type``.
 
     Raises ValueError if agent_type is empty or already registered.
     """
@@ -34,7 +25,7 @@ def register_connector(
     def _decorator(cls: Type[AgentChatConnector]) -> Type[AgentChatConnector]:
         key = (agent_type or "").strip().lower()
         if not key:
-            raise ValueError("register_connector requires a non-empty agent_type")
+            raise ValueError("register_chat_agent requires a non-empty agent_type")
         if key in _REGISTRY:
             raise ValueError(
                 f"agent_type {key!r} already registered to {_REGISTRY[key].__name__}"
@@ -45,8 +36,8 @@ def register_connector(
     return _decorator
 
 
-def get_chat_connector(agent_type: str) -> AgentChatConnector:
-    """Resolve connector by agent_type. Aliases normalize here, not in _REGISTRY."""
+def get_chat_agent(agent_type: str) -> AgentChatConnector:
+    """Resolve an external agent runtime by agent_type."""
     t = (agent_type or "").strip().lower()
     # Alias-normalization boundary — preserved from prior shape (RESEARCH Pitfall 3).
     cls = _REGISTRY.get(t)

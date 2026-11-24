@@ -72,6 +72,14 @@ The [wire handlers](../../backend/app/agentive/api/managed_channels.py) and
 source of truth. Configuration reads are no-store; neither the catalogue nor
 the configuration response is a share URL or credentials endpoint.
 
+A channel package may supply redacted credential readback and a
+credential configuration callback. The managed API exposes these at
+`GET /{slug}/credentials` and `PUT /{slug}/credentials` within the managed
+channel route group. The callback validates its provider-specific input
+and prepares a disabled installation or grant. The normal Enable route
+checks readiness and commits against the exact provision and route epoch.
+Credentials stay in the owning adapter's storage.
+
 ### Binding scope is independent of connector kind
 
 **Cross-kind target:** channel, API, MCP and native sync describe what a

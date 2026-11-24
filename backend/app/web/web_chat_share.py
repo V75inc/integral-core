@@ -12,7 +12,6 @@ from starlette.responses import JSONResponse
 
 from app.agentive.connectors.external_chat import ExternalChatProvision
 from app.agentive.services.profile_management import require_profile_manager
-from app.agentive.services.web_chat_package import SLUG
 from app.api.errors import InsufficientPermissionsError, MissingAuthenticationError
 from app.api.utils import resolve_principal_id
 from app.connectors.channel_share_check import bind_mounted_share_check
@@ -48,6 +47,16 @@ class _Denied(Exception):
     def __init__(self, status: int) -> None:
         super().__init__(status)
         self.status = status
+
+
+def visitor_channel_slug(request: Request, slug: str) -> str:
+    """Return the channel id when it is the visitor surface, else refuse."""
+    from app.web.visitor_channel import accepted_visitor_slug
+
+    kind = accepted_visitor_slug(request, slug)
+    if kind is None:
+        raise _Denied(404)
+    return kind
 
 
 def _share_query_values(request: Request, *versions: str) -> dict[str, str | int]:
@@ -133,10 +142,9 @@ def create_managed_web_chat_share_router(
     async def prove(
         request: Request, slug: str, query: ManageChannelShareQuery
     ) -> IssuedFullPageShare:
-        if slug != SLUG:
-            raise _Denied(404)
+        kind = visitor_channel_slug(request, slug)
         caller = await _manager(request, query.workspace_id)
-        provision = ExternalChatProvision(query.workspace_id, SLUG, query.provision_id)
+        provision = ExternalChatProvision(query.workspace_id, kind, query.provision_id)
         epoch = query.route_epoch
         publication = (query.profile_key, query.published_version)
         issued = await read_issued(provision, epoch, publication)
@@ -166,12 +174,10 @@ def create_managed_web_chat_share_router(
     async def read_share(slug: str, request: Request) -> JSONResponse:
         status = 503
         try:
-            if slug != SLUG:
-                raise _Denied(404)
             query = _query(request)
             issued = await prove(request, slug, query)
             output = ApprovedFullPageShare(
-                **query.model_dump(), full_page_url=issued.full_page_url
+                **query.model_dump(), slug=slug, full_page_url=issued.full_page_url
             )
             return JSONResponse(output.model_dump(), headers=_HEADERS)
         except _Denied as rejection:

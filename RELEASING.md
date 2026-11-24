@@ -55,6 +55,12 @@ PR run do not establish that the candidate has been uploaded or deployed.
 
 Documentation is a release gate, not follow-up work. Before TestPyPI promotion:
 
+- For the scoped ADR 018 release, qualify the bundled adapters from the clean
+  wheel and run the focused lifecycle, migration, grant, authorization and
+  admission tests. Exercise connector discovery from fresh and existing
+  `integral init` projects. An isolated `aa5144fe` archive reproduced the same
+  16 native-harness failures, which are tracked separately from these gates.
+  See the [connector package guide](docs/platform/connector-extension-v1.md#validate-and-test).
 - Match install and configuration instructions to the candidate's package metadata,
   CLI help and actual clean-wheel installation. Download only the selected Core
   candidate from TestPyPI; resolve ordinary dependencies from PyPI.

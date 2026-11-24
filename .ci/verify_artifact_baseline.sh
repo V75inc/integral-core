@@ -59,8 +59,9 @@ mkdir "$TMP/run"
   export TESTING=1
   export INTEGRAL_CORE_ONLY=1
   export PYTHONPATH="$TMP/site"
-  "$PY" - "$TMP/site" "$WHEEL" "$TMP" <<'PYTHON'
+  "$PY" - "$TMP/site" "$WHEEL" "$TMP" "$ROOT/docs/platform/schemas/integral-connector-v1.schema.json" <<'PYTHON'
 import importlib.util
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -78,9 +79,15 @@ sys.meta_path[:] = [
 sys.path[:] = [path for path in sys.path if "editable" not in path]
 sys.path_importer_cache.clear()
 import app
+assert (
+    site / "app/connectors/integral-connector-v1.schema.json"
+).read_bytes() == Path(sys.argv[4]).read_bytes(), "Update the packaged schema with make connector-schema"
 assert (site / "app/services/storage_indexes/approved.json").is_file(), "reviewed storage catalog missing from wheel"
 from app.agentive.tooling.manifest import DEFAULT_MANIFEST_PATH
 from app.connectors.catalog_loader import load_catalog
+from app.connectors.channel_packages import ChannelPackageRegistry
+from app.connectors.package_channels import register_packaged_managed_text
+from app.connectors.package_discovery import scan_packages
 from app.views import dashboard_widget_types
 from app.views.view_contract_catalog import load_view_contract_catalog
 from app.services.tool_source_observations import source_projection
@@ -89,6 +96,12 @@ from app.schemas.capability_broker import ReceiptRef
 assert str(Path(app.__file__).resolve()).startswith(str(site)), app.__file__
 assert DEFAULT_MANIFEST_PATH.is_file(), DEFAULT_MANIFEST_PATH
 assert load_catalog(), "connector catalogue missing from wheel"
+os.environ.pop("INTEGRAL_CONNECTOR_PATHS", None)
+admission = scan_packages()
+assert not admission.rejected, admission.rejected
+assert {"gmail", "quickbooks", "github_issues", "public_web_chat", "whatsapp"} <= admission.packages.keys(), admission.rejected
+channel_registry = ChannelPackageRegistry()
+assert register_packaged_managed_text(channel_registry), "managed connector adapter missing from wheel"
 assert dashboard_widget_types.get_spec("metric_card") is not None
 assert load_view_contract_catalog(), "view contracts missing from wheel"
 source = source_projection({

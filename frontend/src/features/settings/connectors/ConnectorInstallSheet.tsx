@@ -16,9 +16,7 @@ import { useToast } from "../../../context/ToastContext";
 import { SettingsField, TextInput, ToggleRow } from "../components/Field";
 
 function isToggleField(field: CatalogAuthField): boolean {
-  return (
-    field.control === "toggle" || field.name.startsWith("QUICKBOOKS_DISABLE_")
-  );
+  return field.control === "toggle";
 }
 
 function toggleLabel(field: CatalogAuthField): string {
@@ -243,7 +241,9 @@ export function ConnectorInstallSheet({
           ? "API key"
           : entry.auth.type === "env"
             ? "Configuration"
-            : "No extra credentials";
+            : entry.auth.type === "mcp_oauth"
+              ? "Sign-in"
+              : "No extra credentials";
 
   return (
     <Modal
@@ -270,11 +270,12 @@ export function ConnectorInstallSheet({
         {entry.kind === "mcp" && entry.auth.type === "oauth2" ? (
           <Text variant="body-sm" tone="subtle" as="p">
             {entry.transport === "stdio"
-              ? "Connect opens Intuit sign-in. Use the same QuickBooks OAuth app and redirect URI as native QuickBooks. All tools are available; turn a restriction on to hide create, update, or delete."
+              ? "Connect opens the provider sign-in. Use the same OAuth app and redirect URI as the native connector. All tools are available; turn a restriction on to hide create, update, or delete."
               : "Connect opens a sign-in popup. Register this app's MCP OAuth callback URL on the OAuth client."}
           </Text>
         ) : null}
-        {entry.kind === "mcp" && entry.auth.type === "none" ? (
+        {entry.kind === "mcp" &&
+        (entry.auth.type === "none" || entry.auth.type === "mcp_oauth") ? (
           <Text variant="body-sm" tone="subtle" as="p">
             If the server requires sign-in, a consent popup will open after you
             install.

@@ -12,10 +12,12 @@ it('uses only the same-origin route and sends no identity or credential in JSON'
   await expect(transport.start({ mode: 'resume', signal })).resolves.toEqual({ kind: 'ready', messages: [] });
   await expect(transport.send({ id: 'event-1', text: 'Hello', signal })).resolves.toEqual({ kind: 'pending' });
   expect(fetcher).toHaveBeenNthCalledWith(1, '/api/public/web-chat/route_1/session', {
-    method: 'POST', credentials: 'same-origin', mode: 'same-origin', redirect: 'error',
+    method: 'POST', credentials: 'same-origin', mode: 'cors', redirect: 'error',
+    referrerPolicy: 'no-referrer',
     cache: 'no-store', headers: { 'content-type': 'application/json' }, body: '{"mode":"resume"}', signal,
   });
   expect(fetcher).toHaveBeenNthCalledWith(2, '/api/public/web-chat/route_1/messages', expect.objectContaining({
+    credentials: 'same-origin', mode: 'cors', redirect: 'error', referrerPolicy: 'no-referrer',
     body: '{"id":"event-1","text":"Hello"}', signal,
   }));
 });

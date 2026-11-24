@@ -181,10 +181,12 @@ async def test_normal_text_enqueues_one_turn_and_returns_200(
     enc_key, test_user, client, sent_texts, monkeypatch
 ):
     """A normal owner text calls submit_chat_turn once and the webhook is 200."""
+    from app.agentive.services.whatsapp_channel_binding import workspace_line_grant_id
+
     submits = _patch_submit(monkeypatch)
     _patch_decisions(monkeypatch)
     _patch_owner(monkeypatch, test_user)
-    await _ready_binding(test_user)
+    binding = await _ready_binding(test_user)
     meta_id = "wamid.ABC/xyz+1"
     raw, signature = _signed_text("hello from whatsapp", meta_id)
 
@@ -200,9 +202,11 @@ async def test_normal_text_enqueues_one_turn_and_returns_200(
     assert len(submits) == 1
     request = submits[0]
     assert request.parts == [{"type": "text", "text": "hello from whatsapp"}]
-    assert request.client_request_id == _request_id(meta_id)
-    assert request.client_request_id.startswith("wa.")
-    assert len(request.client_request_id) == 3 + 64
+    import hashlib
+
+    grant_id = await workspace_line_grant_id(binding.workspace_id, binding.id)
+    prefix = hashlib.sha256(grant_id.encode("utf-8")).hexdigest()[:32]
+    assert request.client_request_id == f"wa.grant.{prefix}.{_request_id(meta_id)[3:]}"
     assert sent_texts == []
     from app.models.whatsapp_inbound import WhatsAppInboundReceipt
 
@@ -608,4 +612,46 @@ async def test_terminal_delivery_requires_current_link(enc_key, test_user, sent_
         meta_message_id="wamid.revoked-link",
     )
     await deliver_terminal_whatsapp_reply(item)
+    assert sent_texts == []
+
+
+@pytest.mark.asyncio
+async def test_replaced_whatsapp_grant_cannot_receive_a_queued_reply(
+    enc_key, test_user, sent_texts, monkeypatch
+):
+    """Revocation fences a queued reply even when the same line is granted again."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        disconnect_workspace_whatsapp_line,
+        grant_whatsapp_line,
+        workspace_line_grant_id,
+    )
+    from app.agentive.services.whatsapp_chat_bridge import (
+        _client_request_id,
+        deliver_terminal_whatsapp_reply,
+    )
+    from app.models.harness_records import HarnessTurnInputRecord
+
+    _patch_owner(monkeypatch, test_user)
+    item, _, binding, _ = await _terminal_turn(
+        test_user,
+        session_id="whatsapp",
+        assistant_text="Original authorization only.",
+        meta_message_id="wamid.old-grant",
+    )
+    original = await workspace_line_grant_id(binding.workspace_id, binding.id)
+    assert original
+    record = await HarnessTurnInputRecord.find_one(work_item_id=item.work_item_id)
+    record.client_request_id = _client_request_id("wamid.old-grant", original)
+    await record.save()
+
+    disconnected = await disconnect_workspace_whatsapp_line(
+        binding.user_id, binding.workspace_id, binding.id
+    )
+    await grant_whatsapp_line(binding.workspace_id, disconnected, binding.user_id)
+    disconnected.enabled = True
+    await disconnected.save()
+    assert await workspace_line_grant_id(binding.workspace_id, binding.id) != original
+
+    await deliver_terminal_whatsapp_reply(item)
+
     assert sent_texts == []

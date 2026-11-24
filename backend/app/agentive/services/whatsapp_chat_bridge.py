@@ -12,9 +12,15 @@ logger = logging.getLogger(__name__)
 _PROVIDER_ID = "integral_native"
 
 
-def _client_request_id(meta_message_id: str) -> str:
+def _grant_request_prefix(grant_id: str) -> str:
+    digest = hashlib.sha256(grant_id.encode("utf-8")).hexdigest()[:32]
+    return f"wa.grant.{digest}."
+
+
+def _client_request_id(meta_message_id: str, grant_id: str = "") -> str:
     digest = hashlib.sha256(meta_message_id.encode("utf-8")).hexdigest()
-    return f"wa.{digest}"
+    prefix = _grant_request_prefix(grant_id) if grant_id else "wa."
+    return prefix + digest
 
 
 def _session_id(workspace_id: str, e164: str) -> str:
@@ -109,7 +115,8 @@ async def _receipt_for_delivery(binding_id: str, item):
             receipt
             for receipt in receipts
             if receipt.meta_message_id
-            and _client_request_id(receipt.meta_message_id) == client_request_id
+            and client_request_id.rsplit(".", 1)[-1]
+            == _client_request_id(receipt.meta_message_id).rsplit(".", 1)[-1]
         ]
         if matched:
             return matched[0]
@@ -186,7 +193,10 @@ async def deliver_terminal_whatsapp_reply(item) -> None:
     text = await _committed_assistant_text(item, thread)
     if not text:
         return
-    from app.agentive.services.whatsapp_channel_binding import binding_for_workspace
+    from app.agentive.services.whatsapp_channel_binding import (
+        binding_for_workspace,
+        workspace_line_grant_id,
+    )
 
     binding = await binding_for_workspace(str(item.workspace_id or ""))
     if binding is None or not binding.enabled:
@@ -205,6 +215,11 @@ async def deliver_terminal_whatsapp_reply(item) -> None:
     workspaces = await _accessible_workspaces(binding, item.principal_id)
     if item.workspace_id not in {workspace.id for workspace in workspaces}:
         return
+    request_id = await _stored_client_request_id(item)
+    if request_id.startswith("wa.grant."):
+        grant_id = await workspace_line_grant_id(item.workspace_id, binding.id)
+        if not grant_id or not request_id.startswith(_grant_request_prefix(grant_id)):
+            return
     error = await send_channel_text(binding, recipient, text)
     if error:
         await _record_delivery_error(binding.id, item, error)
@@ -333,15 +348,19 @@ async def _enqueue_turn(
     user_id: str,
     workspace_id: str,
 ) -> None:
+    from app.agentive.services.whatsapp_channel_binding import workspace_line_grant_id
     from app.schemas.agentive.work import ChatTurnSubmissionRequest
     from app.services.chat_turn_submissions import submit_chat_turn
 
+    grant_id = await workspace_line_grant_id(workspace_id, binding.id)
+    if not grant_id:
+        return
     await submit_chat_turn(
         ChatTurnSubmissionRequest(
             principal_id=user_id,
             workspace_id=workspace_id,
             thread_id=thread.id,
-            client_request_id=_client_request_id(envelope.message_id),
+            client_request_id=_client_request_id(envelope.message_id, grant_id),
             parts=[{"type": "text", "text": envelope.text}],
         )
     )

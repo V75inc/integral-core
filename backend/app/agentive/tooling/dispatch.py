@@ -897,7 +897,12 @@ async def _maybe_stage_mcp_write(
     else:
         connector = await Connector.get(connector_id)
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
-    if not await asyncio.to_thread(is_write_tool, spec, auth_state=auth_state):
+    if not await asyncio.to_thread(
+        is_write_tool,
+        spec,
+        auth_state=auth_state,
+        manifest=getattr(connector, "package_manifest", None),
+    ):
         return None
 
     display_name = str(auth_state.get("display_name") or "")

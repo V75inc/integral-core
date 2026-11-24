@@ -148,7 +148,7 @@ class Connector(Node):
     """Per-user connector instance — actor-of-record for downstream audit/policy phases.
 
     Phase 1: stored only; sync semantics + IS_CONNECTED_TO edge land in Phase 5 (D-07).
-    Per D-08, registered conditionally only when AGENTIVE_ENABLED=1 (in main.py).
+    Registered at startup. The agentive layer is always loaded.
 
     Seven canonical fields (CON-01 + D-10):
     - kind: AgentType Literal — same enum as AgentConfig.agent_type (D-09)
@@ -202,6 +202,17 @@ class Connector(Node):
     # the catalog display_name when blank. Kept off auth_state so renames
     # never rewrite credential material.
     label: str = ""
+    # ADR 018 drop-in package installation. Empty for catalog connectors.
+    # enabled is desired serving state; health_status is the last probe.
+    enabled: bool = False
+    package_version: str = ""
+    package_config: Dict[str, Any] = Field(default_factory=dict)
+    package_manifest: Dict[str, Any] = Field(default_factory=dict)
+    package_fingerprint: str = ""
+    package_previous: Dict[str, Any] = Field(default_factory=dict)
+    catalog_migration: Dict[str, Any] = Field(default_factory=dict)
+    package_revision: int = 0
+    pending_review: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RoutineTask(Node):

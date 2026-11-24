@@ -36,6 +36,8 @@ export interface ConnectorResponse {
   conflict_policy: string | null;
   subclass_slug: string | null;
   sync_interval_seconds: number;
+  /** Package installations stay off until a health probe passes. */
+  enabled?: boolean;
   last_synced_at: string | null;
   /** ADR-009 MCP client mount fields */
   workspace_id?: string | null;
@@ -48,6 +50,8 @@ export interface ConnectorResponse {
   connection_mode?: string | null;
   /** Operator display label (falls back to catalog name when blank). */
   label?: string | null;
+  /** Post-connect settings declared by the package. Absent when the package declares none. */
+  settings_surface?: 'labels' | 'sync_interval' | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -78,7 +82,7 @@ export interface ConnectorListResponse {
 
 export type CatalogCategory = 'native' | 'mcp_server' | 'mcp_package';
 export type CatalogKind = 'sync' | 'mcp';
-export type CatalogAuthType = 'oauth2' | 'api_key' | 'env' | 'none' | 'headers';
+export type CatalogAuthType = 'oauth2' | 'api_key' | 'env' | 'none' | 'headers' | 'mcp_oauth';
 
 export interface CatalogAuthField {
   name: string;
@@ -111,6 +115,8 @@ export interface CatalogEntry {
   // Visibility gate: hidden entries never appear in the catalog LIST
   // (server-filtered); the flag is defense-in-depth for direct GETs.
   hidden?: boolean;
+  /** Host-managed packages are configured on the package panel. */
+  host_managed?: boolean;
   deprecated_in_favor_of?: string | null;
   // Auth field names the platform provides via server env — the install
   // sheet hides these behind Advanced Options. Names only, never values.
@@ -542,7 +548,7 @@ export const connectorsApi = {
     body: GmailOAuthStartRequest = {},
   ): Promise<GmailOAuthStartResponse> {
     const { data } = await api.post<GmailOAuthStartResponse>(
-      '/agentive/connectors/gmail/oauth/start',
+      '/agentive/connector-packages/gmail/oauth/start',
       body,
     );
     return data;
@@ -569,6 +575,22 @@ export const connectorsApi = {
     const { data } = await api.post<GmailSetLabelsResponse>(
       `/agentive/connectors/${connectorId}/gmail/labels`,
       body,
+    );
+    return data;
+  },
+  async readAction(connectorId: string, actionName: string): Promise<{ body: unknown }> {
+    const { data } = await api.get<{ body: unknown }>(
+      `/agentive/connectors/${connectorId}/actions/${encodeURIComponent(actionName)}`,
+    );
+    return data;
+  },
+  async saveConfiguration(
+    connectorId: string,
+    values: Record<string, unknown>,
+  ): Promise<{ connector_id: string }> {
+    const { data } = await api.post<{ connector_id: string }>(
+      `/agentive/connectors/${connectorId}/configuration`,
+      { values },
     );
     return data;
   },
@@ -611,7 +633,7 @@ export const connectorsApi = {
     body: QuickBooksAuthorizeRequest = {},
   ): Promise<QuickBooksAuthorizeResponse> {
     const { data } = await api.post<QuickBooksAuthorizeResponse>(
-      '/agentive/connectors/quickbooks/authorize',
+      '/agentive/connector-packages/quickbooks/oauth/start',
       body,
     );
     return data;

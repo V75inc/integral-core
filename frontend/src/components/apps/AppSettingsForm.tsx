@@ -36,6 +36,8 @@ export interface AppSettingsFormProps {
   disabled?: boolean;
   /** Optional CSS class on the root container. */
   className?: string;
+  /** Keeps field ids unique when more than one form is on the page. */
+  idPrefix?: string;
 }
 
 const FALLBACK_WIDGET_BY_TYPE: Record<string, WidgetKind> = {
@@ -74,7 +76,7 @@ function isKnownWidget(s: string): s is WidgetKind {
 }
 
 export function AppSettingsForm(props: AppSettingsFormProps) {
-  const { schema, value, onChange, disabled = false, className = '' } = props;
+  const { schema, value, onChange, disabled = false, className = '', idPrefix = '' } = props;
   const properties = (schema.properties || {}) as Record<string, JsonSchema>;
   const required = (schema.required as string[] | undefined) || [];
 
@@ -92,13 +94,14 @@ export function AppSettingsForm(props: AppSettingsFormProps) {
       {propertyKeys.map(key => {
         const propSchema = properties[key];
         const widgetKind = resolveWidgetKind(propSchema);
+        const fieldId = idPrefix ? `${idPrefix}-${key}` : key;
         const uiHints: UiHints = {
           widget: widgetKind,
           filters: (propSchema['ui:filters'] || {}) as Record<string, unknown>,
           placeholder: propSchema['ui:placeholder'] as string | undefined,
         };
         const widgetProps: WidgetProps = {
-          name: key,
+          name: fieldId,
           schema: propSchema,
           value: value[key],
           required: required.includes(key),
@@ -110,7 +113,7 @@ export function AppSettingsForm(props: AppSettingsFormProps) {
         return (
           <div key={key} className="flex flex-col gap-1.5">
             <label
-              htmlFor={`app-settings-field-${key}`}
+              htmlFor={`app-settings-field-${fieldId}`}
               className="text-sm font-medium text-[var(--text)]"
             >
               {(propSchema.title as string | undefined) || key}

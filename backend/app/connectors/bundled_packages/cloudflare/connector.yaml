@@ -1,0 +1,21 @@
+schema: integral.connector/v1
+id: cloudflare
+version: 1.0.0
+publisher: integral
+name: Cloudflare
+description: Search Cloudflare API capabilities and manage authorized resources through
+  its official MCP server. Requires Cloudflare sign-in and account permission selection.
+  Tool calls require Integral approval.
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: declarative
+capabilities:
+  mcp:
+    transport: streamable_http
+    url: https://mcp.cloudflare.com/mcp
+    read_only_tools: []
+auth:
+  type: mcp_oauth

@@ -23,7 +23,7 @@ async def test_byoa_mcp_routes_to_stub(authenticated_client, monkeypatch):
     monkeypatch.setattr(
         uplink_registry_mod.uplink_registry, "get_system_agent", _mock_get_system
     )
-    # CRITICAL: do NOT monkeypatch get_chat_connector — we WANT real registry resolution
+    # CRITICAL: do NOT monkeypatch get_chat_agent — we WANT real registry resolution
     # to prove the registry routes correctly to McpStubConnector by agent_type.
 
     r = await authenticated_client.post(

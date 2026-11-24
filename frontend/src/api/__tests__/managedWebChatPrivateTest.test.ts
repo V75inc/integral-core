@@ -8,7 +8,7 @@ vi.mock('../client', () => ({ getActiveScopeHeader: vi.fn() }));
 vi.mock('../session', () => ({ getAccessToken: vi.fn(), getSessionGeneration: vi.fn() }));
 vi.mock('../../config', () => ({ getApiBaseURL: () => '/api' }));
 
-const owner = { principalId: 'manager', workspaceId: 'workspace', sessionFence: '3',
+const owner = { principalId: 'manager', workspaceId: 'workspace', sessionFence: '3', slug: 'public_web_chat',
   provisionId: 'provision', routeEpoch: '4', profileKey: 'profile', publishedVersion: 5 };
 const exact = { kind: 'private-web-chat-test-v1', workspace_id: 'workspace', slug: 'public_web_chat',
   provision_id: 'provision', route_epoch: '4', profile_key: 'profile', published_version: 5, reply: '<b>Literal reply</b>' };

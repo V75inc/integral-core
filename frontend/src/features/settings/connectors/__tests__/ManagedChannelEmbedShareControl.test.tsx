@@ -16,7 +16,7 @@ type Props = ComponentProps<typeof ManagedChannelEmbedShareControl>;
 
 const channel = {
   definition: { slug: 'public_web_chat', provider: 'Fixture', display_name: 'Web Chat',
-    description: 'Synthetic fixture', setup_kind: 'managed-text-v1', version: 1 },
+    description: 'Synthetic fixture', setup_kind: 'managed-text-v1', version: 1, visitor_surface: true },
   connected: true, action: 'configure', state: 'active', can_enable: false,
   provision_id: 'installed', route_epoch: '23', configuration_kind: 'published-public-profile-v1',
 } satisfies ManagedChannel;
@@ -93,7 +93,7 @@ describe('detached Web Chat embed-share gesture control', () => {
     ['inactive', () => ({ channel: { ...channel, state: 'inactive' } })],
     ['uninstalled', () => ({ channel: { definition: channel.definition, state: 'registered',
       action: 'add', connected: false, can_install: true } })],
-    ['unrelated connector', () => ({ channel: { ...channel, definition: { ...channel.definition, slug: 'another' } } })],
+    ['unrelated connector', () => ({ channel: { ...channel, definition: { ...channel.definition, slug: 'another', visitor_surface: undefined } } })],
     ['no published config capability', () => ({ channel: { ...channel, configuration_kind: undefined } })],
     ['unpublished', () => ({ publication: null })],
     ['no policy', () => ({ policy: null })],

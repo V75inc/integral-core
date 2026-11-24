@@ -4,7 +4,6 @@ from fastapi import Request
 from jvspatial.api import endpoint
 
 from app.agentive.services import profile_management as service
-from app.agentive.services import public_web_chat
 from app.api.errors import BadRequestError, MissingAuthenticationError
 from app.api.utils import resolve_principal_id
 from app.schemas.agentive.connection_profiles import (
@@ -12,8 +11,6 @@ from app.schemas.agentive.connection_profiles import (
     CreateProfile,
     NativeChatAllowlist,
     ProfileRevision,
-    PublicWebChatAssignment,
-    PublicWebChatEnablement,
     PublishProfile,
     RenameWorkspaceAssistant,
     SaveProfileDraft,
@@ -121,51 +118,3 @@ async def rename_workspace_assistant(request: Request) -> dict:
     return await service.rename_workspace_assistant(
         actor, workspace, await body(request, RenameWorkspaceAssistant)
     )
-
-
-@endpoint(
-    "/workspace/agent-profiles/public-web-chat",
-    methods=["GET"],
-    auth=True,
-    tags=["Agentive"],
-)
-async def get_public_web_chat(request: Request) -> dict:
-    """Return the Public Web Chat settings."""
-    return await public_web_chat.describe(*(await scope(request)))
-
-
-@endpoint(
-    "/workspace/agent-profiles/public-web-chat/assignment",
-    methods=["PUT"],
-    auth=True,
-    tags=["Agentive"],
-)
-async def assign_public_web_chat(request: Request) -> dict:
-    """Set the published profile assigned to Public Web Chat."""
-    actor, workspace = await scope(request)
-    update = await body(request, PublicWebChatAssignment)
-    await public_web_chat.assign_profile(
-        actor, workspace, update.expected_revision, update.profile_key
-    )
-    return await public_web_chat.describe(actor, workspace)
-
-
-@endpoint(
-    "/workspace/agent-profiles/public-web-chat/enablement",
-    methods=["PUT"],
-    auth=True,
-    tags=["Agentive"],
-)
-async def set_public_web_chat_enablement(request: Request) -> dict:
-    """Set whether the ready Public Web Chat route is enabled."""
-    actor, workspace = await scope(request)
-    update = await body(request, PublicWebChatEnablement)
-    ready = update.enabled and await public_web_chat.transport_ready(workspace)
-    await public_web_chat.set_enabled(
-        actor,
-        workspace,
-        update.expected_revision,
-        update.enabled,
-        transport_ready=ready,
-    )
-    return await public_web_chat.describe(actor, workspace)

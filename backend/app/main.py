@@ -943,6 +943,11 @@ async def _startup() -> None:
         from app.agentive.connectors.mcp_mount import rehydrate_mcp_connectors
 
         await rehydrate_mcp_connectors()
+        from app.agentive.services.connector_packages import (
+            rehydrate_package_action_tools,
+        )
+
+        await rehydrate_package_action_tools()
         std_logging.getLogger("app.agentive.connectors.mcp_mount").info(
             "mcp connectors: rehydrated at startup"
         )
@@ -1505,6 +1510,14 @@ if not server.disable_auth_endpoint("/register"):  # pragma: no cover - boot gua
     )
 
 app = server.get_app()
+
+# ADR 018 phase 0: the managed-channel API must not invent an empty registry.
+# Management-only Web Chat is configurable and never serves visitors.
+from app.agentive.api.managed_channels import (  # noqa: E402
+    configure_default_managed_channel_registry,
+)
+
+configure_default_managed_channel_registry(app)
 # WebSocket is the documented jvspatial endpoint exception.
 app.include_router(events_ws_router)
 app.add_exception_handler(RequestValidationError, _unify_request_validation_error)

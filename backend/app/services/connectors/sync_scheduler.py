@@ -77,6 +77,11 @@ async def _maybe_dispatch_one(connector) -> bool:
     if previous is not None and not previous.done():
         return False
     interval = float(getattr(connector, "sync_interval_seconds", 300) or 300)
+    from app.agentive.services.connector_packages import installed_sync_interval
+
+    declared = installed_sync_interval(connector)
+    if declared is not None:
+        interval = float(declared)
     now = _utc_now()
     if last is not None and (now - last).total_seconds() < interval:
         return False

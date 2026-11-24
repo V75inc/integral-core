@@ -32,7 +32,7 @@ async def test_chat_dispatch_happy_path_returns_typed_response(
         uplink_registry_mod.uplink_registry, "get_system_agent", _mock_get_system
     )
     monkeypatch.setattr(
-        "app.agentive.api.chat.get_chat_connector",
+        "app.agentive.api.chat.get_chat_agent",
         lambda _t: _FakeConnector(),
     )
 

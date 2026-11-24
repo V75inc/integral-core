@@ -489,6 +489,7 @@ async def mount_mcp_connector(
     headers: Optional[Dict[str, str]] = None,
     connection_mode: str = "per_user",
     label: str = "",
+    require_oauth: bool = False,
 ) -> Connector:
     """Create an MCP Connector, discover tools, and register them (no restart)."""
     from app.agentive.services.connector_registry_node import create_connector
@@ -517,7 +518,7 @@ async def mount_mcp_connector(
             details={"reauth_required": True, "status": 401},
         )
 
-    if probe.needs_oauth:
+    if probe.needs_oauth or require_oauth:
         oauth = await start_mcp_oauth_session(
             url,
             probe_response=probe.response,

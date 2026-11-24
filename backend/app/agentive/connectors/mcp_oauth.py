@@ -76,27 +76,6 @@ def mcp_oauth_redirect_uri() -> str:
     return f"{origin}{MCP_OAUTH_CALLBACK_PATH}"
 
 
-def google_oauth_client_credentials() -> Tuple[str, str]:
-    """Pre-registered Google OAuth app. Falls back to the Gmail client."""
-    from app.config import settings
-
-    client_id = (
-        (settings.GOOGLE_OAUTH_CLIENT_ID or "")
-        or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-        or (settings.GMAIL_OAUTH_CLIENT_ID or "")
-        or os.getenv("GMAIL_OAUTH_CLIENT_ID")
-        or ""
-    ).strip()
-    client_secret = (
-        (settings.GOOGLE_OAUTH_CLIENT_SECRET or "")
-        or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-        or (settings.GMAIL_OAUTH_CLIENT_SECRET or "")
-        or os.getenv("GMAIL_OAUTH_CLIENT_SECRET")
-        or ""
-    ).strip()
-    return client_id, client_secret
-
-
 def start_pre_registered_oauth_session(
     *,
     redirect_uri: str,

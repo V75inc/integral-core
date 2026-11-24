@@ -1,0 +1,20 @@
+schema: integral.connector/v1
+id: calendly
+version: 1.0.0
+publisher: integral
+name: Calendly
+description: Book and manage Calendly event types, availability, and scheduled events
+  through Calendly's hosted MCP server.
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: declarative
+capabilities:
+  mcp:
+    transport: streamable_http
+    url: https://mcp.calendly.com/
+    read_only_tools: []
+auth:
+  type: mcp_oauth

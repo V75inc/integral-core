@@ -6,6 +6,7 @@ export interface ManagedWebChatPrivateTestOwner {
   principalId: string;
   workspaceId: string;
   sessionFence: string;
+  slug: string;
   provisionId: string;
   routeEpoch: string;
   profileKey: string;
@@ -43,11 +44,13 @@ export async function runManagedWebChatPrivateTest(
   const current = () => !signal.aborted && getSessionGeneration() === generation &&
     getAccessToken() === token && getActiveScopeHeader() === scope &&
     owner.principalId === captured.principalId && owner.workspaceId === captured.workspaceId &&
-    owner.sessionFence === captured.sessionFence && owner.provisionId === captured.provisionId &&
+    owner.sessionFence === captured.sessionFence && owner.slug === captured.slug &&
+    owner.provisionId === captured.provisionId &&
     owner.routeEpoch === captured.routeEpoch && owner.profileKey === captured.profileKey &&
     owner.publishedVersion === captured.publishedVersion;
   if (!token || !current() || captured.sessionFence !== String(generation) ||
-      !identity(captured.principalId) || !identity(captured.workspaceId) || !identity(captured.provisionId) ||
+      !identity(captured.principalId) || !identity(captured.workspaceId) || !identity(captured.slug, 64) ||
+      !/^[a-z][a-z0-9_]{0,63}$/.test(captured.slug) || !identity(captured.provisionId) ||
       !/^(?:0|[1-9][0-9]{0,19})$/.test(captured.routeEpoch) ||
       !identity(captured.profileKey, 128) || !Number.isSafeInteger(captured.publishedVersion) ||
       captured.publishedVersion < 1 || !isPrivateWebChatTestMessage(text)) throw unavailable();
@@ -59,7 +62,9 @@ export async function runManagedWebChatPrivateTest(
   try {
     if (!current()) throw unavailable();
     const query = new URLSearchParams({ workspace_id: captured.workspaceId });
-    const response = await fetch(`${getApiBaseURL()}/agentive/managed-channels/public_web_chat/test?${query}`, {
+    const response = await fetch(
+      `${getApiBaseURL()}/agentive/managed-channels/${encodeURIComponent(captured.slug)}/test?${query}`,
+      {
       method: 'POST',
       credentials: 'omit',
       cache: 'no-store',
@@ -85,7 +90,7 @@ export async function runManagedWebChatPrivateTest(
         Object.keys(result).length !== scopedFields.length ||
         !scopedFields.every(field => Object.prototype.hasOwnProperty.call(result, field))) throw unavailable();
     const data = result as Record<string, unknown>;
-    if (data.kind !== 'private-web-chat-test-v1' || data.workspace_id !== captured.workspaceId || data.slug !== 'public_web_chat' ||
+    if (data.kind !== 'private-web-chat-test-v1' || data.workspace_id !== captured.workspaceId || data.slug !== captured.slug ||
         data.provision_id !== captured.provisionId || data.route_epoch !== captured.routeEpoch || data.profile_key !== captured.profileKey ||
         data.published_version !== captured.publishedVersion || !privateText(data.reply, 4000)) throw unavailable();
     return data.reply;

@@ -204,6 +204,7 @@ const McpOAuthCallbackPage = lazy(() =>
     default: m.McpOAuthCallbackPage,
   })),
 );
+const GmailOAuthCallbackPage = lazy(() => import('./pages/GmailOAuthCallbackPage'));
 const QuickBooksOAuthCallbackPage = lazy(() =>
   import('./pages/QuickBooksOAuthCallbackPage').then((m) => ({
     default: m.QuickBooksOAuthCallbackPage,
@@ -319,6 +320,10 @@ export default function App() {
             <McpOAuthCallbackPage />
           </RequireAuth>
         }
+      />
+      <Route
+        path="/connectors/gmail/oauth/callback"
+        element={<RequireAuth><GmailOAuthCallbackPage /></RequireAuth>}
       />
       <Route
         path="/connectors/quickbooks/callback"

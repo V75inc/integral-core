@@ -701,6 +701,28 @@ async def test_disconnect_disables_the_line_only_after_the_last_grant(
     await user.connect(org, edge=IS_MEMBER_OF, role="admin", joined_at=now)
     await grant_whatsapp_line(org.id, binding, user_id)
 
+    from app.connectors.channel_packages import ChannelPackageRegistry
+    from app.connectors.package_channels import (
+        read_host_grant_for_workspace,
+        register_packaged_managed_text,
+    )
+    from app.connectors.package_discovery import rescan, start_package_discovery
+
+    start_package_discovery()
+    register_packaged_managed_text(ChannelPackageRegistry())
+    rescan()
+    for workspace_id in (org.id, binding.workspace_id):
+        grant = await read_host_grant_for_workspace("whatsapp", workspace_id)
+        assert grant == {
+            "id": binding.id,
+            "edge": "USES_WHATSAPP_LINE",
+            "present": True,
+            "enabled": True,
+        }
+    reloaded = await WhatsAppChannelBinding.get(binding.id)
+    assert reloaded.api_key_ciphertext == binding.api_key_ciphertext
+    assert reloaded.webhook_secret_ciphertext == binding.webhook_secret_ciphertext
+
     await disconnect_workspace_whatsapp_line(user_id, org.id, binding.id)
     kept = await WhatsAppChannelBinding.get(binding.id)
     assert kept is not None
@@ -712,3 +734,115 @@ async def test_disconnect_disables_the_line_only_after_the_last_grant(
     assert closed is not None
     assert closed.enabled is False
     assert await granted_workspace_ids(closed) == []
+
+
+@pytest.mark.asyncio
+async def test_managed_whatsapp_lifecycle_preserves_other_grants(
+    enc_key, authenticated_client, test_user, monkeypatch
+):
+    """Use the registered managed endpoint to disable, enable and remove one grant."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        binding_for_workspace,
+        grant_whatsapp_line,
+        workspace_line_grant_id,
+    )
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    calls = _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    created = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Managed WhatsApp lifecycle"}
+    )
+    workspace = created.json()["workspace"]["id"]
+    personal = await ensure_personal_workspace(test_user)
+    headers = {"X-Integral-Scope": f"ws:{workspace}"}
+    params = {"workspace_id": workspace}
+    saved = await authenticated_client.put(
+        "/api/agentive/managed-channels/whatsapp/credentials",
+        headers=headers,
+        params=params,
+        json={
+            "expected_binding_id": None,
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_test_secret_value",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    connection = await binding_for_workspace(workspace)
+    await grant_whatsapp_line(personal.id, connection, test_user.id)
+    other = await workspace_line_grant_id(personal.id, connection.id)
+    assert other
+    base = "/api/agentive/managed-channels"
+
+    async def current():
+        response = await authenticated_client.get(base, headers=headers, params=params)
+        assert response.status_code == 200, response.text
+        return next(
+            row
+            for row in response.json()["channels"]
+            if row["definition"]["slug"] == "whatsapp"
+        )
+
+    metadata = await authenticated_client.get(
+        f"{base}/whatsapp/credentials",
+        headers=headers,
+        params=params,
+    )
+    assert metadata.status_code == 200, metadata.text
+    assert metadata.json()["binding"]["id"] == connection.id
+    assert "jvk_test_secret_value" not in metadata.text
+    prepared = await current()
+    assert prepared["state"] in {"inactive", "unavailable"} and prepared["can_enable"]
+    assert calls["register"] == []
+    first_change = {key: prepared[key] for key in ("provision_id", "route_epoch")}
+    first_enable = await authenticated_client.put(
+        f"{base}/whatsapp/enabled",
+        headers=headers,
+        params=params,
+        json={**first_change, "enabled": True},
+    )
+    assert first_enable.status_code == 200, first_enable.text
+    connected = await current()
+    assert connected["state"] == "active"
+    change = {key: connected[key] for key in ("provision_id", "route_epoch")}
+    disabled = await authenticated_client.put(
+        f"{base}/whatsapp/enabled",
+        headers=headers,
+        params=params,
+        json={**change, "enabled": False},
+    )
+    assert disabled.status_code == 200, disabled.text
+    assert not await workspace_line_grant_id(workspace, connection.id)
+    assert await workspace_line_grant_id(personal.id, connection.id) == other
+    stale = await authenticated_client.put(
+        f"{base}/whatsapp/enabled",
+        headers=headers,
+        params=params,
+        json={**change, "enabled": True},
+    )
+    assert stale.status_code == 409, stale.text
+    inactive = await current()
+    assert inactive["state"] == "inactive" and inactive["can_enable"]
+    change["route_epoch"] = inactive["route_epoch"]
+    enabled = await authenticated_client.put(
+        f"{base}/whatsapp/enabled",
+        headers=headers,
+        params=params,
+        json={**change, "enabled": True},
+    )
+    assert enabled.status_code == 200, enabled.text
+    active = await current()
+    connection = await binding_for_workspace(workspace)
+    change["route_epoch"] = active["route_epoch"]
+    removed = await authenticated_client.delete(
+        f"{base}/whatsapp",
+        headers=headers,
+        params={**params, **change},
+    )
+    assert removed.status_code == 200, removed.text
+    assert await binding_for_workspace(workspace) is None
+    kept = await binding_for_workspace(personal.id)
+    assert kept.id == connection.id and kept.enabled
+    assert kept.api_key_ciphertext == connection.api_key_ciphertext
+    assert kept.webhook_secret_ciphertext == connection.webhook_secret_ciphertext
+    assert len(calls["register"]) == 1

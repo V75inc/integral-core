@@ -1,0 +1,52 @@
+schema: integral.connector/v1
+id: google_gmail
+version: 1.0.0
+publisher: integral
+name: Gmail MCP
+description: "Search threads, read mail, manage labels, and create drafts through\
+  \ Google's hosted Gmail MCP server. Live tools \u2014 distinct from the native Gmail\
+  \ sync connector. Requires Google sign-in."
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: declarative
+capabilities:
+  mcp:
+    transport: streamable_http
+    url: https://gmailmcp.googleapis.com/mcp/v1
+    read_only_tools:
+    - get_draft
+    - get_message
+    - get_thread
+    - list_drafts
+    - list_labels
+    - search_threads
+auth:
+  type: oauth2
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  scopes:
+  - https://www.googleapis.com/auth/gmail.readonly
+  - https://www.googleapis.com/auth/gmail.compose
+  extra_authorize_params:
+    access_type: offline
+    prompt: consent
+  client:
+    source: installer
+    id_field: client_id
+    secret_field: client_secret
+    id_env:
+    - GOOGLE_OAUTH_CLIENT_ID
+    - GMAIL_OAUTH_CLIENT_ID
+    secret_env:
+    - GOOGLE_OAUTH_CLIENT_SECRET
+    - GMAIL_OAUTH_CLIENT_SECRET
+configuration:
+- key: client_id
+  label: Client ID
+  type: string
+- key: client_secret
+  label: Client secret
+  type: secret

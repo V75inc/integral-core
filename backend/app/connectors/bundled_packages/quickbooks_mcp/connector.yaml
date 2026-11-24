@@ -1,0 +1,77 @@
+schema: integral.connector/v1
+id: quickbooks_mcp
+version: 1.0.0
+publisher: integral
+name: QuickBooks MCP
+description: "Query QuickBooks Online entities and reports through Intuit's local\
+  \ MCP server. Live tools \u2014 distinct from the native QuickBooks sync connector.\
+  \ Requires Node/npx on the API host. Connect with the same Intuit app as native\
+  \ QuickBooks."
+binding:
+  scopes:
+  - workspace
+  - personal
+trust:
+  tier: trusted
+capabilities:
+  mcp:
+    transport: stdio
+    command:
+    - npx
+    - -y
+    - github:intuit/quickbooks-online-mcp-server
+    env:
+      QUICKBOOKS_DISABLE_WRITE:
+        value: 'true'
+      QUICKBOOKS_DISABLE_UPDATE:
+        value: 'true'
+      QUICKBOOKS_DISABLE_DELETE:
+        value: 'true'
+    generated_env:
+    - QUICKBOOKS_CLIENT_ID
+    - QUICKBOOKS_CLIENT_SECRET
+    - QUICKBOOKS_REFRESH_TOKEN
+    - QUICKBOOKS_REALM_ID
+    - QUICKBOOKS_ENVIRONMENT
+    - QUICKBOOKS_TOKEN_STORE_PATH
+    read_only_tools: []
+configuration:
+- key: client_id
+  label: Client ID
+  type: string
+  required: false
+- key: client_secret
+  label: Client secret
+  type: secret
+  required: false
+- key: environment
+  label: Environment (sandbox or production)
+  type: string
+  required: false
+  default: sandbox
+- key: quickbooks_disable_write
+  label: Disable create tools
+  type: string
+  required: false
+- key: quickbooks_disable_update
+  label: Disable update tools
+  type: string
+  required: false
+- key: quickbooks_disable_delete
+  label: Disable delete tools
+  type: string
+  required: false
+auth:
+  type: oauth2
+  authorize_url: https://appcenter.intuit.com/connect/oauth2
+  token_url: https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
+  client_authentication: client_secret_basic
+  scopes:
+  - com.intuit.quickbooks.accounting
+  redirect_env: [QUICKBOOKS_REDIRECT_URI]
+  client:
+    source: installer
+    id_field: client_id
+    secret_field: client_secret
+    id_env: [QUICKBOOKS_CLIENT_ID]
+    secret_env: [QUICKBOOKS_CLIENT_SECRET]

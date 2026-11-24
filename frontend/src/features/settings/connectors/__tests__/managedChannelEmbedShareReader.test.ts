@@ -42,6 +42,19 @@ beforeEach(() => {
 });
 
 describe('detached authenticated embed-share reader', () => {
+  it('reads the channel id it was given', async () => {
+    const request = { ...owner(), slug: 'visitor_desk' };
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...response, data: { ...wire, slug: 'visitor_desk' },
+    });
+    const proof = await readManagedChannelEmbedShare(request, signal());
+    expect(apiClient.get).toHaveBeenCalledWith(
+      '/agentive/managed-channels/visitor_desk/embed-share',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(currentManagedEmbedSnippet(proof, request)).toContain(approvedUrl);
+  });
+
   it('requires the canonical authentication lane and binds exact policy in a quiet read', async () => {
     const request = owner();
     const abortSignal = signal();
@@ -67,7 +80,7 @@ describe('detached authenticated embed-share reader', () => {
     (value: ManagedEmbedOwner) => { value.sessionFence = '7'; },
     (value: ManagedEmbedOwner) => { value.principalId = ''; },
     (value: ManagedEmbedOwner) => { value.workspaceId = 'other'; },
-    (value: ManagedEmbedOwner) => { value.slug = 'another_connector'; },
+    (value: ManagedEmbedOwner) => { value.slug = 'Not A Slug'; },
     (value: ManagedEmbedOwner) => { value.provisionId = 'spaced\nidentity'; },
     (value: ManagedEmbedOwner) => { value.routeEpoch = '023'; },
     (value: ManagedEmbedOwner) => { value.publication.publishedVersion = 0; },

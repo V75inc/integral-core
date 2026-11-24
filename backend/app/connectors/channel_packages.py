@@ -35,6 +35,7 @@ class ChannelDefinition:
     setup_kind: Literal["managed-text-v1"]
     version: Literal[1] = 1
     install_scope: Literal["shared"] = "shared"
+    visitor_surface: bool = False
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,10 @@ class ChannelPackage:
     lifecycle: ChannelLifecycle
     serving: ChannelServing
     profile_setup: ChannelProfileSetup | None = None
+    read_credentials: Callable[[ChannelScope], Awaitable[dict]] | None = None
+    configure_credentials: (
+        Callable[[ChannelScope, dict, str], Awaitable[None]] | None
+    ) = None
 
 
 @dataclass(frozen=True)
@@ -183,12 +188,21 @@ def _validate_package(package: ChannelPackage) -> None:
         or definition.setup_kind != "managed-text-v1"
         or type(definition.install_scope) is not str
         or definition.install_scope != "shared"
+        or type(definition.visitor_surface) is not bool
     ):
         raise ValueError("Invalid managed channel catalogue definition")
     if not isinstance(lifecycle, ChannelLifecycle) or not isinstance(
         serving, ChannelServing
     ):
         raise TypeError("A channel requires lifecycle and serving adapters")
+    if package.read_credentials is not None and not iscoroutinefunction(
+        package.read_credentials
+    ):
+        raise TypeError("Managed channel credential readback must be asynchronous")
+    if package.configure_credentials is not None and not iscoroutinefunction(
+        package.configure_credentials
+    ):
+        raise TypeError("Managed channel credential setup must be asynchronous")
     if package.profile_setup is not None and (
         not isinstance(package.profile_setup, ChannelProfileSetup)
         or not iscoroutinefunction(package.profile_setup.describe)

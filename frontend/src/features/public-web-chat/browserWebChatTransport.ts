@@ -64,7 +64,10 @@ export function createBrowserWebChatTransport(
     const response = await fetcher(`${base}/${endpoint}`, {
       method: 'POST',
       credentials: 'same-origin',
-      mode: 'same-origin',
+      // Firefox omits the exact Origin for same-origin mode under no-referrer.
+      // The relative route, document CSP, and redirect policy constrain the destination.
+      mode: 'cors',
+      referrerPolicy: 'no-referrer',
       redirect: 'error',
       cache: 'no-store',
       headers: { 'content-type': 'application/json' },

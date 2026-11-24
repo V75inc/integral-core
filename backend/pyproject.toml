@@ -12,7 +12,12 @@ exclude = ["app.packages", "app.packages.*"]
 # These registries are read from paths relative to their Python modules at
 # runtime. They must travel in a wheel, not rely on a source checkout.
 "app.agentive" = ["tool_manifest.yaml"]
-"app.connectors" = ["catalog/*.yaml"]
+"app.connectors" = [
+    "catalog/*.yaml",
+    "integral-connector-v1.schema.json",
+    "bundled_packages/*/connector.yaml",
+    "bundled_packages/*/adapter/*.py",
+]
 "app.views" = ["contracts/*.json"]
 "app.services" = ["model_reasoning_catalog.json"]
 "app.services.storage_indexes" = ["approved.json"]

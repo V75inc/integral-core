@@ -82,6 +82,7 @@ class ManagedWebChatPackage:
                 "Web Chat",
                 "A public text chat for one published agent profile.",
                 "managed-text-v1",
+                visitor_surface=True,
             ),
             ChannelLifecycle(
                 self.observe,

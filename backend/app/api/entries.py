@@ -852,7 +852,19 @@ async def update_entry(
                     if _connector is not None and _slug:
                         # I-CON-02 — subclass dispatch via subclass_slug.
                         _sub = _get_sync_connector(_slug.strip())
-                        if getattr(_sub, "conflict_policy", "") == "mirror_only":
+                        _stored = getattr(_connector, "package_manifest", None)
+                        try:
+                            from app.connectors.package_runtime import (
+                                package_conflict_policy,
+                            )
+
+                            _policy = package_conflict_policy(
+                                _stored if isinstance(_stored, dict) else None,
+                                _slug.strip(),
+                            )
+                        except ValueError:
+                            _policy = getattr(_sub, "conflict_policy", "")
+                        if _policy == "mirror_only":
                             raise InsufficientPermissionsError(
                                 message=(
                                     "Entry is sourced from a mirror_only "

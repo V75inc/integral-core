@@ -2,9 +2,6 @@
 
 Persistence-free helpers for the QuickBooks Online authorization-code flow:
 
-- ``build_consent_url(user_id)`` — build Intuit's consent URL with a signed,
-  short-TTL CSRF ``state`` token bound to the calling user. Returns
-  ``(url, state)``.
 - ``verify_state(state, user_id)`` — validate signature + TTL + user binding.
 - ``exchange_code(code, redirect_uri=None)`` — POST ``grant_type=
   authorization_code`` to Intuit's token endpoint.
@@ -26,11 +23,9 @@ import base64
 import hashlib
 import hmac
 import logging
-import os
 import secrets
 import time
-from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlencode
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -38,15 +33,6 @@ from app.api.errors import ConnectorAuthError
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-QBO_CONSENT_URL = "https://appcenter.intuit.com/connect/oauth2"
-QBO_TOKEN_ENDPOINT = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-
-# Accounting scope only — payroll scope is out of scope per the master
-# plan §9 Q2 resolution. NEVER add ``com.intuit.quickbooks.payroll`` or
-# ``openid`` / ``profile`` scopes here; if a future phase needs them, gate
-# the addition behind an explicit plan + Decision Record.
-QBO_SCOPE = "com.intuit.quickbooks.accounting"
 
 # CSRF state token TTL (seconds). Short — the consent flow round-trips
 # through Intuit's UI in seconds, not minutes.
@@ -147,71 +133,26 @@ def connector_id_from_state(state: str) -> Optional[str]:
         return None
 
 
-def _env_client_id() -> str:
-    from app.config import settings
+def _credential_from(auth: Dict[str, Any], field: str) -> str:
+    """Read one client credential from the env names declared by the package."""
+    from app.connectors.package_runtime import deployment_setting
 
-    return (
-        settings.QUICKBOOKS_CLIENT_ID or os.getenv("QUICKBOOKS_CLIENT_ID") or ""
-    ).strip()
+    names = (auth.get("client") or {}).get(field) or []
+    if not isinstance(names, list):
+        return ""
+    return deployment_setting([str(name) for name in names if name])
+
+
+def _env_client_id() -> str:
+    from app.connectors.package_runtime import admitted_oauth
+
+    return _credential_from(admitted_oauth("quickbooks") or {}, "id_env")
 
 
 def _env_client_secret() -> str:
-    from app.config import settings
+    from app.connectors.package_runtime import admitted_oauth
 
-    return (
-        settings.QUICKBOOKS_CLIENT_SECRET or os.getenv("QUICKBOOKS_CLIENT_SECRET") or ""
-    ).strip()
-
-
-def build_consent_url(
-    user_id: str,
-    *,
-    redirect_uri: Optional[str] = None,
-    client_id: Optional[str] = None,
-    connector_id: Optional[str] = None,
-) -> Tuple[str, str]:
-    """Build Intuit's consent URL + return the signed state token.
-
-    The caller (the authorize endpoint) returns the URL to the frontend,
-    which opens it in a popup. On consent Intuit redirects to
-    ``redirect_uri`` with ``code``, ``state``, ``realmId``. The callback
-    endpoint validates ``state`` via ``verify_state`` before exchanging
-    the code.
-
-    ``client_id`` overrides the deployment env var when the operator
-    supplied app credentials in the catalog install form.
-    """
-    from app.config import settings
-
-    resolved_client_id = (client_id or "").strip() or _env_client_id()
-    if not resolved_client_id:
-        raise ConnectorAuthError(
-            message=(
-                "QuickBooks Client ID is required. Enter it in the install "
-                "form, or set QUICKBOOKS_CLIENT_ID on the server."
-            ),
-            details={
-                "reauth_required": False,
-                "config_missing": "QUICKBOOKS_CLIENT_ID",
-            },
-        )
-    effective_redirect = (
-        redirect_uri
-        or settings.QUICKBOOKS_REDIRECT_URI
-        or os.getenv("QUICKBOOKS_REDIRECT_URI")
-        or ""
-    )
-    state = _build_state(user_id, connector_id=connector_id)
-    params = {
-        "client_id": resolved_client_id,
-        "scope": QBO_SCOPE,
-        "redirect_uri": effective_redirect,
-        "response_type": "code",
-        "state": state,
-    }
-    url = f"{QBO_CONSENT_URL}?{urlencode(params)}"
-    logger.info("quickbooks_oauth: built consent URL for user_id=%s", user_id)
-    return url, state
+    return _credential_from(admitted_oauth("quickbooks") or {}, "secret_env")
 
 
 def _basic_auth_header(
@@ -251,21 +192,28 @@ async def _post_to_token_endpoint(
     Pass ``http_client`` in tests to inject ``httpx.MockTransport``; production
     callers leave it None and the helper builds its own client.
     """
-    headers = {
-        "Authorization": _basic_auth_header(
-            client_id=client_id, client_secret=client_secret
-        ),
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    client_ctx = http_client or httpx.AsyncClient(timeout=15.0)
-    try:
-        resp = await client_ctx.post(
-            QBO_TOKEN_ENDPOINT, headers=headers, content=urlencode(body)
+    from app.connectors.package_runtime import admitted_oauth, post_oauth_token
+
+    auth = admitted_oauth("quickbooks")
+    if auth is None:
+        from app.api.errors import ConnectorAuthError
+
+        raise ConnectorAuthError(
+            message="QuickBooks package is not admitted",
+            details={"reauth_required": False},
         )
-    finally:
-        if http_client is None:
-            await client_ctx.aclose()
+    resolved_id = (client_id or "").strip() or _credential_from(auth, "id_env")
+    resolved_secret = (client_secret or "").strip() or _credential_from(
+        auth, "secret_env"
+    )
+    _basic_auth_header(client_id=resolved_id, client_secret=resolved_secret)
+    resp = await post_oauth_token(
+        auth,
+        body,
+        client_id=resolved_id,
+        client_secret=resolved_secret,
+        client=http_client,
+    )
     if resp.status_code != 200:
         # Try to extract Intuit's error key for a precise re-auth signal.
         reauth_required = False
@@ -308,13 +256,12 @@ async def exchange_code(
     ``refresh_token``, ``expires_in``, ``x_refresh_token_expires_in``,
     ``token_type``. Raises ``ConnectorAuthError`` on non-200.
     """
-    from app.config import settings
+    from app.connectors.package_runtime import admitted_oauth, deployment_setting
 
-    effective_redirect = (
-        redirect_uri
-        or settings.QUICKBOOKS_REDIRECT_URI
-        or os.getenv("QUICKBOOKS_REDIRECT_URI")
-        or ""
+    auth = admitted_oauth("quickbooks") or {}
+    names = auth.get("redirect_env") or []
+    effective_redirect = (redirect_uri or "").strip() or deployment_setting(
+        [str(name) for name in names] if isinstance(names, list) else []
     )
     body = {
         "grant_type": "authorization_code",

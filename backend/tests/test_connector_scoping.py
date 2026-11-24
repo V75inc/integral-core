@@ -230,6 +230,46 @@ def test_row_helpers():
     assert row_display_name(FakeRow("a", "u", "weird_thing")) == "weird thing"
 
 
+def test_row_display_name_uses_the_admitted_package(monkeypatch):
+    """A package name wins over the catalog display name."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {"name": "Package Notion"} if package_id == "notion" else None
+        ),
+    )
+    assert (
+        row_display_name(FakeRow("a", "u", "mcp", {"catalog_slug": "notion"}))
+        == "Package Notion"
+    )
+
+
+def test_row_display_name_uses_the_stored_package_name(monkeypatch):
+    """A stored package name wins. An older snapshot uses the admitted name."""
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: (
+            {"name": "Admitted Mail"} if package_id == "gmail" else None
+        ),
+    )
+    stored = FakeRow("a", "u", "gmail", {"access_token": "tok"})
+    stored.package_manifest = {"id": "acme_mail", "name": "Acme Mail"}
+    assert row_display_name(stored) == "Acme Mail"
+    assert stored.subclass_slug == "gmail"
+    assert stored.auth_state["access_token"] == "tok"
+    older = FakeRow("b", "u", "gmail", {"catalog_slug": "gmail"})
+    older.package_manifest = {"capabilities": {"sync": {}}}
+    assert row_display_name(older) == "Admitted Mail"
+    missing = FakeRow("c", "u", "gmail")
+    missing.package_manifest = {"id": "gmail"}
+    monkeypatch.setattr(
+        "app.connectors.package_runtime.admitted_manifest",
+        lambda package_id: {},
+    )
+    with pytest.raises(ValueError, match="does not declare a name"):
+        row_display_name(missing)
+
+
 # ---------------------------------------------------------------------------
 # Canonical keys — MCP builders + refcounts
 # ---------------------------------------------------------------------------

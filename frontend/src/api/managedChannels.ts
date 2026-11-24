@@ -9,6 +9,7 @@ interface ManagedChannelDefinition {
   setup_kind: 'managed-text-v1';
   install_scope?: 'shared'; // Older v1 servers omit the field but are still workspace-only.
   version: 1;
+  visitor_surface?: true;
 }
 
 export interface ManagedChannelGeneration {
@@ -84,6 +85,7 @@ function decode(value: unknown): ManagedChannel | undefined {
     slug: d.slug, provider: d.provider, display_name: d.display_name,
     description: d.description, setup_kind: d.setup_kind, version: d.version,
     install_scope: d.install_scope ?? 'shared',
+    ...(d.visitor_surface === true ? { visitor_surface: true as const } : {}),
   };
   if (row.connected === false && row.state === 'registered' && row.action === 'add' &&
       row.provision_id == null && row.route_epoch == null) {
@@ -133,7 +135,9 @@ function decodeApprovedEmbedPolicies(value: unknown): readonly ManagedChannelApp
   return [...choices.values()];
 }
 
-function decodeProfileConfiguration(value: unknown, slug: string, generation: ManagedChannelGeneration): ManagedChannelProfileConfiguration {
+function decodeProfileConfiguration(
+  value: unknown, visitorSurface: boolean, generation: ManagedChannelGeneration,
+): ManagedChannelProfileConfiguration {
   const row = record(value);
   if (!row || row.kind !== 'published-public-profile-v1' ||
       row.provision_id !== generation.provision_id || row.route_epoch !== generation.route_epoch ||
@@ -153,14 +157,14 @@ function decodeProfileConfiguration(value: unknown, slug: string, generation: Ma
   const publishedVersion = row.profile_key !== null && profiles.has(row.profile_key) &&
     typeof row.published_version === 'number' && Number.isSafeInteger(row.published_version) &&
     row.published_version > 0 ? row.published_version : undefined;
-  const mayReadSharing = slug === 'public_web_chat' && publishedVersion !== undefined && !row.editable;
+  const mayReadSharing = visitorSurface && publishedVersion !== undefined && !row.editable;
   const approvedEmbedPolicies = mayReadSharing ? decodeApprovedEmbedPolicies(row.approved_embed_policies) : undefined;
   return {
     kind: row.kind,
     profile_revision: row.profile_revision,
     profile_key: row.profile_key,
     ...(publishedVersion !== undefined ? { published_version: publishedVersion } : {}),
-    ...(slug === 'public_web_chat' && publishedVersion !== undefined && row.private_test_available === true
+    ...(visitorSurface && publishedVersion !== undefined && row.private_test_available === true
       ? { private_test_available: true as const } : {}),
     ...(mayReadSharing && row.full_page_share_check_available === true
       ? { full_page_share_check_available: true as const } : {}),
@@ -181,18 +185,27 @@ export const managedChannelsApi = {
     return decodeListing(response.data);
   },
   async profileConfiguration(workspaceId: string, slug: string, generation: ManagedChannelGeneration,
-    signal?: AbortSignal): Promise<ManagedChannelProfileConfiguration> {
+    signal?: AbortSignal, visitorSurface = false): Promise<ManagedChannelProfileConfiguration> {
     const options = config(workspaceId);
     const response = await apiClient.get<unknown>(configurationPath(slug), {
       ...options, params: { ...options.params, ...generation }, signal,
     });
-    return decodeProfileConfiguration(response.data, slug, generation);
+    return decodeProfileConfiguration(response.data, visitorSurface, generation);
   },
   async assignProfile(workspaceId: string, slug: string, generation: ManagedChannelGeneration,
     expectedProfileRevision: number, profileKey: string | null): Promise<void> {
     await apiClient.put(configurationPath(slug), {
       ...generation, expected_profile_revision: expectedProfileRevision, profile_key: profileKey,
     }, config(workspaceId));
+  },
+  async credentialMetadata(workspaceId: string, slug: string) {
+    const response = await apiClient.get<{binding: {id: string; jvconnect_base_url: string} | null}>(
+      `${path}/${encodeURIComponent(slug)}/credentials`, config(workspaceId),
+    );
+    return response.data;
+  },
+  async configureCredentials(workspaceId: string, slug: string, values: Record<string, unknown>): Promise<void> {
+    await apiClient.put(`${path}/${encodeURIComponent(slug)}/credentials`, values, config(workspaceId));
   },
   async change(workspaceId: string, slug: string, change: ManagedChannelChange): Promise<void> {
     const url = `${path}/${encodeURIComponent(slug)}`;

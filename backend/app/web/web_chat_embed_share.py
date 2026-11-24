@@ -10,7 +10,6 @@ from pydantic import ValidationError
 from starlette.responses import JSONResponse
 
 from app.agentive.connectors.external_chat import ExternalChatProvision
-from app.agentive.services.web_chat_package import SLUG
 from app.api.errors import InsufficientPermissionsError, MissingAuthenticationError
 from app.connectors.channel_share_check import (
     MAX_EMBED_DESCRIPTORS,
@@ -28,7 +27,13 @@ from app.web.web_chat_embed_policy import (
     check_current_web_chat_embed_policy,
     is_canonical_embed_origin,
 )
-from app.web.web_chat_share import _HEADERS, _Denied, _manager, _share_query_values
+from app.web.web_chat_share import (
+    _HEADERS,
+    _Denied,
+    _manager,
+    _share_query_values,
+    visitor_channel_slug,
+)
 
 
 @dataclass(frozen=True)
@@ -94,12 +99,14 @@ def create_managed_web_chat_embed_share_router(
         raise TypeError("Embed share discovery requires an explicit trusted read port")
 
     async def prove(
-        request: Request, query: ManageChannelEmbedShareQuery
+        request: Request, query: ManageChannelEmbedShareQuery, slug: str
     ) -> IssuedWebChatEmbedShare:
         caller = await _manager(request, query.workspace_id)
         if not is_canonical_embed_origin(query.parent_origin):
             raise _Denied(400)
-        provision = ExternalChatProvision(query.workspace_id, SLUG, query.provision_id)
+        provision = ExternalChatProvision(
+            query.workspace_id, visitor_channel_slug(request, slug), query.provision_id
+        )
         args = (
             provision,
             query.route_epoch,
@@ -131,10 +138,14 @@ def create_managed_web_chat_embed_share_router(
     async def discover(
         request: Request, slug: str, exact: ManageChannelShareQuery
     ) -> tuple[ApprovedEmbedDescriptor, ...]:
-        if slug != SLUG or read_approved_descriptors is None:
+        try:
+            kind = visitor_channel_slug(request, slug)
+        except _Denied:
+            return ()
+        if read_approved_descriptors is None:
             return ()
         caller = await _manager(request, exact.workspace_id)
-        provision = ExternalChatProvision(exact.workspace_id, SLUG, exact.provision_id)
+        provision = ExternalChatProvision(exact.workspace_id, kind, exact.provision_id)
         key = (
             provision,
             exact.route_epoch,
@@ -162,7 +173,7 @@ def create_managed_web_chat_embed_share_router(
                 embed_policy_revision=candidate.embed_policy_revision,
             )
             try:
-                await prove(request, query)
+                await prove(request, query, slug)
             except _Denied as denial:
                 if denial.status == 404:
                     continue
@@ -178,16 +189,14 @@ def create_managed_web_chat_embed_share_router(
     async def read_share(slug: str, request: Request) -> JSONResponse:
         status = 503
         try:
-            if slug != SLUG:
-                raise _Denied(404)
             query = ManageChannelEmbedShareQuery.model_validate(
                 _share_query_values(
                     request, "published_version", "embed_policy_revision"
                 )
             )
-            issued = await prove(request, query)
+            issued = await prove(request, query, slug)
             response = ApprovedWebChatEmbedShare(
-                **query.model_dump(), embed_page_url=issued.url
+                **query.model_dump(), slug=slug, embed_page_url=issued.url
             )
             return JSONResponse(response.model_dump(), headers=_HEADERS)
         except _Denied as denial:

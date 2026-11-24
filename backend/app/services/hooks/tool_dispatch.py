@@ -116,6 +116,17 @@ async def _run_tool(
     out_schema = spec.get("output_schema") or {}
     validate_input(payload, in_schema)
 
+    if spec.get("_package_installation_id"):
+        from app.agentive.services.connector_packages import invoke_action
+
+        return await invoke_action(
+            str(spec["_package_installation_id"]),
+            ctx.user_id,
+            str(spec.get("_package_action") or ""),
+            payload,
+            workspace_id=ctx.workspace_id,
+        )
+
     # Row-mounted MCP tools carry ``_mcp_connector_id``; catalog connectors (Google
     # Drive, ...) are slug-addressed and carry ``_mcp_connector_slug`` instead.
     # Both must reach the proxy with the spec, or its metadata is lost.

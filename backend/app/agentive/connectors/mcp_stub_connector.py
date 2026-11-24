@@ -18,7 +18,7 @@ from app.agentive.connectors.base import (
     ChatTurnContext,
     ChatTurnResult,
 )
-from app.agentive.connectors.registry import register_connector
+from app.agentive.connectors.registry import register_chat_agent
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class McpStubConnector(AgentChatConnector):
 
 
 if _stub_enabled():
-    register_connector("mcp")(McpStubConnector)
+    register_chat_agent("mcp")(McpStubConnector)
     logger.info("mcp_stub_connector: registered (stub enabled)")
 else:
     logger.debug(
