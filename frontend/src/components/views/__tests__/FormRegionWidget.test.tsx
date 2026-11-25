@@ -302,6 +302,75 @@ describe('FormRegionWidget', () => {
     });
   });
 
+  it('detail mode: an editor picks a date and it saves only on Save', async () => {
+    mockEntryTypesList.mockResolvedValue([{
+      ...entryType,
+      form_schema: {
+        ...entryType.form_schema,
+        fields: [
+          { key: 'start_date', name: 'Start date', type: 'date' },
+          { key: 'locked_date', name: 'Locked date', type: 'date', readonly: true },
+        ],
+      },
+    }]);
+    const record = {
+      id: 'entry-1', title: 'Schedule', record_revision: 3, schema_revision: 2,
+      custom_fields: { start_date: '2026-03-10', locked_date: '2026-03-11' },
+    };
+    const saved = {
+      ...record, record_revision: 4,
+      custom_fields: { ...record.custom_fields, start_date: '2026-03-20' },
+    };
+    mockGet.mockResolvedValue(record);
+    mockUpdate.mockResolvedValue(saved);
+    const onSaved = vi.fn();
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <>
+        <ContributionLifecycleContext.Provider
+          value={{
+            mode: 'detail', placement: 'entry_detail', entryId: 'entry-1',
+            customFields: record.custom_fields,
+            detailEdit: { readOnlyKeys: [], onSaved },
+            register: () => () => {},
+          }}
+        >
+          <FormRegionWidget
+            view={baseView({
+              fields: ['start_date', 'locked_date'],
+              __bindings: { entryId: 'entry-1' },
+            })}
+            entries={[]}
+            isLoading={false}
+            onEntryOpen={() => {}}
+          />
+        </ContributionLifecycleContext.Provider>
+      </>
+    );
+
+    const [open, locked] = await screen.findAllByRole('button', { name: 'Open calendar' });
+    expect(open).not.toBeDisabled();
+    expect(locked).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+
+    mockGet.mockResolvedValue(saved);
+    fireEvent.click(open);
+    fireEvent.click(await screen.findByRole('button', { name: /March 20th, 2026/ }));
+    expect(mockUpdate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    expect(mockUpdate).toHaveBeenCalledWith('entry-1', {
+      custom_fields: { start_date: '2026-03-20' },
+      expected_record_revision: 3,
+      expected_schema_revision: 2,
+    });
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  });
+
   it('draft bind: reads lifecycle.customFields and patches via onDraftPatch (no entriesApi)', async () => {
     mockEntryTypesList.mockResolvedValue([entryType]);
     const onDraftPatch = vi.fn();

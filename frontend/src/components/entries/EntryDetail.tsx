@@ -663,6 +663,24 @@ export function EntryDetail({
     'entry_detail'
   );
 
+  // Stable between renders: app-designed detail regions re-read when it changes.
+  const detailEdit = useMemo(
+    () => canEdit ? {
+      readOnlyKeys: Array.from(new Set([
+        ...Object.keys(entry.read_time_fields?.values || {}),
+        ...Object.keys(entry.read_time_fields?.status || {}),
+      ])),
+      onSaved: (saved: Entry) => {
+        void queryClient.invalidateQueries({ queryKey: ['entry', saved.id] });
+        void queryClient.invalidateQueries({ queryKey: ['entries'] });
+        void invalidateFeedCaches(queryClient);
+        setEntry(saved);
+        onUpdateRef.current?.(saved);
+      },
+    } : undefined,
+    [canEdit, entry.read_time_fields, queryClient]
+  );
+
   const designerTargetView = useMemo((): SavedView | null => {
     return resolveDesignerTargetView(
       trackViewsQuery.data ?? [],
@@ -1801,6 +1819,7 @@ export function EntryDetail({
                   entryTypeKey={entry.type}
                   mode="detail"
                   customFields={(entry.custom_fields || {}) as Record<string, unknown>}
+                  detailEdit={detailEdit}
                 />
               </div>
               {!detailOwnsForm ? (

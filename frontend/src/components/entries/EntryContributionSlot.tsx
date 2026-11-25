@@ -20,6 +20,7 @@ import {
   type AppExtensionViewHostHandle,
 } from '../extensions/AppExtensionViewHost';
 import type {
+  ContributionDetailEdit,
   ContributionLifecycleApi,
   ContributionLifecycleHandle,
 } from './contributionLifecycle';
@@ -61,6 +62,8 @@ export type EntryContributionSlotProps = {
   mode?: 'create' | 'edit' | 'detail';
   customFields?: Record<string, unknown>;
   fieldErrors?: Record<string, string>;
+  /** Detail placement only: set when the viewer may edit this record. */
+  detailEdit?: ContributionDetailEdit;
   onFieldDataOwnerChange?: (owner: 'app' | 'host') => void;
   onDraftPatch?: (patch: {
     custom_fields?: Record<string, unknown>;
@@ -151,6 +154,7 @@ export const EntryContributionSlot = forwardRef<
     mode = 'detail',
     customFields,
     fieldErrors,
+    detailEdit,
     onFieldDataOwnerChange,
     onDraftPatch,
     className,
@@ -193,6 +197,7 @@ export const EntryContributionSlot = forwardRef<
         placeholder: field.placeholder, help: field.help, hide_on_create: field.hide_on_create,
       })),
       fieldErrors,
+      detailEdit,
       onDraftPatch,
       register: registerNative,
     }),
@@ -206,6 +211,7 @@ export const EntryContributionSlot = forwardRef<
       customFields,
       formSchema,
       fieldErrors,
+      detailEdit,
       onDraftPatch,
       registerNative,
     ],

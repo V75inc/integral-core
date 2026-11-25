@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { findEntryTypeBySlug } from '../../utils/entryMetaFields';
 import { SeamlessField } from '../entries/SeamlessField';
+import { canInlineEditField } from '../entries/EntryInlineFields';
+import { useDetailDateDraft } from './useDetailDateDraft';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { appsApi, entriesApi, entryTypesApi } from '../../api';
 import { extensionsApi, requireOperationOutput } from '../../api/extensions';
@@ -9,6 +11,7 @@ import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
+import { Button } from '../ui/Button';
 import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
 import { patchFromAppSettings } from '../../utils/fieldSettingDefaults';
 import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
@@ -417,7 +420,23 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     ]
   );
 
-  if (isLoading || loadingTypes || (loadingTarget && !draftBound)) {
+  // Detail view: date fields open their picker and save only on Save.
+  const detailEdit = lifecycle?.mode === 'detail' ? lifecycle.detailEdit : undefined;
+  const dateDraft = useDetailDateDraft(targetEntry, saved => {
+    setTargetEntry(saved);
+    for (const field of allFields) {
+      if (field.type === 'date' || field.type === 'datetime') {
+        live?.commit(field.key, saved.custom_fields?.[field.key]);
+      }
+    }
+    detailEdit?.onSaved(saved);
+  });
+
+  // Re-reading the record already on screen (after a save) keeps it there.
+  const awaitingTarget =
+    loadingTarget && !draftBound && (!targetEntry || targetEntry.id !== hostEntryId);
+
+  if (isLoading || loadingTypes || awaitingTarget) {
     return (
       <Surface
         tone="panel-2"
@@ -438,7 +457,11 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   const draftValues = draftBound
     ? { ...(lifecycle?.customFields || {}), ...(targetEntry?.custom_fields || {}) }
     : { ...(targetEntry?.custom_fields || {}) };
-  const values = { ...draftValues, ...(live?.values || {}) };
+  const values = {
+    ...draftValues,
+    ...(live?.values || {}),
+    ...(dateDraft.values || {}),
+  };
   const visibleFields = displayFields.filter(
     f =>
       !(lifecycle?.mode === 'create' && f.hide_on_create) &&
@@ -466,8 +489,18 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       >
         {visibleFields.map(field => {
           const detailEditable = editableInDetailKeys.has(field.key);
+          const explicitDate = Boolean(
+            detailEdit &&
+              !detailEditable &&
+              bindMode === 'self' &&
+              targetEntry?.record_revision &&
+              targetEntry.schema_revision &&
+              (field.type === 'date' || field.type === 'datetime') &&
+              canInlineEditField(field, values, detailEdit.readOnlyKeys)
+          );
           const fieldLocked =
-            (readOnly && !detailEditable) || autoLockedKeys.has(field.key);
+            (readOnly && !detailEditable && !explicitDate) ||
+            autoLockedKeys.has(field.key);
           return (
             <div key={field.key} data-field-key={field.key}>
               {config.show_labels === true && <Text as="div" variant="label" className="mb-1.5">{field.name}{field.required ? ' *' : ''}</Text>}
@@ -475,7 +508,18 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
               externalLabel={config.show_labels === true ? true : undefined}
               field={fieldLocked ? { ...field, readonly: true } : field}
               value={values[field.key]}
-              onChange={next => commitField(field.key, next)}
+              onChange={next => {
+                if (!explicitDate) {
+                  void commitField(field.key, next);
+                  return;
+                }
+                // The picker reports the stored value on blur too.
+                if ((next ?? '') === (values[field.key] ?? '')) return;
+                dateDraft.change({
+                  [field.key]: next,
+                  ...(deriveAutoOffsetPatch(allFields, { ...values, [field.key]: next }, field.key) || {}),
+                });
+              }}
               entryId={targetEntry?.id || lifecycle?.entryId || undefined}
               relationChoices={relationChoices[field.key]}
               relationSource={{ trackId: view.track_id, entryTypeId: activeEntryType?.id || '',
@@ -490,6 +534,19 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
           );
         })}
       </div>
+      {dateDraft.values ? (
+        <div className="mt-3 space-y-2">
+          {dateDraft.error ? (
+            <div role="alert">
+              <Text as="p" variant="body-sm" tone="danger">{dateDraft.error}</Text>
+            </div>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" loading={dateDraft.saving} onClick={() => { void dateDraft.save(); }}>Save</Button>
+            <Button type="button" size="sm" variant="ghost" disabled={dateDraft.saving} onClick={dateDraft.cancel}>Cancel</Button>
+          </div>
+        </div>
+      ) : null}
     </Surface>
   );
 }
