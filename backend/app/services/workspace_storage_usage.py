@@ -192,6 +192,35 @@ async def increment(workspace_id: str, delta_bytes: int) -> None:
         )
 
 
+async def charge_entry_upload(entry: Entry, size: int) -> None:
+    """Check capacity and charge it within the attachment's graph commit."""
+    from jvspatial.core.context import get_default_context
+
+    from app.api.errors import BadRequestError, ResourceConflictError
+    from app.services.entry_write_scope import is_postgres_entry_transaction
+
+    graph = get_default_context()
+    workspace = await workspace_for_entry(entry)
+    if workspace is None:
+        raise ResourceConflictError(message="Attachment workspace changed.")
+    if is_postgres_entry_transaction(graph.database):
+        row = await graph.database.lock_record("node", workspace.id)
+        if not row or row.get("entity") != Workspace._entity_name():
+            raise ResourceConflictError(message="Attachment workspace changed.")
+        workspace = await graph._deserialize_entity(Workspace, row)
+    usage = _snapshot(workspace)
+    if usage.enforcement_enabled and usage.would_exceed(size):
+        raise BadRequestError(message="Workspace storage quota exceeded.")
+    updated = await graph.database.find_one_and_update(
+        "node",
+        {"id": workspace.id, "entity": Workspace._entity_name()},
+        {"$inc": {"context.storage_bytes_used": size}},
+    )
+    if updated is None:
+        raise ResourceConflictError(message="Attachment workspace changed.")
+    await graph._evict_from_cache(workspace.id)
+
+
 async def increment_for_entry(entry: Entry, delta_bytes: int) -> None:
     """Add ``delta_bytes`` to the entry's workspace usage counter."""
     if delta_bytes <= 0:

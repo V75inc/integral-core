@@ -278,8 +278,22 @@ class RoutineTask(Node):
     # Empty for user-created chat routines.
     source_app_id: str = ""
     source_schedule_key: str = ""
+    # Nonempty only while a bundle-owned routine is awaiting its first run.
+    pending_thread_title: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+    @property
+    def awaits_app_schedule_thread(self) -> bool:
+        """Only an unstarted bundle-owned agent routine may bind at dispatch."""
+        return bool(
+            self.delivery_mode == "agent"
+            and not self.thread_id
+            and not self.source_staging_token
+            and self.source_app_id
+            and self.source_schedule_key
+            and self.pending_thread_title
+        )
 
     @classmethod
     def get_indexes(cls) -> List[Dict[str, Any]]:

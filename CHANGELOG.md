@@ -6,6 +6,10 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Capture the initial Track IDs created by a package install on its first App definition. Existing installations retain their original history.
+- Bind a bundled schedule to its dedicated conversation on first eligible dispatch, so installing an App does not open a blank chat.
+- Let trusted Apps restrict Entry edits and attachment writes by declared record state. The Entry editor shows the effective restriction and downloads remain available under normal read permissions.
+
 - Refresh affected track views and totals after committed Entry changes.
 - Apply the shared outbound URL policy and DNS pinning to JV Connect requests.
 - Order published profile service membership creation with workspace

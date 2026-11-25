@@ -213,6 +213,10 @@ async def _invert_event(
         from app.models.edges import HAS_ATTACHMENT
         from app.models.nodes import Attachment, ChatThread, Entry
         from app.schemas.policy import Resource, Subject
+        from app.services.attachment_entry_write import (
+            AttachmentEntryReadonlyError,
+            attachment_entry_write,
+        )
         from app.services.policy_engine import evaluate as policy_evaluate
 
         details = envelope.details or {}
@@ -235,44 +239,54 @@ async def _invert_event(
                 "You no longer have permission to update this entry",
             )
 
-        context = await entry.get_context()
-        edges = await context.find_edges_between(
-            entry.id, attachment.id, edge_class=HAS_ATTACHMENT
-        )
-        if not edges:
-            raise RollbackError(
-                "conflict", "The attachment is no longer linked to this entry"
-            )
+        try:
+            async with attachment_entry_write(entry, user_id) as entry:
+                attachment = await Attachment.get(attachment_id)
+                if attachment is None:
+                    raise RollbackError(
+                        "resource_gone", "The attachment no longer exists"
+                    )
+                context = await entry.get_context()
+                edges = await context.find_edges_between(
+                    entry.id, attachment.id, edge_class=HAS_ATTACHMENT
+                )
+                if not edges:
+                    raise RollbackError(
+                        "conflict", "The attachment is no longer linked to this entry"
+                    )
 
-        owners = await attachment.nodes(edge=[HAS_ATTACHMENT], direction="in")
-        chat_owners = [
-            owner
-            for owner in owners
-            if isinstance(owner, ChatThread) and owner.user_id == user_id
-        ]
-        other_entry_owners = [
-            owner
-            for owner in owners
-            if isinstance(owner, Entry) and owner.id != entry.id
-        ]
-        if not chat_owners and not other_entry_owners:
-            raise RollbackError(
-                "conflict",
-                "Undo would leave the attachment without a workspace owner",
-            )
+                owners = await attachment.nodes(edge=[HAS_ATTACHMENT], direction="in")
+                chat_owners = [
+                    owner
+                    for owner in owners
+                    if isinstance(owner, ChatThread) and owner.user_id == user_id
+                ]
+                other_entry_owners = [
+                    owner
+                    for owner in owners
+                    if isinstance(owner, Entry) and owner.id != entry.id
+                ]
+                if not chat_owners and not other_entry_owners:
+                    raise RollbackError(
+                        "conflict",
+                        "Undo would leave the attachment without a workspace owner",
+                    )
 
-        for edge in edges:
-            await edge.delete()
-        current_attachment_ids = list(entry.attachment_ids or [])
-        entry.attachment_ids = [
-            item for item in current_attachment_ids if item != attachment.id
-        ]
-        if entry.attachment_ids != current_attachment_ids:
-            await entry.save()
+                for edge in edges:
+                    await edge.delete()
+                current_attachment_ids = list(entry.attachment_ids or [])
+                entry.attachment_ids = [
+                    item for item in current_attachment_ids if item != attachment.id
+                ]
+                if entry.attachment_ids != current_attachment_ids:
+                    await entry.save()
 
-        if chat_owners and not other_entry_owners:
-            attachment.owner_kind = "chat"
-            await attachment.save()
+                if chat_owners and not other_entry_owners:
+                    attachment.owner_kind = "chat"
+                    await attachment.save()
+
+        except AttachmentEntryReadonlyError as exc:
+            raise RollbackError(exc.error_code, exc.message) from exc
 
         return {
             "action": action,

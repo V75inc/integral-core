@@ -15,8 +15,6 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
-from app.utils.time import utc_now_iso
-
 # HookMisconfiguredError imported lazily inside functions to avoid circular:
 # registry → errors → api.errors → api.__init__ → entries_precompute → registry (partial)
 
@@ -1674,9 +1672,8 @@ class ToolContext:
         if getattr(self, "read_only", False):
             return None
         from app.middleware.permissions_cache import isolated_permissions_cache
-        from app.models.edges import HAS_ATTACHMENT
-        from app.models.nodes import Attachment
-        from app.services.attachment_storage import get_attachment_storage_service
+        from app.services.attachment_entry_write import AttachmentEntryReadonlyError
+        from app.services.entry_attachment_files import attach_entry_file
         from app.services.permissions import resolve_role
 
         with isolated_permissions_cache():
@@ -1687,41 +1684,13 @@ class ToolContext:
             if role not in ("owner", "admin", "editor"):
                 return None
 
-        attachment = await Attachment.create(
-            filename=filename,
-            mime_type=mime_type,
-            size=len(content),
-            storage_key="",
-            source_type="file",
-            external_url="",
-            uploaded_by=self.user_id,
-            scan_status="pending",
-            metadata_status="pending",
-            created_at=utc_now_iso(),
-        )
-        storage = get_attachment_storage_service()
         try:
-            stored = await storage.save_attachment(
-                entry_id=ent.id,
-                attachment_id=attachment.id,
-                filename=filename,
-                content=content,
+            attachment = await attach_entry_file(
+                ent, self.user_id, filename, mime_type, content
             )
-        except Exception:  # noqa: BLE001
-            await attachment.delete()
-            raise
-        attachment.storage_key = str(stored.get("path") or "")
-        await attachment.save()
-        await ent.connect(
-            attachment,
-            edge=HAS_ATTACHMENT,
-            attached_at=utc_now_iso(),
-            attached_by=self.user_id,
-        )
-        if attachment.id not in (ent.attachment_ids or []):
-            ent.attachment_ids = list(ent.attachment_ids or []) + [attachment.id]
-            await ent.save()
-        return attachment.id
+            return attachment.id
+        except AttachmentEntryReadonlyError:
+            return None
 
     async def document_render(
         self,

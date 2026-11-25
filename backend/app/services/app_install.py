@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from app.exceptions import (
     AppDependencyError,
@@ -23,6 +23,9 @@ from app.models.nodes import App, Attachment, Entry, EntryType, OperationalModel
 from app.services.entry_type_resolver import resolve_seed_entry_type_id
 from app.services.operational_model_runtime import slug_manifest_key
 from app.utils.time import utc_now_iso
+
+if TYPE_CHECKING:
+    from app.services.installed_materialization_origin import MaterializedTrack
 
 logger = logging.getLogger(__name__)
 
@@ -1116,6 +1119,8 @@ _unplant_seeds = unplant_seeds
 async def materialize_tracks_for_app(
     app_node: App,
     actor_id: str,
+    *,
+    _fresh_install_tracks: list[MaterializedTrack] | None = None,
 ) -> List[Track]:
     """Materialize Tracks declared in the App's manifest (provision_on_create)."""
     from app.services.operational_model_merge import (
@@ -1123,7 +1128,9 @@ async def materialize_tracks_for_app(
     )
 
     pre_existing = {t.id for t in await app_node.nodes(edge=[CONTAINS], node=["Track"])}
-    await provision_prescribed_tracks_from_app_manifest(app_node, actor_id)
+    await provision_prescribed_tracks_from_app_manifest(
+        app_node, actor_id, _fresh_install_tracks=_fresh_install_tracks
+    )
     post: List[Track] = await app_node.nodes(edge=[CONTAINS], node=["Track"])
     return [t for t in post if t.id not in pre_existing]
 

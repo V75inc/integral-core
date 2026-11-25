@@ -180,9 +180,10 @@ export async function fetchTrackWithCollaborators(trackId: string): Promise<Trac
  *  commenters may edit only their own entries. */
 export function canEditEntry(
   user: Pick<User, 'id' | 'user_id'> | null | undefined,
-  entry: Pick<Entry, 'author_id'>,
+  entry: Pick<Entry, 'author_id' | 'app_record_readonly'>,
   track: Track | null | undefined,
 ): boolean {
+  if (entry.app_record_readonly) return false;
   const role = resolveTrackRoleForUser(user, track);
   if (role && ENTRY_CRUD_ROLES.has(role)) return true;
   if (role === 'commenter') return isSamePrincipal(user, entry.author_id);
@@ -197,13 +198,13 @@ export interface UseCanEditEntryOptions {
 
 /** Resolve whether the signed-in user may edit an entry (CRUD + attachments). */
 export function useCanEditEntry(
-  entry: Pick<Entry, 'author_id' | 'track_id'>,
+  entry: Pick<Entry, 'author_id' | 'track_id' | 'app_record_readonly'>,
   options?: UseCanEditEntryOptions,
 ): boolean {
   const { user } = useAuth();
   const trackId = entry.track_id || '';
   const shouldFetch =
-    options?.explicitCanEdit === undefined && !options?.track && !!trackId;
+    !entry.app_record_readonly && options?.explicitCanEdit === undefined && !options?.track && !!trackId;
 
   const { data: fetchedTrack } = useQuery({
     queryKey: ['track', trackId, 'edit-rights'],
@@ -218,6 +219,7 @@ export function useCanEditEntry(
   const track = options?.track ?? fetchedTrack ?? null;
 
   return useMemo(() => {
+    if (entry.app_record_readonly) return false;
     if (options?.explicitCanEdit !== undefined) return options.explicitCanEdit;
     return canEditEntry(user, entry, track);
   }, [user, entry, track, options?.explicitCanEdit]);

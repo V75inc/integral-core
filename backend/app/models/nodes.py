@@ -589,6 +589,9 @@ class ApplicationDefinition(Node):
     # distinguishes verified materialization from declared-but-not-yet-checked
     # requirements; absence is never interpreted as completion.
     materialization_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    # A historical receipt produced only by fresh package installation.
+    # This is not a live resource binding or startup readiness assertion.
+    initial_track_materialization: Optional[Dict[str, Any]] = None
     verified_at: Optional[str] = None
     local_overrides: Dict[str, Any] = Field(default_factory=dict)
     compiled_at: Optional[str] = None

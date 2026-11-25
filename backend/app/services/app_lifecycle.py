@@ -842,12 +842,24 @@ async def install_app(
             library_cp, attached_cp, track=None, for_space=True, user_id=actor_id
         )
 
-        # Materialize Tracks (uses the merged manifest).
-        created_tracks = await _materialize_tracks_for_app(app_node, actor_id)
+        # Only this fresh-install branch can record newly created resource IDs.
+        from app.services.installed_materialization_origin import (
+            MaterializedTrack,
+            record_initial_track_materialization,
+        )
+
+        initial_tracks: list[MaterializedTrack] = []
+        created_tracks = await _materialize_tracks_for_app(
+            app_node, actor_id, _fresh_install_tracks=initial_tracks
+        )
         txn.record(
             "tracks_create",
             lambda tracks=created_tracks: _delete_tracks(tracks, actor_user_id=actor_id),  # type: ignore[misc, arg-type]
         )
+        if initial_tracks:
+            await record_initial_track_materialization(
+                app_node, definition, initial_tracks, actor_id=actor_id
+            )
 
         # Step 7: Register skills (Plan 10-04).
         registered_skills = await _register_skills_from_manifest(app_node, canonical)

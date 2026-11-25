@@ -41,11 +41,11 @@ import { useCallback, useState } from 'react';
 import { resolveTemplateVar } from '../views/composable/templateVarResolvers';
 import { ComposableViewSlot } from '../views/ComposableViewSlot';
 import { Text } from '../../ui/Text';
-import type { OperationalModelFieldSpec, EntryTypeNode, RelatedViewSpec } from '../../types';
+import type { Entry, OperationalModelFieldSpec, EntryTypeNode, RelatedViewSpec } from '../../types';
 import type { ViewWidgetProps } from '../../views/types';
 
 export type RelatedViewsSectionProps = {
-  entry: { id: string; custom_fields?: Record<string, unknown> };
+  entry: Pick<Entry, 'id' | 'custom_fields' | 'app_record_readonly'>;
   entryTypeSpec: { related_views?: RelatedViewSpec[] } | null | undefined;
   user: { id: string };
   currentTrackId: string;
@@ -167,6 +167,7 @@ export function RelatedViewsSection({
           // prop pipeline: same `__bindings` namespace every self-fetching
           // widget already reads off `config.__bindings`.
           entryValues: entry.custom_fields,
+          entryAppReadonly: entry.app_record_readonly === true,
           __refreshKey: refreshNonce,
           onActionComplete: bumpRefresh,
           ...(onHostChanged ? { onHostChanged } : {}),
