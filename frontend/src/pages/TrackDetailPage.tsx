@@ -640,6 +640,18 @@ export function TrackDetailPage() {
     retry: false,
   });
 
+  // A tab or filter can show part of the Track. Count the whole Track too, so the
+  // header agrees with the count shown on the App and Track lists.
+  const narrowed = Boolean(requestFilters.length || activeView?.entry_type_keys?.length ||
+    (activeView?.config as { filters?: unknown[] } | undefined)?.filters?.length);
+  const { data: trackTotal } = useQuery({
+    queryKey: ['track', id, 'entries-total', 'whole-track'],
+    enabled: Boolean(id && narrowed && firstEntryPage
+      && (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)),
+    queryFn: () => tracksApi.getEntriesTotal(id!, {}),
+    retry: false,
+  });
+
   const allSavedViews = useMemo(
     () => (viewsQuery.data ?? []) as SavedView[],
     [viewsQuery.data],
@@ -1972,6 +1984,7 @@ export function TrackDetailPage() {
         track={track}
         workspaceAccentColor={trackWorkspaceAccentColor}
         entriesTotal={entriesTotal}
+        trackTotal={narrowed ? trackTotal ?? undefined : undefined}
         loadedEntries={loadedEntries}
         hasMoreEntries={hasNextPage}
         publicShareEnabled={Boolean(publicShareQuery.data?.enabled)}

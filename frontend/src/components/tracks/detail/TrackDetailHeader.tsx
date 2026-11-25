@@ -24,6 +24,8 @@ export interface TrackDetailHeaderProps {
   track: Track;
   workspaceAccentColor?: string;
   entriesTotal?: number;
+  /** Every entry in the Track, when the open tab or filter may show only some. */
+  trackTotal?: number;
   loadedEntries?: number;
   hasMoreEntries?: boolean;
   publicShareEnabled: boolean;
@@ -47,6 +49,7 @@ export function TrackDetailHeader({
   track,
   workspaceAccentColor,
   entriesTotal,
+  trackTotal,
   loadedEntries,
   hasMoreEntries,
   publicShareEnabled,
@@ -151,7 +154,9 @@ export function TrackDetailHeader({
         <PageMeta>
           <span>
             {entriesTotal !== undefined
-              ? `${entriesTotal} ${entriesTotal === 1 ? 'entry' : 'entries'}`
+              ? trackTotal !== undefined && trackTotal > entriesTotal
+                ? `${entriesTotal} of ${trackTotal} entries`
+                : `${entriesTotal} ${entriesTotal === 1 ? 'entry' : 'entries'}`
               : loadedEntries !== undefined ? `${loadedEntries} loaded` : 'Loading entries…'}
             {hasMoreEntries && ' · More available'}
           </span>
