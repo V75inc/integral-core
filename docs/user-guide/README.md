@@ -84,9 +84,11 @@ or more items and choose **Configuration only** to reuse their structure, or
 **Configuration and data** to include records and attached files. Select related
 items together so their record links can be restored.
 
-To import, choose the downloaded `.integral.zip` file, review its names and counts,
-then select **Import copies**. Copies are private and do not replace existing
-content. Track imports opened inside an App stay inside that App. Sharing,
+To import, choose the downloaded `.integral.zip` file and select **Preview import**.
+Review the names and counts. Leave **Include records and attachments** unchecked for
+an empty copy, or check it to bring the data along. This choice appears when the
+archive contains records. Confirm with **Import copies** or **Install and import**.
+Copies are private and do not replace existing content. Track imports opened inside an App stay inside that App. Sharing,
 credentials and activity history are not transferred. Some installed Apps require
 their original package's migration tools. See [portability details and limits](../platform/resource-portability.md).
 The separate **Import template** action still accepts existing YAML/JSON templates

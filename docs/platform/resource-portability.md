@@ -13,6 +13,14 @@ to browse additional pages. Selections remain checked across pages. In Manage
 Apps, **Import template** is a separate action for adding a library template;
 **Import / export Apps** transfers installed Apps and their contents.
 
+After previewing a full archive, select **Include records and attachments** to
+restore its data. Leaving it unchecked imports only the configuration. The preview
+shows how many records and attachments are available. Configuration-only archives
+offer no data choice. The import API accepts `include_data=false` or `true` as a
+query parameter. Clients that omit it retain the archive’s original mode. If a
+saved configuration references a record being omitted, import rejects the copy
+before writing. Include the data or remove the reference in the source configuration.
+
 **Apps:** up to 100 may be selected together. Packaged Apps (tools, operations,
 agents, query handlers, protected state) include their admitted runtime package
 under `package/<slug>/` so import can install working copies. Select related

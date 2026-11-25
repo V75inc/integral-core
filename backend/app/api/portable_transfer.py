@@ -74,9 +74,13 @@ async def preview_portable_resources(request: Request) -> dict:
 async def import_portable_resources(request: Request) -> dict:
     """Import new private copies in the currently authenticated workspace."""
     user_id, workspace_id = await _scope(request)
+    include_data = request.query_params.get("include_data", "true")
+    if include_data not in {"true", "false"}:
+        raise BadRequestError(message="include_data must be true or false")
     return await import_resources(
         user_id=user_id,
         workspace_id=workspace_id,
         data=await _archive_body(request),
         app_id=request.query_params.get("app_id", ""),
+        include_data=include_data == "true",
     )
