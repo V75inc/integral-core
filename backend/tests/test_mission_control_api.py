@@ -85,7 +85,7 @@ async def test_mission_control_filters_exclusions_before_previews_and_counts(
 
 @pytest.mark.asyncio
 async def test_mission_control_counts_follow_their_track_past_hidden_ones(
-    authenticated_client: AsyncClient, test_user
+    authenticated_client, test_user
 ):
     """A hidden per-record Track must not shift counts onto the visible ones."""
     from app.models.nodes import Track
