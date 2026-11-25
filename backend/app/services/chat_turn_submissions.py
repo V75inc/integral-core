@@ -29,6 +29,7 @@ from app.services.app_operations.transaction_scope import (
 )
 from app.services.chat_threads import append_message, derive_thread_title
 from app.services.chat_turn_admission import reserve_chat_turn_admission
+from app.services.chat_turn_wake import wake_chat_worker
 
 
 def _canonical_digest(value: Any) -> str:
@@ -460,12 +461,15 @@ async def submit_chat_turn(
             )
 
         work_item_id = str(work_item.work_item_id)
-        return ChatTurnSubmissionReceipt(
+        receipt = ChatTurnSubmissionReceipt(
             client_request_id=request.client_request_id,
             message_id=message.id,
             work_item_id=work_item_id,
             status=work_item.status,
         )
+
+    wake_chat_worker()
+    return receipt
 
 
 __all__ = ["assert_accepted_chat_turn_fingerprint", "submit_chat_turn"]

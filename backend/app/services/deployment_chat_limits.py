@@ -36,6 +36,8 @@ async def read_limits() -> dict:
     effective = {k: min(v, overrides.get(k, v)) for k, v in host.items()}
     return {
         "revision": record["revision"] if record else 0,
+        "whole_answer_protection": (record or {}).get("whole_answer_protection", False)
+        is not False,
         "host": host,
         "overrides": overrides,
         "effective": effective,
@@ -55,13 +57,20 @@ async def save_limits(actor_id: str, body: ChatLimitsWrite) -> dict:
             raise BadRequestError(
                 f"{key} exceeds the host maximum of {current['host'][key]}."
             )
-    if overrides == current["overrides"]:
+    protection = body.whole_answer_protection
+    if protection is None:
+        protection = current["whole_answer_protection"]
+    if (
+        overrides == current["overrides"]
+        and protection == current["whole_answer_protection"]
+    ):
         return current
     revision = body.revision + 1
     _, created = await DeploymentChatLimitRevision.create_if_absent(
         id=f"o.DeploymentChatLimitRevision.{revision:020d}",
         revision=revision,
         overrides=overrides,
+        whole_answer_protection=protection,
         actor_id=actor_id,
         updated_at=utc_now_iso(),
     )

@@ -422,7 +422,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         )
         await event(provider.outbox)
         visible = (await event(provider.outbox))["response"]
-        assert "latest saved reply" in visible["instructions"]
+        assert "Latest saved reply: " + earlier in visible["instructions"]
         assert earlier in visible["instructions"]
         await finished_audio("check-visible-result", visible)
 
@@ -492,7 +492,7 @@ async def test_provider_discovers_and_uses_real_scoped_catalogue_reads(
         workspaces = await _quick_read(
             provider, "workspaces", "current workspace", "Accessible workspaces"
         )
-        assert "The current workspace is Spoken Operations." in workspaces
+        assert '"current_workspace": "Spoken Operations"' in workspaces
         assert "Other Branch" in workspaces
         assert all(
             identifier not in apps + workspaces for identifier in (ws, other, thread.id)
@@ -560,7 +560,10 @@ async def test_spoken_navigation_context_and_cancellation(
             native_voice.NAVIGATE,
             {"action": action, "ordinal": ordinal},
         )
-        assert (await event(provider.outbox))["item"]["call_id"] == identifier
+        # The scoped read has its own two-second deadline before the relay
+        # publishes its result. Give the test transport time to deliver it.
+        first = await asyncio.wait_for(provider.outbox.get(), 6)
+        assert first["item"]["call_id"] == identifier
         response = (await event(provider.outbox))["response"]
         assert response["conversation"] == "none"
         return response["instructions"]
@@ -569,7 +572,7 @@ async def test_spoken_navigation_context_and_cancellation(
         await event(provider.outbox)
         await provider.inbox.put({"type": "session.updated"})
         assert (await event(browser.outbox))["thread_id"] == thread.id
-        assert "1. Voice target" in await navigate("list", "apps")
+        assert '"Voice target"' in await navigate("list", "apps")
         assert "Selected app Voice target" in await navigate("select", "select", 1)
         assert relay.navigation.focus.label == "Voice target"
         assert "Voice collection" in await navigate("tracks", "tracks")
@@ -1056,4 +1059,55 @@ async def test_requested_note_is_scoped_replay_safe_and_readable(
     )
     relay = native_voice.VoiceRelay(Browser(), Provider(), scope)
     assert note in await relay._read_chat_content("latest_reply")
+    assert not await WorkItem.find({"kind": "chat_turn", "thread_id": thread.id})
+
+
+async def test_directory_post_rechecks_source_and_commits_one_chat_message(
+    authenticated_client, test_user
+):
+    """A heard directory can be copied without guessing names or resubmitting work."""
+    from app.services.chat_threads import list_messages
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Directory posts need a transactional graph")
+    workspace = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Directory notes"}
+    )
+    ws = workspace.json()["workspace"]["id"]
+    principal = test_user.user_id
+    headers = {"X-Integral-Scope": f"ws:{ws}"}
+
+    async def add(name):
+        created = await authenticated_client.post(
+            "/api/apps", headers=headers, json={"name": name, "visibility": "private"}
+        )
+        assert created.status_code == 200
+
+    await add("Field Notes")
+    thread = await create_thread(
+        user_id=principal, workspace_id=ws, provider_id="integral_native"
+    )
+    scope = native_voice.VoiceScope(principal, ws, "", thread.id)
+    relay = native_voice.VoiceRelay(Browser(), Provider(), scope)
+    page = await relay.navigation.select(
+        {"action": "apps", "ordinal": 0}, principal=principal, workspace=ws
+    )
+    assert page.labels == ("Field Notes",)
+    assert "don't have" in await relay._post_directory("last_list", 1)
+    relay.last_spoken_page = page
+    assert "posted" in await relay._post_directory("last_list", 2)
+    assert "already saved" in await relay._post_directory("last_list", 2)
+    assert "already saved" in await relay._post_directory("apps", 2)
+
+    await add("Reading Room")
+    assert "changed" in await relay._post_directory("last_list", 3)
+    relay.navigation.expires = 0
+    assert "don't have" in await relay._post_directory("last_list", 4)
+    [posted] = await list_messages(thread)
+    assert posted.parts == [{"type": "text", "text": "1. Field Notes"}]
+    assert posted.provider_metadata == {"source": "voice_note"}
+    assert "posted" in await relay._post_directory("apps", 5)
+    assert any(
+        "Reading Room" in row.parts[0]["text"] for row in await list_messages(thread)
+    )
     assert not await WorkItem.find({"kind": "chat_turn", "thread_id": thread.id})

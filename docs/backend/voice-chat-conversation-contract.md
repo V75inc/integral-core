@@ -79,6 +79,14 @@ browsing or title-lookup request. The call identity operation reads the
 workspace's admitted display name and the current agent name. Neither label
 grants access.
 
+If the caller asks for a directory in writing, the workspace assistant can post
+a numbered list in the bound private chat. “Put that list in the chat” uses the
+page supplied to audio playback. Integral checks its expiry, display order and
+resource access again in the note transaction. A changed or unavailable page
+requires a fresh request. A caller can also name a directory to post directly.
+Only the write result goes back to the model for speech. The same note admission
+and active-turn protection apply to both forms.
+
 On explicit request, the call can append one bounded plain-text assistant
 note to its own authorized conversation. It uses the ordinary message
 projection and invalidation event. A repeated call identifier cannot append a
@@ -90,7 +98,11 @@ are delivered independently and checked against the current authorization.
 
 For the workspace assistant, numbered App, Track and saved-view lists and record search
 use the existing scoped read services. The relay retains a bounded, expiring
-list with opaque identifiers and server-held page cursors. Selecting a number
+list with opaque identifiers and server-held page cursors. For speech it sends
+only the ordered display names, collection and applicable paging or workspace
+facts. The model phrases the reply in the existing audio response. An explicit
+repeat reads the authorized page again even though its names are absent from
+the model’s ordinary conversation history. Selecting a number
 re-reads the exact page and revalidates the chosen resource; a changed list
 must be presented again. A later workspace request receives the selected
 resource in its trusted host context, after another current resource check.

@@ -1,5 +1,6 @@
 """Ephemeral, authorized spoken navigation for the workspace assistant."""
 
+import re
 from dataclasses import dataclass, field
 from time import monotonic
 
@@ -27,12 +28,39 @@ class VoiceDestination:
 class VoicePage:
     spec: ToolSpec | None
     destinations: tuple[VoiceDestination, ...]
-    text: str
+    labels: tuple[str, ...]
     cursor: str | None = None
     next_cursor: str | None = None
     anchor: VoiceDestination | None = None
     query: str = ""
     collection: str = "records"
+    current_workspace: str = ""
+    more_elsewhere: bool = False
+
+    def chat_text(self) -> str:
+        """Use the same display order; labels are literal text inside Markdown."""
+        lines = []
+        for i, label in enumerate(self.labels, 1):
+            literal = re.sub(r"([\\`*_{}\[\]()<>!|~#])", r"\\\1", label)
+            lines.append(f"{i}. {literal}")
+        if not lines:
+            lines.append("There are no items on this page.")
+        if self.next_cursor:
+            lines.append("\nMore items are available on the next page.")
+        elif self.more_elsewhere:
+            lines.append("\nThere may be more items in Integral.")
+        return "\n".join(lines)
+
+    def spoken_facts(self) -> dict:
+        """Expose only the ordered display values and useful paging context."""
+        facts = {"collection": self.collection, "names": self.labels}
+        if self.current_workspace:
+            facts["current_workspace"] = self.current_workspace
+        if self.next_cursor:
+            facts["next_page_available"] = True
+        elif self.more_elsewhere:
+            facts["more_entries_may_exist"] = True
+        return facts
 
 
 async def read_page(spec, *, principal, workspace, cursor=None) -> VoicePage | None:
@@ -86,18 +114,16 @@ async def read_page(spec, *, principal, workspace, cursor=None) -> VoicePage | N
         or "cursor" not in spec.params
     ):
         next_cursor = None
-    marker = f"The current workspace is {current}. " if current else ""
-    values = (
-        ", ".join(f"{i}. {label}" for i, label in enumerate(labels, 1))
-        if destinations
-        else ", ".join(labels)
+    return VoicePage(
+        spec,
+        tuple(destinations),
+        tuple(labels),
+        cursor,
+        next_cursor,
+        collection=meta.collection,
+        current_workspace=current,
+        more_elsewhere=len(records) > 20 or response.data.get("has_more") is True,
     )
-    text = f"{marker}{meta.title}: {values or 'none visible'}."
-    if next_cursor:
-        text += " Ask for the next page to hear more."
-    elif len(records) > 20 or response.data.get("has_more") is True:
-        text += " More entries may be available in Integral."
-    return VoicePage(spec, tuple(destinations), text, cursor, next_cursor)
 
 
 async def read_records(*, principal, workspace, anchor=None, cursor=None, query=""):
@@ -147,20 +173,18 @@ async def read_records(*, principal, workspace, anchor=None, cursor=None, query=
             for entry in entries
             if entry.title and entry.track_id
         )
-    text = (
-        "Visible records: "
-        + (
-            ", ".join(f"{i}. {item.label}" for i, item in enumerate(destinations, 1))
-            or "none visible"
-        )
-        + "."
-    )
     next_cursor = page.get("next_cursor")
     if not isinstance(next_cursor, str) or not 0 < len(next_cursor) <= 2048:
         next_cursor = None
-    if next_cursor:
-        text += " Ask for the next page to hear more."
-    return VoicePage(None, destinations, text, cursor, next_cursor, anchor, query)
+    return VoicePage(
+        None,
+        destinations,
+        tuple(item.label for item in destinations),
+        cursor,
+        next_cursor,
+        anchor,
+        query,
+    )
 
 
 async def read_views(*, principal, workspace, anchor, cursor=None):
@@ -206,39 +230,35 @@ async def read_views(*, principal, workspace, anchor, cursor=None):
         destinations = tuple(
             target for target, permitted in zip(candidates, allowed) if permitted
         )
-    text = (
-        "Visible saved views: "
-        + (
-            ", ".join(f"{i}. {item.label}" for i, item in enumerate(destinations, 1))
-            or "none visible on this page"
-        )
-        + "."
-    )
     if not isinstance(next_cursor, str) or not 0 < len(next_cursor) <= 2048:
         next_cursor = None
-    if next_cursor:
-        text += " Ask for the next page to hear more."
     return VoicePage(
-        None, destinations, text, cursor, next_cursor, anchor, collection="views"
+        None,
+        destinations,
+        tuple(item.label for item in destinations),
+        cursor,
+        next_cursor,
+        anchor,
+        collection="views",
     )
 
 
 async def refresh_page(page, *, principal, workspace, cursor):
     """Re-read a server-held page within its original scope."""
+    if page.spec is not None:
+        return await read_page(
+            page.spec, principal=principal, workspace=workspace, cursor=cursor
+        )
     if page.collection == "views":
         return await read_views(
             principal=principal, workspace=workspace, anchor=page.anchor, cursor=cursor
         )
-    if page.spec is None:
-        return await read_records(
-            principal=principal,
-            workspace=workspace,
-            anchor=page.anchor,
-            query=page.query,
-            cursor=cursor,
-        )
-    return await read_page(
-        page.spec, principal=principal, workspace=workspace, cursor=cursor
+    return await read_records(
+        principal=principal,
+        workspace=workspace,
+        anchor=page.anchor,
+        query=page.query,
+        cursor=cursor,
     )
 
 
@@ -273,7 +293,7 @@ class VoiceNavigation:
             if page is None:
                 return "That list is unavailable."
             self.accept_page(page)
-            return page.text
+            return page
         if action == "views":
             self.page = None
             self.pages.clear()
@@ -285,7 +305,7 @@ class VoiceNavigation:
             if page is None:
                 return "Saved views are unavailable in this location."
             self.accept_page(page)
-            return page.text
+            return page
         if action == "records":
             self.page = None
             self.pages.clear()
@@ -298,7 +318,7 @@ class VoiceNavigation:
             if page is None:
                 return "Records in that location are unavailable."
             self.accept_page(page)
-            return page.text
+            return page
         if action == "where":
             if self.focus and await verified_destination(self.focus, **args):
                 return f"Current spoken location: {self.focus.kind} {self.focus.label}."
@@ -322,7 +342,7 @@ class VoiceNavigation:
                 return "The list is unavailable. Ask for it again."
             self.page = updated
             self.expires = monotonic() + _PAGE_TTL
-            return updated.text
+            return updated
         if action == "next":
             if not page.next_cursor or len(self.pages) >= _MAX_PAGES:
                 return "No further page is available in this call."
@@ -332,7 +352,7 @@ class VoiceNavigation:
             self.pages.append(page)
             self.page = updated
             self.expires = monotonic() + _PAGE_TTL
-            return updated.text
+            return updated
         if action == "previous":
             if not self.pages:
                 return "Already on the first page."
@@ -343,20 +363,34 @@ class VoiceNavigation:
             self.pages.pop()
             self.page = updated
             self.expires = monotonic() + _PAGE_TTL
-            return updated.text
-        ordinal = request["ordinal"]
+            return updated
+        target = await self.resolve_choice(request["ordinal"], **args)
+        if isinstance(target, str):
+            return target
+        self.previous_focus, self.focus = self.focus, target
+        return f"Selected {target.kind} {target.label} as the current spoken location."
+
+    async def resolve_choice(
+        self, ordinal, *, principal, workspace
+    ) -> VoiceDestination | str:
+        """Resolve a spoken ordinal against the same current, authorized page."""
+        page = self.page
+        if page is None or monotonic() >= self.expires:
+            return "That numbered list has expired. Which destination would you like to open or select by name?"
         if not 1 <= ordinal <= len(page.destinations):
-            return "That choice is not in the current list. Ask for the list again."
+            return (
+                "That number is outside the last list. Which destination did you mean?"
+            )
+        args = {"principal": principal, "workspace": workspace}
         target = page.destinations[ordinal - 1]
         current = await refresh_page(page, cursor=page.cursor, **args)
         if current is None or current.destinations != page.destinations:
             self.page = None
             self.pages.clear()
-            return "The list changed. Ask for it again before choosing."
+            return "The list changed. Please give the destination's name or ask for the updated list."
         if not await verified_destination(target, **args):
             return "That destination is no longer available."
-        self.previous_focus, self.focus = self.focus, target
-        return f"Selected {target.kind} {target.label} as the current spoken location."
+        return target
 
 
 async def verified_destination(destination, *, principal, workspace):

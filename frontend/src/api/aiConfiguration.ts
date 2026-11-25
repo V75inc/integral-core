@@ -69,6 +69,7 @@ export interface ModelRouting {
 }
 export type ChatLimitKey = "request_limit" | "tool_call_limit" | "token_limit" | "run_seconds" | "request_timeout" | "idle_timeout";
 export type DeploymentLimitSettings = {
+  whole_answer_protection?: boolean;
   revision: number;
   host: Record<ChatLimitKey, number>;
   overrides: Partial<Record<ChatLimitKey, number>>;
@@ -120,7 +121,7 @@ export type ProfileWrite = Omit<ModelProfile, "id" | "updated_at" | "harness_pol
   id?: string;
 };
 export const aiConfigurationApi = {
-  async saveDeploymentLimits(body: Pick<DeploymentLimitSettings, "revision" | "overrides">): Promise<DeploymentLimitSettings> {
+  async saveDeploymentLimits(body: Pick<DeploymentLimitSettings, "revision" | "overrides" | "whole_answer_protection">): Promise<DeploymentLimitSettings> {
     return (await api.post("/admin/chat-limits", body)).data;
   },
   async get(request?: AxiosRequestConfig): Promise<AIConfiguration> {

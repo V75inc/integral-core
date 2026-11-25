@@ -25,8 +25,13 @@ async def test_authority_save_readback_conflict_and_reset(
     user = authenticated_client
     default = (await admin.get(READ)).json()["deployment_limit_settings"]
     assert default["overrides"] == {}
+    assert default["whole_answer_protection"] is False
     version = default["revision"]
-    changed = {"revision": version, "overrides": {"request_limit": 4}}
+    changed = {
+        "revision": version,
+        "overrides": {"request_limit": 4},
+        "whole_answer_protection": True,
+    }
     assert (await user.post(WRITE, json=changed)).status_code == 403
     assert (
         await admin.post(WRITE, json={**changed, "overrides": {"request_limit": 13}})
@@ -38,6 +43,7 @@ async def test_authority_save_readback_conflict_and_reset(
     assert saved.status_code == 200, saved.text
     assert saved.json()["revision"] == version + 1
     assert saved.json()["effective"]["request_limit"] == 4
+    assert saved.json()["whole_answer_protection"] is True
     view = (await user.get(READ)).json()
     assert "deployment_limit_settings" not in view
     assert view["harness_limits"]["request_limit"] == 4
@@ -47,9 +53,23 @@ async def test_authority_save_readback_conflict_and_reset(
     restored = await admin.post(WRITE, json={"revision": version + 1, "overrides": {}})
     assert restored.status_code == 200
     assert restored.json()["effective"] == restored.json()["host"]
+    assert (
+        restored.json()["whole_answer_protection"] is True
+    )  # Earlier clients omit the flag.
     assert (await admin.get(READ)).json()[
         "deployment_limit_settings"
     ] == restored.json()
+    toggle = {
+        "revision": restored.json()["revision"],
+        "overrides": {},
+        "whole_answer_protection": False,
+    }
+    assert (
+        await admin.post(WRITE, json={**toggle, "whole_answer_protection": "false"})
+    ).status_code == 400
+    assert (await admin.post(WRITE, json=toggle)).json()[
+        "whole_answer_protection"
+    ] is False
 
 
 async def test_two_admins_cannot_overwrite_the_same_revision():

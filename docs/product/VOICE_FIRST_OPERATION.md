@@ -2,6 +2,25 @@
 
 **Implementation in progress.** An authenticated person should be able to call Integral, find their place, do permitted work, review its consequences, and hear what actually happened. The acceptance test is a completed task with the display covered. This release is browser-only. Telephone and SIP admission are deferred. Each call binds to one workspace and one agent profile at admission. Switching either during a call is out of scope. Browser microphone consent, account enrollment and any independently required identity verification are separate from operating the workspace.
 
+The voice model phrases ordinary answers and tool results for the listener. A directory lookup supplies the names in their authorized order, the current workspace when relevant, and whether more results are available. The caller can refer to a choice by position even when the model reads the names in a sentence. Routine answers lead with the result and skip tool headings and filler. Requested note readbacks preserve the saved wording. Proposed changes retain the exact values and separate human confirmation.
+
+## Qualifying conversational changes
+
+Use a fresh conversation in a disposable workspace. Keep the selected voice, model, device, timezone and permissions constant across a comparison. Capture what Chrome schedules for playback, the time from end of caller speech to first reply audio, and the saved chat or effect receipt. A spoken promise alone cannot establish that work happened.
+
+| Caller journey | Passing observation |
+| --- | --- |
+| Ask what Integral can help with, then ask which workspace this is | A brief orientation followed by the bound workspace name. No new durable task. |
+| Ask to leave a note, then ask for it back using different words | The caller hears the requested note. Reloading the admitted thread shows the note. |
+| Ask for the Apps, open the second one, then name a different App | Only the first question reads the directory. Both requested Apps render, the caller hears the result, and the same call stays connected. |
+| Ask which Apps are available, then “can you list it out in the chat?” | One numbered message appears during the call and survives reload. The assistant confirms the post briefly. |
+| Ask to create an item, correct its date, then approve | The readback names the corrected item and date. A separate human confirmation precedes a single applied receipt. |
+| Interrupt a readout, cancel queued work, or lose access | The stale readout stops. Receipts and scoped reload agree about which work remains. |
+
+On macOS, run `node scripts/qualify_voice_conversation.mjs` and then repeat with `--variant` for orientation, a directory request and repeat, and note readback. Use `--post-list` to check the follow-up that asks for the directory in chat. It compares the saved names and order exactly, checks visibility during the call and listens for an unwanted spoken repeat. Set `VOICE_QA_APP_NAMES` to a JSON array of the visible first-page names in order for an automated comparison against both recordings. Check transcriptions against the audio when names are unusual. The runner needs Chrome, Playwright (or `PLAYWRIGHT_PACKAGE_PATH`), `say`, `afconvert`, FFmpeg, and the local Whisper CLI. Supply `VOICE_QA_EMAIL`, `VOICE_QA_PASSWORD`, the exact `VOICE_QA_WORKSPACE` name, `VOICE_QA_WHISPER_MODEL` pointing to an installed model, and `VOICE_QA_URL` on IPv4 loopback. `VOICE_QA_LIVE=1` explicitly opts into a paid call. Each invocation creates one synthetic conversation and leaves its recordings in a local temporary directory. Keep credentials in the environment and use synthetic content only.
+
+For each failure, compare the recorded audio, offline transcription, tool result and persisted state. A misheard word, an unnecessary spoken preamble and a missing write are different defects. Fix the earliest incorrect boundary, add a deterministic regression there, then replay the failed wording and a held-out wording in fresh conversations. Track first audio separately from time to an actionable result. The report flags common spoken preambles and words added after a requested note readback separately from task success. Review recordings for brevity, turn-taking and grounding even when string checks pass. Extend the matrix with distinct tasks and unfamiliar phrasings before expanding the supported experience. These checks run on demand.
+
 **Assessment basis.** Reviewed the local Integral Core checkout at `6905a569` with its in-progress voice and profile changes. In a fresh signed-in Chrome session in the disposable QA workspace, the Apps screen had no visible Start voice call action on entry. Opening a fresh native conversation exposed it. In a separate loopback fixture, the current browser control and relay exchanged synthetic microphone frames and two audio responses, truncated the interrupted reply, then completed mute, unmute and hang-up. The focused run passed 78 backend, 18 PostgreSQL contract and 10 frontend tests. These checks cover simulated interruption and transport under controlled conditions.
 
 **One live-provider check.** In a fresh disposable workspace conversation on the local Mac QA instance, headless Chrome called the saved OpenAI `gpt-realtime-2.1-mini` model once. The synthetic microphone asked “What is six plus seven? Answer with the number and then say cedar bridge.” Offline transcription of the two seconds of returned browser audio yielded “13. Cedar Bridge.” Call readiness took 1.94 seconds from clicking Start. The first ordinary reply audio reached Chrome’s playback graph 1.41 seconds after the synthetic input ended. Ending the call restored Start. This establishes one intelligible provider round trip. Physical microphone and speaker quality, latency distribution, real-provider workspace actions, sustained mobile use and telephone access remain unverified.
@@ -61,6 +80,8 @@ priority and the requested date. The test record count stayed unchanged. A
 separate request saved a note with the reference phrase “cobalt harbor”; the
 next spoken turn read it back from that chat. These tests used a synthetic
 workspace. They cover selected tasks and do not establish general voice parity.
+
+To open an App in the current browser, say “Open my notes app.” If the assistant has just listed your Apps, “Open the second one on my screen” uses that list. If the list has changed or expired, give the App name. Asking which Apps are available only reads the directory. Opening an App leaves its records unchanged.
 
 ## Next implementation plan — one native conversation across voice and GUI
 

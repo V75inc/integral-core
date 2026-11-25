@@ -285,6 +285,8 @@ changed workspaces/routes, and a nonempty composer do not trigger navigation.
 The browser uses the ordinary router and keeps the conversation available in the
 companion panel. Opening a page does not prove that a mutation succeeded.
 
+For live voice with the workspace assistant, `open_integral_page` submits a read-only native turn. A name goes directly to the resident for resolution. A spoken number refers to the last numbered directory page in that call. Integral checks the page order, expiry and current access before binding that exact destination to the request, then checks the destination again at delivery. The voice browsing tool can still select a location for later questions without moving the browser. Selected profiles use their existing resident delegation and permissions.
+
 Local candidate evidence for images, approvals, navigation and their validation
 limits is recorded in the native image-input tests under `backend/tests/native_harness/`.
 
@@ -605,8 +607,7 @@ Activity distinguishes queue delay, preparation, first provider output, first
 requested/started/received tool, first operational tool, first answer text and
 completion. Discovery is not an operational tool. Browser receipt timings include
 transport and replay delay; they are separate from server/provider timings.
-Validated answer buffering remains in place. A fast provider first token is not
-a guarantee of equally fast displayed answer text.
+A provider may spend time reasoning before producing any displayable answer. Measure first visible words separately from completion and compare cold and warm calls on the same assigned model.
 
 The activity table reports each physical call and an aggregate total across
 calls; that total is not one request's context size. Tool cards expose safe
@@ -642,10 +643,9 @@ using prompted JSON, completed replies are presented in that same format, so
 prior transcript prose does not demonstrate an invalid output protocol.
 The visible transcript remains in ordinary language.
 
-Candidate answer deltas stay private until the harness settles its output.
-The worker checks current execution authority on the first candidate and before
-releasing public progress or the settled answer. The `outputAuthority` phase
-measures those checks.
+Platform administrators can enable **Whole-answer protection** in **Settings → AI Models → Deployment Limits → Edit deployment limits**. The worker reads the installation setting when starting a native turn. Off is the default, including for older revisions. With protection on, chat waits for the validated answer. With it off, ordinary conversation can show provisional words and replace them if final validation or steering changes the answer. Once displayed, early words cannot be recalled from a reader or an earlier stream frame.
+
+The light pass uses Pydantic AI's `Agent.run` event handler on the existing model request. Only the answer text from the conversational route is eligible. Interleaved thoughts, routing fields and tool arguments do not enter the text projection. Turns with private personas or injected host context, published profiles, operational work, approvals, attachment-backed turns and voice delegation retain their existing release boundaries. The event reader and worker still check scope and execution authority. The stored assistant message contains the settled text once. Local worker and reader notifications reduce polling delay. Cross-process consumers resume from the same durable cursor by polling.
 Routing logs record a validated operational handoff without recording model text.
 
 Light uses Pydantic AI output tools when the model profile supports required

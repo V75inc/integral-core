@@ -115,12 +115,16 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
             *(
                 []
                 if profile
-                else [native_voice.REVISE_REVIEW, native_voice.REQUEST_REVIEW]
+                else [
+                    native_voice.REVISE_REVIEW,
+                    native_voice.REQUEST_REVIEW,
+                ]
             ),
             native_voice.CANCEL_WORK,
             *(
                 [
                     native_voice.FIND_RECORDS,
+                    native_voice.OPEN_PAGE,
                     native_voice.NAVIGATE,
                     native_voice.QUEUE_FOLLOW_UP,
                     native_voice.STEER_ACTIVE,
@@ -157,6 +161,33 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         authorize_profile.assert_awaited_with(scope.workspace, scope.principal, profile)
     else:
         authorize_profile.assert_not_awaited()
+
+
+async def test_open_page_submits_a_read_only_native_turn(monkeypatch):
+    from app.services import chat_page_context, chat_turn_submissions, native_voice
+
+    scope = VoiceScope(
+        "caller", "workspace", "", "thread", page_context={"url": "/agent"}
+    )
+    monkeypatch.setattr(
+        native_voice, "authorize", AsyncMock(return_value=SimpleNamespace(id="thread"))
+    )
+    monkeypatch.setattr(
+        chat_page_context,
+        "verify_page_snapshot",
+        AsyncMock(return_value=scope.page_context),
+    )
+    submit = AsyncMock(
+        return_value=SimpleNamespace(work_item_id="work", message_id="message")
+    )
+    monkeypatch.setattr(chat_turn_submissions, "submit_chat_turn", submit)
+    monkeypatch.setattr(
+        native_voice, "_delegated_status", AsyncMock(return_value=("succeeded", "Done"))
+    )
+    await native_voice.delegate(scope, "call", "Open my notes app", open_only=True)
+    ctx = submit.await_args.args[0].execution_context
+    assert ctx.no_workspace_writes
+    assert ctx.extra_data == {"voice_delegate": True, "page_context": {"url": "/agent"}}
 
 
 @pytest.mark.parametrize("deny_workspace", [True, False])
@@ -351,7 +382,7 @@ async def test_live_navigation_delivery_is_exact_and_not_replayed(monkeypatch):
         )
     )
     assert await delivery == "The requested page is open."
-    await relay._deliver_navigation(accepted)
+    assert await relay._deliver_navigation(accepted) == "The requested page is open."
     assert browser.outbox.empty()
     scope.page_revision += 1
     from dataclasses import replace

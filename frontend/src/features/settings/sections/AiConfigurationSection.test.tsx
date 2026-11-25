@@ -549,6 +549,7 @@ it("lets a platform administrator cancel, bound and explicitly save overrides or
     open();
     const input = screen.getByRole("spinbutton", { name: "Model requests per turn" });
     expect(input).toHaveValue(5);
+    expect(screen.getByRole("checkbox", { name: /whole-answer protection/i })).not.toBeChecked();
     fireEvent.change(input, { target: { value: "21" } });
     expect(screen.getByRole("button", { name: "Save limits" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -563,6 +564,11 @@ it("lets a platform administrator cancel, bound and explicitly save overrides or
     expect(aiConfigurationApi.saveDeploymentLimits).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Save limits" }));
     await waitFor(() => expect(vi.mocked(aiConfigurationApi.saveDeploymentLimits).mock.calls[1][0]).toEqual({ revision: 3, overrides: {} }));
+    await screen.findByRole("button", { name: "Edit deployment limits" });
+    open();
+    fireEvent.click(screen.getByRole("checkbox", { name: /whole-answer protection/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() => expect(vi.mocked(aiConfigurationApi.saveDeploymentLimits).mock.calls[2][0]).toEqual({ revision: 3, overrides: { request_limit: 5 }, whole_answer_protection: true }));
   } finally {
     Reflect.deleteProperty(fixture.data, "deployment_limit_settings");
   }

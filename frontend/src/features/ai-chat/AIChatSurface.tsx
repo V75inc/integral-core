@@ -210,7 +210,7 @@ function AIChatRuntimeBoundaryInner({
     threads,
   } = useAIChatRuntime(provider, {
     onNavigate: (path, threadId) => {
-      requestOpenCompanionChat({ threadId });
+      requestOpenCompanionChat({ threadId, navigating: true });
       navigate(path);
     },
     consumeEntityRefs: consumePendingEntityRefs,

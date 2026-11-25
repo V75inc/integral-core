@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AssistantDockProvider } from "../../../../context/AssistantDockContext";
+import { AssistantDockProvider, useAssistantDock } from "../../../../context/AssistantDockContext";
 import { AssistantDock } from "../AssistantDock";
-import { requestOpenCompanionChat } from "../../chatHandoff";
+import { consumeChatHandoff, requestOpenCompanionChat } from "../../chatHandoff";
 
 const screenSize = vi.hoisted(() => ({ desktop: true }));
 vi.mock("../../../../hooks/useMediaQuery", () => ({ useIsMdUp: () => screenSize.desktop }));
@@ -24,7 +24,7 @@ function ChatDestination() {
   const navigate = useNavigate();
   return <button onClick={() => {
     navigate("/apps");
-    requestOpenCompanionChat({ threadId: "thread" });
+    requestOpenCompanionChat({ threadId: "thread", navigating: true });
   }}>Open destination with chat</button>;
 }
 
@@ -56,5 +56,25 @@ it("keeps the composer when a full-page chat link opens its companion on the des
   </MemoryRouter>);
   const composer = screen.getByRole("textbox");
   fireEvent.click(screen.getByRole("button", { name: "Open destination with chat" }));
+  expect(screen.getByRole("complementary", { name: "AI chat" })).toContainElement(composer);
+});
+
+it("keeps the live composer when a voice handoff is consumed between router renders", () => {
+  function VoiceHandoff() {
+    const navigate = useNavigate();
+    const { open } = useAssistantDock();
+    return <>
+      <output>{open ? "Companion requested" : "Companion closed"}</output>
+      <button onClick={() => requestOpenCompanionChat({ threadId: "voice-thread", navigating: true })}>Prepare companion</button>
+      <button onClick={() => { consumeChatHandoff(); navigate("/apps/test"); }}>Render app</button>
+    </>;
+  }
+  render(<MemoryRouter initialEntries={["/agent"]}>
+    <AssistantDockProvider><VoiceHandoff /><AssistantDock /></AssistantDockProvider>
+  </MemoryRouter>);
+  const composer = screen.getByRole("textbox");
+  fireEvent.click(screen.getByRole("button", { name: "Prepare companion" }));
+  expect(screen.getByText("Companion requested")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Render app" }));
   expect(screen.getByRole("complementary", { name: "AI chat" })).toContainElement(composer);
 });

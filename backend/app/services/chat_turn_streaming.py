@@ -11,6 +11,7 @@ from app.services.chat_turn_events import (
     chat_approval_error,
     replay_work_item_chat_events,
 )
+from app.services.chat_turn_wake import next_chat_event
 
 
 async def find_parked_chat_stream_id(
@@ -74,6 +75,8 @@ async def stream_committed_chat_turn(
     cursor = after_sequence
     saw_error = False
     while True:
+        # Subscribe before reading so a commit during replay cannot be missed.
+        signal = next_chat_event(work_item_id)
         await assert_scope()
         page = await replay_work_item_chat_events(
             principal_id=principal_id,
@@ -134,4 +137,8 @@ async def stream_committed_chat_turn(
             )
             return
         # A disconnected response never cancels or requeues the accepted item.
-        await asyncio.sleep(poll_seconds)
+        try:
+            async with asyncio.timeout(poll_seconds):
+                await signal.wait()
+        except TimeoutError:
+            pass  # Cross-process commits and terminal transitions still reconcile.

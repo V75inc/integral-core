@@ -24,7 +24,7 @@ constraints during delegation, and confusion between discovery and action.
 
 1. **Use the existing native navigation contract.** Capture the originating
    browser's bounded page context. Pass it with ordinary voice turn admission.
-   The resident resolves the named resource and invokes `integral_open_view`.
+   The realtime workspace assistant exposes `open_integral_page` separately from spoken directory browsing. It submits a read-only resident turn for a named destination or a revalidated choice from the last spoken list. The resident resolves the resource and invokes `integral_open_view`.
    Deliver a typed navigation event only for a successful foreground turn,
    through the existing authorized event projection. Revalidate the resource,
    current caller and destination at delivery. The browser checks its current

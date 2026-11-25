@@ -91,7 +91,7 @@ from pydantic_ai_harness.step_persistence import (
     ToolEffectRecord,
     continue_run,
 )
-from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
+from pydantic_core import SchemaValidator, core_schema, from_json, to_jsonable_python
 from pydantic_graph import End
 
 from app.agentive.harness.contracts import HarnessExecutionScope
@@ -1986,6 +1986,7 @@ __all__ = [
     "classify_integral_harness_exception",
     "continue_run",
     "core_schema",
+    "from_json",
     "to_jsonable_python",
 ]
 

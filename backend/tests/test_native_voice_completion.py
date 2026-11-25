@@ -458,7 +458,11 @@ async def test_follow_through_can_advance_visible_completed_work(monkeypatch, st
             await relay.pending
             assert previous.cancelled()
             perform.assert_awaited_once_with(
-                "build", "Implement the plan in our chat", relay.generation, None
+                "build",
+                "Implement the plan in our chat",
+                relay.generation,
+                None,
+                open_only=False,
             )
         else:
             assert relay.pending is previous

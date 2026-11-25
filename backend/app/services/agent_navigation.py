@@ -112,7 +112,7 @@ async def open_view_for_dispatch(
     }
 
 
-async def verify_voice_navigation(event, scope, page_context) -> bool:
+async def verify_voice_navigation(event, scope, page_context, *, expected=None) -> bool:
     """Reauthorize a committed native navigation event for its live call."""
     import re
 
@@ -136,6 +136,10 @@ async def verify_voice_navigation(event, scope, page_context) -> bool:
     kind = {"apps": "app", "tracks": "track", "entries": "entry"}[collection]
     if query == "entry":
         kind, identifier = "entry", value
+    if expected is not None:
+        requested = ("view", value) if query == "view_id" else (kind, identifier)
+        if requested != (expected.kind, expected.id):
+            return False
     bindings = [
         (current_scope_workspace_id, scope.workspace),
         (current_chat_thread_id, scope.thread),

@@ -1662,7 +1662,11 @@ async def worker_loop(
                 claim_cursor=claim_cursor,
                 follow_up_cursor=follow_up_cursor,
             )
-            if result is None:
+            if result is None and follow_up_cursor is not None:
+                from app.services.chat_turn_wake import wait_for_chat_work
+
+                await wait_for_chat_work(stop, idle_sleep)
+            elif result is None:
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=idle_sleep)
                 except asyncio.TimeoutError:

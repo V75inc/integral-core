@@ -183,3 +183,55 @@ async def test_approval_terminal_frame_names_the_decision(
     assert f"work.approval_{outcome}".encode() in frames[0]
     assert message in frames[0]
     assert b"turn-settled" in frames[1]
+
+
+@pytest.mark.asyncio
+async def test_committed_hint_during_replay_preempts_poll_without_releasing_data(
+    monkeypatch,
+):
+    import asyncio
+
+    from app.services.chat_turn_wake import wake_event_readers
+
+    async def replay(**kwargs):
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            # The commit lands during the first read; the next read must see it.
+            wake_event_readers("work")
+            return ChatEventReplayPage(work_status="running")
+        return ChatEventReplayPage(work_status="succeeded")
+
+    reads = 0
+    monkeypatch.setattr(chat_turn_streaming, "replay_work_item_chat_events", replay)
+    scope = AsyncMock()
+    response = chat_turn_streaming.stream_committed_chat_turn(
+        principal_id="owner",
+        workspace_id="workspace",
+        thread_id="thread",
+        work_item_id="work",
+        assert_scope=scope,
+        poll_seconds=30,
+    )
+    async with asyncio.timeout(1):
+        frames = [frame async for frame in response]
+    assert len(frames) == 1 and b"turn-settled" in frames[0]
+    assert reads == 2 and scope.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_work_wake_targets_one_idle_chat_worker_and_preserves_shutdown():
+    import asyncio
+
+    from app.services.chat_turn_wake import wait_for_chat_work, wake_chat_worker
+
+    stop = asyncio.Event()
+    tasks = [asyncio.create_task(wait_for_chat_work(stop, 30)) for _ in range(3)]
+    try:
+        await asyncio.sleep(0)
+        wake_chat_worker()
+        done, _ = await asyncio.wait(tasks, timeout=0.1)
+        assert len(done) == 1
+    finally:
+        stop.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=1)

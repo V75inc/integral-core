@@ -240,3 +240,18 @@ async def test_preparation_spans_remain_content_free_and_task_local():
     assert second.phase_counts == {"workspaceProfile": 1}
     assert first.phase_totals["routingDiscovery"] >= 0
     assert second.phase_totals["workspaceProfile"] >= 0
+
+
+def test_core_skill_cache_observes_file_edits_and_isolates_callers(
+    tmp_path, monkeypatch
+):
+    from app.agentive.services import agent_skills
+
+    monkeypatch.setattr(agent_skills, "_core_skill_dir", lambda name: str(tmp_path))
+    path = tmp_path / "SKILL.md"
+    path.write_text("---\ndescription: First\nallowed-tools: read\n---\nOld")
+    first = agent_skills._parse_core_skill_disk("fixture")
+    first[2].append("caller edit")
+    assert agent_skills._parse_core_skill_disk("fixture") == ("First", "Old", ["read"])
+    path.write_text("---\ndescription: Other\nallowed-tools: list\n---\nNew")
+    assert agent_skills._parse_core_skill_disk("fixture") == ("Other", "New", ["list"])

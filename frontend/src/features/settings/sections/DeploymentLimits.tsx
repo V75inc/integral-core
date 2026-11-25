@@ -24,6 +24,7 @@ export function DeploymentLimits({ data }: { data: AIConfiguration }) {
   const settings = data.deployment_limit_settings;
   const [draft, setDraft] = useState<{
     revision: number;
+    protection: boolean;
     values: Partial<Record<ChatLimitKey, string>>;
   } | null>(null);
   const cache = useQueryClient();
@@ -60,6 +61,7 @@ export function DeploymentLimits({ data }: { data: AIConfiguration }) {
     if (!settings) return;
     setDraft({
       revision: settings.revision,
+      protection: settings.whole_answer_protection ?? false,
       values: Object.fromEntries(
         Object.entries(settings.overrides).map(([k, v]) => [k, String(v)]),
       ),
@@ -80,13 +82,14 @@ export function DeploymentLimits({ data }: { data: AIConfiguration }) {
           overrides[key] >= min &&
           overrides[key] <= settings.host[key]),
     );
-    const dirty = fields.some(
+    const protectionChanged = draft.protection !== (settings.whole_answer_protection ?? false);
+    const dirty = protectionChanged || fields.some(
       ({ key }) => overrides[key] !== settings.overrides[key],
     );
     function submit(event: FormEvent) {
       event.preventDefault();
       if (draft && valid && dirty && !stale && !save.isPending)
-        save.mutate({ revision: draft.revision, overrides });
+        save.mutate({ revision: draft.revision, overrides, ...(protectionChanged && { whole_answer_protection: draft.protection }) });
     }
     return (
       <form className="space-y-4" onSubmit={submit}>
@@ -124,6 +127,13 @@ export function DeploymentLimits({ data }: { data: AIConfiguration }) {
             </label>
           ))}
         </fieldset>
+        <label className="flex items-start gap-2">
+          <input type="checkbox" checked={draft.protection} disabled={save.isPending}
+            onChange={(event) => setDraft({ ...draft, protection: event.target.checked })} />
+          <span><Text as="span" variant="label">Whole-answer protection</Text>
+            <Text as="span" className="block" variant="meta" tone="muted">Wait for final checks before showing ordinary replies. When off, early text can change. Workspace operations and private profiles always wait for final checks.</Text>
+          </span>
+        </label>
         {stale ? (
           <div role="alert">
             <Text variant="body-sm">
@@ -184,6 +194,7 @@ export function DeploymentLimits({ data }: { data: AIConfiguration }) {
             </Text>
           </div>
         ))}
+        {settings && <div><Text as="dt" variant="label" tone="muted">Whole-answer protection</Text><Text as="dd" variant="body">{settings.whole_answer_protection ? "On" : "Off"}</Text></div>}
       </dl>
       <div className="flex flex-wrap items-center justify-end gap-3">
         <Text as="p" variant="meta" tone="muted" className="mr-auto">

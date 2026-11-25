@@ -26,8 +26,24 @@ async def _tool(provider, identifier, name, args):
     await provider.inbox.put(frame)
 
 
+def test_new_session_can_answer_its_bound_identity_without_a_tool_round_trip():
+    session = native_voice.session_update("", workspace_label="QA desk")["session"]
+    assert '"QA desk"' in session["instructions"]
+    assert native_voice.CALL_CONTEXT not in {tool["name"] for tool in session["tools"]}
+
+
 @pytest.mark.asyncio
-async def test_call_identity_uses_admitted_labels_and_never_submits_work():
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ({}, "This call is in Fixture workspace, with Fixture guide."),
+        ({"detail": "workspace"}, "Fixture workspace"),
+        ({"detail": "assistant"}, "Fixture guide"),
+    ],
+)
+async def test_call_identity_uses_admitted_labels_and_never_submits_work(
+    args, expected
+):
     """A private identity read uses only the two bound display names."""
     scope = native_voice.VoiceScope("caller-id", "workspace-id", "", "thread-id")
     check, work = AsyncMock(), AsyncMock()
@@ -41,13 +57,13 @@ async def test_call_identity_uses_admitted_labels_and_never_submits_work():
     relay._speak_result = AsyncMock()
     await relay._completed_response(
         request(
-            "identity-call", "identity", "", name=native_voice.CALL_CONTEXT, args={}
+            "identity-call", "identity", "", name=native_voice.CALL_CONTEXT, args=args
         )
     )
     check.assert_awaited_once_with(scope)
     relay._speak_result.assert_awaited_once_with(
         relay.generation,
-        result="This call is in Fixture workspace, with Fixture guide.",
+        result=expected,
     )
     work.assert_not_awaited()
 
@@ -79,7 +95,9 @@ async def test_chat_note_rechecks_call_authority_before_writing(monkeypatch):
 
 async def _negotiate(provider, identifier, query, title):
     await _tool(provider, identifier, native_voice.FIND_CAPABILITY, {"query": query})
-    assert "searched" in (await event(provider.outbox))["item"]["output"]
+    receipt = (await event(provider.outbox))["item"]
+    assert receipt["call_id"] == identifier
+    assert "action repeat" in receipt["output"]
     selection = (await event(provider.outbox))["response"]
     assert selection["conversation"] == "none"
     assert selection["output_modalities"] == ["text"]
@@ -183,6 +201,7 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
             native_voice.CANCEL_WORK,
             native_voice.FIND_CAPABILITY,
             native_voice.FIND_RECORDS,
+            native_voice.OPEN_PAGE,
             native_voice.NAVIGATE,
             native_voice.QUEUE_FOLLOW_UP,
             native_voice.STEER_ACTIVE,
@@ -205,6 +224,7 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
 
         speech = await _quick_read(provider, "apps", "show apps", "Visible apps here")
         assert "Visible Projects" in speech and "hidden-app-id" not in speech
+        assert "Visible apps here" not in speech
         speech = await _quick_read(
             provider, "workspaces", "list workspaces", "Accessible workspaces"
         )
@@ -498,6 +518,7 @@ async def test_fourth_catalogue_enrollment_is_usable_without_new_realtime_tool(
                 assert (
                     "Pine Ridge Station" in answer and "internal-station" not in answer
                 )
+                assert title not in answer
                 assert not relay.pending.done()
                 assert relay.accepted.work_item_id == "foreground"
             else:
@@ -594,6 +615,27 @@ async def test_quick_read_checks_authority_at_first_audio_not_each_chunk(
 
 
 @pytest.mark.asyncio
+async def test_requested_saved_note_readback_preserves_literal_repeated_value():
+    """A saved quotation keeps even a trailing count that ordinary summaries omit."""
+    provider = Provider()
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(),
+    )
+    note = "Trial six. Result: six."
+    relay._read_chat_content = AsyncMock(return_value=note)
+    await relay._read_live_tool(
+        "call", native_voice.CHECK_CHAT, "latest_note", relay.generation
+    )
+    assert (await event(provider.outbox))["item"]["call_id"] == "call"
+    speech = (await event(provider.outbox))["response"]
+    assert json.loads(speech["instructions"].split("\nAnswer data: ")[1]) == note
+    assert speech["tool_choice"] == "none"
+
+
+@pytest.mark.asyncio
 async def test_numbered_voice_list_revocation_before_audio(monkeypatch):
     """A resource-level change after synthesis begins fences first playback."""
     from app.services.native_voice_navigation import VoiceDestination, VoicePage
@@ -610,7 +652,8 @@ async def test_numbered_voice_list_revocation_before_audio(monkeypatch):
     page = VoicePage(
         app_spec,
         (VoiceDestination("app", "private-id", "Private app"),),
-        "1. Private app",
+        ("Private app",),
+        collection="apps",
     )
     monkeypatch.setattr(
         native_voice_capabilities, "invoke_voice_read", AsyncMock(return_value=page)
@@ -626,7 +669,10 @@ async def test_numbered_voice_list_revocation_before_audio(monkeypatch):
         )
         await _choose(provider, "apps", selection, offer)
         speech = (await event(provider.outbox))["response"]
-        assert "1. Private app" in speech["instructions"]
+        assert json.loads(speech["instructions"].split("\nAnswer data: ")[1]) == {
+            "collection": "apps",
+            "names": ["Private app"],
+        }
         assert "private-id" not in speech["instructions"]
         await provider.inbox.put(
             {
@@ -648,3 +694,40 @@ async def test_numbered_voice_list_revocation_before_audio(monkeypatch):
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", ["", "published-profile"])
+async def test_chat_write_tool_accepts_directory_only_in_workspace_voice(profile):
+    """A private chat write cannot grant a profile an extra workspace directory."""
+    provider = Provider()
+    scope = native_voice.VoiceScope("caller", "workspace", profile, "thread")
+    relay = native_voice.VoiceRelay(Browser(), provider, scope, check=AsyncMock())
+    config = native_voice.session_update("", uses_published_profile=bool(profile))[
+        "session"
+    ]
+    [tool] = [t for t in config["tools"] if t["name"] == native_voice.WRITE_CHAT_NOTE]
+    assert ("directory" in tool["parameters"]["properties"]) is (not profile)
+    relay.ready = True
+    relay.response_generation = "turn"
+    relay._post_directory = AsyncMock(return_value="I posted the list in this chat.")
+    relay._speak_result = AsyncMock()
+    frame = request(
+        "posting",
+        "turn",
+        "",
+        name=native_voice.WRITE_CHAT_NOTE,
+        args={"directory": "last_list"},
+    )
+    await relay._completed_response(frame)
+    if profile:
+        relay._post_directory.assert_not_awaited()
+        assert provider.outbox.empty()
+    else:
+        relay._post_directory.assert_awaited_once_with("last_list", relay.generation)
+        assert (await event(provider.outbox))["item"][
+            "output"
+        ] == "I posted the list in this chat."
+        relay._speak_result.assert_awaited_once_with(
+            relay.generation, result="I posted the list in this chat.", read_back=True
+        )

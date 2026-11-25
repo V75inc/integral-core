@@ -142,7 +142,17 @@ export function AssistantDockProvider({ children }: { children: ReactNode }) {
     if (pending) openFromHandoff(pending);
 
     const onOpen = (e: Event) => {
-      openFromHandoff((e as CustomEvent<ChatHandoff>).detail);
+      const handoff = (e as CustomEvent<ChatHandoff>).detail;
+      // Voice and chat links request a companion before router navigation.
+      // Mount intent must survive the destination consuming the handoff. A
+      // single closed render here tears down the composer and its live call.
+      if (isDockSuppressedPath(pathname)) {
+        if (!handoff?.navigating) return;
+        setView('chat');
+        setOpen(true);
+        return;
+      }
+      openFromHandoff(handoff);
     };
     window.addEventListener(OPEN_AI_CHAT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AI_CHAT_EVENT, onOpen);

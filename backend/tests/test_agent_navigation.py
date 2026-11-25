@@ -108,6 +108,16 @@ async def test_voice_delivery_rechecks_exact_destination(navigation, monkeypatch
     }
     page = {"route_path": "/agent"}
     assert await nav.verify_voice_navigation(event, scope, page)
+    for kind, identifier, allowed in (
+        ("entry", "n.Entry.record", True),
+        ("entry", "n.Entry.other", False),
+        ("track", "n.Track.collection", False),
+    ):
+        expected = SimpleNamespace(kind=kind, id=identifier)
+        assert (
+            await nav.verify_voice_navigation(event, scope, page, expected=expected)
+            is allowed
+        )
     assert not await nav.verify_voice_navigation(
         {**event, "thread_id": "foreign"}, scope, page
     )

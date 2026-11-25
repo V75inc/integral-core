@@ -2118,6 +2118,32 @@ class PydanticAIProvider:
         # Include every framework schema retry in the one routing allowance.
         # The enclosing preparation path escalates only classified transient
         # failures; cancellation and current-authority denials still propagate.
+        preview = None
+        if (
+            timing is not None
+            and not timing.whole_answer_protection
+            and work_context is not None
+            and not persona_instructions
+            and not ctx.system_context
+        ):
+            from app.agentive.harness.conversation_preview import ConversationPreview
+            from app.middleware.permissions_cache import isolated_permissions_cache
+
+            async def authorize_preview():
+                cancellation = self._active_tokens.get(ctx.thread_id)
+                if cancellation is None or cancellation.cancelled:
+                    raise asyncio.CancelledError
+                with isolated_permissions_cache():
+                    current_thread, _ = await self._validate_chat_scope(ctx)
+                    if current_thread.agent_profile_key:
+                        raise InsufficientPermissionsError(
+                            message="Chat profile changed"
+                        )
+                    await _assert_work_output_authority_current(work_context)
+
+            preview = ConversationPreview(
+                prompted=uses_prompted_light_output(model), authorize=authorize_preview
+            )
         routing_deadline = asyncio.timeout(timeout)
         try:
             async with routing_deadline:
@@ -2136,13 +2162,22 @@ class PydanticAIProvider:
                     # Native steering can open another model request after the
                     # first reply. Give that path the normal turn allowance.
                     usage_limits=turn_usage_limits(light=steering is None),
+                    **({"event_stream_handler": preview.observe} if preview else {}),
                 )
         except TimeoutError as exc:
+            if preview:
+                await preview.discard()
             if not routing_deadline.expired():
                 raise
             from app.agentive.harness.model_errors import NativeModelRequestError
 
             raise NativeModelRequestError("model_request_timeout") from exc
+        except Exception:
+            if preview:
+                await preview.discard()
+            raise
+        if preview and not isinstance(result.output, str):
+            await preview.discard()
         if isinstance(result.output, OperationalContextRequest):
             logger.info(
                 "native adaptive escalation run=%s reason=typed_handoff", run_id
@@ -2187,19 +2222,31 @@ class PydanticAIProvider:
         public_text = ""
         for event in PydanticAIEventTranslator().translate(AgentRunResultEvent(result)):
             if event.get("type") == "error":
+                if preview:
+                    await preview.discard()
                 raise ServiceUnavailableError(message=str(event["message"]))
             if event.get("type") == "text-delta":
                 public_text += str(event["delta"])
         if not public_text.strip():
+            if preview:
+                await preview.discard()
             raise ServiceUnavailableError(
                 message="The assistant returned no usable answer"
             )
         if is_printed_context_request(public_text):
+            if preview:
+                await preview.discard()
             from app.agentive.harness.model_errors import NativeModelRequestError
 
             raise NativeModelRequestError("model_response_invalid")
+        from app.services.id_resolver import humanize_ids
+
+        public_text = await humanize_ids(
+            public_text, user_id=ctx.user_id, workspace_id=ctx.workspace_id
+        )
         return LightTurnResult(
             text=public_text,
+            preview_text=preview.sent if preview else "",
             scope=scope,
             work_context=work_context,
             elapsed_ms=(time.monotonic() - started) * 1000,
@@ -3045,8 +3092,11 @@ class PydanticAIProvider:
         from app.services.deployment_chat_limits import read_limits, turn_budget
         from app.services.model_retry_status import stream_with_retry_status
 
-        deployment = (await read_limits())["effective"]
-        timing = TurnLatency()
+        policy = await read_limits()
+        deployment = policy["effective"]
+        timing = TurnLatency(
+            whole_answer_protection=policy.get("whole_answer_protection", True)
+        )
         timing.freeze_budget(turn_budget(deployment))
         token = current_latency.set(timing)
         stream = stream_with_retry_status(self._stream_turn(ctx))
@@ -3218,7 +3268,10 @@ class PydanticAIProvider:
                 await _assert_work_output_authority_current(prepared.work_context)
                 if prepared.assert_current is not None:
                     await prepared.assert_current()
-                yield {"type": "text-delta", "delta": prepared.text}
+                if not prepared.text.startswith(prepared.preview_text):
+                    yield {"type": "text-replace", "content": prepared.text}
+                elif remaining := prepared.text[len(prepared.preview_text) :]:
+                    yield {"type": "text-delta", "delta": remaining}
                 from app.agentive.harness.model_observations import (
                     list_model_request_observations,
                 )

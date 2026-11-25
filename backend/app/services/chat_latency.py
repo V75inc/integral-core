@@ -55,6 +55,7 @@ class TurnLatency:
     budget_settings: dict | None = None
     physical_requests: int = 0
     physical_tokens: dict[str, int] = field(default_factory=dict)
+    whole_answer_protection: bool = True
     clients: list[Any] = field(default_factory=list)
     roles: list[dict[str, str]] = field(default_factory=list)
     phase_totals: dict[str, float] = field(default_factory=dict)

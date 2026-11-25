@@ -16,6 +16,7 @@ from app.models.harness_records import (
 from app.schemas.agentive.chat_events import ChatEventReplayPage
 from app.schemas.agentive.work import WorkExecutionContext
 from app.services.chat_latency import LATENCY_FIELDS
+from app.services.chat_turn_wake import wake_event_readers
 from app.services.credential_crypto import (
     CIPHER_PREFIX_V1,
     decrypt_secret_from_storage,
@@ -283,6 +284,7 @@ async def append_work_item_chat_event(
         cursor.last_sequence = sequence
         await cursor.save()
         _ = graph
+    wake_event_readers(context.work_item_id)
     return {"sequence": sequence, **payload}
 
 

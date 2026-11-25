@@ -74,6 +74,7 @@ class UserModelProfile(Object):
 
 
 class DeploymentChatLimitRevision(Object):
+    whole_answer_protection: bool = False
     revision: int
     overrides: dict[str, int] = Field(default_factory=dict)
     actor_id: str

@@ -126,6 +126,7 @@ class LightTurnResult:
     elapsed_ms: float
     tool_events: list[dict[str, Any]] = field(default_factory=list)
     assert_current: Callable[[], Awaitable[None]] | None = None
+    preview_text: str = ""
 
 
 @dataclass
@@ -505,9 +506,21 @@ def build_light_agent(
             block
             for block in (
                 instructions,
+                "" if prompted else LIGHT_OUTPUT_PROTOCOL,
                 (
-                    "Optional skill IDs for an operational handoff: "
-                    + json.dumps(skill_candidates, ensure_ascii=False)
+                    "Optional skills (ID or [ID, description]) for an operational handoff: "
+                    + json.dumps(
+                        [
+                            (
+                                [row["id"], row["description"]]
+                                if row.get("description")
+                                else row["id"]
+                            )
+                            for row in skill_candidates
+                        ],
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
                     + ". First decide whether the request needs workspace or external access. Set skill_id to "
                     "ONE exact candidate id if it clearly fits the current request. "
                     "Use null when unsure. Select only from these candidates; "
@@ -516,10 +529,9 @@ def build_light_agent(
                     if skill_candidates
                     else ""
                 ),
-                time_context,
                 identity_context,
                 orientation_context,
-                "" if prompted else LIGHT_OUTPUT_PROTOCOL,
+                time_context,
             )
             if block
         ),

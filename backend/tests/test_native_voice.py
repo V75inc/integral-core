@@ -437,7 +437,7 @@ async def test_tagged_opening_cannot_claim_or_replace_ordinary_response(
         VoiceScope("caller", "workspace", "", "thread"),
         check=authorize,
     )
-    call = asyncio.create_task(relay.run())
+    call = asyncio.create_task(relay.run(workspace_label="Synthetic workspace"))
     try:
         await event(provider.outbox)
         await provider.inbox.put({"type": "session.updated"})
@@ -802,10 +802,12 @@ async def test_vad_during_acceptance_keeps_exact_same_thread_submission(monkeypa
 @pytest.mark.parametrize(
     ("question", "view", "role"),
     [
-        ("Something popped up in the chat there.", "latest_chat", "assistant"),
+        ("Something popped up in the chat there.", "visible_notice", "assistant"),
+        ("Read my last saved message.", "latest_chat", "assistant"),
+        ("Read my last saved note.", "latest_note", "assistant"),
         ("What did I just type in this chat?", "latest_typed", "user"),
         ("What did chat just reply in this conversation?", "latest_reply", "assistant"),
-        ("Something popped up in the chat there.", "latest_chat", None),
+        ("Something popped up in the chat there.", "visible_notice", None),
     ],
 )
 async def test_spoken_chat_lookup_reads_current_thread_without_submitting(
@@ -879,7 +881,7 @@ async def test_spoken_chat_lookup_reads_current_thread_without_submitting(
     try:
         config = await event(provider.outbox)
         instructions = config["session"]["instructions"]
-        assert question.lower().rstrip(".") in instructions or view != "latest_chat"
+        assert question.lower().rstrip(".") in instructions or view != "visible_notice"
         chat_tool = next(
             t for t in config["session"]["tools"] if t["name"] == CHECK_CHAT
         )
@@ -899,6 +901,17 @@ async def test_spoken_chat_lookup_reads_current_thread_without_submitting(
                     thread=current,
                     role=side,
                     parts=[{"type": "text", "text": same[side]}],
+                    provider_metadata=(
+                        {"source": "voice_note"}
+                        if view == "latest_note" and side == "assistant"
+                        else {}
+                    ),
+                )
+            if view == "latest_note":
+                await append_message(
+                    thread=current,
+                    role="assistant",
+                    parts=[{"type": "text", "text": "HIDDEN_NEWER_UNRELATED_REPLY"}],
                 )
         # Status ownership stays independent; this read must work while Heavy runs.
         relay.pending = asyncio.create_task(asyncio.Event().wait())
@@ -922,8 +935,10 @@ async def test_spoken_chat_lookup_reads_current_thread_without_submitting(
             assert "can't see unsaved text or interface popups" in spoken_text
         else:
             assert same[role][:35].strip() in spoken_text
-            if view == "latest_chat":
+            if view == "visible_notice":
                 assert "can't see the popup itself" in spoken_text
+            else:
+                assert "popup" not in spoken_text
         for excluded in (*other.values(), "HIDDEN_", "NOT_IN_SPOKEN_EXCERPT"):
             assert excluded not in spoken_text
         submit.assert_not_awaited()

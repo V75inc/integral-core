@@ -7,6 +7,7 @@ import glob
 import hashlib
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -163,18 +164,26 @@ def _core_skill_dir(skill_name: str) -> str:
 
 def _parse_core_skill_disk(skill_name: str) -> Tuple[str, str, List[str]]:
     """Return (description, domain_body, allowed_tools) from on-disk SKILL.md."""
-    from app.services.skill_format import allowed_tool_names, parse_skill_document
-
+    path = Path(_core_skill_dir(skill_name)) / "SKILL.md"
     try:
-        meta, body = parse_skill_document(
-            Path(_core_skill_dir(skill_name)) / "SKILL.md"
+        description, body, tools = _parse_core_snapshot(
+            path, path.read_text(encoding="utf-8")
         )
     except (OSError, ValueError):
         return "", "", []
+    return description, body, list(tools)
+
+
+@lru_cache(maxsize=64)
+def _parse_core_snapshot(path: Path, text: str) -> Tuple[str, str, Tuple[str, ...]]:
+    """Cache parsing only for Core-owned files; every read observes current bytes."""
+    from app.services.skill_format import allowed_tool_names, parse_skill_text
+
+    meta, body = parse_skill_text(path, text)
     return (
         str(meta.get("description") or "").strip(),
         body,
-        allowed_tool_names(meta.get("allowed-tools")),
+        tuple(allowed_tool_names(meta.get("allowed-tools"))),
     )
 
 

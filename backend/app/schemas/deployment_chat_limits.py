@@ -17,3 +17,4 @@ class ChatLimitsWrite(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     revision: int = Field(ge=0)
     overrides: ChatLimitOverrides
+    whole_answer_protection: bool | None = None

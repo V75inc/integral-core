@@ -6,6 +6,12 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Stream ordinary native chat replies as their model produces answer text. Platform administrators can enable whole-answer protection in AI Models. Local workers and event readers wake as chat work arrives.
+- Callers can ask the workspace voice assistant to post a directory in their current chat. It rechecks access, writes the ordered names, and speaks a brief confirmation.
+- Browser voice presents directory names conversationally in their original order without reading tool headings aloud. Ordinary replies share the same brief spoken style.
+- Browser voice can open a named App or a numbered choice from its last spoken directory through the resident’s authorized navigation tool.
+- Voice can answer which workspace a call belongs to from its authorized binding, and read back a saved chat note. Named-workspace calls retain their opening greeting.
+
 - Capture the initial Track IDs created by a package install on its first App definition. Existing installations retain their original history.
 - Bind a bundled schedule to its dedicated conversation on first eligible dispatch, so installing an App does not open a blank chat.
 - Let trusted Apps restrict Entry edits and attachment writes by declared record state. The Entry editor shows the effective restriction and downloads remain available under normal read permissions.

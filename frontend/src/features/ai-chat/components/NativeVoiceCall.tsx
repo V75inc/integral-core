@@ -593,7 +593,7 @@ export function NativeVoiceCall() {
     }}
     onNavigate={(path, threadId) => {
       if (activity.followUps?.some(item => item.state === "queued" || item.state === "sending")) return false;
-      requestOpenCompanionChat({ threadId, workspaceId: workspace, principalId: user });
+      requestOpenCompanionChat({ threadId, navigating: true, workspaceId: workspace, principalId: user });
       navigate(path);
     }}
     opening={{ workspace_id: workspace, profile_key: profile, thread_id: activity.activeThreadId ?? "" }}
