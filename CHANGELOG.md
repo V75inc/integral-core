@@ -6,6 +6,7 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Give each Track its own entry count in the Home snapshot when hidden per-record Tracks are present.
 - Show "5 of 12 entries" in the Track header when the open view or filter shows part of the Track, so it agrees with the entry count on the App and Track lists.
 - Let editors change dates from app-designed record views: the calendar opens and the change is written with Save, against the record revision on screen. The calendar also opens above a field when there is no room below it.
 - Show member email addresses again on Workspace Members. The admin-only members list now returns each active account's email; the shared public user view still omits it.

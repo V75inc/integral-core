@@ -81,3 +81,37 @@ async def test_mission_control_filters_exclusions_before_previews_and_counts(
     assert hidden_tracks.status_code == 200, hidden_tracks.text
     assert hidden_tracks.json()["tracks"] == []
     assert hidden_tracks.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mission_control_counts_follow_their_track_past_hidden_ones(
+    authenticated_client: AsyncClient, test_user
+):
+    """A hidden per-record Track must not shift counts onto the visible ones."""
+    from app.models.nodes import Track
+
+    created = []
+    for title, visible, entries in (
+        ("Line items", False, 3),
+        ("Visible", True, 1),
+    ):
+        response = await authenticated_client.post(
+            "/api/tracks", json={"title": title, "visibility": "private"}
+        )
+        assert response.status_code == 200, response.text
+        track = await Track.get(response.json()["track"]["id"])
+        track.nav_visible = visible
+        await track.save()
+        for index in range(entries):
+            made = await authenticated_client.post(
+                "/api/entries",
+                json={"track_id": track.id, "title": f"{title} {index}", "body": "x"},
+            )
+            assert made.status_code == 200, made.text
+        created.append(track.id)
+
+    response = await authenticated_client.get("/api/me/mission-control")
+    assert response.status_code == 200, response.text
+    counts = {row["id"]: row["entry_count"] for row in response.json()["tracks"]}
+    assert created[0] not in counts
+    assert counts[created[1]] == 1
