@@ -46,7 +46,7 @@
       }
     },
     "binding": {
-      "description": "Who an installation belongs to. Independent of capability kind.",
+      "description": "Allowed installation ownership. Workspace targets a shared workspace; personal targets the installer’s owned Personal Workspace. Dual-scope Add requires an explicit choice.",
       "type": "object",
       "additionalProperties": false,
       "required": ["scopes"],
@@ -145,7 +145,12 @@
           }
         ]
       },
-      "then": { "properties": { "trust": { "properties": { "tier": { "const": "trusted" } } } } }
+      "then": {
+        "properties": {
+          "trust": { "properties": { "tier": { "const": "trusted" } } },
+          "binding": { "properties": { "scopes": { "const": ["workspace"] } } }
+        }
+      }
     }
   ],
   "$defs": {

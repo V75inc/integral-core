@@ -100,7 +100,7 @@ it("separates the serving model from pending progress and cancels through a toas
 it("does not opt the owner into funding the previous provider", async () => {
   mount();
   fireEvent.click(
-    await screen.findByRole("button", { name: "Configure embeddings" }),
+    await screen.findByRole("button", { name: "Dimensions and consent" }),
   );
   expect(
     screen.getByLabelText(/Keep using the current provider/),
@@ -116,7 +116,7 @@ it("does not opt the owner into funding the previous provider", async () => {
 it("retains explicit continuation consent only when selected for the save", async () => {
   mount();
   fireEvent.click(
-    await screen.findByRole("button", { name: "Configure embeddings" }),
+    await screen.findByRole("button", { name: "Dimensions and consent" }),
   );
   fireEvent.click(screen.getByLabelText(/Keep using the current provider/));
   fireEvent.click(screen.getByRole("button", { name: "Save model" }));
@@ -136,7 +136,8 @@ it("offers registered embeddings inline without applying changes or losing legac
   expect(screen.queryByRole("option", { name: /Chat model|Missing provider/ })).not.toBeInTheDocument();
   fireEvent.change(selector, { target: { value: "embed" } });
   expect(save).not.toHaveBeenCalled();
-  expect(screen.getByLabelText("Embedding model ID")).toHaveValue("openai/text-embedding-3-small");
+  expect(screen.getByText("openai/text-embedding-3-small · My provider")).toBeVisible();
+  expect(screen.queryByLabelText("Embedding model ID")).not.toBeInTheDocument();
   expect(screen.getByLabelText(/Allow indexed workspace text/)).not.toBeChecked();
   expect(screen.getByRole("button", { name: "Save model" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
@@ -154,7 +155,7 @@ it("keeps deployment selection read-only for a non-owner", async () => {
   get.mockResolvedValue({ ...data, editable: false, configuration: { mode: "deployment" } });
   mount(true);
   expect(await screen.findByRole("combobox", { name: "Embedding model" })).toBeDisabled();
-  expect(screen.queryByRole("button", { name: "Embedding settings" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Dimensions and consent" })).not.toBeInTheDocument();
 });
 it("reviews a return to deployment defaults without immediately rebuilding", async () => {
   mount(true);

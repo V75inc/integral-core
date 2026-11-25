@@ -1,3 +1,4 @@
+import { parseVisitorTheme, type VisitorTheme } from '../features/public-web-chat/visitorTheme';
 import apiClient from './client';
 import { isCanonicalManagedEmbedOrigin } from './managedChannelEmbedAuthority';
 
@@ -31,6 +32,7 @@ export type ManagedChannel =
       connected: true;
       action: 'configure';
       can_enable: boolean;
+      enabled?: boolean;
       configuration_kind?: 'published-public-profile-v1';
     });
 
@@ -42,9 +44,12 @@ export interface ManagedChannelApprovedEmbedPolicy {
 export interface ManagedChannelProfileConfiguration extends ManagedChannelGeneration {
   kind: 'published-public-profile-v1';
   profile_revision: number;
+  theme?: VisitorTheme;
   published_version?: number;
   full_page_share_check_available?: true;
   private_test_available?: true;
+  private_test_model?: string;
+  client_api_origin?: string;
   approved_embed_policies?: readonly ManagedChannelApprovedEmbedPolicy[];
   profile_key: string | null;
   eligible_profiles: Array<{key: string; name: string}>;
@@ -96,6 +101,7 @@ function decode(value: unknown): ManagedChannel | undefined {
       nonempty(row.provision_id) && nonempty(row.route_epoch)) {
     return {
       definition, connected: true, state: row.state, action: 'configure',
+      ...(typeof row.enabled === 'boolean' ? { enabled: row.enabled } : {}),
       can_enable: row.can_enable === true && row.state === 'inactive' &&
         (row.configuration_kind == null || row.configuration_kind === 'published-public-profile-v1'),
       provision_id: row.provision_id, route_epoch: row.route_epoch,
@@ -162,12 +168,16 @@ function decodeProfileConfiguration(
   return {
     kind: row.kind,
     profile_revision: row.profile_revision,
+    ...(visitorSurface && typeof row.theme === 'string' ? { theme: parseVisitorTheme(row.theme) } : {}),
     profile_key: row.profile_key,
     ...(publishedVersion !== undefined ? { published_version: publishedVersion } : {}),
     ...(visitorSurface && publishedVersion !== undefined && row.private_test_available === true
       ? { private_test_available: true as const } : {}),
+    ...(visitorSurface && publishedVersion && row.private_test_available === true && typeof row.private_test_model === 'string' &&
+      /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(row.private_test_model) ? {private_test_model: row.private_test_model} : {}),
     ...(mayReadSharing && row.full_page_share_check_available === true
       ? { full_page_share_check_available: true as const } : {}),
+    ...(mayReadSharing && isCanonicalManagedEmbedOrigin(row.client_api_origin) ? { client_api_origin: row.client_api_origin } : {}),
     ...(approvedEmbedPolicies ? { approved_embed_policies: approvedEmbedPolicies } : {}),
     eligible_profiles: [...profiles.values()],
     editable: row.editable,
@@ -191,6 +201,12 @@ export const managedChannelsApi = {
       ...options, params: { ...options.params, ...generation }, signal,
     });
     return decodeProfileConfiguration(response.data, visitorSurface, generation);
+  },
+  async saveAppearance(workspaceId: string, profile: ManagedChannelProfileConfiguration, theme: VisitorTheme) {
+    await apiClient.put(`${path}/public_web_chat/appearance`, {
+      provision_id: profile.provision_id, route_epoch: profile.route_epoch,
+      expected_profile_revision: profile.profile_revision, theme,
+    }, config(workspaceId));
   },
   async assignProfile(workspaceId: string, slug: string, generation: ManagedChannelGeneration,
     expectedProfileRevision: number, profileKey: string | null): Promise<void> {

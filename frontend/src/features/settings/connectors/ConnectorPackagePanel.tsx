@@ -1,5 +1,8 @@
+import type { ConnectorBindingScope } from '../../../api/connectorPackages';
+import { useConfirm } from '../../../context/ConfirmContext';
+import { connectorRemoval } from './connectorRemoval';
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import {
   disableWhatsAppChannelBinding,
@@ -18,72 +21,77 @@ import { AppSettingsForm } from '../../../components/apps/AppSettingsForm';
 import { ConnectorBindingsPanel } from '../sections/ConnectorBindingsPanel';
 import type { JsonSchema } from '../../../components/apps/widgets';
 import { Button } from '../../../components/ui/Button';
-import { Input, Surface, Text } from '../../../ui';
-import { SettingsSection } from '../components/Field';
+import { Input, Select, Surface, Text } from '../../../ui';
+import { Modal } from '../../../components/ui/Modal';
 
-/**
- * Renders every admitted drop-in package from the manifest. No package id is special-cased.
- */
-export function ConnectorPackagePanel({
-  workspaceId,
-  managedSlugs = [],
-}: { workspaceId: string; managedSlugs?: string[] }) {
-  const queryClient = useQueryClient();
-  const queryKey = ['connectors', 'packages', workspaceId] as const;
-  const catalogue = useQuery({
-    queryKey,
-    queryFn: () => connectorPackagesApi.list(workspaceId),
-  });
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ['connectors', 'managed-channels'] });
-    return queryClient.invalidateQueries({ queryKey });
-  };
-  const rescan = useMutation({
-    mutationFn: () => connectorPackagesApi.rescan(workspaceId),
-    onSuccess: () => refresh(),
-  });
-  const packages = catalogue.data?.packages ?? [];
-  const visiblePackages = packages.filter(pkg =>
-    !pkg.host_managed || pkg.channel_mode !== 'managed-text-v1' || pkg.grant,
-  );
-  const fieldsByPackage = new Map(packages.map(pkg => [pkg.id, pkg.configuration]));
+type InstallationTargets = Partial<Record<ConnectorBindingScope, string>>;
 
+export function ConnectorPackageDetail({
+  workspaceId, pkg, installations = [], initialInstallationId, onClose, onChanged, onManageChannel, targets, onInstalledInScope,
+}: {
+  workspaceId: string;
+  pkg?: ConnectorPackageSummary;
+  installations?: ConnectorPackageInstallation[];
+  initialInstallationId?: string;
+  onClose: () => void;
+  onChanged: () => void;
+  onManageChannel?: () => void;
+  targets?: InstallationTargets;
+  onInstalledInScope?: (target: string, installation: ConnectorPackageInstallation) => void;
+}) {
+  const [selectedId, setSelectedId] = useState(initialInstallationId);
+  const [adding, setAdding] = useState(false);
+  const row = installations.find(installation => installation.id === selectedId) ?? installations[0];
+  const name = pkg?.name ?? row?.name;
+  if (!name) return null;
+  const configured = !adding && Boolean(row || pkg?.grant?.present);
   return (
-    <SettingsSection
-      title="Dropped-in packages"
-      description="Packages found in the connector folder. Invalid ones are listed with the reason they were not offered."
-    >
-      <div className="mb-3">
-        <Button type="button" variant="secondary" size="sm" onClick={() => rescan.mutate()}>
-          Rescan
-        </Button>
-      </div>
-      {(catalogue.data?.rejected ?? []).map(row => (
-        <Text key={row.id} as="p" variant="body-sm" tone="muted">
-          {row.id}: {row.reason}
-        </Text>
-      ))}
-      {visiblePackages.map(pkg => (
-        pkg.host_managed ? (
-          <HostManagedCard key={pkg.id} pkg={pkg} workspaceId={workspaceId} onChanged={refresh} canDisconnectFromCard={!managedSlugs.includes(pkg.id) && pkg.channel_mode !== 'managed-text-v1'} />
-        ) : (
-          <PackageCard key={pkg.id} workspaceId={workspaceId} pkg={pkg} onChanged={refresh} />
-        )
-      ))}
-      {(catalogue.data?.installations ?? []).map(row => (
-        <InstallationCard
-          key={row.id}
-          workspaceId={workspaceId}
-          row={row}
-          fields={fieldsByPackage.get(row.package_id) ?? []}
-          oauth={packages.some(pkg => pkg.id === row.package_id && pkg.auth_type === 'oauth2')}
-          sync={packages.some(
-            pkg => pkg.id === row.package_id && pkg.capabilities.includes('sync'),
+    <Modal open title={`${configured ? 'Configure' : 'Add'} ${name}`} onClose={onClose}>
+      <Modal.Body>
+        <div className="flex flex-col gap-3">
+          {pkg && <Text as="p" tone="muted">{pkg.description}</Text>}
+          {installations.length > 1 && (
+            <label>
+              Installation
+              <Select aria-label="Installation" value={row?.id} onChange={event => setSelectedId(event.target.value)}>
+                {installations.map((installation, index) => (
+                  <option key={installation.id} value={installation.id}>
+                    {installation.name} {index + 1} · {installation.enabled ? 'Enabled' : 'Disabled'}
+                  </option>
+                ))}
+              </Select>
+            </label>
           )}
-          onChanged={refresh}
-        />
-      ))}
-    </SettingsSection>
+          {row && !adding ? (
+            <InstallationCard key={row.id} row={row} workspaceId={workspaceId}
+              fields={(pkg?.configuration ?? []).filter(field => !field.scope || field.scope ===
+                (row.connection_mode === 'per_user' ? 'personal' : 'workspace'))} oauth={Boolean(pkg?.auth_type)}
+              sync={pkg?.capabilities.includes('sync') ?? false}
+              onChanged={onChanged} onRemoved={() => { onChanged(); if (installations.length === 1) onClose(); }} />
+          ) : pkg?.host_managed ? (
+            <HostManagedCard pkg={pkg} workspaceId={workspaceId} onChanged={onChanged}
+              canDisconnectFromCard={pkg.channel_mode !== 'managed-text-v1'} />
+          ) : pkg ? (
+            <PackageCard pkg={pkg} targets={targets ?? { workspace: workspaceId }}
+              onInstalled={(target, installation) => {
+                setAdding(false);
+                setSelectedId(installation.id);
+                if (onInstalledInScope) onInstalledInScope(target, installation);
+                else onChanged();
+              }} />
+          ) : null}
+        </div>
+      </Modal.Body>
+      <Modal.Footer>
+        {row && !adding && !initialInstallationId && pkg && !pkg.host_managed &&
+          pkg.binding_scopes?.some(binding => targets?.[binding] && targets[binding] !== workspaceId) &&
+          <Button type="button" variant="secondary" onClick={() => setAdding(true)}>Add in another scope</Button>}
+        {onManageChannel && <Button type="button" variant="secondary" onClick={onManageChannel}>
+          Channel status and controls
+        </Button>}
+        <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
+      </Modal.Footer>
+    </Modal>
   );
 }
 
@@ -175,10 +183,6 @@ function HostManagedCard({
   const canDisconnect = canDisconnectFromCard && Boolean(grant?.present && grant?.id);
   return (
     <Surface border="subtle" radius="card" padding="md" className="mt-3 flex flex-col gap-2">
-      <Text as="h3" variant="body-sm" weight="semibold">{pkg.name}</Text>
-      <Text as="p" variant="body-sm" tone="muted">
-        {pkg.name} keeps its existing installations and grants.
-      </Text>
       {grant?.present ? (
         <Text as="p" variant="body-sm">
           {grant.enabled ? 'Enabled' : 'Disabled'} · {grant.edge}
@@ -229,31 +233,46 @@ function HostManagedCard({
   );
 }
 
-function PackageCard({
-  workspaceId,
-  pkg,
-  onChanged,
-}: {
-  workspaceId: string;
-  pkg: { id: string; name: string; description: string; configuration: ConnectorPackageField[] };
-  onChanged: () => void;
+function PackageCard({ pkg, targets, onInstalled }: {
+  pkg: ConnectorPackageSummary;
+  targets: InstallationTargets;
+  onInstalled: (target: string, installation: ConnectorPackageInstallation) => void;
 }) {
+  const allowed = (pkg.binding_scopes ?? ['workspace']).filter(binding => targets[binding]);
+  const [choice, setChoice] = useState<ConnectorBindingScope>();
+  const selected = allowed.length === 1 ? allowed[0] : choice;
+  const target = selected ? targets[selected] : undefined;
   const [values, setValues] = useState<Record<string, unknown>>({});
   const install = useMutation({
-    mutationFn: () => connectorPackagesApi.install(workspaceId, pkg.id, values),
-    onSuccess: onChanged,
+    mutationFn: async () => {
+      if (!target || !selected) throw new Error('Choose an installation scope.');
+      return { target, installation: await connectorPackagesApi.install(target, pkg.id, values, selected) };
+    },
+    onSuccess: result => onInstalled(result.target, result.installation),
   });
   return (
     <Surface border="subtle" radius="card" padding="md" className="mt-3 flex flex-col gap-3">
-      <Text as="h3" variant="body-sm" weight="semibold">{pkg.name}</Text>
-      <Text as="p" variant="body-sm" tone="muted">{pkg.description}</Text>
-      <AppSettingsForm
-        schema={configurationSchema(pkg.configuration, true)}
-        value={values}
-        onChange={setValues}
-        idPrefix={pkg.id}
-      />
-      <Button type="button" size="sm" onClick={() => install.mutate()}>Add</Button>
+      {allowed.length > 1 && <label>
+        Installation scope
+        <Select aria-label="Installation scope" value={choice ?? ''} disabled={install.isPending}
+          onChange={event => {
+            const binding = allowed.find(option => option === event.target.value);
+            setChoice(binding);
+            setValues({});
+          }}>
+          <option value="">Choose a scope</option>
+          {allowed.map(binding => <option key={binding} value={binding}>
+            {binding === 'personal' ? 'Personal Workspace' : 'This workspace'}
+          </option>)}
+        </Select>
+      </label>}
+      {selected && target && <AppSettingsForm
+        schema={configurationSchema(pkg.configuration.filter(field => !field.scope || field.scope === selected), true)}
+        value={values} onChange={setValues} idPrefix={pkg.id}
+      />}
+      {allowed.length === 0 && <Text as="p" tone="muted">This connector is unavailable in the scopes you can manage.</Text>}
+      {install.isError && <Text as="p" role="alert" tone="danger">{install.error.message}</Text>}
+      <Button type="button" size="sm" disabled={!target || install.isPending} onClick={() => install.mutate()}>Add</Button>
     </Surface>
   );
 }
@@ -274,6 +293,7 @@ function InstallationCard({
   sync,
   oauth,
   onChanged,
+  onRemoved,
 }: {
   workspaceId: string;
   row: ConnectorPackageInstallation;
@@ -281,13 +301,14 @@ function InstallationCard({
   sync: boolean;
   oauth: boolean;
   onChanged: () => void;
+  onRemoved: () => void;
 }) {
+  const confirm = useConfirm();
   const available = row.package_available !== false;
-  const [open, setOpen] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({ ...row.config });
   const options = useQuery({
     queryKey: ['connectors', 'package-options', workspaceId, row.id, row.revision],
-    enabled: open && fields.some(field => field.options_from),
+    enabled: available && fields.some(field => field.options_from),
     queryFn: async () => {
       const entries = await Promise.all(fields.filter(field => field.options_from).map(async field => {
         const source = field.options_from!;
@@ -326,18 +347,25 @@ function InstallationCard({
       }
       return connectorPackagesApi.configure(workspaceId, row.id, payload);
     },
-    onSuccess: () => {
-      setOpen(false);
-      onChanged();
-    },
+    onSuccess: onChanged,
   });
+  const lifecycle = useMutation({
+    mutationFn: async (action: 'enable' | 'disable' | 'upgrade' | 'rollback' | 'remove') => {
+      if (action === 'upgrade') await connectorPackagesApi.upgrade(workspaceId, row.id);
+      else if (action === 'rollback') await connectorPackagesApi.rollback(workspaceId, row.id);
+      else if (action === 'remove') await connectorPackagesApi.remove(workspaceId, row.id);
+      else await connectorPackagesApi.setEnabled(workspaceId, row.id, action === 'enable');
+    },
+    onSuccess: (_, action) => action === 'remove' ? onRemoved() : onChanged(),
+  });
+  const error = configure.error ?? authorize.error ?? lifecycle.error;
   return (
     <Surface border="subtle" radius="card" padding="md" className="mt-3 flex flex-col gap-2">
       <Text as="p" variant="body-sm">
         {row.name} · {row.enabled ? 'Enabled' : 'Disabled'} · {row.health_status}
         {available ? '' : ' · Package unavailable'}
       </Text>
-      {available && open ? (
+      {available && fields.length > 0 ? (
         <>
           <AppSettingsForm
             schema={configurationSchema(fields, false, options.data)}
@@ -359,24 +387,19 @@ function InstallationCard({
           <Button type="button" size="sm" onClick={() => configure.mutate()}>Save</Button>
         </>
       ) : null}
-      {authorize.isError && <Text as="p" role="alert" variant="body-sm">{authorize.error.message}</Text>}
+      {error && <Text as="p" role="alert" variant="body-sm" tone="danger">{error.message}</Text>}
       <div className="flex gap-2">
         {available && oauth && (
           <Button type="button" size="sm" variant="secondary" onClick={() => authorize.mutate()}>
             Authorize
           </Button>
         )}
-        {available ? (
-          <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(true)}>
-            Configure
-          </Button>
-        ) : null}
         {available && row.upgrade_available ? (
           <Button
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() => connectorPackagesApi.upgrade(workspaceId, row.id).then(onChanged)}
+            disabled={lifecycle.isPending} onClick={() => lifecycle.mutate("upgrade")}
           >
             Upgrade
           </Button>
@@ -386,7 +409,7 @@ function InstallationCard({
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() => connectorPackagesApi.rollback(workspaceId, row.id).then(onChanged)}
+            disabled={lifecycle.isPending} onClick={() => lifecycle.mutate("rollback")}
           >
             Roll back
           </Button>
@@ -396,7 +419,7 @@ function InstallationCard({
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() => connectorPackagesApi.setEnabled(workspaceId, row.id, available ? !row.enabled : false).then(onChanged)}
+            disabled={lifecycle.isPending} onClick={() => lifecycle.mutate(row.enabled ? "disable" : "enable")}
           >
             {row.enabled ? 'Disable' : 'Enable'}
           </Button>
@@ -405,7 +428,10 @@ function InstallationCard({
           type="button"
           size="sm"
           variant="ghost"
-          onClick={() => connectorPackagesApi.remove(workspaceId, row.id).then(onChanged)}
+          disabled={lifecycle.isPending}
+          onClick={async () => {
+            if (await confirm(connectorRemoval(`${row.name} · ${row.id}`))) lifecycle.mutate("remove");
+          }}
         >
           Remove
         </Button>

@@ -402,27 +402,27 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
             enabled_path, **options, json={**_target(assigned), "enabled": True}
         )
         assert no_identity.status_code == 409
-        opted_in = await owner.post(
-            "/api/workspace/agent-profiles/publish",
-            headers=headers,
-            json={
-                "key": PROFILE,
-                "expected_revision": record.revision,
-                "enable_public_service_identity": True,
-            },
-        )
-        assert opted_in.status_code == 200, opted_in.text
-        record = await profile_management.record(workspace_id)
-        publication = record.profiles[PROFILE]["published"]["version"]
-        identity = profile_management.current_public_profile_service_identity(
-            record,
-            PROFILE,
-            publication,
-        )
-        assert identity is not None and identity.workspace_id == workspace_id
-        assert identity.identity_id not in opted_in.text
-        assigned = _row(await owner.get(MANAGE, **options))
-        assert publication != 3 and not assigned["can_enable"]
+    opted_in = await owner.post(
+        "/api/workspace/agent-profiles/publish",
+        headers=headers,
+        json={
+            "key": PROFILE,
+            "expected_revision": record.revision,
+            "enable_public_service_identity": True,
+        },
+    )
+    assert opted_in.status_code == 200, opted_in.text
+    record = await profile_management.record(workspace_id)
+    publication = record.profiles[PROFILE]["published"]["version"]
+    identity = profile_management.current_public_profile_service_identity(
+        record,
+        PROFILE,
+        publication,
+    )
+    assert identity is not None and identity.workspace_id == workspace_id
+    assert identity.identity_id not in opted_in.text
+    assigned = _row(await owner.get(MANAGE, **options))
+    assert publication != 3 and not assigned["can_enable"]
 
     def share_query(row):
         return {
@@ -509,6 +509,35 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
     assert await assembled.page_context(key, "https://other.example.invalid") is None
     if with_document:
         document = await visitor.get(share.json()["full_page_url"])
+        assert 'data-visitor-theme="system"' in document.text
+        appearance = {
+            **_target(enabled),
+            "expected_profile_revision": (
+                await profile_management.record(workspace_id)
+            ).revision,
+            "theme": "dark",
+        }
+        assert (
+            await second_user_client.put(
+                f"{CONNECTOR}/appearance", **options, json=appearance
+            )
+        ).status_code == 403
+        assert (
+            await owner.put(
+                f"{CONNECTOR}/appearance",
+                **options,
+                json={**appearance, "theme": "neon"},
+            )
+        ).status_code == 400
+        assert (
+            await owner.put(f"{CONNECTOR}/appearance", **options, json=appearance)
+        ).status_code == 200
+        assert (
+            await owner.put(f"{CONNECTOR}/appearance", **options, json=appearance)
+        ).status_code == 400
+        assert _target(_row(await owner.get(MANAGE, **options))) == _target(enabled)
+        document = await visitor.get(url.path)
+        assert 'data-visitor-theme="dark"' in document.text
         assert document.status_code == 200
         assert document.headers["cache-control"] == "no-store"
         assert 'id="public-web-chat-root"' in document.text
@@ -585,6 +614,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
                 "embed_policy_revision": 1,
             }
         ]
+        assert embedded_config.json()["client_api_origin"] == CLIENT_ORIGIN
         assert embedded_config.json()["full_page_share_check_available"] is True
         assert EMBED_REF not in embedded_config.text
         assert "embed_page_url" not in embedded_config.json()
@@ -678,6 +708,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
             unavailable_embed = await owner.get(
                 setup_path, headers=headers, params=active_config_params
             )
+            assert "client_api_origin" not in unavailable_embed.json()
             assert "approved_embed_policies" not in unavailable_embed.json()
             assert unavailable_embed.json()["full_page_share_check_available"] is True
             assert (
@@ -744,6 +775,23 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
                         "enable_public_service_identity": False,
                     },
                 )
+                assert (
+                    published.status_code == 400
+                    and "Disable Web Chat" in published.text
+                )
+                row = _row(await owner.get(MANAGE, **options))
+                paused = _row(
+                    await owner.put(
+                        enabled_path, **options, json={**_target(row), "enabled": False}
+                    )
+                )
+                assert paused["state"] != "active"
+                record = await profile_management.record(workspace_id)
+                published = await owner.post(
+                    "/api/workspace/agent-profiles/publish",
+                    headers=headers,
+                    json={"key": PROFILE, "expected_revision": record.revision},
+                )
                 assert published.status_code == 200, published.text
                 updated = await profile_management.record(workspace_id)
                 new_publication = updated.profiles[PROFILE]["published"]["version"]
@@ -754,7 +802,7 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
                         new_publication,
                     )
                 )
-                assert new_publication != publication and new_identity is None
+                assert new_publication != publication and new_identity is not None
             finally:
                 platform.release_model.set()
             rejected = await asyncio.gather(*pending)
@@ -787,12 +835,17 @@ async def test_configure_share_chat_retry_and_revoke_on_detached_apps(
             assert len(calls) == 7
 
     current_enabled = _row(await owner.get(MANAGE, **options))
-    disabled = _row(
-        await owner.put(
-            enabled_path, **options, json={**_target(current_enabled), "enabled": False}
+    if current_enabled["state"] == "active":
+        disabled = _row(
+            await owner.put(
+                enabled_path,
+                **options,
+                json={**_target(current_enabled), "enabled": False},
+            )
         )
-    )
-    assert int(disabled["route_epoch"]) == int(current_enabled["route_epoch"]) + 1
+        assert int(disabled["route_epoch"]) == int(current_enabled["route_epoch"]) + 1
+    else:
+        disabled = current_enabled
     assert disabled["state"] != "active"
     stale_share = await owner.get(
         share_path, headers=headers, params=share_query(enabled)
@@ -862,6 +915,7 @@ async def test_configure_reconciles_exact_committed_transitions(
     if failure != "approval":
         platform.approved.add(active)
     if failure == "timeout":
+        normal_post_commit_timeout = web_chat_provision_store._POST_COMMIT_SECONDS
         monkeypatch.setattr(web_chat_provision_store, "_POST_COMMIT_SECONDS", 0.05)
         approved_origin = platform.approved_ready_origin
 
@@ -934,6 +988,11 @@ async def test_configure_reconciles_exact_committed_transitions(
         platform.approved.add(active)
         if failure == "timeout":
             monkeypatch.setattr(platform, "approved_ready_origin", approved_origin)
+            monkeypatch.setattr(
+                web_chat_provision_store,
+                "_POST_COMMIT_SECONDS",
+                normal_post_commit_timeout,
+            )
         assert _row(await owner.get(MANAGE, **options))["state"] != "active"
         assert (
             await owner.get(share, headers=headers, params=query)
@@ -945,8 +1004,6 @@ async def test_configure_reconciles_exact_committed_transitions(
     proof = await owner.get(share, headers=headers, params=query)
     assert proof.status_code == 200
     key = urlsplit(proof.json()["full_page_url"]).path.rsplit("/", 1)[1]
-    # Even pre-approval for the new disabled epoch must not mint on Disable.
-    platform.approved.add(ManagedWebChatHostRoute(provision, "4", PROFILE, 3, False))
     disabled = _row(
         await owner.put(
             enabled_path, **options, json={**_target(enabled), "enabled": False}
@@ -954,7 +1011,36 @@ async def test_configure_reconciles_exact_committed_transitions(
     )
     assert disabled["route_epoch"] == "4" and not disabled["can_enable"]
     assert await assembled.page_context(key, ORIGIN) is None
-    assert _row(await owner.get(MANAGE, **options))["can_enable"] is False
+    assert (
+        await owner.put(
+            enabled_path, **options, json={**_target(disabled), "enabled": True}
+        )
+    ).status_code == 409
+
+    # Real host approval is required for each exact transition. No configure
+    # save, manual reconcile or retained visitor reference is required.
+    platform.approved.update(
+        {
+            ManagedWebChatHostRoute(provision, "4", PROFILE, 3, False),
+            ManagedWebChatHostRoute(provision, "5", PROFILE, 3, True),
+        }
+    )
+    assert _row(await owner.get(MANAGE, **options))["can_enable"] is True
+    assert await assembled.page_context(key, ORIGIN) is None
+    current = _row(
+        await owner.put(
+            enabled_path, **options, json={**_target(disabled), "enabled": True}
+        )
+    )
+    assert current["state"] == "active" and current["route_epoch"] == "5"
+    new_share = await owner.get(
+        share, headers=headers, params={**query, **_target(current)}
+    )
+    assert (
+        new_share.status_code == 200
+        and new_share.json()["full_page_url"] != proof.json()["full_page_url"]
+    )
+    assert await assembled.page_context(key, ORIGIN) is None
 
 
 @pytest.fixture

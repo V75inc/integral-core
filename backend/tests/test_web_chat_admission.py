@@ -24,6 +24,11 @@ pytestmark = pytest.mark.smoke
 
 @pytest.fixture
 def admitted(monkeypatch):
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     """Create an exact scoped session with a mutable simulated route."""
     provision = ExternalChatProvision("workspace", "public_web_chat", "provision")
     chat = ExternalChatConversation(provision, "conversation")

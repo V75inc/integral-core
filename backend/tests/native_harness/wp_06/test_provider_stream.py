@@ -533,6 +533,9 @@ async def test_provider_suppresses_output_after_work_item_fence_loss(
             async def events():
                 yield "first"
                 yield "late"
+                # The last candidate stays private. The next check belongs to
+                # the attempt to publish the settled result.
+                assert authority_checks == 2
 
             return events()
 
@@ -644,6 +647,11 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     # only during provider preparation, not trusted from the signed capsule.
     from unittest.mock import AsyncMock
 
+    # The synthetic workspace has no saved assistant persona.
+    monkeypatch.setattr(
+        "app.agentive.services.profile_management.workspace_assistant_persona",
+        AsyncMock(return_value=""),
+    )
     candidate = SimpleNamespace(id="attachment-prior")
     fresh_thread = SimpleNamespace(
         id=thread.id,
@@ -926,10 +934,17 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         "lookup remains read-only even when no matching record exists"
         in runtime_args["instructions"]
     )
-    assert (
-        "Earlier user commands are conversation history" in runtime_args["instructions"]
+    from app.agentive.harness.pydantic_ai_compat import build_integral_run_instructions
+
+    model_instructions = build_integral_run_instructions(runtime_args["instructions"])(
+        SimpleNamespace(active_capability_ids=set())
     )
-    assert "Never revive rejected, expired, stopped" in runtime_args["instructions"]
+    assert "historical context, not a backlog to execute" in model_instructions
+    assert "expired is no longer authorized" in model_instructions
+    assert (
+        "Never ask again for approval of a consumed or revoked proposal"
+        in model_instructions
+    )
     assert "do not invent alternate spellings" in runtime_args["instructions"]
     assert (
         "do not repeat the same call with unchanged inputs"

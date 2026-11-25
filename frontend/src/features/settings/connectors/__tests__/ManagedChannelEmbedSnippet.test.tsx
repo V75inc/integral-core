@@ -84,6 +84,11 @@ describe('detached embed proof', () => {
     expect(createElement).not.toHaveBeenCalled();
     expect(mount.childElementCount).toBe(0);
     run(fakeDocument, { location: { origin: policy.parentOrigin } });
+    const launcher = mount.querySelector('details')!;
+    expect(launcher.querySelector('summary')).toHaveTextContent('Chat with us');
+    expect(launcher.querySelector('iframe')).toBeNull();
+    launcher.open = true;
+    launcher.dispatchEvent(new Event('toggle'));
     const iframe = mount.querySelector('iframe');
     expect(iframe?.src).toBe(embed);
     expect(iframe?.title).toBe('Integral Web Chat');
@@ -136,7 +141,7 @@ describe('detached embed proof', () => {
   });
 
   it('never retains a prior proof across active state, actor/session, publication or embed policy changes', () => {
-    const forged = { ...proof, snippet: 'unvalidated' } as ManagedChannelEmbedRead;
+    const forged = { ...proof, frameUrl: 'unvalidated' } as ManagedChannelEmbedRead;
     const { rerender } = render(panel());
     for (const next of [
       panel({ channel: null }),

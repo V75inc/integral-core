@@ -39,6 +39,7 @@ PHASE_FIELDS = frozenset(
         "workspaceProfile",
         "skillMaterialization",
         "runtimeBuild",
+        "outputAuthority",
     }
 )
 
@@ -218,10 +219,10 @@ def turn_usage_limits(
     if timing is not None and timing.budget_settings is not None:
         adaptive_requests = max(adaptive_requests, timing.physical_requests)
         adaptive_tokens = max(adaptive_tokens, sum(timing.physical_tokens.values()))
+    remaining = max(0, requests - adaptive_requests)
     return UsageLimits(
-        request_limit=(
-            min(1, requests) if light else max(0, requests - adaptive_requests)
-        ),
+        # One ordinary request and at most one framework output correction.
+        request_limit=min(2, remaining) if light else remaining,
         tool_calls_limit=min(32, profile.get("tool_call_limit", 32)),
         total_tokens_limit=max(0, tokens - adaptive_tokens),
     )

@@ -255,8 +255,10 @@ domains:
           showing a result or taking the user to the relevant place helps their
           request. Discover actual resource and saved view IDs first; never guess
           URLs or IDs. This changes only the visible page, not data, and needs no
-          approval. It runs after your reply; keep the reply brief. Do not call it
-          for every answer, or claim a page opened if the tool refuses.
+          approval. It requests a page change after successful completion; keep
+          the reply brief and describe the requested destination. Browser voice
+          reports arrival separately after the destination renders. Do not call
+          it for every answer or claim arrival from a tool request alone.
         http: "(conversation context)"
         policy_action: null
         params:

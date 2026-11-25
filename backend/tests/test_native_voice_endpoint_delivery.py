@@ -11,7 +11,7 @@ from starlette.websockets import WebSocketState
 from app.agentive.api import native_voice as endpoint
 from app.services import chat_conversation_updates, chat_turn_submissions, native_voice
 from tests.test_native_voice import Browser, Provider, event
-from tests.test_native_voice_completion import _send_tool
+from tests.test_native_voice_completion import _send_tool, completed_readout
 
 
 class _EndpointBrowser(Browser):
@@ -44,6 +44,11 @@ class _EndpointBrowser(Browser):
 def _patch_endpoint(monkeypatch, provider):
     thread = SimpleNamespace(id="thread")
     check = AsyncMock(return_value=thread)
+    monkeypatch.setattr(
+        endpoint.Workspace,
+        "get",
+        AsyncMock(return_value=SimpleNamespace(name="Voice QA")),
+    )
     credential = SimpleNamespace(model="synthetic-model", api_key="synthetic-key")
     monkeypatch.setattr(endpoint.settings, "FRONTEND_ORIGIN", "http://127.0.0.1:9150")
     monkeypatch.setattr(endpoint.settings, "INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED", True)
@@ -97,7 +102,9 @@ async def test_endpoint_returns_authorized_thread_into_real_relay_and_reads_comp
         assert "accepted" in (await event(provider.outbox))["item"]["output"]
 
         status.return_value = ("succeeded", "The verified delegated result is ready.")
-        readout = (await event(provider.outbox))["response"]
+        readout = (await completed_readout(provider, "verified delegated result"))[
+            "response"
+        ]
         assert "The verified delegated result is ready." in readout["instructions"]
         assert all(args.args[1] is thread for args in status.await_args_list)
         assert endpoint.resolve_realtime_credential.await_count >= 2
@@ -112,10 +119,24 @@ async def test_endpoint_returns_authorized_thread_into_real_relay_and_reads_comp
             {
                 "type": "response.output_audio.delta",
                 "response_id": "done",
+                "item_id": "private-readout-item",
+                "content_index": 0,
                 "delta": "AAE=",
             }
         )
         assert await event(browser.outbox) == b"\x00\x01"
+        # This readout is outside the default conversation. Even a guessed
+        # playback handle must not truncate its audio or repeat delegated work.
+        await provider.inbox.put({"type": "input_audio_buffer.speech_started"})
+        assert await event(browser.outbox) == {"type": "flush"}
+        await browser.inbox.put(
+            {
+                "type": "websocket.receive",
+                "text": '{"type":"playback_interrupted","items":[[1,1]]}',
+            }
+        )
+        await browser.inbox.put({"type": "websocket.receive", "bytes": b"\x00\x01"})
+        assert (await event(provider.outbox))["type"] == "input_audio_buffer.append"
         submit.assert_awaited_once()
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})

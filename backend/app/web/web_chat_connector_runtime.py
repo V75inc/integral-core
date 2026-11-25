@@ -17,6 +17,8 @@ from app.connectors.channel_runtime import (
     ChannelOriginRoutes,
     ChannelRuntimeContribution,
 )
+from app.connectors.channel_share_check import SHARE_READ_PATH, bind_client_origin
+from app.schemas.agentive.managed_channels import ManageChannelShareQuery
 from app.web.full_page_chat import is_canonical_web_chat_origin
 from app.web.web_chat_client_composition import (
     ClientRequestBudget,
@@ -137,7 +139,7 @@ async def _profile_ready(
             or _assignment(current) != exact
         ):
             return None
-        identity = profile_management.current_public_profile_service_identity(
+        identity = await profile_management.live_public_service_identity(
             record, current.profile_key, current.published_version
         )
         if (
@@ -309,6 +311,23 @@ def compose_web_chat_connector(
             return await client.host_ready(
                 client.origin
             ) is True and await _profile_ready(serving, "client-api", exact)
+
+        async def client_origin(
+            slug: str, query: ManageChannelShareQuery
+        ) -> str | None:
+            if slug != SLUG:
+                return None
+            exact = ExternalChatAssignment(
+                ExternalChatProvision(query.workspace_id, slug, query.provision_id),
+                query.profile_key,
+                str(query.published_version),
+                query.route_epoch,
+            )
+            return client.origin if await client_ready(exact) else None
+
+        for route in hosted.share_router.routes:
+            if route.path == SHARE_READ_PATH:
+                bind_client_origin(route.endpoint, client_origin)
 
         sessions = PostgresWebChatClientSessions(
             database=client.database,

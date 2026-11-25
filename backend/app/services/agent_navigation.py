@@ -110,3 +110,47 @@ async def open_view_for_dispatch(
         },
         "message": "Ready to open after this reply. Reply with a brief destination link so the user can also open it later. Do not claim browser navigation has already completed.",
     }
+
+
+async def verify_voice_navigation(event, scope, page_context) -> bool:
+    """Reauthorize a committed native navigation event for its live call."""
+    import re
+
+    if (
+        not page_context
+        or event.get("thread_id") != scope.thread
+        or event.get("workspace_id") != scope.workspace
+    ):
+        return False
+    path = event.get("path")
+    if not isinstance(path, str):
+        return False
+    match = re.fullmatch(
+        r"/(apps|tracks|entries)/(n\.(?:WorkspaceApp|Track|Entry)\.[A-Za-z0-9_-]+)"
+        r"(?:\?(entry|view_id)=(n\.(?:Entry|View)\.[A-Za-z0-9_-]+))?",
+        path,
+    )
+    if not match:
+        return False
+    collection, identifier, query, value = match.groups()
+    kind = {"apps": "app", "tracks": "track", "entries": "entry"}[collection]
+    if query == "entry":
+        kind, identifier = "entry", value
+    bindings = [
+        (current_scope_workspace_id, scope.workspace),
+        (current_chat_thread_id, scope.thread),
+        (current_page_context_bound, True),
+        (current_page_context, page_context),
+    ]
+    tokens = [(variable, variable.set(value)) for variable, value in bindings]
+    try:
+        result = await open_view_for_dispatch(
+            user_id=scope.principal,
+            target_kind=kind,
+            target_id=identifier,
+            view_id=value if query == "view_id" else None,
+        )
+        return result.get("ok") is True and result["navigation"]["path"] == path
+    finally:
+        for variable, token in reversed(tokens):
+            variable.reset(token)

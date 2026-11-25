@@ -168,22 +168,34 @@ def test_module_origin_must_match_distribution_even_if_already_imported(
     assert registry.resolve(APPROVAL.slug) is None
 
 
+@pytest.mark.parametrize(
+    ("invalidate", "expected_error"),
+    [
+        pytest.param(lambda _: object(), "did not return", id="wrong-type"),
+        pytest.param(
+            lambda package: replace(package, serving=None),
+            "could not be registered",
+            id="missing-serving",
+        ),
+    ],
+)
 def test_factory_return_and_completeness_still_gate_final_registration(
-    installed_wheel, monkeypatch
+    installed_wheel, monkeypatch, invalidate, expected_error
 ):
     """An approved wheel still cannot reserve its slug with a bad package object."""
-    original_load = metadata.EntryPoint.load
+    (entry,) = metadata.distribution(APPROVAL.distribution).entry_points
+    # The active metadata finder may return the backport's EntryPoint.
+    entry_type = type(entry)
+    original_load = entry_type.load
 
     def broken_factory(entry):
         factory = original_load(entry)
-        return lambda: replace(factory(), serving=None)
+        return lambda: invalidate(factory())
 
     registry = ChannelPackageRegistry()
     with monkeypatch.context() as patch:
-        patch.setattr(metadata.EntryPoint, "load", broken_factory)
-        with pytest.raises(
-            ChannelPackageDiscoveryError, match="could not be registered"
-        ):
+        patch.setattr(entry_type, "load", broken_factory)
+        with pytest.raises(ChannelPackageDiscoveryError, match=expected_error):
             load_approved_channel_package(registry, APPROVAL)
         assert registry.resolve(APPROVAL.slug) is None
     assert (

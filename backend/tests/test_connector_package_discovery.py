@@ -65,6 +65,26 @@ def test_valid_folder_is_admitted_and_invalid_folder_is_not_offered(tmp_path: Pa
     assert "acme_crm" not in reasons
 
 
+def test_scan_diagnostics_do_not_echo_manifest_values_or_paths(tmp_path: Path):
+    """Schema and folder diagnostics only expose the failed rule."""
+    folder = tmp_path / "acme_crm"
+    folder.mkdir()
+    (folder / "connector.yaml").write_text(
+        _VALID.replace("version: 1.0.0", "version: /private/fixture-secret"),
+        encoding="utf-8",
+    )
+    (tmp_path / "bad folder fixture-secret").mkdir()
+    admission = scan_packages([tmp_path])
+    assert admission.packages == {}
+    assert admission.rejected == [
+        {"id": "acme_crm", "reason": "version: does not meet the pattern rule"},
+        {
+            "id": "Invalid package folder",
+            "reason": "use a valid connector ID as the folder name",
+        },
+    ]
+
+
 def test_http_mcp_cannot_declare_generated_env(tmp_path: Path):
     """generated_env belongs to a local process, not an HTTP MCP server."""
     folder = tmp_path / "http_mcp"
@@ -90,7 +110,9 @@ capabilities:
         encoding="utf-8",
     )
     _manifest, reason = load_package(folder)
-    assert "generated_env" in reason
+    assert (
+        reason == "capabilities.mcp: contains fields or values disallowed in this mode"
+    )
 
 
 def test_remote_package_is_rejected_without_importing_code(tmp_path: Path):
@@ -7067,7 +7089,7 @@ def test_core_specifier_must_include_this_core(tmp_path: Path, monkeypatch):
     manifest_path.write_text(_VALID + "core: '>=9'\n")
     manifest, reason = load_package(folder)
     assert manifest is None
-    assert reason == "core requires >=9"
+    assert reason == "core version requirement does not match this installation"
     manifest_path.write_text(_VALID + "core: 'not a specifier'\n")
     _manifest, reason = load_package(folder)
     assert reason == "core specifier is invalid"
@@ -9203,6 +9225,7 @@ async def test_workspace_cardinality_one_admits_one_concurrent_install(monkeypat
         created.append(row)
         return row
 
+    monkeypatch.setattr(svc, "require_installation_target", lambda *_: asyncio.sleep(0))
     monkeypatch.setattr(svc, "_manifest", lambda _package_id: _install_manifest(None))
     monkeypatch.setattr(svc.Connector, "find", fake_find)
     monkeypatch.setattr(svc, "create_connector", fake_create)
@@ -9225,6 +9248,7 @@ async def test_workspace_cardinality_one_admits_one_concurrent_install(monkeypat
 @pytest.mark.asyncio
 async def test_workspace_cardinality_many_allows_a_second_install(monkeypatch):
     """A package that declares many can be added twice in one workspace."""
+    import asyncio
     from types import SimpleNamespace
 
     from app.agentive.services import connector_packages as svc
@@ -9244,6 +9268,7 @@ async def test_workspace_cardinality_many_allows_a_second_install(monkeypatch):
         created.append(row)
         return row
 
+    monkeypatch.setattr(svc, "require_installation_target", lambda *_: asyncio.sleep(0))
     monkeypatch.setattr(svc, "_manifest", lambda _package_id: _install_manifest("many"))
     monkeypatch.setattr(svc.Connector, "find", fake_find)
     monkeypatch.setattr(svc, "create_connector", fake_create)

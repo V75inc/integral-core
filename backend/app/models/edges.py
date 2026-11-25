@@ -46,6 +46,16 @@ class HasConnectionProfiles(Edge):
 HAS_CONNECTION_PROFILES = HasConnectionProfiles
 
 
+class HasProfilePrincipal(Edge):
+    """WorkspaceConnectionProfiles → dedicated non-login User for one profile."""
+
+    profile_key: str
+    bidirectional: bool = False
+
+
+HAS_PROFILE_PRINCIPAL = HasProfilePrincipal
+
+
 class HasModelConfiguration(Edge):
     """Workspace → its single revision-bound model selection record."""
 

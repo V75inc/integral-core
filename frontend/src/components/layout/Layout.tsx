@@ -295,6 +295,7 @@ export function Layout() {
           }>
             <Outlet />
           </Suspense>
+          <AssistantDock />
         </div>
       </main>
 
@@ -311,7 +312,6 @@ export function Layout() {
       {/* Resident assistant — right-anchored dock plus its floating toggle.
           The dock squeezes <main> rather than covering it, so the page stays
           usable while the assistant is open. */}
-      <AssistantDock />
       <AssistantDockToggle />
 
       {/* ⌘K command palette — mounted at root so it overlays any page. */}

@@ -681,6 +681,28 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         if completion is None:
             import litellm
 
+            from app.services.model_settings import model_capabilities
+
+            if (
+                self._route.provider == "openai"
+                and kwargs.get("tools")
+                and (self._route.api_base or "https://api.openai.com/v1").rstrip("/")
+                == "https://api.openai.com/v1"
+                and model_capabilities(
+                    "openai", self._route.model.removeprefix("openai/")
+                ).get("requires_responses_for_tools")
+            ):
+                litellm.register_model(
+                    {
+                        self._route.model: {
+                            "litellm_provider": "openai",
+                            "mode": "responses",
+                            "supports_native_streaming": True,
+                            "supports_function_calling": True,
+                            "supports_tool_choice": True,
+                        }
+                    }
+                )
             completion = litellm.acompletion
         if (
             self._route.provider == "openai"
@@ -911,6 +933,25 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             kwargs["api_key"] = self._route.api_key.get_secret_value()
         else:
             kwargs.pop("api_key", None)
+
+        # The pinned SDK's public Responses bridge needs reviewed native
+        # metadata for this newer family. Without native streaming metadata,
+        # it fabricates events that duplicate complete tool arguments.
+        from app.services.model_settings import model_capabilities
+
+        native_responses = self._route.provider == "openai" and model_capabilities(
+            "openai", self._route.model.removeprefix("openai/")
+        ).get("requires_responses_for_tools")
+        if native_responses and (
+            not kwargs.get("tools")
+            or (
+                self._route.api_base
+                and self._route.api_base.rstrip("/") != "https://api.openai.com/v1"
+            )
+        ):
+            kwargs["skip_responses_api_bridge"] = True
+        elif native_responses:
+            kwargs["allowed_openai_params"] = ["tool_choice"]
 
         for attempt in range(1, self._max_attempts + 1):
             request_id = str(uuid4())
@@ -1349,7 +1390,10 @@ def build_litellm_sdk_model(
     if context_window is None:
         context_window = route.ollama_num_ctx
     if context_window is None:
-        from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+        from app.services.model_provider_endpoints import (
+            GEMINI_API_BASE,
+            OLLAMA_CLOUD_API_BASE,
+        )
         from app.services.model_settings import model_capabilities
 
         # Use the same pinned, network-free capability metadata as Settings.
@@ -1358,7 +1402,8 @@ def build_litellm_sdk_model(
         cloud_ollama = (
             route.provider == "ollama_chat" and route.api_base == OLLAMA_CLOUD_API_BASE
         )
-        if route.api_base is None or cloud_ollama:
+        google_api = route.provider == "gemini" and route.api_base == GEMINI_API_BASE
+        if route.api_base is None or cloud_ollama or google_api:
             provider_name = "ollama" if cloud_ollama else route.provider
             model_name = route.model.removeprefix(f"{route.provider}/")
             context_window = model_capabilities(provider_name, model_name).get(
@@ -1373,6 +1418,9 @@ def build_litellm_sdk_model(
     )
     from app.services.model_settings import mandatory_adaptive_thinking
 
+    # LiteLLM's Ollama chat adapter drops tool_choice for every model.
+    if route.provider == "ollama_chat":
+        profile = {**(profile or {}), "supports_forced_tool_choice": False}
     if route.api_base is None and mandatory_adaptive_thinking(
         route.provider, route.model
     ):

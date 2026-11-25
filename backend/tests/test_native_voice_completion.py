@@ -22,6 +22,16 @@ async def _send_tool(provider, response_id, call_id, operation="request"):
     await provider.inbox.put(item)
 
 
+async def completed_readout(provider, expected):
+    context = await event(provider.outbox)
+    assert context["type"] == "conversation.item.create"
+    assert context["item"]["role"] == "system"
+    content = context["item"]["content"][0]["text"]
+    assert "historical data" in content and "permission" in content
+    assert expected in content
+    return await event(provider.outbox)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("initial", ["running", "waiting_for_human"])
 async def test_completion_follows_ordinary_speech_without_new_work(
@@ -79,7 +89,7 @@ async def test_completion_follows_ordinary_speech_without_new_work(
                 "response": {"id": "ordinary", "status": "completed"},
             }
         )
-        old = await event(provider.outbox)
+        old = await completed_readout(provider, "exact workspace result")
         assert "exact workspace result" in old["response"]["instructions"]
         assert (old["response"]["tool_choice"], old["response"]["conversation"]) == (
             "none",
@@ -220,7 +230,7 @@ async def test_pending_completion_recovers_when_provider_neither_replies_nor_spe
         # The provider detected a brief sound, but did not generate any
         # conversational reply; the caller is now quiet again.
         await provider.inbox.put({"type": "input_audio_buffer.speech_stopped"})
-        initial = await event(provider.outbox)
+        initial = await completed_readout(provider, "A committed result")
         assert "A committed result is ready." in initial["response"]["instructions"]
         if failure == "error":
             await provider.inbox.put(
@@ -325,7 +335,7 @@ async def test_visible_admission_remains_watched_if_initial_status_is_unavailabl
         await provider.inbox.put(
             {"type": "response.done", "response": {"id": "ack", "status": "completed"}}
         )
-        result = await event(provider.outbox)
+        result = await completed_readout(provider, "Verified result from chat")
         assert "Verified result from chat." in result["response"]["instructions"]
         assert relay.protocol_counts["durable_result_unverified"] == 1
         await provider.inbox.put(
@@ -353,3 +363,107 @@ async def test_visible_admission_remains_watched_if_initial_status_is_unavailabl
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await call
+
+
+@pytest.mark.asyncio
+async def test_running_work_announces_pending_review_once_then_actual_result(
+    monkeypatch,
+):
+    """One intermediate readout leaves the receipt available for the terminal result."""
+    browser, provider = Browser(), Provider()
+    thread = SimpleNamespace(id="thread")
+    scope = native_voice.VoiceScope("caller", "workspace", "", thread.id)
+    check = AsyncMock(return_value=thread)
+    current = ["running", None]
+    receipt = SimpleNamespace(work_item_id="work", message_id="accepted")
+    monkeypatch.setattr(native_voice, "authorize", check)
+    monkeypatch.setattr(
+        native_voice,
+        "_delegated_status",
+        AsyncMock(side_effect=lambda *_: tuple(current)),
+    )
+    monkeypatch.setattr(
+        chat_turn_submissions, "submit_chat_turn", AsyncMock(return_value=receipt)
+    )
+    monkeypatch.setattr(native_voice, "RESULT_IDLE_SECONDS", 0.01)
+    monkeypatch.setattr(native_voice, "RESULT_POLL_SECONDS", 0.01)
+    relay = native_voice.VoiceRelay(browser, provider, scope, check=check)
+    call = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        await _send_tool(provider, "r1", "c1")
+        assert "accepted" in (await event(provider.outbox))["item"]["output"]
+        current[:] = ["waiting_for_human", None]
+        review = (await event(provider.outbox))["response"]
+        assert "not been applied" in review["instructions"]
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "review", "metadata": review["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "review",
+                "delta": "AAI=",
+            }
+        )
+        assert await event(browser.outbox) == b"\x00\x02"
+        await provider.inbox.put(
+            {
+                "type": "response.done",
+                "response": {"id": "review", "status": "completed"},
+            }
+        )
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(provider.outbox.get(), 0.06)
+        assert "work" in relay.result_receipts
+        current[:] = ["succeeded", "The record is saved."]
+        final = (await completed_readout(provider, "The record is saved."))["response"]
+        assert "The record is saved." in final["instructions"]
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await call
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["running", "succeeded", "waiting_for_human"])
+async def test_follow_through_can_advance_visible_completed_work(monkeypatch, status):
+    """A new explicit action progresses after a visible plan, with review intact."""
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    thread = SimpleNamespace(id=scope.thread)
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser, provider, scope, check=AsyncMock(return_value=thread)
+    )
+    relay.accepted = native_voice._AcceptedVoiceTurn(
+        "plan", "message", "Plan a workspace app"
+    )
+    relay.pending = asyncio.create_task(asyncio.Event().wait())
+    previous = relay.pending
+    state = (status, "The plan is ready." if status == "succeeded" else None)
+    monkeypatch.setattr(
+        native_voice, "_delegated_status", AsyncMock(return_value=state)
+    )
+    perform = AsyncMock()
+    monkeypatch.setattr(relay, "_work", perform)
+    try:
+        await relay._start_requested_work(
+            "build", "Implement the plan in our chat", "request"
+        )
+        if status == "succeeded":
+            await relay.pending
+            assert previous.cancelled()
+            perform.assert_awaited_once_with(
+                "build", "Implement the plan in our chat", relay.generation, None
+            )
+        else:
+            assert relay.pending is previous
+            perform.assert_not_awaited()
+            assert "still active" in (await event(provider.outbox))["item"]["output"]
+    finally:
+        previous.cancel()
+        await asyncio.gather(previous, return_exceptions=True)

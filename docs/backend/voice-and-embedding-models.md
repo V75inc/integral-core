@@ -4,20 +4,25 @@ The [semantic search improvement contract](../platform/knowledge-retrieval-v1.md
 distinguishes the initial hardening delivery from remaining resource, migration
 and integration gates. This guide describes the implemented configuration.
 
-Settings → AI Models → Models groups configuration into a single-open accordion:
-Language & multimodal (existing chat profiles and Light/Heavy routing), Embeddings
-(workspace semantic search), Images and documents (attachment processing),
-Speech to Text, and Realtime Voice. Providers remains the single private
-connection/key catalog. Compatible registered models can be assigned directly
-in the voice sections; existing assignments stay visible even if they are not
-registered. Dictation preferences are separate from the transcription model.
+In **Settings → AI Models**, choose a provider in **Quick Configuration**.
+Integral registers its recommended model profiles in **Advanced Configuration →
+Providers & Models**, then assigns the applicable defaults. Use **Add provider**
+or **Add a model** in that catalog to extend the choices. Each assignment
+shows the eligible saved profiles. A settings or preferences link appears under
+the dropdown, aligned on the right, when there are additional controls.
+
+| Assignment | Automatic selection and overrides |
+| --- | --- |
+| Language & multimodal | A new provider selects its main chat profile. Choose single-model or Light + Heavy routing and edit the selected profile’s settings. |
+| Images and documents | Automatic follows the main connection’s saved vision profile, with compatible chat fallback. A saved explicit override or Off survives provider changes. |
+| Speech to Text | OpenAI setup assigns transcription when dictation has no existing choice or effective model. Voice input preferences control dictation behavior. |
+| Realtime Voice | OpenAI setup selects the supported realtime profile for an unconfigured workspace. Existing settings, including an explicit Off, are retained. |
+| Embeddings | When provider encoders are supported and no choice has been saved, the dropdown preselects the main connection’s registered recommendation for review. The active label names the serving model. Provider processing starts only after consent and index verification as described below. |
 
 ## Embedding choice
 
 Local/deployment defaults remain unchanged, including existing profile IDs and
-local capability-search embeddings. The current owner may select an owned OpenAI,
-OpenRouter, Ollama or custom OpenAI-compatible connection, an embedding model ID,
-and 16–2,000 output dimensions. Anthropic is excluded because it offers no native
+local capability-search embeddings. Register the encoder on an owned OpenAI, Google (Gemini), OpenRouter, Ollama or custom OpenAI-compatible connection. For a custom model ID, select **Use as an embedding encoder** in the catalog. Choose the registered profile in **Embeddings** and review its 16–2,000 output dimensions under **Dimensions and consent**. Anthropic is excluded because it offers no native
 embedding API. Model availability is provider-specific: Test model verifies a
 synthetic phrase, never workspace content, and does not activate the selection.
 
@@ -78,9 +83,19 @@ documents. The deployment setting `ATTACHMENT_IMAGE_DESCRIPTIONS_ENABLED` must
 also permit it; unsupported stores expose the feature as unavailable. Native
 document text extraction remains separate from this image setting.
 
-Image analysis uses the configured Heavy model if it supports vision, otherwise
-the configured vision-capable Light model. It does not require another provider
-key or an embedding model. With no compatible route, images retain file details
+Choose a registered profile in the inline **Vision model** dropdown, then
+choose **Save vision model**. Choices come from **Providers & Models** and
+include saved multimodal chat profiles with supported image input. A saved
+provider connection alone contributes no model choices. **Image processing
+preferences**, directly below the selector on the right, controls
+automatic processing separately. The default model choice is **Automatic**. The automatic choice
+follows the recommended vision profile on the main model’s saved connection.
+Without that profile, older configurations continue to try compatible Heavy
+and Light chat routes. An explicit selection is independent of the chat
+default. It uses its own saved connection and stops serving if the profile
+becomes unavailable. Off retains the choice. Model setup can be prepared on
+a deployment where automatic processing is unavailable. See the
+[provider recommendations](model-credentials-byok.md#provider-presets). With no compatible route, images retain file details
 without generated descriptions. Automatic processing sends a resized image to
 that provider and can incur usage charges; turning it off prevents new admitted
 analysis, but cannot recall a request already dispatched. Analysis has no chat
@@ -106,8 +121,8 @@ revocation and cannot fund model requests.
 
 ## In-app realtime calls
 
-The waveform control starts a call in the selected authenticated workspace and
-agent profile. The relay requests one opening after readiness and yields to a
+The waveform control on Home or in native chat starts a call in the selected
+authenticated workspace and agent profile. Changing either starts a new call. The relay requests one opening after readiness and yields to a
 caller who speaks first. Recent activity in that same conversation may guide a
 welcome back; this does not load a recap of past conversations. A voice-first
 call creates and selects a conversation after provider readiness, and reuses
@@ -125,10 +140,18 @@ disconnecting the call, muting the assistant, or cancelling delegated work.
 A new call starts with the microphone unmuted. Mute does not recall audio that
 has already been sent.
 
-Use the authenticated approval card to approve or reject a proposed change.
-Spoken acknowledgments and model tool calls do not authorize a decision.
-Ending a call does not
-cancel a pending approval. This pilot does not enable phone or WhatsApp voice.
+The workspace assistant can read a supported reversible edit of the record
+you selected by voice. For an explicit approve or reject request, a compatible
+browser reads the actual change and a one-use challenge through a local device
+voice or offline host synthesis. Mac hosts use the built-in speech synthesizer.
+The Core runtime container includes eSpeak NG. Linux wheel installations can
+install eSpeak NG as a host package. Generated audio is bounded and temporary.
+The configured batch-capable Speech to Text model independently recognizes
+your response. Only a matching, unexpired confirmation for that
+exact current proposal enters the shared approval service. Other changes use
+the authenticated approval card. Model tool calls and ordinary spoken
+acknowledgments have no approval authority. Ending a call does not cancel a
+pending approval. This pilot does not enable phone or WhatsApp voice.
 
 
 ### Live voice tool boundary
@@ -140,8 +163,11 @@ The realtime model can search the canonical tool catalogue while Heavy is
 running. Quick capability discovery is private to the default workspace
 assistant. The first reviewed reads are visible apps, visible tracks, and
 the caller’s accessible workspace names; workspace output identifies the
-current workspace without switching to another one. Chat status and the
-explicit queue and revise controls remain separate voice lifecycle tools.
+current workspace without switching to another one. A direct spoken navigation
+tool reuses these reads and the canonical record listing service, holds a
+bounded numbered list, including authorized saved views, and passes a revalidated selected location into native
+chat. Chat status, saved-reply paging, explicit cancellation, queue and revise
+remain separate voice lifecycle tools.
 
 To add a quick capability, review a local, scoped, paginated GET binding and
 its data classification, then enroll its one label-only collection in the

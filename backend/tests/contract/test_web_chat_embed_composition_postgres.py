@@ -53,6 +53,11 @@ async def test_built_embed_without_cookies_and_policy_invalidation(
             }
         },
     )
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     monkeypatch.setattr(profile_management, "record", AsyncMock(return_value=record))
     unavailable_global = AsyncMock(
         side_effect=AssertionError("Global hook is not embed authority")

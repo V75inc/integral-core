@@ -33,6 +33,11 @@ class ManageChannelProfileAssignment(ManageChannelProvision):
     profile_key: str | None = Field(min_length=1, max_length=128)
 
 
+class ManageWebChatAppearance(ManageChannelProvision):
+    expected_profile_revision: int = Field(ge=0)
+    theme: Literal["light", "dark", "system"]
+
+
 class ManageChannelShareQuery(ManageChannelProvision):
     """Bind the read to the exact scoped publication."""
 
@@ -70,6 +75,9 @@ class PrivateWebChatTestTurn(ManageChannelProvision):
     profile_key: str = Field(min_length=1, max_length=128)
     published_version: int = Field(ge=1, le=9007199254740991)
     text: str = Field(min_length=1, max_length=1000)
+    model_id: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    )
 
 
 class PrivateWebChatTestReply(ManageChannelShareQuery):

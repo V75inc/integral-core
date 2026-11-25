@@ -34,7 +34,7 @@ function identity(value: string, max = 256): boolean {
 
 /** One deliberate authenticated call. Never retries or persists test data. */
 export async function runManagedWebChatPrivateTest(
-  owner: Readonly<ManagedWebChatPrivateTestOwner>, text: string, signal: AbortSignal,
+  owner: Readonly<ManagedWebChatPrivateTestOwner>, text: string, signal: AbortSignal, modelId?: string,
 ): Promise<string> {
   const unavailable = () => new Error('Could not verify the private Web Chat test');
   const captured = { ...owner };
@@ -78,7 +78,7 @@ export async function runManagedWebChatPrivateTest(
       },
       body: JSON.stringify({
         provision_id: captured.provisionId, route_epoch: captured.routeEpoch,
-        profile_key: captured.profileKey, published_version: captured.publishedVersion, text: text.trim(),
+        profile_key: captured.profileKey, published_version: captured.publishedVersion, text: text.trim(), ...(modelId ? { model_id: modelId } : {}),
       }),
       signal: controller.signal,
     });

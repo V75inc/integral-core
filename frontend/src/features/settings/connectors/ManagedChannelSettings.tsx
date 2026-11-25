@@ -1,11 +1,15 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import './managedChannelSettings.css';
+import { WebChatAppearance } from './WebChatAppearance';
+import { type VisitorTheme } from '../../public-web-chat/visitorTheme';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Braces, ChevronDown, Code2, ExternalLink, MessageCircle, Palette, type LucideIcon } from 'lucide-react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
 import { managedChannelsApi, type ManagedChannel, type ManagedChannelChange } from '../../../api/managedChannels';
 import { getSessionGeneration } from '../../../api/session';
 import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
-import { Text } from '../../../ui';
+import { Surface, Text, Textarea } from '../../../ui';
 import { StatusPill } from '../components/Field';
 import { ManagedChannelProfileAssignment } from './ManagedChannelProfileAssignment';
 import { ManagedWebChatPrivateTest } from './ManagedWebChatPrivateTest';
@@ -100,6 +104,17 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
   const canEnable = channel?.connected && channel.can_enable && (!hasProfileAssignment || assignedEligible);
   const canEditProfile = profile?.editable === true && channel?.state !== 'active';
   const configuringWebChat = channel?.connected && channel.definition.visitor_surface === true;
+  const draftKey = JSON.stringify([scopeKey, generationKey, profile?.profile_revision]);
+  const [draft, setDraft] = useState<{key: string; value: string} | null>(null);
+  const chosenProfile = draft?.key === draftKey ? draft.value : profile?.profile_key ?? '';
+  const [appearanceDraft, setAppearanceDraft] = useState<{ key: string; theme: VisitorTheme }>();
+  const savedTheme = profile?.theme ?? 'system';
+  const selectedTheme = appearanceDraft?.key === draftKey ? appearanceDraft.theme : savedTheme;
+  const appearanceDirty = Boolean(profile && selectedTheme !== savedTheme);
+  const dirty = Boolean(profile && (chosenProfile || null) !== profile.profile_key);
+  const canSaveConfiguration = !busy && (dirty ? canEditProfile &&
+    (!chosenProfile || profile?.eligible_profiles.some(choice => choice.key === chosenProfile)) : appearanceDirty);
+  const [savingConfiguration, setSavingConfiguration] = useState(false);
   const assignedPublication = channel?.connected && profile &&
     profile.provision_id === channel.provision_id && profile.route_epoch === channel.route_epoch &&
     assignedEligible && profile.profile_key && profile.published_version &&
@@ -144,7 +159,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
     }
   }
 
-  type Change = ManagedChannelChange | { kind: 'profile'; profileKey: string | null };
+  type Change = ManagedChannelChange | { kind: 'profile'; profileKey: string | null; theme?: VisitorTheme } | { kind: 'appearance'; theme: VisitorTheme };
   async function submit(change: Change) {
     if (!channel || submitting.current || !mounted.current) return;
     if (change.kind === 'profile' &&
@@ -153,6 +168,8 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
           (change.profileKey !== null && !profile.eligible_profiles.some(choice => choice.key === change.profileKey)))) return;
     if (change.kind === 'enabled' && change.enabled && !canEnable) return;
     submitting.current = true;
+    const configuring = change.kind === 'profile' || change.kind === 'appearance';
+    setSavingConfiguration(configuring);
     setBusy(true);
     setError(null);
     setProfileSaved(false);
@@ -163,7 +180,9 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
       try {
         if (change.kind === 'profile' && profile && generation) {
           await managedChannelsApi.assignProfile(workspaceId, selection.slug, generation, profile.profile_revision, change.profileKey);
-        } else if (change.kind !== 'profile') {
+        } else if (change.kind === 'appearance' && profile) {
+          await managedChannelsApi.saveAppearance(workspaceId, profile, change.theme);
+        } else if (change.kind !== 'profile' && change.kind !== 'appearance') {
           await managedChannelsApi.change(workspaceId, selection.slug, change);
         }
         saved = true;
@@ -172,6 +191,12 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
       }
       if (!mounted.current) {
         onAbandoned();
+        return;
+      }
+      if (change.kind === 'appearance') {
+        const readback = await profileQuery.refetch();
+        if (mounted.current && saved && readback.isSuccess && readback.data.theme === change.theme) setProfileSaved(true);
+        else if (mounted.current) setError('Could not verify the saved appearance.');
         return;
       }
       const fresh = await query.refetch();
@@ -189,6 +214,12 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
               principalId, workspaceId, selection.slug, nextGeneration,
               next.definition.visitor_surface === true,
             ));
+            if (saved && change.theme && currentProfile.profile_key === change.profileKey && mounted.current) {
+              await managedChannelsApi.saveAppearance(workspaceId, currentProfile, change.theme);
+              currentProfile = await qc.fetchQuery(managedProfileOptions(
+                principalId, workspaceId, selection.slug, nextGeneration, true,
+              ));
+            }
           } catch {
             // A failed readback cannot confirm persistence.
           }
@@ -196,7 +227,8 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
         if (!mounted.current) return;
         if (saved && profile && currentProfile &&
             currentProfile.profile_revision > profile.profile_revision &&
-            currentProfile.profile_key === change.profileKey) {
+            currentProfile.profile_key === change.profileKey &&
+            (!change.theme || currentProfile.theme === change.theme)) {
           setProfileSaved(true);
         } else {
           setError('Could not verify the profile assignment. Review the current settings before trying again.');
@@ -233,12 +265,14 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
       if (mounted.current) setError('Could not verify the current channel status. Check it again before trying another change.');
     } finally {
       submitting.current = false;
-      if (mounted.current) setBusy(false);
+      if (mounted.current) { setBusy(false); setSavingConfiguration(false); }
     }
   }
 
   return (
     <Modal open title={`${selection.action === 'add' ? 'Add' : 'Configure'} ${selection.name}`}
+      titleIcon={configuringWebChat ? <MessageCircle size={19} aria-hidden /> : undefined}
+      headerActions={configuringWebChat && channel ? <ManagedChannelStatus channel={channel} /> : undefined}
       onClose={() => { if (!submitting.current) onClose(); }}>
       <Modal.Body>
         <div className="flex flex-col gap-3">
@@ -248,11 +282,17 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
           )}
           {channel && (
             <>
-              <Text as="p">{channel.definition.description}</Text>
-              <Text as="p" variant="body-sm" tone="muted">
-                Connection scope: Workspace. This channel is configured for the selected workspace.
-              </Text>
-              <div><ManagedChannelStatus channel={channel} /></div>
+              {configuringWebChat && !confirmingRemove ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Text as="p" variant="body-sm" tone="muted" className="min-w-0 flex-1">{channel.definition.description}</Text>
+                </div>
+              ) : <>
+                <Text as="p">{channel.definition.description}</Text>
+                <Text as="p" variant="body-sm" tone="muted">
+                  Connection scope: Workspace. This channel is configured for the selected workspace.
+                </Text>
+                <div><ManagedChannelStatus channel={channel} /></div>
+              </>}
               {awaitingReadiness && !confirmingRemove ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <Text as="p" variant="body-sm" role="status" tone="muted">
@@ -264,7 +304,7 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
               ) : webChatDraft && !confirmingRemove ? (
                 <div className="flex flex-col items-start gap-2">
                   <Text as="p" variant="body-sm" tone="muted">
-                    Web Chat is added but not live. You can save an eligible published public profile while hosting setup is pending.
+                    {assignedPublication ? 'Your profile is saved. Ask the hosting operator to approve the current installation generation and verify its visitor host, then reopen Configure.' : 'Web Chat is added but not live. Save an eligible published public profile to continue setup.'}
                   </Text>
                   {profile && (
                     <Text as="p" variant="body-sm">
@@ -278,10 +318,8 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                       Setting up the identity does not enable Web Chat or grant access to workspace data.
                     </Text>
                   )}
-                  <Button type="button" variant="ghost" size="sm" disabled={busy}
-                    onClick={() => void retryProfileCheck()}>Refresh setup status</Button>
                 </div>
-              ) : (
+              ) : configuringWebChat ? null : (
                 <Text as="p" variant="body-sm" tone="muted">
                   {!channel.connected
                     ? channel.definition.visitor_surface === true
@@ -292,12 +330,25 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                       : 'Manage whether this channel can receive messages for the workspace.'}
                 </Text>
               )}
+            {channel.connected && !configuringWebChat && generation && !confirmingRemove && (channel.can_enable || channel.state === 'active' || channel.state === 'unavailable') && (
+              <Button type="button" size="sm" variant={channel.can_enable ? 'primary' : 'secondary'} disabled={busy || (channel.can_enable && !canEnable)}
+                onClick={() => void submit({ kind: 'enabled', enabled: channel.can_enable, generation })}>
+                {channel.can_enable ? 'Enable channel' : 'Disable channel'}
+              </Button>
+            )}
               {hasProfileAssignment && !confirmingRemove && (
-                <>
+                <Surface tone={configuringWebChat ? "panel-2" : "panel"} border="subtle" radius="card" padding="md">
+                  {configuringWebChat && <Text as="h3" variant="heading-sm" weight="semibold" className="mb-3">Agent setup</Text>}
                   {profile ? (
                     <ManagedChannelProfileAssignment
                       key={JSON.stringify([generationKey, profile.profile_revision])}
                       configuration={profile}
+                      compact={Boolean(configuringWebChat)}
+                      active={channel.state === 'active'}
+                      value={configuringWebChat ? chosenProfile : undefined}
+                      onDraft={configuringWebChat ? value => {
+                        setDraft({key: draftKey, value}); setProfileSaved(false); setError(null);
+                      } : undefined}
                       locked={busy || !canEditProfile}
                       onSave={profileKey => void submit({ kind: 'profile', profileKey })}
                     />
@@ -311,46 +362,69 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
                   ) : (
                     <Text as="p" variant="body-sm" role="status" tone="muted">Checking the published profile assignment…</Text>
                   )}
-                </>
+                  {configuringWebChat && dirty && <Text as="p" role="status" variant="body-sm" tone="muted" className="mt-2">Save configuration to test the selected profile.</Text>}
+                  {!dirty && privateTestOwner && profile && <div className="mt-3">
+                    <ManagedWebChatPrivateTest owner={privateTestOwner} profileRevision={profile.profile_revision} modelId={profile.private_test_model} />
+                  </div>}
+                  {configuringWebChat && !dirty && !privateTestOwner && <Text as="p" variant="body-sm" tone="muted" className="mt-2">
+                    {assignedPublication ? 'Private test requires an approved test model and capacity for this installation.'
+                      : 'Save an eligible published agent profile with a dedicated service identity to test privately.'}
+                  </Text>}
+                </Surface>
               )}
-              {privateTestOwner && profile && <ManagedWebChatPrivateTest owner={privateTestOwner} profileRevision={profile.profile_revision} />}
               {configuringWebChat && !confirmingRemove && (
-                <div className="flex flex-col gap-2">
-                  <Text as="h3" variant="body-sm" weight="semibold">Publishing and sharing</Text>
-                  <Text as="p" variant="body-sm" tone="muted">
-                    Hosting and publishing belong to this Web Chat connector. There is no separate connector to install.
-                  </Text>
-                  <Text as="p" variant="body-sm" tone="muted">
-                    {channel.state !== 'active'
-                      ? channel.can_enable
-                        ? 'Hosting is ready, but Web Chat is not live. Full-page links, embed code and API access are not available yet.'
-                        : 'Hosting readiness is not confirmed. No full-page link, embed code or API access is available here.'
-                      : !currentPublication
-                        ? 'Sharing details require a verified current published public profile.'
-                        : currentEmbedPolicies
-                          ? currentShareSource
-                            ? 'Check the full-page link or select an approved site to check embed code. No verified API access details are available here.'
-                            : 'Select an approved site to check embed code. No verified full-page link or API access details are available here.'
-                          : currentShareSource
-                            ? 'Check the full-page link below. No verified embed code or API access details are available here.'
-                            : 'No verified full-page link, embed code or API access details are available here.'}
-                  </Text>
-                </div>
+                <SharingGroup title="Appearance" description="Choose the visitor chat theme." icon={Palette} available mountOnOpen>
+                <WebChatAppearance value={selectedTheme} disabled={!profile || busy}
+                  onChange={theme => {
+                    setAppearanceDraft({ key: draftKey, theme });
+                    setProfileSaved(false);
+                    setError(null);
+                  }} />
+                </SharingGroup>
               )}
-              {currentShareSource && currentPublication && profile && channel.connected && (
-                <ManagedChannelShareControl channel={channel} source={currentShareSource}
-                  profileRevision={profile.profile_revision} publication={currentPublication} />
-              )}
+              {configuringWebChat && !confirmingRemove && (
+                <section aria-label="Sharing and publishing">
+                  <Text as="h3" variant="heading-sm" weight="semibold" className="mb-1">Sharing and publishing</Text>
+                  {channel.state !== 'active' && <Text as="p" variant="body-sm" tone="muted">Publishing requires an enabled channel with a saved profile and approved hosting.</Text>}
+                  <div className="divide-y divide-[var(--border-subtle)]">
+                  <SharingGroup icon={Braces} description="Connect your own chat interface through a server." title="Developer API" available={Boolean(currentManagerScope && profile?.client_api_origin)}>
+                  {currentManagerScope && profile?.client_api_origin
+                    ? <ClientEndpoint key={JSON.stringify([scopeKey, generationKey, currentPublication, profile.client_api_origin])}
+                        origin={profile.client_api_origin} />
+                    : <Text as="p" variant="body-sm" tone="muted">A copyable endpoint requires an enabled installation and a separately approved HTTPS client API host for this publication.</Text>}
+                  <div>
+                    <Text as="h4" variant="body-sm" weight="medium">Developer specification</Text>
+                    <Text as="p" variant="body-sm">Call from your application's server. Exchange a scoped grant using POST /api/v1/web-chat/sessions with bearer authentication and an empty body. Keep the grant and returned session_token on the server.</Text>
+                    <Text as="p" variant="body-sm">With the session bearer, GET /api/v1/web-chat/session reads history. POST /api/v1/web-chat/session/messages accepts JSON with id (1–128 letters, digits, underscores or hyphens) and text (up to 1,000 characters). Reuse the same id and text to retry a pending turn. Handle 202 as pending, 409 as conflicting reuse and 401 as expired or revoked access.</Text>
+                  </div>
+                  </SharingGroup>
+                  <SharingGroup icon={Code2} description="Add a popup launcher to an approved website." title="Website embed" available={Boolean(currentEmbedPolicies)}>
+                    {!currentEmbedPolicies && <Text as="p" variant="body-sm" tone="muted">Approve the website’s exact HTTPS origin and a distinct embed host for the enabled publication to get its launcher code.</Text>}
               {currentManagerScope && currentPublication && currentEmbedPolicies && profile && channel.connected && (
                 <ManagedChannelApprovedEmbedSharing scope={currentManagerScope} channel={channel}
                   publication={currentPublication} profileRevision={profile.profile_revision} policies={currentEmbedPolicies} />
+              )}
+                  </SharingGroup>
+                  <SharingGroup mountOnOpen icon={ExternalLink} description="Open or share a standalone visitor page." title="Full-page chat" available={Boolean(currentShareSource)}>
+                    {!currentShareSource && <Text as="p" variant="body-sm" tone="muted">Enable Web Chat with a verified visitor host and an issued full-page link for the saved publication.</Text>}
+              {currentShareSource && currentPublication && profile && channel.connected && (
+                <ManagedChannelShareControl readOnOpen channel={channel} source={currentShareSource}
+                  profileRevision={profile.profile_revision} publication={currentPublication} />
+              )}
+                  </SharingGroup>
+                  </div>
+                </section>
+              )}
+              {!configuringWebChat && currentShareSource && currentPublication && profile && channel.connected && (
+                <ManagedChannelShareControl channel={channel} source={currentShareSource}
+                  profileRevision={profile.profile_revision} publication={currentPublication} />
               )}
               {confirmingRemove && (
                 <Text as="p" variant="body-sm">Remove this channel from the workspace? It will no longer receive messages here.</Text>
               )}
             </>
           )}
-          {profileSaved && <Text as="p" variant="body-sm" role="status">Profile assignment saved.</Text>}
+          {profileSaved && <Text as="p" variant="body-sm" role="status">{configuringWebChat ? 'Configuration saved.' : 'Profile assignment saved.'}</Text>}
           {error && <Text as="p" variant="body-sm" tone="danger" role="alert">{error}</Text>}
         </div>
       </Modal.Body>
@@ -359,15 +433,9 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
           <Button type="button" variant="primary" size="sm" disabled={busy || !channel.can_install}
             onClick={() => void submit({ kind: 'add' })}>Add channel</Button>
         )}
-        {channel?.action === 'configure' && generation && (
+        {channel?.action === 'configure' && generation && (!configuringWebChat || confirmingRemove) && (
           <>
-            {!confirmingRemove && (channel.can_enable || channel.state === 'active' || channel.state === 'unavailable') && (
-              <Button type="button" size="sm" variant={channel.can_enable ? 'primary' : 'secondary'} disabled={busy || (channel.can_enable && !canEnable)}
-                onClick={() => void submit({ kind: 'enabled', enabled: channel.can_enable, generation })}>
-                {channel.can_enable ? 'Enable channel' : 'Disable channel'}
-              </Button>
-            )}
-            <Button type="button" size="sm" variant="danger" disabled={busy}
+            <Button type="button" size="sm" variant={configuringWebChat && !confirmingRemove ? "ghost" : "danger"} disabled={busy}
               onClick={() => confirmingRemove
                 ? void submit({ kind: 'remove', generation })
                 : setRemoveGeneration(generationKey)}>
@@ -379,7 +447,50 @@ export function ManagedChannelSettings({ selection, query, principalId, workspac
           onClick={confirmingRemove ? () => setRemoveGeneration(null) : onClose}>
           {confirmingRemove ? 'Cancel removal' : 'Close'}
         </Button>
+        {configuringWebChat && !confirmingRemove && <Button type="button" variant="primary" size="sm"
+          disabled={!canSaveConfiguration} aria-busy={savingConfiguration}
+          onClick={() => void submit(dirty
+            ? { kind: 'profile', profileKey: chosenProfile || null, theme: appearanceDirty ? selectedTheme : undefined }
+            : { kind: 'appearance', theme: selectedTheme })}>
+          {savingConfiguration ? 'Saving…' : 'Save configuration'}
+        </Button>}
       </Modal.Footer>
     </Modal>
   );
+}
+
+function SharingGroup({ title, description, icon: Icon, available, mountOnOpen, children }: {
+  title: string; description: string; icon: LucideIcon; available: boolean; mountOnOpen?: boolean; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return <details className="group" onToggle={mountOnOpen ? event => setOpen(event.currentTarget.open) : undefined}>
+    <summary className="flex cursor-pointer list-none items-center gap-3 rounded-[var(--radius-input)] px-2 py-3 managed-channel-summary focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)] [&::-webkit-details-marker]:hidden">
+      <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-input)] managed-channel-summary-icon"><Icon size={17} /></span>
+      <span className="min-w-0 flex-1">
+        <Text as="span" variant="body-sm" weight="semibold" className="block">{title}</Text>
+        <Text as="span" variant="body-sm" tone="muted" className="block">{description}</Text>
+      </span>
+      {!available && <Text as="span" variant="meta" tone="muted">Setup required</Text>}
+      <ChevronDown size={15} aria-hidden className="shrink-0 managed-channel-summary-chevron group-open:rotate-180" />
+    </summary>
+    <div className="flex min-w-0 flex-col items-stretch gap-3 px-2 pb-4 sm:pl-14">{(!mountOnOpen || open) && children}</div>
+  </details>;
+}
+
+function ClientEndpoint({ origin }: { origin: string }) {
+  const url = origin + '/api/v1/web-chat/sessions';
+  const [message, setMessage] = useState('');
+  return <>
+    <Text as="p" variant="body-sm">Start a session for this publication using an authorized server-side grant.</Text>
+    <Textarea aria-label="Client session endpoint" value={url} readOnly rows={1} />
+    <Button type="button" variant="secondary" size="sm" onClick={async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        setMessage('Endpoint copied.');
+      } catch {
+        setMessage('Select the endpoint above to copy it.');
+      }
+    }}>Copy endpoint</Button>
+    {message && <Text as="p" variant="body-sm" role="status">{message}</Text>}
+  </>;
 }

@@ -20,7 +20,7 @@ export function voiceRoleOptions(
 ) {
   const options = profiles.flatMap(profile => {
     const connection = connections.find(item => item.id === profile.connection_id);
-    return allowsVoiceRole(connection, profile.model, role)
+    return !profile.embedding_only && allowsVoiceRole(connection, profile.model, role)
       ? [{ id: `profile:${profile.id}`, label: profileAssignmentLabel(profile, connections), connectionId: profile.connection_id, model: profile.model }]
       : [];
   });

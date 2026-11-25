@@ -118,3 +118,38 @@ async def test_public_cannot_load_core_or_custom_skill_and_custom_revokes(monkey
     profile.overlay_skill_docs = []
     with pytest.raises(ProfileDenied):
         await catalogue.invoke_installed("ws", "staff", "staff", custom_key, {})
+
+
+@pytest.mark.asyncio
+async def test_guest_profile_does_not_receive_unshared_workspace_skill_text(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.services import permissions
+
+    principal = "n.User.profile-fixture"
+    monkeypatch.setattr(
+        catalogue, "can_access_workspace", AsyncMock(return_value="guest")
+    )
+    monkeypatch.setattr(
+        permissions,
+        "get_user_node",
+        AsyncMock(return_value=SimpleNamespace(service_workspace_id="ws")),
+    )
+    monkeypatch.setattr(catalogue, "list_core_skills", lambda: [])
+    doc = SimpleNamespace(
+        body="Restricted text",
+        description="Workspace only",
+        metadata={
+            "origin": "workspace",
+            "skill_id": "private",
+            "skill_name": "Private",
+        },
+    )
+    monkeypatch.setattr(
+        catalogue,
+        "compose_workspace_agent_profile",
+        AsyncMock(return_value=SimpleNamespace(apps=[], overlay_skill_docs=[doc])),
+    )
+    assert await catalogue.installed_catalogue("ws", principal, "staff") == {}

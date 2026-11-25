@@ -20,7 +20,7 @@ interface VerifiedManagedEmbed {
   readonly [embedProof]: true;
   readonly state: 'verified';
   readonly owner: Readonly<ManagedEmbedOwner>;
-  readonly snippet: string;
+  readonly frameUrl: string;
 }
 
 export type ManagedChannelEmbedRead =
@@ -54,16 +54,27 @@ function buildSnippet(embedUrl: string, parentOrigin: string): string {
     '(() => {',
     '  const mount = document.currentScript?.previousElementSibling;',
     `  if (!mount?.hasAttribute("data-integral-web-chat") || window.location.origin !== ${JSON.stringify(parentOrigin)}) return;`,
-    '  const frame = document.createElement("iframe");',
-    '  frame.title = "Integral Web Chat";',
-    '  frame.setAttribute("loading", "lazy");',
-    '  frame.setAttribute("referrerpolicy", "no-referrer");',
-    '  frame.setAttribute("sandbox", "allow-scripts allow-same-origin");',
-    '  frame.style.width = "100%";',
-    '  frame.style.height = "600px";',
-    '  frame.style.border = "0";',
-    `  frame.src = ${JSON.stringify(embedUrl)};`,
-    '  mount.replaceChildren(frame);',
+    '  const launcher = document.createElement("details");',
+    '  launcher.style.cssText = "position:fixed;inset:auto 1rem 1rem auto;z-index:1000;max-width:calc(100vw - 2rem);color:CanvasText;font:600 15px/1.4 system-ui,sans-serif";',
+    '  const toggle = document.createElement("summary");',
+    '  toggle.style.cssText = "width:max-content;margin-left:auto;list-style:none;cursor:pointer;background:#0b0b0c;color:#fafafa;padding:.75rem 1.15rem;border-radius:2rem;box-shadow:0 4px 16px #172e2230";',
+    '  toggle.textContent = "Chat with us";',
+    '  launcher.append(toggle);',
+    '  mount.replaceChildren(launcher);',
+    '  launcher.addEventListener("toggle", () => {',
+    '    toggle.textContent = launcher.open ? "Close chat" : "Chat with us";',
+    '    if (!launcher.open || launcher.querySelector("iframe")) return;',
+    '    const frame = document.createElement("iframe");',
+    '    frame.title = "Integral Web Chat";',
+    '    frame.setAttribute("loading", "lazy");',
+    '    frame.setAttribute("referrerpolicy", "no-referrer");',
+    '    frame.setAttribute("sandbox", "allow-scripts allow-same-origin");',
+    '    frame.style.width = "min(25rem, calc(100vw - 2rem))";',
+    '    frame.style.height = "min(34rem, calc(100dvh - 6rem))";',
+    '    frame.style.cssText += ";display:block;margin-top:.5rem;background:Canvas;border:1px solid #8885;border-radius:1rem;box-shadow:0 12px 42px #18382329";',
+    `    frame.src = ${JSON.stringify(embedUrl)};`,
+    '    launcher.append(frame);',
+    '  });',
     '})();',
     '</script>',
   ].join('\n');
@@ -122,7 +133,7 @@ export function decodeApprovedManagedEmbed(raw: unknown, requestedFor: ManagedEm
     [embedProof]: true as const,
     state: 'verified' as const,
     owner,
-    snippet: buildSnippet(frame.href, parentOrigin),
+    frameUrl: frame.href,
   });
   verified.add(proof);
   return proof;
@@ -138,5 +149,5 @@ export function currentManagedEmbedSnippet(read: ManagedChannelEmbedRead, curren
       owner.publication.publishedVersion !== current.publication.publishedVersion ||
       owner.policy.parentOrigin !== current.policy.parentOrigin ||
       owner.policy.policyRevision !== current.policy.policyRevision) return null;
-  return read.snippet;
+  return buildSnippet(read.frameUrl, current.policy.parentOrigin);
 }

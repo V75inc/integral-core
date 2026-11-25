@@ -52,6 +52,11 @@ class _Store:
 
 @pytest.fixture
 def browser(monkeypatch):
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     """Provide exact, active fake authority and isolated explicit ports."""
     provision = ExternalChatProvision(
         "work-internal", "public_web_chat", "prov-internal"

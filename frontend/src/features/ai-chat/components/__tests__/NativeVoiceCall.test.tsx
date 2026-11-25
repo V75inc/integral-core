@@ -26,10 +26,45 @@ class FakeSocket {
 }
 
 const sockets: FakeSocket[] = [];
-const track = { stop: vi.fn(), enabled: true };
+
+it("opens from a thread deep link and acknowledges only the rendered destination", async () => {
+  const navigate = vi.fn();
+  let rendered = false;
+  const props = {
+    eligible: true,
+    opening: { workspace_id: "workspace", profile_key: "", thread_id: "thread" },
+    playingDictation: () => false,
+    onNavigate: navigate,
+    destinationRendered: () => rendered,
+  };
+  const view = render(<NativeVoiceControls {...props} pageRoute="/agent?thread=thread" />);
+  const socket = await startCall();
+  act(() => {
+    socket.open();
+    socket.onmessage?.({ data: JSON.stringify({ type: "ready", thread_id: "thread" }) });
+  });
+  const path = "/apps/n.WorkspaceApp.example";
+  const event = { type: "navigation", id: "one-use", origin_revision: 1,
+    navigation: { path, thread_id: "thread", workspace_id: "workspace" } };
+  act(() => socket.onmessage?.({ data: JSON.stringify(event) }));
+  expect(navigate).toHaveBeenCalledWith(path, "thread");
+  expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining("navigation_result"));
+  rendered = true;
+  view.rerender(<NativeVoiceControls {...props} pageRoute={path} />);
+  await waitFor(() => expect(socket.send).toHaveBeenCalledWith(JSON.stringify({
+    type: "navigation_result", id: "one-use", status: "rendered",
+  })));
+  expect(screen.getByRole("button", { name: "End call" })).toBeVisible();
+  act(() => socket.onmessage?.({ data: JSON.stringify({ ...event, id: "late" }) }));
+  expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({
+    type: "navigation_result", id: "late", status: "preserved",
+  }));
+});
+const track = Object.assign(new EventTarget(), { stop: vi.fn(), enabled: true });
 const stopTrack = track.stop;
 const createPlaybackBuffer = vi.fn();
 const startPlayback = vi.fn();
+const playbackSources: { onended: (() => void) | null }[] = [];
 const capturePorts: FakeWorklet["port"][] = [];
 
 function emitCapture(port: FakeWorklet["port"], pcm: ArrayBuffer, generation = 0) {
@@ -37,13 +72,18 @@ function emitCapture(port: FakeWorklet["port"], pcm: ArrayBuffer, generation = 0
 }
 
 class FakeAudioContext {
+  static time = 0;
+  get currentTime() { return FakeAudioContext.time; }
   resume = vi.fn().mockResolvedValue(undefined);
   close = vi.fn().mockResolvedValue(undefined);
   audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) };
   createMediaStreamSource() { return { connect: vi.fn(), disconnect: vi.fn() }; }
   createBuffer = createPlaybackBuffer;
+  decodeAudioData = vi.fn().mockResolvedValue({ duration: 1 });
   createBufferSource() {
-    return { connect: vi.fn(), disconnect: vi.fn(), start: startPlayback, stop: vi.fn(), onended: null };
+    const source = { connect: vi.fn(), disconnect: vi.fn(), start: startPlayback, stop: vi.fn(), onended: null as (() => void) | null };
+    playbackSources.push(source);
+    return source;
   }
 }
 
@@ -58,8 +98,10 @@ class FakeWorklet {
 
 const mediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
 beforeEach(() => {
+  FakeAudioContext.time = 0;
   sockets.length = 0;
   capturePorts.length = 0;
+  playbackSources.length = 0;
   vi.clearAllMocks();
   track.enabled = true;
   createPlaybackBuffer.mockImplementation((_channels, samples: number) => ({
@@ -320,4 +362,113 @@ it("releases voice and microphone on document pagehide without refreshing the dy
   expect(screen.getByRole("button", { name: "Start voice call" })).toBeEnabled();
   act(() => window.dispatchEvent(new Event("pagehide")));
   expect(socket.close).toHaveBeenCalledTimes(1);
+});
+
+it("reports only queued samples when the caller interrupts playback", async () => {
+  show();
+  const socket = await startCall();
+  act(() => {
+    socket.open();
+    socket.receive("ready");
+    socket.onmessage?.({ data: JSON.stringify({ type: "playback_item", handle: 7 }) });
+    socket.onmessage?.({ data: new ArrayBuffer(24000) });
+    socket.onmessage?.({ data: new ArrayBuffer(24000) });
+    // Playback started at 20ms. The first half-second has played.
+    FakeAudioContext.time = 0.52;
+    socket.receive("flush");
+  });
+  expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({
+    type: "playback_interrupted", items: [[7, 12000]],
+  }));
+  const count = socket.send.mock.calls.length;
+  act(() => socket.receive("flush"));
+  expect(socket.send).toHaveBeenCalledTimes(count);
+});
+
+
+it("recovers when an active microphone is disconnected", async () => {
+  show();
+  const socket = await startCall();
+  act(() => { socket.open(); socket.receive("ready"); });
+  act(() => track.dispatchEvent(new Event("ended")));
+  expect(screen.getByRole("button", { name: "Start voice call" })).toBeVisible();
+  expect(screen.getByText("The microphone was disconnected. Reconnect it and start a new call.")).toBeVisible();
+  expect(socket.close).toHaveBeenCalledTimes(1);
+  expect(stopTrack).toHaveBeenCalledTimes(1);
+});
+
+it("reads the exact review with a local device voice before admitting confirmation audio", async () => {
+  let spoken: { text: string; onend?: () => void; onerror?: () => void } | undefined;
+  class TestUtterance {
+    onend?: () => void;
+    onerror?: () => void;
+    constructor(public text: string) {}
+  }
+  vi.stubGlobal("SpeechSynthesisUtterance", TestUtterance);
+  vi.stubGlobal("speechSynthesis", {
+    getVoices: () => [{ localService: false, lang: "en-US" }, { localService: true, lang: "en-US" }],
+    speak: (utterance: TestUtterance) => { spoken = utterance; },
+    cancel: vi.fn(),
+  });
+  show();
+  const socket = await startCall();
+  act(() => { socket.open(); socket.receive("ready"); });
+  act(() => socket.onmessage?.({ data: JSON.stringify({
+    type: "review_confirmation", id: "fixture", prompt: "Change Acme to Georgetown. Confirmation digits: one two three four five six.",
+  }) }));
+  expect(spoken?.text).toContain("Change Acme to Georgetown");
+  const capture = new ArrayBuffer(16);
+  act(() => emitCapture(capturePorts[0], capture));
+  expect(socket.send).toHaveBeenCalledTimes(2);
+  act(() => spoken?.onend?.());
+  expect(socket.send).toHaveBeenNthCalledWith(3, JSON.stringify({ type: "review_prompt_finished", id: "fixture" }));
+  act(() => emitCapture(capturePorts[0], capture, 1));
+  expect(socket.send).toHaveBeenNthCalledWith(4, capture);
+});
+
+it("invalidates the local review when the caller interrupts its readback", async () => {
+  const stop = vi.fn();
+  class TestUtterance {
+    onend?: () => void;
+    onerror?: () => void;
+    constructor(public text: string) {}
+  }
+  vi.stubGlobal("SpeechSynthesisUtterance", TestUtterance);
+  vi.stubGlobal("speechSynthesis", {
+    getVoices: () => [{ localService: true, lang: "en-US" }],
+    speak: vi.fn(),
+    cancel: stop,
+  });
+  show();
+  const socket = await startCall();
+  act(() => { socket.open(); socket.receive("ready"); });
+  act(() => socket.onmessage?.({ data: JSON.stringify({
+    type: "review_confirmation", id: "fixture", prompt: "Read before deciding.",
+  }) }));
+  const spoken = new Int16Array(480).fill(6000).buffer;
+  act(() => { for (let index = 0; index < 8; index++) emitCapture(capturePorts[0], spoken); });
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(socket.send).toHaveBeenNthCalledWith(3, JSON.stringify({ type: "review_prompt_interrupted", id: "fixture" }));
+  expect(socket.send).not.toHaveBeenCalledWith(spoken);
+});
+
+
+it("plays an offline host review when the browser has no installed voice", async () => {
+  vi.stubGlobal("speechSynthesis", { getVoices: () => [], speak: vi.fn(), cancel: vi.fn() });
+  show();
+  const socket = await startCall();
+  act(() => { socket.open(); socket.receive("ready"); });
+  act(() => socket.onmessage?.({ data: JSON.stringify({
+    type: "review_confirmation", id: "fixture", prompt: "Read before deciding.",
+  }) }));
+  expect(socket.send).toHaveBeenNthCalledWith(3, JSON.stringify({ type: "review_prompt_unavailable", id: "fixture" }));
+  act(() => socket.onmessage?.({ data: JSON.stringify({
+    type: "review_confirmation_audio", id: "fixture", audio: btoa("fixture-WAV"),
+  }) }));
+  await waitFor(() => expect(startPlayback).toHaveBeenCalledTimes(1));
+  const silentMic = new ArrayBuffer(16);
+  act(() => emitCapture(capturePorts[0], silentMic));
+  expect(socket.send).toHaveBeenCalledTimes(3);
+  act(() => playbackSources[0].onended?.());
+  expect(socket.send).toHaveBeenNthCalledWith(4, JSON.stringify({ type: "review_prompt_finished", id: "fixture" }));
 });

@@ -138,6 +138,7 @@ class ProfileRouteWebChatProvisionStore:
                 route.enabled = False
                 route.profile_key = None
                 route.provision_id = None
+                route.theme = "system"
             else:
                 raise ResourceConflictError("Unknown Web Chat lifecycle change")
             await profile_management.require_profile_manager(

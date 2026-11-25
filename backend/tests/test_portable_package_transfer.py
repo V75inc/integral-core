@@ -514,8 +514,9 @@ async def test_multi_packaged_app_export_import(tmp_path, test_user, monkeypatch
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("export_mode", ["configuration", "full"])
 async def test_mixed_packaged_and_declarative_export_import(
-    tmp_path, test_user, monkeypatch
+    tmp_path, test_user, monkeypatch, export_mode
 ):
     from app.services.app_service import create_app_for_user
     from app.services.attachment_metadata.service import get_metadata_extraction_service
@@ -545,13 +546,27 @@ async def test_mixed_packaged_and_declarative_export_import(
         workspace_id=source_ws.id,
         visibility="private",
     )
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.entry_create import create_entry_in_track
+
+    src = await App.get(packaged["app_id"])
+    track = (await src.nodes(edge=[CONTAINS], node=["Track"]))[0]
+    model = await get_track_attached_operational_model(track)
+    entry_type = (await model.nodes(edge=[CONTAINS], node=["EntryType"]))[0]
+    await create_entry_in_track(
+        track=track,
+        user_id=test_user.id,
+        title="Source data",
+        type_id=entry_type.id,
+        custom_fields={"body": "Only restored on request"},
+    )
     data = await export_resources(
         user_id=test_user.id,
         workspace_id=source_ws.id,
         selection=ExportSelection(
             kind="app",
             ids=[packaged["app_id"], declarative.id],
-            mode="configuration",
+            mode=export_mode,
         ),
     )
     raw, _files = decode_archive(data)
@@ -560,6 +575,9 @@ async def test_mixed_packaged_and_declarative_export_import(
     by_name = {app["name"]: app for app in raw["apps"]}
     assert by_name["Packaged Side"]["package_slug"] == "portable-mixed-pkg"
     assert by_name["Declarative Side"]["package_slug"] == ""
+    assert len(by_name["Packaged Side"]["tracks"][0]["entries"]) == (
+        1 if export_mode == "full" else 0
+    )
 
     dest = await Workspace.create(
         kind="organization",
@@ -574,8 +592,9 @@ async def test_mixed_packaged_and_declarative_export_import(
     if profile is not None:
         await profile.connect(dest, edge=IS_MEMBER_OF, role="owner")
     result = await import_resources(
-        user_id=test_user.id, workspace_id=dest.id, data=data
+        user_id=test_user.id, workspace_id=dest.id, data=data, include_data=False
     )
+    assert result["entries"] == 0
     assert result["apps"] == 2
     imported = [await App.get(rid) for rid in result["resource_ids"]]
     assert {app.name for app in imported} == {"Packaged Side", "Declarative Side"}
@@ -759,7 +778,6 @@ async def test_packaged_import_requires_app_owned_restore_validation(
 ):
     from app.services.app_graph import get_track_attached_operational_model
     from app.services.attachment_metadata.service import get_metadata_extraction_service
-    from app.services.entry_create import create_entry_in_track
 
     packages = tmp_path / "packages"
     packages.mkdir()
@@ -811,8 +829,14 @@ async def test_packaged_import_requires_app_owned_restore_validation(
     profile = await get_user_node(test_user.id)
     if profile is not None:
         await profile.connect(dest, edge=IS_MEMBER_OF, role="owner")
-    with pytest.raises(BadRequestError, match="App-owned restore validation"):
-        await import_resources(user_id=test_user.id, workspace_id=dest.id, data=data)
+    for include_data in (True, False):
+        with pytest.raises(BadRequestError, match="App-owned restore validation"):
+            await import_resources(
+                user_id=test_user.id,
+                workspace_id=dest.id,
+                data=data,
+                include_data=include_data,
+            )
     assert not await App.find({"context.workspace_id": dest.id})
 
 

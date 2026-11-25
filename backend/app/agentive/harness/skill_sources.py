@@ -312,7 +312,15 @@ async def routing_skill_candidates(
         )
     )[:24]
     app_choices = [key for key in ranked_keys if key not in core_keys][:8]
+    # The full authorized catalog and native Skills loader belong to the
+    # operational pass. Keep every offered ID selectable without injecting
+    # the instructions for unrelated workflows into conversation.
+    described = set(ranked_keys[:8])
     return [
-        {"id": key, "description": " ".join(descriptions[key].split())[:500]}
+        (
+            {"id": key, "description": " ".join(descriptions[key].split())[:320]}
+            if key in described
+            else {"id": key}
+        )
         for key in [*core_choices, *app_choices]
     ]

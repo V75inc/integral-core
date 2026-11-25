@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { agentNavigationPath } from "../agentNavigation";
+import { requestOpenCompanionChat } from "../chatHandoff";
 import { useQuery } from "@tanstack/react-query";
 import { AudioLines, Loader2, Mic, MicOff, Square } from "lucide-react";
 import { REALTIME_VOICE_QUERY_KEY, realtimeVoiceConfigurationApi } from "../../../api/aiConfiguration";
@@ -11,16 +14,33 @@ import { useScopeOptional } from "../../../context/ScopeContext";
 import { useComposerDictation, useComposerDictationActions } from "../../speech/ComposerDictationContext";
 import { Surface, Text } from "../../../ui";
 import { useChatActivity } from "../AIChatSurface";
+import { useChatPageContextSnapshot } from "../useChatPageContextSnapshot";
+import captureModuleUrl from "./nativeVoiceCapture.js?url&no-inline";
 
 const SAMPLE_RATE = 24000;
-const CAPTURE = new URL("./nativeVoiceCapture.js", import.meta.url);
 export type NativeVoiceState = "idle" | "connecting" | "live";
 
+function announceLocalVoiceFailure(message: string) {
+  // The provider may be unreachable. Use an installed device voice only.
+  // The accessible status remains available if local speech is unsupported.
+  try {
+    const synth = window.speechSynthesis;
+    if (!synth || typeof SpeechSynthesisUtterance === "undefined") return;
+    const voice = synth.getVoices().find(candidate =>
+      candidate.localService && candidate.lang.toLowerCase().startsWith("en"));
+    if (!voice) return;
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.voice = voice;
+    synth.speak(utterance);
+  } catch { /* The visible status is still available. */ }
+}
+
+
 export function createVoicePlayback(audio: AudioContext) {
-  const sources = new Set<AudioBufferSourceNode>();
+  const sources = new Map<AudioBufferSourceNode, { at: number; samples: number; handle?: number }>();
   let nextTime = 0;
   return {
-    enqueue(data: ArrayBuffer) {
+    enqueue(data: ArrayBuffer, handle?: number) {
       if (data.byteLength === 0 || data.byteLength % 2 !== 0) return;
       const pcm = new DataView(data);
       const buffer = audio.createBuffer(1, data.byteLength / 2, SAMPLE_RATE);
@@ -32,19 +52,26 @@ export function createVoicePlayback(audio: AudioContext) {
       source.buffer = buffer;
       source.connect(audio.destination);
       source.onended = () => { sources.delete(source); source.disconnect(); };
-      sources.add(source);
       const at = Math.max(audio.currentTime + 0.02, nextTime);
+      sources.set(source, { at, samples: samples.length, handle });
       nextTime = at + buffer.duration;
       source.start(at);
     },
     flush() {
-      for (const source of sources) {
+      const unplayed = new Map<number, number>();
+      const now = audio.currentTime;
+      for (const [source, { at, samples, handle }] of sources) {
+        const played = Math.max(0, Math.min(samples, Math.floor((now - at) * SAMPLE_RATE)));
+        if (handle !== undefined && played < samples) {
+          unplayed.set(handle, (unplayed.get(handle) ?? 0) + samples - played);
+        }
         source.onended = null;
         source.stop();
         source.disconnect();
       }
       sources.clear();
       nextTime = 0;
+      return [...unplayed];
     },
   };
 }
@@ -55,8 +82,11 @@ interface VoiceOpening {
   thread_id: string;
 }
 
-export function NativeVoiceControls({ eligible, opening, playingDictation, dictationActive = false, acquireVoiceInput, onThreadReady, onThreadRefresh }: {
+export function NativeVoiceControls({ eligible, opening, playingDictation, dictationActive = false, acquireVoiceInput, onThreadReady, onThreadRefresh, pageRoute, onNavigate, destinationRendered }: {
   eligible: boolean;
+  pageRoute?: string;
+  onNavigate?: (path: string, threadId: string) => boolean | void;
+  destinationRendered?: (path: string) => boolean;
   dictationActive?: boolean;
   opening: VoiceOpening;
   playingDictation: () => boolean;
@@ -75,10 +105,17 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     focusNext.current = null;
     (state === "live" ? endButton : startButton).current?.focus();
   }, [state]);
+  const pageRouteRef = useRef(pageRoute);
+  pageRouteRef.current = pageRoute;
+  const navigateRef = useRef(onNavigate);
+  navigateRef.current = onNavigate;
+  const renderedRef = useRef(destinationRendered);
+  renderedRef.current = destinationRendered;
   const call = useRef<{
     close: (refreshThread?: boolean) => void;
     matchesThread: (id: string) => boolean;
     toggleMicrophone: () => void;
+    updatePage: () => void;
   } | null>(null);
   const { workspace_id, profile_key, thread_id } = opening;
   useEffect(() => {
@@ -94,6 +131,8 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       setError("");
     }
   }, [thread_id]);
+
+  useEffect(() => { call.current?.updatePage(); }, [pageRoute]);
 
   useEffect(() => {
     if (dictationActive && call.current) {
@@ -136,8 +175,15 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
     let playback: ReturnType<typeof createVoicePlayback> | undefined;
     let ready = false;
     let microphoneMuted = false;
+    let playbackHandle: number | undefined;
+    let reviewSpeech: SpeechSynthesisUtterance | undefined;
+    let reviewAudioSource: AudioBufferSourceNode | undefined;
+    let reviewAudioActive = false;
+    let interruptReview: (() => void) | undefined;
+    let reviewInterruptionFrames = 0;
     let captureGeneration = 0;
     let acceptedThreadId = "";
+    let pageRevision = 0;
     let refreshTimer: number | undefined;
     let ended = false;
     const close = (refreshThread = true) => {
@@ -155,8 +201,23 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
           dispose(() => capture?.disconnect());
         }
         dispose(() => input?.disconnect());
-        media?.getTracks().forEach(track => dispose(() => track.stop()));
+        media?.getTracks().forEach(track => {
+          track.removeEventListener("ended", microphoneLost);
+          dispose(() => track.stop());
+        });
         dispose(() => playback?.flush());
+        reviewAudioActive = false;
+        if (reviewAudioSource) {
+          reviewAudioSource.onended = null;
+          dispose(() => reviewAudioSource?.stop());
+          dispose(() => reviewAudioSource?.disconnect());
+          reviewAudioSource = undefined;
+        }
+        if (reviewSpeech) {
+          reviewSpeech.onend = reviewSpeech.onerror = null;
+          dispose(() => window.speechSynthesis.cancel());
+          reviewSpeech = undefined;
+        }
         if (socket) {
           socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
           dispose(() => socket?.close());
@@ -171,15 +232,32 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
         catch { /* Media and transport have already been released. */ }
       }
     };
+    const microphoneLost = () => fail("The microphone was disconnected. Reconnect it and start a new call.");
     const fail = (message: string) => {
       if (ended) return;
+      if (document.activeElement === endButton.current) focusNext.current = "idle";
+      const wasLive = ready;
       close();
+      if (wasLive) announceLocalVoiceFailure(
+        message === "The microphone was disconnected. Reconnect it and start a new call."
+          ? message
+          : "The voice call ended. Start a new call to continue.",
+      );
       setState("idle");
       setError(message);
     };
     const deadline = window.setTimeout(() => fail("The voice call did not connect."), 20000);
+    const updatePage = () => {
+      const route = pageRouteRef.current;
+      if (!route || !ready || socket?.readyState !== WebSocket.OPEN) return;
+      pageRevision += 1;
+      socket.send(JSON.stringify({ type: "page_context", page: {
+        url: route, route_path: route.split("?")[0],
+      }}));
+    };
     call.current = {
       close,
+      updatePage,
       matchesThread: id => id === (acceptedThreadId || thread_id),
       toggleMicrophone: () => {
         if (ended || !ready || !capture || !media) return;
@@ -210,13 +288,23 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       });
       if (ended) { stream.getTracks().forEach(track => track.stop()); return; }
       media = stream;
-      await audio.audioWorklet.addModule(CAPTURE);
+      for (const track of stream.getAudioTracks()) track.addEventListener("ended", microphoneLost);
+      await audio.audioWorklet.addModule(captureModuleUrl);
       if (ended) return;
       playback = createVoicePlayback(audio);
       input = audio.createMediaStreamSource(stream);
       capture = new AudioWorkletNode(audio, "integral-native-voice", { numberOfOutputs: 0 });
       capture.port.onmessage = ({ data }: MessageEvent<{ generation: number; pcm: ArrayBuffer }>) => {
         if (ended || microphoneMuted || data.generation !== captureGeneration) return;
+        if (reviewSpeech || reviewAudioActive) {
+          // Do not send microphone audio to either provider while the local
+          // readback speaks. Sustained input interrupts the challenge.
+          const samples = new Int16Array(data.pcm);
+          const energy = samples.reduce((sum, sample) => sum + sample * sample, 0) / Math.max(1, samples.length);
+          reviewInterruptionFrames = energy > 1800 ** 2 ? reviewInterruptionFrames + 1 : 0;
+          if (reviewInterruptionFrames >= 8) interruptReview?.();
+          return;
+        }
         if (ready && socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 96_000) socket.send(data.pcm);
       };
       input.connect(capture);
@@ -227,15 +315,156 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
       endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
       socket = new WebSocket(endpoint);
       socket.binaryType = "arraybuffer";
-      socket.onopen = () => socket?.send(JSON.stringify({ ticket, ...opening }));
+      socket.onopen = () => socket?.send(JSON.stringify({ ticket, ...opening, review_confirmation: true }));
       socket.onmessage = ({ data }) => {
         if (ended) return;
         if (data instanceof ArrayBuffer) {
-          if (ready) playback?.enqueue(data);
+          if (ready) playback?.enqueue(data, playbackHandle);
           return;
         }
-        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string };
-        if (event.type === "flush") playback?.flush();
+        const event = JSON.parse(String(data)) as { type: string; message?: string; thread_id?: string; handle?: number | null; id?: string; prompt?: string; audio?: string; origin_revision?: number; navigation?: unknown };
+        if (event.type === "navigation" && ready && acceptedThreadId && event.id) {
+          const path = agentNavigationPath({ ok: true, navigation: event.navigation }, acceptedThreadId, workspace_id);
+          const report = (status: string) => {
+            if (!ended && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "navigation_result", id: event.id, status }));
+          };
+          const composing = [...document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Message input"]')].some(input => Boolean(input.value.trim()));
+          if (!path || event.origin_revision !== pageRevision || document.visibilityState !== "visible" || composing || document.querySelector('button[aria-label="Remove attachment"]') || !navigateRef.current) {
+            report("preserved");
+            return;
+          }
+          if (navigateRef.current(path, acceptedThreadId) === false) {
+            report("preserved");
+            return;
+          }
+          const deadline = performance.now() + 10000;
+          const checkRendered = () => {
+            if (ended) return;
+            if (document.visibilityState === "visible" && pageRouteRef.current === path && renderedRef.current?.(path)) report("rendered");
+            else if (performance.now() >= deadline) report("unavailable");
+            else window.setTimeout(checkRendered, 100);
+          };
+          checkRendered();
+          return;
+        }
+        if (event.type === "review_confirmation" && ready && event.id && event.prompt) {
+          const id = event.id;
+          const notify = (type: "review_prompt_finished" | "review_prompt_unavailable" | "review_prompt_interrupted") => {
+            if (!ended && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, id }));
+          };
+          playback?.flush();
+          try {
+            const synth = window.speechSynthesis;
+            const voice = synth?.getVoices().find(candidate => candidate.localService && candidate.lang.toLowerCase().startsWith("en"));
+            if (!voice || typeof SpeechSynthesisUtterance === "undefined" || reviewSpeech) {
+              notify("review_prompt_unavailable");
+              return;
+            }
+            const utterance = new SpeechSynthesisUtterance(event.prompt);
+            utterance.voice = voice;
+            reviewSpeech = utterance;
+            reviewInterruptionFrames = 0;
+            interruptReview = () => {
+              if (reviewSpeech !== utterance) return;
+              utterance.onend = utterance.onerror = null;
+              reviewSpeech = undefined;
+              interruptReview = undefined;
+              synth.cancel();
+              notify("review_prompt_interrupted");
+            };
+            utterance.onend = () => {
+              if (reviewSpeech !== utterance) return;
+              reviewSpeech = undefined;
+              interruptReview = undefined;
+              captureGeneration += 1;
+              capture?.port.postMessage({ muted: microphoneMuted, generation: captureGeneration });
+              notify("review_prompt_finished");
+            };
+            utterance.onerror = () => {
+              if (reviewSpeech !== utterance) return;
+              reviewSpeech = undefined;
+              interruptReview = undefined;
+              notify("review_prompt_unavailable");
+            };
+            synth.speak(utterance);
+          } catch {
+            reviewSpeech = undefined;
+            notify("review_prompt_unavailable");
+          }
+          return;
+        }
+        if (event.type === "review_confirmation_audio" && ready && event.id && event.audio) {
+          const id = event.id;
+          const notify = (type: "review_prompt_finished" | "review_prompt_unavailable" | "review_prompt_interrupted") => {
+            if (!ended && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, id }));
+          };
+          if (!audio || reviewSpeech || reviewAudioActive || event.audio.length > 8_000_000) {
+            notify("review_prompt_unavailable");
+            return;
+          }
+          reviewAudioActive = true;
+          reviewInterruptionFrames = 0;
+          const cancelAudio = () => {
+            reviewAudioActive = false;
+            interruptReview = undefined;
+            if (reviewAudioSource) {
+              reviewAudioSource.onended = null;
+              try { reviewAudioSource.stop(); } catch { /* Already stopped. */ }
+              reviewAudioSource.disconnect();
+              reviewAudioSource = undefined;
+            }
+          };
+          interruptReview = () => { cancelAudio(); notify("review_prompt_interrupted"); };
+          const context = audio;
+          void (async () => {
+            try {
+              const bytes = Uint8Array.from(atob(event.audio!), character => character.charCodeAt(0));
+              const buffer = await context.decodeAudioData(bytes.buffer);
+              if (ended || !reviewAudioActive) return;
+              const source = context.createBufferSource();
+              source.buffer = buffer;
+              source.connect(context.destination);
+              reviewAudioSource = source;
+              source.onended = () => {
+                if (reviewAudioSource !== source) return;
+                source.disconnect();
+                reviewAudioSource = undefined;
+                reviewAudioActive = false;
+                interruptReview = undefined;
+                captureGeneration += 1;
+                capture?.port.postMessage({ muted: microphoneMuted, generation: captureGeneration });
+                notify("review_prompt_finished");
+              };
+              source.start();
+            } catch {
+              if (reviewAudioActive) { cancelAudio(); notify("review_prompt_unavailable"); }
+            }
+          })();
+          return;
+        }
+        if (event.type === "review_confirmation_ended") {
+          interruptReview = undefined;
+          reviewAudioActive = false;
+          if (reviewAudioSource) {
+            reviewAudioSource.onended = null;
+            try { reviewAudioSource.stop(); } catch { /* Already stopped. */ }
+            reviewAudioSource.disconnect();
+            reviewAudioSource = undefined;
+          }
+          if (reviewSpeech) {
+            reviewSpeech.onend = reviewSpeech.onerror = null;
+            reviewSpeech = undefined;
+            window.speechSynthesis.cancel();
+          }
+        }
+        if (event.type === "playback_item") playbackHandle = event.handle ?? undefined;
+        if (event.type === "flush") {
+          const items = playback?.flush();
+          playbackHandle = undefined;
+          if (items?.length && socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "playback_interrupted", items }));
+          }
+        }
         // Transport open is not provider ready. Request one opening only
         // after the relay acknowledges the session. The relay gives early
         // user speech precedence and owns the generated turn.
@@ -254,6 +483,7 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
             }
           }
           ready = true;
+          updatePage();
           window.clearTimeout(deadline);
           if (document.activeElement === startButton.current) focusNext.current = "live";
           setState("live");
@@ -331,6 +561,9 @@ export function NativeVoiceControls({ eligible, opening, playingDictation, dicta
 
 export function NativeVoiceCall() {
   const activity = useChatActivity();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const snapshot = useChatPageContextSnapshot();
   const dictation = useComposerDictationActions();
   const dictationStatus = useComposerDictation()?.status;
   const workspace = useScopeOptional()?.scope?.workspaceId ?? "";
@@ -348,6 +581,21 @@ export function NativeVoiceCall() {
     Boolean(navigator.mediaDevices?.getUserMedia) && profile !== ALL_WORKSPACE_ASSISTANTS &&
     (!activity.activeThreadId || Boolean(thread)) && !activity.needsDraftAgent;
   return <NativeVoiceControls eligible={eligible}
+    pageRoute={location.pathname + location.search}
+    destinationRendered={path => {
+      const page = snapshot();
+      const destination = new URL(path, window.location.origin);
+      const id = destination.pathname.split("/")[2];
+      if (destination.pathname.startsWith("/apps/")) return page.focused_app_id === id && Boolean(page.metadata?.app_name);
+      if (destination.searchParams.has("entry")) return page.focused_entry_id === destination.searchParams.get("entry") && Boolean(page.metadata?.entry_title);
+      if (destination.pathname.startsWith("/entries/")) return page.focused_entry_id === id && Boolean(page.metadata?.entry_title);
+      return page.focused_track_id === id && Boolean(page.metadata?.track_title) && (!destination.searchParams.has("view_id") || page.focused_view_id === destination.searchParams.get("view_id"));
+    }}
+    onNavigate={(path, threadId) => {
+      if (activity.followUps?.some(item => item.state === "queued" || item.state === "sending")) return false;
+      requestOpenCompanionChat({ threadId, workspaceId: workspace, principalId: user });
+      navigate(path);
+    }}
     opening={{ workspace_id: workspace, profile_key: profile, thread_id: activity.activeThreadId ?? "" }}
     onThreadReady={activity.adoptNativeVoiceThread}
     onThreadRefresh={activity.refreshNativeVoiceThread}

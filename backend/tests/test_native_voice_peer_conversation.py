@@ -144,7 +144,6 @@ async def test_same_thread_typed_events_wake_and_speak_once_at_pause(monkeypatch
         )
 
         for name, text in (
-            ("accepted", "I see your typed message"),
             ("attachment", "A file is attached"),
             ("result", "The chat task is complete."),
         ):
@@ -157,7 +156,7 @@ async def test_same_thread_typed_events_wake_and_speak_once_at_pause(monkeypatch
         sub.dirty.set()  # duplicate wake/projection
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.1)
-        assert relay.protocol_counts["peer_readout_sent"] == 3
+        assert relay.protocol_counts["peer_readout_sent"] == 2
         assert read_cursors == [None, "baseline", "write"]
         assert bound == [("caller", "workspace", "chat")]
         heavy.assert_awaited_once()
@@ -336,10 +335,6 @@ async def test_committed_chat_wake_projects_through_real_scope_and_voice_relay(
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.05)
         queue_committed_chat_event(wake)
-        acceptance = await event(provider.outbox)
-        assert "I see your typed message" in acceptance["response"]["instructions"]
-        assert "Private typed prompt" not in acceptance["response"]["instructions"]
-        await _audio(provider, browser, "acceptance", acceptance)
         reply = await event(provider.outbox)
         assert "The typed peer answer is ready." in reply["response"]["instructions"]
         await _audio(provider, browser, "reply", reply)
@@ -382,3 +377,46 @@ async def test_voice_ready_waits_for_subscription_and_no_replay_baseline():
         release.set()
         await browser.inbox.put({"type": "websocket.disconnect"})
         await task
+
+
+def test_completed_readouts_release_capacity_without_evicting_pending_speech():
+    relay = native_voice.VoiceRelay(
+        Browser(), Provider(), native_voice.VoiceScope("p", "w", "", "t")
+    )
+    pending = ("pending", "review-applied")
+    assert relay._remember_peer(pending)
+    relay.peer_readouts[pending] = "Applied."
+    for n in range(native_voice.MAX_PEER_READOUTS * 2):
+        key = (str(n), "reply")
+        assert relay._remember_peer(key)
+        assert not relay._remember_peer(key)
+        assert not relay._remember_peer(pending)
+    assert len(relay.peer_seen) == native_voice.MAX_PEER_READOUTS
+    assert relay.peer_readouts == {pending: "Applied."}
+
+
+def test_receipt_cursor_retries_when_pending_audio_fills_queue():
+    from app.services.native_voice_thread_status import VoiceThreadStatus, _ReviewProof
+
+    relay = native_voice.VoiceRelay(
+        Browser(), Provider(), native_voice.VoiceScope("p", "w", "", "t")
+    )
+    relay._observe_review_outcomes(VoiceThreadStatus(receipt_cursor=("before", "a")))
+    for n in range(native_voice.MAX_PEER_READOUTS):
+        key = (str(n), "reply")
+        assert relay._remember_peer(key)
+        relay.peer_readouts[key] = "A reply."
+    proof = _ReviewProof(
+        ("p", "w", "t"), "receipt", "create_entry", "intent", "request"
+    )
+    status = VoiceThreadStatus(
+        outcomes=((proof, "applied"),), receipt_cursor=("later", "b")
+    )
+    relay._observe_review_outcomes(status)
+    assert relay.review_cursor == ("before", "a")
+    assert proof not in relay.observed_review_outcomes
+    relay.peer_readouts.pop(("0", "reply"))
+    relay._observe_review_outcomes(status)
+    assert relay.review_cursor == ("later", "b")
+    relay._observe_review_outcomes(status)
+    assert list(relay.review_readouts.values()) == [(proof, "applied")]

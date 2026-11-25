@@ -94,7 +94,8 @@ async def test_voice_relays_audio_and_delegates_unique_completed_call_once():
     assert [tool["name"] for tool in event_config["session"]["tools"]] == [
         DELEGATE,
         "check_integral_chat",
-        "find_integral_voice_capability",
+        "write_note_to_current_chat",
+        "cancel_integral_voice_work",
     ]
     await provider.inbox.put({"type": "session.updated"})
     assert await event(browser.outbox) == {"type": "ready", "thread_id": "thread"}
@@ -466,6 +467,8 @@ async def test_tagged_opening_cannot_claim_or_replace_ordinary_response(
             {
                 "type": "response.output_audio.delta",
                 "response_id": "greeting",
+                "item_id": "private-opening-item",
+                "content_index": 0,
                 "delta": "AAE=",
             }
         )

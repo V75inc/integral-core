@@ -11,7 +11,7 @@ import { errorMessageFromAxios } from "../../../api/helpers";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useScopeOptional } from "../../../context/ScopeContext";
 import { Text } from "../../../ui";
-import { VoiceRoleAssignment } from "./VoiceRoleAssignment";
+import { ModelRoleAssignment } from "./ModelRoleAssignment";
 import { isRealtimeVoiceModel } from "../../../api/modelProfileKinds";
 import { voiceRoleOptions } from "./voiceRoleModels";
 
@@ -54,7 +54,7 @@ function ScopedRealtimeVoiceConfiguration({ workspace, user, connections, profil
       Live voice settings could not be loaded.{" "}
       <button className="underline" onClick={() => void query.refetch()}>Retry</button>
     </Text>}
-    {data && <VoiceRoleAssignment
+    {data && <ModelRoleAssignment
       label="Realtime model"
       active={data.effective_model || "Off"}
       options={[{ id: "disabled", label: "Off" }, ...options]}

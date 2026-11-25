@@ -708,3 +708,25 @@ async def rehydrate_mcp_connectors() -> None:
         ok,
         err,
     )
+
+
+async def set_standalone_mcp_enabled(connector, enabled, authorized_row):
+    """Pause one standalone mount or resume after a fresh health probe."""
+    from app.agentive.connectors.mcp_client import probe_mcp_health
+    from app.api.errors import ResourceConflictError, ServiceUnavailableError
+
+    def fingerprint(row):
+        if row.subclass_slug != "mcp" or row.mapping_profile == "package":
+            raise ResourceConflictError("Connector is not a standalone MCP mount")
+        return (row.updated_at, row.standalone_mcp_paused, row.auth_state)
+
+    before = fingerprint(connector)
+    if enabled:
+        probe = await probe_mcp_health(connector.auth_state or {})
+        if not probe["ok"]:
+            raise ServiceUnavailableError("Connector MCP health probe failed")
+    fresh = await authorized_row()
+    if fingerprint(fresh) != before:
+        raise ResourceConflictError("Connector changed. Reload and try again.")
+    fresh.standalone_mcp_paused = not enabled
+    await fresh.save()

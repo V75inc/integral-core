@@ -10,7 +10,7 @@ from app.api.errors import (
     ResourceNotFoundError,
 )
 from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
-from app.models.nodes import App
+from app.models.nodes import App, is_profile_user_id
 from app.modules import core_modules
 from app.schemas.policy import Resource, Subject
 from app.services.app_operations.context import OperationContext
@@ -107,6 +107,7 @@ async def invoke_app_query(
     query_key: str,
     params: Optional[Dict[str, Any]] = None,
     correlation_id: Optional[str] = None,
+    audience_principal: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute a declared App query with policy and input validation.
 
@@ -125,6 +126,7 @@ async def invoke_app_query(
             query_key=query_key,
             params=params,
             correlation_id=correlation_id,
+            audience_principal=audience_principal,
         )
 
 
@@ -136,6 +138,7 @@ async def _invoke_app_query(
     query_key: str,
     params: Optional[Dict[str, Any]] = None,
     correlation_id: Optional[str] = None,
+    audience_principal: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute a declared App query with policy and input validation."""
     try:
@@ -176,10 +179,20 @@ async def _invoke_app_query(
     if spec is None:
         raise ResourceNotFoundError(message=f"query {key!r} not found for app")
 
+    if (audience_principal or is_profile_user_id(user_id)) and not isinstance(
+        spec.get("query_template"), dict
+    ):
+        raise InsufficientPermissionsError(
+            message="This query does not support profile service identities"
+        )
     policy_action = str(spec.get("policy_action") or "app.read").strip()
     resource = Resource(kind="app", id=app_id, scope=f"app:{app_id}")
+    subject = Subject(
+        kind="agent" if is_profile_user_id(user_id) else "human",
+        id=execution_scope.principal_id,
+    )
     decision = await policy_evaluate(
-        subject=Subject(kind="human", id=execution_scope.principal_id),
+        subject=subject,
         action=policy_action,
         resource=resource,
         execution_scope=execution_scope,
@@ -206,6 +219,8 @@ async def _invoke_app_query(
         idempotency_key=None,
         correlation_id=correlation_id,
         read_only=True,
+        actor_kind=subject.kind,
+        actor_id=user_id,
     )
 
     query_template = spec.get("query_template")
@@ -229,6 +244,11 @@ async def _invoke_app_query(
                 workspace_id=workspace_id,
                 spec=QuerySpec.model_validate(template),
                 declared_app_id=app_id,
+                **(
+                    {"audience_principal": audience_principal}
+                    if audience_principal
+                    else {}
+                ),
             )
         except (QuerySpecError, ValueError) as exc:
             raise BadRequestError(

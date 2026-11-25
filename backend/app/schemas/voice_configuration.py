@@ -1,6 +1,6 @@
 """Workspace voice model selection reusing a private saved provider."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -37,3 +37,14 @@ class VoiceStart(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=255)
     profile_key: str = Field(default="", max_length=64)
     thread_id: str = Field(default="", max_length=255)
+    review_confirmation: bool = False
+
+
+class VoicePlaybackInterrupted(BaseModel):
+    """Queued PCM samples discarded for relay-issued playback handles."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal["playback_interrupted"]
+    items: list[tuple[Annotated[int, Field(gt=0)], Annotated[int, Field(gt=0)]]] = (
+        Field(min_length=1, max_length=64)
+    )

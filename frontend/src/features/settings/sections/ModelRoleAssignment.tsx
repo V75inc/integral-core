@@ -4,13 +4,13 @@ import { Button } from "../../../components/ui/Button";
 import { Text } from "../../../ui";
 import { ModelAssignmentField } from "./ModelAssignmentField";
 
-export function VoiceRoleAssignment({
+export function ModelRoleAssignment({
   label, active, selected, options, dirty, pending, onChange, onSave, onCancel, helper, error, secondary,
 }: {
   label: string;
   active?: string;
   selected: string;
-  options: { id: string; label: string }[];
+  options: { id: string; label: string; disabled?: boolean }[];
   dirty: boolean;
   pending: boolean;
   onChange?: (id: string) => void;
@@ -24,7 +24,7 @@ export function VoiceRoleAssignment({
     <ModelAssignmentField
       label={label} active={active} value={selected} disabled={pending}
       onChange={onChange} secondary={secondary}
-      options={options.map(option => <option value={option.id} key={option.id}>{option.label}</option>)}
+      options={options.map(option => <option value={option.id} key={option.id} disabled={option.disabled}>{option.label}</option>)}
     />
     {dirty && <div className="flex justify-end gap-2">
       <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>Cancel</Button>

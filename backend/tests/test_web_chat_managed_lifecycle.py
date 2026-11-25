@@ -83,6 +83,11 @@ async def managed_web_chat(authenticated_client, second_user, monkeypatch):
         return {"id": state.id}
 
     writes = AsyncMock(side_effect=compare_and_set)
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     monkeypatch.setattr(profile_management, "record", record)
     monkeypatch.setattr(
         profile_management, "postgres_graph_transaction", fixture_transaction
@@ -179,6 +184,7 @@ async def test_real_managed_web_chat_configure_enable_disable(
         "kind": "published-public-profile-v1",
         "profile_revision": 5,
         "profile_key": None,
+        "theme": "system",
         "eligible_profiles": [{"key": "public", "name": "Visitor guide"}],
         "editable": True,
     }

@@ -11,6 +11,7 @@ from app.agentive.work_models import WorkItem
 from app.services import native_voice
 from app.services.chat_threads import create_thread
 from tests.test_native_voice import Browser, Provider, event, request
+from tests.test_native_voice_completion import completed_readout
 
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
@@ -222,7 +223,7 @@ async def test_durable_voice_completion_after_conversation_pause(
                 "response": {"id": "ordinary", "status": "completed"},
             }
         )
-        rendered = (await event(provider.outbox))["response"]
+        rendered = (await completed_readout(provider, final))["response"]
         assert final in rendered["instructions"]
         await provider.inbox.put(
             {
@@ -409,7 +410,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
 
         earlier = "This is the earlier work result."
         assert (await settle(first.work_item_id, earlier)).status == "succeeded"
-        readout = (await event(provider.outbox))["response"]
+        readout = (await completed_readout(provider, earlier))["response"]
         assert earlier in readout["instructions"]
         await finished_audio("earlier-result", readout)
         promoted = await promote_next_chat_follow_up({})
@@ -437,7 +438,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
 
         final = "The separately queued summary finished."
         assert (await settle(promoted.work_item_id, final)).status == "succeeded"
-        observed = (await event(provider.outbox))["response"]
+        observed = (await completed_readout(provider, final))["response"]
         assert final in observed["instructions"]
         assert "outcome of the separately queued follow-up" in observed["instructions"]
         await finished_audio("successor-result", observed)
@@ -500,3 +501,559 @@ async def test_provider_discovers_and_uses_real_scoped_catalogue_reads(
     finally:
         await browser.inbox.put({"type": "websocket.disconnect"})
         await asyncio.wait_for(task, 3)
+
+
+async def test_spoken_navigation_context_and_cancellation(
+    authenticated_client, test_user, monkeypatch
+):
+    """Exercise the actual voice relay, scoped list and durable submission."""
+    from tests.test_native_voice_live_tools import _tool
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Voice navigation qualification requires PostgreSQL")
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "29" * 32)
+    workspace = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Voice location test"}
+    )
+    assert workspace.status_code == 200
+    ws = workspace.json()["workspace"]["id"]
+    headers = {"X-Integral-Scope": f"ws:{ws}"}
+    created = await authenticated_client.post(
+        "/api/apps",
+        headers=headers,
+        json={"name": "Voice target", "visibility": "private"},
+    )
+    assert created.status_code == 200, created.text
+    app_id = created.json()["app"]["id"]
+    track = await authenticated_client.post(
+        "/api/tracks",
+        headers=headers,
+        json={"title": "Voice collection", "app_id": app_id, "visibility": "private"},
+    )
+    assert track.status_code in (200, 201), track.text
+    track_id = track.json()["track"]["id"]
+    saved_view = await authenticated_client.post(
+        f"/api/tracks/{track_id}/views",
+        headers=headers,
+        json={"name": "Voice saved view", "type": "feed"},
+    )
+    assert saved_view.status_code == 200, saved_view.text
+    for title in ("Acme Georgetown", "Acme Linden"):
+        entry = await authenticated_client.post(
+            "/api/entries",
+            headers=headers,
+            json={"track_id": track_id, "title": title, "body": "Fixture only"},
+        )
+        assert entry.status_code in (200, 201), entry.text
+    thread = await create_thread(
+        user_id=test_user.user_id, workspace_id=ws, provider_id="integral_native"
+    )
+    scope = native_voice.VoiceScope(test_user.user_id, ws, "", thread.id)
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(browser, provider, scope)
+    task = asyncio.create_task(relay.run())
+
+    async def navigate(identifier, action, ordinal=0):
+        await _tool(
+            provider,
+            identifier,
+            native_voice.NAVIGATE,
+            {"action": action, "ordinal": ordinal},
+        )
+        assert (await event(provider.outbox))["item"]["call_id"] == identifier
+        response = (await event(provider.outbox))["response"]
+        assert response["conversation"] == "none"
+        return response["instructions"]
+
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        assert (await event(browser.outbox))["thread_id"] == thread.id
+        assert "1. Voice target" in await navigate("list", "apps")
+        assert "Selected app Voice target" in await navigate("select", "select", 1)
+        assert relay.navigation.focus.label == "Voice target"
+        assert "Voice collection" in await navigate("tracks", "tracks")
+        track_ordinal = next(
+            i
+            for i, candidate in enumerate(relay.navigation.page.destinations, 1)
+            if candidate.label == "Voice collection"
+        )
+        assert "Selected track Voice collection" in await navigate(
+            "track", "select", track_ordinal
+        )
+        assert "Voice saved view" in await navigate("views", "views")
+        view_ordinal = next(
+            i
+            for i, candidate in enumerate(relay.navigation.page.destinations, 1)
+            if candidate.label == "Voice saved view"
+        )
+        assert "Selected view Voice saved view" in await navigate(
+            "view", "select", view_ordinal
+        )
+        await _tool(provider, "records", native_voice.FIND_RECORDS, {"query": "Acme"})
+        assert (await event(provider.outbox))["item"]["call_id"] == "records"
+        response = (await event(provider.outbox))["response"]["instructions"]
+        assert "Acme Georgetown" in response and "Acme Linden" in response
+        ordinal = next(
+            i
+            for i, candidate in enumerate(relay.navigation.page.destinations, 1)
+            if candidate.label == "Acme Georgetown"
+        )
+        assert "Selected entry Acme Georgetown" in await navigate(
+            "entry", "select", ordinal
+        )
+        dest = relay.navigation.focus
+        assert dest.id not in await navigate("where", "where")
+        await _tool(
+            provider, "work", native_voice.DELEGATE, {"request": "Describe this record"}
+        )
+        assert "accepted" in (await event(provider.outbox))["item"]["output"]
+        accepted = relay.accepted
+        assert accepted is not None
+        item = await WorkItem.get(f"o.WorkItem.{accepted.work_item_id}")
+        from app.agentive.harness.turn_input import load_turn_input_capsule
+
+        capsule = await load_turn_input_capsule(
+            principal_id=scope.principal,
+            workspace_id=ws,
+            thread_id=thread.id,
+            work_item_id=item.work_item_id,
+            capsule_id=item.input_payload["capsule_id"],
+            expected_digest=item.input_payload["capsule_digest"],
+        )
+        assert capsule.execution_context.focused_track_id == track_id
+        assert dest.id in capsule.execution_context.system_context
+        assert capsule.execution_context.extra_data["voice_delegate"] is True
+        await _tool(provider, "cancel", native_voice.CANCEL_WORK, {})
+        assert (await event(provider.outbox))["item"]["call_id"] == "cancel"
+        result = (await event(provider.outbox))["response"]["instructions"]
+        assert "task is cancelled" in result
+        current = await WorkItem.find_one(
+            {"context.work_item_id": accepted.work_item_id}
+        )
+        assert current.status == "cancelled"
+        assert scope.workspace == ws and scope.profile == ""
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await asyncio.wait_for(task, 3)
+
+
+async def test_spoken_review_of_canonical_entry_proposal(
+    authenticated_client, test_user
+):
+    """The spoken read uses current durable staging and record revisions."""
+    from app.agentive.services.proposal_origin import bind_proposal_origin
+    from app.agentive.staging import create_staged_change, revoke_token
+    from app.services.native_voice_review import read_entry_review
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Spoken review qualification requires PostgreSQL")
+    response = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Voice review test"}
+    )
+    assert response.status_code == 200
+    ws = response.json()["workspace"]["id"]
+    headers = {"X-Integral-Scope": f"ws:{ws}"}
+    track = await authenticated_client.post(
+        "/api/tracks",
+        headers=headers,
+        json={"title": "Contracts", "visibility": "private"},
+    )
+    assert track.status_code in (200, 201), track.text
+    track_id = track.json()["track"]["id"]
+    record = await authenticated_client.post(
+        "/api/entries", headers=headers, json={"track_id": track_id, "title": "Acme"}
+    )
+    assert record.status_code in (200, 201), record.text
+    entry = record.json()["entry"]
+    thread = await create_thread(
+        user_id=test_user.user_id, workspace_id=ws, provider_id="integral_native"
+    )
+    args = dict(
+        principal=test_user.user_id,
+        workspace=ws,
+        thread=thread.id,
+        work_id="fixture-work",
+        run_id="fixture-run",
+    )
+    payload = {
+        "entry_id": entry["id"],
+        "title": "Acme Georgetown",
+        "expected_record_revision": entry["record_revision"],
+    }
+    proof = {
+        "version": "work-proposal-v1",
+        "capability_key": "integral_update_entry",
+        "work_item_id": args["work_id"],
+        "run_id": args["run_id"],
+        "principal_id": args["principal"],
+        "workspace_id": ws,
+        "thread_id": thread.id,
+    }
+    with bind_proposal_origin(proof):
+        staged = await create_staged_change(
+            user_id=args["principal"],
+            workspace_id=ws,
+            session_id=thread.id,
+            kind="update_entry",
+            summary="Update Acme",
+            diff_human="Title: Acme to Acme Georgetown",
+            diff_machine=payload,
+            payload=payload,
+        )
+    initial = await read_entry_review(**args)
+    assert initial is not None and "Acme Georgetown" in initial.text
+    assert staged.token not in initial.text and entry["id"] not in initial.text
+    await revoke_token(user_id=args["principal"], token=staged.token)
+    assert await read_entry_review(**args) is None
+
+
+@pytest.mark.parametrize("edit", ["title", "date", "reject", "create"])
+async def test_voice_confirmation_uses_real_staging_decision_and_saved_value(
+    authenticated_client, test_user, monkeypatch, edit
+):
+    """A synthetic independent recognition can apply exactly one real record edit."""
+    from app.agentive.services import work_approvals
+    from app.agentive.services.proposal_origin import bind_proposal_origin
+    from app.agentive.services.speech import service
+    from app.agentive.staging import create_staged_change
+    from app.schemas.agentive.work import (
+        ChatTurnExecutionContext,
+        ChatTurnSubmissionRequest,
+    )
+    from app.services.chat_turn_submissions import submit_chat_turn
+    from app.services.native_voice_confirmation import VoiceConfirmation
+    from app.services.native_voice_navigation import VoiceDestination
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Spoken confirmation qualification requires PostgreSQL")
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "29" * 32)
+    response = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Voice confirmation test"}
+    )
+    assert response.status_code == 200
+    ws = response.json()["workspace"]["id"]
+    me = test_user.user_id
+    headers = {"X-Integral-Scope": f"ws:{ws}"}
+    track = await authenticated_client.post(
+        "/api/tracks",
+        headers=headers,
+        json={"title": "Contracts", "visibility": "private"},
+    )
+    assert track.status_code in (200, 201), track.text
+    track_id = track.json()["track"]["id"]
+    record_input = {"track_id": track_id, "title": "Acme"}
+    date_key, date_label = (
+        ("renew_on", "Renewal on") if edit == "create" else ("due_date", "Due date")
+    )
+    if edit in {"date", "create"}:
+        kind = await authenticated_client.post(
+            "/api/entry-types",
+            headers=headers,
+            json={
+                "track_id": track_id,
+                "name": "Contract",
+                "form_schema": {
+                    "fields": [
+                        {"key": date_key, "name": date_label, "type": "date"},
+                        {"key": "notes", "name": "Notes", "type": "markdown"},
+                        {"key": "count", "name": "Count", "type": "number"},
+                        {"key": "expedite", "name": "Expedite", "type": "boolean"},
+                    ]
+                },
+            },
+        )
+        assert kind.status_code == 200, kind.text
+        record_input.update(
+            type_id=kind.json()["entry_type"]["id"],
+            custom_fields={date_key: "2026-11-26"},
+        )
+    response = await authenticated_client.post(
+        "/api/entries", headers=headers, json=record_input
+    )
+    assert response.status_code in (200, 201), response.text
+    entry = response.json()["entry"]
+    thread = await create_thread(
+        user_id=me, workspace_id=ws, provider_id="integral_native"
+    )
+    receipt = await submit_chat_turn(
+        ChatTurnSubmissionRequest(
+            principal_id=me,
+            workspace_id=ws,
+            thread_id=thread.id,
+            client_request_id="voice-confirmation-fixture",
+            parts=[{"type": "text", "text": "Rename Acme to Georgetown"}],
+            execution_context=ChatTurnExecutionContext(
+                extra_data={"voice_delegate": True}, focused_track_id=track_id
+            ),
+        )
+    )
+    claimed = await claim_due_candidate(
+        worker_id="voice-confirmation-test",
+        work_item_id=receipt.work_item_id,
+        lease_seconds=60,
+    )
+    assert claimed is not None
+    run_id = "voice-confirmation-run"
+    payload = {
+        "entry_id": entry["id"],
+        "expected_record_revision": entry["record_revision"],
+    }
+    if edit == "date":
+        from app.agentive.tooling.bindings import _schema_revision_for_update
+
+        payload.update(
+            fields={"due_date": "2026-11-27"},
+            expected_schema_revision=await _schema_revision_for_update(entry),
+        )
+    else:
+        payload["title"] = "Acme Georgetown"
+    if edit == "create":
+        payload = {
+            "track_id": track_id,
+            "title": "Water the plants",
+            "body": "At noon local time",
+            "entry_type": entry["type_id"],
+            "fields": {date_key: "2026-11-27", "count": 0, "expedite": False},
+        }
+    proof = {
+        "version": "work-proposal-v1",
+        "capability_key": (
+            "integral_create_entry" if edit == "create" else "integral_update_entry"
+        ),
+        "work_item_id": claimed.work_item_id,
+        "run_id": run_id,
+        "principal_id": me,
+        "workspace_id": ws,
+        "thread_id": thread.id,
+    }
+    with bind_proposal_origin(proof):
+        staged = await create_staged_change(
+            user_id=me,
+            workspace_id=ws,
+            session_id=thread.id,
+            kind="create_entry" if edit == "create" else "update_entry",
+            summary="Rename Acme",
+            diff_human="Title from Acme to Acme Georgetown",
+            diff_machine=payload,
+            payload=payload,
+        )
+    if edit == "create":
+        from app.services.native_voice_creation import read_creation_review
+
+        rich_payload = {
+            **payload,
+            "fields": {**payload["fields"], "notes": "**Review me**"},
+        }
+        from dataclasses import replace
+
+        rich = replace(staged, payload=rich_payload)
+        assert await read_creation_review(rich, claimed.work_item_id, run_id) is None
+    approval, parked = await work_approvals.propose_work_approval_unit(
+        work_item_id=claimed.work_item_id,
+        lease_token=claimed.lease_token,
+        lease_fence=claimed.lease_fence,
+        run_id=run_id,
+        run_step_id="voice-confirmation-step",
+        staging_token=staged.token,
+        authority_digest="voice-fixture-authority",
+    )
+    assert parked.status == "waiting_for_human"
+    browser, provider = Browser(), Provider()
+    scope = native_voice.VoiceScope(me, ws, "", thread.id)
+    from app.models.nodes import ChatThread
+    from app.services.chat_threads import list_messages
+
+    before = await ChatThread.get(thread.id)
+    before_ids = [message.id for message in await list_messages(before)]
+    assert "waiting for review" in await native_voice._save_chat_note(
+        scope, "note-during-review", "A separate note"
+    )
+    after = await ChatThread.get(thread.id)
+    assert before.updated_at == after.updated_at
+    assert [message.id for message in await list_messages(after)] == before_ids
+    relay = native_voice.VoiceRelay(browser, provider, scope)
+    relay.accepted = native_voice._AcceptedVoiceTurn(
+        receipt.work_item_id, receipt.message_id, "Rename Acme to Georgetown"
+    )
+    if edit == "create":
+        relay.navigation.focus = VoiceDestination("track", track_id, "Tasks")
+    else:
+        relay.navigation.focus = VoiceDestination(
+            "entry", entry["id"], "Acme", track_id
+        )
+    review = await relay._current_review()
+    assert review is not None
+    if edit == "date":
+        assert "2026-11-26" in review.text and "2026-11-27" in review.text
+        await relay._revise_pending_review(
+            "correct-date", {"field_number": 1, "value": "2026-11-30"}, relay.generation
+        )
+        assert (await event(provider.outbox))["item"]["call_id"] == "correct-date"
+        revised_speech = (await event(provider.outbox))["response"]["instructions"]
+        assert "2026-11-30" in revised_speech and "not been applied" in revised_speech
+        # Finish this private readout so the later approval can speak.
+        relay._discard_silent_readout()
+        from app.agentive.staging import get_token
+
+        old = await get_token(staged.token)
+        assert old.state == "revoked" and old.decision_source == "voice"
+        review = await relay._current_review()
+        assert review is not None and review.proposal_id != staged.token
+        revised = await get_token(review.proposal_id)
+        assert revised.supersedes_token == staged.token and revised.origin_proof is None
+        assert "2026-11-26" in review.text and "2026-11-30" in review.text
+        # Reopening the call does not inherit the retired WorkApproval.
+        relay = native_voice.VoiceRelay(
+            browser, provider, native_voice.VoiceScope(me, ws, "", thread.id)
+        )
+        relay.navigation.focus = VoiceDestination(
+            "entry", entry["id"], "Acme", track_id
+        )
+        recovered = await relay._current_review()
+        assert recovered is not None and recovered.proposal_id == revised.token
+        assert not recovered.work_id and recovered.text == review.text
+        review = recovered
+    if edit == "create":
+        assert await relay._review_for_receipt(relay.accepted) == review
+        await relay._revise_pending_review(
+            "correct-create-date",
+            {"field": date_label, "value": "2026-11-30"},
+            relay.generation,
+        )
+        assert (await event(provider.outbox))["item"][
+            "call_id"
+        ] == "correct-create-date"
+        spoken = (await event(provider.outbox))["response"]["instructions"]
+        assert "2026-11-30" in spoken
+        relay._discard_silent_readout()
+        review = await relay._current_review()
+        assert review is not None and review.proposal_id != staged.token
+    if edit == "create":
+        relay = native_voice.VoiceRelay(browser, provider, scope)
+        relay.navigation.focus = VoiceDestination("track", track_id, "Tasks")
+        recovered = await relay._current_review()
+        assert recovered and recovered.proposal_id == review.proposal_id
+        review = recovered
+    confirmation = VoiceConfirmation(
+        review,
+        "reject" if edit == "reject" else "approve",
+        ("fixture", "fixture", "byok", "fixture"),
+    )
+    confirmation.phase = "capture"
+    confirmation.audio.extend(b"\xff\x7f" * 48000)
+
+    async def recognize(*args, **kwargs):
+        return confirmation.decision + " " + confirmation.code
+
+    monkeypatch.setattr(service, "transcribe_voice_confirmation", recognize)
+    monkeypatch.setattr(native_voice, "CAPTURE_SECONDS", 0.01)
+    relay.review_confirmation = confirmation
+    await relay._capture_review_confirmation(confirmation)
+    assert (await event(browser.outbox))["type"] == "review_confirmation_ended"
+    if edit == "create":
+        from app.models.nodes import Entry
+
+        created = await Entry.find(
+            {"context.track_id": track_id, "context.title": "Water the plants"}
+        )
+        assert len(created) == 1
+        assert created[0].custom_fields[date_key] == "2026-11-30"
+        assert created[0].body == "At noon local time"
+        spoken = (await event(provider.outbox))["response"]["instructions"]
+        assert "Water the plants" in spoken and "Current saved values" in spoken
+        assert "Count: 0" in spoken and "Expedite: False" in spoken
+        await relay._capture_review_confirmation(confirmation)
+        assert (
+            len(
+                await Entry.find(
+                    {"context.track_id": track_id, "context.title": "Water the plants"}
+                )
+            )
+            == 1
+        )
+        return
+    actual = (
+        await authenticated_client.get(f"/api/entries/{entry['id']}", headers=headers)
+    ).json()["entry"]
+    if edit == "reject":
+        assert (
+            actual["title"] == "Acme"
+            and actual["record_revision"] == entry["record_revision"]
+        )
+        spoken = (await event(provider.outbox))["response"]["instructions"]
+        assert "review was rejected" in spoken
+        assert await relay._current_review() is None
+        from app.agentive.staging import get_token
+
+        assert (await get_token(staged.token)).state == "revoked"
+        corrected = await submit_chat_turn(
+            ChatTurnSubmissionRequest(
+                principal_id=me,
+                workspace_id=ws,
+                thread_id=thread.id,
+                client_request_id="voice-corrected-fixture",
+                parts=[{"type": "text", "text": "Rename Acme to Linden instead"}],
+                execution_context=ChatTurnExecutionContext(
+                    extra_data={"voice_delegate": True}, focused_track_id=track_id
+                ),
+            )
+        )
+        assert corrected.work_item_id != receipt.work_item_id
+        return
+    if edit == "date":
+        assert actual["custom_fields"]["due_date"] == "2026-11-30"
+    else:
+        assert actual["title"] == "Acme Georgetown"
+        assert relay.navigation.focus.label == "Acme Georgetown"
+    spoken = (await event(provider.outbox))["response"]["instructions"]
+    assert "Current saved values" in spoken
+    assert ("2026-11-30" if edit == "date" else "Acme Georgetown") in spoken
+    assert actual["record_revision"] == entry["record_revision"] + 1
+    await relay._capture_review_confirmation(confirmation)
+    repeated = (
+        await authenticated_client.get(f"/api/entries/{entry['id']}", headers=headers)
+    ).json()["entry"]
+    assert repeated["record_revision"] == actual["record_revision"]
+
+
+async def test_requested_note_is_scoped_replay_safe_and_readable(
+    authenticated_client, test_user
+):
+    """One explicit note survives replay without starting an agent or crossing workspaces."""
+    from app.api.errors import InsufficientPermissionsError, ResourceConflictError
+    from app.services.chat_threads import list_messages
+
+    if os.getenv("INTEGRAL_TEST_DB") not in ("postgres", "postgresql"):
+        pytest.skip("Voice note admission requires a transactional graph")
+    response = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Spoken notes"}
+    )
+    workspace = response.json()["workspace"]["id"]
+    principal = test_user.user_id
+    thread = await create_thread(
+        user_id=principal, workspace_id=workspace, provider_id="integral_native"
+    )
+    scope = native_voice.VoiceScope(principal, workspace, "", thread.id)
+    note = "The test phrase is violet sailboat."
+    await native_voice._save_chat_note(scope, "call-1", note)
+    await native_voice._save_chat_note(scope, "call-1", note)
+    with pytest.raises(ResourceConflictError):
+        await native_voice._save_chat_note(scope, "call-1", "Changed on replay")
+    another = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Other note workspace"}
+    )
+    wrong = native_voice.VoiceScope(
+        principal, another.json()["workspace"]["id"], "", thread.id
+    )
+    with pytest.raises(InsufficientPermissionsError):
+        await native_voice._save_chat_note(wrong, "call-2", "Foreign note")
+    [row] = await list_messages(thread)
+    assert (row.role, row.provider_metadata, row.parts) == (
+        "assistant",
+        {"source": "voice_note"},
+        [{"type": "text", "text": note}],
+    )
+    relay = native_voice.VoiceRelay(Browser(), Provider(), scope)
+    assert note in await relay._read_chat_content("latest_reply")
+    assert not await WorkItem.find({"kind": "chat_turn", "thread_id": thread.id})

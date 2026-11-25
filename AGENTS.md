@@ -6,6 +6,8 @@ Guidance for coding agents working in this repository.
 
 Integral = **AI-native knowledge platform** — singular, conformable substrate of domain knowledge humans and AI agents read, write, schema, coordinate over under one access model. Mission: remove fundamental impediment to AI-first operation — agents have no canonical place to read from or write to. Integral collapses fragmented domain knowledge into one graph, flexible Operational Model schema layer, first-class agentive layer.
 
+**Build Core for many apps.** When a custom app exposes a gap, first trace it through the shared contract. Put reusable behavior in Core and express app-specific fields, vocabulary and policy through Operational Models, manifests, skills or hooks. If a shared contract cannot express a generally useful capability, extend it while preserving its authorization, staging and compatibility guarantees. Verify a foundation change with distinct app schemas or configurations so a fix for one app also works for the next.
+
 Monorepo:
 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (port 9006)

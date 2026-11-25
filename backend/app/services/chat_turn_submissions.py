@@ -238,10 +238,13 @@ async def submit_chat_turn(
         client_request_id=request.client_request_id,
         from_follow_up_queue=request.from_follow_up_queue,
     )
+    from app.services.deployment_chat_limits import read_limits
+
     fingerprint = _request_fingerprint(request)
+    limits = await read_limits()
     deadline_at = (
         datetime.now(timezone.utc)
-        + timedelta(seconds=settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS)
+        + timedelta(seconds=limits["effective"]["run_seconds"])
     ).isoformat()
 
     async with postgres_graph_transaction() as transaction:

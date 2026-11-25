@@ -48,6 +48,11 @@ async def test_composed_route_uses_exact_visitor_state_and_durable_one_turn(
     record = SimpleNamespace(
         public_web_chat=route, profiles={"public": {"published": published}}
     )
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     monkeypatch.setattr(profile_management, "record", AsyncMock(return_value=record))
     # No global readiness override or ProfileHost registration may help this app.
     global_ready = AsyncMock(

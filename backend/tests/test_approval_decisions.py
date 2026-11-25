@@ -215,3 +215,25 @@ async def test_only_failed_card_can_resume_blessed_proposal(
         with pytest.raises(StagingError):
             await decisions.decide_staged_write(**args)
         assert not calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["delete_entry", "share", "create_entry"])
+async def test_voice_decision_does_not_expand_effect_ceiling(monkeypatch, kind):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        decisions, "get_token", AsyncMock(return_value=staged(kind=kind))
+    )
+    apply = AsyncMock()
+    monkeypatch.setattr(decisions, "bless_and_execute", apply)
+    with pytest.raises(StagingError):
+        await decisions.decide_staged_write(
+            principal_id="principal-1",
+            proposal_id="proposal-1",
+            decision="approve",
+            source="voice",
+            workspace_id="workspace-1",
+            conversation_id="conversation-1",
+        )
+    apply.assert_not_awaited()

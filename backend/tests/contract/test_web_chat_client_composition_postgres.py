@@ -63,6 +63,11 @@ async def test_detached_client_api_partitions_and_rechecks_inference(
             }
         },
     )
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     monkeypatch.setattr(profile_management, "record", AsyncMock(return_value=record))
     global_ready = AsyncMock(
         side_effect=AssertionError("Never use the browser/global readiness hook")

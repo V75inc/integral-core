@@ -13,7 +13,8 @@ available for authorized download; their automatic metadata is marked skipped.
 Overlapping requests for the same attachment join the current extraction,
 including manual reprocessing. A later explicit reprocess runs anew.
 
-Images use the workspace's configured vision-capable multimodal model for
+Images use the workspace owner's selected vision profile or the automatic
+provider recommendation for
 descriptions, readable text and descriptive keywords. No OCR engine is used.
 Automatic analysis currently requires the PostgreSQL passage adapter and a
 transactional graph store for durable effect fencing; unsupported deployments

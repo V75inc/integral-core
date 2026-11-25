@@ -163,6 +163,7 @@ async def test_managed_lifecycle_versioning_and_removal_with_transport_outage(
         True,
         True,
     )
+    assert row["enabled"] is False
     before = {"provision_id": row["provision_id"], "route_epoch": row["route_epoch"]}
     outcomes = await asyncio.gather(
         *(
@@ -187,6 +188,7 @@ async def test_managed_lifecycle_versioning_and_removal_with_transport_outage(
     read = await client.get(PATH, headers=headers, params=params)
     [unavailable] = read.json()["channels"]
     assert unavailable["state"] == "unavailable" and unavailable["connected"]
+    assert unavailable["enabled"] is True
     ids = {key: active[key] for key in before}
     stale = await client.delete(
         f"{PATH}/{SLUG}", headers=headers, params={**params, **before}
@@ -200,6 +202,7 @@ async def test_managed_lifecycle_versioning_and_removal_with_transport_outage(
     )
     assert disabled.status_code == 200, disabled.text
     [off] = disabled.json()["channels"]
+    assert off["enabled"] is False
     removed = await client.delete(
         f"{PATH}/{SLUG}",
         headers=headers,

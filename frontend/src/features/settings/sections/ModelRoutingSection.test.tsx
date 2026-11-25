@@ -335,3 +335,16 @@ it("makes inline assignments explicit and saves only after confirmation", async 
     { headers: { "X-Integral-Scope": "ws:workspace" } },
   ));
 });
+
+it("prefills a registered light profile on the main connection when dual routing is chosen", () => {
+  const data = structuredClone(configuration);
+  data.connections = [{ id: "provider", provider: "openai", name: "Account", base_url: "", validated_at: "", updated_at: "", key_fingerprint: "" }];
+  data.model_policy = { providers: {}, version: "test", note: "", specialists: { openai: { light: data.profiles[0].model } } };
+  const edit = vi.fn();
+  show(data, edit, vi.fn(), true);
+  fireEvent.change(screen.getByLabelText("Routing mode"), { target: { value: "light_heavy" } });
+  expect(screen.getByLabelText("Light model")).toHaveValue("light");
+  fireEvent.click(screen.getByRole("button", { name: "Light model settings" }));
+  expect(edit).toHaveBeenCalledWith(data.profiles[0]);
+  expect(aiConfigurationApi.saveRouting).not.toHaveBeenCalled();
+});

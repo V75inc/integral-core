@@ -29,6 +29,7 @@ from app.api.utils import resolve_principal_id
 from app.schemas.agentive.connector_packages import (
     ConnectorPackageAction,
     ConnectorPackageEnablement,
+    ConnectorPackageInstall,
     ConnectorPackageValues,
 )
 from app.services.permissions import get_user_node
@@ -59,10 +60,25 @@ async def _admin(request: Request, workspace_id: str) -> str:
 async def list_connector_packages(request: Request) -> dict:
     """Workspace packages and the reasons rejected packages were not offered."""
     workspace_id = _workspace(request)
-    actor = await _admin(request, workspace_id)
-    listed = catalogue()
-    await attach_host_grants(listed["packages"], workspace_id)
-    listed["installations"] = await installations(workspace_id, actor)
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.workspace_permissions import can_access_workspace
+
+    actor = await get_user_node(resolve_principal_id(request))
+    if actor is None:
+        raise MissingAuthenticationError("Authentication required")
+    selected = parse_scope_header(request.headers.get("X-Integral-Scope"))
+    if selected is None or selected["workspace_id"] != workspace_id:
+        raise BadRequestError("An exact workspace scope is required")
+    role = await can_access_workspace(actor.id, workspace_id)
+    if role not in {"owner", "admin", "member"}:
+        raise InsufficientPermissionsError("Workspace membership required")
+    listed = catalogue(None)
+    if role in {"owner", "admin"}:
+        await attach_host_grants(listed["packages"], workspace_id)
+        listed["installations"] = await installations(workspace_id, actor.id)
+    else:
+        listed["rejected"] = []
+        listed["installations"] = []
     return listed
 
 
@@ -73,7 +89,7 @@ async def rescan_connector_packages(request: Request) -> dict:
     actor = await _admin(request, workspace_id)
     scan_now()
     await refresh_package_action_tools()
-    listed = catalogue()
+    listed = catalogue(None)
     await attach_host_grants(listed["packages"], workspace_id)
     listed["installations"] = await installations(workspace_id, actor)
     return listed
@@ -84,13 +100,14 @@ async def rescan_connector_packages(request: Request) -> dict:
 )
 async def install_connector_package(request: Request, package_id: str) -> dict:
     """Add a disabled installation."""
-    body = ConnectorPackageValues.model_validate(await request.json())
+    body = ConnectorPackageInstall.model_validate(await request.json())
     actor = await _admin(request, _workspace(request, body.workspace_id))
     connector = await install_package(
         actor_id=actor,
         workspace_id=body.workspace_id,
         package_id=package_id,
         values=body.values,
+        binding_scope=body.binding_scope,
     )
     return projection(connector)
 

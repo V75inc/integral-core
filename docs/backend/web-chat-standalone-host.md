@@ -1,5 +1,17 @@
 # Standalone Web Chat document delivery
 
+Both visitor surfaces mount the vendored JVMessenger Thread. Assistant replies support Markdown and HTTP, HTTPS, and mail links. Raw HTML is ignored and image descriptions are displayed as text. Visitor messages remain plain text.
+
+Both visitor chats show a waiting indicator while a message is in flight. A new reply is revealed progressively after the authorized response arrives in full. Reduced motion shows the complete reply immediately. Session history also renders immediately.
+
+Under **Appearance**, choose a theme and select **Save configuration** for the full-page link and website embed. **System** follows each visitor’s device setting. The choice saves to the installation. Existing links and embed code use the new appearance on reload. In System mode, an open chat follows live device appearance changes.
+
+The full-page chat and website popup share a text-only Assistant UI conversation based on JVAgent JVMessenger’s thread presentation, with a centered welcome, separate visitor and assistant messages, and a docked composer. Enter sends and Shift+Enter adds a line. The popup launcher opens or closes the sandboxed conversation inside the approved website. Reloading the full page resumes its visitor session; reloading the website starts a fresh embed bootstrap.
+
+In Web Chat Configure, expanding **Full-page chat** reads the already-issued URL for the current installation and published profile. A verified link can be opened or copied. Opening the section does not issue a link or enable the channel.
+
+To change the published agent profile on active Web Chat, close Configure and turn off the Web Chat switch in Connectors. Reopen Configure, choose an eligible profile, and select **Save configuration**. Turn the switch on when the host reports the new binding is ready.
+
 The unmounted document router takes the reviewed standalone Vite release
 (`npm run build:web-chat`), one explicit canonical HTTPS serving origin,
 an approved host readiness function, and the host assembly's current
@@ -114,6 +126,11 @@ publish a profile, enable the connector, or make a visitor page or share
 available. Enable still requires pre-enable readiness; its new epoch must
 separately have current host approval and serving readiness before it accepts
 traffic. Disable and removal retire prior references without issuing new ones.
+After Disable, the signed-in manager’s switch checks hosting approval directly for
+the new disabled generation and saved publication. Re-enabling an approved
+installation requires no profile edit or manual reference issuance. The active
+generation must independently pass its own approval before a new link serves.
+Old visitor links and sessions stay revoked.
 
 The post-commit attempt is bounded and does not roll back the saved settings.
 A route missing ready approval remains non-serving, even when enabled in
@@ -237,3 +254,20 @@ explicit Send posts one short text turn. The model gets only the saved persona
 and user text; the result has no history, session, cookie, or credential.
 Current manager and exact identity/assignment are verified around inference.
 Default management-only registration does not add this test route.
+
+### Developer client contract
+
+Configure displays the canonical client API origin only after the mounted
+manager capability verifies the enabled assignment, publication, service
+identity and client host readiness. The operator authorizes a scoped client
+grant separately. Store the grant and session token on the developer's server.
+
+| Request | Authorization and body | Result |
+| --- | --- | --- |
+| `POST /api/v1/web-chat/sessions` | Grant bearer, empty body | 201 with `session_token`, `expires_in` in seconds and empty `messages` |
+| `GET /api/v1/web-chat/session` | Session bearer, empty body | Current visitor session history |
+| `POST /api/v1/web-chat/session/messages` | Session bearer and JSON with `id` and `text` | Reply, or 202 while pending. Retry with the same ID and text. Conflicting reuse returns 409. |
+
+Send text of up to 1,000 characters and an ID matching `[A-Za-z0-9_-]{1,128}`.
+An expired or revoked bearer returns 401. The host rejects browser-origin and
+cookie headers. The website launcher uses the embed transport instead.

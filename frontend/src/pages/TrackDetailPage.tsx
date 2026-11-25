@@ -36,6 +36,7 @@ import {
   viewsForTrackQueryKey
 } from '../queryKeys';
 import { errorMessageFromAxios } from '../api/helpers';
+import { refreshCommittedTrackEntries, shouldCountTrackPage } from '../services/graphMutationInvalidation';
 import { resolveHostTrackRedirect } from '../host/registry';
 import { pathAfterTrackDelete } from '../utils/pathAfterTrackDelete';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
@@ -563,7 +564,11 @@ export function TrackDetailPage() {
   );
   const pagedMode = activeView?.type === 'table';
   // What the list holds, remembered while paging so each page does not count it again.
-  const [totalMemo, setTotalMemo] = useState<{ key: string; total: number } | null>(null);
+  const [totalMemo, setTotalMemo] = useState<{
+    key: string;
+    total: number;
+    updatedAt: number;
+  } | null>(null);
   const sortParam = sort ? `${sort.dir === 'desc' ? '-' : ''}${sort.path || sort.field}` : '';
   const entryFilters = {
     ...(requestFilters.length ? { dashboard_filters: JSON.stringify(requestFilters) } : {}),
@@ -576,42 +581,58 @@ export function TrackDetailPage() {
   // A page, its size and the order are part of the key: each page is its own cached read.
   const entryFilterKey = pagedMode ? `${baseFilterKey ?? ''}|${sortParam}|p${page}x${pageSize}` : baseFilterKey;
   const totalKey = `${id}|${baseFilterKey ?? ''}`;
-  const knownTotal = totalMemo?.key === totalKey ? totalMemo.total : undefined;
+  const savedTotal = totalMemo?.key === totalKey ? totalMemo : undefined;
+  const knownTotal = savedTotal?.total;
+  const trackEntriesInfiniteQueryKey = useMemo(
+    () => ['track', id, 'entries', entryFilterKey] as const,
+    [id, entryFilterKey]
+  );
   // Back to the first page whenever what the list shows changes.
   const listShapeKey = `${id}|${baseFilterKey ?? ''}|${sortParam}|${pageSize}`;
   const [seenShape, setSeenShape] = useState(listShapeKey);
   if (seenShape !== listShapeKey) { setSeenShape(listShapeKey); if (page !== 1) setPage(1); }
 
+  const entriesEnabled = Boolean(
+    id &&
+    trackDetailQuery.data &&
+    (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId) &&
+    // Wait for the initial saved view (or a dashboard filter) so opening a
+    // Track does not first request every row and then request the actual view.
+    (dashboardFilters !== undefined || activeView !== null)
+  );
+  const committedReadTarget = useRef<typeof trackEntriesInfiniteQueryKey | null>(null);
+  useEffect(() => {
+    committedReadTarget.current = entriesEnabled ? trackEntriesInfiniteQueryKey : null;
+    return () => { committedReadTarget.current = null; };
+  }, [entriesEnabled, trackEntriesInfiniteQueryKey]);
   const {
     data: entriesData,
     error: entriesError,
     isPending: entriesPending,
     isFetching: entriesFetching,
+    isPlaceholderData: entriesPlaceholder,
+    dataUpdatedAt: entriesUpdatedAt,
     isFetchingNextPage,
     isFetchNextPageError,
     hasNextPage,
     fetchNextPage,
     refetch: refetchEntries
   } = useInfiniteQuery({
-    queryKey: ['track', id, 'entries', entryFilterKey],
-    enabled: Boolean(
-      id &&
-      trackDetailQuery.data &&
-      (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId) &&
-      // Wait until the initial view is chosen (or dashboard filters drive the
-      // list). The view id is part of the key, so starting earlier fetched the
-      // first page twice on every track open: once unscoped, then for the view.
-      (dashboardFilters !== undefined || activeView !== null)
-    ),
+    queryKey: trackEntriesInfiniteQueryKey,
+    enabled: entriesEnabled,
     initialPageParam: undefined as string | undefined,
     // The rows stay on screen while the next page loads.
     placeholderData: pagedMode ? keepPreviousData : undefined,
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
       if (pagedMode) {
-        // The total is counted on the first page and whenever the filters change; moving between pages reuses it.
+        // Reuse the count for pagination, not when a writer invalidates
+        // this view (which must recalculate its current filtered total).
         return tracksApi.getEntriesPage(id, {
-          ...entryFilters, include_total: page === 1 || knownTotal === undefined, limit: pageSize, offset: (page - 1) * pageSize,
+          ...entryFilters,
+          include_total: shouldCountTrackPage(queryClient, trackEntriesInfiniteQueryKey, page, knownTotal),
+          limit: pageSize,
+          offset: (page - 1) * pageSize,
         });
       }
       return tracksApi.getEntriesPage(id, {
@@ -627,11 +648,16 @@ export function TrackDetailPage() {
   });
 
   const firstEntryPage = entriesData?.pages[0];
-  const countedTotal = pagedMode ? firstEntryPage?.total : undefined;
+  const countedTotal = pagedMode && !entriesPlaceholder && entriesUpdatedAt >= (savedTotal?.updatedAt ?? 0)
+    ? firstEntryPage?.total : undefined;
   useEffect(() => {
-    if (countedTotal !== undefined && (totalMemo?.key !== totalKey || totalMemo.total !== countedTotal)) setTotalMemo({ key: totalKey, total: countedTotal });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countedTotal, totalKey]);
+    if (countedTotal === undefined || entriesFetching) return;
+    setTotalMemo(old => old?.key === totalKey && old.total === countedTotal && old.updatedAt === entriesUpdatedAt
+      ? old : { key: totalKey, total: countedTotal, updatedAt: entriesUpdatedAt });
+    // Deleting the only row on the last page must lead to a real page.
+    const lastPage = Math.max(1, Math.ceil(countedTotal / pageSize));
+    if (page > lastPage) setPage(lastPage);
+  }, [countedTotal, totalKey, entriesFetching, entriesUpdatedAt, page, pageSize]);
   const { data: exactEntriesTotal } = useQuery({
     queryKey: ['track', id, 'entries-total', entryFilterKey],
     enabled: Boolean(id && !pagedMode && firstEntryPage?.hasMore && firstEntryPage.nextCursor
@@ -848,9 +874,10 @@ export function TrackDetailPage() {
     showToast,
   ]);
 
-  const entriesTotal =
-    (pagedMode ? firstEntryPage?.total ?? knownTotal : undefined) ?? exactEntriesTotal ?? firstEntryPage?.total ??
-    (firstEntryPage && !firstEntryPage.hasMore ? firstEntryPage.entries.length : undefined);
+  const entriesTotal = pagedMode
+    ? countedTotal ?? knownTotal
+    : exactEntriesTotal ?? firstEntryPage?.total
+      ?? (firstEntryPage && !firstEntryPage.hasMore ? firstEntryPage.entries.length : undefined);
   const loadedEntries = entriesData?.pages.reduce((sum, page) => sum + page.entries.length, 0);
 
   const loadError =
@@ -901,14 +928,7 @@ export function TrackDetailPage() {
   }, [id, queryClient, fetchTrackMeta]);
 
   const invalidateTrackEntries = useCallback(() => {
-    if (!id) return;
-    queryClient.invalidateQueries({ queryKey: ['track', id, 'entries'] });
-    queryClient.invalidateQueries({ queryKey: ['track', id, 'entries-total'] });
-    // Mission Control's dashboardPreview cache derives from the same
-    // backend entries — keep it in step so the cross-workspace tallies
-    // (entries-today, active-tracks, last-activity) update when the
-    // user adds or deletes a track entry.
-    void invalidateFeedCaches(queryClient);
+    if (id) void refreshCommittedTrackEntries(queryClient, id);
   }, [id, queryClient]);
 
   useEffect(() => {
@@ -1111,12 +1131,6 @@ export function TrackDetailPage() {
     }
   };
 
-  /** Must match ``useInfiniteQuery`` key (includes active saved view). */
-  const trackEntriesInfiniteQueryKey = useMemo(
-    () => ['track', id, 'entries', entryFilterKey] as const,
-    [id, entryFilterKey]
-  );
-
   const patchEntriesCache = useCallback(
     (fn: (page: TrackEntriesPage) => TrackEntriesPage) => {
       if (!id) return;
@@ -1166,30 +1180,19 @@ export function TrackDetailPage() {
     [viewsForKanbanLabels, trackEntryTypeFields, activeView?.id]
   );
 
-  const handleEntryCreatedFromComposer = useCallback(
-    (created?: Entry) => {
-      if (created?.id) {
-        patchEntriesCache(p => ({
-          ...p,
-          entries: [created, ...p.entries.filter(e => e.id !== created.id)]
-        }));
-      }
-      invalidateTrackEntries();
-      // Belt-and-suspenders on top of invalidateTrackEntries(): invalidate
-      // only forces a refetch for a query React Query currently considers
-      // "active" — with a multi-step modal (CreateWizardModal's period ->
-      // employees -> confirm flow) still unwinding/closing at this exact
-      // moment, the underlying list can transiently read as inactive and
-      // silently skip the auto-refetch, leaving the new Pay Run invisible
-      // until a manual reload (found live: "Create Pay Run" wizard's new
-      // entry never appeared in the Pay Runs table on its own). `refetch()`
-      // is unconditional — same call the page's own "Retry" button already
-      // uses — so the list is guaranteed current the moment the wizard's
-      // batch of writes (entry + its on_create_tool populate call) settles.
-      void refetchEntries();
-    },
-    [patchEntriesCache, invalidateTrackEntries, refetchEntries]
-  );
+  const handleEntryCreatedFromComposer = useCallback(() => {
+    // A committed record is not necessarily a member of the displayed
+    // filter, sort position, search selection, or page. Let the server decide.
+    invalidateTrackEntries();
+    // A multi-step wizard can settle while its own list observer is briefly
+    // inactive. Preserve that readback for this still-selected, authorized view
+    // without starting a second fetch for an already-active list.
+    const selected = committedReadTarget.current;
+    if (selected === trackEntriesInfiniteQueryKey &&
+        !queryClient.getQueryCache().find({ queryKey: selected, exact: true })?.isActive()) {
+      void refetchEntries({ cancelRefetch: false });
+    }
+  }, [invalidateTrackEntries, queryClient, refetchEntries, trackEntriesInfiniteQueryKey]);
 
   const handleEntryDelete = useCallback(
     (entryId: string) => {
@@ -1536,10 +1539,6 @@ export function TrackDetailPage() {
           title: input.title,
           custom_fields: input.custom_fields
         });
-        patchEntriesCache(p => ({
-          ...p,
-          entries: [created, ...p.entries.filter(e => e.id !== created.id)]
-        }));
         invalidateTrackEntries();
         return created;
       } catch (err) {
@@ -1563,12 +1562,8 @@ export function TrackDetailPage() {
       track?.operational_model_defaults?.default_entry_type,
       entryTypeSlugs,
       entryTypesQuery.data,
-      patchEntriesCache,
       invalidateTrackEntries,
       showToast,
-      // activeView fields are listed individually above; `activeView` itself
-      // is a fresh object per render of the view tab strip.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     ]
   );
 

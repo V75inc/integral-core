@@ -437,6 +437,7 @@ async def bind_durable_routing(scope, context, plan: TurnModelRoutes, timing) ->
                 remaining = settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS
             saved = {
                 "fingerprint": fingerprint,
+                "budget": dict(timing.budget_settings or {}),
                 "deadline_epoch": time.time() + remaining,
             }
             changed = await get_default_context().database.find_one_and_update(
@@ -455,6 +456,8 @@ async def bind_durable_routing(scope, context, plan: TurnModelRoutes, timing) ->
             await get_default_context()._evict_from_cache(run.id)
         if not isinstance(saved, dict) or saved.get("fingerprint") != fingerprint:
             raise WorkError("work.model_route_stale")
+        if "budget" in saved:
+            timing.freeze_budget(saved["budget"])
         remaining = saved.get("deadline_epoch", 0) - time.time()
         if remaining <= 0:
             raise UsageLimitExceeded("The shared turn deadline is exhausted")

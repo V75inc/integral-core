@@ -1,0 +1,13 @@
+.managed-profile-lock-feedback {
+  border-radius: var(--radius-input);
+  animation: managed-profile-lock-feedback 1.2s ease-out;
+}
+
+@keyframes managed-profile-lock-feedback {
+  0%, 65% { box-shadow: 0 0 0 2px var(--focus-ring-color); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .managed-profile-lock-feedback { animation-timing-function: steps(1, end); }
+}

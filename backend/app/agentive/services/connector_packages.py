@@ -160,7 +160,7 @@ async def attach_host_grants(packages: list[dict[str, Any]], workspace_id: str) 
             package["grant"] = grant
 
 
-def catalogue(scope: str = "workspace") -> dict[str, Any]:
+def catalogue(scope: str | None = "workspace") -> dict[str, Any]:
     """Return admitted packages the caller can install in ``scope``."""
     admission = current_admission()
     offered = []
@@ -169,7 +169,7 @@ def catalogue(scope: str = "workspace") -> dict[str, Any]:
             scopes = _binding_scopes(manifest)
         except ValueError:
             continue
-        if scope not in scopes:
+        if scope is not None and scope not in scopes:
             continue
         try:
             managed = package_host_managed(manifest, package_id)
@@ -216,14 +216,20 @@ def catalogue(scope: str = "workspace") -> dict[str, Any]:
             "capabilities": capabilities,
             "host_managed": managed,
             "fingerprint": admission.fingerprints.get(package_id, ""),
+            "binding_scopes": scopes,
             "configuration": [
-                _public_field(field) for field in _visible_fields(manifest, scope)
+                _public_field(field)
+                for field in (
+                    _fields(manifest)
+                    if scope is None
+                    else _visible_fields(manifest, scope)
+                )
             ],
         }
         channel = (manifest.get("capabilities") or {}).get("channel") or {}
         auth = manifest.get("auth") or {}
-        if auth.get("type") == "oauth2":
-            row["auth_type"] = "oauth2"
+        if auth.get("type") in {"oauth2", "mcp_oauth"}:
+            row["auth_type"] = auth["type"]
         if channel.get("mode"):
             row["channel_mode"] = channel["mode"]
         if icon is not None:
@@ -247,6 +253,8 @@ def _public_field(field: dict[str, Any]) -> dict[str, Any]:
         "type": field["type"],
         "required": bool(field.get("required")),
     }
+    if field.get("scope"):
+        shown["scope"] = field["scope"]
     if field.get("help"):
         shown["help"] = field["help"]
     if field.get("options"):
@@ -404,18 +412,44 @@ def _split(
     return config, secrets_out
 
 
-async def _existing(package_id: str, workspace_id: str) -> list[Connector]:
+async def _existing(
+    package_id: str, workspace_id: str, mode: str = "shared"
+) -> list[Connector]:
     rows = await Connector.find({"context.workspace_id": workspace_id})
     return [
         row
         for row in rows
         if installation_package_id(row) == package_id
-        and getattr(row, "connection_mode", None) == "shared"
+        and getattr(row, "connection_mode", None) == mode
     ]
 
 
+async def require_installation_target(
+    actor_id: str, workspace_id: str, binding_scope: str
+) -> None:
+    """Keep new owner-private rows in their actual Personal Workspace."""
+    if binding_scope == "personal":
+        from app.services.personal_workspace import _find_personal_workspace
+
+        owner = await get_user_node(actor_id)
+        personal = await _find_personal_workspace(owner) if owner else None
+        if personal is None or personal.id != workspace_id:
+            raise BadRequestError("Select your Personal Workspace")
+    else:
+        from app.models.nodes import Workspace
+
+        workspace = await Workspace.get(workspace_id)
+        if workspace is None or workspace.kind == "personal":
+            raise BadRequestError("Select a shared workspace")
+
+
 async def install_package(
-    *, actor_id: str, workspace_id: str, package_id: str, values: dict[str, Any]
+    *,
+    actor_id: str,
+    workspace_id: str,
+    package_id: str,
+    values: dict[str, Any],
+    binding_scope: str | None = "workspace",
 ) -> Connector:
     """Create a disabled installation. Workspace cardinality defaults to one."""
     manifest = _manifest(package_id)
@@ -433,8 +467,17 @@ async def install_package(
         raise BadRequestError(
             "This package cannot be installed for a workspace"
         ) from exc
-    if "workspace" not in scopes:
-        raise BadRequestError("This package cannot be installed for a workspace")
+    if binding_scope is None:
+        if len(scopes) != 1:
+            raise BadRequestError("Choose an installation scope")
+        binding_scope = scopes[0]
+    if binding_scope not in scopes:
+        raise BadRequestError("This package does not support the selected scope")
+    if (manifest.get("capabilities") or {}).get("channel", {}).get(
+        "mode"
+    ) == "managed-text-v1":
+        raise BadRequestError("Install this channel through its managed lifecycle")
+    await require_installation_target(actor_id, workspace_id, binding_scope)
     lock = await _workspace_install_lock(package_id, workspace_id)
     async with lock:
         return await _create_installation(
@@ -443,6 +486,7 @@ async def install_package(
             package_id=package_id,
             manifest=manifest,
             values=values,
+            binding_scope=binding_scope,
         )
 
 
@@ -453,12 +497,17 @@ async def _create_installation(
     package_id: str,
     manifest: dict[str, Any],
     values: dict[str, Any],
+    binding_scope: str,
 ) -> Connector:
-    if _workspace_cardinality(manifest, package_id) != "many" and await _existing(
-        package_id, workspace_id
-    ):
+    mode = "shared" if binding_scope == "workspace" else "per_user"
+    cardinality = (
+        _workspace_cardinality(manifest, package_id)
+        if binding_scope == "workspace"
+        else manifest["binding"].get("cardinality", {}).get("personal", "many")
+    )
+    if cardinality == "one" and await _existing(package_id, workspace_id, mode):
         raise ResourceConflictError("This package is already installed here")
-    config, secret_values = _split(manifest, values)
+    config, secret_values = _split(manifest, values, scope=binding_scope)
     connector = await create_connector(
         owner=actor_id,
         kind="custom",
@@ -469,7 +518,7 @@ async def _create_installation(
     )
     connector.subclass_slug = package_id
     connector.label = manifest["name"]
-    connector.connection_mode = "shared"
+    connector.connection_mode = mode
     connector.mapping_profile = _PACKAGE
 
     connector.package_version = manifest["version"]
@@ -488,6 +537,7 @@ def projection(connector: Connector) -> dict[str, Any]:
         "id": connector.id,
         "package_id": installation_package_id(connector),
         "name": connector.label,
+        "connection_mode": getattr(connector, "connection_mode", "shared"),
         "version": connector.package_version,
         "revision": int(connector.package_revision or 0),
         "enabled": bool(connector.enabled),
@@ -508,6 +558,7 @@ def projection(connector: Connector) -> dict[str, Any]:
 _SNAPSHOT_KEYS = (
     "id",
     "version",
+    "binding",
     "http",
     "capabilities",
     "auth",
@@ -670,6 +721,62 @@ def _require_admitted(connector: Connector) -> None:
         raise ResourceNotFoundError("Connector package is not admitted")
 
 
+async def start_package_mcp_oauth(
+    connector_id: str, actor_id: str, workspace_id: str, package_id: str
+) -> str:
+    """Start OAuth for the exact disabled managed installation."""
+    from app.agentive.connectors.mcp_adapter import plain_auth_state, store_auth_state
+    from app.agentive.connectors.mcp_client import (
+        _resolve_http_mcp_url,
+        _resolve_mcp_transport,
+    )
+    from app.agentive.connectors.mcp_oauth import (
+        OAUTH_STATUS_PENDING,
+        authorization_url_for_oauth,
+        mcp_oauth_redirect_uri,
+        probe_mcp_authorization,
+        sign_mcp_oauth_state,
+        start_mcp_oauth_session,
+    )
+
+    row = await _owned(connector_id, actor_id, workspace_id)
+    _require_admitted(row)
+    if installation_package_id(row) != package_id:
+        raise BadRequestError("Connector is not this package")
+    manifest = _with_package_auth(_installed_manifest(row), package_id)
+    if manifest.get("auth", {}).get("type") != "mcp_oauth":
+        raise BadRequestError("Connector does not use MCP OAuth")
+    auth = plain_auth_state(row)
+    if _resolve_mcp_transport(auth, manifest) != "streamable_http":
+        raise BadRequestError("MCP OAuth discovery requires HTTP transport")
+    url = _resolve_http_mcp_url(auth, manifest, row.package_config)
+    probe = await probe_mcp_authorization(url)
+    if not probe.needs_oauth:
+        raise BadRequestError("The MCP server did not request authorization")
+    oauth = await start_mcp_oauth_session(
+        url, probe_response=probe.response, redirect_uri=mcp_oauth_redirect_uri()
+    )
+    fresh = await _owned(connector_id, actor_id, workspace_id)
+    _require_admitted(fresh)
+    if (fresh.package_revision, fresh.updated_at) != (
+        row.package_revision,
+        row.updated_at,
+    ):
+        raise ResourceConflictError("Connector changed during authorization")
+    state = sign_mcp_oauth_state(actor_id, row.id)
+    auth["oauth"] = {
+        **oauth,
+        "state": state,
+        "status": OAUTH_STATUS_PENDING,
+        "package_revision": row.package_revision,
+    }
+    store_auth_state(fresh, auth)
+    fresh.enabled = False
+    await fresh.save()
+    sync_package_action_tools(fresh)
+    return authorization_url_for_oauth(auth["oauth"], state)
+
+
 async def configure_package(
     connector_id: str,
     actor_id: str,
@@ -682,7 +789,16 @@ async def configure_package(
     manifest = _with_package_configuration(
         _installed_manifest(connector), installation_package_id(connector)
     )
-    config, secret_values = _split(manifest, values, keep_missing_secrets=True)
+    config, secret_values = _split(
+        manifest,
+        values,
+        keep_missing_secrets=True,
+        scope=(
+            "personal"
+            if getattr(connector, "connection_mode", "shared") == "per_user"
+            else "workspace"
+        ),
+    )
     connector.package_config = config
     connector.package_revision = int(connector.package_revision or 0) + 1
     if secret_values:
@@ -880,6 +996,45 @@ def _health_request(manifest: dict[str, Any], package_id: str) -> dict[str, Any]
     return found
 
 
+async def probe_sync_health(connector, package_id, manifest, config):
+    """Run the declared read-only probe using the installation credentials."""
+    request = _health_request(manifest, package_id)
+    if request is None:
+        raise BadRequestError("Enable requires a health probe")
+    secret_values = decrypt_auth_state(connector.auth_state or {})
+    config = dict(config)
+    if (manifest.get("auth") or {}).get("type") == "oauth2":
+        if not secret_values.get("access_token"):
+            raise BadRequestError("Authorize this connector before enabling it")
+        realm_id = secret_values.get("realm_id")
+        if realm_id:
+            config["realm_id"] = str(realm_id)
+        http = manifest.get("http") or {}
+        named_host = (http.get("hosts") or {}).get(secret_values.get("environment"))
+        if named_host:
+            manifest = {**manifest, "http": {**http, "base_url": named_host}}
+    statuses = _health_expect_status(manifest, package_id)
+    await perform_request(
+        _with_package_configuration(
+            _with_package_auth(
+                _with_package_response_limit(
+                    _with_package_timeout(
+                        _with_package_base(manifest, package_id),
+                        package_id,
+                    ),
+                    package_id,
+                ),
+                package_id,
+            ),
+            package_id,
+        ),
+        request,
+        config,
+        secret_values,
+        ok_statuses=statuses,
+    )
+
+
 async def set_enabled(
     connector_id: str, actor_id: str, enabled: bool, workspace_id: str | None = None
 ) -> Connector:
@@ -947,43 +1102,13 @@ async def set_enabled(
         enabled_row = await _claim_enable(connector)
         sync_package_action_tools(enabled_row)
         return enabled_row
-    request = _health_request(manifest, installation_package_id(connector))
-    if request is None:
-        raise BadRequestError("Enable requires a health probe")
-    secret_values = decrypt_auth_state(connector.auth_state or {})
-    config = dict(connector.package_config or {})
-    if (manifest.get("auth") or {}).get("type") == "oauth2":
-        if not secret_values.get("access_token"):
-            raise BadRequestError("Authorize this connector before enabling it")
-        realm_id = secret_values.get("realm_id")
-        if realm_id:
-            config["realm_id"] = str(realm_id)
-        http = manifest.get("http") or {}
-        named_host = (http.get("hosts") or {}).get(secret_values.get("environment"))
-        if named_host:
-            manifest = {**manifest, "http": {**http, "base_url": named_host}}
-    statuses = _health_expect_status(manifest, installation_package_id(connector))
+    _health_expect_status(manifest, installation_package_id(connector))
     try:
-        await perform_request(
-            _with_package_configuration(
-                _with_package_auth(
-                    _with_package_response_limit(
-                        _with_package_timeout(
-                            _with_package_base(
-                                manifest, installation_package_id(connector)
-                            ),
-                            installation_package_id(connector),
-                        ),
-                        installation_package_id(connector),
-                    ),
-                    installation_package_id(connector),
-                ),
-                installation_package_id(connector),
-            ),
-            request,
-            config,
-            secret_values,
-            ok_statuses=statuses,
+        await probe_sync_health(
+            connector,
+            installation_package_id(connector),
+            manifest,
+            connector.package_config or {},
         )
     except (httpx.HTTPError, ValueError) as exc:
         await _record_probe_failure(connector, "health probe failed")

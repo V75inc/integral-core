@@ -203,3 +203,24 @@ async def test_rate_limit_and_connection_error_do_not_raise():
     assert down.status_code == 0
     assert down.error
     assert down.retry_after_seconds is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base",
+    ["https://127.0.0.1", "https://169.254.169.254", "https://10.0.0.5"],
+)
+async def test_private_jvconnect_hosts_are_refused_before_sending_the_key(
+    base, monkeypatch
+):
+    """A customer-supplied base URL cannot aim the API key at internal hosts."""
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("no request may be sent to a private host")
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", unexpected)
+    result = await fetch_account(base, _API_KEY)
+
+    assert result.ok is False
+    assert result.status_code == 0
+    assert result.error == "host not allowed"

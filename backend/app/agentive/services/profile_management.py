@@ -1,6 +1,7 @@
 """Server-owned draft/test/publish/bind lifecycle for connection profiles."""
 
 from base64 import b64decode, b64encode
+from contextlib import nullcontext
 from copy import deepcopy
 from typing import NamedTuple
 from uuid import uuid4
@@ -16,6 +17,7 @@ from app.agentive.services.profile_catalogue import (
     invoke_installed,
 )
 from app.agentive.services.profile_host import profile_host
+from app.agentive.services.profile_principals import current_principal, ensure_principal
 from app.api.errors import BadRequestError
 from app.models.edges import HAS_CONNECTION_PROFILES
 from app.models.nodes import Workspace, WorkspaceConnectionProfiles
@@ -27,6 +29,7 @@ from app.schemas.agentive.connection_profiles import (
 from app.schemas.avatar import AvatarValidationError
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 from app.services.avatar_resize import resize_avatar
+from app.services.membership_write_scope import membership_write_scope
 from app.services.workspace_permissions import is_workspace_admin_or_owner
 
 
@@ -254,26 +257,42 @@ def current_public_profile_service_identity(
     )
 
 
-def _profile_reply(record, key, item):
-    """Only the readiness bit belongs in the manager-facing profile projection."""
+async def live_public_service_identity(config, key, version):
+    """Visitor authorization requires both the channel binding and a live workspace actor."""
+    from app.services.workspace_permissions import can_access_workspace
+
+    binding = current_public_profile_service_identity(config, key, version)
+    if binding is None:
+        return None
+    actor = await current_principal(config, key, config.profiles[key])
+    if (
+        actor is None
+        or await can_access_workspace(actor.id, config.workspace_id) == "none"
+    ):
+        return None
+    return binding
+
+
+async def _profile_reply(record, key, item):
     if not isinstance(item, dict):
         return item
-    if "service_identity_ready" in item:
-        item = {
-            field: value
-            for field, value in item.items()
-            if field != "service_identity_ready"
-        }
+    rendered = {
+        k: v
+        for k, v in item.items()
+        if k not in ("service_identity_ready", "service_principal_id")
+    }
     published = item.get("published")
-    if isinstance(published, dict) and audience_of(published) == "public":
-        return {
-            **item,
-            "service_identity_ready": current_public_profile_service_identity(
-                record, key, published.get("version")
+    if isinstance(published, dict):
+        principal = await current_principal(record, key, item)
+        rendered["service_identity_ready"] = principal is not None
+        if eligible_public_web_chat_profile(published):
+            rendered["service_identity_ready"] &= (
+                current_public_profile_service_identity(
+                    record, key, published.get("version")
+                )
+                is not None
             )
-            is not None,
-        }
-    return item
+    return rendered
 
 
 def _bind_public_service_identity(
@@ -318,6 +337,67 @@ def _bind_public_service_identity(
     return True
 
 
+async def migrate_published_principals(actor, workspace, *, apply=False):
+    """Adopt saved publications without publishing any pending draft or enabling a route."""
+    await require_profile_manager(actor, workspace)
+    membership = (
+        membership_write_scope(workspace, principal_ids=(actor,))
+        if apply
+        else nullcontext()
+    )
+    async with postgres_graph_transaction(), membership:
+        await require_profile_manager(actor, workspace)
+        found = await record(workspace)
+        if found is None:
+            return {"pending": [], "changed": False}
+        if apply:
+            found = await record(workspace, create=True)
+        profiles = deepcopy(found.profiles)
+        identities = deepcopy(found.public_profile_service_identities)
+        route = PublicWebChatRoute.model_validate(found.public_web_chat)
+        pending = []
+        for key, item in profiles.items():
+            publication = item.get("published")
+            if not publication:
+                continue
+            needs_transport = eligible_public_web_chat_profile(
+                publication
+            ) and not current_public_profile_service_identity(
+                found, key, publication.get("version")
+            )
+            principal = await current_principal(found, key, item)
+            if principal is not None and not needs_transport:
+                continue
+            pending.append(key)
+            if apply:
+                await ensure_principal(found, key, item)
+                if needs_transport:
+                    _bind_public_service_identity(
+                        workspace=workspace,
+                        key=key,
+                        record=found,
+                        profiles=profiles,
+                        route=route,
+                        identities=identities,
+                        next_revision=found.revision + 1,
+                    )
+        if apply and pending:
+            changed = await get_default_context().database.find_one_and_update(
+                "node",
+                {"id": found.id, "context.revision": found.revision},
+                {
+                    "$set": {
+                        "context.profiles": profiles,
+                        "context.public_profile_service_identities": identities,
+                        "context.revision": found.revision + 1,
+                    }
+                },
+            )
+            if changed is None:
+                raise BadRequestError("Profiles changed. Reload and try again.")
+        return {"pending": pending, "changed": bool(apply and pending)}
+
+
 async def describe(actor, workspace):
     """Return guarded workspace settings for this surface."""
     await require_profile_manager(actor, workspace)
@@ -332,7 +412,7 @@ async def describe(actor, workspace):
         "profiles": {
             **{key: {"draft": starter(key)} for key in ("public", "staff")},
             **{
-                key: _profile_reply(found, key, item)
+                key: await _profile_reply(found, key, item)
                 for key, item in profiles.items()
                 if key != WORKSPACE_ASSISTANT_KEY
             },
@@ -350,11 +430,14 @@ async def describe(actor, workspace):
     }
 
 
-async def mutate_config(
-    actor, workspace, revision, action, *, _public_identity_key=None
-):
+async def mutate_config(actor, workspace, revision, action, *, _published_key=None):
     """Update profile configuration at the expected workspace revision."""
-    async with postgres_graph_transaction():
+    membership = (
+        membership_write_scope(workspace, principal_ids=(actor,))
+        if _published_key is not None
+        else nullcontext()
+    )
+    async with postgres_graph_transaction(), membership:
         await require_profile_manager(actor, workspace)
         found = await record(workspace, create=True)
         if found.revision != revision:
@@ -366,13 +449,17 @@ async def mutate_config(
         await action(profiles, bindings, native, public_web_chat)
         identities = None
         identity_changed = False
-        if _public_identity_key is not None:
+        if _published_key is not None:
+            await ensure_principal(found, _published_key, profiles[_published_key])
+        if _published_key is not None and eligible_public_web_chat_profile(
+            profiles[_published_key]["published"]
+        ):
             identities = deepcopy(
                 getattr(found, "public_profile_service_identities", {})
             )
             identity_changed = _bind_public_service_identity(
                 workspace=workspace,
-                key=_public_identity_key,
+                key=_published_key,
                 record=found,
                 profiles=profiles,
                 route=public_web_chat,
@@ -400,7 +487,7 @@ async def mutate_config(
     return await describe(actor, workspace)
 
 
-async def mutate(actor, workspace, body, action, *, _public_identity_key=None):
+async def mutate(actor, workspace, body, action, *, _published_key=None):
     """Apply a single-profile change through the configuration revision guard."""
 
     async def update(profiles, bindings, native, public_web_chat):
@@ -410,13 +497,13 @@ async def mutate(actor, workspace, body, action, *, _public_identity_key=None):
             raise BadRequestError("Profile unavailable")
         await action(profiles[body.key], bindings, native, public_web_chat)
 
-    if _public_identity_key is not None:
+    if _published_key is not None:
         return await mutate_config(
             actor,
             workspace,
             body.expected_revision,
             update,
-            _public_identity_key=_public_identity_key,
+            _published_key=_published_key,
         )
     return await mutate_config(actor, workspace, body.expected_revision, update)
 
@@ -549,11 +636,6 @@ async def publish(actor, workspace, body):
         audience = audience_of(draft)
         ceiling = await catalogue(actor, workspace, audience)
         validate_draft(draft, ceiling)
-        if (
-            body.enable_public_service_identity
-            and not eligible_public_web_chat_profile(draft)
-        ):
-            raise BadRequestError("Choose a public profile without tools")
         published = item.get("published")
         if (
             public_web_chat.profile_key == body.key
@@ -602,7 +684,7 @@ async def publish(actor, workspace, body):
         workspace,
         body,
         activate,
-        _public_identity_key=body.key if body.enable_public_service_identity else None,
+        _published_key=body.key,
     )
 
 
@@ -671,6 +753,7 @@ async def native_chat_choices(workspace, principal):
         identity
         for key in found.native_chat_profiles
         if (identity := _published_staff_identity(found.profiles, key)) is not None
+        and await current_principal(found, key, found.profiles[key]) is not None
     ]
 
 
@@ -728,6 +811,12 @@ async def open_published_profile_with_identity(
         published = found.profiles.get(key, {}).get("published") if key else None
         if not published:
             return None
+        service_user = await current_principal(found, key, found.profiles[key])
+        if (
+            service_user is None
+            or await can_access_workspace(service_user.id, workspace) == "none"
+        ):
+            return None
         audience = audience_of(published)
         if host is None and audience != "staff":
             return None
@@ -758,6 +847,7 @@ async def open_published_profile_with_identity(
             f"{key}:{published['version']}",
             audience,
             verified_staff=identity.get("verified_staff", False),
+            service_principal_id=service_user.id,
         )
 
     grant = await resolve(connection_id, principal_id)
@@ -770,7 +860,10 @@ async def open_published_profile_with_identity(
         raise ProfileDenied("Profile changed; start a new session")
     ceiling = await catalogue(principal_id, workspace, grant.audience)
     # Legacy pilot names never become installed capabilities implicitly.
-    selected = set(published["tools"]) & ceiling.keys()
+    actor_ceiling = await catalogue(
+        grant.service_principal_id, workspace, grant.audience
+    )
+    selected = set(published["tools"]) & ceiling.keys() & actor_ceiling.keys()
 
     async def authorize(current, name):
         with isolated_permissions_cache():
@@ -778,18 +871,37 @@ async def open_published_profile_with_identity(
                 return False
             return name in await catalogue(
                 current.principal_id, current.workspace_id, current.audience
+            ) and name in await catalogue(
+                current.service_principal_id, current.workspace_id, current.audience
             )
 
     def handler(name):
         async def run(current, session, arguments):
             with isolated_permissions_cache():
-                return await invoke_installed(
+                result = await invoke_installed(
                     current.workspace_id,
-                    current.principal_id,
+                    current.service_principal_id,
                     current.audience,
                     name,
                     arguments,
+                    audience_principal=current.principal_id,
                 )
+                if ceiling[name].get("kind") == "skill":
+                    # A workspace skill may resolve different text for two subjects.
+                    caller_view = await invoke_installed(
+                        current.workspace_id,
+                        current.principal_id,
+                        current.audience,
+                        name,
+                        arguments,
+                    )
+                    if result != caller_view:
+                        raise ProfileDenied("Operation unavailable")
+                if await resolve(
+                    connection_id, principal_id
+                ) != current or not await authorize(current, name):
+                    raise ProfileDenied("Operation unavailable")
+                return result
 
         return run
 

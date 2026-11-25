@@ -200,6 +200,15 @@ async def invoke(
             raise McpProxyError("Connector package is unavailable", "scope_mismatch")
         connector = fresh
 
+    else:
+        connector = await _load_connector(connector_id)
+        if connector.workspace_id != ctx.workspace_id or getattr(
+            connector, "standalone_mcp_paused", False
+        ):
+            raise McpProxyError(
+                "Connector is disabled or unavailable", "scope_mismatch"
+            )
+
     auth_state = dict(getattr(connector, "auth_state", None) or {})
 
     try:

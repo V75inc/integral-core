@@ -26,6 +26,57 @@ async def _tool(provider, identifier, name, args):
     await provider.inbox.put(frame)
 
 
+@pytest.mark.asyncio
+async def test_call_identity_uses_admitted_labels_and_never_submits_work():
+    """A private identity read uses only the two bound display names."""
+    scope = native_voice.VoiceScope("caller-id", "workspace-id", "", "thread-id")
+    check, work = AsyncMock(), AsyncMock()
+    relay = native_voice.VoiceRelay(
+        Browser(), Provider(), scope, check=check, work=work
+    )
+    relay.workspace_label = "Fixture workspace"
+    relay.name = "Fixture guide"
+    relay.ready = True
+    relay.response_generation = "identity"
+    relay._speak_result = AsyncMock()
+    await relay._completed_response(
+        request(
+            "identity-call", "identity", "", name=native_voice.CALL_CONTEXT, args={}
+        )
+    )
+    check.assert_awaited_once_with(scope)
+    relay._speak_result.assert_awaited_once_with(
+        relay.generation,
+        result="This call is in Fixture workspace, with Fixture guide.",
+    )
+    work.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_note_rechecks_call_authority_before_writing(monkeypatch):
+    """A revoked call cannot leave a note in the previously bound thread."""
+    from app.api.errors import InsufficientPermissionsError
+
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    denied = AsyncMock(side_effect=InsufficientPermissionsError(message="Call closed"))
+    save = AsyncMock()
+    monkeypatch.setattr(native_voice, "_save_chat_note", save)
+    relay = native_voice.VoiceRelay(Browser(), Provider(), scope, check=denied)
+    relay.ready = True
+    relay.response_generation = "note"
+    with pytest.raises(InsufficientPermissionsError):
+        await relay._completed_response(
+            request(
+                "call",
+                "note",
+                "",
+                name=native_voice.WRITE_CHAT_NOTE,
+                args={"text": "Save this."},
+            )
+        )
+    save.assert_not_awaited()
+
+
 async def _negotiate(provider, identifier, query, title):
     await _tool(provider, identifier, native_voice.FIND_CAPABILITY, {"query": query})
     assert "searched" in (await event(provider.outbox))["item"]["output"]
@@ -126,7 +177,13 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
         assert {tool["name"] for tool in registered} == {
             native_voice.DELEGATE,
             native_voice.CHECK_CHAT,
+            native_voice.WRITE_CHAT_NOTE,
+            native_voice.REVISE_REVIEW,
+            native_voice.REQUEST_REVIEW,
+            native_voice.CANCEL_WORK,
             native_voice.FIND_CAPABILITY,
+            native_voice.FIND_RECORDS,
+            native_voice.NAVIGATE,
             native_voice.QUEUE_FOLLOW_UP,
             native_voice.STEER_ACTIVE,
         }
@@ -534,3 +591,60 @@ async def test_quick_read_checks_authority_at_first_audio_not_each_chunk(
         if not task.done():
             await browser.inbox.put({"type": "websocket.disconnect"})
             await task
+
+
+@pytest.mark.asyncio
+async def test_numbered_voice_list_revocation_before_audio(monkeypatch):
+    """A resource-level change after synthesis begins fences first playback."""
+    from app.services.native_voice_navigation import VoiceDestination, VoicePage
+
+    browser, provider = Browser(), Provider()
+    relay = native_voice.VoiceRelay(
+        browser,
+        provider,
+        native_voice.VoiceScope("caller", "workspace", "", "thread"),
+        check=AsyncMock(return_value=SimpleNamespace(id="thread")),
+    )
+    spec = await native_voice_capabilities.discover_voice_reads("apps")
+    app_spec = next(s for s in spec.values() if s.name == "integral_list_apps")
+    page = VoicePage(
+        app_spec,
+        (VoiceDestination("app", "private-id", "Private app"),),
+        "1. Private app",
+    )
+    monkeypatch.setattr(
+        native_voice_capabilities, "invoke_voice_read", AsyncMock(return_value=page)
+    )
+    monkeypatch.setattr(native_voice, "refresh_page", AsyncMock(return_value=None))
+    task = asyncio.create_task(relay.run())
+    try:
+        await event(provider.outbox)
+        await provider.inbox.put({"type": "session.updated"})
+        await event(browser.outbox)
+        selection, offer = await _negotiate(
+            provider, "apps", "visible apps", "Visible apps here"
+        )
+        await _choose(provider, "apps", selection, offer)
+        speech = (await event(provider.outbox))["response"]
+        assert "1. Private app" in speech["instructions"]
+        assert "private-id" not in speech["instructions"]
+        await provider.inbox.put(
+            {
+                "type": "response.created",
+                "response": {"id": "spoken", "metadata": speech["metadata"]},
+            }
+        )
+        await provider.inbox.put(
+            {
+                "type": "response.output_audio.delta",
+                "response_id": "spoken",
+                "delta": "AAE=",
+            }
+        )
+        await asyncio.sleep(0.05)
+        assert browser.outbox.empty()
+        native_voice.refresh_page.assert_awaited_once()
+        assert relay.response_generation is None
+    finally:
+        await browser.inbox.put({"type": "websocket.disconnect"})
+        await task

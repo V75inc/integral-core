@@ -1,4 +1,4 @@
-"""Explicit authoring binds one private zero-grant identity, never a public route."""
+"""Publishing binds one addressable ACL principal without activating visitor delivery."""
 
 import asyncio
 from unittest.mock import AsyncMock
@@ -50,35 +50,27 @@ async def test_explicit_publish_adopts_private_identity_without_serving(
     client = authenticated_client
     workspace = await _workspace(client)
     headers = _headers(workspace)
-    legacy = _result(await _publish(client, headers, 0))
-    assert legacy["profiles"]["public"]["service_identity_ready"] is False
-    assert "service_identity_ready" not in legacy["profiles"]["staff"]
-    before = await profile_management.record(workspace)
-    assert before.public_profile_service_identities == {}
-    assert before.public_web_chat == {}
-
+    before = _result(await client.get(ROOT, headers=headers))
+    assert "service_identity_ready" not in before["profiles"]["staff"]
     member = await Workspace.find_one({"id": workspace})
     await second_user.connect(member, edge=IS_MEMBER_OF, role="member")
-    denied = await _publish(second_user_client, headers, legacy["revision"], **OPT_IN)
+    denied = await _publish(second_user_client, headers, before["revision"], **OPT_IN)
     assert denied.status_code == 403
     spoof = await _publish(
-        client, headers, legacy["revision"], enable_public_service_identity="true"
+        client, headers, before["revision"], enable_public_service_identity="true"
     )
     assert spoof.status_code == 400
 
     # Two submissions at one revision cannot create two principals.
     attempts = await asyncio.gather(
-        *(_publish(client, headers, legacy["revision"], **OPT_IN) for _ in range(2))
+        *(_publish(client, headers, before["revision"], **OPT_IN) for _ in range(2))
     )
     assert sorted(response.status_code for response in attempts) == [200, 400]
     accepted = next(response for response in attempts if response.status_code == 200)
     adopted = accepted.json()
     projected = adopted["profiles"]["public"]
     assert projected["service_identity_ready"] is True
-    assert (
-        projected["published"]["version"]
-        > legacy["profiles"]["public"]["published"]["version"]
-    )
+    assert projected["published"]["version"] == adopted["revision"]
 
     saved = await profile_management.record(workspace)
     assert saved.public_web_chat == {}
@@ -92,9 +84,7 @@ async def test_explicit_publish_adopts_private_identity_without_serving(
     assert "identity_id" not in accepted.text
     assert identity.identity_id not in repr(identity)
     assert (
-        profile_management.current_public_profile_service_identity(
-            saved, "public", legacy["profiles"]["public"]["published"]["version"]
-        )
+        profile_management.current_public_profile_service_identity(saved, "public", 0)
         is None
     )
     assert (
@@ -166,18 +156,20 @@ async def test_enabled_legacy_route_needs_disable_then_new_publication(
     client = authenticated_client
     workspace = await _workspace(client)
     headers = _headers(workspace)
-    created = _result(await _publish(client, headers, 0))
-    initial_version = created["profiles"]["public"]["published"]["version"]
+    initial_version = 1
 
     async def select_legacy(_profiles, _bindings, _native, route):
+        draft = profile_management.starter("public")
+        _profiles["public"] = {
+            "draft": draft,
+            "published": {**draft, "version": initial_version},
+        }
         route.profile_key = "public"
         route.enabled = True
         route.provision_id = "synthetic-provision"
         route.generation = 3
 
-    await profile_management.mutate_config(
-        test_user.id, workspace, created["revision"], select_legacy
-    )
+    await profile_management.mutate_config(test_user.id, workspace, 0, select_legacy)
     before = await profile_management.record(workspace)
     denied = await _publish(client, headers, before.revision, **OPT_IN)
     assert denied.status_code == 400 and "Disable Web Chat" in denied.text
@@ -234,7 +226,7 @@ async def test_meaningful_republish_requires_fresh_binding_and_never_grants_tool
     assert saved["profiles"]["public"]["service_identity_ready"] is True
     changed = _result(await _publish(client, headers, saved["revision"]))
     published = changed["profiles"]["public"]["published"]
-    assert changed["profiles"]["public"]["service_identity_ready"] is False
+    assert changed["profiles"]["public"]["service_identity_ready"] is True
     node = await profile_management.record(workspace)
     assert (
         profile_management.current_public_profile_service_identity(
@@ -246,7 +238,7 @@ async def test_meaningful_republish_requires_fresh_binding_and_never_grants_tool
         profile_management.current_public_profile_service_identity(
             node, "public", published["version"]
         )
-        is None
+        is not None
     )
 
     second = _result(await _publish(client, headers, changed["revision"], **OPT_IN))
@@ -257,7 +249,223 @@ async def test_meaningful_republish_requires_fresh_binding_and_never_grants_tool
     )
     assert rebound is not None and rebound.generation == initial.generation + 1
     assert rebound.identity_id == initial.identity_id
-    assert rebound.published_version > published["version"]
+    assert rebound.published_version == published["version"]
     staff = await _publish(client, headers, second["revision"], key="staff", **OPT_IN)
-    assert staff.status_code == 400 and "public profile without tools" in staff.text
-    assert (await profile_management.record(workspace)).revision == second["revision"]
+    assert _result(staff)["profiles"]["staff"]["service_identity_ready"]
+
+
+async def test_directory_acl_mentions_and_existing_publication_backfill(
+    authenticated_client, test_user
+):
+    from app.agentive.services.profile_principals import current_principal
+    from app.services.chat_entity_refs import _resolve_mention_token_to_ref
+    from app.services.mentions import resolve_mention_token
+    from app.services.workspace_permissions import can_access_workspace
+
+    client = authenticated_client
+    ws = await _workspace(client)
+    other = await _workspace(client, "Other synthetic workspace")
+
+    async def seed(profiles, bindings, native, route):
+        draft = {**profile_management.starter("staff"), "name": "Pending changes"}
+        profiles["staff"] = {
+            "draft": draft,
+            "published": {**draft, "name": "Directory Agent", "version": 1},
+        }
+
+    initial = await profile_management.mutate_config(test_user.id, ws, 0, seed)
+    assert not initial["profiles"]["staff"]["service_identity_ready"]
+    assert await profile_management.migrate_published_principals(test_user.id, ws) == {
+        "pending": ["staff"],
+        "changed": False,
+    }
+    assert (
+        await profile_management.migrate_published_principals(
+            test_user.id, ws, apply=True
+        )
+    )["changed"]
+    assert not (
+        await profile_management.migrate_published_principals(
+            test_user.id, ws, apply=True
+        )
+    )["changed"]
+    config = await profile_management.record(ws)
+    item = config.profiles["staff"]
+    agent = await current_principal(config, "staff", item)
+    assert agent and not agent.user_id and agent.display_name == "Directory Agent"
+    assert item["draft"]["name"] == "Pending changes"
+    assert await can_access_workspace(agent.id, ws) == "guest"
+    assert await can_access_workspace(agent.id, other) == "none"
+    search = "/api/users?search=Directory%20Agent"
+    assert [
+        u["id"]
+        for u in _result(await client.get(search, headers=_headers(ws)))["users"]
+    ] == [agent.id]
+    assert _result(await client.get(search, headers=_headers(other)))["users"] == []
+    assert (
+        await client.get(f"/api/users/{agent.id}", headers=_headers(other))
+    ).status_code == 404
+    assert (await resolve_mention_token(agent.id, workspace_id=ws)).id == agent.id
+    assert await resolve_mention_token(agent.id, workspace_id=other) is None
+    assert (
+        await _resolve_mention_token_to_ref("Directory_Agent", ws)
+    ).entity_id == agent.id
+    assert await _resolve_mention_token_to_ref("Directory_Agent", other) is None
+    from app.services.mentions import resolve_mentions
+    from app.services.permissions import resolve_role
+
+    track_response = await client.post(
+        "/api/tracks",
+        headers=_headers(ws),
+        json={"title": "Synthetic profile access", "visibility": "private"},
+    )
+    assert track_response.status_code in (200, 201), track_response.text
+    track_id = track_response.json()["track"]["id"]
+    picker = f"/api/tracks/{track_id}/mention-candidates"
+    assert await resolve_role(agent.id, "track", track_id) is None
+    assert not await resolve_mentions("@" + agent.id, track_id=track_id)
+    added = await client.post(
+        f"/api/tracks/{track_id}/collaborators",
+        headers=_headers(ws),
+        json={"collaborator_user_id": agent.id, "role": "viewer"},
+    )
+    assert added.status_code in (200, 201), added.text
+    assert await resolve_role(agent.id, "track", track_id) == "viewer"
+    assert agent.id in [
+        u["id"]
+        for u in _result(await client.get(picker, headers=_headers(ws)))["users"]
+    ]
+    assert [
+        u.id for u in await resolve_mentions("@" + agent.id, track_id=track_id)
+    ] == [agent.id]
+    from app.models.edges import MENTIONS
+    from app.models.nodes import Comment
+
+    entry = _result(
+        await client.post(
+            "/api/entries",
+            headers=_headers(ws),
+            json={"track_id": track_id, "title": "Synthetic post", "body": "Fixture"},
+        )
+    )["entry"]
+    assert await resolve_role(agent.id, "entry", entry["id"]) == "viewer"
+    assert [
+        user.id
+        for user in await resolve_mentions(
+            "@" + agent.id, track_id=track_id, entry_id=entry["id"]
+        )
+    ] == [agent.id]
+    comment = _result(
+        await client.post(
+            f"/api/entries/{entry['id']}/comments",
+            headers=_headers(ws),
+            json={"text": "Review requested @" + agent.id},
+        )
+    )["comment"]
+    stored = await Comment.get(comment["id"])
+    assert [
+        u.id
+        for u in await stored.nodes(
+            edge=[MENTIONS], node=["User"], direction="out", limit=2
+        )
+    ] == [agent.id]
+    updated = _result(
+        await _publish(
+            client,
+            _headers(ws),
+            config.revision,
+            key="staff",
+            enable_public_service_identity=False,
+        )
+    )
+    refreshed = await profile_management.record(ws)
+    same = await current_principal(refreshed, "staff", refreshed.profiles["staff"])
+    assert same.id == agent.id and same.display_name == "Pending changes"
+    assert updated["profiles"]["staff"]["service_identity_ready"]
+
+
+async def test_membership_revocation_blocks_public_delivery_and_publish_does_not_regrant(
+    authenticated_client,
+):
+    from app.agentive.services.profile_principals import current_principal
+
+    ws = await _workspace(authenticated_client)
+    result = _result(await _publish(authenticated_client, _headers(ws), 0))
+    config = await profile_management.record(ws)
+    version = result["profiles"]["public"]["published"]["version"]
+    assert await profile_management.live_public_service_identity(
+        config, "public", version
+    )
+    actor = await current_principal(config, "public", config.profiles["public"])
+    edges = await (await config.get_context()).find_edges_between(
+        actor.id, ws, edge_class=IS_MEMBER_OF
+    )
+    await edges[0].delete()
+    assert not await profile_management.live_public_service_identity(
+        config, "public", version
+    )
+    _result(await _publish(authenticated_client, _headers(ws), result["revision"]))
+    assert not await profile_management.live_public_service_identity(
+        await profile_management.record(ws), "public", version
+    )
+
+
+async def test_native_call_runs_as_profile_with_caller_audience_and_rechecks_grants(
+    authenticated_client, test_user, monkeypatch
+):
+    from app.agentive.services.connection_profiles import ProfileDenied
+
+    ws = await _workspace(authenticated_client)
+    headers = _headers(ws)
+    declaration = {
+        "kind": "tool",
+        "label": "Synthetic lookup",
+        "source": "app",
+        "input_schema": {"type": "object", "properties": {}},
+    }
+    denied = set()
+
+    async def catalogue(principal, workspace, audience):
+        assert workspace == ws and audience == "staff"
+        return {} if principal in denied else {"lookup": declaration}
+
+    monkeypatch.setattr(
+        profile_management, "catalogue", AsyncMock(return_value={"lookup": declaration})
+    )
+    draft = {**profile_management.starter("staff"), "tools": ["lookup"]}
+    _result(
+        await authenticated_client.put(
+            f"{ROOT}/draft",
+            headers=headers,
+            json={"key": "staff", "expected_revision": 0, "draft": draft},
+        )
+    )
+    _result(
+        await _publish(
+            authenticated_client, headers, 1, key="staff", offer_in_workspace_chat=True
+        )
+    )
+    config = await profile_management.record(ws)
+    actor = config.profiles["staff"]["service_principal_id"]
+    monkeypatch.setattr(profile_management, "catalogue", catalogue)
+    invoked = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr(profile_management, "invoke_installed", invoked)
+    binding, _ = await profile_management.open_published_profile(
+        ws, "native-chat", test_user.id, native_profile_key="staff"
+    )
+
+    async def call():
+        return await binding.executor.execute(
+            "native-chat", test_user.id, binding.session, "lookup", {}
+        )
+
+    assert await call() == {"items": []}
+    invoked.assert_awaited_once_with(
+        ws, actor, "staff", "lookup", {}, audience_principal=test_user.id
+    )
+    for principal in (test_user.id, actor):
+        denied.add(principal)
+        with pytest.raises(ProfileDenied):
+            await call()
+        denied.remove(principal)
+    assert invoked.await_count == 1

@@ -271,7 +271,13 @@ export function ModelRoutingSection({
           <ModelAssignmentField
             label="Routing mode"
             value={choice.mode}
-            onChange={mode => setDraft({ ...choice, mode: mode as ModelRouting["mode"] })}
+            onChange={value => {
+              const mode = value as ModelRouting["mode"];
+              const connection = data.connections.find(c => c.id === selected(choice.heavy_profile_id)?.connection_id);
+              const preset = connection && data.model_policy?.specialists?.[connection.provider]?.light;
+              const suggested = preset && data.profiles.find(p => p.connection_id === connection?.id && p.model === preset);
+              setDraft({ ...choice, mode, light_profile_id: choice.light_profile_id || (mode === "light_heavy" && suggested ? suggested.id : "") });
+            }}
             options={<>
               <option value="single">Single model</option>
               <option value="light_heavy">Light + Heavy</option>
@@ -279,7 +285,7 @@ export function ModelRoutingSection({
           />
           {(choice.mode === "light_heavy" ? ["heavy", "light"] : ["heavy"]).map(role => {
             const key = role === "light" ? "light_profile_id" : "heavy_profile_id";
-            const activeProfile = selected(routing[key]);
+            const chosenProfile = selected(choice[key]);
             const activeModel = role === "light"
               ? (dual && effective.light_model) || "No model assigned"
               : `${effective?.heavy_model || data.effective.model || "No model assigned"}${data.effective.source === "deployment" ? " · Server default" : ""}`;
@@ -296,8 +302,8 @@ export function ModelRoutingSection({
                     {profileAssignmentLabel(p, data.connections)}
                   </option>)}
                 </>}
-                secondary={activeProfile && !disabled && (role === "light" || data.effective.source === "workspace_owner") && (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => editFromRouting(activeProfile)}>
+                secondary={chosenProfile && !disabled && (role === "light" || changed || data.effective.source === "workspace_owner") && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => editFromRouting(chosenProfile)}>
                     {role === "light" ? "Light model settings" : dual ? "Heavy model settings" : "Model settings"}
                   </Button>
                 )}
@@ -401,7 +407,7 @@ export function ModelRoutingSection({
               "model_request_limit",
               data.harness_limits.request_limit,
             )}{" "}
-            requests · {effectiveMinimum("tool_call_limit", 32)} tool calls ·{" "}
+            requests · {effectiveMinimum("tool_call_limit", data.harness_limits.tool_call_limit ?? 32)} tool calls ·{" "}
             {effectiveMinimum(
               "turn_token_limit",
               data.harness_limits.token_limit,
@@ -573,7 +579,7 @@ export function ModelRoutingSection({
                       "model_request_limit",
                       data.harness_limits.request_limit,
                     )}{" "}
-                    requests, {minimum("tool_call_limit", 32)} tool calls,{" "}
+                    requests, {minimum("tool_call_limit", data.harness_limits.tool_call_limit ?? 32)} tool calls,{" "}
                     {minimum(
                       "turn_token_limit",
                       data.harness_limits.token_limit,

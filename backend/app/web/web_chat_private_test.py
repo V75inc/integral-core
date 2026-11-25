@@ -1,6 +1,7 @@
 """Explicit unmounted manager-only, stateless Web Chat test surface."""
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
@@ -57,6 +58,7 @@ class WebChatPrivateTestConfiguration:
     ready: TestPlanPort
     take_budget: TestPlanPort
     complete: TestTextPort
+    model_id: str = "host-private-model"
 
 
 def _plain(value: str, limit: int, *, empty: bool = False) -> bool:
@@ -82,7 +84,7 @@ async def _current(scope: PrivateWebChatTestScope):
         != (scope.epoch, scope.profile_key, scope.published_version)
     ):
         return None
-    identity = profile_management.current_public_profile_service_identity(
+    identity = await profile_management.live_public_service_identity(
         record, scope.profile_key, scope.published_version
     )
     if identity is None or (
@@ -105,6 +107,9 @@ def create_web_chat_private_test_router(
         callable(port) for port in (config.ready, config.take_budget, config.complete)
     ):
         raise TypeError("Private Web Chat Test requires explicitly approved ports")
+
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", config.model_id):
+        raise ValueError("Invalid private test model identifier")
 
     async def scope_for(
         request: Request, slug: str, query: ManageChannelShareQuery
@@ -156,10 +161,13 @@ def create_web_chat_private_test_router(
                 body = PrivateWebChatTestTurn.model_validate(
                     await read_bounded_json(request)
                 )
+                if body.model_id is not None and body.model_id != config.model_id:
+                    raise _Denied(409)
                 if not _plain(body.text, 1000):
                     raise _Denied(400)
                 query = ManageChannelShareQuery(
-                    workspace_id=workspace, **body.model_dump(exclude={"text"})
+                    workspace_id=workspace,
+                    **body.model_dump(exclude={"text", "model_id"}),
                 )
                 scope = await scope_for(request, slug, query)
                 before = await verified(request, scope)
@@ -195,7 +203,7 @@ def create_web_chat_private_test_router(
             {"kind": "unavailable"}, status_code=status, headers=_HEADERS
         )
 
-    bind_mounted_private_test(send_test, available)
+    bind_mounted_private_test(send_test, available, config.model_id)
     router = BaseRouter()
     router.add_route(
         "/agentive/managed-channels/{slug}/test",

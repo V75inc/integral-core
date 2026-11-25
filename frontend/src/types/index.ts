@@ -1,4 +1,5 @@
 export interface User {
+  is_service_identity?: boolean;
   id: string;
   /** Auth / object user id (`o.User...`); matches `author_id` on entries when present. */
   user_id?: string;

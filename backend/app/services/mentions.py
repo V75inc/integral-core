@@ -57,7 +57,9 @@ def extract_mention_tokens(text: str) -> List[str]:
     return out
 
 
-async def resolve_mention_token(token: str) -> Optional[User]:
+async def resolve_mention_token(
+    token: str, *, workspace_id: str | None = None
+) -> Optional[User]:
     """Resolve a single ``@<token>`` string to a ``User`` node, or None.
 
     Tried in order: ``User.get(token)`` (jvspatial id), ``user_id`` field,
@@ -72,7 +74,10 @@ async def resolve_mention_token(token: str) -> Optional[User]:
     # function signature honest for downstream callers.
     try:
         u = await User.get(token)
-        if u:
+        if u and (
+            not getattr(u, "service_workspace_id", "")
+            or u.service_workspace_id == workspace_id
+        ):
             return cast(User, u)
     except Exception:
         pass
@@ -89,6 +94,11 @@ async def resolve_mention_token(token: str) -> Optional[User]:
         return None
     for raw in all_users:
         u = cast(User, raw)
+        if (
+            getattr(u, "service_workspace_id", "")
+            and u.service_workspace_id != workspace_id
+        ):
+            continue
         if getattr(u, "user_id", "") == token:
             return u
         dn = (getattr(u, "display_name", "") or "").strip()
@@ -116,6 +126,7 @@ async def resolve_mentions(
     *,
     exclude_user_id: str = "",
     track_id: Optional[str] = None,
+    entry_id: Optional[str] = None,
 ) -> List[User]:
     """Parse + resolve every ``@<token>`` in ``text`` to a User node.
 
@@ -139,6 +150,7 @@ async def resolve_mentions(
     out: List[User] = []
     seen_ids: Set[str] = set()
 
+    workspace_id = None
     track_is_public = False
     if track_id:
         # Lazy import to avoid a cycle: models → services → models.
@@ -153,10 +165,11 @@ async def resolve_mentions(
             # rather than letting them through unscoped. Caller passed a
             # track_id, so the caller wants the gate.
             return []
+        workspace_id = getattr(track, "workspace_id", None)
         track_is_public = getattr(track, "visibility", None) == "public"
 
     for token in tokens:
-        user = await resolve_mention_token(token)
+        user = await resolve_mention_token(token, workspace_id=workspace_id)
         if not user:
             continue
         if exclude_user_id and (
@@ -166,7 +179,9 @@ async def resolve_mentions(
             continue
         if user.id in seen_ids:
             continue
-        if track_id and not track_is_public:
+        if track_id and (
+            not track_is_public or getattr(user, "service_workspace_id", "")
+        ):
             # Lazy import to avoid pulling the full permissions module
             # (and its node imports) into mentions resolution when the
             # caller doesn't pass a track_id.
@@ -179,6 +194,50 @@ async def resolve_mentions(
                 role = None
             if role is None:
                 continue
+        if entry_id and getattr(user, "service_workspace_id", ""):
+            from app.services.permissions import resolve_role
+
+            if await resolve_role(user.id, "entry", entry_id) is None:
+                continue
         seen_ids.add(user.id)
         out.append(user)
     return out
+
+
+async def link_mentions(
+    source_type, source_id, text, *, actor_id, track_id, entry_id, mentioned_at
+):
+    """Resolve and link recipients after the source write commits."""
+    from jvspatial.core.context import get_default_context
+
+    from app.models.edges import MENTIONS
+    from app.services.authority_facts import primary_node_record
+    from app.services.edge_upsert import ensure_edge
+
+    recipients = await resolve_mentions(
+        text, exclude_user_id=actor_id, track_id=track_id, entry_id=entry_id
+    )
+    if not recipients:
+        return []
+    # Nodes returned by the creation command remain bound to its finished
+    # transaction. Load the source through this operation's active context.
+    context = get_default_context()
+    row = await primary_node_record(context.database, source_type, source_id)
+    if row is None:
+        return []
+    source = await context._deserialize_entity(source_type, row)
+    linked = []
+    for recipient in recipients:
+        try:
+            await ensure_edge(source, recipient, MENTIONS, mentioned_at=mentioned_at)
+        except Exception:
+            # The content already committed. Do not report a failed post or
+            # notify a recipient for whom the mention could not be linked.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Could not link a mention on committed content"
+            )
+            continue
+        linked.append(recipient)
+    return linked

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { Maximize2, Menu, X } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { Maximize2, Menu, Minimize2, X } from "lucide-react";
 import { peekLastActiveChatThreadId } from "../chatHandoff";
 import { useScope } from "../../../context/ScopeContext";
 import { AIChatRuntimeBoundary } from "../AIChatSurface";
@@ -12,6 +12,8 @@ import { InboxView } from "../inbox/InboxView";
 import "../inbox/inbox.css";
 import { OnboardingStrip } from "./OnboardingStrip";
 import { AssistantViewTabs } from "../inbox/AssistantViewTabs";
+import { useIsMdUp } from "../../../hooks/useMediaQuery";
+import { useAuthOptional } from "../../../context/AuthContext";
 import { LINE_ICON_STROKE } from "../../../components/ui";
 
 /** Close affordance for the dock. Inlined here rather than kept as its own
@@ -34,8 +36,12 @@ function CloseChatButton({ onClose }: { onClose: () => void }) {
   );
 }
 
+const layoutButtonClass = "flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]";
+
 export interface AssistantDockBodyProps {
   onClose: () => void;
+  fullPage: boolean;
+  onCollapse: () => void;
 }
 
 /**
@@ -47,14 +53,37 @@ export interface AssistantDockBodyProps {
  * here is layout-agnostic, which is why the same tree also renders at
  * full-page size on `/agent`.
  */
-export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
+export default function AssistantDockBody({ onClose, fullPage, onCollapse }: AssistantDockBodyProps) {
   const provider = useActiveChatProvider();
   const { scope } = useScope();
-  // Capture the handoff before the child runtime mounts and updates its remembered ID.
-  const target = useRef({ workspaceId: scope?.workspaceId, threadId: peekLastActiveChatThreadId(scope?.workspaceId) });
-  const initialThreadId = target.current.workspaceId === scope?.workspaceId ? target.current.threadId : null;
+  const principal = useAuthOptional()?.user?.id;
+  const location = useLocation();
+  const isMdUp = useIsMdUp();
+  const rail = fullPage && isMdUp;
+  const workspace = scope?.workspaceId;
+  const deepLink = fullPage ? new URLSearchParams(location.search).get("thread") : null;
+  // Keep the boundary key across layout changes. A new explicit thread link
+  // still selects a new runtime, including while this surface is already open.
+  const target = useRef({
+    workspace, principal, linkKey: deepLink ? location.key : null,
+    threadId: deepLink ?? (fullPage ? null : peekLastActiveChatThreadId(workspace)),
+  });
+  if (target.current.workspace !== workspace || target.current.principal !== principal) {
+    const scopeChanged = (target.current.workspace && target.current.workspace !== workspace)
+      || (target.current.principal && target.current.principal !== principal);
+    target.current = { workspace, principal, linkKey: location.key, threadId: scopeChanged ? null : deepLink };
+  } else if (deepLink && location.key !== target.current.linkKey) {
+    target.current = { workspace, principal, linkKey: location.key, threadId: deepLink };
+  }
   const { onboarding, view, setView } = useAssistantDock();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => setDrawerOpen(false), [fullPage, isMdUp]);
+  useEffect(() => {
+    if (!fullPage || isMdUp || !drawerOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [fullPage, isMdUp, drawerOpen]);
 
   // Close the drawer before the dock on Escape.
   useEffect(() => {
@@ -70,114 +99,64 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
 
   return (
     <AIChatRuntimeBoundary
-      key={provider.id}
+      key={JSON.stringify([principal, provider.id, target.current.linkKey])}
       provider={provider}
-      initialThreadId={initialThreadId}
-      startNewThread={onboarding && !initialThreadId}
+      initialThreadId={target.current.threadId}
+      startNewThread={!fullPage && onboarding && !target.current.threadId}
     >
-      <div className="flex h-full min-h-0 flex-col bg-[var(--section-bg)]">
-      <header
-        className="
-          flex shrink-0 items-center justify-between gap-2 border-b border-[var(--panel-border)]
-          bg-[var(--panel)] px-3 py-2
-        "
-      >
-        <button
-          type="button"
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Show conversations"
-          aria-expanded={drawerOpen}
-          className="
-            inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5
-            text-xs font-medium text-[var(--text-muted)]
-            hover:bg-[var(--panel-2)] hover:text-[var(--text)]
-          "
-        >
-          <Menu size={14} strokeWidth={LINE_ICON_STROKE} />
-          <span className="truncate">Conversations</span>
-        </button>
-        <div className="flex min-w-0 flex-1">
-          <AssistantViewTabs />
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Link
-            to="/agent"
-            onClick={onClose}
-            aria-label="Open full chat"
-            title="Open full chat"
-            className="
-              flex h-8 w-8 items-center justify-center rounded-full
-              text-[var(--text-muted)] hover:bg-[var(--panel-2)]
-              hover:text-[var(--text)] transition
-              focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
-            "
-          >
-            <Maximize2 size={14} />
-          </Link>
-          <CloseChatButton onClose={onClose} />
-        </div>
-      </header>
-
-      <div className="relative flex min-h-0 flex-1 flex-col bg-[var(--section-bg)]">
-        {drawerOpen ? (
-          <button
-            type="button"
-            aria-label="Close conversations"
-            onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 z-40 bg-black/40"
-          />
-        ) : null}
-
-        <div
-          role="dialog"
-          aria-modal={drawerOpen}
-          aria-label="Conversations"
-          aria-hidden={!drawerOpen}
-          className={[
-            "absolute left-0 top-0 z-50 flex h-full w-[min(300px,88%)] flex-col",
-            "border-r border-[var(--panel-border)] bg-[var(--panel)]",
-            drawerOpen ? "shadow-2xl" : "shadow-none",
-            "transition-transform duration-200 ease-out",
-            drawerOpen ? "translate-x-0" : "-translate-x-full pointer-events-none",
-          ].join(" ")}
-          /* Any click inside dismisses the drawer — including picking a
-             thread. Picking a thread from the Inbox tab means you want that
-             conversation, so go there rather than dropping back onto a list
-             of pending work. */
-          onClick={() => {
-            setDrawerOpen(false);
-            setView("chat");
-          }}
-        >
-          <div className="flex items-center justify-end px-2 py-1.5">
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(false)}
-              aria-label="Close conversations"
-              className="
-                inline-flex h-8 w-8 items-center justify-center rounded-md
-                text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]
-              "
-            >
-              <X size={16} strokeWidth={LINE_ICON_STROKE} />
-            </button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
+      <div className={`relative flex h-full min-h-0 w-full bg-[var(--section-bg)] ${fullPage ? "flex-row" : "flex-col"}`}>
+        {rail && <aside aria-label="Conversations" className="flex h-full w-72 shrink-0 flex-col bg-[var(--panel)] pt-3">
+          <div className="min-h-0 flex-1 overflow-hidden" onClick={() => setView("chat")}>
             <AIChatThreadList />
           </div>
+        </aside>}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+          style={fullPage ? { paddingTop: "var(--app-topbar-height)" } : undefined}>
+          <header className={fullPage
+            ? "flex shrink-0 items-center justify-end gap-2 px-3 py-1"
+            : "flex shrink-0 items-center justify-between gap-2 border-b border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2"}>
+            {!rail && <button type="button" onClick={() => setDrawerOpen(true)}
+              aria-label="Show conversations" aria-expanded={drawerOpen}
+              className="mr-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:bg-[var(--panel-2)]">
+              <Menu size={14} strokeWidth={LINE_ICON_STROKE} /> Conversations
+            </button>}
+            {!fullPage && <div className="flex min-w-0 flex-1"><AssistantViewTabs /></div>}
+            {fullPage ? (
+              <button type="button" onClick={onCollapse} aria-label="Move chat to sidebar" title="Move chat to sidebar" className={layoutButtonClass}>
+                <Minimize2 size={14} />
+              </button>
+            ) : (
+              <div className="flex shrink-0 items-center gap-1">
+                <Link to="/agent" aria-label="Open full chat" title="Open full chat" className={layoutButtonClass}>
+                  <Maximize2 size={14} />
+                </Link>
+                <CloseChatButton onClose={onClose} />
+              </div>
+            )}
+          </header>
+          {!rail && drawerOpen && <button type="button" aria-label="Close conversations" onClick={() => setDrawerOpen(false)}
+            className="absolute inset-0 z-40 bg-black/40" />}
+          {!rail && <div role="dialog" aria-modal={drawerOpen} aria-label="Conversations" aria-hidden={!drawerOpen}
+            className={`absolute inset-y-0 left-0 z-50 flex w-[min(300px,88%)] flex-col border-r border-[var(--panel-border)] bg-[var(--panel)] transition-transform duration-200 ${drawerOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full invisible"}`}
+            onClick={() => { setDrawerOpen(false); setView("chat"); }}>
+            <div className="flex justify-end px-2 py-1.5">
+              <button type="button" onClick={() => setDrawerOpen(false)} aria-label="Close conversations" className={layoutButtonClass}>
+                <X size={16} strokeWidth={LINE_ICON_STROKE} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden"><AIChatThreadList /></div>
+          </div>}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {view === "inbox" ? (
+              <div className={fullPage ? "mx-auto h-full w-full max-w-3xl" : "h-full"}><InboxView /></div>
+            ) : (
+              <>
+                {!fullPage && onboarding ? <OnboardingStrip /> : null}
+                <AIChatThread showHeader={false} />
+              </>
+            )}
+          </div>
         </div>
-
-        <div className="relative flex min-h-0 flex-1 flex-col bg-[var(--section-bg)]">
-          {view === "inbox" ? (
-            <InboxView />
-          ) : (
-            <>
-              {onboarding ? <OnboardingStrip /> : null}
-              <AIChatThread showHeader={false} />
-            </>
-          )}
-        </div>
-      </div>
       </div>
     </AIChatRuntimeBoundary>
   );

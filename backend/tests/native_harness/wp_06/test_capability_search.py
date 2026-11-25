@@ -17,6 +17,8 @@ from app.agentive.harness.capability_search import (
 )
 from app.agentive.harness.skill_sources import materialize_standard_skill_library
 
+NO_ACTIVE_SKILLS = SimpleNamespace(active_capability_ids=frozenset())
+
 
 @pytest.fixture(autouse=True)
 def isolate_definition_vector_cache(monkeypatch, request):
@@ -72,7 +74,9 @@ async def test_large_catalogue_does_not_overload_its_own_encoder_queue(monkeypat
         for i in range(80)
     ]
     tool = build_search_capabilities_tool(skill_library=None, catalogue=catalogue)
-    result = (await tool.function(query="read a resource")).return_value
+    result = (
+        await tool.function(NO_ACTIVE_SKILLS, query="read a resource")
+    ).return_value
     assert result["ranking_method"] == "hybrid_semantic_lexical"
     assert high_water <= 4
     assert len(seen) >= 81
@@ -81,7 +85,9 @@ async def test_large_catalogue_does_not_overload_its_own_encoder_queue(monkeypat
     another = build_search_capabilities_tool(
         skill_library=None, catalogue=catalogue[:2]
     )
-    result = (await another.function(query="different request")).return_value
+    result = (
+        await another.function(NO_ACTIVE_SKILLS, query="different request")
+    ).return_value
     assert len(seen) - before <= 2
     assert all(item["name"] in {"read_0", "read_1"} for item in result["results"])
 
@@ -114,10 +120,12 @@ async def test_unified_search_embeds_query_once_for_skills_and_tools(
             }
         ],
     )
-    result = (await tool.function(query="find my samples")).return_value
+    result = (
+        await tool.function(NO_ACTIVE_SKILLS, query="find my samples")
+    ).return_value
     assert result["ranking_method"] == "hybrid_semantic_lexical"
     assert seen.count("find my samples") == 1
-    await tool.function(query="find my samples")
+    await tool.function(NO_ACTIVE_SKILLS, query="find my samples")
     assert seen.count("find my samples") == 1
 
 
@@ -165,7 +173,9 @@ async def test_search_finds_skill_and_tool_for_a_plain_user_goal(
         catalogue=catalogue,
     )
 
-    returned = await tool.function(query="equipment register app", limit=6)
+    returned = await tool.function(
+        NO_ACTIVE_SKILLS, query="equipment register app", limit=6
+    )
     result = returned.return_value
     assert "integral_propose_design" in returned.tools
 
@@ -483,7 +493,7 @@ async def test_real_scaffold_skill_search_finds_the_proposal_tool_first(
         catalogue=build_tool_catalogue(),
         immediately_available_tools=("integral_propose_design",),
     )
-    returned = await search_tool.function(query=query)
+    returned = await search_tool.function(NO_ACTIVE_SKILLS, query=query)
     result = returned.return_value
 
     assert result["ranking_method"] == "hybrid_semantic_lexical"
@@ -502,9 +512,9 @@ async def test_real_scaffold_skill_search_finds_the_proposal_tool_first(
 async def test_identical_search_reuses_the_same_disclosure() -> None:
     """Retries reuse a cached result rather than turning discovery into an error."""
     tool = build_search_capabilities_tool(skill_library=None, catalogue=[])
-    first = await tool.function(query="find an app skill")
+    first = await tool.function(NO_ACTIVE_SKILLS, query="find an app skill")
 
-    repeated = await tool.function(query="  FIND an APP skill  ")
+    repeated = await tool.function(NO_ACTIVE_SKILLS, query="  FIND an APP skill  ")
 
     assert repeated.return_value == first.return_value
     assert repeated.tools == first.tools
@@ -529,14 +539,18 @@ async def test_search_marks_discovery_complete_once_for_the_run() -> None:
     )
 
     assert run_state["capability_search_completed"] is False
-    returned = await tool.function(query="which tracks are in my workspace")
+    returned = await tool.function(
+        NO_ACTIVE_SKILLS, query="which tracks are in my workspace"
+    )
     result = returned.return_value
 
     assert run_state["capability_search_completed"] is True
     assert result["results"][0]["name"] == "integral_list_tracks"
     assert "discover_with" not in result["results"][0]
     # Observations can change the needed workflow; discovery is not a one-shot gate.
-    other = await tool.function(query="set up a place to store messages")
+    other = await tool.function(
+        NO_ACTIVE_SKILLS, query="set up a place to store messages"
+    )
     assert other.return_value.get("error") is not True
 
 
@@ -583,7 +597,7 @@ async def test_runtime_search_uses_local_semantic_skill_ranking(
         catalogue=[],
     )
 
-    returned = await tool.function(query="lay user request")
+    returned = await tool.function(NO_ACTIVE_SKILLS, query="lay user request")
     result = returned.return_value
 
     assert result["recommendation"]["skill"]["name"] == "integral-scaffold"
@@ -636,7 +650,8 @@ async def test_negative_skill_routing_text_does_not_create_positive_match(
 
     result = (
         await tool.function(
-            query="find a specific record by serial number in the workspace"
+            NO_ACTIVE_SKILLS,
+            query="find a specific record by serial number in the workspace",
         )
     ).return_value
 
@@ -703,7 +718,7 @@ async def test_capability_search_semantically_matches_tool_argument_descriptions
     )
 
     returned = await tool.function(
-        query="Can you find serial QA-WRENCH-1011 in my workspace?"
+        NO_ACTIVE_SKILLS, query="Can you find serial QA-WRENCH-1011 in my workspace?"
     )
 
     result = returned.return_value
@@ -761,7 +776,8 @@ async def test_exact_parameter_match_can_correct_a_weak_semantic_tool_rank(
     )
 
     returned = await tool.function(
-        query="find a specific record by serial number in the workspace"
+        NO_ACTIVE_SKILLS,
+        query="find a specific record by serial number in the workspace",
     )
 
     assert returned.return_value["recommendation"]["tool"]["name"] == (
@@ -817,7 +833,9 @@ async def test_capability_search_reports_lexical_fallback_when_embeddings_fail(
         ],
     )
 
-    returned = await tool.function(query="list tracks in my workspace")
+    returned = await tool.function(
+        NO_ACTIVE_SKILLS, query="list tracks in my workspace"
+    )
 
     assert returned.return_value["ranking_method"] == "lexical"
     assert returned.return_value["recommendation"]["tool"]["name"] == (
@@ -976,17 +994,17 @@ async def test_search_reprojects_saved_design_disclosure_on_cached_rank(
         protected_tool_skills={name: ("integral-scaffold",)},
         run_state=state,
     )
-    first = await tool.function(query=name)
+    first = await tool.function(NO_ACTIVE_SKILLS, query=name)
     assert name not in first.tools
     state[flag] = True
-    permitted = await tool.function(query=name)
+    permitted = await tool.function(NO_ACTIVE_SKILLS, query=name)
     assert name in permitted.tools
     hit = next(
         item for item in permitted.return_value["results"] if item["name"] == name
     )
     assert "requires_any_skill" not in hit
     state[flag] = False
-    revoked = await tool.function(query=name)
+    revoked = await tool.function(NO_ACTIVE_SKILLS, query=name)
     assert name not in revoked.tools
     assert name not in first.tools
 
@@ -1014,7 +1032,9 @@ async def test_search_multiple_skill_owners_and_unowned_tools(monkeypatch):
             "integral_save_view": ("integral-review", "integral-model")
         },
     )
-    result = await tool.function(query="integral_save_view integral_list_views")
+    result = await tool.function(
+        NO_ACTIVE_SKILLS, query="integral_save_view integral_list_views"
+    )
     hit = next(
         item
         for item in result.return_value["results"]
@@ -1026,5 +1046,5 @@ async def test_search_multiple_skill_owners_and_unowned_tools(monkeypatch):
     unowned = build_search_capabilities_tool(skill_library=None, catalogue=catalogue)
     assert (
         "integral_save_view"
-        in (await unowned.function(query="integral_save_view")).tools
+        in (await unowned.function(NO_ACTIVE_SKILLS, query="integral_save_view")).tools
     )

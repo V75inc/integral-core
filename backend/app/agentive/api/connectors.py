@@ -76,6 +76,7 @@ from app.schemas.agentive.connectors import (
     McpRegistrySearchResponse,
     MountMcpConnectorRequest,
     MountMcpFromRegistryRequest,
+    StandaloneMcpEnablement,
     UpdateConnectorRequest,
     redact_auth_state,
 )
@@ -159,6 +160,12 @@ def _audit_snapshot(connector: Any) -> Dict[str, Any]:
     }
 
 
+def _legacy_sync_enabled(row):
+    from app.agentive.services.legacy_sync_lifecycle import lifecycle_package
+
+    return not row.legacy_sync_paused if lifecycle_package(row) else None
+
+
 def _to_response(c: Any) -> ConnectorResponse:
     """Project a Connector Node into the wire response shape.
 
@@ -204,6 +211,8 @@ def _to_response(c: Any) -> ConnectorResponse:
         subclass_slug=subclass_slug or None,
         sync_interval_seconds=sync_interval,
         enabled=bool(getattr(c, "enabled", False)),
+        legacy_sync_enabled=_legacy_sync_enabled(c),
+        standalone_mcp_paused=bool(getattr(c, "standalone_mcp_paused", False)),
         last_synced_at=getattr(c, "last_synced_at", None),
         connection_mode=getattr(c, "connection_mode", "") or "per_user",
         label=getattr(c, "label", "") or "",
@@ -403,6 +412,22 @@ async def install_connector_from_catalog_endpoint(
             ),
             details={"slug": slug, "deprecated_in_favor_of": successor or None},
         )
+
+    from app.agentive.services.connector_packages import (
+        _binding_scopes,
+        require_installation_target,
+    )
+    from app.connectors.package_runtime import admitted_manifest
+
+    manifest = admitted_manifest(slug)
+    if manifest:
+        supported_scopes = _binding_scopes(manifest)
+        if len(supported_scopes) > 1 and "connection_mode" not in body.model_fields_set:
+            raise BadRequestError("Choose an installation scope")
+        binding = "workspace" if connection_mode == "shared" else "personal"
+        if binding not in supported_scopes:
+            raise BadRequestError("This package does not support the selected scope")
+        await require_installation_target(user_id, workspace_id, binding)
 
     secrets = dict(body.secrets or {})
     auth_type = entry["auth"]["type"]
@@ -1716,6 +1741,7 @@ async def _catalog_install_oauth(
         )
         impl = (entry.get("implementation") or {}).get("sync_connector_class") or slug
         connector.subclass_slug = impl
+        connector.legacy_sync_paused = True
         connector.workspace_id = workspace_id
         _apply_install_identity(connector, label=label, connection_mode=connection_mode)
         await connector.save()
@@ -2097,6 +2123,7 @@ async def _catalog_install_sync(
         workspace_id=workspace_id,
     )
     connector.subclass_slug = impl
+    connector.legacy_sync_paused = True
     connector.workspace_id = workspace_id
     _apply_install_identity(connector, label=label, connection_mode=connection_mode)
     from app.connectors.package_runtime import capture_package_snapshot
@@ -3213,30 +3240,39 @@ async def post_package_oauth_start(request: Request, package_id: str):
     if not isinstance(payload, dict):
         payload = {}
     connector_id = payload.get("connector_id")
-    redirect_uri = payload.get("redirect_uri")
-    stored_client_id = None
-    if connector_id:
-        owned = await get_connector(str(connector_id))
-        if owned is None or not await connector_owner_is(owned, user_id):
-            raise ResourceNotFoundError(
-                message=f"Connector {connector_id!r} not found",
-                details={"connector_id": connector_id},
-            )
-        _require_package_connector(owned, package_id)
-        if getattr(owned, "mapping_profile", "") == "package":
-            from app.agentive.services.connector_packages import _owned
-            from app.services.scope_header import parse_scope_header
-
-            scope = parse_scope_header(request.headers.get("X-Integral-Scope"))
-            if not scope or scope.get("workspace_id") != owned.workspace_id:
-                raise BadRequestError("An exact workspace scope is required")
-            await _owned(owned.id, user_id, owned.workspace_id)
-        stored_client_id = (
-            _oauth_installation_credentials(owned).get("client_id") or None
+    if not connector_id:
+        raise BadRequestError(
+            "Add the connector in its intended scope before authorizing"
         )
-    state = _build_state(
-        user_id, connector_id=str(connector_id) if connector_id else None
-    )
+    redirect_uri = payload.get("redirect_uri")
+    owned = await get_connector(str(connector_id))
+    if owned is None or not await connector_owner_is(owned, user_id):
+        raise ResourceNotFoundError(
+            message=f"Connector {connector_id!r} not found",
+            details={"connector_id": connector_id},
+        )
+    _require_package_connector(owned, package_id)
+    if getattr(owned, "mapping_profile", "") == "package":
+        from app.agentive.services.connector_packages import _owned
+        from app.services.scope_header import parse_scope_header
+
+        scope = parse_scope_header(request.headers.get("X-Integral-Scope"))
+        if not scope or scope.get("workspace_id") != owned.workspace_id:
+            raise BadRequestError("An exact workspace scope is required")
+        await _owned(owned.id, user_id, owned.workspace_id)
+        from app.agentive.services.connector_packages import start_package_mcp_oauth
+        from app.connectors.package_runtime import admitted_manifest
+
+        manifest = admitted_manifest(package_id) or {}
+        if manifest.get("auth", {}).get("type") == "mcp_oauth":
+            return {
+                "consent_url": await start_package_mcp_oauth(
+                    owned.id, user_id, owned.workspace_id, package_id
+                )
+            }
+
+    stored_client_id = _oauth_installation_credentials(owned).get("client_id") or None
+    state = _build_state(user_id, connector_id=str(connector_id))
     try:
         url = consent_url_for_package(
             package_id,
@@ -3702,3 +3738,69 @@ async def post_gmail_set_labels(
         consent_acknowledged=bool(consent_acknowledged),
         auth_state=gmail_safe_auth_state(c.auth_state or {}),
     )
+
+
+@endpoint(
+    "/agentive/connectors/{connector_id}/standalone-mcp-enabled",
+    methods=["PUT"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def set_standalone_mcp_enabled(request: Request, connector_id: str) -> dict:
+    """Toggle an authorized standalone MCP installation."""
+    from app.agentive.connectors.mcp_mount import (
+        set_standalone_mcp_enabled as change_state,
+    )
+
+    return await _legacy_connector_enablement(request, connector_id, change_state)
+
+
+@endpoint(
+    "/agentive/connectors/{connector_id}/legacy-sync-enabled",
+    methods=["PUT"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def set_legacy_sync_enabled(request: Request, connector_id: str) -> dict:
+    """Toggle an authorized legacy sync installation."""
+    from app.agentive.services.legacy_sync_lifecycle import set_enabled
+
+    return await _legacy_connector_enablement(
+        request, connector_id, set_enabled, exact_scope=True
+    )
+
+
+async def _legacy_connector_enablement(
+    request, connector_id, change_state, *, exact_scope=False
+):
+    actor = resolve_principal_id(request)
+    if not actor:
+        raise MissingAuthenticationError(message="Authentication required")
+    try:
+        change = StandaloneMcpEnablement.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError("Invalid connector enablement") from None
+
+    async def authorized_row():
+        row = await get_connector(connector_id)
+        await _require_owner_or_shared_admin(row, actor)
+        await _require_connector_workspace_authority(actor, row)
+        if exact_scope:
+            from app.services.scope_header import parse_scope_header
+
+            selected = parse_scope_header(request.headers.get("X-Integral-Scope"))
+            if not selected or selected["workspace_id"] != row.workspace_id:
+                raise BadRequestError("An exact workspace scope is required")
+        decision = await policy_evaluate(
+            subject=Subject(kind="human", id=actor),
+            action="connector.update",
+            resource=Resource(
+                kind="connector", id=connector_id, scope=f"connector:{connector_id}"
+            ),
+        )
+        if not decision.allowed:
+            raise InsufficientPermissionsError("connector.update denied")
+        return row
+
+    await change_state(await authorized_row(), change.enabled, authorized_row)
+    return {"enabled": change.enabled}

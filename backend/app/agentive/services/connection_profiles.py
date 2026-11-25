@@ -41,6 +41,7 @@ class ConnectionGrant:
     audience: Literal["public", "staff"]
     verified_staff: bool = False
     enabled: bool = True
+    service_principal_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,7 @@ class ConnectionProfileExecutor:
                 profile.key,
                 profile.audience,
                 profile.revision,
+                grant.service_principal_id,
             ],
             separators=(",", ":"),
         )

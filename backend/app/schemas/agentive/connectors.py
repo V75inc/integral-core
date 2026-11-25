@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentive.types import AgentType
 
@@ -209,6 +209,11 @@ def redact_auth_state(auth_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return _redact_value(dict(auth_state or {}))
 
 
+class StandaloneMcpEnablement(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool
+
+
 class ConnectorResponse(BaseModel):
     """Outbound shape — mirrors the Connector node fields plus id + timestamps
     + Phase-5 scalars + Phase-8 derived ``conflict_policy`` field.
@@ -233,6 +238,8 @@ class ConnectorResponse(BaseModel):
     conflict_policy: Optional[str] = None
     subclass_slug: Optional[str] = None
     sync_interval_seconds: int = 300
+    standalone_mcp_paused: bool = False
+    legacy_sync_enabled: Optional[bool] = None
     enabled: bool = False
     last_synced_at: Optional[str] = None
     # Connector scoping: "per_user" (owner-only invoke) or "shared"

@@ -1,13 +1,11 @@
 """Inert draft tests through the actual native Harness, without model/network I/O."""
 
-from pydantic_ai.models.test import TestModel
-from pydantic_ai_harness.step_persistence import InMemoryStepStore
-
 from app.agentive.harness.connection_profile import (
     NativeConnectionProfile,
     build_connection_profile_tools,
 )
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.pydantic_ai_compat import InMemoryStepStore, TestModel
 from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.services.connection_profiles import (
     ConnectionGrant,

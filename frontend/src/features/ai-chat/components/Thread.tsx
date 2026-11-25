@@ -1540,7 +1540,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
           <Text variant="meta" tone="subtle" className="max-sm:basis-full">Send attachments after this reply.</Text>
         )}
         <ComposerMicButton />
-        {!home && <NativeVoiceCall />}
+        <NativeVoiceCall />
         <AuiIf condition={(s) => !s.thread.isRunning || (!home && steeringRunning)}>
           <ComposerSendWithRefs
             aria-label={home ? "Ask Integral" : steeringRunning ? "Queue message" : "Send message"}

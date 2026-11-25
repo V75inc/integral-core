@@ -2,12 +2,12 @@ import type { ModelProfile, RealtimeVoiceChoice } from "./aiConfiguration";
 
 /** Conservative catalog classification, not a claim of provider capability.
  * Older profiles fall back to known model names; custom IDs remain configurable
- * through embedding settings and must pass the provider test.
+ * as embedding encoders in Providers & Models.
  */
-export function isEmbeddingProfile(profile: Pick<ModelProfile, "model" | "harness_policy">): boolean {
-  if (profile.harness_policy?.tier === "embedding") return true;
+export function isEmbeddingProfile(profile: Pick<ModelProfile, "model" | "harness_policy" | "embedding_only">): boolean {
+  if (profile.embedding_only || profile.harness_policy?.tier === "embedding") return true;
   const id = profile.model.trim().toLowerCase().split("/").pop() ?? "";
-  return /^(?:text-embedding|embeddinggemma|nomic-embed|all-minilm|mxbai-embed|embed-)/.test(id);
+  return /^(?:gemini-embedding-|text-embedding|embeddinggemma|nomic-embed|all-minilm|mxbai-embed|embed-)/.test(id);
 }
 
 export function isTranscriptionModel(model: string): boolean {
@@ -27,7 +27,7 @@ export function specializedModel(model: string) {
   return null;
 }
 
-export function isChatProfile(profile: Pick<ModelProfile, "model" | "harness_policy">): boolean {
-  return profile.harness_policy?.tier !== "voice" &&
+export function isChatProfile(profile: Pick<ModelProfile, "model" | "harness_policy" | "embedding_only">): boolean {
+  return !profile.embedding_only && profile.harness_policy?.tier !== "voice" &&
     profile.harness_policy?.tier !== "embedding" && !specializedModel(profile.model);
 }

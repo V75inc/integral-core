@@ -202,6 +202,24 @@ forcing callers through repeated sample reads, schema discovery or tool aliases.
 SDK validation errors use bounded Pydantic diagnostics without echoing input
 values, so callers receive a repairable request error rather than a server fault.
 
+## Published profile identities
+
+Publishing any staff or public profile creates a dedicated workspace user in the same transaction as the publication. It has no password, API key, or interactive login. It starts as a guest with no private resource grants. Its user ID, existing collaborations, and membership changes survive rename and republication. The built-in workspace assistant is configured separately from the publishable profiles.
+
+Publication and legacy adoption create the workspace service membership within the common membership authorization fence and the profile graph transaction. The manager’s authority is checked again within that scope.
+
+Workspace members can find the agent by its published name in the user picker. Share an App or Track through its usual collaborator controls. In posts and comments, a mention requires access to the relevant content. In chat, selecting the user addresses that identity. A mention does not start an autonomous agent turn. To start a conversation with a staff profile, enable **Show in workspace chat**.
+
+Profile tools require the published capability selection, the caller’s current access, the profile user’s ACLs and the applicable agent action policy. For declared App queries, Core intersects both users’ readable rows and traversal targets before computing counts, pagination and results. Arbitrary extension handlers have no equivalent row boundary and are unavailable on this path. Public Web Chat remains tool-free. Its private version-bound channel identifier stays separate from the directory user ID. Changing the bound publication on an active route requires disabling Web Chat first.
+
+For an existing workspace, inspect legacy publications from the configured backend environment. Supply an authorized workspace manager’s user ID.
+
+```sh
+.venv/bin/python -m scripts.migrate_profile_principals --workspace-id WORKSPACE --actor-user-id MANAGER
+```
+
+Add `--apply` to adopt the **published** versions transactionally. Rerunning is idempotent. Pending drafts stay pending. A valid existing Web Chat binding retains its private identifier and generation. If an enabled legacy route lacks a current binding, the migration stops before changing the workspace. Disable that route, run the migration, then enable it through the normal readiness checks.
+
 ## Provisioned connection profiles (local pilot)
 
 `agentive.services.connection_profiles` provides an opt-in server execution

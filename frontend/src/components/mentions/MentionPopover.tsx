@@ -214,9 +214,9 @@ export function MentionPopover({
                     <div className="text-[13px] text-[var(--text)] truncate">
                       {u.display_name || '—'}
                     </div>
-                    {u.email ? (
+                    {u.is_service_identity || u.email ? (
                       <div className="text-[11px] text-[var(--text-subtle)] truncate">
-                        {u.email}
+                        {u.is_service_identity ? 'Agent profile' : u.email}
                       </div>
                     ) : null}
                   </div>

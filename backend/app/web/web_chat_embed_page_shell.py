@@ -65,6 +65,7 @@ def create_web_chat_embed_page_router(
     read_current: ReadCurrentEmbedPolicy,
     issue_seed: IssueSeed,
     assets: StandaloneWebChatAssets,
+    read_theme: Callable[[ManagedWebChatEmbedPolicy], Awaitable[str]] | None = None,
 ) -> APIRouter:
     """Compose a detached iframe document with exact parent CSP and no cookies.
 
@@ -129,6 +130,8 @@ def create_web_chat_embed_page_router(
                 )
             ):
                 return Response(status_code=404, headers=DENIED_HEADERS)
+            theme = await read_theme(current) if read_theme else "system"
+            theme = theme if theme in ("light", "dark") else "system"
             document = (
                 '<!doctype html><html lang="en"><head><meta charset="UTF-8">'
                 '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -141,7 +144,8 @@ def create_web_chat_embed_page_router(
                 f' data-web-chat-embed-route="{escape(route)}"'
                 f' data-web-chat-embed-origin="{escape(served_origin)}"'
                 f' data-web-chat-embed-bootstrap-seed="{escape(seed)}"'
-                ' data-web-chat-embed-title="Web Chat"></div></body></html>'
+                ' data-web-chat-embed-title="Web Chat"'
+                f' data-visitor-theme="{theme}"></div></body></html>'
             )
             return HTMLResponse(
                 document,

@@ -35,7 +35,14 @@ from app.services.workspace_permissions import (
 from .index_definition import EmbeddingProfile, digest, embedding_profile
 
 REBUILD = "WorkspaceEmbeddingReindexRequest"
-PROVIDERS = {"openai", "openrouter", "ollama", "ollama_local", "custom_openai"}
+PROVIDERS = {
+    "openai",
+    "gemini",
+    "openrouter",
+    "ollama",
+    "ollama_local",
+    "custom_openai",
+}
 
 
 def overrides_supported():
@@ -347,6 +354,15 @@ async def save(user_id: str, workspace_id: str, body: EmbeddingModelWrite):
             else workspace.embedding_serving_settings
         )
         before = workspace.embedding_settings or {}
+        # Remember an explicit first choice of the already-serving default so
+        # automatic setup cannot keep proposing an encoder the owner declined.
+        remember_default = (
+            not before
+            and body.revision == 0
+            and choice.mode == "deployment"
+            and serving is not None
+            and serving.id == profile.id
+        )
         if (
             EmbeddingModelChoice.model_validate(before) == choice
             and workspace.embedding_continue_previous_provider
@@ -363,7 +379,8 @@ async def save(user_id: str, workspace_id: str, body: EmbeddingModelWrite):
                 and existing_build["context"].get("status")
                 in {"pending", "working", "queued"}
             ):
-                return {**await describe(user_id, workspace_id), "changed": False}
+                if not remember_default:
+                    return {**await describe(user_id, workspace_id), "changed": False}
         revision = body.revision + 1
         revision_filter = (
             {"context.embedding_settings_revision": body.revision}
@@ -373,6 +390,17 @@ async def save(user_id: str, workspace_id: str, body: EmbeddingModelWrite):
                     {"context.embedding_settings_revision": 0},
                     {"context.embedding_settings_revision": {"$exists": False}},
                 ]
+            }
+        )
+        serving_fields = (
+            {}
+            if remember_default
+            else {
+                "context.embedding_serving_settings": serving_choice or {},
+                "context.embedding_serving_profile": (
+                    asdict(serving) if serving else None
+                ),
+                "context.embedding_continue_previous_provider": body.continue_previous_provider,
             }
         )
         changed = await graph.database.find_one_and_update(
@@ -386,11 +414,7 @@ async def save(user_id: str, workspace_id: str, body: EmbeddingModelWrite):
                 "$set": {
                     "context.embedding_settings": choice.model_dump(),
                     "context.embedding_settings_revision": revision,
-                    "context.embedding_serving_settings": serving_choice or {},
-                    "context.embedding_serving_profile": (
-                        asdict(serving) if serving else None
-                    ),
-                    "context.embedding_continue_previous_provider": body.continue_previous_provider,
+                    **serving_fields,
                 }
             },
         )
@@ -398,41 +422,42 @@ async def save(user_id: str, workspace_id: str, body: EmbeddingModelWrite):
             raise ResourceConflictError(
                 message="Embedding settings changed. Reload before saving."
             )
-        await graph.database.find_one_and_update(
-            "object",
-            {
-                "id": "o.WorkspaceEmbeddingReindexRequest."
-                + digest([workspace_id, body.revision]),
-                "context.status": {"$in": ["pending", "working", "queued"]},
-            },
-            {"$set": {"context.status": "superseded"}},
-        )
-        await graph.database.save(
-            "object",
-            {
-                "id": "o.WorkspaceEmbeddingReindexRequest."
-                + digest([workspace_id, revision]),
-                "entity": REBUILD,
-                "context": {
-                    "workspace_id": workspace_id,
-                    "requested_by": user_id,
-                    "revision": revision,
-                    "profile_id": profile.id,
-                    "generation": uuid.uuid4().hex,
-                    "status": "pending",
-                    "after": "",
-                    "queued": 0,
-                    "requested_at": time.time(),
-                    "due": time.time(),
-                    "attempt": 0,
-                    "enumerated": 0,
-                    "verified": 0,
-                    "phase": "enumerating",
-                    "protocol_version": 2,
-                    "stack": [],
+        if not remember_default:
+            await graph.database.find_one_and_update(
+                "object",
+                {
+                    "id": "o.WorkspaceEmbeddingReindexRequest."
+                    + digest([workspace_id, body.revision]),
+                    "context.status": {"$in": ["pending", "working", "queued"]},
                 },
-            },
-        )
+                {"$set": {"context.status": "superseded"}},
+            )
+            await graph.database.save(
+                "object",
+                {
+                    "id": "o.WorkspaceEmbeddingReindexRequest."
+                    + digest([workspace_id, revision]),
+                    "entity": REBUILD,
+                    "context": {
+                        "workspace_id": workspace_id,
+                        "requested_by": user_id,
+                        "revision": revision,
+                        "profile_id": profile.id,
+                        "generation": uuid.uuid4().hex,
+                        "status": "pending",
+                        "after": "",
+                        "queued": 0,
+                        "requested_at": time.time(),
+                        "due": time.time(),
+                        "attempt": 0,
+                        "enumerated": 0,
+                        "verified": 0,
+                        "phase": "enumerating",
+                        "protocol_version": 2,
+                        "stack": [],
+                    },
+                },
+            )
         event = {
             "actor_kind": "human",
             "actor_id": user_id,
@@ -467,7 +492,7 @@ async def save(user_id: str, workspace_id: str, body: EmbeddingModelWrite):
         from app.services.change_event import emit_change_event
 
         await emit_change_event(**event)
-    return {**await describe(user_id, workspace_id), "changed": True}
+    return {**await describe(user_id, workspace_id), "changed": not remember_default}
 
 
 async def cancel(user_id: str, workspace_id: str, revision: int):

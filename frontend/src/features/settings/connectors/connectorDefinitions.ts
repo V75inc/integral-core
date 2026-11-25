@@ -1,3 +1,4 @@
+import type { ConnectorPackageSummary } from '../../../api/connectorPackages';
 import type { CatalogEntry, ConnectionMode } from '../../../api/connectors';
 import type { ManagedChannel } from '../../../api/managedChannels';
 
@@ -48,6 +49,7 @@ type HostManagedDefinition = Definition & { setup: 'host-managed'; host_managed:
 export type ConnectorDefinition =
   | typeof WHATSAPP_CONNECTOR
   | typeof CUSTOM_MCP_CONNECTOR
+  | (Definition & { setup: 'manifest'; manifest: ConnectorPackageSummary })
   | CatalogPackage
   | ManagedChannelDefinition
   | HostManagedDefinition
@@ -55,17 +57,32 @@ export type ConnectorDefinition =
 
 export function connectorDefinitions(
   packages: CatalogEntry[],
-  { includeHostManaged, hostManaged = [], customMcp, managedChannels = [], information = [] }: {
+  { includeHostManaged, hostManaged = [], customMcp, managedChannels = [], information = [], manifests = [] }: {
     includeHostManaged: boolean;
     hostManaged?: readonly { id: string; name: string; description: string }[];
     customMcp: boolean;
     managedChannels?: readonly ManagedChannel[];
     information?: readonly InformationalConnector[];
+    manifests?: readonly ConnectorPackageSummary[];
   },
 ): ConnectorDefinition[] {
   const entries: ConnectorDefinition[] = [];
+  const managedIds = new Set(managedChannels.map(channel => channel.definition.slug));
+  const manifestIds = new Set(manifests.map(pkg => pkg.id));
+  for (const pkg of manifests) {
+    if (pkg.host_managed && !pkg.grant) continue;
+    const capabilities: ConnectorCapability[] = [];
+    if (pkg.capabilities.some(capability => capability === 'actions' || capability === 'sync')) capabilities.push('api');
+    if (pkg.capabilities.includes('mcp')) capabilities.push('mcp');
+    if (pkg.capabilities.includes('channel')) capabilities.push('channel');
+    entries.push({
+      id: pkg.id, name: pkg.name, provider: pkg.name, description: pkg.description,
+      scopes: { shared: 'one' }, capabilities, setup: 'manifest', manifest: pkg,
+    });
+  }
   if (includeHostManaged) {
     for (const pkg of hostManaged) {
+      if (manifestIds.has(pkg.id) || managedIds.has(pkg.id)) continue;
       entries.push({
         id: pkg.id,
         provider: pkg.name,
@@ -80,7 +97,7 @@ export function connectorDefinitions(
   }
   if (customMcp) entries.push(CUSTOM_MCP_CONNECTOR);
   for (const entry of packages) {
-    if (entry.hidden) continue;
+    if (entry.hidden || manifestIds.has(entry.slug) || managedIds.has(entry.slug)) continue;
     entries.push({
       id: entry.slug,
       provider: entry.display_name,
@@ -95,6 +112,7 @@ export function connectorDefinitions(
   }
   for (const channel of managedChannels) {
     const d = channel.definition;
+    if (entries.some(entry => entry.id === d.slug)) continue;
     entries.push({
       id: d.slug,
       provider: d.provider,

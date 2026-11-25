@@ -119,6 +119,13 @@ async def _materialize_guest_membership(
     from app.runtime.composition import require_capability
 
     require_capability("collaboration")
+    if (
+        getattr(collaborator, "service_workspace_id", "")
+        and collaborator.service_workspace_id != workspace_id
+    ):
+        from app.api.errors import ResourceNotFoundError
+
+        raise ResourceNotFoundError(message="User not found")
     if not workspace_id:
         return False
     async with sharing_write_scope(workspace_id):

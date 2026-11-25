@@ -75,22 +75,50 @@ def _mounted_reader(
     return check if callable(check) else None
 
 
-def bind_mounted_private_test(endpoint: Callable, check: ShareCheck) -> None:
-    """Attach private test availability to the exact mounted manager route."""
-    setattr(endpoint, _TEST_MARKER, check)
+ClientOriginRead = Callable[[str, ManageChannelShareQuery], Awaitable[str | None]]
+_CLIENT_MARKER = "_integral_managed_client_origin"
 
 
-async def mounted_private_test_available(
+def bind_client_origin(endpoint: Callable, read: ClientOriginRead) -> None:
+    """Attach the configured client-origin reader to the admitted endpoint."""
+    setattr(endpoint, _CLIENT_MARKER, read)
+
+
+async def mounted_client_origin(
     request: Request, slug: str, exact: ManageChannelShareQuery
-) -> bool:
-    """Return only a verified readiness bit; never invoke the test model."""
+) -> str | None:
+    """Resolve the mounted channel’s configured client origin."""
+    read = _mounted_reader(request, slug, SHARE_READ_PATH, _CLIENT_MARKER)
+    if read is None:
+        return None
+    try:
+        return await read(slug, exact)
+    except Exception:
+        return None
+
+
+def bind_mounted_private_test(
+    endpoint: Callable, check: ShareCheck, model_id: str = "host-private-model"
+) -> None:
+    """Attach private test availability to the exact mounted manager route."""
+
+    async def model(request, slug, exact):
+        return model_id if await check(request, slug, exact) is True else None
+
+    setattr(endpoint, _TEST_MARKER, model)
+
+
+async def mounted_private_test_model(
+    request: Request, slug: str, exact: ManageChannelShareQuery
+) -> str | None:
+    """Read the approved model identifier without invoking the model."""
     check = _mounted_reader(request, slug, PRIVATE_TEST_PATH, _TEST_MARKER, "POST")
     if check is None:
-        return False
+        return None
     try:
-        return await check(request, slug, exact) is True
+        return await check(request, slug, exact)
     except Exception:
-        return False
+        return None
 
 
 async def mounted_embed_descriptors(

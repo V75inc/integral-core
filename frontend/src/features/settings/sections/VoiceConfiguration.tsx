@@ -14,7 +14,7 @@ import { useToast } from "../../../context/ToastContext";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { Button } from "../../../components/ui/Button";
 import { Text } from "../../../ui";
-import { VoiceRoleAssignment } from "./VoiceRoleAssignment";
+import { ModelRoleAssignment } from "./ModelRoleAssignment";
 import { voiceRoleOptions } from "./voiceRoleModels";
 
 type Props = {
@@ -68,10 +68,12 @@ function ScopedVoiceConfiguration({
       Transcription settings could not be loaded.{" "}
       <button className="underline" onClick={() => void query.refetch()}>Retry</button>
     </Text>}
-    {data && <VoiceRoleAssignment
+    {data && <ModelRoleAssignment
       label="Transcription model"
       active={data.effective_model || "Browser recognition when available"}
-      secondary={secondaryAction}
+      secondary={secondaryAction ?? (navigateToSection && <Button type="button" variant="ghost" size="sm" onClick={() => navigateToSection("voice-input")}>
+        Voice input preferences
+      </Button>)}
       options={[
         { id: "inherit", label: "Deployment default" },
         { id: "disabled", label: "Browser recognition only" },
@@ -91,9 +93,6 @@ function ScopedVoiceConfiguration({
         ? "Provider-backed dictation sends audio to the assigned provider."
         : "Register a compatible transcription model to assign it here.")}
     />}
-    {!data && secondaryAction}
-    {navigateToSection && <Button variant="ghost" size="sm" onClick={() => navigateToSection("voice-input")}>
-      Voice input preferences
-    </Button>}
+    {!data && secondaryAction && <div className="flex justify-end">{secondaryAction}</div>}
   </section>;
 }

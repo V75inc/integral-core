@@ -297,7 +297,7 @@ async def test_light_receives_core_procedures_even_without_keyword_overlap(
     monkeypatch.setattr(
         "app.agentive.services.agent_skills.list_core_skills",
         lambda: [
-            {"key": f"workflow-{index}", "description": "Independent procedure."}
+            {"key": f"workflow-{index}", "description": "Independent procedure. " * 20}
             for index in range(core_count)
         ],
     )
@@ -319,7 +319,18 @@ async def test_light_receives_core_procedures_even_without_keyword_overlap(
     assert {row["id"] for row in choices} == {
         *sorted(f"workflow-{index}" for index in range(core_count))[:24]
     }
+    assert all(set(row) == {"id"} for row in choices)
     assert checked == [("workspace", {"user_id": "user", "active_apps_only": True})]
+    ranked = await routing_skill_candidates(
+        workspace_id="workspace",
+        principal_id="user",
+        focused_app_id=None,
+        query="Independent procedure",
+    )
+    assert {row["id"] for row in ranked} == {row["id"] for row in choices}
+    descriptions = [row["description"] for row in ranked if "description" in row]
+    assert len(descriptions) == 8
+    assert all(len(description) == 320 for description in descriptions)
 
 
 async def test_routed_scaffolding_loads_the_packaged_skill(tmp_path):

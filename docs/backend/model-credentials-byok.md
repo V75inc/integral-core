@@ -1,8 +1,7 @@
 # AI models, providers and BYOK
 
-Settings → AI Models provides a simple setup: choose a provider and save its API
-key once. Quick setup saves the provider connection and chooses the supported
-defaults. Open Advanced Configuration, then Providers & Models to see the same
+In **Settings → AI Models → Quick Configuration**, choose a provider and save its
+API key to set up the supported model defaults. The card summarizes the current chat, vision, embedding and voice assignments. Choose **Change provider** in its header to edit the connection. Open Advanced Configuration, then Providers & Models to see the same
 saved settings in the Models and Providers tabs. Open an individual section
 under Model Assignments to set its model. The registered model
 catalog supplies compatible models; it is separate from the active assignments.
@@ -25,20 +24,70 @@ time can lower deployment ceilings, never raise them. Unset values inherit
 provider/deployment defaults. Testing a provider establishes access, not support
 for every model, tool or tuning parameter. All update feedback uses toasts.
 
+## Deployment limits
+
+Under **Settings → AI Models → Deployment Limits**, anyone with access to AI Models can see the effective installation limits for native chat. A platform administrator can choose **Edit deployment limits** to change model requests, tool calls, total tokens, turn duration, provider request timeout, or stream idle timeout. The form shows the operator’s maximum for each field. Leave a field blank to inherit that maximum. **Use host defaults** clears all six overrides after **Save limits**.
+
+Saved limits apply across workspaces as new turns execute. A running turn keeps its budget. A recovered durable turn retains its original deadline and cannot gain budget from a subsequent increase. A model profile can impose a tighter limit. The token budget uses reported provider usage, so a single response can cross it. Changing these numbers does not alter tool approvals, provider credentials, or worker concurrency.
+
 ## Preferred models and role suitability
 
-Guided setup uses provider-specific frontier defaults (reviewed 2026-11-13):
-OpenAI `gpt-6.1-sol`, Anthropic `claude-opus-5-5`, OpenRouter
-`openai/gpt-6.1-sol` (also offers `anthropic/claude-opus-5.5`), and Ollama Cloud
-`deepseek-v4.1-flash`. Local/custom endpoints have no automatic heavy default.
-Where OpenAI Speech to Text and Realtime Voice are supported, quick setup
-registers `gpt-4o-mini-transcribe` and `gpt-realtime-2.1-mini` and assigns them
-to untouched roles. Existing voice choices, including explicitly disabled roles
-and working inherited transcription, are preserved.
-Embedding settings are not changed by quick setup. An update to the active
-provider's key keeps the current chat assignments; explicitly switching to a
-different provider selects its default chat profile and turns off dual routing.
-Provider access validation does not prove access to each individual model.
+Choose **Google (Gemini)** in the first AI Models card and enter a Gemini
+Developer API key from Google AI Studio. Integral validates the key with
+Google’s models endpoint, encrypts it on the server and reuses the connection
+for chat, vision and optional search embeddings. The key field stays blank
+when you return. Google account sign-in and Vertex AI credentials are separate
+from this integration. [Google API keys](https://ai.google.dev/gemini-api/docs/api-key)
+and [Models API](https://ai.google.dev/api/models).
+
+### Choose a vision model
+
+Expand **Model Assignments → Images and documents**. Select a registered
+**Vision model** directly in the dropdown and choose **Save vision model**,
+or leave it on **Automatic**. The dropdown lists saved profiles from
+**Providers & Models** that support image reading. Register another compatible
+model there to make it available here. For image-reading models such as GPT-6.1
+Sol that accept images but require a different API for tool calls, the attachment
+worker requests JSON and validates it against the same image-description schema.
+[GPT-6.1 Sol modalities and endpoints](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+Automatic follows the active provider’s registered vision preset.
+For older configurations it checks the assigned Heavy, then Light chat model
+for image support. An explicit choice survives a provider change. Use **Image processing preferences** to turn automatic image analysis on or
+off. The saved model choice is retained. These settings govern descriptions
+of image attachments. PDF and Office text extraction runs independently.
+
+### Provider presets
+
+These are recommended starting points for the transports included in Integral.
+Quick Configuration registers the main and specialist profiles before assigning models. Add other providers or model IDs under **Providers & Models**. The [assignment guide](voice-and-embedding-models.md) describes the default for each role and the search consent step. A model that covers two roles is registered once. Changing the active
+provider’s key keeps its chat tuning. Switching to another provider selects
+its main model in single-model mode. Light profiles are available if you
+choose automatic Light/Heavy routing. Model access depends on the account.
+
+| Provider | Main | Light | Vision for image descriptions | Search embeddings | Dictation / live voice |
+| --- | --- | --- | --- | --- | --- |
+| OpenAI | `gpt-6.1-sol` | `gpt-5.4-mini` | `gpt-5.4-mini` | `text-embedding-3-small` | `gpt-transcribe` / `gpt-realtime-2.1-mini` |
+| Anthropic | `claude-opus-5-5` | `claude-haiku-5-5` | `claude-sonnet-4-6` | — | — |
+| Google (Gemini) | `gemini-3.6-flash` | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` | `gemini-embedding-001` | — |
+| OpenRouter | `openai/gpt-6.1-sol` | `openai/gpt-5.4-mini` | `openai/gpt-5.4-mini` | `openai/text-embedding-3-small` | — |
+| Ollama Cloud | `deepseek-v4.1-flash` | `gpt-oss:20b` | `gemma4:31b` | — | — |
+| Ollama Local (advanced setup) | Choose an installed model | `gemma4:e2b` | `qwen3-vl:4b` | `embeddinggemma` | — |
+| Custom OpenAI-compatible (advanced setup) | Operator-supplied ID | Operator-supplied ID | No verified preset | Operator-supplied ID and tested dimensions | — |
+
+A dash means there is no Integral preset for that provider and role. The
+OpenAI voice defaults apply to untouched roles. Explicit voice choices and
+working inherited dictation are preserved. Embedding profiles are registered
+for review. Sending workspace text and rebuilding an index still require the
+owner’s explicit embedding selection and consent. Local models require a
+separate installation on the configured Ollama daemon.
+
+**Selection evidence, reviewed November 24, 2026**
+
+- OpenAI documents image input and text output for GPT-5.4 mini. Its smaller footprint fits frequent attachment descriptions. Dictation and two-way audio have separate model contracts. [Vision](https://developers.openai.com/api/docs/models/gpt-5.4-mini), [transcription](https://developers.openai.com/api/docs/models/gpt-transcribe), [realtime](https://developers.openai.com/api/docs/models/gpt-realtime-2.1-mini) and [embeddings](https://developers.openai.com/api/docs/models/text-embedding-3-small).
+- Anthropic’s Sonnet supports image interpretation and Haiku is intended for fast extraction and routing. Anthropic directs embedding users to other providers, which require their own credentials. [Claude model comparison](https://platform.claude.com/docs/en/models/overview), [vision](https://platform.claude.com/docs/en/build-with-claude/vision) and [embeddings](https://platform.claude.com/docs/en/build-with-claude/embeddings).
+- Google’s stable 3.6 Flash supports agent workflows. Flash-Lite is designed for lower-latency multimodal extraction. The text embedding preset uses 768 dimensions for Integral search. Google also offers `gemini-3.5-transcribe` and `gemini-3.8-live`. Integral’s dictation and live voice adapters speak OpenAI’s protocols, so quick setup leaves these roles alone. [Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash), [Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite), [embedding dimensions](https://ai.google.dev/gemini-api/docs/models/gemini-embedding-001), [Google transcription](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-transcribe) and [Gemini Live](https://ai.google.dev/gemini-api/docs/live).
+- OpenRouter lists these exact publisher-qualified models for image input and search. Its transcription endpoint has a separate request contract from Integral’s dictation transport. [Vision model](https://openrouter.ai/openai/gpt-5.4-mini), [embedding model](https://openrouter.ai/openai/text-embedding-3-small) and [audio API](https://openrouter.ai/blog/insights/every-modality-one-api/).
+- Ollama’s hosted catalog lists `gemma4:31b` with vision and tool capabilities. For a local daemon, Qwen3-VL provides a smaller vision-language option, and EmbeddingGemma is a dedicated local encoder. Custom endpoint IDs cannot establish modality or account access on their own. [Hosted tags](https://ollama.com/api/tags), [Qwen3-VL](https://ollama.com/library/qwen3-vl) and [EmbeddingGemma](https://ollama.com/library/embeddinggemma).
 
 The versioned harness policy separates candidate availability from observed
 Integral workflows; neither is certification. OpenAI Sol has limited workflow

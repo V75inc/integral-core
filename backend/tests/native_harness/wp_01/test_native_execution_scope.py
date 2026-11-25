@@ -67,7 +67,9 @@ def test_execution_scope_has_json_schema_and_round_trips() -> None:
     decoded = HarnessExecutionScope.model_validate_json(encoded)
 
     assert decoded == scope
-    assert set(HarnessExecutionScope.model_json_schema()["properties"]) == {
+    schema = HarnessExecutionScope.model_json_schema()
+    assert set(schema["required"]) == set(scope.model_dump())
+    assert set(schema["properties"]) == {
         "tenant_id",
         "principal_id",
         "workspace_id",
@@ -76,7 +78,18 @@ def test_execution_scope_has_json_schema_and_round_trips() -> None:
         "run_id",
         "permission_revision",
         "capability_version",
+        "connection_scope_key",
+        "connection_audience",
     }
+    assert "connection_scope_key" not in encoded
+    assert "connection_audience" not in encoded
+    connection_scope = _scope(
+        connection_scope_key="a" * 64, connection_audience="staff"
+    )
+    assert (
+        HarnessExecutionScope.model_validate_json(connection_scope.model_dump_json())
+        == connection_scope
+    )
 
 
 def test_model_route_keeps_workspace_credential_out_of_serialized_contract() -> None:

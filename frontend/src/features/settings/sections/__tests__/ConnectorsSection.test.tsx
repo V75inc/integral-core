@@ -102,7 +102,7 @@ vi.mock('../../../../api/managedWebChatPrivateTest', async importOriginal => ({
 }));
 
 vi.mock('../../../../api/managedChannels', () => ({
-  managedChannelsApi: { list: vi.fn(), change: vi.fn(), profileConfiguration: vi.fn(), assignProfile: vi.fn() },
+  managedChannelsApi: { list: vi.fn(), change: vi.fn(), profileConfiguration: vi.fn(), assignProfile: vi.fn(), saveAppearance: vi.fn() },
 }));
 
 vi.mock('../../../../api/agentive', () => ({
@@ -531,7 +531,7 @@ describe('<ConnectorsSection />', () => {
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Configure Outside Text' }));
-    const picker = await dialog.findByRole('combobox', { name: 'Published public profile' });
+    const picker = await dialog.findByRole('combobox', { name: 'Published agent profile' });
     expect(picker).toBeEnabled();
     expect(dialog.queryByRole('button', { name: 'Enable channel' })).not.toBeInTheDocument();
     expect(dialog.getByRole('button', { name: 'Save profile' })).toBeDisabled();
@@ -686,7 +686,7 @@ describe('<ConnectorsSection />', () => {
     authenticateManager('different-manager');
     panel.rerender(panelWithProviders(qc, { ...source, scope: { ...source.scope, sessionFence: '2' } }));
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Outside Text' }));
-    expect(await screen.findByRole('combobox', { name: 'Published public profile' })).toBeVisible();
+    expect(await screen.findByRole('combobox', { name: 'Published agent profile' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
     expect(read).toHaveBeenCalledTimes(1);
@@ -831,24 +831,27 @@ describe('<ConnectorsSection />', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const configure = within(await screen.findByRole('dialog', { name: 'Configure Web Chat' }));
-    const picker = await configure.findByRole('combobox', { name: 'Published public profile' });
+    const picker = await configure.findByRole('combobox', { name: 'Published agent profile' });
     expect(picker).toBeEnabled();
     expect(configure.getByText('Setup pending')).toBeVisible();
     expect(configure.getByText(/added but not live/)).toBeVisible();
-    expect(configure.getByText(/no separate connector to install/i)).toBeVisible();
-    expect(configure.getByText(/hosting readiness is not confirmed/i)).toBeVisible();
+    expect(configure.getByText("Website embed")).toBeVisible();
+    expect(configure.queryByText(/verified visitor host/i)).not.toBeInTheDocument();
+    fireEvent.click(configure.getByText("Full-page chat"));
+    expect(await configure.findByText(/verified visitor host/i)).toBeVisible();
     expect(configure.getByText('No profile saved yet.')).toBeVisible();
     expect(configure.queryByText(/in agent profiles, publish/i)).not.toBeInTheDocument();
     expect(within(picker).getAllByRole('option').map(option => option.textContent))
       .toEqual(['No profile assigned', 'Public greeter']);
-    expect(configure.queryByRole('button', { name: /enable|disable|pair|publish|embed|full.page/i })).not.toBeInTheDocument();
+    expect(configure.queryByRole('button', { name: /enable channel|disable channel|pair|publish|embed|full.page/i })).not.toBeInTheDocument();
     expect(configure.queryByRole('link')).not.toBeInTheDocument();
 
     fireEvent.change(picker, { target: { value: 'greeter' } });
     expect(configure.getByText('No profile saved yet.')).toBeVisible();
-    fireEvent.click(configure.getByRole('button', { name: 'Save profile' }));
+    expect(configure.getByText('Save configuration to test the selected profile.')).toBeVisible();
+    fireEvent.click(configure.getByRole('button', { name: 'Save configuration' }));
     expect(await configure.findByText('Saved profile: Public greeter')).toBeVisible();
-    expect(configure.getByText('Profile assignment saved.')).toBeVisible();
+    expect(configure.getByText('Configuration saved.')).toBeVisible();
     expect(configure.getByText('Setup pending')).toBeVisible();
     expect(managedChannelsApi.assignProfile).toHaveBeenCalledExactlyOnceWith(
       'shared', 'public_web_chat', { provision_id: 'provision-1', route_epoch: '1' }, 0, 'greeter');
@@ -859,8 +862,7 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const reopened = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
     expect(await reopened.findByText('Saved profile: Public greeter')).toBeVisible();
-    fireEvent.click(reopened.getByRole('button', { name: 'Refresh setup status' }));
-    await waitFor(() => expect(managedChannelsApi.list).toHaveBeenCalledTimes(4));
+    expect(reopened.queryByRole('button', { name: 'Refresh setup status' })).not.toBeInTheDocument();
     expect(await reopened.findByText('Saved profile: Public greeter')).toBeVisible();
     expect(reopened.queryByRole('button', { name: /enable|pair|publish|embed|full.page/i })).not.toBeInTheDocument();
     expect(managedChannelsApi.assignProfile).toHaveBeenCalledTimes(1);
@@ -878,7 +880,7 @@ describe('<ConnectorsSection />', () => {
     });
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
-    const picker = await screen.findByRole('combobox', { name: 'Published public profile' });
+    const picker = await screen.findByRole('combobox', { name: 'Published agent profile' });
     expect(screen.getByText('No eligible published public profiles are available.')).toBeVisible();
     expect(screen.getByText(/in agent profiles, publish an eligible public profile with a service identity/i)).toBeVisible();
     expect(screen.getByText(/does not enable web chat or grant access to workspace data/i)).toBeVisible();
@@ -903,9 +905,11 @@ describe('<ConnectorsSection />', () => {
     render(panelWithProviders(qc, source));
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
-    expect(await dialog.findByText('No verified full-page link, embed code or API access details are available here.'))
+    expect(await dialog.findByText('Full-page chat'))
       .toBeVisible();
-    expect(dialog.getByText(/hosting and publishing belong to this web chat connector/i)).toBeVisible();
+    expect(dialog.getByText('Developer specification')).not.toBeVisible();
+    fireEvent.click(dialog.getByText('Developer API'));
+    expect(dialog.getByText('Developer specification')).toBeVisible();
     expect(dialog.queryByRole('link')).not.toBeInTheDocument();
     expect(dialog.queryByRole('button', { name: /full.page|embed|api access|publish|pair/i })).not.toBeInTheDocument();
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
@@ -937,23 +941,22 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
 
-    expect(await dialog.findByText(/Check the full-page link below/)).toBeVisible();
-    expect(read).not.toHaveBeenCalled();
-    fireEvent.click(dialog.getByRole('button', { name: 'Check full-page link' }));
+    fireEvent.click(await screen.findByText('Full-page chat'));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
     expect(read).toHaveBeenCalledExactlyOnceWith({
       principalId: 'current-manager', workspaceId: 'shared', sessionFence: '1', slug: 'public_web_chat',
       provisionId: 'provision-1', routeEpoch: '3', publication: { profileKey: 'greeter', publishedVersion: 2 },
     }, expect.any(AbortSignal));
     expect(checks[0].signal.aborted).toBe(false);
     await act(async () => { qc.setQueryData(listKey, [inactive]); });
-    expect(await dialog.findByText(/hosting is ready, but web chat is not live/i)).toBeVisible();
+    expect(await dialog.findByText(/verified visitor host/i)).toBeVisible();
     expect(checks[0].signal.aborted).toBe(true);
     expect(dialog.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
     await act(async () => { checks[0].finish(); });
     expect(dialog.queryByRole('link')).not.toBeInTheDocument();
 
     await act(async () => { qc.setQueryData(listKey, [active]); });
-    fireEvent.click(await dialog.findByRole('button', { name: 'Check full-page link' }));
+    await waitFor(() => expect(checks).toHaveLength(2));
     fireEvent.click(dialog.getAllByRole('button', { name: 'Close' })[0]);
     expect(checks[1].signal.aborted).toBe(true);
     await act(async () => { checks[1].finish(); });
@@ -979,15 +982,47 @@ describe('<ConnectorsSection />', () => {
     }));
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
-    const check = await screen.findByRole('button', { name: 'Check full-page link' });
+    expect(await screen.findByRole('combobox', { name: 'Published agent profile' })).toBeDisabled();
+    const explanation = 'Disable this connector to select a different agent profile';
+    const locked = screen.getByRole('button', { name: 'Published agent profile is locked' });
+    fireEvent.click(locked);
+    const highlighted = screen.getByText(explanation);
+    expect(highlighted).toHaveClass('managed-profile-lock-feedback');
+    fireEvent.click(locked);
+    expect(screen.getByText(explanation)).not.toBe(highlighted);
+    expect(screen.getByText(/only one published agent profile/i)).toBeVisible();
     expect(readManagedChannelShare).not.toHaveBeenCalled();
-    expect(screen.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Copy full-page link' })).not.toBeInTheDocument();
-    fireEvent.click(check);
+    fireEvent.click(await screen.findByText('Full-page chat'));
+    expect(screen.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Open full-page chat' })).toHaveAttribute('href', url);
     expect(screen.getByRole('button', { name: 'Copy full-page link' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /embed|api access/i })).not.toBeInTheDocument();
     expect(readManagedChannelShare).toHaveBeenCalledTimes(1);
+    expect(managedChannelsApi.change).not.toHaveBeenCalled();
+  });
+
+  it('saves an appearance draft through the configuration footer', async () => {
+    selectWorkspace('shared');
+    authenticateManager('current-manager');
+    const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat', visitor_surface: true as const };
+    vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable('active', '3'), definition }]);
+    let theme: 'system' | 'dark' = 'system';
+    vi.mocked(managedChannelsApi.profileConfiguration).mockImplementation(async () => ({
+      ...profileConfig(1, '3', 'greeter', false), theme,
+    }));
+    vi.mocked(managedChannelsApi.saveAppearance).mockImplementation(async () => { theme = 'dark'; });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
+    expect(screen.queryByRole('radio', { name: 'Dark' })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByText('Appearance', { exact: true }));
+    const dark = await screen.findByRole('radio', { name: 'Dark' });
+    await waitFor(() => expect(dark).toBeEnabled());
+    fireEvent.click(dark);
+    expect(managedChannelsApi.saveAppearance).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+    expect(await screen.findByText('Configuration saved.')).toBeVisible();
+    expect(managedChannelsApi.saveAppearance).toHaveBeenCalledWith('shared', expect.objectContaining({route_epoch: '3'}), 'dark');
+    expect(managedChannelsApi.assignProfile).not.toHaveBeenCalled();
     expect(managedChannelsApi.change).not.toHaveBeenCalled();
   });
 
@@ -1014,12 +1049,13 @@ describe('<ConnectorsSection />', () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const view = render(panelWithProviders(qc));
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Check full-page link' }));
+    fireEvent.click(await screen.findByText('Full-page chat'));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
     vi.mocked(getSessionGeneration).mockReturnValue(2);
     view.rerender(panelWithProviders(qc));
     expect(signal.aborted).toBe(true);
     await act(async () => finish());
-    expect(await screen.findByText('No verified full-page link, embed code or API access details are available here.')).toBeVisible();
+    expect(await screen.findByText('Full-page chat')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Check full-page link' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open full-page chat' })).not.toBeInTheDocument();
     expect(managedChannelsApi.profileConfiguration).toHaveBeenCalledTimes(2);
@@ -1050,6 +1086,7 @@ describe('<ConnectorsSection />', () => {
     const view = render(panelWithProviders(qc));
     fireEvent.click(await screen.findByRole('button', { name: 'Configure Web Chat' }));
     const dialog = within(screen.getByRole('dialog', { name: 'Configure Web Chat' }));
+    fireEvent.click(await screen.findByText('Website embed'));
     const picker = await dialog.findByRole('combobox', { name: 'Approved embedding site' });
     expect(within(picker).getAllByRole('option').map(option => option.textContent))
       .toEqual(['Choose an approved site', one.parent_origin, two.parent_origin]);
@@ -1107,7 +1144,7 @@ describe('<ConnectorsSection />', () => {
       const definition = { ...channelDefinition, slug: 'public_web_chat', display_name: 'Web Chat', visitor_surface: true as const };
       vi.mocked(managedChannelsApi.list).mockResolvedValue([{ ...configurable(state, '3'), definition }]);
       vi.mocked(managedChannelsApi.profileConfiguration).mockResolvedValue({
-        ...profileConfig(1, '3', 'greeter', state !== 'active'), published_version: 2, private_test_available: true,
+        ...profileConfig(1, '3', 'greeter', state !== 'active'), published_version: 2, private_test_available: true, private_test_model: 'qa-model',
       });
       let finish!: () => void;
       const reply = '<a href="https://fixture.example.invalid">Literal test reply</a>';
@@ -1126,13 +1163,15 @@ describe('<ConnectorsSection />', () => {
       expect(send).toBeDisabled();
       fireEvent.change(pane.getByRole('textbox', { name: 'Test message' }), { target: { value: 'Try a greeting' } });
       expect(run).not.toHaveBeenCalled();
+      expect(send).toBeDisabled();
+      fireEvent.change(pane.getByRole('combobox', { name: 'Private test model' }), {target: {value: 'qa-model'}});
       fireEvent.click(send);
       fireEvent.click(send);
       expect(run).toHaveBeenCalledExactlyOnceWith({
         principalId: 'current-manager', workspaceId: 'shared', sessionFence: '1', slug: 'public_web_chat',
         provisionId: 'provision-1',
         routeEpoch: '3', profileKey: 'greeter', publishedVersion: 2,
-      }, 'Try a greeting', expect.any(AbortSignal));
+      }, 'Try a greeting', expect.any(AbortSignal), 'qa-model');
       await act(async () => finish());
       expect(await pane.findByText(reply)).toBeVisible();
       expect(pane.queryByRole('link')).not.toBeInTheDocument();
@@ -1280,7 +1319,8 @@ describe('<ConnectorsSection />', () => {
     selectWorkspace('personal');
     const panel = renderPanel(qc);
     await screen.findByText('Personal prototype');
-    fireEvent.click(screen.getByRole('button', { name: 'View tools for Personal prototype' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Personal prototype' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /View .*tool/ }));
     expect(screen.getByText('prototype_read')).toBeInTheDocument();
 
     let finishNew!: (value: { connectors: ConnectorResponse[]; total: number }) => void;
@@ -1363,11 +1403,7 @@ describe('<ConnectorsSection />', () => {
       total: 2,
     });
     renderPanel();
-    // Two rows render — verify by counting the per-row Sync buttons.
-    await waitFor(() => {
-      expect(screen.getByLabelText('Sync connector con-1')).toBeInTheDocument();
-    });
-    expect(screen.getByLabelText('Sync connector con-2')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole('button', {name: /^Manage /})).toHaveLength(2));
     // Derived conflict_policy pill (A5).
     expect(screen.getByText('last_write_wins')).toBeInTheDocument();
     // None-slug row renders the idle "no policy" pill.
@@ -1407,14 +1443,15 @@ describe('<ConnectorsSection />', () => {
     expect(
       screen.getByText('io.github.firecrawl/firecrawl-mcp-server'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'View tools for Firecrawl MCP Server' })).toHaveTextContent(
+    fireEvent.click(screen.getByRole('button', {name: 'Manage Firecrawl MCP Server'}));
+    expect(screen.getByRole('menuitem', { name: 'View 2 tools' })).toHaveTextContent(
       'View 2 tools',
     );
     expect(screen.queryByText('scrape')).not.toBeInTheDocument();
     expect(screen.queryByText('crawl')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole('button', { name: 'View tools for Firecrawl MCP Server' }),
+      screen.getByRole('menuitem', { name: 'View 2 tools' }),
     );
     const dialog = await screen.findByRole('dialog', { name: 'Firecrawl MCP Server tools' });
     expect(within(dialog).getByText('scrape')).toBeInTheDocument();
@@ -1476,7 +1513,7 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
     const search = screen.getByPlaceholderText('Search connectors…');
     fireEvent.change(search, { target: { value: 'whatsapp' } });
-    expect(await screen.findByText('Configure this line in Dropped-in packages.')).toBeVisible();
+    expect(screen.queryByText('Configure this line in Dropped-in packages.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add WhatsApp (JV Connect)' })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(search).toHaveValue('whatsapp');
@@ -1510,13 +1547,12 @@ describe('<ConnectorsSection />', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Per-user' }));
     expect(heading).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: 'Workspace' }));
-    expect(screen.getByText('Configure this line in Dropped-in packages.')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Configure WhatsApp' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Configure WhatsApp' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
     expect(screen.queryByRole('button', { name: 'Add WhatsApp (JV Connect)' })).not.toBeInTheDocument();
-    expect(await screen.findByText('Configure this line in Dropped-in packages.')).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Configure WhatsApp' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -1541,7 +1577,7 @@ describe('<ConnectorsSection />', () => {
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Existing MCP fixture' }));
     expect(screen.getByRole('menuitem', { name: 'Configure connection' })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: 'Remove connection' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Remove Existing MCP fixture' })).toBeInTheDocument();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
     const add = screen.getByRole('button', { name: 'Add Custom MCP Server' });
@@ -1666,7 +1702,7 @@ describe('<ConnectorsSection />', () => {
     });
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByLabelText('Sync connector g-1')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name:'Manage Gmail'})).toBeInTheDocument();
     });
     expect(screen.queryByTestId('gmail-connector-setup')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Manage Gmail' }));
@@ -1744,7 +1780,8 @@ describe('<ConnectorsSection />', () => {
       total: 1,
     });
     renderPanel();
-    const btn = await screen.findByLabelText('Sync connector con-1');
+    fireEvent.click(await screen.findByRole('button', {name:/^Manage /}));
+    const btn = await screen.findByRole('menuitem', {name:'Sync now'});
     fireEvent.click(btn);
     await waitFor(() => {
       expect(mockedSync).toHaveBeenCalledWith('con-1');
@@ -1774,7 +1811,72 @@ describe('<ConnectorsSection />', () => {
     expect(screen.queryByLabelText('Sync connector con-1')).not.toBeInTheDocument();
   });
 
-  it('an admin connector list leaves package installations to the package panel', async () => {
+  it('rescans in the unified directory and moves Add to Configure once installed', async () => {
+    selectWorkspace('shared');
+    const pkg = {
+      id: 'github_issues', name: 'GitHub Issues', description: 'Mirror issues.',
+      version: '1', capabilities: ['sync'],
+      configuration: [{ key: 'repo', label: 'Repository', type: 'string' as const, required: true }],
+    };
+    const installation = {
+      id: 'pkg-1', package_id: pkg.id, name: pkg.name, version: '1', revision: 0,
+      enabled: false, health_status: 'unknown', config: { repo: 'fixture' }, pending_review: false,
+    };
+    const catalogue = { packages: [pkg], installations: [], rejected: [{ id: 'bad', reason: 'Invalid manifest' }] };
+    vi.mocked(connectorPackagesApi.list).mockResolvedValue(catalogue);
+    vi.mocked(connectorPackagesApi.rescan).mockReset().mockResolvedValueOnce(catalogue)
+      .mockResolvedValueOnce({ ...catalogue, rejected: [] });
+    vi.mocked(connectorPackagesApi.install).mockImplementation(async () => {
+      vi.mocked(connectorPackagesApi.list).mockResolvedValue({ ...catalogue, installations: [installation] });
+      return installation;
+    });
+    renderPanel();
+
+    expect(screen.queryByRole('button', { name: 'Rescan connectors' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Repository/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Connector' }));
+    const rescan = await screen.findByRole('button', { name: 'Rescan connectors' });
+    expect(rescan).toHaveTextContent('');
+    expect(screen.queryByText('bad: Invalid manifest')).not.toBeInTheDocument();
+    fireEvent.click(rescan);
+    expect(await screen.findByText('bad: Invalid manifest')).toBeVisible();
+    expect(connectorPackagesApi.rescan).toHaveBeenCalledWith('shared');
+    expect(await screen.findAllByText('GitHub Issues', { selector: ':not(title)' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Add bad/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Package diagnostics')).not.toBeInTheDocument();
+    fireEvent.click(rescan);
+    await waitFor(() => expect(screen.queryByText('bad: Invalid manifest')).not.toBeInTheDocument());
+    expect(screen.queryByLabelText(/Repository/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add GitHub Issues' }));
+    const add = screen.getByRole('dialog', { name: 'Add GitHub Issues' });
+    fireEvent.change(within(add).getByLabelText(/Repository/), { target: { value: 'fixture' } });
+    fireEvent.click(within(add).getByRole('button', { name: 'Add' }));
+    const configure = await screen.findByRole('dialog', { name: 'Configure GitHub Issues' });
+    expect(within(configure).getByLabelText(/Repository/)).toHaveValue('fixture');
+    expect(within(configure).getByRole('button', { name: 'Enable' })).toBeVisible();
+  });
+
+  it('switches only the selected installation when a package has two rows', async () => {
+    selectWorkspace('shared');
+    const pkg = { id: 'fixture', name: 'Fixture', version: '1', capabilities: ['sync'], description: 'QA sync', configuration: [] };
+    const first = { id: 'install-1', package_id: pkg.id, name: pkg.name, version: '1', revision: 0,
+      enabled: false, health_status: 'unknown', config: {}, pending_review: false };
+    const rows = [first, { ...first, id: 'install-2' }];
+    vi.mocked(connectorPackagesApi.list).mockImplementation(async () => ({packages: [pkg], installations: rows, rejected: []}));
+    vi.mocked(connectorPackagesApi.setEnabled).mockImplementation(async (_workspace, id, enabled) => {
+      const row = rows.find(item => item.id === id)!;
+      row.enabled = enabled;
+      return row;
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('switch', { name: 'Enable Fixture · install-2' }));
+    expect(await screen.findByRole('switch', { name: 'Disable Fixture · install-2' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Enable Fixture · install-1' })).not.toBeChecked();
+    expect(connectorPackagesApi.setEnabled).toHaveBeenCalledWith('shared', 'install-2', true);
+  });
+
+  it('lists a package installation once and opens its configuration in a detail', async () => {
     mockedScope.mockReturnValue({
       scope: { workspaceId: 'shared' },
       activeWorkspace: { your_role: 'admin' },
@@ -1786,10 +1888,19 @@ describe('<ConnectorsSection />', () => {
       ],
       total: 2,
     });
+    vi.mocked(connectorPackagesApi.list).mockResolvedValue({
+      packages: [], rejected: [], installations: [{
+        id: 'pkg', package_id: 'example', name: 'Package Row', revision: 0, version: '1',
+        enabled: false, config: {}, health_status: 'unknown', pending_review: false,
+      }],
+    });
     renderPanel();
     expect(await screen.findByText('Normal Row')).toBeInTheDocument();
-    expect(screen.queryByText('Package Row')).not.toBeInTheDocument();
-    expect(screen.getByText('Dropped-in packages')).toBeInTheDocument();
+    expect(await screen.findAllByRole('heading', { name: 'Package Row' })).toHaveLength(1);
+    expect(screen.queryByText('Dropped-in packages')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rescan connectors' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Package Row' }));
+    expect(screen.getByRole('dialog', { name: 'Configure Package Row' })).toBeVisible();
   });
 
   it('a package installation has no generic connection editor', async () => {
@@ -1824,9 +1935,8 @@ describe('<ConnectorsSection />', () => {
       total: 1,
     });
     renderPanel();
-    fireEvent.click(await screen.findByRole('button', { name: /^Manage /  }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove connection' }));
-    const confirmBtn = await screen.findByRole('button', { name: /^Delete$/ });
+    fireEvent.click(await screen.findByRole('button', { name: /^Remove / }));
+    const confirmBtn = await screen.findByRole('button', { name: 'Remove connector' });
     fireEvent.click(confirmBtn);
     await waitFor(() => {
       expect(mockedDelete).toHaveBeenCalledWith('con-1');

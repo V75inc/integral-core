@@ -27,9 +27,9 @@ function transportFixture() {
   };
 }
 
-it('opens the full page, accepts keyboard send, and renders visitor and assistant text literally', async () => {
+it('opens the full page, accepts keyboard send, and renders safe assistant Markdown', async () => {
   const transport = transportFixture();
-  const unsafeMarkup = '<img src=x onerror="throw 1">\nnext line';
+  const unsafeMarkup = '<img src=x onerror="throw 1">\n\n**Formatted reply** [Read more](https://example.invalid/) [Unsafe](javascript:alert%281%29) ![Image description](https://example.invalid/blocked.png)';
   transport.send.mockImplementation(async ({ text }) => ({ kind: 'ready', messages: [
     { id: 'visitor', role: 'visitor', text },
     { id: 'assistant', role: 'assistant', text: unsafeMarkup },
@@ -40,12 +40,16 @@ it('opens the full page, accepts keyboard send, and renders visitor and assistan
   expect(screen.getByRole('heading', { name: 'Ask Cedar', level: 1 })).toBeVisible();
   expect(transport.start).toHaveBeenCalledWith({ mode: 'resume', signal: expect.any(AbortSignal) });
   fireEvent.change(input, { target: { value: 'Please explain' } });
+  expect(input.closest('form')).toBeNull();
   fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
   fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
   expect(transport.send).not.toHaveBeenCalled();
   fireEvent.keyDown(input, { key: 'Enter' });
-  await screen.findByText('Please explain', { selector: 'p' });
-  expect(screen.getByRole('log', { name: 'Conversation' })).toHaveTextContent('<img src=x');
+  await screen.findByText('Please explain');
+  expect(await screen.findByText('Formatted reply', { selector: 'strong' })).toBeVisible();
+  expect(await screen.findByRole('link', { name: 'Read more' })).toHaveAttribute('href', 'https://example.invalid/');
+  expect(await screen.findByText('Image description')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Unsafe' })).not.toBeInTheDocument();
   expect(screen.queryByRole('img')).not.toBeInTheDocument();
   expect(input).toHaveValue('');
 });
@@ -63,7 +67,7 @@ it('locks a pending attempt and reuses its original identity and text even after
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   expect(await screen.findByRole('status')).toHaveTextContent('Waiting for a reply');
   expect(screen.getAllByRole('status')).toHaveLength(1);
-  expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+  expect(screen.getByRole('log', { name: 'Conversation' })).toHaveTextContent('Hello there');
   expect(input).toHaveAttribute('readonly');
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(transport.send).toHaveBeenCalledTimes(1);

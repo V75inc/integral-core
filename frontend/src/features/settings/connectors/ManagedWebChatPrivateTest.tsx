@@ -1,3 +1,4 @@
+import { MessageCircle } from 'lucide-react';
 import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import {
@@ -6,20 +7,22 @@ import {
   type ManagedWebChatPrivateTestOwner,
 } from '../../../api/managedWebChatPrivateTest';
 import { Button } from '../../../components/ui/Button';
-import { Surface, Text, Textarea } from '../../../ui';
+import { Select, Surface, Text, Textarea } from '../../../ui';
 
-export function ManagedWebChatPrivateTest({ owner, profileRevision }: {
+export function ManagedWebChatPrivateTest({ owner, profileRevision, modelId }: {
   owner: Readonly<ManagedWebChatPrivateTestOwner>;
   profileRevision: number;
+  modelId?: string;
 }) {
   const key = JSON.stringify([owner.principalId, owner.workspaceId, owner.sessionFence, owner.provisionId,
-    owner.routeEpoch, owner.profileKey, owner.publishedVersion, profileRevision]);
-  return <CurrentPrivateTest key={key} owner={owner} />;
+    owner.routeEpoch, owner.profileKey, owner.publishedVersion, profileRevision, modelId]);
+  return <CurrentPrivateTest key={key} owner={owner} modelId={modelId} />;
 }
 
-function CurrentPrivateTest({ owner }: { owner: Readonly<ManagedWebChatPrivateTestOwner> }) {
+function CurrentPrivateTest({ owner, modelId }: { modelId?: string; owner: Readonly<ManagedWebChatPrivateTestOwner> }) {
   const id = useId();
   const pending = useRef<AbortController | null>(null);
+  const [selected, setSelected] = useState('');
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [reply, setReply] = useState('');
@@ -36,6 +39,7 @@ function CurrentPrivateTest({ owner }: { owner: Readonly<ManagedWebChatPrivateTe
     setText('');
     setReply('');
     setState('idle');
+    setSelected('');
     setOpen(false);
   }, [abort]);
 
@@ -57,13 +61,13 @@ function CurrentPrivateTest({ owner }: { owner: Readonly<ManagedWebChatPrivateTe
   }, [abort, close]);
 
   async function sendTest() {
-    if (pending.current || !open || !isPrivateWebChatTestMessage(text)) return;
+    if (pending.current || !open || (modelId && selected !== modelId) || !isPrivateWebChatTestMessage(text)) return;
     const controller = new AbortController();
     pending.current = controller;
     setReply('');
     setState('running');
     try {
-      const result = await runManagedWebChatPrivateTest(owner, text, controller.signal);
+      const result = await runManagedWebChatPrivateTest(owner, text, controller.signal, selected || undefined);
       if (pending.current === controller && !controller.signal.aborted) {
         setReply(result);
         setState('idle');
@@ -83,11 +87,18 @@ function CurrentPrivateTest({ owner }: { owner: Readonly<ManagedWebChatPrivateTe
         Private test; does not publish or check public hosting. Uses the saved published profile and does not create a visitor conversation.
       </Text>
       <form className="flex min-w-0 flex-col items-start gap-2" onSubmit={event => { event.preventDefault(); void sendTest(); }}>
+        {modelId && <>
+          <Text as="label" htmlFor={`${id}-model`} variant="body-sm">Private test model</Text>
+          <Select id={`${id}-model`} value={selected} disabled={state === 'running'} onChange={event => setSelected(event.target.value)}>
+            <option value="">Choose a model</option>
+            <option value={modelId}>{modelId}</option>
+          </Select>
+        </>}
         <Text as="label" htmlFor={id} variant="body-sm" weight="medium">Test message</Text>
         <Textarea id={id} aria-describedby={`${id}-description`} value={text} maxLength={1000} rows={3}
           disabled={state === 'running'} onChange={event => setText(event.target.value)} />
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" size="sm" disabled={state === 'running' || !isPrivateWebChatTestMessage(text)}>Send test</Button>
+          <Button type="submit" size="sm" disabled={state === 'running' || Boolean(modelId && selected !== modelId) || !isPrivateWebChatTestMessage(text)}>Send test</Button>
           <Button type="button" variant="ghost" size="sm" onClick={close}>Close test</Button>
         </div>
       </form>
@@ -99,6 +110,6 @@ function CurrentPrivateTest({ owner }: { owner: Readonly<ManagedWebChatPrivateTe
       </div>}
     </Surface>
   ) : (
-    <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)}>Test Web Chat</Button>
+    <Button type="button" variant="secondary" size="sm" icon={<MessageCircle size={14} aria-hidden />} onClick={() => setOpen(true)}>Test Web Chat</Button>
   );
 }

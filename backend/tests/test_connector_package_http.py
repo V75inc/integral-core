@@ -255,6 +255,16 @@ async def test_dropped_package_installs_disabled_then_runs_after_a_probe(
     assert disabled.status_code == 200, disabled.text
     assert disabled.json()["enabled"] is False
 
+    calls.clear()
+    reenabled = await authenticated_client.put(
+        f"/api/agentive/connector-packages/installations/{install_id}/enabled",
+        headers=headers,
+        params=params,
+        json={"enabled": True},
+    )
+    assert reenabled.status_code == 200 and reenabled.json()["enabled"] is True
+    assert calls == [("/ping", "secret-value", None)]
+
     removed = await authenticated_client.delete(
         f"/api/agentive/connector-packages/installations/{install_id}",
         headers=headers,
@@ -619,9 +629,24 @@ async def test_package_oauth_start_uses_the_gmail_package(
     """Settings OAuth start uses the package route and the Gmail manifest."""
     monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "cid")
     monkeypatch.setenv("GMAIL_OAUTH_REDIRECT_URI", "https://app.example/cb")
+    workspace = (
+        await authenticated_client.post("/api/workspaces", json={"name": "OAuth Scope"})
+    ).json()["workspace"]["id"]
+    headers = {"X-Integral-Scope": f"ws:{workspace}"}
+    unbound = await authenticated_client.post(
+        "/api/agentive/connector-packages/gmail/oauth/start", json={}
+    )
+    assert unbound.status_code == 400, unbound.text
+    added = await authenticated_client.post(
+        "/api/agentive/connector-packages/gmail/install",
+        headers=headers,
+        json={"workspace_id": workspace, "binding_scope": "workspace", "values": {}},
+    )
+    assert added.status_code == 200, added.text
     response = await authenticated_client.post(
         "/api/agentive/connector-packages/gmail/oauth/start",
-        json={},
+        json={"connector_id": added.json()["id"]},
+        headers=headers,
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -705,9 +730,20 @@ async def test_gmail_callback_does_not_replace_another_package(
         raise AssertionError("token exchange must not run")
 
     monkeypatch.setattr("app.services.connectors.gmail_oauth.exchange_code", explode)
+    workspace = (
+        await authenticated_client.post("/api/workspaces", json={"name": "OAuth Scope"})
+    ).json()["workspace"]["id"]
+    headers = {"X-Integral-Scope": f"ws:{workspace}"}
+    added = await authenticated_client.post(
+        "/api/agentive/connector-packages/gmail/install",
+        headers=headers,
+        json={"workspace_id": workspace, "binding_scope": "workspace"},
+    )
+    assert added.status_code == 200, added.text
     started = await authenticated_client.post(
         "/api/agentive/connector-packages/gmail/oauth/start",
-        json={},
+        json={"connector_id": added.json()["id"]},
+        headers=headers,
     )
     assert started.status_code == 200, started.text
     created = await authenticated_client.post(
@@ -740,9 +776,20 @@ async def test_quickbooks_callback_does_not_replace_another_package(
     monkeypatch.setattr(
         "app.services.connectors.quickbooks_oauth.exchange_code", explode
     )
+    workspace = (
+        await authenticated_client.post("/api/workspaces", json={"name": "OAuth Scope"})
+    ).json()["workspace"]["id"]
+    headers = {"X-Integral-Scope": f"ws:{workspace}"}
+    added = await authenticated_client.post(
+        "/api/agentive/connector-packages/quickbooks/install",
+        headers=headers,
+        json={"workspace_id": workspace, "binding_scope": "workspace"},
+    )
+    assert added.status_code == 200, added.text
     started = await authenticated_client.post(
         "/api/agentive/connector-packages/quickbooks/oauth/start",
-        json={},
+        json={"connector_id": added.json()["id"]},
+        headers=headers,
     )
     assert started.status_code == 200, started.text
     created = await authenticated_client.post(
@@ -827,7 +874,7 @@ publisher: acme
 name: Acme sync
 description: Import public rows.
 trust: {tier: declarative}
-binding: {scopes: [workspace]}
+binding: {scopes: [personal]}
 http: {base_url: https://sync.example}
 health: {request: {method: GET, path: /ping}}
 capabilities:
@@ -977,7 +1024,11 @@ async def test_package_oauth_reauthorization_keeps_installation(
         added = await authenticated_client.post(
             f"{base}/install",
             headers=headers,
-            json={"workspace_id": workspace, "values": values},
+            json={
+                "workspace_id": workspace,
+                "values": values,
+                "binding_scope": "workspace",
+            },
         )
         assert added.status_code == 200, added.text
         installation = added.json()
@@ -1036,7 +1087,7 @@ async def test_package_oauth_reauthorization_keeps_installation(
 
 @pytest.mark.asyncio
 async def test_catalog_migration_adopts_and_reverses_existing_rows(
-    authenticated_client, test_user
+    authenticated_client, test_user, monkeypatch
 ):
     """Adopt legacy catalog rows in place and reverse metadata with no credential writes."""
     from app.agentive.services.connector_registry_node import create_connector
@@ -1082,6 +1133,54 @@ async def test_catalog_migration_adopts_and_reverses_existing_rows(
     await mcp.save()
     credentials = {row.id: dict(row.auth_state) for row in (gmail, mcp)}
 
+    from app.services.connectors.sync_runtime import sync_one_connector
+
+    legacy_options = {"headers": {"X-Integral-Scope": f"ws:{workspace}"}}
+    legacy_endpoint = f"/api/agentive/connectors/{gmail.id}/legacy-sync-enabled"
+    wrong = await authenticated_client.put(legacy_endpoint, json={"enabled": False})
+    assert wrong.status_code == 400, wrong.text
+    paused_legacy = await authenticated_client.put(
+        legacy_endpoint, **legacy_options, json={"enabled": False}
+    )
+    assert paused_legacy.status_code == 200, paused_legacy.text
+    legacy = await connector_packages.Connector.get(gmail.id)
+    assert legacy.legacy_sync_paused
+    assert (await sync_one_connector(legacy))["skipped"] == 1
+
+    async def legacy_probe(*args, **kwargs):
+        return {}
+
+    monkeypatch.setattr(connector_packages, "perform_request", legacy_probe)
+    resumed_legacy = await authenticated_client.put(
+        legacy_endpoint, **legacy_options, json={"enabled": True}
+    )
+    assert resumed_legacy.status_code == 200, resumed_legacy.text
+    assert not (await connector_packages.Connector.get(gmail.id)).legacy_sync_paused
+
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    own_personal = await ensure_personal_workspace(test_user)
+    personal_headers = {"headers": {"X-Integral-Scope": f"ws:{own_personal.id}"}}
+    catalogue_row = await authenticated_client.post(
+        "/api/agentive/connectors/catalog/github_issues/install",
+        **personal_headers,
+        json={
+            "connection_mode": "per_user",
+            "secrets": {"owner": "example", "repo": "synthetic"},
+        },
+    )
+    assert catalogue_row.status_code in (200, 201), catalogue_row.text
+    created = catalogue_row.json()["connector"]
+    assert created["legacy_sync_enabled"] is False
+    github_enabled = await authenticated_client.put(
+        f"/api/agentive/connectors/{created['id']}/legacy-sync-enabled",
+        **personal_headers,
+        json={"enabled": True},
+    )
+    assert github_enabled.status_code == 200, github_enabled.text
+    assert (await connector_packages.Connector.get(created["id"])).sync_cursor is None
+    await (await connector_packages.Connector.get(created["id"])).delete(cascade=False)
+
     assert await migrate(dry_run=True) == 2
     assert (
         await connector_packages.Connector.get(gmail.id)
@@ -1121,8 +1220,201 @@ async def test_catalog_migration_adopts_and_reverses_existing_rows(
                 )
                 assert len(edges) == 1 and edges[0].mapping_profile_yaml == "version: 1"
 
+    import httpx
+
+    from app.services.connectors.sync_runtime import sync_one_connector
+
+    endpoint = f"/api/agentive/connector-packages/installations/{gmail.id}/enabled"
+    options = {"headers": headers, "params": {"workspace_id": workspace}}
+    paused = await authenticated_client.put(
+        endpoint, **options, json={"enabled": False}
+    )
+    assert paused.status_code == 200 and paused.json()["enabled"] is False
+    assert paused.json()["connection_mode"] == "per_user"
+    disabled = await connector_packages.Connector.get(gmail.id)
+    assert not disabled.enabled
+    assert (await sync_one_connector(disabled))["skipped"] == 1
+
+    async def failed_probe(*args, **kwargs):
+        raise httpx.ConnectError("Synthetic health failure")
+
+    async def healthy_probe(*args, **kwargs):
+        return {}
+
+    monkeypatch.setattr(connector_packages, "perform_request", failed_probe)
+    blocked = await authenticated_client.put(
+        endpoint, **options, json={"enabled": True}
+    )
+    assert blocked.status_code == 503, blocked.text
+    assert not (await connector_packages.Connector.get(gmail.id)).enabled
+    monkeypatch.setattr(connector_packages, "perform_request", healthy_probe)
+    resumed = await authenticated_client.put(
+        endpoint, **options, json={"enabled": True}
+    )
+    assert resumed.status_code == 200 and resumed.json()["enabled"] is True
+    assert resumed.json()["id"] == gmail.id
+
     await inspect_rows("package")
     assert await migrate(reverse=True, dry_run=True) == 2
     assert await migrate(reverse=True) == 2
     assert await migrate(reverse=True) == 0
     await inspect_rows("legacy-mapping")
+
+
+@pytest.mark.asyncio
+async def test_manifest_installation_scope_targets_the_real_personal_workspace(
+    authenticated_client,
+    second_user_client,
+    test_user,
+    second_user,
+    tmp_path,
+    monkeypatch,
+):
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    shared = (
+        await authenticated_client.post("/api/workspaces", json={"name": "Scope QA"})
+    ).json()["workspace"]["id"]
+    personal = (await ensure_personal_workspace(test_user)).id
+    other_personal = (await ensure_personal_workspace(second_user)).id
+    for slug, scopes in (
+        ("acme_workspace", "workspace"),
+        ("acme_personal", "personal"),
+        ("acme_both", "workspace, personal"),
+    ):
+        folder = tmp_path / slug
+        folder.mkdir()
+        manifest = _VALID.replace("acme_crm", slug).replace(
+            "[workspace]", f"[{scopes}]"
+        )
+        (folder / "connector.yaml").write_text(manifest)
+    monkeypatch.setenv("INTEGRAL_CONNECTOR_PATHS", str(tmp_path))
+    base = "/api/agentive/connector-packages"
+
+    def headers(workspace):
+        return {"X-Integral-Scope": f"ws:{workspace}"}
+
+    async def add(
+        slug, workspace, binding=None, client=authenticated_client, header_scope=None
+    ):
+        body = {
+            "workspace_id": workspace,
+            "values": {"base_url": "https://scope.example", "api_key": "synthetic"},
+        }
+        if binding:
+            body["binding_scope"] = binding
+        return await client.post(
+            f"{base}/{slug}/install",
+            headers=headers(header_scope or workspace),
+            json=body,
+        )
+
+    scan = await authenticated_client.post(
+        f"{base}/rescan", headers=headers(shared), params={"workspace_id": shared}
+    )
+    assert scan.status_code == 200, scan.text
+    assert {
+        row["id"]: row["binding_scopes"]
+        for row in scan.json()["packages"]
+        if row["id"].startswith("acme_")
+    } == {
+        "acme_workspace": ["workspace"],
+        "acme_personal": ["personal"],
+        "acme_both": ["workspace", "personal"],
+    }
+    assert (await add("acme_both", shared)).status_code == 400
+    assert (await add("acme_workspace", personal, "personal")).status_code == 400
+    assert (await add("acme_personal", shared, "workspace")).status_code == 400
+    assert (await add("acme_both", shared, "personal")).status_code == 400
+    assert (await add("acme_both", personal, "workspace")).status_code == 400
+    assert (
+        await add("acme_both", personal, "personal", client=second_user_client)
+    ).status_code == 403
+    assert (
+        await add("acme_both", personal, "personal", header_scope=shared)
+    ).status_code == 400
+    for slug, workspace, binding, mode in (
+        ("acme_workspace", shared, None, "shared"),
+        ("acme_personal", personal, None, "per_user"),
+        ("acme_both", shared, "workspace", "shared"),
+        ("acme_both", personal, "personal", "per_user"),
+    ):
+        result = await add(slug, workspace, binding)
+        assert result.status_code == 200, result.text
+        row = await connector_packages.Connector.get(result.json()["id"])
+        assert (
+            row.workspace_id == workspace
+            and row.connection_mode == mode
+            and not row.enabled
+        )
+    other_list = await second_user_client.get(
+        base, headers=headers(other_personal), params={"workspace_id": other_personal}
+    )
+    assert other_list.status_code == 200 and not other_list.json()["installations"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_oauth_preserves_the_explicit_personal_installation(
+    authenticated_client, test_user, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from app.agentive.connectors import mcp_oauth
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    async def probe(url):
+        assert url == "https://mcp.notion.com/mcp"
+        return SimpleNamespace(needs_oauth=True, response=None)
+
+    async def start(url, **kwargs):
+        return {"authorization_endpoint": "https://idp.example.test/authorize"}
+
+    exchanged = []
+
+    async def exchange(oauth, code):
+        exchanged.append(code)
+        return {"access_token": "synthetic-private-test-token"}
+
+    monkeypatch.setattr(mcp_oauth, "probe_mcp_authorization", probe)
+    monkeypatch.setattr(mcp_oauth, "start_mcp_oauth_session", start)
+    monkeypatch.setattr(
+        mcp_oauth,
+        "authorization_url_for_oauth",
+        lambda oauth, state: f"{oauth['authorization_endpoint']}?state={state}",
+    )
+    monkeypatch.setattr(mcp_oauth, "exchange_mcp_oauth_code", exchange)
+
+    personal = (await ensure_personal_workspace(test_user)).id
+    headers = {"X-Integral-Scope": f"ws:{personal}"}
+    base = "/api/agentive/connector-packages/notion"
+    install = await authenticated_client.post(
+        f"{base}/install",
+        headers=headers,
+        json={"workspace_id": personal, "binding_scope": "personal"},
+    )
+    assert install.status_code == 200, install.text
+    connector_id = install.json()["id"]
+
+    request = {"connector_id": connector_id}
+    wrong_scope = await authenticated_client.post(f"{base}/oauth/start", json=request)
+    assert wrong_scope.status_code == 400, wrong_scope.text
+    consent = await authenticated_client.post(
+        f"{base}/oauth/start", headers=headers, json=request
+    )
+    assert consent.status_code == 200, consent.text
+    state = consent.json()["consent_url"].split("?state=", 1)[1]
+    path = "/api/agentive/connectors/mcp/oauth/callback"
+    callback = {"state": state, "code": "synthetic-code"}
+    result = await authenticated_client.post(path, headers=headers, json=callback)
+    assert result.status_code == 200, result.text
+    assert "synthetic-private-test-token" not in result.text
+    assert result.json()["id"] == connector_id
+    row = await connector_packages.Connector.get(connector_id)
+    assert (row.workspace_id, row.connection_mode, row.enabled) == (
+        personal,
+        "per_user",
+        False,
+    )
+    duplicate = await authenticated_client.post(path, headers=headers, json=callback)
+    assert duplicate.status_code == 401, duplicate.text
+    assert exchanged == ["synthetic-code"]

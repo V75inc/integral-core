@@ -82,7 +82,7 @@ async def test_cloudflare_catalog_install_stops_at_owner_consent(
     payload = workspace_response.json()
     workspaces = payload if isinstance(payload, list) else payload.get("workspaces", [])
     assert workspaces
-    workspace_id = workspaces[0]["id"]
+    workspace_id = next(row["id"] for row in workspaces if row["kind"] == "personal")
     headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
     catalog = await authenticated_client.get(
         "/api/agentive/connectors/catalog", headers=headers
@@ -92,7 +92,7 @@ async def test_cloudflare_catalog_install_stops_at_owner_consent(
     response = await authenticated_client.post(
         "/api/agentive/connectors/catalog/cloudflare/install",
         headers=headers,
-        json={"label": "Disposable cloud qualification"},
+        json={"label": "Disposable cloud qualification", "connection_mode": "per_user"},
     )
     assert response.status_code == 200, response.text
     result = response.json()

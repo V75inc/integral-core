@@ -59,7 +59,7 @@ describe('optional Configure share read', () => {
     const qc = client();
     const draw = (source?: ManagedChannelShareSource) => <QueryClientProvider client={qc}><Dialog source={source} /></QueryClientProvider>;
     const { rerender } = render(draw());
-    expect(await screen.findByRole('combobox', { name: 'Published public profile' })).toBeVisible();
+    expect(await screen.findByRole('combobox', { name: 'Published agent profile' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /full-page link/i })).not.toBeInTheDocument();
     rerender(draw({ scope, read }));
     expect(screen.queryByRole('button', { name: /full-page link/i })).not.toBeInTheDocument();

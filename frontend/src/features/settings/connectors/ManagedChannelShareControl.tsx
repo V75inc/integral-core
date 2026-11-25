@@ -21,11 +21,12 @@ export interface ManagedChannelShareSource {
 type ConnectedChannel = Extract<ManagedChannel, { connected: true }>;
 
 /** Optional in-dialog seam; an unapproved host never instantiates this control. */
-export function ManagedChannelShareControl({ channel, source, publication, profileRevision }: {
+export function ManagedChannelShareControl({ channel, source, publication, profileRevision, readOnOpen = false }: {
   channel: ConnectedChannel;
   source: ManagedChannelShareSource;
   publication: ManagedSharePublication;
   profileRevision: number;
+  readOnOpen?: boolean;
 }) {
   const { scope } = source;
   if (channel.state !== 'active' || !scope.principalId || !scope.sessionFence ||
@@ -42,13 +43,14 @@ export function ManagedChannelShareControl({ channel, source, publication, profi
     owner.principalId, owner.workspaceId, owner.sessionFence, owner.slug, owner.provisionId,
     owner.routeEpoch, publication.profileKey, publication.publishedVersion, profileRevision,
   ]);
-  return <CurrentShareRead key={key} owner={owner} channel={channel} reader={source.read} />;
+  return <CurrentShareRead readOnOpen={readOnOpen} key={key} owner={owner} channel={channel} reader={source.read} />;
 }
 
-function CurrentShareRead({ owner, channel, reader }: {
+function CurrentShareRead({ owner, channel, reader, readOnOpen }: {
   owner: ManagedShareOwner;
   channel: ConnectedChannel;
   reader: ManagedChannelShareReader;
+  readOnOpen: boolean;
 }) {
   const pending = useRef<AbortController | null>(null);
   const [read, setRead] = useState<ManagedChannelFullPageShareRead | null>(null);
@@ -73,8 +75,8 @@ function CurrentShareRead({ owner, channel, reader }: {
     function visibility() {
       if (document.hidden) invalidate();
     }
-    // A new read requires a gesture. Never silently fetch or retain a result
-    // across an auth lifecycle or a possibly relevant workspace write.
+    // Opening the group reads an already-issued URL for this exact owner.
+    if (readOnOpen) void refresh();
     window.addEventListener('integral:tokens-updated', invalidate);
     window.addEventListener('integral:logout', invalidate);
     window.addEventListener('integral:records-changed', invalidate);
@@ -90,7 +92,7 @@ function CurrentShareRead({ owner, channel, reader }: {
       window.removeEventListener('offline', invalidate);
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, [reader]);
+  }, [reader, readOnOpen]);
 
   async function refresh() {
     if (pending.current) return;
@@ -110,15 +112,15 @@ function CurrentShareRead({ owner, channel, reader }: {
 
   return (
     <div className="flex min-w-0 flex-col items-start gap-2">
-      <Button type="button" size="sm" variant="secondary" disabled={read?.state === 'checking'}
+      {!readOnOpen && <Button type="button" size="sm" variant="secondary" disabled={read?.state === 'checking'}
         onClick={() => void refresh()}>
         Check full-page link
-      </Button>
+      </Button>}
       {read?.state === 'checking' && (
         <Text as="p" variant="body-sm" role="status" tone="muted">Checking full-page sharing…</Text>
       )}
-      {read?.state === 'unavailable' && (
-        <Text as="p" variant="body-sm" role="status" tone="muted">No verified full-page link is available.</Text>
+      {(read?.state === 'unavailable' || (readOnOpen && !read)) && (
+        <Text as="p" variant="body-sm" role="status" tone="muted">Reopen Full-page chat to verify the current link.</Text>
       )}
       {read && (
         <ManagedChannelFullPageShare scope={owner} channel={channel} publication={owner.publication} read={read} canInteract />

@@ -1,10 +1,13 @@
 import apiClient from './client';
 
+export type ConnectorBindingScope = "workspace" | "personal";
+
 export interface ConnectorPackageField {
   key: string;
   label: string;
   type: 'string' | 'text' | 'url' | 'secret' | 'number' | 'boolean' | 'select';
   required: boolean;
+  scope?: ConnectorBindingScope;
   help?: string;
   options?: { value: string; label: string }[];
   multiple?: boolean;
@@ -24,7 +27,8 @@ export interface ConnectorPackageSummary {
   fingerprint?: string;
   capabilities: string[];
   host_managed?: boolean;
-  auth_type?: 'oauth2';
+  binding_scopes?: ConnectorBindingScope[];
+  auth_type?: 'oauth2' | 'mcp_oauth';
   channel_mode?: 'webhook' | 'managed-text-v1';
   configuration: ConnectorPackageField[];
   grant?: {
@@ -39,6 +43,7 @@ export interface ConnectorPackageInstallation {
   id: string;
   package_id: string;
   name: string;
+  connection_mode?: "shared" | "per_user";
   version: string;
   fingerprint?: string;
   admitted_fingerprint?: string;
@@ -73,10 +78,11 @@ export const connectorPackagesApi = {
     );
     return response.data;
   },
-  async install(workspaceId: string, packageId: string, values: Record<string, unknown>) {
+  async install(workspaceId: string, packageId: string, values: Record<string, unknown>, bindingScope?: ConnectorBindingScope) {
     const response = await apiClient.post(
       `/agentive/connector-packages/${packageId}/install`,
-      { workspace_id: workspaceId, values },
+      { workspace_id: workspaceId, values, binding_scope: bindingScope },
+      { headers: { 'X-Integral-Scope': `ws:${workspaceId}` } },
     );
     return response.data as ConnectorPackageInstallation;
   },

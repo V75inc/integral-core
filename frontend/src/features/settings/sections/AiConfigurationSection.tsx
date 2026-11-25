@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   aiConfigurationApi,
   AI_CONFIGURATION_QUERY_KEY,
+  ATTACHMENT_ANALYSIS_QUERY_KEY,
+  attachmentAnalysisApi,
   REALTIME_VOICE_QUERY_KEY,
   VOICE_CONFIGURATION_QUERY_KEY,
   EMBEDDING_CONFIGURATION_QUERY_KEY,
@@ -23,6 +25,7 @@ import {
 import { defaultModel, RECOMMENDED_MODELS } from "../../../api/modelPresets";
 import { errorMessageFromAxios } from "../../../api/helpers";
 import { profileSummary } from "./modelSettingsSummary";
+import { DeploymentLimits } from "./DeploymentLimits";
 import { QuickProviderSetup } from "./QuickProviderSetup";
 import { ModelCategory } from "./ModelCategory";
 import { RealtimeVoiceConfiguration } from "./RealtimeVoiceConfiguration";
@@ -37,6 +40,7 @@ import { useScopeOptional } from "../../../context/ScopeContext";
 import { isChatProfile, specializedModel } from "../../../api/modelProfileKinds";
 import { useAIConfiguration } from "../hooks/useAIConfiguration";
 import {
+  AudioLines,
   Brain,
   Database,
   Mic,
@@ -70,7 +74,6 @@ const SPECIALTY_MODELS: Partial<Record<ModelProvider, { id: string; label: strin
   openrouter: [{ id: "openai/text-embedding-3-small", label: "Text embedding 3 small (Embeddings)" }],
   ollama_local: [{ id: "embeddinggemma", label: "EmbeddingGemma (Embeddings)" }],
 };
-const modelOptions = (provider: ModelProvider) => [...RECOMMENDED_MODELS[provider], ...(SPECIALTY_MODELS[provider] ?? [])];
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -110,9 +113,13 @@ export function AiConfigurationSection({
     queryKey: [...REALTIME_VOICE_QUERY_KEY, userId, workspaceId],
     queryFn: () => realtimeVoiceConfigurationApi.get(scoped), enabled: hasScope,
   });
+  const images = useQuery({
+    queryKey: [...ATTACHMENT_ANALYSIS_QUERY_KEY, userId, workspaceId],
+    queryFn: () => attachmentAnalysisApi.get(scoped), enabled: hasScope,
+  });
   const embeddings = useQuery({
     queryKey: [...EMBEDDING_CONFIGURATION_QUERY_KEY, userId, workspaceId],
-    queryFn: embeddingConfigurationApi.get, enabled: hasScope,
+    queryFn: () => embeddingConfigurationApi.get(scoped), enabled: hasScope,
   });
   const qc = useQueryClient();
   const [quickPending, setQuickPending] = useState(false);
@@ -167,6 +174,13 @@ export function AiConfigurationSection({
   const notifySuccess = (message: string) => showToast(message, "success");
   const notifyError = (message: string) => showToast(message, "error");
   const [capModel, setCapModel] = useState("");
+  function modelOptions(provider: ModelProvider) {
+    const options = [...RECOMMENDED_MODELS[provider], ...(SPECIALTY_MODELS[provider] ?? [])];
+    for (const [role, id] of Object.entries(query.data?.model_policy?.specialists?.[provider] ?? {})) {
+      if (!options.some(option => option.id === id)) options.push({ id, label: `${id} (${role})` });
+    }
+    return options;
+  }
   const selectedConnection = query.data?.connections.find(
     (c) => c.id === profile?.connection_id,
   );
@@ -177,7 +191,8 @@ export function AiConfigurationSection({
     );
     return () => clearTimeout(timer);
   }, [profile?.model]);
-  const nonChat = Boolean(profile?.model && specializedModel(profile.model));
+  const specialty = profile?.embedding_only ? "Embeddings" : profile?.model && specializedModel(profile.model);
+  const nonChat = Boolean(specialty);
   const caps = useQuery({
     queryKey: ["model-capabilities", selectedConnection?.provider, capModel],
     queryFn: () =>
@@ -191,6 +206,7 @@ export function AiConfigurationSection({
       await Promise.all([
         qc.invalidateQueries({ queryKey: AI_CONFIGURATION_QUERY_KEY }),
         qc.invalidateQueries({ queryKey: MODEL_CREDENTIALS_QUERY_KEY }),
+        qc.invalidateQueries({ queryKey: ATTACHMENT_ANALYSIS_QUERY_KEY }),
         qc.invalidateQueries({ queryKey: ["agentive", "status"] }),
       ]);
     },
@@ -237,6 +253,7 @@ export function AiConfigurationSection({
       id: item.id,
       name: item.name,
       connection_id: item.connection_id,
+      embedding_only: item.embedding_only,
       model: item.model,
       generation_settings: { ...item.generation_settings },
     });
@@ -250,6 +267,7 @@ export function AiConfigurationSection({
         p && {
           ...p,
           connection_id: id,
+          embedding_only: false,
           model: source ? defaultModel(source.provider) : "",
           generation_settings: {},
         },
@@ -291,6 +309,10 @@ export function AiConfigurationSection({
     );
   const data = query.data;
   const disabled = mutation.isPending || quickPending || data.key_policy === "platform_only" || !data.effective.editable;
+  const mainProfile = data.profiles.find(p => p.id === data.default_profile_id);
+  const mainConnection = data.connections.find(c => c.id === mainProfile?.connection_id);
+  const embeddingPreset = mainConnection && data.model_policy?.specialists?.[mainConnection.provider]?.embedding;
+  const recommendedEmbedding = data.profiles.find(p => p.connection_id === mainConnection?.id && p.model === embeddingPreset);
   const chatProfiles = data.profiles.filter(isChatProfile);
   const needle = search.trim().toLowerCase();
   const roleChoices = [
@@ -304,10 +326,11 @@ export function AiConfigurationSection({
   const shownLegacy = legacyAssignments.filter(a => `${a.role} ${a.model}`.toLowerCase().includes(needle));
   const roleFor = (p: ModelProfile) => assignments.find(a => a.model === p.model && a.connectionId === p.connection_id)?.role;
   const catalogStatus = (p: ModelProfile) => {
-    if (p.id === data.default_profile_id) return `${data.routing?.mode === "light_heavy" ? "Heavy" : "Main"} model · Assigned`;
-    if (p.id === data.routing?.light_profile_id && data.routing?.mode === "light_heavy") return "Light model · Assigned";
-    const role = roleFor(p);
-    return role ? `${role} · Assigned` : specializedModel(p.model);
+    const roles: string[] = assignments.filter(a => a.model === p.model && a.connectionId === p.connection_id).map(a => a.role);
+    if (p.id === data.default_profile_id) roles.unshift(data.routing?.mode === "light_heavy" ? "Heavy model" : "Main model");
+    if (data.routing?.mode === "light_heavy" && p.id === data.routing.light_profile_id) roles.push("Light model");
+    if (p.id === (images.data?.configuration.profile_id || images.data?.recommended_profile_id)) roles.push("Vision");
+    return roles.length ? roles.join(" · ") + " · Assigned" : p.embedding_only ? "Embeddings" : specializedModel(p.model);
   };
   const profiles = data.profiles.filter((p) =>
     `${p.name} ${p.model}`.toLowerCase().includes(needle),
@@ -330,7 +353,11 @@ export function AiConfigurationSection({
   };
   return (
     <Stack gap="lg">
-      <QuickProviderSetup key={data.effective.workspace_id} data={data} disabled={mutation.isPending} onBusyChange={setQuickPending} />
+      <QuickProviderSetup key={data.effective.workspace_id} data={data} disabled={mutation.isPending} onBusyChange={setQuickPending}
+        assignments={{
+          speech: speech.isError ? null : speech.data, realtime: realtime.isError ? null : realtime.data,
+          images: images.isError ? null : images.data, embeddings: embeddings.isError ? null : embeddings.data,
+        }} />
       <ModelCategory
         id="advanced-ai-configuration"
         title="Advanced Configuration"
@@ -727,6 +754,7 @@ export function AiConfigurationSection({
                 <EmbeddingConfiguration
                   connections={data.connections}
                   profiles={data.profiles}
+                  recommendedProfile={recommendedEmbedding}
                   embedded
                 />
               </ModelCategory>
@@ -746,14 +774,14 @@ export function AiConfigurationSection({
                 />
               </ModelCategory>
               <ModelCategory id="realtime-voice-models" heading="h5" title="Realtime Voice"
-                description="Two-way voice calls with an assistant" icon={Mic}
+                description="Two-way voice calls with an assistant" icon={AudioLines}
                 open={category === "realtime-voice"} onToggle={() => toggleCategory("realtime-voice")}>
                 <RealtimeVoiceConfiguration connections={data.connections} profiles={data.profiles} />
               </ModelCategory>
               <ModelCategory id="attachment-models" heading="h5" title="Images and documents"
-                description="Make attachments searchable" icon={Image}
+                description="Read images and recognize visible text" icon={Image}
                 open={category === "attachments"} onToggle={() => toggleCategory("attachments")}>
-                <AttachmentAnalysisConfiguration />
+                <AttachmentAnalysisConfiguration key={JSON.stringify([userId, workspaceId])} profiles={data.profiles} connections={data.connections} />
               </ModelCategory>
           </section>
       </div>
@@ -761,19 +789,13 @@ export function AiConfigurationSection({
       <ModelCategory
         id="ai-deployment-limits"
         title="Deployment Limits"
-        description="See the maximum requests, tool calls, tokens, and time per turn."
+        description="Installation-wide limits for native chat turns."
         icon={ShieldCheck}
         open={limitsOpen}
         onToggle={() => setLimitsOpen(value => !value)}
         prominent
       >
-        <Text as="p" variant="body-sm" tone="muted">
-          Up to {data.harness_limits.request_limit} model requests, 32 tool
-          calls, {data.harness_limits.token_limit.toLocaleString()} total
-          tokens and {Math.round(data.harness_limits.run_seconds / 60)}{" "}
-          minutes per turn. Model profiles can use lower limits. Approval and
-          access checks always apply.
-        </Text>
+        <DeploymentLimits key={JSON.stringify([userId, workspaceId])} data={data} />
       </ModelCategory>
       <Modal
         open={!!connection}
@@ -967,6 +989,7 @@ export function AiConfigurationSection({
                         setProfile({
                           ...profile,
                           model: custom ? "" : e.target.value,
+                          embedding_only: false,
                           generation_settings: {},
                         });
                       }}
@@ -998,7 +1021,14 @@ export function AiConfigurationSection({
                     />
                   </Field>
                 )}
-                {nonChat && <Text variant="body-sm" tone="muted">Assign this model under {specializedModel(profile.model)}.</Text>}
+                {customModel && selectedConnection && selectedConnection.provider !== "anthropic" && (!specializedModel(profile.model) || profile.embedding_only) && (
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={!!profile.embedding_only}
+                      onChange={e => setProfile({ ...profile, embedding_only: e.target.checked, generation_settings: {} })} />
+                    <Text as="span" variant="body-sm">Use as an embedding encoder</Text>
+                  </label>
+                )}
+                {nonChat && <Text variant="body-sm" tone="muted">Assign this model under {specialty}.</Text>}
                 {!nonChat && <>
                 {caps.isError && (
                   <Text as="p" variant="body-sm" tone="warn">

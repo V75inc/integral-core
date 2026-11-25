@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,7 +7,7 @@ import { managedChannelsApi } from '../../../api/managedChannels';
 import { saveWhatsAppChannelBinding } from '../../../api/agentive';
 import { ConfirmProvider } from '../../../context/ConfirmContext';
 import { ToastProvider } from '../../../context/ToastContext';
-import { ConnectorPackagePanel } from './ConnectorPackagePanel';
+import { ConnectorPackageDetail } from './ConnectorPackagePanel';
 
 vi.mock('../../../api/connectors', () => ({
   connectorsApi: {
@@ -54,7 +54,59 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('ConnectorPackagePanel', () => {
+function PackageDetailFixture({ id, install = false }: { id: string; install?: boolean }) {
+  const { data } = useQuery({
+    queryKey: ['packages'],
+    queryFn: () => connectorPackagesApi.list('ws-1'),
+  });
+  if (!data) return null;
+  return <ConnectorPackageDetail workspaceId="ws-1" pkg={data.packages.find(pkg => pkg.id === id)}
+    installations={install ? [] : data.installations.filter(row => row.package_id === id)}
+    onClose={() => undefined} onChanged={() => undefined} />;
+}
+
+describe('ConnectorPackageDetail', () => {
+  it('requests an explicit binding and sends only the selected scope configuration', async () => {
+    const install = vi.mocked(connectorPackagesApi.install);
+    install.mockResolvedValue({
+      id: 'private-1', package_id: 'contacts', name: 'Contacts', version: '1.0.0',
+      revision: 0, enabled: false, health_status: 'unknown', config: {}, pending_review: false,
+    });
+    const onInstalled = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ConnectorPackageDetail workspaceId="team" targets={{ workspace: 'team', personal: 'private' }}
+          pkg={{
+            id: 'contacts', name: 'Contacts', description: 'Look up contacts.',
+            version: '1.0.0', capabilities: ['actions'], binding_scopes: ['workspace', 'personal'],
+            configuration: [
+              { key: 'team_key', label: 'Team key', type: 'secret', required: false, scope: 'workspace' },
+              { key: 'private_key', label: 'Private key', type: 'secret', required: false, scope: 'personal' },
+            ],
+          }}
+          installations={[]} onClose={() => undefined} onChanged={() => undefined}
+          onInstalledInScope={onInstalled} />
+      </QueryClientProvider>,
+    );
+
+    const destination = screen.getByRole('combobox', { name: 'Installation scope' });
+    const add = screen.getByRole('button', { name: 'Add' });
+    expect(destination).toHaveValue('');
+    expect(add).toBeDisabled();
+    fireEvent.change(destination, { target: { value: 'workspace' } });
+    fireEvent.change(screen.getByLabelText('Team key'), { target: { value: 'discard-me' } });
+    fireEvent.change(destination, { target: { value: 'personal' } });
+    expect(screen.queryByLabelText('Team key')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Private key'), { target: { value: 'synthetic' } });
+    fireEvent.click(add);
+    await waitFor(() => expect(install).toHaveBeenCalledWith(
+      'private', 'contacts', { private_key: 'synthetic' }, 'personal',
+    ));
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(
+      'private', expect.objectContaining({ id: 'private-1', enabled: false }),
+    ));
+  });
+
   it('renders Add and Configure from the manifest and omits a blank secret', async () => {
     list.mockResolvedValue({
       packages: [
@@ -109,15 +161,15 @@ describe('ConnectorPackagePanel', () => {
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <QueryClientProvider client={client}>
-        <ConnectorPackagePanel workspaceId="ws-1" />
-      </QueryClientProvider>,
+      <QueryClientProvider client={client}><ConfirmProvider>
+        <PackageDetailFixture id="acme_crm" />
+      </ConfirmProvider></QueryClientProvider>,
     );
 
-    expect(await screen.findByText('broken: schema')).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Configure Acme CRM' })).toBeVisible();
+    expect(screen.queryByText('broken: schema')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Web Chat' })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/URL/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
     const url = document.getElementById('app-settings-field-inst-1-base_url') as HTMLInputElement;
     fireEvent.change(url, { target: { value: 'https://crm.example.test/v2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -127,7 +179,6 @@ describe('ConnectorPackagePanel', () => {
     expect(values.base_url).toBe('https://crm.example.test/v2');
     expect(values).not.toHaveProperty('api_key');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove Key' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(configure).toHaveBeenCalledTimes(2));
@@ -157,9 +208,9 @@ describe('ConnectorPackagePanel', () => {
     } as unknown as Window);
     try {
       render(
-        <QueryClientProvider client={new QueryClient()}>
-          <ConnectorPackagePanel workspaceId="ws-1" />
-        </QueryClientProvider>,
+        <QueryClientProvider client={new QueryClient()}><ConfirmProvider>
+          <PackageDetailFixture id="acme_mail" />
+        </ConfirmProvider></QueryClientProvider>,
       );
       fireEvent.click(await screen.findByRole('button', { name: 'Authorize' }));
       await waitFor(() => expect(replace).toHaveBeenCalledWith('https://consent.example/authorize'));
@@ -198,13 +249,11 @@ describe('ConnectorPackagePanel', () => {
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <QueryClientProvider client={client}>
+      <QueryClientProvider client={client}><ConfirmProvider>
         <ToastProvider>
-          <ConfirmProvider>
-            <ConnectorPackagePanel workspaceId="ws-1" />
-          </ConfirmProvider>
+            <PackageDetailFixture id="acme_sync" />
         </ToastProvider>
-      </QueryClientProvider>,
+      </ConfirmProvider></QueryClientProvider>,
     );
     expect(await screen.findByText(/Track bindings/)).toBeInTheDocument();
   });
@@ -243,9 +292,9 @@ describe('ConnectorPackagePanel', () => {
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <QueryClientProvider client={client}>
-        <ConnectorPackagePanel workspaceId="ws-1" />
-      </QueryClientProvider>,
+      <QueryClientProvider client={client}><ConfirmProvider>
+        <PackageDetailFixture id="whatsapp" />
+      </ConfirmProvider></QueryClientProvider>,
     );
     expect(await screen.findByText(/USES_WHATSAPP_LINE/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
@@ -296,9 +345,9 @@ describe('ConnectorPackagePanel', () => {
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <QueryClientProvider client={client}>
-        <ConnectorPackagePanel workspaceId="ws-1" />
-      </QueryClientProvider>,
+      <QueryClientProvider client={client}><ConfirmProvider>
+        <PackageDetailFixture id="whatsapp" />
+      </ConfirmProvider></QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByLabelText(/jvconnect base URL/)).toHaveValue('https://old.example'));
     const url = screen.getByLabelText(/jvconnect base URL/);
@@ -325,9 +374,9 @@ describe('ConnectorPackagePanel', () => {
       installations: [],
     });
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <ConnectorPackagePanel workspaceId="ws-1" />
-      </QueryClientProvider>,
+      <QueryClientProvider client={new QueryClient()}><ConfirmProvider>
+        <PackageDetailFixture id="whatsapp" />
+      </ConfirmProvider></QueryClientProvider>,
     );
 
     fireEvent.change(await screen.findByLabelText(/jvconnect base URL/i), {
@@ -375,12 +424,12 @@ describe('ConnectorPackagePanel', () => {
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <QueryClientProvider client={client}>
-        <ConnectorPackagePanel workspaceId="ws-1" />
-      </QueryClientProvider>,
+      <QueryClientProvider client={client}><ConfirmProvider>
+        <PackageDetailFixture id="acme_line" />
+      </ConfirmProvider></QueryClientProvider>,
     );
-    expect(await screen.findByRole('heading', { name: 'Acme line' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Add Acme line' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Save line' })).toHaveLength(1);
-    expect(screen.getByRole('heading', { name: 'WhatsApp' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Add WhatsApp' })).not.toBeInTheDocument();
   });
 });

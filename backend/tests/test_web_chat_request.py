@@ -19,6 +19,11 @@ from app.agentive.services.web_chat_request import FullPageWebChatRequests
 
 @pytest.fixture
 def boundary(monkeypatch):
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     """Create an exact verified visitor session and receipt store."""
     provision = ExternalChatProvision("workspace", "public_web_chat", "server-route")
     session = VerifiedFullPageSession(

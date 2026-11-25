@@ -24,6 +24,7 @@ def setup_keys(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(service.settings, "INTEGRAL_AGENT_KEY_MODE", "hybrid")
     monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
     monkeypatch.setattr(
         service, "validate_provider_api_key", AsyncMock(return_value=(True, "verified"))
     )
@@ -811,3 +812,61 @@ async def test_non_chat_profiles_save_but_cannot_replace_routing_assignments():
     models = {entry["id"]: entry["model"] for entry in config["profiles"]}
     assert models[heavy["id"]] == "gpt-4o"
     assert models[light["id"]] == "gpt-4.1-mini"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("status", "valid"), [(200, True), (403, False), (400, False)])
+async def test_google_key_probe_goes_only_to_google_models(monkeypatch, status, valid):
+    import httpx
+
+    from app.services.model_credentials import validate_provider_api_key
+
+    def probe(request):
+        assert (
+            str(request.url)
+            == "https://generativelanguage.googleapis.com/v1beta/models"
+        )
+        assert request.headers["x-goog-api-key"] == "synthetic-google"
+        assert "authorization" not in request.headers
+        return httpx.Response(status, json={"models": []})
+
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: client(transport=httpx.MockTransport(probe), **kwargs),
+    )
+    result, _ = await validate_provider_api_key("gemini", "synthetic-google")
+    assert result is valid
+
+
+@pytest.mark.asyncio
+async def test_registered_custom_encoder_is_never_a_chat_or_vision_assignment():
+    connection = await service.save_connection(
+        "owner",
+        ConnectionWrite(
+            name="Private endpoint",
+            provider="custom_openai",
+            base_url="http://localhost:8080/v1",
+            without_key=True,
+        ),
+    )
+    body = ProfileWrite(
+        name="Private encoder",
+        connection_id=connection["id"],
+        model="private-v2",
+        embedding_only=True,
+    )
+    encoder = await service.save_profile("owner", body)
+    listed = next(
+        p
+        for p in (await service.configuration("owner"))["profiles"]
+        if p["id"] == encoder["id"]
+    )
+    assert listed["embedding_only"] and not listed["supports_vision"]
+    with pytest.raises(ValueError, match="embedding"):
+        await service.activate_profile("owner", encoder["id"])
+    with pytest.raises(ValueError, match="embedding"):
+        await service.profile_credential(
+            "owner", encoder["id"], UserModelCredential(user_id="owner")
+        )

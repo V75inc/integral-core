@@ -199,6 +199,14 @@ class OperationalModel(Node):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+PROFILE_USER_PREFIX = "n.User.profile-"
+
+
+def is_profile_user_id(value: str) -> bool:
+    """Recognize the reserved profile-user identifier namespace."""
+    return value.startswith(PROFILE_USER_PREFIX)
+
+
 class User(Node):
     """System user profile (AuthUser linked via user_id).
 
@@ -211,6 +219,9 @@ class User(Node):
     """
 
     user_id: str = attribute(default="", indexed=True)
+    # Set only by profile publication. These principals have no AuthUser or login.
+    service_workspace_id: str = ""
+    service_profile_key: str = ""
     display_name: str = ""
     avatar_url: str = ""
     # Phase 9 Plan 09-01 (AVT-01) — FK to the canonical 128px Attachment.

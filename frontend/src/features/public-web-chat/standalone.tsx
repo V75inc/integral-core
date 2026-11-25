@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 
 import { PublicWebChatPage } from './PublicWebChatPage';
 import '../../index.css';
+import '../../vendor/jvmessenger/thread.css';
 
 const container = document.getElementById('public-web-chat-root');
 if (container) {

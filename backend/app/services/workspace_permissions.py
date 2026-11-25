@@ -144,6 +144,11 @@ async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
 async def _current_workspace_role(user: User, workspace: Workspace) -> WorkspaceRole:
     """Read authority for an already freshly checked principal and workspace."""
     try:
+        if (
+            getattr(user, "service_workspace_id", "")
+            and user.service_workspace_id != workspace.id
+        ):
+            return "none"
         from app.services.workspace_suspension import workspace_suspended
 
         if await workspace_suspended(user.id, workspace.id):

@@ -521,3 +521,59 @@ async def test_previous_provider_continuation_is_explicit_and_can_be_revoked():
         },
     )
     assert len(requests) == 1
+
+
+async def test_google_embedding_uses_fixed_native_batch_endpoint(monkeypatch):
+    from app.services.credential_crypto import encrypt_secret_for_storage
+
+    user, workspace, connection, body = await fixture()
+    connection.provider = "gemini"
+    connection.base_url = ""
+    connection.api_key_enc = encrypt_secret_for_storage(
+        "synthetic-google", aad=user.user_id
+    )
+    await connection.save()
+    body.model = "gemini-embedding-001"
+    body.dimensions = 768
+    profile = await service.selected_profile(workspace.id, body)
+
+    def respond(request):
+        assert (
+            str(request.url)
+            == "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents"
+        )
+        assert request.headers["x-goog-api-key"] == "synthetic-google"
+        assert "authorization" not in request.headers
+        assert json.loads(request.content)["requests"] == [
+            {
+                "model": "models/gemini-embedding-001",
+                "content": {"parts": [{"text": text}]},
+                "outputDimensionality": 768,
+            }
+            for text in ("one", "two")
+        ]
+        return httpx.Response(
+            200,
+            json={"embeddings": [{"values": [value] * 768} for value in (0.1, 0.2)]},
+        )
+
+    mock_embedding_http(monkeypatch, httpx.MockTransport(respond))
+    assert await encode_profile(["one", "two"], profile, require_active=False) == [
+        [0.1] * 768,
+        [0.2] * 768,
+    ]
+
+
+async def test_first_explicit_deployment_choice_persists_without_rebuilding():
+    user, workspace, _, _ = await fixture()
+    saved = await service.save(
+        user.user_id, workspace.id, EmbeddingModelWrite(revision=0)
+    )
+    assert saved["configuration"]["mode"] == "deployment"
+    assert saved["revision"] == 1 and not saved["changed"]
+    assert not saved["rebuild_status"] and not saved["pending_model"]
+    assert (await service.describe(user.user_id, workspace.id))["revision"] == 1
+    again = await service.save(
+        user.user_id, workspace.id, EmbeddingModelWrite(revision=1)
+    )
+    assert again["revision"] == 1 and not again["changed"]

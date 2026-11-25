@@ -14,7 +14,7 @@ from app.agentive.services.connection_profiles import ProfileDenied
 from app.agentive.workspace_agent_profile import compose_workspace_agent_profile
 from app.api.errors import JVSpatialAPIException
 from app.contracts.runtime import ExecutionScope
-from app.models.nodes import App
+from app.models.nodes import App, is_profile_user_id
 from app.schemas.policy import Resource, Subject
 from app.services.app_queries.dispatch import (
     invoke_app_query,
@@ -27,7 +27,7 @@ from app.services.workspace_permissions import can_access_workspace
 @dataclass(frozen=True)
 class InstalledCapability:
     declaration: dict[str, Any]
-    invoke: Callable[[dict], Awaitable[Any]]
+    invoke: Callable[..., Awaitable[Any]]
 
 
 def _key(kind, app_id, declaration_key):
@@ -36,13 +36,16 @@ def _key(kind, app_id, declaration_key):
 
 
 def _query(app, query, workspace, principal):
-    async def invoke(arguments):
+    async def invoke(arguments, *, audience_principal=None):
         result = await invoke_app_query(
             user_id=principal,
             workspace_id=workspace,
             app_id=app.app_id,
             query_key=query["key"],
             params=arguments,
+            **(
+                {"audience_principal": audience_principal} if audience_principal else {}
+            ),
         )
         return result["output"]
 
@@ -61,7 +64,7 @@ def _query(app, query, workspace, principal):
 
 
 def _skill(label, description, body, *, source, skill_id=None, app=None):
-    async def invoke(arguments):
+    async def invoke(arguments, *, audience_principal=None):
         return {"instructions": body}
 
     return InstalledCapability(
@@ -84,12 +87,17 @@ def _skill(label, description, body, *, source, skill_id=None, app=None):
 
 async def installed_catalogue(workspace, principal, audience):
     """List current read capabilities available to the workspace principal."""
-    if audience != "staff" or await can_access_workspace(principal, workspace) not in (
-        "owner",
-        "admin",
-        "member",
-    ):
+    from app.services.permissions import get_user_node
+
+    if audience != "staff":
         return {}
+    role = await can_access_workspace(principal, workspace)
+    if role not in ("owner", "admin", "member"):
+        if role != "guest":
+            return {}
+        actor = await get_user_node(principal)
+        if not actor or actor.service_workspace_id != workspace:
+            return {}
     profile = await compose_workspace_agent_profile(workspace, user_id=principal)
     result = {
         _key("skill", "core", row["id"]): _skill(
@@ -127,8 +135,19 @@ async def installed_catalogue(workspace, principal, audience):
         )
         resource = Resource(kind="app", id=app.app_id, scope=f"app:{app.app_id}")
         for query in listed["queries"]:
+            if is_profile_user_id(principal):
+                from app.services.app_queries.registry import get_app_query
+
+                declaration = get_app_query(workspace, app.app_id, query["key"])
+                if not declaration or not isinstance(
+                    declaration.get("query_template"), dict
+                ):
+                    continue
             decision = await policy_evaluate(
-                subject=Subject(kind="human", id=principal),
+                subject=Subject(
+                    kind=("agent" if is_profile_user_id(principal) else "human"),
+                    id=principal,
+                ),
                 action=str(query["policy_action"] or "app.read").strip(),
                 resource=resource,
                 execution_scope=scope,
@@ -149,6 +168,8 @@ async def installed_catalogue(workspace, principal, audience):
             continue
         skill_id = doc.metadata.get("skill_id")
         if doc.metadata.get("origin") == "workspace" and skill_id:
+            if role == "guest" and app is None:
+                continue
             result[_key("skill", "workspace", skill_id)] = _skill(
                 doc.metadata["skill_name"],
                 doc.description,
@@ -169,13 +190,17 @@ async def installed_catalogue(workspace, principal, audience):
     return result
 
 
-async def invoke_installed(workspace, principal, audience, name, arguments):
+async def invoke_installed(
+    workspace, principal, audience, name, arguments, *, audience_principal=None
+):
     """Resolve and invoke an installed capability for the current principal."""
     current = (await installed_catalogue(workspace, principal, audience)).get(name)
     if current is None:
         raise ProfileDenied("Installed capability unavailable")
     try:
-        return await current.invoke(dict(arguments))
+        return await current.invoke(
+            dict(arguments), audience_principal=audience_principal
+        )
     except JVSpatialAPIException as exc:
         if exc.status_code not in {403, 404}:
             raise

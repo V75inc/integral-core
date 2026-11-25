@@ -18,6 +18,7 @@ from app.agentive.services.profile_management import (
 )
 from app.api.errors import InsufficientPermissionsError
 from app.config import settings
+from app.models.nodes import Workspace
 from app.schemas.voice_configuration import VoiceStart
 from app.services.native_voice import (
     VoiceRelay,
@@ -134,8 +135,22 @@ async def native_voice(browser: WebSocket):
             raise ValueError("Voice frames are not accepted before readiness")
         if upstream is None:
             raise WebSocketDisconnect()
-        await VoiceRelay(browser, upstream, scope, check=still_authorized).run(
-            identity.persona, name=identity.name, continuity=continuity
+        # The display name is the only workspace fact needed to orient a new call.
+        # Recheck the bound identity and membership after the provider handshake.
+        await still_authorized(scope)
+        workspace = await Workspace.get(scope.workspace)
+        workspace_label = " ".join(workspace.name.split())[:100] if workspace else ""
+        await VoiceRelay(
+            browser,
+            upstream,
+            scope,
+            check=still_authorized,
+            review_confirmation_supported=opening.review_confirmation,
+        ).run(
+            identity.persona,
+            name=identity.name,
+            continuity=continuity,
+            workspace_label=workspace_label,
         )
     except WebSocketDisconnect:
         pass

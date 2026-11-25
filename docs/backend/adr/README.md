@@ -24,6 +24,7 @@ for dated checks against a specific source or artifact.
 | [016](016-declarative-semantic-indexing.md) | Declarative, permission-aware passage indexing | Implemented in PR #162; deployment qualification pending |
 | [017](017-graph-guided-knowledge-retrieval.md) | Strengthen embedding-based hybrid semantic search | Direction accepted; initial hardening in review, migration and production qualification pending |
 | [018](018-drop-in-connector-packages.md) | Drop-in connector packages with one manifest, registry and Settings projection | Proposed; not implemented |
+| [019](019-native-chat-live-voice-parity.md) | Shared conversation, browser navigation and spoken review | Proposed; implementation and qualification in progress |
 
 Update the relevant ADR when a durable boundary changes. Routine implementation
 and qualification results belong in Git and the maintained release qualification record.

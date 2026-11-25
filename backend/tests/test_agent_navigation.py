@@ -86,3 +86,33 @@ async def test_saved_view_cannot_belong_to_another_collection(navigation, monkey
         view_id="n.View.board",
     )
     assert "navigation" not in result
+
+
+@pytest.mark.asyncio
+async def test_voice_delivery_rechecks_exact_destination(navigation, monkeypatch):
+    """The server can only replay a canonical destination within the call scope."""
+    from app.services import agent_scope
+
+    for name in (
+        "current_chat_thread_id",
+        "current_scope_workspace_id",
+        "current_page_context_bound",
+        "current_page_context",
+    ):
+        monkeypatch.setattr(nav, name, getattr(agent_scope, name))
+    scope = SimpleNamespace(principal="user", workspace="workspace", thread="thread")
+    event = {
+        "path": "/tracks/n.Track.collection?entry=n.Entry.record",
+        "workspace_id": "workspace",
+        "thread_id": "thread",
+    }
+    page = {"route_path": "/agent"}
+    assert await nav.verify_voice_navigation(event, scope, page)
+    assert not await nav.verify_voice_navigation(
+        {**event, "thread_id": "foreign"}, scope, page
+    )
+    assert not await nav.verify_voice_navigation(
+        {**event, "path": "/tracks/n.Track.foreign?entry=n.Entry.record"}, scope, page
+    )
+    nav.evaluate.return_value.allowed = False
+    assert not await nav.verify_voice_navigation(event, scope, page)

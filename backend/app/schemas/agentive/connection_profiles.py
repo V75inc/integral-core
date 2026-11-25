@@ -40,7 +40,8 @@ class SaveProfileDraft(ProfileRevision):
 
 class PublishProfile(ProfileRevision):
     offer_in_workspace_chat: bool = False
-    enable_public_service_identity: StrictBool = False
+    # Compatibility with older clients. Publication always provisions the identity.
+    enable_public_service_identity: StrictBool = Field(default=False, deprecated=True)
     connection_ids: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
         default_factory=list, max_length=100
     )
@@ -67,11 +68,16 @@ class PublicWebChatRoute(BaseModel):
     generation: int = Field(default=0, ge=0)
     provision_id: str | None = Field(default=None, min_length=1, max_length=128)
 
+    theme: Literal["light", "dark", "system"] = "system"
+
     def persisted(self) -> dict:
         """Keep legacy storage shape when there is no explicit provision."""
-        return self.model_dump(
-            exclude={"provision_id"} if self.provision_id is None else None
-        )
+        values = self.model_dump()
+        if self.provision_id is None:
+            values.pop("provision_id")
+        if self.theme == "system":
+            values.pop("theme")
+        return values
 
 
 class PublicWebChatAssignment(BaseModel):

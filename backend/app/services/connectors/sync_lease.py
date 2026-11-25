@@ -58,6 +58,14 @@ current_sync_lease: ContextVar[SyncLease | None] = ContextVar(
 def require_current_package_sync(connector, fresh) -> None:
     """Reject effects from an outdated or withdrawn package installation."""
     if getattr(connector, "mapping_profile", "") != "package":
+        if (
+            fresh is None
+            or getattr(fresh, "legacy_sync_paused", False)
+            or getattr(fresh, "legacy_sync_revision", 0)
+            != getattr(connector, "legacy_sync_revision", 0)
+            or getattr(fresh, "mapping_profile", "") == "package"
+        ):
+            raise SyncLeaseLost("Connector paused or removed during synchronization")
         return
     from app.agentive.services.connector_packages import installation_package_id
     from app.connectors.package_discovery import current_admission

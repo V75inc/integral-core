@@ -124,11 +124,12 @@ def management_state(monkeypatch):
     from types import SimpleNamespace
 
     @asynccontextmanager
-    async def transaction():
+    async def transaction(*args, **kwargs):
         yield
 
     found = SimpleNamespace(
         id="config",
+        workspace_id="ws",
         revision=4,
         profiles={},
         bindings={},
@@ -139,6 +140,7 @@ def management_state(monkeypatch):
         find_one_and_update=AsyncMock(return_value={"id": "config"})
     )
     monkeypatch.setattr(service, "postgres_graph_transaction", transaction)
+    monkeypatch.setattr(service, "membership_write_scope", transaction)
     monkeypatch.setattr(
         service, "is_workspace_admin_or_owner", AsyncMock(return_value=True)
     )
@@ -148,6 +150,7 @@ def management_state(monkeypatch):
     )
     monkeypatch.setattr(service, "describe", AsyncMock(return_value={}))
     monkeypatch.setattr(service, "catalogue", AsyncMock(return_value={"read": {}}))
+    monkeypatch.setattr(service, "ensure_principal", AsyncMock())
     return found, database
 
 
@@ -505,6 +508,11 @@ async def test_native_selection_rechecks_allowlist_and_separates_profile_session
         bindings={},
         native_chat_profiles=names.copy(),
     )
+    monkeypatch.setattr(
+        service,
+        "current_principal",
+        AsyncMock(return_value=SimpleNamespace(id="n.User.profile-fixture")),
+    )
     monkeypatch.setattr(service, "record", AsyncMock(return_value=found))
     monkeypatch.setattr(service, "catalogue", AsyncMock(return_value={}))
     monkeypatch.setattr(
@@ -548,6 +556,11 @@ async def test_native_choices_publish_only_eligible_staff_identity(monkeypatch):
         )
     )
     role = AsyncMock(return_value="member")
+    monkeypatch.setattr(
+        service,
+        "current_principal",
+        AsyncMock(return_value=SimpleNamespace(id="n.User.profile-fixture")),
+    )
     monkeypatch.setattr(service, "record", record)
     monkeypatch.setattr(workspace_permissions, "can_access_workspace", role)
     assert await service.native_chat_choices("ws", "member") == [
@@ -649,6 +662,9 @@ async def test_rename_workspace_assistant_preserves_association_and_bindings(
 def hosted_route(management_state, monkeypatch):
     from copy import deepcopy
 
+    monkeypatch.setattr(
+        service, "live_public_service_identity", AsyncMock(return_value=object())
+    )
     found, database = management_state
     another = "p_" + "b" * 32
 
@@ -796,22 +812,24 @@ async def test_hosted_route_publication_does_not_activate_and_old_scope_stays_pi
     await public_web_chat.assign_profile("owner", "ws", 5, "public")
     await public_web_chat.set_enabled("admin", "ws", 6, True, transport_ready=True)
     first = await public_web_chat.admit("ws", "visitor", transport_ready=True)
-    enabled = dict(found.public_web_chat)
     found.profiles["public"]["draft"]["persona"] = "Use short sentences."
+    with pytest.raises(BadRequestError, match="Disable Web Chat"):
+        await service.publish(
+            "admin", "ws", PublishProfile(key="public", expected_revision=7)
+        )
+    await public_web_chat.set_enabled("admin", "ws", 7, False, transport_ready=True)
     await service.publish(
-        "admin", "ws", PublishProfile(key="public", expected_revision=7)
+        "admin", "ws", PublishProfile(key="public", expected_revision=8)
     )
-    assert found.public_web_chat == enabled
-    with pytest.raises(ProfileDenied, match="Conversation unavailable"):
+    with pytest.raises(ProfileDenied):
         await public_web_chat.admit(
             "ws", "visitor", transport_ready=True, existing=first
         )
     found.profiles["public"]["draft"]["tools"] = ["read"]
     with pytest.raises(BadRequestError, match="Remove the Public Web Chat assignment"):
         await service.publish(
-            "admin", "ws", PublishProfile(key="public", expected_revision=8)
+            "admin", "ws", PublishProfile(key="public", expected_revision=9)
         )
-    assert database.find_one_and_update.await_count == 4
 
     found.profiles["public"]["published"]["tools"] = ["read"]
     with pytest.raises(ProfileDenied):

@@ -33,9 +33,9 @@ export const portableApi = {
     const { data } = await apiClient.post('/portable/preview', file, { headers: { 'Content-Type': 'application/zip' }, timeout: 120000 });
     return unwrapApiDataEnvelope(data) as TransferSummary;
   },
-  import: async (file: File, appId?: string): Promise<TransferSummary> => {
+  import: async (file: File, appId: string | undefined, includeData: boolean): Promise<TransferSummary> => {
     const { data } = await apiClient.post('/portable/import', file, {
-      params: appId ? { app_id: appId } : {}, headers: { 'Content-Type': 'application/zip' }, timeout: 120000,
+      params: { ...(appId ? { app_id: appId } : {}), include_data: includeData }, headers: { 'Content-Type': 'application/zip' }, timeout: 120000,
     });
     return unwrapApiDataEnvelope(data) as TransferSummary;
   },

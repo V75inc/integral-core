@@ -20,7 +20,9 @@ pip-installed wheel.
    first-party executable integrations from fixed startup code.
 2. A package declares one or more capabilities — `actions`, `mcp`, `sync`,
    `channel` — and a binding (`workspace`/`personal`, cardinality). Each
-   capability is handed to its existing execution lane; lanes stay separate.
+   capability is handed to its existing execution lane. Personal installs
+   target the caller’s Personal Workspace. Add requires an explicit choice when
+   both scopes are available. Existing installations retain their binding.
 3. Operator roots admit only declarative manifests. Core runs declared
    actions, HTTP MCP, sync and webhook steps through the existing guarded
    runtime. First-party integrations ship as reviewed Core source.

@@ -50,6 +50,7 @@ def _stdio_auth() -> Dict[str, Any]:
 @pytest.mark.asyncio
 async def test_resident_actor_kind_agent_can_invoke_mcp_tool(
     authenticated_client: AsyncClient,
+    monkeypatch,
 ):
     """actor_kind="agent" must not fail-closed on the caller gate."""
     from app.agentive.connectors.mcp_mount import mount_mcp_connector
@@ -95,6 +96,36 @@ async def test_resident_actor_kind_agent_can_invoke_mcp_tool(
             else str(result)
         )
         assert "hello-agent" in text
+        from app.agentive.connectors.mcp_proxy import McpProxyError
+
+        endpoint = f"/api/agentive/connectors/{connector.id}/standalone-mcp-enabled"
+        headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+        paused = await authenticated_client.put(
+            endpoint, json={"enabled": False}, headers=headers
+        )
+        assert paused.status_code == 200, paused.text
+        with pytest.raises(McpProxyError, match="disabled"):
+            await invoke_from_spec(echo_spec, {"message": "blocked"}, ctx)
+        from unittest.mock import AsyncMock
+
+        with monkeypatch.context() as failed_probe:
+            failed_probe.setattr(
+                "app.agentive.connectors.mcp_client.probe_mcp_health",
+                AsyncMock(return_value={"ok": False}),
+            )
+            blocked = await authenticated_client.put(
+                endpoint, json={"enabled": True}, headers=headers
+            )
+            assert blocked.status_code == 503, blocked.text
+            with pytest.raises(McpProxyError, match="disabled"):
+                await invoke_from_spec(echo_spec, {"message": "still blocked"}, ctx)
+        resumed = await authenticated_client.put(
+            endpoint, json={"enabled": True}, headers=headers
+        )
+        assert resumed.status_code == 200, resumed.text
+        replay = await invoke_from_spec(echo_spec, {"message": "hello-again"}, ctx)
+        assert "hello-again" in str(replay)
+
     finally:
         clear_workspace_registrations(workspace_id)
         try:

@@ -1,5 +1,7 @@
 # Connectors
 
+Connector Settings shows an enable switch for managed channels, package installations, and standalone MCP mounts. Disabling retains configuration. Enabling checks the installation’s runtime prerequisites. Removing the installation discards its local configuration.
+
 Connectors give Integral declared paths to external information and capabilities. Native synchronization and external MCP mounts share lifecycle concerns but have different execution contracts.
 
 ## Catalogue and connection lifecycle
@@ -22,8 +24,11 @@ configuration and removal on each instance where the caller can manage it.
 Custom MCP supports multiple connections, with one workspace connection per
 server identity under the current normalized-name guard. Curated packages allow
 multiple per-user connections and one workspace connection per package.
-**Workspace** is the label for the API's `shared` scope. Eligible workspace
-members can use that connected account. The connection owner and authorized
+**Workspace** is the label for the API's `shared` scope. New manifest-backed
+**Personal Workspace** installs belong to the caller's private workspace. Add
+requires the caller to choose when both destinations are available. Existing
+legacy rows keep their original workspace and ownership. Eligible workspace
+members can use a shared connected account. The connection owner and authorized
 workspace admins and owners can manage it.
 
 ### Managed inbound channel packages (source-only)
@@ -95,6 +100,14 @@ silently replaced from Configure. Omitting the field preserves the original
 PUT behavior. Workspace grant changes serialize by workspace in PostgreSQL,
 with an in-process lock used by the local JSON fixture. Disconnect removes the
 workspace's grant. Other workspace grants and personal number links remain.
+
+The JV Connect base URL is customer-supplied and every request carries the
+customer's API key, so calls use the shared outbound URL policy: loopback,
+private and link-local addresses are refused before any request is sent, and
+checked DNS addresses are pinned. A self-hosted JV Connect on a private network
+needs an exact operator-owned `INTEGRAL_OUTBOUND_TRUSTED_HOSTS` entry and, for a
+nonstandard port, `INTEGRAL_OUTBOUND_EXTRA_PORTS`
+(see [Configuration](../ops/CONFIGURATION.md)).
 
 [Workspace Email](../platform/workspace-email.md) stays under **Settings →
 Workspace → Email** for outbound delivery.
@@ -409,24 +422,30 @@ origin and cookie checks.
 
 ### Sharing belongs to the same connector
 
-In the Web Chat connector's settings dialog, manage the selected published
-profile, readiness and enablement, and the two sharing options together:
+Open **Settings → Connectors → Web Chat → Configure**. Save an eligible
+published public assistant profile with its dedicated service identity. The profile setup panel places **Test Web Chat** below **Published agent profile**.
+Select **Save configuration** to commit a profile change. The private test uses the saved profile. Opening Configure and saving changes refresh readiness.
+Expand **Developer API**, **Website embed** or **Full-page chat** for the selected
+installation. The switch beside its Configure cog controls enablement. The status
+pill reports hosting readiness separately.
 
-- **Full page:** open or copy the server-issued HTTPS link.
-- **Embed:** manage exact approved HTTPS site origins and copy the iframe
-  snippet. The snippet is available only when the host can enforce the
-  configured origin policy. Do not assume third-party cookies are available.
+- **Test Web Chat** opens a private, one-turn test. Choose the host-approved
+  model and send a message. A management-only host needs a private test adapter
+  with a model identifier, readiness check and budget. This works before public
+  activation and does not change workspace model routing.
+- **Developer API** presents the client session endpoint when the enabled
+  assignment has a ready client API host. The developer specification is
+  available during setup. A custom chat UI calls its own backend, which keeps
+  both the separately authorized grant and session bearer private.
+- **Website popup launcher** lets the manager select an approved parent HTTPS
+  origin and check its embed code. Pasting the issued code on that site adds a
+  “Chat with us” disclosure. Opening it loads the dedicated embed iframe with
+  its own visitor session and exact parent policy.
+- **Full-page URL** lets the manager check, copy and open the currently issued
+  visitor URL when the independent visitor host is ready.
 
-These are two presentations of one connector, not separate installs or
-profile bindings. The visitor interface can be reused; full-page cookies must not be reused for
-cross-site embed admission. Each visitor session still belongs to one conversation and is
-not silently shared across sites or presentations. The public base origin and
-opaque channel link come from the trusted host; never derive a public link
-from the admin browser URL or put a visitor session token into a link or
-snippet. Suppress both sharing actions if the channel is not active. Hiding a
-button is not revocation: disablement or an invalid assignment must stop
-existing links and sessions on the server. If origins change, stale embed
-sessions must not retain the old permissions.
+Each public transport uses its own verified host. Disabling the installation
+or revoking the binding is enforced by the server on subsequent use.
 
 The detached `compose_web_chat_embed` factory composes a separate built iframe
 document, exact parent `frame-ancestors`, a one-use seed, and short-lived
@@ -439,15 +458,10 @@ Do not wire the manager embed share control before the actual host qualifies
 the policy, artifacts, isolated admission, budgets, and supported browsers.
 Public embed paths never contain seed or session credentials.
 
-A separately enabled **API access** presentation is a follow-up, not required
-for the first full-page release. Reuse the same server-owned assignment,
-revocation, conversation isolation, and idempotency. The proposed versioned
-surface is session creation, message submission, and session history only.
-Do not put a long-lived credential in custom browser code: use origin-scoped,
-short-lived visitor sessions for browser clients and scoped, revocable
-credentials for authorized server-to-server clients. API clients get their own
-rate limits and no ambient workspace or tool access. The hosted page does not
-imply that this external API has been enabled or delivered.
+The optional server-to-server host serves session creation, message submission
+and history under its own grant, budget and revocation checks. The API origin
+appears in Configure only when that transport is ready for the selected
+publication. See the [developer client contract](web-chat-standalone-host.md#developer-client-contract).
 
 ### Managed channel Settings API
 

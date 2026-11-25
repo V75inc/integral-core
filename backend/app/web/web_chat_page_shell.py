@@ -208,6 +208,7 @@ def create_web_chat_page_shell_router(
             ):
                 return Response(status_code=404, headers=_HEADERS)
             title, route_attr = escape(context.title), escape(route)
+            theme = context.theme if context.theme in ("light", "dark") else "system"
             document = (
                 '<!doctype html><html lang="en"><head><meta charset="UTF-8">'
                 '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -217,7 +218,7 @@ def create_web_chat_page_shell_router(
                 f'<script type="module" src="{_ASSET_PATH}{assets.script.filename}"'
                 f' integrity="{script_integrity}" crossorigin="anonymous"></script>'
                 '</head><body><div id="public-web-chat-root"'
-                f' data-web-chat-route="{route_attr}" data-web-chat-title="{title}">'
+                f' data-web-chat-route="{route_attr}" data-web-chat-title="{title}" data-visitor-theme="{theme}">'
                 "</div></body></html>"
             )
             return HTMLResponse(document, headers=_HEADERS)

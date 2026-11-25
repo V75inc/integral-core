@@ -90,7 +90,7 @@ it("does not activate a model when provider validation fails", async () => {
   await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.any(String),"error"));
   expect(aiConfigurationApi.saveProfile).not.toHaveBeenCalled();
   expect(aiConfigurationApi.saveRouting).not.toHaveBeenCalled();
-  expect(screen.queryByText("Your AI is connected")).not.toBeInTheDocument();
+  expect(screen.queryByText("Your AI is connected.")).not.toBeInTheDocument();
 });
 it("keeps tuned profiles and dual routing when updating the current provider key", async () => {
   const data = blank();
@@ -242,3 +242,71 @@ it.each(["gpt-live-transcribe", "gpt-transcribe"])(
     expect(realtimeVoiceConfigurationApi.save).toHaveBeenCalled();
   },
 );
+
+it("registers Google's shared light/vision profile once plus a consent-ready embedding profile", async () => {
+  const data = blank();
+  data.model_policy = { version:"fixture", note:"", providers:{}, specialists:{gemini:{
+    light:"gemini-3.1-flash-lite", vision:"gemini-3.1-flash-lite", embedding:"gemini-embedding-001"
+  }}};
+  vi.mocked(aiConfigurationApi.get).mockResolvedValue(data);
+  show(data);
+  fireEvent.change(screen.getByLabelText("AI provider"), {target:{value:"gemini"}});
+  expect(screen.getByRole("link", {name:/Google AI Studio/})).toHaveAttribute("href","https://aistudio.google.com/apikey");
+  fireEvent.change(screen.getByLabelText("API key"), {target:{value:"synthetic-google-key"}});
+  fireEvent.click(screen.getByRole("button",{name:"Connect provider"}));
+  await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.any(String),"success"));
+  expect(vi.mocked(aiConfigurationApi.saveProfile).mock.calls.map(([p])=>p.model)).toEqual(["gemini-3.6-flash","gemini-3.1-flash-lite","gemini-embedding-001"]);
+  expect(voiceConfigurationApi.save).not.toHaveBeenCalled();
+  expect(realtimeVoiceConfigurationApi.save).not.toHaveBeenCalled();
+});
+
+it("registers applicable profiles before changing assignments and can retry incomplete registration", async () => {
+  const data = blank();
+  data.model_policy = { version: "fixture", note: "", providers: {}, specialists: {
+    openai: { vision: "gpt-6.1-sol", embedding: "text-embedding-3-small" },
+  }};
+  vi.mocked(aiConfigurationApi.get).mockResolvedValue(data);
+  vi.mocked(aiConfigurationApi.saveProfile).mockImplementation(async body => {
+    if (body.model === "text-embedding-3-small") throw new Error("Registration failed");
+    return { ...body, id: body.model, updated_at: "now" };
+  });
+  show(data);
+  fireEvent.change(screen.getByLabelText("API key"), { target: { value: "fixture" } });
+  fireEvent.click(screen.getByRole("button", { name: "Connect provider" }));
+  await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.any(String), "error"));
+  expect(vi.mocked(aiConfigurationApi.saveProfile).mock.calls.map(([p]) => p.model)).toEqual(["gpt-6.1-sol", "text-embedding-3-small"]);
+  expect(aiConfigurationApi.saveRouting).not.toHaveBeenCalled();
+  expect(voiceConfigurationApi.save).not.toHaveBeenCalled();
+  expect(realtimeVoiceConfigurationApi.save).not.toHaveBeenCalled();
+});
+
+it("summarizes serving assignments separately from a provider edit or a pending embedding model", () => {
+  const data = blank();
+  data.effective = { ...data.effective, model: "chat-heavy", provider: "openai", source: "workspace_owner",
+    routing: { mode: "light_heavy", heavy_model: "chat-heavy", light_model: "chat-light" } };
+  const assignments = {
+    realtime: blankRealtime(),
+    speech: { ...blankSpeech(), effective_model: "saved-transcription" },
+    embeddings: { editable: true, workspace_id: "workspace", revision: 2, provider_overrides_supported: true,
+      configuration: { mode: "provider" as const, model: "pending-encoder", connection_id: "saved", dimensions: 768, allow_workspace_text: true },
+      profile_id: "serving", effective_provider: "local", effective_model: "serving-encoder", dimensions: 384, pending_model: "pending-encoder", rebuild_status: "pending", error: "" },
+    images: { available: true, editable: false, revision: 1, workspace_id: "workspace", configuration: { enabled: true } },
+  };
+  render(<QueryClientProvider client={new QueryClient()}>
+    <QuickProviderSetup data={data} assignments={assignments} disabled={false} onBusyChange={vi.fn()} />
+  </QueryClientProvider>);
+  const summary = screen.getByRole("group", { name: "Current model assignments" });
+  for (const value of ["chat-heavy", "chat-light", "saved-transcription", "serving-encoder", "Workspace assignment", "Off"]) {
+    expect(summary).toHaveTextContent(value);
+  }
+  expect(summary).not.toHaveTextContent("pending-encoder");
+  const changeProvider = screen.getByRole("button", { name: "Change provider" });
+  expect(changeProvider.closest("header")).toContainElement(screen.getByRole("heading", { name: "Quick Configuration" }));
+  fireEvent.click(changeProvider);
+  fireEvent.change(screen.getByLabelText("AI provider"), { target: { value: "gemini" } });
+  const cancel = screen.getByRole("button", { name: "Cancel" });
+  expect(cancel.nextElementSibling).toBe(screen.getByRole("button", { name: "Save provider" }));
+  fireEvent.click(cancel);
+  expect(screen.getByRole("group", { name: "Current model assignments" })).toHaveTextContent("chat-heavy");
+  expect(aiConfigurationApi.saveConnection).not.toHaveBeenCalled();
+});

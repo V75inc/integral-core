@@ -28,6 +28,7 @@ from pydantic_ai import (
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
+    PromptedOutput,
     RetryPromptPart,
     RunContext,
     TextOutput,
@@ -64,6 +65,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.models.test import TestModel
 from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
@@ -82,6 +84,7 @@ from pydantic_ai_harness.conversation_search import (
 from pydantic_ai_harness.planning import PlanItem, PlanStore, TaskStatus
 from pydantic_ai_harness.step_persistence import (
     ContinuableSnapshot,
+    InMemoryStepStore,
     RunRecord,
     StepEvent,
     StepStore,
@@ -318,18 +321,7 @@ class IntegralToolDisclosure(ToolSearch):
             # Public message boundaries separate the current request from
             # restored discovery. This is structural turn state, not intent
             # classification or routing based on the user's wording.
-            turn_start = next(
-                (
-                    index
-                    for index in range(len(ctx.messages) - 1, -1, -1)
-                    if isinstance(ctx.messages[index], ModelRequest)
-                    and any(
-                        isinstance(part, UserPromptPart)
-                        for part in ctx.messages[index].parts
-                    )
-                ),
-                0,
-            )
+            turn_start = _active_turn_start(ctx.messages) or 0
             # A Core refusal can name its read-only recovery contract. Enforce
             # that contract before another broad read; availability and live
             # broker checks still apply. Never force an effect or replay a write.
@@ -530,18 +522,7 @@ class IntegralToolDisclosure(ToolSearch):
             or any(part.part_kind == "tool-call" for part in response.parts)
         ):
             return response
-        turn_start = next(
-            (
-                index
-                for index in range(len(ctx.messages) - 1, -1, -1)
-                if isinstance(ctx.messages[index], ModelRequest)
-                and any(
-                    isinstance(part, UserPromptPart)
-                    for part in ctx.messages[index].parts
-                )
-            ),
-            0,
-        )
+        turn_start = _active_turn_start(ctx.messages) or 0
         outcomes = [
             part
             for message in ctx.messages[turn_start:]
@@ -808,11 +789,6 @@ def build_integral_run_instructions(
                 "A staged proposal is not an applied change. Do not claim success "
                 "without readback. Invite the user to continue in this chat; "
                 "never instruct them to restart or repeat already applied work."
-            )
-        available = sorted(getattr(ctx, "available_tool_names", ()))
-        if available:
-            blocks.append(
-                "Callable tool names for this request: " + ", ".join(available) + "."
             )
         if active_ids:
             blocks.append(
@@ -1543,6 +1519,7 @@ class IntegralHistorySummary(SummarizingCompaction):
     retrieval_scope: HarnessExecutionScope | None = None
     max_history_bytes: int = 96_000
     _compacted_history_digest: str | None = None
+    _summarized_run_id: str | None = None
 
     async def before_model_request(self, ctx, request_context):
         # Pydantic AI 2.54 treats replacement request history as request-only.
@@ -1556,7 +1533,14 @@ class IntegralHistorySummary(SummarizingCompaction):
         # Only completed-turn history is eligible for summarization. A large
         # active build must not repeatedly summarize the same older history,
         # spend the closing-response allowance, or duplicate its receipts.
-        if final_response_reserved(ctx) or digest == self._compacted_history_digest:
+        if (
+            final_response_reserved(ctx)
+            or digest == self._compacted_history_digest
+            or (
+                self._summarized_run_id is not None
+                and self._summarized_run_id == getattr(ctx, "run_id", None)
+            )
+        ):
             return request_context
         if len(history_bytes) > self.max_history_bytes:
             request_context.messages = await self.compact(before, ctx)
@@ -1588,7 +1572,10 @@ class IntegralHistorySummary(SummarizingCompaction):
         # TieredCompaction invokes compact() directly, bypassing this class's
         # before_model_request hook. A large protected current task therefore
         # used to buy another summary of unchanged older prose on every step.
-        if history_digest == self._compacted_history_digest:
+        if history_digest == self._compacted_history_digest or (
+            self._summarized_run_id is not None
+            and self._summarized_run_id == getattr(ctx, "run_id", None)
+        ):
             return messages
         if (
             len(history) <= self.keep_messages
@@ -1743,6 +1730,12 @@ class IntegralHistorySummary(SummarizingCompaction):
                 },
             )
         retained_history = [summary, *evidence, *compacted[1:]]
+        # Accounting and subsequent cheap tool-result clearing can change the
+        # exact serialized history after summary. Completed human history is
+        # fixed within this admitted run; do not purchase another inference
+        # for that same history. New runs can summarize again. The separate
+        # context-admission limit still applies to every model dispatch.
+        self._summarized_run_id = getattr(ctx, "run_id", None)
         self._compacted_history_digest = hashlib.sha256(
             ModelMessagesTypeAdapter.dump_json(retained_history)
         ).hexdigest()
@@ -1951,6 +1944,7 @@ __all__ = [
     "PartDeltaEvent",
     "PartEndEvent",
     "PartStartEvent",
+    "PromptedOutput",
     "PlanItem",
     "PlanStore",
     "Planning",
@@ -1959,6 +1953,8 @@ __all__ = [
     "RunContext",
     "RunRecord",
     "SchemaValidator",
+    "InMemoryStepStore",
+    "TestModel",
     "Skills",
     "FileEntry",
     "WorkspaceReadOnlyError",

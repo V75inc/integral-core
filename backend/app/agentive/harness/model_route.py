@@ -9,6 +9,7 @@ from typing import Any
 
 from app.agentive.harness.contracts import ResolvedModelRoute
 from app.services.model_provider_endpoints import (
+    GEMINI_API_BASE,
     OLLAMA_CLOUD_API_BASE,
     normalize_custom_base_url,
 )
@@ -163,6 +164,11 @@ async def _resolve_native_model_route(
         await assert_platform_quota(workspace_id)
         return resolve_deployment_model_route(default_model)
 
+    return owned_model_route(override)
+
+
+def owned_model_route(override: dict[str, Any]) -> ResolvedModelRoute:
+    """Construct the funded route after an owner-bound credential lookup."""
     model = str(override.get("model") or "").strip()
     if not model:
         raise ValueError("workspace model override has no model route")
@@ -198,6 +204,10 @@ async def _resolve_native_model_route(
             resolved_provider = "ollama_chat"
             model = f"ollama_chat/{model.split('/', 1)[1]}"
             api_base = OLLAMA_CLOUD_API_BASE
+        elif resolved_provider == "gemini":
+            # The saved Google key is validated at this host. LiteLLM otherwise
+            # inherits GEMINI_API_BASE from the deployment for personal keys.
+            api_base = GEMINI_API_BASE
         else:
             # Custom OpenAI-compatible BYOK carries its endpoint in the
             # override; LiteLLM uses it as ``api_base`` with the openai route.

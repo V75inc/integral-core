@@ -131,13 +131,14 @@ async def _workspace_scope_header(authenticated_client) -> dict:
     ws_resp = await authenticated_client.get("/api/workspaces")
     assert ws_resp.status_code == 200, ws_resp.text
     ws_payload = ws_resp.json()
-    if isinstance(ws_payload, list):
-        ws_id = ws_payload[0]["id"]
-    else:
-        ws_id = (ws_payload.get("workspaces") or ws_payload.get("items") or [{}])[0][
-            "id"
-        ]
-    return {"X-Integral-Scope": f"ws:{ws_id}"}
+    personal = next(
+        row
+        for row in (
+            ws_payload if isinstance(ws_payload, list) else ws_payload["workspaces"]
+        )
+        if row["kind"] == "personal"
+    )
+    return {"X-Integral-Scope": f"ws:{personal['id']}"}
 
 
 def test_invalid_catalog_yaml_raises(tmp_path):
@@ -229,7 +230,10 @@ async def test_catalog_install_github_issues(authenticated_client):
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/github_issues/install",
-        json={"secrets": {"owner": "acme", "repo": "widgets"}},
+        json={
+            "connection_mode": "per_user",
+            "secrets": {"owner": "acme", "repo": "widgets"},
+        },
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -248,7 +252,7 @@ async def test_catalog_install_gmail_returns_oauth(authenticated_client, monkeyp
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/gmail/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -273,11 +277,12 @@ async def test_catalog_install_quickbooks_accepts_ui_credentials(
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks/install",
         json={
+            "connection_mode": "per_user",
             "secrets": {
                 "client_id": "ui-client-id",
                 "client_secret": "ui-client-secret",
                 "environment": "sandbox",
-            }
+            },
         },
         headers=headers,
     )
@@ -311,7 +316,7 @@ async def test_catalog_install_quickbooks_requires_client_id_without_env(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 400, resp.text
@@ -620,7 +625,7 @@ async def test_catalog_install_google_drive_returns_oauth(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_drive/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -649,7 +654,7 @@ async def test_catalog_install_google_gmail_requests_gmail_scopes(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_gmail/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -670,7 +675,7 @@ async def test_catalog_install_google_sheets_requests_sheets_scopes(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_sheets/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -698,7 +703,7 @@ async def test_catalog_install_google_drive_requires_client_id(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/google_drive/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 400, resp.text
@@ -771,7 +776,7 @@ async def test_catalog_install_quickbooks_mcp_returns_oauth(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks_mcp/install",
-        json={"secrets": {"environment": "sandbox"}},
+        json={"connection_mode": "per_user", "secrets": {"environment": "sandbox"}},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -798,7 +803,7 @@ async def test_catalog_install_quickbooks_mcp_requires_client_id(
     headers = await _workspace_scope_header(authenticated_client)
     resp = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks_mcp/install",
-        json={},
+        json={"connection_mode": "per_user"},
         headers=headers,
     )
     assert resp.status_code == 400, resp.text
@@ -876,7 +881,10 @@ async def test_quickbooks_callback_finishes_mcp_stdio_mount(
     headers = await _workspace_scope_header(authenticated_client)
     install = await authenticated_client.post(
         "/api/agentive/connectors/catalog/quickbooks_mcp/install",
-        json={"secrets": {"client_id": "mock-client-id"}},
+        json={
+            "connection_mode": "per_user",
+            "secrets": {"client_id": "mock-client-id"},
+        },
         headers=headers,
     )
     assert install.status_code == 200, install.text
@@ -1072,7 +1080,11 @@ def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatc
             return None
 
     conn = FakeConnector(
-        id="n.Connector.abc", owner="u1", subclass_slug="mcp", auth_state={}
+        id="n.Connector.abc",
+        owner="u1",
+        subclass_slug="mcp",
+        auth_state={},
+        mapping_profile="",
     )
 
     class Registry:

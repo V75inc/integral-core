@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -419,6 +420,34 @@ def test_old_discovery_does_not_select_a_new_user_workflow():
     assert choice(ctx)["tool_choice"] == ["search_capabilities"]
 
 
+def test_discovery_uses_the_same_task_boundary_for_steering_and_host_continuation():
+    """Steering retains current discovery while a fresh host event starts a new task."""
+    from app.agentive.harness.pydantic_ai_compat import build_integral_host_turn
+
+    choice = IntegralToolDisclosure().get_model_settings()
+    ctx = SimpleNamespace(
+        model=SimpleNamespace(profile={}),
+        active_capability_ids=set(),
+        messages=[
+            ModelRequest(parts=[UserPromptPart("Inspect current records")]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart("search_capabilities", {"matches": []}, "verified")
+                ]
+            ),
+            ModelRequest(
+                parts=[UserPromptPart("Keep the answer brief")],
+                metadata={"integral_steering": True},
+            ),
+        ],
+    )
+    assert "tool_choice" not in choice(ctx)
+    ctx.messages.append(
+        build_integral_host_turn("A new reviewed outcome is available.", run_id="new")
+    )
+    assert choice(ctx)["tool_choice"] == ["search_capabilities"]
+
+
 def test_application_code_uses_integral_adapter_for_pydantic_imports() -> None:
     """Keep third-party API/version coupling at the Integral binding seam."""
     app_root = Path(__file__).parents[3] / "app"
@@ -478,10 +507,8 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     assert "replace its dots with slashes" in base
     assert "plain record label instead of a guessed link" in base
     assert "Never invoke a skill name as a tool" in base
-    assert (
-        "Callable tool names for this request: load_capability, search_capabilities."
-        in base
-    )
+    # Tool schemas already carry their exact names to the model.
+    assert "Callable tool names for this request:" not in base
     active = instructions(
         SimpleNamespace(active_capability_ids={"integral-scaffold", "integral-model"})
     )
@@ -1254,15 +1281,19 @@ async def test_tiered_direct_compaction_does_not_resummarize_unchanged_history(
         return [ModelRequest(parts=[UserPromptPart(f"Retained {i}")]) for i in range(5)]
 
     monkeypatch.setattr(SummarizingCompaction, "compact", summarize)
-    ctx = SimpleNamespace(active_capability_ids=set(), tools={})
+    ctx = SimpleNamespace(active_capability_ids=set(), tools={}, run_id="first")
     compactor = IntegralHistorySummary(max_messages=6, keep_messages=4)
     first = await compactor.compact([*history, current], ctx)
     later = [*first, ModelResponse(parts=[ToolCallPart("read", {}, "next")])]
     assert await compactor.compact(later, ctx) == later
+    # Usage reclaim and cheap clearing may alter metadata in completed history.
+    changed = [replace(first[0], metadata={"context_reclaim": 200}), *later[1:]]
+    assert await compactor.compact(changed, ctx) == changed
     assert len(calls) == 1
     assert first[-1] is current
     # A new human task makes the preceding work newly eligible; the guard is
     # a history identity cache, not a permanent ban on future summaries.
+    ctx.run_id = "second"
     await compactor.compact(
         [*first, ModelRequest(parts=[UserPromptPart("Another task")])], ctx
     )

@@ -1,4 +1,4 @@
-"""Bounded read-only status from the exact typed side of a voice conversation."""
+"""Bounded read-only status of the exact shared voice conversation."""
 
 import hashlib
 import json
@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from app.agentive import staging_store
-from app.agentive.services.staging_execution import execution_record_id
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 
 _RECENT_TURNS = 8
@@ -64,7 +63,11 @@ class _ReviewProof:
         except (TypeError, ValueError):
             return None
         return cls(
-            scope, token, kind, intent, hashlib.sha256(request.encode()).hexdigest()
+            scope,
+            hashlib.sha256(token.encode()).hexdigest(),
+            kind,
+            intent,
+            hashlib.sha256(request.encode()).hexdigest(),
         )
 
 
@@ -79,6 +82,14 @@ class VoiceThreadStatus:
     declined: int = 0
     expired: int = 0
     unverified: int = 0
+    failed: int = 0
+    outcomes: tuple[tuple[_ReviewProof, str], ...] = field(
+        default=(), repr=False, compare=False
+    )
+
+    receipt_cursor: tuple[str, str] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     def as_context(self) -> str:
         return (
@@ -88,7 +99,7 @@ class VoiceThreadStatus:
             f"Recent verified review states: {self.awaiting} awaiting review, "
             f"{self.authorized} approved but not confirmed applied, "
             f"{self.applied} applied, {self.declined} declined, {self.expired} expired; "
-            f"{self.unverified} unverified. These are bounded observations, not a complete "
+            f"{self.failed} failed to apply, {self.unverified} unverified. These are bounded observations, not a complete "
             "conversation or permission grant. For details, direct the caller to the chat."
         )
 
@@ -107,7 +118,7 @@ def _valid_time(stamp, now, *, future):
 
 async def _decision(db, proof, principal, workspace, now):
     marker = _context(
-        await db.get("object", staging_store._decision_record_id(proof.token)),
+        await db.get("object", "o.StagingDecisionRecord." + proof.token),
         "StagingDecisionRecord",
     )
     if (
@@ -127,7 +138,7 @@ async def _decision(db, proof, principal, workspace, now):
         return "unverified"
 
     effect = _context(
-        await db.get("object", execution_record_id(proof.token)),
+        await db.get("object", "o.StagingExecutionRecord." + proof.token),
         "StagingExecutionRecord",
     )
     if (
@@ -147,8 +158,55 @@ async def _decision(db, proof, principal, workspace, now):
     return "unverified"
 
 
-async def read_voice_thread_status(principal, workspace, thread, previous=()):
-    """Read existing durable typed-turn/review evidence after caller admission.
+def review_run_id(work):
+    """A terminal WorkItem clears its lease run; recover its exact last attempt."""
+    if work.get("run_id"):
+        return work["run_id"]
+    from app.schemas.agentive.work import TERMINAL_WORK_STATUSES
+
+    if (
+        work.get("status") not in TERMINAL_WORK_STATUSES
+        or type(work.get("attempt")) is not int
+    ):
+        return ""
+    from app.agentive.services.work_execution import deterministic_run_id
+
+    return deterministic_run_id(
+        work_item_id=work["work_item_id"], attempt=work["attempt"]
+    )
+
+
+def _native_work(row, scope):
+    work = _context(row, "WorkItem")
+    payload = work.get("input_payload")
+    digest = payload.get("client_payload_digest") if isinstance(payload, dict) else None
+    if isinstance(payload, dict) and not digest:
+        digest = payload.get("request_fingerprint")
+    work_id = work.get("work_item_id")
+    if (
+        work.get("kind") == "chat_turn"
+        and work.get("origin") == "interactive_chat"
+        and (
+            work.get("principal_id"),
+            work.get("workspace_id"),
+            work.get("thread_id"),
+        )
+        == scope
+        and isinstance(digest, str)
+        and _DIGEST.fullmatch(digest)
+        and payload.get("message_role", "user") == "user"
+        and isinstance(work_id, str)
+        and work_id
+        and row.get("id") == f"o.WorkItem.{work_id}"
+    ):
+        return work
+    return None
+
+
+async def read_voice_thread_status(
+    principal, workspace, thread, previous=(), *, receipt_cursor=None
+):
+    """Read existing durable native-turn/review evidence after caller admission.
 
     `previous` is private, short-lived correlation from an earlier read of
     this pinned thread. No chat text, proposal JSON or credential is returned
@@ -166,7 +224,6 @@ async def read_voice_thread_status(principal, workspace, thread, previous=()):
                 "context.principal_id": principal,
                 "context.workspace_id": workspace,
                 "context.thread_id": thread,
-                "context.input_payload.client_payload_digest": {"$exists": True},
                 "context.input_payload.message_role": {"$ne": "system"},
             },
             limit=_RECENT_TURNS,
@@ -174,31 +231,9 @@ async def read_voice_thread_status(principal, workspace, thread, previous=()):
         )
         works = {}
         for row in typed:
-            work = _context(row, "WorkItem")
-            payload = work.get("input_payload")
-            digest = (
-                payload.get("client_payload_digest")
-                if isinstance(payload, dict)
-                else None
-            )
-            work_id = work.get("work_item_id")
-            if (
-                work.get("kind") == "chat_turn"
-                and work.get("origin") == "interactive_chat"
-                and (
-                    work.get("principal_id"),
-                    work.get("workspace_id"),
-                    work.get("thread_id"),
-                )
-                == (principal, workspace, thread)
-                and isinstance(digest, str)
-                and _DIGEST.fullmatch(digest)
-                and payload.get("message_role", "user") == "user"
-                and isinstance(work_id, str)
-                and work_id
-                and row.get("id") == f"o.WorkItem.{work_id}"
-            ):
-                works[work_id] = work
+            work = _native_work(row, scope)
+            if work:
+                works[work["work_item_id"]] = work
         proposals = (
             await db.find(
                 "object",
@@ -238,7 +273,7 @@ async def read_voice_thread_status(principal, workspace, thread, previous=()):
                 or (work := works.get(origin["work_item_id"])) is None
                 or not isinstance(origin.get("run_id"), str)
                 or not origin["run_id"]
-                or origin["run_id"] != work.get("run_id")
+                or origin["run_id"] != review_run_id(work)
             ):
                 continue
             proof = _ReviewProof.from_proposal(data, scope)
@@ -261,25 +296,103 @@ async def read_voice_thread_status(principal, workspace, thread, previous=()):
             elif state == "blessed" and _valid_time(
                 data.get("expires_at"), now, future=True
             ):
-                label = "authorized"
+                label = "failed" if data.get("last_error") else "authorized"
             else:
                 label = await _decision(db, proof, principal, workspace, now)
             outcomes[proof.token] = (proof, label)
 
-        for proof in previous:
-            if len(outcomes) >= _RECENT_REVIEWS:
-                break
+        # Terminal receipts retain scope/intent correlation without tokens even
+        # when a card resolves before the first observation of its live row.
+        terminal_query = {
+            "entity": "StagingDecisionRecord",
+            "context.user_id": principal,
+            "context.workspace_id": workspace,
+            "context.conversation_id": thread,
+            "context.retained_until": {"$gt": now.isoformat()},
+        }
+        if receipt_cursor:
+            stamp, row_id = receipt_cursor
+            terminal_query["$or"] = [
+                {"context.resolved_at": {"$gt": stamp}},
+                {"context.resolved_at": stamp, "id": {"$gt": row_id}},
+            ]
+        direction = 1 if receipt_cursor else -1
+        terminals = await db.find(
+            "object",
+            terminal_query,
+            limit=_RECENT_REVIEWS,
+            sort=[("context.resolved_at", direction), ("id", direction)],
+        )
+        next_cursor = receipt_cursor or (now.isoformat(), "")
+        if terminals:
+            boundary = terminals[-1] if receipt_cursor else terminals[0]
+            next_cursor = (boundary["context"]["resolved_at"], boundary["id"])
+        for row in terminals:
+            data = _context(row, "StagingDecisionRecord")
+            try:
+                saved = data["conversation_proof"]
+                origin = saved["origin"]
+                work_id = origin["work_item_id"]
+                if not isinstance(work_id, str) or not work_id:
+                    continue
+                work = works.get(work_id)
+                if work is None:
+                    # A recent decision may belong to an older turn. Recheck
+                    # its exact native admission without widening the snapshot.
+                    work = _native_work(
+                        await db.get("object", f"o.WorkItem.{work_id}"), scope
+                    )
+                if (
+                    (
+                        origin["principal_id"],
+                        origin["workspace_id"],
+                        origin["thread_id"],
+                    )
+                    != scope
+                    or work is None
+                    or origin["run_id"] != review_run_id(work)
+                    or not row["id"].startswith("o.StagingDecisionRecord.")
+                    or saved["intent"] != data.get("intent_fingerprint")
+                    or saved["kind"] != data.get("kind")
+                    or not _DIGEST.fullmatch(saved["request_hash"])
+                ):
+                    continue
+                proof = _ReviewProof(
+                    scope,
+                    row["id"].removeprefix("o.StagingDecisionRecord."),
+                    saved["kind"],
+                    saved["intent"],
+                    saved["request_hash"],
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if proof.token not in outcomes:
+                outcomes[proof.token] = (
+                    proof,
+                    await _decision(db, proof, principal, workspace, now),
+                )
+
+        for proof in previous[:_RECENT_REVIEWS]:
             if proof.scope == scope and proof.token not in outcomes:
                 # Reconcile only a previously observed, immutable in-scope
                 # proposal. A missing or changed receipt is not a success.
                 label = await _decision(db, proof, principal, workspace, now)
                 outcomes[proof.token] = (proof, label)
 
-    latest = next(iter(works.values()), {})
+    latest = next(
+        (
+            work
+            for work in works.values()
+            if (work.get("input_payload") or {}).get("client_payload_digest")
+        ),
+        {},
+    )
     return (
         VoiceThreadStatus(
             typed_turn=_TYPED_STATUS.get(latest.get("status"), ""),
             **Counter(label for _proof, label in outcomes.values()),
+            outcomes=tuple(outcomes.values()),
+            receipt_cursor=next_cursor,
         ),
         tuple(proof for proof, _label in outcomes.values()),
     )

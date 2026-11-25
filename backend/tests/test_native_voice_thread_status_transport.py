@@ -135,3 +135,30 @@ async def test_rejected_optional_context_does_not_end_voice():
     finally:
         reader.cancel()
         await asyncio.gather(reader, return_exceptions=True)
+
+
+async def test_pending_review_transition_queues_one_verified_announcement():
+    """A GUI decision wakes speech only for a previously observed proposal."""
+    from app.services.native_voice_thread_status import _ReviewProof
+
+    proof = _ReviewProof(
+        ("private-person", "private-workspace", "private-thread"),
+        "private-token",
+        "create_entry",
+        "intent",
+        "hash",
+    )
+    pending = VoiceThreadStatus(awaiting=1, outcomes=((proof, "awaiting"),))
+    applied = VoiceThreadStatus(applied=1, outcomes=((proof, "applied"),))
+    service = relay(
+        AsyncMock(
+            side_effect=[(pending, (proof,)), (applied, (proof,)), (applied, (proof,))]
+        )
+    )
+    await service._sync_thread_status()
+    assert not service.peer_readouts
+    await service._sync_thread_status()
+    assert list(service.peer_readouts.values()) == ["Your approved change was applied."]
+    await service._sync_thread_status()
+    assert len(service.peer_readouts) == 1
+    assert "private-token" not in str(service.peer_readouts)

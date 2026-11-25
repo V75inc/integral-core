@@ -36,7 +36,6 @@ export function ManagedChannelFullPageShare({ scope, channel, publication, read,
 
   return (
     <div className="flex min-w-0 flex-col items-start gap-1">
-      <Text as="h3" variant="body-sm" weight="semibold">Full-page sharing</Text>
       <Text as="p" variant="body-sm" tone="muted" className="break-all">{url}</Text>
       <div className="flex flex-wrap items-center gap-2">
         <a href={url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="underline">

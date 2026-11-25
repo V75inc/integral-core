@@ -1,7 +1,7 @@
 """Detached, read-only authority for exact managed Web Chat routes."""
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol
 
 from pydantic import ValidationError
 
@@ -64,9 +64,17 @@ class WebChatReferenceReader(Protocol):
 class WebChatRouteAuthority:
     """Share exact host readiness across management and detached visitor loading."""
 
-    def __init__(self, reader: WebChatReferenceReader) -> None:
+    def __init__(
+        self,
+        reader: WebChatReferenceReader,
+        *,
+        pre_enable: (
+            Callable[[ExternalChatProvision, str], Awaitable[bool]] | None
+        ) = None,
+    ) -> None:
         """Use an explicit host reader; no implicit origin or readiness."""
         self._reader = reader
+        self._pre_enable = pre_enable
 
     @staticmethod
     async def _absent(workspace: str) -> bool:
@@ -168,6 +176,9 @@ class WebChatRouteAuthority:
                 and await self._ready(approval, enabled=installation.enabled)
             ):
                 state = "accepting" if installation.enabled else "ready"
+            elif approval is None and not installation.enabled and self._pre_enable:
+                if await self._pre_enable(provision, installation.route_epoch):
+                    state = "ready"
         return ChannelServingStatus(
             scope.workspace_id, SLUG, provision_id, epoch, state
         )

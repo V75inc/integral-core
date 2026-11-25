@@ -346,6 +346,10 @@ async def test_native_adapter_passes_distinct_models_and_observes_both_roles(
             and timing.physical_requests == 1
         )
         assert len(timing.clients) == 2
+        timing.freeze_budget({"request_timeout": 11, "idle_timeout": 7})
+        await native._build_turn_model(ctx, scope, None, "owner")
+        assert captured[-1]["timeout_seconds"] == 11
+        assert captured[-1]["idle_timeout_seconds"] == 7
     finally:
         current_latency.reset(token)
 
@@ -497,7 +501,9 @@ async def test_durable_pair_binding_restores_usage_and_rejects_route_changes(
         AsyncMock(return_value=[observation]),
     )
     resumed = TurnLatency()
+    resumed.freeze_budget({"turn_timeout": 300, "model_request_limit": 2})
     await model_routing.bind_durable_routing(scope, object(), plan, resumed)
+    assert resumed.budget_settings == {"turn_timeout": 120, "model_request_limit": 2}
     assert resumed.physical_requests == 1
     changed = model_routing.TurnModelRoutes(
         route("different"), route("light"), "light_heavy"

@@ -59,12 +59,17 @@ def _plan(row: Connector, packages: dict, fingerprints: dict) -> dict[str, Any]:
             or snapshot.get("auth", {}).get("type") != "oauth2"
             or bool(state.get("access_token"))
         )
+        enabled = enabled and not row.legacy_sync_paused
     elif "mcp" in capabilities:
-        enabled = enabled or row.health_status in {"ok", "healthy"}
+        enabled = not row.standalone_mcp_paused and (
+            enabled or row.health_status in {"ok", "healthy"}
+        )
     return {
         "mapping_profile": "package",
         "package_manifest": snapshot,
-        "package_config": _catalog_configuration(snapshot, state),
+        "package_config": _catalog_configuration(
+            snapshot, {**state, **row.package_config}
+        ),
         "package_fingerprint": row.package_fingerprint or fingerprints[package_id],
         "package_version": row.package_version or manifest["version"],
         "package_revision": row.package_revision + 1,

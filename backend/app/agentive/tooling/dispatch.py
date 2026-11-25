@@ -392,6 +392,7 @@ async def dispatch_tool(
     interaction_id: Optional[str] = None,
     skill_tools_required: Optional[list] = None,
     voice_read_offer: ToolSpec | None = None,
+    voice_read_cursor: str | None = None,
 ) -> ToolResult:
     """Dispatch manifest tool ``name`` under ``principal_id`` + bound ``scope``.
 
@@ -421,6 +422,12 @@ async def dispatch_tool(
     op_class = "unknown"
     result: Optional[ToolResult] = None
     try:
+        if voice_read_cursor is not None and voice_read_offer is None:
+            return ToolResult(
+                is_error=True,
+                error_code="not_available",
+                message="Voice page unavailable.",
+            )
         if voice_read_offer is not None:
             # Do not use indefinite resident registry caching when redeeming a
             # private negotiated read; revalidate the same authority we dispatch.
@@ -444,6 +451,20 @@ async def dispatch_tool(
                 )
             assert spec is not None and spec.voice_quick_read is not None
             args = {"limit": 20} if spec.voice_quick_read.page_limit else {}
+            # Only the server-held continuation from an admitted list can set
+            # this separate parameter. Model tool args remain disallowed.
+            if voice_read_cursor is not None:
+                if (
+                    "cursor" not in spec.params
+                    or not isinstance(voice_read_cursor, str)
+                    or not 0 < len(voice_read_cursor) <= 2048
+                ):
+                    return ToolResult(
+                        is_error=True,
+                        error_code="not_available",
+                        message="Voice page unavailable.",
+                    )
+                args["cursor"] = voice_read_cursor
 
         if name in {
             "integral_upsert_artifact",

@@ -157,16 +157,22 @@ async def test_private_management_only_test(
     config = await owner.get(setup, params={**params, **exact}, headers=headers)
     data = config.json()
     assert data["private_test_available"] is True
+    assert data["private_test_model"] == "host-private-model"
     assert "full_page_share_check_available" not in data
     assert config.headers["cache-control"] == "no-store" and not calls and not quotas
     body = {
         **exact,
         "profile_key": "public",
         "published_version": data["published_version"],
+        "model_id": data["private_test_model"],
         "text": "Are you the Test assistant?",
     }
     path = f"{BASE}/test"
     if change == "no-change":
+        wrong = await owner.post(
+            path, params=params, headers=headers, json={**body, "model_id": "other"}
+        )
+        assert wrong.status_code == 409 and not calls and not quotas
         test_ready = False
         not_ready = await owner.get(setup, params={**params, **exact}, headers=headers)
         assert "private_test_available" not in not_ready.json()
@@ -240,7 +246,7 @@ async def test_private_management_only_test(
     assert len(calls) == len(quotas) == 1
     if change == "no-change":
         assert reply.json() == {
-            **{k: v for k, v in body.items() if k != "text"},
+            **{k: v for k, v in body.items() if k not in ("text", "model_id")},
             "workspace_id": workspace_id,
             "slug": "public_web_chat",
             "kind": "private-web-chat-test-v1",

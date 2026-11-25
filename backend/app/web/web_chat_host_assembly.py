@@ -74,6 +74,7 @@ class WebChatPageContext:
 
     route: str
     title: str = "Web Chat"
+    theme: str = "system"
 
 
 @dataclass(frozen=True)
@@ -187,7 +188,22 @@ def assemble_web_chat_host(
         install_readiness=platform.install_ready,
         transport_readiness=transport_ready,
     )
-    authority = WebChatRouteAuthority(references)
+
+    async def pre_enable(provision: ExternalChatProvision, epoch: str) -> bool:
+        # Disable retires visitor references. Admission to enable is an
+        # effect-free check of the new disabled assignment, without a link.
+        snapshot = await references.observe(provision)
+        current = await _managed_route(provision)
+        return (
+            snapshot.approved is None
+            and current is not None
+            and not current.enabled
+            and current.epoch == epoch
+            and await origin_for(current) is not None
+            and await _managed_route(provision) == current
+        )
+
+    authority = WebChatRouteAuthority(references, pre_enable=pre_enable)
     host = _Host(authority)
 
     async def sync_reference(
@@ -293,7 +309,12 @@ def assemble_web_chat_host(
         active = await authority.resolve(key)
         if active is None or active.origin != served_origin:
             return None
-        return WebChatPageContext(route=active.route_key)
+        return WebChatPageContext(
+            route=active.route_key,
+            theme=await public_web_chat.visitor_theme(
+                active.provision, active.route_epoch
+            ),
+        )
 
     return WebChatHostAssembly(
         registry=registry,

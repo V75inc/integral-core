@@ -205,6 +205,9 @@ class Connector(Node):
     # ADR 018 drop-in package installation. Empty for catalog connectors.
     # enabled is desired serving state; health_status is the last probe.
     enabled: bool = False
+    standalone_mcp_paused: bool = False
+    legacy_sync_paused: bool = False
+    legacy_sync_revision: int = 0
     package_version: str = ""
     package_config: Dict[str, Any] = Field(default_factory=dict)
     package_manifest: Dict[str, Any] = Field(default_factory=dict)

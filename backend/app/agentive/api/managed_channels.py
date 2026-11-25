@@ -9,7 +9,9 @@ from jvspatial.api import endpoint
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 
+from app.agentive.services import profile_management, public_web_chat
 from app.agentive.services.profile_management import require_profile_manager
+from app.agentive.services.web_chat_package import SLUG as WEB_CHAT_SLUG
 from app.api.errors import (
     BadRequestError,
     MissingAuthenticationError,
@@ -29,8 +31,9 @@ from app.connectors.channel_packages import (
     ChannelScope,
 )
 from app.connectors.channel_share_check import (
+    mounted_client_origin,
     mounted_embed_descriptors,
-    mounted_private_test_available,
+    mounted_private_test_model,
     mounted_share_check_available,
 )
 from app.schemas.agentive.managed_channels import (
@@ -39,6 +42,7 @@ from app.schemas.agentive.managed_channels import (
     ManageChannelProfileAssignment,
     ManageChannelProvision,
     ManageChannelShareQuery,
+    ManageWebChatAppearance,
 )
 from app.services.permissions import get_user_node
 from app.services.scope_header import parse_scope_header
@@ -371,9 +375,10 @@ async def get_managed_channel_configuration(
     match = _provision_query(request)
     current = await _installation(package, scope, match)
     snapshot = await _configuration_snapshot(setup, scope, current)
+    client_origin = None
     share_available = False
     embed_descriptors = ()
-    private_test_available = False
+    private_test_model = None
     if snapshot.profile_key is not None and snapshot.published_version is not None:
         exact = ManageChannelShareQuery(
             workspace_id=scope.workspace_id,
@@ -382,14 +387,13 @@ async def get_managed_channel_configuration(
             profile_key=snapshot.profile_key,
             published_version=snapshot.published_version,
         )
-        private_test_available = await mounted_private_test_available(
-            request, slug, exact
-        )
+        private_test_model = await mounted_private_test_model(request, slug, exact)
         if current.enabled:
+            client_origin = await mounted_client_origin(request, slug, exact)
             share_available = await mounted_share_check_available(request, slug, exact)
             embed_descriptors = await mounted_embed_descriptors(request, slug, exact)
     if (
-        share_available or embed_descriptors or private_test_available
+        client_origin or share_available or embed_descriptors or private_test_model
     ) and await _configuration_snapshot(setup, scope, current) != snapshot:
         raise ResourceConflictError(
             "Managed channel profile changed. Refresh and try again."
@@ -398,10 +402,20 @@ async def get_managed_channel_configuration(
         raise ResourceConflictError("Managed channel changed. Refresh and try again.")
     await require_profile_manager(scope.actor_id, scope.workspace_id)
     projection = asdict(snapshot)
+    if slug == WEB_CHAT_SLUG:
+        found = await profile_management.record(scope.workspace_id)
+        if found is None or found.revision != snapshot.profile_revision:
+            raise ResourceConflictError(
+                "Web Chat configuration changed. Reload and try again."
+            )
+        projection["theme"] = found.public_web_chat.get("theme", "system")
     if snapshot.published_version is None:
         projection.pop("published_version")
-    if private_test_available:
+    if private_test_model:
+        projection["private_test_model"] = private_test_model
         projection["private_test_available"] = True
+    if client_origin:
+        projection["client_api_origin"] = client_origin
     if share_available:
         projection["full_page_share_check_available"] = True
     if embed_descriptors:
@@ -453,3 +467,19 @@ async def assign_managed_channel_profile(request: Request, slug: str) -> dict:
         )
     )
     return await _projection(registry, scope)
+
+
+@endpoint(
+    f"{_PATH}/{WEB_CHAT_SLUG}/appearance", methods=["PUT"], auth=True, tags=["Agentive"]
+)
+async def save_web_chat_appearance(request: Request) -> dict:
+    """Save the scoped Web Chat theme without activating the channel."""
+    scope = await _scope(request)
+    package = _package(_registry(request), WEB_CHAT_SLUG)
+    try:
+        change = ManageWebChatAppearance.model_validate(await request.json())
+    except ValueError:
+        raise BadRequestError("Invalid Web Chat appearance") from None
+    await _installation(package, scope, change)
+    await public_web_chat.set_appearance(scope.actor_id, scope.workspace_id, change)
+    return {"theme": change.theme}

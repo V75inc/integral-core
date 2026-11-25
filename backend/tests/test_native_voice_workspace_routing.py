@@ -63,6 +63,8 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         "get",
         AsyncMock(
             return_value=SimpleNamespace(
+                kind="chat_turn",
+                input_payload={},
                 principal_id=scope.principal,
                 workspace_id=scope.workspace,
                 thread_id=scope.thread,
@@ -94,6 +96,7 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         assert "Do not refuse a workspace request merely because" in instructions
         assert "do not accept approval by voice" in instructions
         assert ("creating a dashboard for review" in instructions) is (not profile)
+        assert (native_voice.FIND_CAPABILITY in instructions) is (not profile)
         assert all(
             not private or private not in instructions
             for private in (scope.principal, scope.workspace, scope.thread, profile)
@@ -101,9 +104,27 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         assert [tool["name"] for tool in config["tools"]] == [
             native_voice.DELEGATE,
             native_voice.CHECK_CHAT,
-            native_voice.FIND_CAPABILITY,
             *(
-                [native_voice.QUEUE_FOLLOW_UP, native_voice.STEER_ACTIVE]
+                [
+                    native_voice.FIND_CAPABILITY,
+                ]
+                if not profile
+                else []
+            ),
+            native_voice.WRITE_CHAT_NOTE,
+            *(
+                []
+                if profile
+                else [native_voice.REVISE_REVIEW, native_voice.REQUEST_REVIEW]
+            ),
+            native_voice.CANCEL_WORK,
+            *(
+                [
+                    native_voice.FIND_RECORDS,
+                    native_voice.NAVIGATE,
+                    native_voice.QUEUE_FOLLOW_UP,
+                    native_voice.STEER_ACTIVE,
+                ]
                 if not profile
                 else []
             ),
@@ -275,3 +296,66 @@ async def test_voice_and_typed_use_same_heavy_dashboard_broker(monkeypatch):
         assert "integral_create_dashboard" in names
         assert "integral_resolve_pending_write" not in names
     assert brokered[0][1] == brokered[1][1]
+
+
+async def test_live_navigation_delivery_is_exact_and_not_replayed(monkeypatch):
+    """Only a successful current-call result can move the bound browser."""
+    from app.schemas.agentive.chat_events import ChatEventReplayPage
+    from app.services import agent_navigation, chat_turn_events, native_voice
+    from tests.test_native_voice import Browser, Provider
+
+    scope = VoiceScope("person", "workspace", "", "thread")
+    scope.page_context = {"url": "/agent", "route_path": "/agent"}
+    destination = {
+        "type": "navigation",
+        "path": "/apps/n.WorkspaceApp.fixture",
+        "thread_id": "thread",
+        "workspace_id": "workspace",
+    }
+    replay = AsyncMock(
+        return_value=ChatEventReplayPage(events=[destination], work_status="succeeded")
+    )
+    monkeypatch.setattr(chat_turn_events, "replay_work_item_chat_events", replay)
+    monkeypatch.setattr(
+        agent_navigation, "verify_voice_navigation", AsyncMock(return_value=True)
+    )
+    browser = Browser()
+    relay = native_voice.VoiceRelay(browser, Provider(), scope, check=AsyncMock())
+    accepted = native_voice._AcceptedVoiceTurn(
+        "work",
+        "message",
+        "Open app",
+        browser_origin="/agent",
+        voice_generation=relay.generation,
+    )
+    import asyncio
+
+    delivery = asyncio.create_task(relay._deliver_navigation(accepted))
+    event = await asyncio.wait_for(browser.outbox.get(), 1)
+    assert event == {
+        "type": "navigation",
+        "navigation": destination,
+        "id": event["id"],
+        "origin_revision": 0,
+    }
+    await relay._navigation_result(
+        __import__("json").dumps(
+            {"type": "navigation_result", "id": "stale", "status": "rendered"}
+        )
+    )
+    assert not delivery.done()
+    scope.page_context = {"url": destination["path"], "route_path": destination["path"]}
+    await relay._navigation_result(
+        __import__("json").dumps(
+            {"type": "navigation_result", "id": event["id"], "status": "rendered"}
+        )
+    )
+    assert await delivery == "The requested page is open."
+    await relay._deliver_navigation(accepted)
+    assert browser.outbox.empty()
+    scope.page_revision += 1
+    from dataclasses import replace
+
+    await relay._deliver_navigation(replace(accepted, work_item_id="other"))
+    assert browser.outbox.empty()
+    replay.assert_awaited_once()

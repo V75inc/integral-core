@@ -84,9 +84,11 @@ or more items and choose **Configuration only** to reuse their structure, or
 **Configuration and data** to include records and attached files. Select related
 items together so their record links can be restored.
 
-To import, choose the downloaded `.integral.zip` file, review its names and counts,
-then select **Import copies**. Copies are private and do not replace existing
-content. Track imports opened inside an App stay inside that App. Sharing,
+To import, choose the downloaded `.integral.zip` file and select **Preview import**.
+Review the names and counts. Leave **Include records and attachments** unchecked for
+an empty copy, or check it to bring the data along. This choice appears when the
+archive contains records. Confirm with **Import copies** or **Install and import**.
+Copies are private and do not replace existing content. Track imports opened inside an App stay inside that App. Sharing,
 credentials and activity history are not transferred. Some installed Apps require
 their original package's migration tools. See [portability details and limits](../platform/resource-portability.md).
 The separate **Import template** action still accepts existing YAML/JSON templates
@@ -229,6 +231,43 @@ each up to 5 MB. Uploading an image to chat does not file it into a record or
 approve any change.
 
 The default resident uses Integral AI through Pydantic AI. A host can configure another supported binding. Provider availability, model choice, and credential policy affect the experience.
+
+### Use live voice
+
+In a workspace with a configured Realtime Voice model, select the waveform
+control on Home or in native chat and allow microphone access. The call uses
+that workspace and agent profile until you hang up. The workspace assistant can
+list Apps and Tracks, select saved views, look up records by title, and select from the numbered
+results. Ask it to repeat a list, hear the next page, or say where you are.
+
+Use **Open full chat** in the sidebar or **Move chat to sidebar** on the
+full chat page to change layouts during a call. The same conversation stays
+connected, including its current microphone mute setting. **End call** hangs up.
+
+Ask a complete question such as “Which high-priority tasks are due today?”
+or “Add a task called Check the delivery, due today.” The assistant checks the
+App's fields and can ask for a missing detail. A proposed new record appears
+in chat for review. You can also say “Put this note in our chat” or “Read
+the last reply back to me.” A standalone note can be saved after active work
+and any pending review in that conversation have settled.
+
+For a supported edit to a selected record, ask to hear the proposed change.
+If you explicitly request approval or rejection, a compatible browser reads
+the exact change and a one-use challenge using an installed local device voice
+or the host's offline speech synthesizer. Independent recognition needs a
+configured batch-capable Speech to Text model. Wait until the
+readback finishes and speak the requested decision and digits. Integral
+checks the current proposal again and announces the decision and saved outcome.
+If the challenge expires or the proposal changes, ask to review it again.
+To correct a proposed title or typed date, state the correction and hear the
+replacement before confirming. For other changes, reject the old proposal
+and ask for the corrected edit. Other proposal types and unsupported devices use the ordinary review controls.
+
+You can ask to cancel the current accepted task, hear its status, or continue
+reading a saved reply. Interrupting speech does not cancel work. Published agent
+profiles use their declared capabilities. See the
+[voice conversation contract](../backend/voice-chat-conversation-contract.md)
+for current coverage.
 
 ## 11. Review proposed changes
 

@@ -23,7 +23,6 @@ from app.api.utils import (
 )
 from app.models.edges import (
     CONTAINS,
-    MENTIONS,
     WATCHES,
 )
 from app.models.nodes import Entry, EntryType, Track
@@ -59,7 +58,7 @@ from app.services.entry_listing import (
     selected_entry_ids,
     tag_filter_clauses,
 )
-from app.services.mentions import resolve_mentions
+from app.services.mentions import link_mentions
 from app.services.notification_paths import entry_path
 from app.services.operational_model_derived_fields import (
     resolve_derived_fields_for_entry,
@@ -138,19 +137,16 @@ async def _dispatch_entry_mentions(
             or getattr(actor_user, "email", "")
             or actor_user_id
         )
-    try:
-        mentioned_users = await resolve_mentions(
-            text or "",
-            exclude_user_id=actor_user_id,
-            track_id=getattr(track, "id", None) or None,
-        )
-    except Exception:
-        return
+    mentioned_users = await link_mentions(
+        Entry,
+        entry.id,
+        text or "",
+        actor_id=actor_user_id,
+        track_id=track.id,
+        entry_id=entry.id,
+        mentioned_at=now,
+    )
     for mentioned in mentioned_users:
-        try:
-            await entry.connect(mentioned, edge=MENTIONS, mentioned_at=now)
-        except Exception:
-            pass
         try:
             await notification_router.dispatch(
                 user_id=mentioned.user_id or mentioned.id,

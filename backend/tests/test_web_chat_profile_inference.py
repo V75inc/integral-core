@@ -55,6 +55,11 @@ class _Store:
 
 @pytest.fixture
 def turn(monkeypatch):
+    monkeypatch.setattr(
+        profile_management,
+        "live_public_service_identity",
+        AsyncMock(return_value=object()),
+    )
     """Assemble one synthetic visitor and current published configuration."""
     provision = ExternalChatProvision("workspace", "public_web_chat", "provision")
     conversation = ExternalChatConversation(provision, "conversation")

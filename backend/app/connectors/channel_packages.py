@@ -161,6 +161,7 @@ class ChannelListing:
     can_install: bool = False
     provision_id: str | None = None
     route_epoch: str | None = None
+    enabled: bool | None = None
 
 
 def _validate_package(package: ChannelPackage) -> None:
@@ -376,6 +377,7 @@ async def _project(
             False,
             provision_id=installation.provision_id,
             route_epoch=installation.route_epoch,
+            enabled=installation.enabled,
         )
     try:
         evidence = await package.serving.probe(scope, installation)
@@ -400,6 +402,7 @@ async def _project(
                 True,
                 provision_id=installation.provision_id,
                 route_epoch=installation.route_epoch,
+                enabled=installation.enabled,
             )
         if evidence.state != "accepting" or not installation.enabled:
             return unavailable
@@ -427,6 +430,7 @@ async def _project(
             link,
             provision_id=installation.provision_id,
             route_epoch=installation.route_epoch,
+            enabled=installation.enabled,
         )
     except Exception:
         return unavailable

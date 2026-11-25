@@ -130,8 +130,13 @@ async def test_pending_is_exact_typed_work_not_own_voice_or_foreign_scope(
     ],
 )
 async def test_missing_proposal_needs_exact_terminal_and_effect_evidence(
-    postgres_raw_db, state, label
+    postgres_raw_db, monkeypatch, state, label
 ):
+    import base64
+
+    monkeypatch.setenv(
+        "INTEGRAL_CREDENTIAL_ENC_KEY", base64.b64encode(b"v" * 32).decode()
+    )
     now = datetime.now(timezone.utc)
     work = _work(TYPED_ID, now)
     proposal = _proposal(TOKEN, TYPED_ID, now)
@@ -144,6 +149,9 @@ async def test_missing_proposal_needs_exact_terminal_and_effect_evidence(
     assert lost.unverified == 1 and lost.applied == 0 and lost.awaiting == 0
 
     mark = _marker(proposal, now, state=state)
+    mark["context"].update(
+        staging_store.decision_conversation_fields(proposal["context"])
+    )
     invalid = {**mark, "context": {**mark["context"], "intent_fingerprint": "wrong"}}
     await postgres_raw_db.save("object", invalid)
     assert (await read_voice_thread_status(*SCOPE, seen))[0].unverified == 1
@@ -174,3 +182,77 @@ async def test_missing_proposal_needs_exact_terminal_and_effect_evidence(
     assert getattr(resolved, label) == 1 and resolved.unverified == 0
     assert TOKEN not in resolved.as_context()
     assert "private-fixture-evidence" not in resolved.as_context()
+    # An immediate card decision is discoverable without any prior poll of
+    # its proposal. The same durable receipt still proves the effect.
+    first_observation, _ = await read_voice_thread_status(*SCOPE)
+    assert getattr(first_observation, label) == 1
+    assert (await read_voice_thread_status(SCOPE[0], "other-workspace", SCOPE[2]))[
+        0
+    ].applied == 0
+
+
+@pytest.mark.parametrize("work_status", ["succeeded", "cancelled", "failed", "expired"])
+async def test_completed_voice_work_retains_exact_review_provenance(
+    postgres_raw_db, work_status
+):
+    """Reconcile the successful attempt after the worker releases its lease run."""
+    from app.agentive.services.work_execution import deterministic_run_id
+
+    now = datetime.now(timezone.utc)
+    work = _work("voice", now, typed=False)
+    work["context"].update(run_id="", attempt=1, status=work_status)
+    work["context"]["input_payload"]["request_fingerprint"] = "8" * 64
+    proposal = _proposal("voice-token", "voice", now)
+    proof = proposal["context"]["origin_proof"]
+    proof["run_id"] = deterministic_run_id(work_item_id="voice", attempt=1)
+    await postgres_raw_db.save("object", work)
+    await postgres_raw_db.save("object", proposal)
+    pending, seen = await read_voice_thread_status(*SCOPE)
+    assert pending.awaiting == 1 and pending.typed_turn == ""
+    assert len(seen) == 1
+    proof["run_id"] = deterministic_run_id(work_item_id="voice", attempt=2)
+    await postgres_raw_db.save("object", proposal)
+    invalid, _ = await read_voice_thread_status(*SCOPE)
+    assert invalid.awaiting == 0
+
+
+async def test_recent_decision_for_older_turn_revalidates_its_own_work(postgres_raw_db):
+    now = datetime.now(timezone.utc)
+    old = _work("older", now - timedelta(days=1))
+    await postgres_raw_db.save("object", old)
+    for number in range(9):
+        await postgres_raw_db.save("object", _work(f"newer-{number}", now))
+    proposal = _proposal(TOKEN, "older", now)
+    mark = _marker(proposal, now, state="revoked")
+    mark["context"].update(
+        staging_store.decision_conversation_fields(proposal["context"])
+    )
+    await postgres_raw_db.save("object", mark)
+    assert (await read_voice_thread_status(*SCOPE))[0].declined == 1
+    old["context"]["thread_id"] = "different-thread"
+    await postgres_raw_db.save("object", old)
+    assert (await read_voice_thread_status(*SCOPE))[0].declined == 0
+
+
+async def test_receipt_cursor_drains_burst_with_equal_timestamps(postgres_raw_db):
+    now = datetime.now(timezone.utc)
+    await postgres_raw_db.save("object", _work(TYPED_ID, now))
+    baseline, _ = await read_voice_thread_status(*SCOPE)
+    for n in range(12):
+        proposal = _proposal(f"burst-{n}", TYPED_ID, now)
+        marker = _marker(proposal, datetime.now(timezone.utc), state="revoked")
+        if n == 0:
+            stamp = marker["context"]["resolved_at"]
+        marker["context"]["resolved_at"] = stamp
+        marker["context"].update(
+            staging_store.decision_conversation_fields(proposal["context"])
+        )
+        await postgres_raw_db.save("object", marker)
+    first, _ = await read_voice_thread_status(
+        *SCOPE, receipt_cursor=baseline.receipt_cursor
+    )
+    second, _ = await read_voice_thread_status(
+        *SCOPE, receipt_cursor=first.receipt_cursor
+    )
+    assert first.declined == 8 and second.declined == 4
+    assert len(set(first.outcomes + second.outcomes)) == 12

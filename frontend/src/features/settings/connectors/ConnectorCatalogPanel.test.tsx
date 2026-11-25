@@ -32,7 +32,7 @@ function catalog(entries: CatalogEntry[]): UseQueryResult<CatalogListResponse> {
 }
 
 describe('ConnectorCatalogPanel', () => {
-  it('points host-managed packages at Dropped-in packages', () => {
+  it('does not offer Add for legacy host-managed packages', () => {
     render(
       <ConnectorCatalogPanel
         catalog={catalog([
@@ -45,10 +45,8 @@ describe('ConnectorCatalogPanel', () => {
       />,
     );
     const acme = screen.getByText('Acme line').closest('li')!;
-    expect(within(acme).getByText('Configure this line in Dropped-in packages.')).toBeVisible();
     expect(within(acme).queryByRole('button')).toBeNull();
     const named = screen.getByText('WhatsApp').closest('li')!;
-    expect(within(named).queryByText('Configure this line in Dropped-in packages.')).toBeNull();
     expect(within(named).getByRole('button', { name: 'Add' })).toBeVisible();
   });
 });

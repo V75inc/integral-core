@@ -41,6 +41,7 @@ from app.services.connectors.conflict_records import create_conflict_record
 from app.services.connectors.registry import get_sync_connector
 from app.services.connectors.sync_lease import (
     LEASE_SECONDS,
+    SyncLeaseLost,
     claim_sync,
     current_sync_lease,
     release_sync,
@@ -409,12 +410,11 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
                 from app.middleware.permissions_cache import reset_permissions_cache
 
                 reset_permissions_cache()
-                if getattr(connector, "mapping_profile", "") == "package":
-                    from app.agentive.nodes import Connector
+                from app.agentive.nodes import Connector
 
-                    require_current_package_sync(
-                        connector, await Connector.get(connector.id)
-                    )
+                require_current_package_sync(
+                    connector, await Connector.get(connector.id)
+                )
                 upstream_key = sub.idempotency_key_for(record)
                 materialized = sub.to_entry(record)
                 entry_type_key = str(materialized.entry_type_key or "").strip()
@@ -613,6 +613,12 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
 async def sync_one_connector(connector) -> Dict[str, int]:
     """Manual and scheduled entry point share one durable exclusive owner."""
     stats = {"created": 0, "updated": 0, "conflict": 0, "skipped": 0, "failed": 0}
+    if (
+        getattr(connector, "legacy_sync_paused", False)
+        and getattr(connector, "mapping_profile", "") != "package"
+    ):
+        stats["skipped"] = 1
+        return stats
     if getattr(connector, "mapping_profile", "") == "package":
         from app.agentive.services.connector_packages import installation_package_id
         from app.connectors.package_discovery import current_admission
@@ -643,7 +649,13 @@ async def sync_one_connector(connector) -> Dict[str, int]:
     async def execute():
         token = current_sync_lease.set(lease)
         try:
+            from app.agentive.nodes import Connector
+
+            require_current_package_sync(connector, await Connector.get(connector.id))
             return await _sync_owned(connector, lease)
+        except SyncLeaseLost:
+            stats["skipped"] = 1
+            return stats
         finally:
             current_sync_lease.reset(token)
 

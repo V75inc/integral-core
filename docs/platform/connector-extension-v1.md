@@ -25,7 +25,11 @@ match.
   - `sync` — pull external records into a Track as Entries;
   - `channel` — inbound and outbound messaging with people outside Integral.
 - **Binding** — who an installation belongs to (`workspace` or `personal`)
-  and how many may exist. Binding is independent of capability.
+  and how many may exist. A personal installation belongs to the installer in
+  their owned Personal Workspace. A workspace installation belongs to a shared
+  workspace and requires workspace owner or admin authority. Binding is
+  independent of capability. Managed text and host-managed channels are
+  workspace-only.
 - **Installation** — one durable instance of a package for a binding, created
   disabled by **Add**, holding configuration, encrypted secret handles, the
   installed package version and its own revision.
@@ -109,12 +113,15 @@ integral connectors validate ./integral-connectors/acme_crm
 integral up --apps ./integral-apps
 ```
 
-1. As a collaborative workspace admin, open **Settings → Connectors** and
-   select **Rescan**. Look for the connector under **Dropped-in packages**.
-   Invalid packages show their validation reason.
-2. Fill in the generated form and choose **Add**. The installation starts
-   disabled. Choose **Configure** to make changes, then **Enable** to run the
-   health probe. An authorized agent can call `find_contact` and propose
+1. As a collaborative workspace admin, open **Settings → Connectors → Add
+   Connector**. The Connector Library includes admitted packages and Core
+   integrations. Use **Rescan connectors** at the right of the library
+   toolbar to discover changes. If a package is rejected, the rescan result
+   explains what to fix.
+2. Open the connector detail and use the generated form to **Add** it. The
+   installation starts disabled and appears in **Settings → Connectors**.
+   Select **Configure** to make changes, then **Enable** to run the health
+   probe. An authorized agent can call `find_contact` and propose
    `create_contact` for review.
 
 ## Package layout and discovery
@@ -304,21 +311,19 @@ the id only if the channel sets `visitor_surface`.
 A user-dropped folder is not imported. A serving host still replaces the
 registry before it accepts visitor traffic. Settings no longer opens the older connection-profiles Web Chat card or its
 configuration dialog, and those profile routes are no longer served. Web Chat
-is configured through the managed channel. WhatsApp is host-managed:
+is configured through the managed channel. Configure places a private model test below the published agent profile. Expand the sharing sections for
+the server-side developer API specification and independently verified client endpoint,
+an exact-site popup launcher, and the issued full-page URL. See the
+[Web Chat host contract](../backend/web-chat-standalone-host.md#developer-client-contract).
+WhatsApp is host-managed:
 its grants stay on `WhatsAppChannelBinding` and `USES_WHATSAPP_LINE`, and
-generic Add refuses to create a second installation. The catalogue asks each host-managed package adapter for its own workspace binding. Core does not choose that binding by package id. The binding read also
-returns the package grant status: the edge, whether a grant is present, and
-whether that line is enabled. Ciphertext stays on the binding. The dropped-in
-package panel shows that status, can save the jvconnect URL and API key through
-the existing binding, and can disconnect the workspace line. Those controls
-follow the package grant, not the package id. The connector library points a
-host-managed package at Dropped-in packages. The connected list shows a
-host-managed package that already has a grant, using that package's name and
-enabled state. The grant stays on the existing binding. A package that is not
-host-managed stays a normal catalog install. The API key is
-not read back. Disconnect uses the existing binding and does not copy the
-secret or delete the binding. Settings no longer opens the old WhatsApp
-screen to configure that line.
+generic Add refuses to create a second installation. The catalog asks each
+host-managed package adapter for its workspace binding and grant state.
+Ciphertext stays on the binding. Open the package detail in the Connector
+Library to save its JV Connect URL and API key. The installed list displays
+the grant's enabled state. Configure opens the credential form and links
+to managed channel controls when the grant is connected. The API key is
+write-only, and disconnect preserves the existing binding.
 
 ## Trust tiers and admission
 
@@ -337,7 +342,7 @@ screen to configure that line.
 | Step | Behavior |
 |---|---|
 | Rescan | Admin action in Settings → Connectors. Declarative changes apply without restart. A trusted package admitted at startup stays on that manifest until the process restarts; a new trusted package is not admitted by Rescan. Tools for a package that is no longer admitted are removed. |
-| Library | Admitted packages whose binding includes the caller's scope. The workspace library omits a personal-only package. Rejected packages stay listed with their reason. |
+| Library | Admitted packages expose their declared scopes. Add offers eligible destinations and requires a choice when both are available. Administrators can see rejection reasons after Rescan. |
 | Add | Creates a disabled installation for the chosen scope and stores that manifest on the installation. Later rescans do not change it. Workspace cardinality defaults to one and refuses a second installation in that workspace. `many` allows another. The check and create for one package in one workspace are serialized in the process. |
 | Configure | Form rendered from `configuration` by Core's shared settings renderer. Values are validated server-side; secrets are stored as encrypted handles and never read back. A blank or omitted secret keeps the stored handle. JSON `null` revokes that secret so a later call cannot use it. Settings sends `null` from Remove. Each save increments `package_revision` and disables the installation until the next health probe. |
 | Enable | Requires a passing health check for the current revision. MCP uses `tools/list`. Other drop-in packages declare `health.request`. |
@@ -441,7 +446,27 @@ owner, Track edges, cursor and polling interval. A second run reports zero
 changes. If a qualification check fails, use
 `integral connectors migrate-catalog --reverse` before serving package
 configuration changes. Reverse restores the captured management metadata.
-Rows without an admitted package or workspace remain on the compatibility path.
+Adopted rows appear under their original Workspace or Per-user scope in
+Connector Settings. Use the installed row’s switch to pause and resume the
+same installation. Resume runs the package health check. Remove requires
+confirmation and deletes the installation. A subsequent Add starts disabled
+with a new installation ID.
+
+Workspace-scoped catalog Gmail, QuickBooks and GitHub Issues also have a
+switch before adoption. Turning a row off blocks manual and scheduled sync
+and fences stale workers. A successful health check resumes the same row
+without touching authorization, the binding, or the cursor.
+
+The Connector Library does not create unscoped or ownerless rows.
+Workspace Settings can still list older workspace-less records for their
+owner and shared records for members of the workspace attached to the record.
+A generic connector record does not become an installation merely because it
+appears in that list. A legacy row without an owning principal, a workspace,
+or a recognized first-party sync identity has no runtime switch. An
+unavailable package or unsupported binding blocks re-enabling. For
+these rows, first establish the existing installation’s workspace and binding
+scope through an authorized migration, or supply a reviewed adapter and health
+contract. The package switch requires that scope and contract.
 
 Current catalog entries map directly onto the manifest; ids are preserved.
 
@@ -463,8 +488,13 @@ against the schema. When the package is admitted, Gmail and QuickBooks consent
 and token URLs come from the manifest. Their client-id and redirect
 environment names are `client.id_env` and `redirect_env` on those packages.
 Google Drive, Gmail, and Sheets list the same Google client env names.
-Workspace OAuth catalog installs use the package installation service when
-the manifest supports workspace binding. In the package panel, Add saves a
+The package install API accepts `binding_scope` with `workspace` or `personal`.
+Omitting it is supported for a single-scope manifest. For dual-scope manifests,
+choose the scope before entering configuration. The request uses the destination
+workspace’s ID and exact scope header. The server verifies the destination
+and declared scope. Configure and authorize use the resulting installation ID
+in that workspace. Upgrading existing owner-scoped rows does not move their
+credentials, cursors, or bindings to a different workspace. In the package panel, Add saves a
 disabled installation and Authorize opens the provider's consent screen.
 The callback updates the same installation. Enable checks the provider using
 the stored credentials.

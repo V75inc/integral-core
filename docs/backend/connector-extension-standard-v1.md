@@ -232,8 +232,8 @@ resolved from the workspace-owned profile record. Any optional host authority
 can only narrow that result. The runtime rereads both the assignment and
 identity after host checks; neither is passed to visitors or model prompts.
 The identity binds to the publication, so a publication change invalidates
-old full-page, embed, and service-client authority. Adopting a service identity
-for an enabled Web Chat route first requires explicit Disable. This runtime
+old full-page, embed, and service-client authority. Publication always provisions a workspace ACL principal. Adopting or changing
+the version-bound channel identity on an enabled route first requires explicit Disable. This runtime
 does not add resource grants or server-side grant management.
 
 This is a trusted in-process composition hook. It does not change the v1

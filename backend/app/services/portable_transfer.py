@@ -1051,7 +1051,9 @@ async def _sanitize_dangling_export_refs(
     return working
 
 
-def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
+def validate_archive(
+    archive: PortableArchive, files: dict[str, bytes], *, include_data: bool = True
+) -> None:
     """Validate all identities/files/references before the first restore write."""
     if (archive.kind == "app" and (not archive.apps or archive.tracks)) or (
         archive.kind == "track" and (not archive.tracks or archive.apps)
@@ -1068,6 +1070,7 @@ def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
     refs = [app.ref for app in archive.apps]
     refs.extend(app.model_ref for app in archive.apps if app.model_ref)
     entries = set()
+    omitted_refs: set[str] = set()
     app_tag_refs = {t.ref for app in archive.apps for t in app.tags}
     members = set()
     for app in archive.apps:
@@ -1132,6 +1135,9 @@ def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
         for entry in track.entries:
             refs.append(entry.ref)
             entries.add(entry.ref)
+            if not include_data:
+                omitted_refs.add(entry.ref)
+                omitted_refs.update(a.ref for a in entry.attachments)
             if entry.type_ref not in type_refs or not set(entry.tags) <= tag_refs:
                 raise BadRequestError(message="An entry has an unavailable type or tag")
             for attachment in entry.attachments:
@@ -1194,6 +1200,15 @@ def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
             )
         elif isinstance(value, list):
             configurations.extend(value)
+        elif (
+            omitted_refs
+            and isinstance(value, str)
+            and value.removeprefix("instance:") in omitted_refs
+        ):
+            raise BadRequestError(
+                message="This configuration references records in the archive. "
+                "Include records and attachments, or remove the reference before exporting."
+            )
         elif (
             isinstance(value, str)
             and value.startswith("instance:")
@@ -1274,12 +1289,16 @@ def validate_archive(archive: PortableArchive, files: dict[str, bytes]) -> None:
                     )
 
 
-async def read_archive(data: bytes) -> tuple[PortableArchive, dict[str, bytes]]:
+async def read_archive(
+    data: bytes, *, include_data: bool = True
+) -> tuple[PortableArchive, dict[str, bytes]]:
     """Decode and fully preflight untrusted archive content off the event loop."""
     raw, files = await asyncio.to_thread(decode_archive, data)
     try:
         archive = PortableArchive.model_validate(raw)
-        await asyncio.to_thread(validate_archive, archive, files)
+        await asyncio.to_thread(
+            validate_archive, archive, files, include_data=include_data
+        )
     except (ValidationError, TypeError, AttributeError, ValueError) as exc:
         raise BadRequestError(message="Invalid portable archive configuration") from exc
     return archive, files
@@ -2307,7 +2326,12 @@ async def _import_packaged_archive(
 
 
 async def import_resources(
-    *, user_id: str, workspace_id: str, data: bytes, app_id: str = ""
+    *,
+    user_id: str,
+    workspace_id: str,
+    data: bytes,
+    app_id: str = "",
+    include_data: bool = True,
 ) -> dict:
     """Restore private copies. PG is atomic; local stores compensate owned nodes/files."""
     from app.models.nodes import View
@@ -2328,7 +2352,18 @@ async def import_resources(
     )
     from app.services.track_service import create_track_in_space
 
-    archive, files = await read_archive(data)
+    archive, files = await read_archive(data, include_data=include_data)
+    if not include_data and archive.mode == "full":
+        # Work on this request's decoded archive. Keep admitted package members
+        # while removing every record and attachment before either restore path.
+        for track in _tracks(archive):
+            track.entries.clear()
+        archive.mode = "configuration"
+        files = {
+            name: content
+            for name, content in files.items()
+            if name.startswith("package/")
+        }
     if (
         archive.apps and not await can_create_app_under_workspace(user_id, workspace_id)
     ) or (

@@ -163,12 +163,18 @@ def compose_web_chat_embed(
             send=controller.send,
         )
 
+    async def read_theme(policy):
+        from app.agentive.services.public_web_chat import visitor_theme
+
+        return await visitor_theme(policy.provision, policy.route_epoch)
+
     return WebChatEmbedAssembly(
         page_router=create_web_chat_embed_page_router(
             served_origin=origin,
             host_ready=host_ready,
             read_current=resolve,
             issue_seed=issue,
+            read_theme=read_theme,
             assets=assets,
         ),
         api_router=create_web_chat_embed_router(

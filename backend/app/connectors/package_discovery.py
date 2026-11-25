@@ -79,6 +79,19 @@ def first_party_package_dir(package_id: str) -> Path | None:
     return path
 
 
+def _schema_diagnostic(error: ValidationError) -> str:
+    """Describe a failed schema rule without exposing manifest contents."""
+    path = list(error.absolute_schema_path)
+    fields = [field for key, field in zip(path, path[1:]) if key == "properties"]
+    place = ".".join(str(field) for field in fields) or "manifest"
+    if error.validator == "required":
+        missing = [key for key in error.validator_value if key not in error.instance]
+        return f"{place}: missing required fields ({', '.join(missing)})"
+    if error.validator == "not":
+        return f"{place}: contains fields or values disallowed in this mode"
+    return f"{place}: does not meet the {error.validator} rule"
+
+
 def load_package(
     directory: Path, *, allow_trusted: bool = False
 ) -> tuple[dict[str, Any] | None, str]:
@@ -103,9 +116,7 @@ def load_package(
         _schema_validator().iter_errors(document), key=lambda item: list(item.path)
     )
     if errors:
-        first: ValidationError = errors[0]
-        place = ".".join(str(part) for part in first.path) or "manifest"
-        return None, f"{place}: {first.message}"
+        return None, _schema_diagnostic(errors[0])
     if document["id"] != directory.name:
         return None, "folder name must equal the manifest id"
     specifier = str(document.get("core") or "").strip()
@@ -139,7 +150,7 @@ def _core_requirement(specifier: str) -> str:
     except InvalidSpecifier:
         return "core specifier is invalid"
     if __version__ not in accepted:
-        return f"core requires {specifier}"
+        return "core version requirement does not match this installation"
     return ""
 
 
@@ -252,8 +263,16 @@ def scan_packages(roots: list[Path] | None = None) -> PackageAdmission:
         if not root.is_dir():
             continue
         for child in sorted(path for path in root.iterdir() if path.is_dir()):
-            manifest, reason = load_package(child, allow_trusted=allow_trusted)
             package_id = child.name
+            if _PACKAGE_ID.fullmatch(package_id) is None:
+                admission.rejected.append(
+                    {
+                        "id": "Invalid package folder",
+                        "reason": "use a valid connector ID as the folder name",
+                    }
+                )
+                continue
+            manifest, reason = load_package(child, allow_trusted=allow_trusted)
             if manifest is None:
                 admission.rejected.append({"id": package_id, "reason": reason})
                 continue

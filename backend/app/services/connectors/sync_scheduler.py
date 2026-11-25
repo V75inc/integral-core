@@ -72,6 +72,11 @@ async def _maybe_dispatch_one(connector) -> bool:
     supervised — each connector's pull is its own asyncio task so a
     slow external API doesn't block the loop tick.
     """
+    if getattr(connector, "mapping_profile", "") == "package":
+        if not getattr(connector, "enabled", False):
+            return False
+    elif getattr(connector, "legacy_sync_paused", False):
+        return False
     last = _parse_iso(getattr(connector, "last_synced_at", None))
     previous = _running.get(str(connector.id))
     if previous is not None and not previous.done():

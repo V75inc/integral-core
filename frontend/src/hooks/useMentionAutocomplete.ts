@@ -32,7 +32,7 @@ export interface UseMentionAutocompleteResult {
       onTab?: () => void;
     },
   ) => boolean;
-  replaceWithMention: (user: { display_name: string }) => void;
+  replaceWithMention: (user: { display_name: string; id?: string; is_service_identity?: boolean }) => void;
   dismiss: () => void;
 }
 
@@ -41,13 +41,13 @@ export function useMentionAutocomplete({
   onChange,
   hostRef,
 }: UseMentionAutocompleteOptions): UseMentionAutocompleteResult {
-  const base = useTriggerAutocomplete<{ display_name: string }>({
+  const base = useTriggerAutocomplete<{ display_name: string; id?: string; is_service_identity?: boolean }>({
     trigger: '@',
     value,
     onChange,
     hostRef,
-    buildToken: (user: { display_name: string }) =>
-      slugForTagToken(user.display_name),
+    buildToken: (user: { display_name: string; id?: string; is_service_identity?: boolean }) =>
+      user.is_service_identity && user.id ? user.id : slugForTagToken(user.display_name),
   });
 
   return {

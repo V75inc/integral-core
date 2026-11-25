@@ -35,11 +35,9 @@ export const connectionProfilesApi = {
     apiClient.put<ProfileSettings>('/workspace/agent-profiles/draft', { expected_revision: revision, key: draft.key, draft }, scope(workspace)).then(r => r.data),
   setNativeChatProfiles: (workspace: string, revision: number, profiles: string[]) =>
     apiClient.put<ProfileSettings>('/workspace/agent-profiles/native-chat', { expected_revision: revision, profiles }, scope(workspace)).then(r => r.data),
-  publish: (workspace: string, revision: number, key: string, offerInChat: boolean, connectionIds: string[],
-    enablePublicServiceIdentity?: true) =>
+  publish: (workspace: string, revision: number, key: string, offerInChat: boolean, connectionIds: string[]) =>
     apiClient.post<ProfileSettings>('/workspace/agent-profiles/publish', {
       expected_revision: revision, key, offer_in_workspace_chat: offerInChat, connection_ids: connectionIds,
-      ...(enablePublicServiceIdentity === true ? { enable_public_service_identity: true } : {}),
     }, scope(workspace)).then(r => r.data),
   action: (workspace: string, revision: number, key: string, action: 'test' | 'publish' | 'bind', connection_id?: string) => apiClient.post<ProfileSettings>(`/workspace/agent-profiles/${action}`, { expected_revision: revision, key, ...(connection_id ? { connection_id } : {}) }, scope(workspace)).then(r => r.data),
 };

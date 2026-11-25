@@ -31,7 +31,8 @@ import {
 import type { Attachment, OperationalModelFieldSpec, Entry, StoredLinkPreview, Track } from '../../types';
 import { attachmentsApi, entriesApi, entryTypesApi } from '../../api';
 import { AttachmentViewerModal } from './attachments/AttachmentViewerModal';
-import { entryTypesForTrackQueryKey, invalidateFeedCaches } from '../../queryKeys';
+import { entryTypesForTrackQueryKey } from '../../queryKeys';
+import { refreshCommittedTrackEntries } from '../../services/graphMutationInvalidation';
 import {
   FEED_CARD_BODY_PREVIEW_CHARS,
   FEED_CARD_TITLE_CLAMP_CHARS,
@@ -180,6 +181,7 @@ function EntryCardInner({
     const pendingId = showPendingToast('Deleting…');
     try {
       await entriesApi.delete(entry.id);
+      void refreshCommittedTrackEntries(queryClient, entry.track_id);
       resolveToast(pendingId, 'Entry deleted', 'success');
     } catch {
       resolveToast(pendingId, 'Failed to delete; restoring…', 'error');
@@ -189,10 +191,7 @@ function EntryCardInner({
       // and avoids divergence with anything else that may have
       // changed during the in-flight request.
       try {
-        // Invalidate the full ['feed'] prefix so both FeedPage's
-        // infinite-query and Mission Control's dashboardPreview pick
-        // up the rollback.
-        await invalidateFeedCaches(queryClient);
+        await refreshCommittedTrackEntries(queryClient, entry.track_id);
       } catch {
         /* non-fatal — toast already explained the failure */
       }

@@ -151,7 +151,9 @@ async def admit(
     ):
         raise ProfileDenied("Public Web Chat unavailable")
     published = eligible_publication(found.profiles, route.profile_key)
-    if published is None:
+    if published is None or not await profile_management.live_public_service_identity(
+        found, route.profile_key, published["version"]
+    ):
         raise ProfileDenied("Public Web Chat unavailable")
     scope = PublicWebChatScope(
         workspace, visitor, route.profile_key, published["version"], route.generation
@@ -159,3 +161,33 @@ async def admit(
     if existing is not None and existing != scope:
         raise ProfileDenied("Conversation unavailable")
     return scope
+
+
+async def set_appearance(actor, workspace, change):
+    """Save a presentation preference without rotating the public route."""
+
+    async def update(_profiles, _bindings, _native, route):
+        if (route.provision_id, str(route.generation)) != (
+            change.provision_id,
+            change.route_epoch,
+        ):
+            raise BadRequestError(
+                "Web Chat installation changed. Reload and try again."
+            )
+        route.theme = change.theme
+
+    await profile_management.mutate_config(
+        actor, workspace, change.expected_profile_revision, update
+    )
+
+
+async def visitor_theme(provision, epoch):
+    """Read the theme only for the current public provision generation."""
+    found = await profile_management.record(provision.workspace_id)
+    route = PublicWebChatRoute.model_validate(found.public_web_chat if found else {})
+    if route.enabled and (route.provision_id, str(route.generation)) == (
+        provision.provision_id,
+        epoch,
+    ):
+        return route.theme
+    return "system"

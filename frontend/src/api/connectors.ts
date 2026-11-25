@@ -38,6 +38,8 @@ export interface ConnectorResponse {
   sync_interval_seconds: number;
   /** Package installations stay off until a health probe passes. */
   enabled?: boolean;
+  standalone_mcp_paused?: boolean;
+  legacy_sync_enabled?: boolean | null;
   last_synced_at: string | null;
   /** ADR-009 MCP client mount fields */
   workspace_id?: string | null;
@@ -398,6 +400,12 @@ export interface McpConnectorHealthResponse {
 }
 
 export const connectorsApi = {
+  async setLegacySyncEnabled(id: string, enabled: boolean): Promise<void> {
+    await api.put(`/agentive/connectors/${encodeURIComponent(id)}/legacy-sync-enabled`, { enabled });
+  },
+  async setStandaloneMcpEnabled(id: string, enabled: boolean): Promise<void> {
+    await api.put(`/agentive/connectors/${encodeURIComponent(id)}/standalone-mcp-enabled`, { enabled });
+  },
   async list(): Promise<ConnectorListResponse> {
     const { data } = await api.get<ConnectorListResponse>('/agentive/connectors');
     return data;

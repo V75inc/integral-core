@@ -150,6 +150,7 @@ vi.mock("../hooks/useAIConfiguration", () => ({
 vi.mock("../../../api/aiConfiguration", async (original) => ({
   ...(await original<typeof import("../../../api/aiConfiguration")>()),
   aiConfigurationApi: {
+    saveDeploymentLimits: vi.fn(),
     testConnection: vi.fn(),
     saveConnection: vi.fn(),
     saveProfile: vi.fn(),
@@ -423,7 +424,7 @@ it("starts categories collapsed and opens one at a time", () => {
   fireEvent.click(embeddings);
   expect(embeddings).toHaveAttribute("aria-expanded", "true");
   expect(language).toHaveAttribute("aria-expanded", "false");
-  expect(screen.getByText(/Powers semantic search/)).toBeVisible();
+  expect(screen.getByRole("region", { name: "Embedding model assignment" })).toBeVisible();
   fireEvent.click(voice);
   expect(embeddings).toHaveAttribute("aria-expanded", "false");
   expect(voice).toHaveAttribute("aria-expanded", "true");
@@ -433,10 +434,10 @@ it("starts categories collapsed and opens one at a time", () => {
 });
 
 
-it("keeps Quick Setup visible while both advanced controls start closed independently", () => {
+it("keeps Quick Configuration visible while both advanced controls start closed independently", () => {
   show({ advanced: false, catalog: false, language: false });
   const advanced = screen.getByRole("button", { name: "Advanced Configuration" });
-  expect(screen.getByText("Your AI is connected")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Quick Configuration" })).toBeVisible();
   expect(advanced).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByRole("button", { name: "Providers & Models" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Model assignments" })).not.toBeInTheDocument();
@@ -455,7 +456,7 @@ it("keeps Quick Setup visible while both advanced controls start closed independ
   fireEvent.click(catalog);
   expect(screen.queryByRole("tablist", { name: "AI configuration" })).not.toBeInTheDocument();
   expect(assignments).toBeVisible();
-  expect(screen.getByText("Your AI is connected")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Quick Configuration" })).toBeVisible();
 });
 
 it("opens only the relevant assignment when following a legacy settings link", () => {
@@ -479,7 +480,11 @@ it("puts Deployment Limits last and opens it independently of Advanced Configura
   const content = screen.getByRole("region", { name: "Deployment Limits" });
   expect(limits).toHaveAttribute("aria-expanded", "true");
   expect(advanced).toHaveAttribute("aria-expanded", "false");
-  expect(content).toHaveTextContent(/20 model requests, 32 tool calls.*1,200,000 total tokens and 15 minutes per turn/);
+  expect(content).toHaveTextContent("Model requests per turn20");
+  expect(content).toHaveTextContent("Tool calls per turn32");
+  expect(content).toHaveTextContent("Total tokens per turn1,200,000");
+  expect(content).toHaveTextContent("Turn timeout (seconds)900");
+  expect(within(content).queryByRole("button", { name: "Edit deployment limits" })).toBeNull();
   expect(content).toHaveTextContent("Approval and access checks always apply.");
   fireEvent.click(limits);
   expect(screen.queryByRole("region", { name: "Deployment Limits" })).not.toBeInTheDocument();
@@ -529,5 +534,36 @@ it("opens Advanced and Embeddings from Search, then scrolls only once mounted on
   } finally {
     if (previous) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", previous);
     else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
+});
+
+it("lets a platform administrator cancel, bound and explicitly save overrides or defaults", async () => {
+  const host = { ...fixture.data.harness_limits, tool_call_limit: 32 };
+  const settings = { revision: 3, host, overrides: { request_limit: 5 }, effective: { ...host, request_limit: 5 } };
+  vi.mocked(aiConfigurationApi.saveDeploymentLimits).mockResolvedValue(settings);
+  Object.assign(fixture.data, { deployment_limit_settings: settings });
+  try {
+    show({ advanced: false, catalog: false, language: false });
+    fireEvent.click(screen.getByRole("button", { name: "Deployment Limits" }));
+    const open = () => fireEvent.click(screen.getByRole("button", { name: "Edit deployment limits" }));
+    open();
+    const input = screen.getByRole("spinbutton", { name: "Model requests per turn" });
+    expect(input).toHaveValue(5);
+    fireEvent.change(input, { target: { value: "21" } });
+    expect(screen.getByRole("button", { name: "Save limits" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(aiConfigurationApi.saveDeploymentLimits).not.toHaveBeenCalled();
+    open();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Model requests per turn" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() => expect(vi.mocked(aiConfigurationApi.saveDeploymentLimits).mock.calls[0][0]).toEqual({ revision: 3, overrides: { request_limit: 4 } }));
+    await screen.findByRole("button", { name: "Edit deployment limits" });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Use host defaults" }));
+    expect(aiConfigurationApi.saveDeploymentLimits).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() => expect(vi.mocked(aiConfigurationApi.saveDeploymentLimits).mock.calls[1][0]).toEqual({ revision: 3, overrides: {} }));
+  } finally {
+    Reflect.deleteProperty(fixture.data, "deployment_limit_settings");
   }
 });
