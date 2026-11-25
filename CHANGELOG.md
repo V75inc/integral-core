@@ -9,7 +9,8 @@ bump does not establish that a release is available on a package index.
 - Give each Track its own entry count in the Home snapshot when hidden per-record Tracks are present.
 - Show "5 of 12 entries" in the Track header when the open view or filter shows part of the Track, so it agrees with the entry count on the App and Track lists.
 - Let editors change dates from app-designed record views: the calendar opens and the change is written with Save, against the record revision on screen. The calendar also opens above a field when there is no room below it.
-- Show member email addresses again on Workspace Members. The admin-only members list now returns each active account's email; the shared public user view still omits it.
+- Show member email addresses again on Workspace Members. The admin-only members list now returns each active account's email; the shared public user view still omits it. A blank or invalid stored address leaves only that row without one.
+- With a type or tag filter chosen, the Track header says how many entries are shown beside the whole Track count. A date saved from an app-designed view stays with the record it began on, leaves other dates free to refresh, and offers a read-only retry if the record cannot be read back.
 - Move domain form workflows, document UI, template selection and legacy App aliases to explicit host contracts; Core renders declared groups, review and acknowledgment steps without inferring business policy from field names. Host migration/readiness and paired artifact qualification are required before adoption.
 - Require declared create-action argument names and import eligibility; remove implicit record-copy and identifier-preview behavior from Core forms. Enforce an app-neutral runtime and SDK architecture gate without named-App exceptions.
 

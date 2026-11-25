@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { findEntryTypeBySlug } from '../../utils/entryMetaFields';
 import { SeamlessField } from '../entries/SeamlessField';
@@ -224,7 +224,8 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
           setTargetEditable(true);
         }
       } catch {
-        if (!cancelled) setTargetEntry(null);
+        // A failed re-read keeps the record already on screen.
+        if (!cancelled) setTargetEntry(prev => (prev && prev.id === hostEntryId ? prev : null));
       }
     }
 
@@ -422,15 +423,30 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
 
   // Detail view: date fields open their picker and save only on Save.
   const detailEdit = lifecycle?.mode === 'detail' ? lifecycle.detailEdit : undefined;
-  const dateDraft = useDetailDateDraft(targetEntry, saved => {
-    setTargetEntry(saved);
+  const dateDraft = useDetailDateDraft(
+    targetEntry && targetEntry.id === hostEntryId ? targetEntry : null,
+    ({ entry: saved, stillShown }) => {
+      if (stillShown) setTargetEntry(saved);
+      detailEdit?.onSaved(saved);
+    },
+  );
+  // A newer revision of the record on screen wins over values shared between
+  // regions, both for what was saved here and for what changed elsewhere.
+  const syncLive = live?.sync;
+  const seenRevision = useRef<{ entryId: string; revision: number } | null>(null);
+  useEffect(() => {
+    if (draftBound || !targetEntry?.id || !targetEntry.record_revision) return;
+    const seen = seenRevision.current;
+    const sameRecord = seen?.entryId === targetEntry.id;
+    if (sameRecord && targetEntry.record_revision <= seen!.revision) return;
+    seenRevision.current = { entryId: targetEntry.id, revision: targetEntry.record_revision };
+    if (!sameRecord) return;
     for (const field of allFields) {
-      if (field.type === 'date' || field.type === 'datetime') {
-        live?.commit(field.key, saved.custom_fields?.[field.key]);
+      if (targetEntry.custom_fields && field.key in targetEntry.custom_fields) {
+        syncLive?.(field.key, targetEntry.custom_fields[field.key]);
       }
     }
-    detailEdit?.onSaved(saved);
-  });
+  }, [draftBound, targetEntry, allFields, syncLive]);
 
   // Re-reading the record already on screen (after a save) keeps it there.
   const awaitingTarget =
@@ -545,6 +561,13 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
             <Button type="button" size="sm" loading={dateDraft.saving} onClick={() => { void dateDraft.save(); }}>Save</Button>
             <Button type="button" size="sm" variant="ghost" disabled={dateDraft.saving} onClick={dateDraft.cancel}>Cancel</Button>
           </div>
+        </div>
+      ) : null}
+      {dateDraft.refreshError ? (
+        <div role="status" className="mt-3 space-y-2">
+          <Text as="p" variant="body-sm" tone="warn">Saved. Refresh the entry to check its latest live fields.</Text>
+          <details><summary>Show refresh error</summary><Text as="p" variant="body-sm">{dateDraft.refreshError}</Text></details>
+          <Button type="button" size="sm" variant="secondary" loading={dateDraft.refreshing} onClick={() => { void dateDraft.refresh(); }}>Refresh entry</Button>
         </div>
       ) : null}
     </Surface>

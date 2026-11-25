@@ -1,5 +1,7 @@
+import { useState, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 const mockGet = vi.fn();
@@ -33,7 +35,10 @@ vi.mock('../../../context/ToastContext', () => ({
 }));
 
 import { FormRegionWidget } from '../FormRegionWidget';
-import type { SavedView } from '../../../types';
+import { LiveValuesContext, useLiveValuesProvider } from '../regionConditions';
+import { ContributionLifecycleContext } from '../../entries/contributionLifecycle';
+import { useDetailRecordEdit } from '../../entries/useDetailRecordEdit';
+import type { Entry, SavedView } from '../../../types';
 
 afterEach(() => {
   cleanup();
@@ -453,6 +458,183 @@ describe('FormRegionWidget', () => {
 
     await screen.findByDisplayValue('Draft Co');
     expect(screen.queryByDisplayValue('R-1')).not.toBeInTheDocument();
+  });
+});
+
+describe('FormRegionWidget saving dates on the reading view', () => {
+  const dateType = {
+    ...entryType,
+    form_schema: {
+      ...entryType.form_schema,
+      fields: [
+        { key: 'start_date', name: 'Start date', type: 'date' },
+        { key: 'end_date', name: 'End date', type: 'date' },
+      ],
+    },
+  };
+  const record = (id: string, start: string, end: string, revision = 3): Entry => ({
+    id, track_id: 'track-1', title: id, record_revision: revision, schema_revision: 2,
+    custom_fields: { start_date: start, end_date: end },
+  }) as unknown as Entry;
+
+  /** The entry dialog's own wiring: one widget, whichever record is shown. */
+  function Host({ entry, canSwitchTo, newer, onUpdate = () => {} }: {
+    entry: Entry; canSwitchTo?: Entry; newer?: Entry; onUpdate?: (saved: Entry) => void;
+  }) {
+    const [shown, setShown] = useState(entry);
+    const detailEdit = useDetailRecordEdit(shown, true, setShown, onUpdate);
+    // Seeded with the whole record, as the layout container does.
+    const live = useLiveValuesProvider(shown.custom_fields as Record<string, unknown>);
+    return (
+      <LiveValuesContext.Provider value={live}>
+        <span data-testid="shown">{shown.id}</span>
+        {canSwitchTo && <button type="button" onClick={() => setShown(canSwitchTo)}>Open next</button>}
+        {newer && <button type="button" onClick={() => setShown(newer)}>Host refreshed</button>}
+        <ContributionLifecycleContext.Provider
+          value={{
+            mode: 'detail', placement: 'entry_detail', entryId: shown.id,
+            customFields: shown.custom_fields as Record<string, unknown>,
+            detailEdit, register: () => () => {},
+          }}
+        >
+          <FormRegionWidget
+            view={baseView({ fields: ['start_date', 'end_date'], __bindings: { entryId: shown.id } })}
+            entries={[]}
+            isLoading={false}
+            onEntryOpen={() => {}}
+          />
+        </ContributionLifecycleContext.Provider>
+      </LiveValuesContext.Provider>
+    );
+  }
+
+  const mount = (host: ReactNode) => render(
+    <QueryClientProvider client={new QueryClient()}>{host}</QueryClientProvider>,
+  );
+
+  async function pickStart(day: RegExp) {
+    const [start] = await screen.findAllByRole('button', { name: 'Open calendar' });
+    fireEvent.click(start);
+    fireEvent.click(await screen.findByRole('button', { name: day }));
+  }
+
+  it('a save finishing late leaves the next record and its draft alone', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const a = record('entry-a', '2026-03-10', '2026-03-11');
+    const b = record('entry-b', '2026-04-10', '2026-04-11');
+    const savedA = record('entry-a', '2026-03-20', '2026-03-11', 4);
+    let aSaved = false;
+    mockGet.mockImplementation(async (id: string) => (id === 'entry-b' ? b : aSaved ? savedA : a));
+    let finish: (entry: Entry) => void = () => {};
+    mockUpdate.mockImplementation(() => new Promise<Entry>(resolve => { finish = resolve; }));
+    const onUpdate = vi.fn();
+    mount(<Host entry={a} canSwitchTo={b} onUpdate={onUpdate} />);
+
+    await pickStart(/March 20th, 2026/);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open next' }));
+    await pickStart(/April 22nd, 2026/);
+    aSaved = true;
+    await act(async () => { finish(savedA); });
+
+    expect(screen.getByTestId('shown')).toHaveTextContent('entry-b');
+    // The dialog's owner is not handed the earlier record back either.
+    expect(onUpdate).not.toHaveBeenCalled();
+    mockUpdate.mockResolvedValue(record('entry-b', '2026-04-22', '2026-04-11', 4));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenLastCalledWith('entry-b', {
+      custom_fields: { start_date: '2026-04-22' },
+      expected_record_revision: 3,
+      expected_schema_revision: 2,
+    }));
+  });
+
+  it('shows a newer end date after the start date was saved', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11');
+    const saved = record('entry-a', '2026-03-20', '2026-03-11', 4);
+    const newer = record('entry-a', '2026-03-25', '2026-03-28', 5);
+    mockGet.mockResolvedValue(first);
+    mockUpdate.mockResolvedValue(saved);
+    mount(<Host entry={first} newer={newer} />);
+
+    await pickStart(/March 20th, 2026/);
+    mockGet.mockResolvedValue(saved);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+    mockGet.mockResolvedValue(newer);
+    fireEvent.click(screen.getByRole('button', { name: 'Host refreshed' }));
+
+    await waitFor(() => expect(screen.getByDisplayValue(/28/)).toBeInTheDocument());
+    expect(screen.getByDisplayValue(/25/)).toBeInTheDocument();
+  });
+
+  it('shows a newer revision even while the shared snapshot is still the old one', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11');
+    const saved = record('entry-a', '2026-03-20', '2026-03-11', 4);
+    const newer = record('entry-a', '2026-03-25', '2026-03-28', 5);
+    mockGet.mockResolvedValue(first);
+    mockUpdate.mockResolvedValue(saved);
+    /** A container whose own snapshot never changes; only the record is re-read. */
+    function StaleSnapshot() {
+      const [, setReads] = useState(0);
+      const live = useLiveValuesProvider(first.custom_fields as Record<string, unknown>);
+      return (
+        <LiveValuesContext.Provider value={live}>
+          <button type="button" onClick={() => setReads(n => n + 1)}>Read again</button>
+          <ContributionLifecycleContext.Provider
+            value={{
+              mode: 'detail', placement: 'entry_detail', entryId: 'entry-a', customFields: {},
+              detailEdit: { readOnlyKeys: [], onSaved: () => {} }, register: () => () => {},
+            }}
+          >
+            <FormRegionWidget
+              view={baseView({ fields: ['start_date', 'end_date'], __bindings: { entryId: 'entry-a' } })}
+              entries={[]}
+              isLoading={false}
+              onEntryOpen={() => {}}
+            />
+          </ContributionLifecycleContext.Provider>
+        </LiveValuesContext.Provider>
+      );
+    }
+    mount(<StaleSnapshot />);
+
+    await pickStart(/March 20th, 2026/);
+    mockGet.mockResolvedValue(newer);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+
+    await waitFor(() => expect(screen.getByDisplayValue(/28/)).toBeInTheDocument());
+    expect(screen.getByDisplayValue(/25/)).toBeInTheDocument();
+  });
+
+  it('reads again, never writes again, when the refresh after a save fails', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first = record('entry-a', '2026-03-10', '2026-03-11');
+    const saved = record('entry-a', '2026-03-20', '2026-03-11', 4);
+    // The end date is worked out at read time, so the PATCH response lacks it.
+    const projected = { ...first, read_time_fields: {
+      values: { end_date: '2026-03-11' }, status: {},
+    } } as Entry;
+    mockGet.mockResolvedValue(projected);
+    mockUpdate.mockResolvedValue(saved);
+    mount(<Host entry={projected} />);
+
+    await pickStart(/March 20th, 2026/);
+    mockGet.mockRejectedValue(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const retry = await screen.findByRole('button', { name: 'Refresh entry' });
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Open calendar' })[1]).toBeDisabled();
+    // The saved date stays on screen while the full record cannot be read.
+    expect(screen.getByDisplayValue(/(March|Mar) 20|20 (Mar|March)|2026-03-20|20\/0?3\/|0?3\/20\//)).toBeInTheDocument();
+
+    mockGet.mockResolvedValue(saved);
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Refresh entry' })).toBeNull());
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -26,6 +26,8 @@ export interface TrackDetailHeaderProps {
   entriesTotal?: number;
   /** Every entry in the Track, when the open tab or filter may show only some. */
   trackTotal?: number;
+  /** Set when a filter applied in the browser hides some of the loaded entries. */
+  shownEntries?: number;
   loadedEntries?: number;
   hasMoreEntries?: boolean;
   publicShareEnabled: boolean;
@@ -50,6 +52,7 @@ export function TrackDetailHeader({
   workspaceAccentColor,
   entriesTotal,
   trackTotal,
+  shownEntries,
   loadedEntries,
   hasMoreEntries,
   publicShareEnabled,
@@ -153,7 +156,9 @@ export function TrackDetailHeader({
         </div>
         <PageMeta>
           <span>
-            {entriesTotal !== undefined
+            {shownEntries !== undefined
+              ? `${shownEntries} shown${(trackTotal ?? entriesTotal) !== undefined ? ` · ${trackTotal ?? entriesTotal} ${(trackTotal ?? entriesTotal) === 1 ? 'entry' : 'entries'}` : ''}`
+              : entriesTotal !== undefined
               ? trackTotal !== undefined && trackTotal > entriesTotal
                 ? `${entriesTotal} of ${trackTotal} entries`
                 : `${entriesTotal} ${entriesTotal === 1 ? 'entry' : 'entries'}`

@@ -81,6 +81,7 @@ import {
   resolveEntryContribution,
   type EntryContributionSlotHandle,
 } from './EntryContributionSlot';
+import { useDetailRecordEdit } from './useDetailRecordEdit';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { WatchersControl } from './WatchersControl';
@@ -663,23 +664,8 @@ export function EntryDetail({
     'entry_detail'
   );
 
-  // Stable between renders: app-designed detail regions re-read when it changes.
-  const detailEdit = useMemo(
-    () => canEdit ? {
-      readOnlyKeys: Array.from(new Set([
-        ...Object.keys(entry.read_time_fields?.values || {}),
-        ...Object.keys(entry.read_time_fields?.status || {}),
-      ])),
-      onSaved: (saved: Entry) => {
-        void queryClient.invalidateQueries({ queryKey: ['entry', saved.id] });
-        void queryClient.invalidateQueries({ queryKey: ['entries'] });
-        void invalidateFeedCaches(queryClient);
-        setEntry(saved);
-        onUpdateRef.current?.(saved);
-      },
-    } : undefined,
-    [canEdit, entry.read_time_fields, queryClient]
-  );
+  const detailEdit = useDetailRecordEdit(entry, canEdit, setEntry,
+    saved => onUpdateRef.current?.(saved));
 
   const designerTargetView = useMemo((): SavedView | null => {
     return resolveDesignerTargetView(

@@ -1,4 +1,5 @@
 import { useRecordNavigation } from '../hooks/useRecordNavigation';
+import { browserFilteredCount } from '../components/tracks/detail/browserFilteredCount';
 import { useDeployment } from '../hooks/useDeployment';
 import { MAX_FIELD_FILTERS, toRequestFilters, type FieldFilter } from '../components/tracks/fieldFilters';
 import { PAGE_SIZES } from '../components/ui/ListPager';
@@ -1985,6 +1986,7 @@ export function TrackDetailPage() {
         workspaceAccentColor={trackWorkspaceAccentColor}
         entriesTotal={entriesTotal}
         trackTotal={narrowed ? trackTotal ?? undefined : undefined}
+        shownEntries={browserFilteredCount(filterType, filterTags, isPagesView, filteredEntries.length)}
         loadedEntries={loadedEntries}
         hasMoreEntries={hasNextPage}
         publicShareEnabled={Boolean(publicShareQuery.data?.enabled)}
