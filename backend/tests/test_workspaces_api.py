@@ -144,6 +144,7 @@ async def test_personal_workspace_members_returns_owner_only(
     payload = members.json()
     assert payload["total"] == 1
     assert payload["members"][0]["role"] == "owner"
+    assert payload["members"][0]["email"] == "test@example.com"
 
 
 @pytest.mark.asyncio
@@ -243,6 +244,11 @@ async def test_workspace_admin_can_patch_settings_and_manage_members(
         },
     )
     assert add_admin.status_code == 200, add_admin.text
+
+    members = await second_user_client.get(f"/api/workspaces/{ws_id}/members")
+    assert members.status_code == 200, members.text
+    emails = [m.get("email") for m in members.json()["members"]]
+    assert len(emails) == 2 and all(emails), emails
 
     patch_ws = await second_user_client.patch(
         f"/api/workspaces/{ws_id}",

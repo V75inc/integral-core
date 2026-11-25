@@ -6,6 +6,7 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Show member email addresses again on Workspace Members. The admin-only members list now returns each active account's email; the shared public user view still omits it.
 - Move domain form workflows, document UI, template selection and legacy App aliases to explicit host contracts; Core renders declared groups, review and acknowledgment steps without inferring business policy from field names. Host migration/readiness and paired artifact qualification are required before adoption.
 - Require declared create-action argument names and import eligibility; remove implicit record-copy and identifier-preview behavior from Core forms. Enforce an app-neutral runtime and SDK architecture gate without named-App exceptions.
 
