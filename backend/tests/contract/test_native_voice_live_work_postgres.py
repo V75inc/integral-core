@@ -290,13 +290,13 @@ async def test_realtime_tool_uses_canonical_queue_and_voice_steering(
                 "queue",
                 native_voice.QUEUE_FOLLOW_UP,
                 "Then summarize my projects.",
-                "queued",
+                "added that follow-up",
             ),
             (
                 "steer",
                 native_voice.STEER_ACTIVE,
                 "For that task, use only March.",
-                "has not confirmed",
+                "sent your correction",
             ),
         ):
             await _tool(provider, operation, tool_name, {"request": text})
@@ -397,8 +397,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert first is not None
         await _send_tool(provider, "add-queued", "add-queued", "queue")
         assert (
-            "queued that as a separate"
-            in (await event(provider.outbox))["item"]["output"]
+            "added that follow-up" in (await event(provider.outbox))["item"]["output"]
         )
         await finished_audio("ack", (await event(provider.outbox))["response"])
 
@@ -440,7 +439,7 @@ async def test_queued_voice_successor_is_checked_and_announced_once(
         assert (await settle(promoted.work_item_id, final)).status == "succeeded"
         observed = (await completed_readout(provider, final))["response"]
         assert final in observed["instructions"]
-        assert "outcome of the separately queued follow-up" in observed["instructions"]
+        assert "by its subject or changed constraint" in observed["instructions"]
         await finished_audio("successor-result", observed)
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.1)

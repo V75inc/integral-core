@@ -100,7 +100,7 @@ TOOL: dict = {
     "type": "function",
     "name": DELEGATE,
     "description": (
-        "Use Integral's resident for questions about workspace data, App-specific tasks, "
+        "Submit a NEW independent request to Integral's resident. If another lookup is running, Integral can queue the new request. For a correction to ongoing work use the revision tool. Clarify ambiguous intent before submitting. Use for questions about workspace data, App-specific tasks, "
         "filtered lists, and changes. Submit the caller's whole current goal once, "
         "including any named App, dates, ownership, filters and requested effect. "
         "An informal App name is enough to start. Submit the words the caller supplied even "
@@ -146,7 +146,7 @@ def _voice_tool(name, description, properties):
 _READ_TOOLS = {
     CHECK_CHAT: _voice_tool(
         CHECK_CHAT,
-        "Read this conversation while other requests run. Use latest_note to read back a note saved by voice. Use latest_chat for the latest saved message. Use visible_notice when the caller "
+        "Read saved chat messages, task progress or review. For the current workspace or assistant use the authenticated call identity. A new question with a changed filter needs a workspace lookup. Use latest_note to read back a note saved by voice. Use latest_chat for the latest saved message. Use visible_notice when the caller "
         "asks or signals that a message or update appeared in chat, for example "
         "'something popped up in the chat there'. Use latest_typed for what the caller "
         "typed, latest_reply for what chat replied, more_reply to hear the next part and repeat_reply to hear the last part again, recent_history when asked about "
@@ -265,7 +265,7 @@ _REALTIME_TOOLS = [
     ),
     _voice_tool(
         QUEUE_FOLLOW_UP,
-        "Queue a clearly separate new workspace task the caller asks to do next while another task is active. No magic words required: for example, 'and after that, summarize my projects'. Does not cancel, replace, or edit the current task. Ask if unclear whether they want a separate task or a correction.",
+        "Get an additional result related to a running or just-finished request, or queue a separate task. Carry forward the original subject and unchanged constraints. A short question varying the date, person, or category is a new lookup, even without the word queue. Does not cancel, replace, or edit the current task. Ask if unclear whether they want a separate task or a correction.",
         {"request": {"type": "string", "maxLength": 2000}},
     ),
     _voice_tool(
@@ -274,12 +274,12 @@ _REALTIME_TOOLS = [
         {"request": {"type": "string", "maxLength": 2000}},
     ),
 ]
-# Older sessions may still return this read-only call. New sessions already
-# have the admitted labels and need no extra provider round trip.
+# Call identity is available directly. An explicit identity check also has a
+# bounded readback and never enters the resident work queue.
 _CALL_CONTEXT_TOOL = _voice_tool(
     CALL_CONTEXT,
     "Identify the workspace and assistant this call is connected to. Use for ‘where am I?’ "
-    "or ‘which workspace is this?’ Select only what the caller asked for.",
+    "or ‘which workspace is this?’ Call silently. Select workspace for the workspace name, assistant for the assistant name, both only if the caller asked for both.",
     {"detail": {"type": "string", "enum": ["workspace", "assistant", "both"]}},
 )
 _VOICE_TOOL_NAMES = frozenset(
@@ -604,7 +604,10 @@ async def delegate(
             return "The selected location is no longer available. Choose it again before requesting work."
         from app.schemas.chat_entity_refs import ResolvedEntityRef
         from app.services.chat_entity_refs import entities_referenced_payload
-        from app.services.chat_page_context import wrap_injected_context
+        from app.services.chat_page_context import (
+            wrap_injected_context,
+            wrap_system_context,
+        )
 
         refs = []
         if focus.kind in {"app", "track"}:
@@ -613,20 +616,43 @@ async def delegate(
                     kind=focus.kind, entity_id=focus.id, label=focus.label
                 )
             )
+        context = wrap_injected_context(
+            "entity_refs",
+            "Current spoken location: "
+            + json.dumps(
+                {"kind": focus.kind, "label": focus.label, "id": focus.id},
+                ensure_ascii=False,
+            ),
+        )
+        if open_only:
+            # Only canonical IDs from a freshly verified server-side selection
+            # enter host instructions. The display label remains quoted data.
+            args = (
+                {
+                    "target_kind": "track",
+                    "target_id": focus.track_id,
+                    "view_id": focus.id,
+                }
+                if focus.kind == "view"
+                else {"target_kind": focus.kind, "target_id": focus.id}
+            )
+            context = (
+                wrap_system_context(
+                    "navigation",
+                    "The caller selected a verified destination. Call integral_open_view directly with "
+                    + json.dumps(args)
+                    + ". The destination lookup is complete. Give a brief receipt based on the tool outcome.",
+                )
+                + "\n"
+                + context
+            )
         execution = ChatTurnExecutionContext(
             focused_track_id=(
                 focus.id if focus.kind == "track" else focus.track_id or None
             ),
             focused_space_id=focus.id if focus.kind == "app" else None,
             focused_view_id=focus.id if focus.kind == "view" else None,
-            system_context=wrap_injected_context(
-                "entity_refs",
-                "Current spoken location: "
-                + json.dumps(
-                    {"kind": focus.kind, "label": focus.label, "id": focus.id},
-                    ensure_ascii=False,
-                ),
-            ),
+            system_context=context,
             extra_data={
                 "voice_delegate": True,
                 "entities_referenced": entities_referenced_payload(refs),
@@ -774,7 +800,7 @@ _SPOKEN_STYLE = (
     "Answer as a person talking with the caller. Lead with what they wanted to know, "
     "in your own words. Usually a sentence or two is enough. Use contractions and "
     "natural pauses where they fit. Skip stock openings, praise, tool narration and "
-    "routine follow-up offers. Give detail when asked or when it matters. "
+    "routine follow-up offers. A social acknowledgment can be just a few words. Let the caller lead. Give detail when asked or when it matters. "
 )
 
 
@@ -822,7 +848,7 @@ def session_update(
         if uses_published_profile
         else "This conversation uses the workspace assistant. Its resident has the same App skills, "
         "tools and current workspace context as native chat. For every question about records, "
-        "fields, dates, priorities, ownership or counts, and every NEW task in an App, "
+        "fields, dates, priorities, ownership or counts, and every NEW task in an App without a preceding related request, "
         "call delegate_to_integral FIRST with the ENTIRE goal. The resident finds the App and its "
         "schema, asks for missing details or stages changes such as creating a dashboard for review. "
         "For a request just to open a page, call open_integral_page immediately with the name or one-based number from the last spoken list. The server remembers the choices even if you cannot see the list. If no destination was given, ask which one. Do not read the directory unless requested. "
@@ -846,7 +872,7 @@ def session_update(
         if uses_published_profile
         else "When the caller asks to carry out a plan already presented in chat, delegate that action as a new task with its reference. A request to implement a plan never itself approves a staged effect. "
         "Use the continuation tools when the caller gives an instruction while "
-        "work is active. 'After that, summarize my projects' is a separate request: "
+        "work is active. A question varying one dimension asks for an additional result, even mid-answer. Preserve the prior filters and subject in the follow-up request. A replacement changes the current result instead. A progress question asks how the work is going. 'After that, summarize my projects' is a separate request: "
         "call queue_integral_follow_up. 'Actually, limit the report you're making "
         "to March' changes that same task: call revise_active_integral_request. "
         "Use the distinct tool immediately rather than merely promising to do it "
@@ -865,9 +891,9 @@ def session_update(
                 "This call stays bound to its original workspace and agent profile. "
                 "If asked to change either, explain that a new call is needed. "
                 + (
-                    "The bound workspace display name is quoted data: "
+                    "The authenticated workspace name is quoted data: "
                     + json.dumps(workspace_label, ensure_ascii=False)
-                    + ". If asked which workspace or assistant this is, answer directly with the requested name. "
+                    + ". For a name-only question, speak the requested name exactly once and end the turn. The call binding already supplies it. If you need to verify a name, use get_current_call_identity with only the requested detail. "
                     if workspace_label
                     else ""
                 )
@@ -919,7 +945,10 @@ def session_update(
                 },
                 "output": {"format": pcm, "voice": "marin"},
             },
-            "tools": _session_tools(uses_published_profile, review_confirmation),
+            "tools": [
+                *_session_tools(uses_published_profile, review_confirmation),
+                *([_CALL_CONTEXT_TOOL] if workspace_label else []),
+            ],
             "tool_choice": "auto",
         },
     }
@@ -1025,6 +1054,7 @@ class VoiceRelay:
         self.quiet_since = 0.0
         self.response_generation: str | None = None
         self.speech_only_response_id: str | None = None
+        self.result_wake = asyncio.Event()
         self.ready = False
         self.opening_requested = False
         self.user_spoke = False
@@ -1263,8 +1293,8 @@ class VoiceRelay:
         response = {
             "instructions": (
                 _SPOKEN_STYLE
-                + "Present the result without greeting the caller again. Preserve names, numbers and the actual outcome. Paraphrase the framing. "
-                "Skip headings, speaker labels, Markdown, URLs and internal IDs. "
+                + "Say the finding first without greeting the caller again. Omit a recap of what the caller asked. Include a distinguishing detail such as the date when reporting a follow-up. Preserve names, numbers and the actual outcome. "
+                "For a lookup, give the requested items and just enough context to distinguish them. Leave out empty fields, repeated filters, time zones and definitions unless needed to understand the answer. Skip headings, speaker labels, Markdown, URLs and internal IDs. "
                 "Summarize a long answer unless the caller requested the details. "
                 "If review is pending, say it is not yet applied once. A terminal failure is finished unsuccessfully, not still running or awaiting a final result. "
                 "If Integral reports a denial or failure, state that without guessing. "
@@ -1310,7 +1340,7 @@ class VoiceRelay:
         if queued_follow_up:
             response[
                 "instructions"
-            ] += " Identify this as the outcome of the separately queued follow-up, not the earlier task."
+            ] += " Introduce this result by its subject or changed constraint. Omit queue and scheduling language."
         if result is not None:
             # The tool call was already closed on acceptance. Deliver final
             # output to this turn only, without adding a second tool result.
@@ -1412,7 +1442,7 @@ class VoiceRelay:
             if result is None and status != "waiting_for_human":
                 await self._function_output(
                     call_id,
-                    "Integral accepted the request; its latest status is in the conversation.",
+                    "Integral accepted this task and will deliver its result. The caller can ask another question meanwhile.",
                 )
                 acknowledged = True
 
@@ -1447,6 +1477,7 @@ class VoiceRelay:
         if self.closing:
             return
         if acknowledged:
+            self.result_wake.set()
             # The independent receipt watcher keeps polling through review,
             # interruption and the initial observer timeout.
             return
@@ -1470,6 +1501,11 @@ class VoiceRelay:
                     _PendingReviewNotice(admitted, review)
                     if pending_review and admitted
                     else review
+                    or (
+                        admitted.expected_destination
+                        if admitted and immediate_terminal
+                        else None
+                    )
                 ),
             )
         else:
@@ -1477,10 +1513,43 @@ class VoiceRelay:
                 call_id, "See the Integral conversation for the request status."
             )
 
+    async def _continue_completed_lookup(
+        self, call_id, request, operation, generation, foreground
+    ):
+        if (
+            foreground is None
+            or self.accepted is not foreground
+            or self.closing
+            or generation != self.generation
+        ):
+            return False
+        thread = await self.check(self.scope)
+        if thread is None or getattr(thread, "active_work_item_id", None):
+            return False
+        status, _ = await _delegated_status(self.scope, thread, foreground)
+        if (
+            status != "succeeded"
+            or self.accepted is not foreground
+            or self.closing
+            or generation != self.generation
+        ):
+            return False
+        if operation == "queue":
+            # The caller requested independent work. Normal admission handles a
+            # concurrent claim, with the original call ID for idempotency.
+            await self._start_requested_work(
+                call_id, request, "request", only_if_idle=True
+            )
+        else:
+            answer = "That request already finished. Would you like me to start a new one with that change?"
+            await self._function_output(call_id, answer)
+            await self._speak_result(generation, result=answer, read_back=True)
+        return True
+
     async def _follow_up(
         self, call_id, request, operation, generation, foreground
     ) -> None:
-        """Route an explicit, scope-bound continuation without submitting new work."""
+        """Attach to exact active work or reconcile its verified completion."""
         from app.services.native_voice_followups import (
             resolve_voice_follow_up_target,
             route_voice_follow_up,
@@ -1499,33 +1568,46 @@ class VoiceRelay:
             else:
                 target = await resolve_voice_follow_up_target(self.scope)
                 if target is None:
+                    if await self._continue_completed_lookup(
+                        call_id, request, operation, generation, foreground
+                    ):
+                        return
                     self.protocol_counts["continuation_no_active_target"] += 1
                     answer = "There is no active request I can attach that to. I did not start new work."
-                elif operation == "steer" and (
-                    foreground is None
-                    or target.fence.work_item_id != foreground.work_item_id
+                elif (operation == "steer" and foreground is None) or (
+                    foreground is not None
+                    and target.fence.work_item_id != foreground.work_item_id
                 ):
                     self.protocol_counts["continuation_target_changed"] += 1
-                    answer = "I couldn’t verify this is the same voice request you want to change. I did not submit a correction."
+                    answer = "I couldn’t verify this is the same voice request. Which task did you mean?"
                 else:
-                    routed = await route_voice_follow_up(
-                        self.scope,
-                        call_id,
-                        request,
-                        target=target,
-                        operation=operation,
-                        check=self.check,
-                    )
+                    try:
+                        routed = await route_voice_follow_up(
+                            self.scope,
+                            call_id,
+                            request,
+                            target=target,
+                            operation=operation,
+                            check=self.check,
+                        )
+                    except ResourceConflictError as exc:
+                        if (exc.details or {}).get(
+                            "reason"
+                        ) == "voice_target_inactive" and await self._continue_completed_lookup(
+                            call_id, request, operation, generation, foreground
+                        ):
+                            return
+                        raise
                     if operation == "queue" and routed.status in {"queued", "promoted"}:
                         successor = routed.client_request_id
                         self.protocol_counts["continuation_queue_accepted"] += 1
                     if routed.status == "steering_accepted":
                         self.protocol_counts["continuation_steer_accepted"] += 1
                     answer = {
-                        "queued": "I queued that as a separate follow-up. It has not run yet.",
-                        "promoted": "That separate follow-up has moved out of the queue. It is not confirmed complete.",
+                        "queued": "I’ve added that follow-up.",
+                        "promoted": "That follow-up has left the queue. I’m waiting for its result.",
                         "dismissed": "That queued follow-up was dismissed. I did not add it again.",
-                        "steering_accepted": "Integral accepted the correction for the running request. It has not confirmed the change was applied.",
+                        "steering_accepted": "I sent your correction to the running task.",
                     }.get(routed.status, failed)
         except asyncio.CancelledError:
             raise
@@ -1550,10 +1632,12 @@ class VoiceRelay:
             self.queued_successors.add(successor)
             self.latest_queued_successor = successor
         await self._function_output(call_id, answer)
-        await self._speak_result(generation)
+        # Only the receipt is known here. The result watcher delivers the
+        # substantive answer once the worker commits it.
+        await self._speak_result(generation, result=answer, read_back=True)
 
     async def _start_requested_work(
-        self, call_id, request, operation, *, destination=None
+        self, call_id, request, operation, *, destination=None, only_if_idle=False
     ):
         async def report(text):
             generation = self.generation
@@ -1633,12 +1717,14 @@ class VoiceRelay:
                 self.accepted
                 and self.accepted.work_item_id in self.observed_terminal_receipts
             )
-            if self.accepted and not finished:
+            predecessor = self.accepted
+            status = None
+            if predecessor and not finished:
                 try:
                     async with asyncio.timeout(1):
                         thread = await self.check(self.scope)
                         status, result = await _delegated_status(
-                            self.scope, thread, self.accepted
+                            self.scope, thread, predecessor
                         )
                     finished = result is not None and status in {
                         "succeeded",
@@ -1649,6 +1735,17 @@ class VoiceRelay:
                 except (TimeoutError, ServiceUnavailableError, ResourceNotFoundError):
                     finished = False
             if not finished:
+                if (
+                    operation == "request"
+                    and not only_if_idle
+                    and not self.scope.profile
+                    and self.accepted is predecessor
+                    and status in {"queued", "running"}
+                ):
+                    # The delegate tool submits an independent goal. Bind it to
+                    # the exact active work through the same FIFO as typed chat.
+                    await self._start_requested_work(call_id, request, "queue")
+                    return
                 await report(
                     "An earlier workspace request is still active. Should this be a separate task to queue, or a correction to the current work? I haven’t submitted it."
                 )
@@ -2385,7 +2482,20 @@ class VoiceRelay:
         revision = self.scope.page_revision
         if not (self.scope.page_context or {}).get("url"):
             reason = "There is no active Integral page to navigate in this call."
-        elif type(destination) is int:
+        if (
+            name
+            and self.last_spoken_page is not None
+            and self.last_spoken_page is self.navigation.page
+            and monotonic() < self.navigation.expires
+        ):
+            matches = [
+                i
+                for i, item in enumerate(self.last_spoken_page.destinations, 1)
+                if item.label.casefold() == name.casefold()
+            ]
+            if len(matches) == 1:
+                destination = matches[0]
+        if not reason and type(destination) is int:
             try:
                 async with asyncio.timeout(2):
                     target = await self.navigation.resolve_choice(
@@ -2405,7 +2515,7 @@ class VoiceRelay:
                 reason = (
                     "I couldn't verify that choice. Which destination did you mean?"
                 )
-        elif not name:
+        elif not reason and not name:
             reason = "Which app or page would you like to open?"
         try:
             await self.check(self.scope)
@@ -2604,6 +2714,7 @@ class VoiceRelay:
                         "assistant": self.name,
                         "both": f"This call is in {self.workspace_label}, with {self.name}.",
                     }[detail],
+                    read_back=True,
                 )
                 continue
             if name == WRITE_CHAT_NOTE:
@@ -3584,7 +3695,11 @@ class VoiceRelay:
         )
 
     async def _review_for_receipt(self, receipt):
-        if not self.review_confirmation_supported or self.scope.profile:
+        if (
+            receipt.open_only
+            or not self.review_confirmation_supported
+            or self.scope.profile
+        ):
             return None
         try:
             async with asyncio.timeout(1):
@@ -3701,7 +3816,11 @@ class VoiceRelay:
                         return None
                     self.protocol_counts[f"navigation_{status}"] += 1
                     answer = {
-                        "rendered": "The requested page is open.",
+                        "rendered": (
+                            f"{receipt.expected_destination.label} is open."
+                            if receipt.expected_destination
+                            else "The requested page is open."
+                        ),
                         "preserved": "I kept your current page open. Finish your draft or queued request before asking me to open the destination again.",
                         "unavailable": "I could not confirm that the requested page opened.",
                     }[status]
@@ -3727,7 +3846,11 @@ class VoiceRelay:
         from app.services.native_voice_followups import observe_spoken_follow_up
 
         while True:
-            await asyncio.sleep(RESULT_POLL_SECONDS)
+            try:
+                await asyncio.wait_for(self.result_wake.wait(), RESULT_POLL_SECONDS)
+            except TimeoutError:
+                pass
+            self.result_wake.clear()
             now = asyncio.get_running_loop().time()
             if self.user_reply_deadline is not None and now >= self.user_reply_deadline:
                 self.user_reply_deadline = None
@@ -3852,7 +3975,7 @@ class VoiceRelay:
                             if review
                             else result
                         ),
-                        navigation_readout=review,
+                        navigation_readout=review or receipt.expected_destination,
                         work_id=key,
                         queued_follow_up=receipt.queued_follow_up,
                     )
@@ -3951,6 +4074,8 @@ class VoiceRelay:
                     continue
                 if update is None:
                     continue
+                if update.updates and self.result_receipts:
+                    self.result_wake.set()
                 previous, cursor = cursor, update.cursor
                 if update.gap:
                     self.peer_readouts.clear()

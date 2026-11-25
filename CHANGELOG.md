@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Live voice can queue a related lookup during active work and pick up a separate question after completion. The caller receives clearer feedback when another call is open.
+
 - Stream ordinary native chat replies as their model produces answer text. Platform administrators can enable whole-answer protection in AI Models. Local workers and event readers wake as chat work arrives.
 - Callers can ask the workspace voice assistant to post a directory in their current chat. It rechecks access, writes the ordered names, and speaks a brief confirmation.
 - Browser voice presents directory names conversationally in their original order without reading tool headings aloud. Ordinary replies share the same brief spoken style.

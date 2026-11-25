@@ -16,12 +16,12 @@ from tests.test_native_voice_completion import _send_tool
 @pytest.mark.parametrize(
     ("operation", "active_id", "result_status", "expected"),
     [
-        ("queue", "active", "queued", "queued that as a separate"),
+        ("queue", "active", "queued", "added that follow-up"),
         (
             "steer",
             "active",
             "steering_accepted",
-            "not confirmed the change was applied",
+            "sent your correction",
         ),
         ("steer", "new", None, "same voice request"),
         ("queue", None, None, "no active request"),
@@ -61,7 +61,10 @@ async def test_follow_up_disposition_is_explicit_and_never_falls_back(
         output = await event(provider.outbox)
         assert expected in output["item"]["output"]
         assert "private detail" not in output["item"]["output"]
-        assert (await event(provider.outbox))["response"]["tool_choice"] == "none"
+        speech = (await event(provider.outbox))["response"]
+        assert speech["tool_choice"] == "none"
+        assert speech["conversation"] == "none" and speech["input"] == []
+        assert expected in speech["instructions"]
         await _send_tool(provider, "replay", "followup", operation)
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.05)
@@ -125,7 +128,7 @@ async def test_spoken_follow_up_does_not_block_ordinary_conversation(monkeypatch
         assert await event(browser.outbox) == b"\x00\x01"
         release.set()
         output = await event(provider.outbox)
-        assert "queued that as a separate" in output["item"]["output"]
+        assert "added that follow-up" in output["item"]["output"]
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(provider.outbox.get(), 0.05)
     finally:
@@ -195,3 +198,135 @@ def test_workspace_assistant_advertises_intent_bound_continuations():
         in config["instructions"]
     )
     assert "rather than merely promising" in config["instructions"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation,status,starts",
+    [
+        ("queue", "succeeded", True),
+        ("queue", "unavailable", False),
+        ("queue", "running", False),
+        ("steer", "succeeded", False),
+    ],
+)
+async def test_followup_after_foreground_releases_thread(
+    monkeypatch, operation, status, starts
+):
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        Provider(),
+        scope,
+        check=AsyncMock(return_value=SimpleNamespace(id=scope.thread)),
+    )
+    relay.accepted = native_voice._AcceptedVoiceTurn(
+        "work", "message", "List the north region"
+    )
+    relay._start_requested_work = AsyncMock()
+    relay._function_output = AsyncMock()
+    relay._speak_result = AsyncMock()
+    monkeypatch.setattr(
+        native_voice_followups,
+        "resolve_voice_follow_up_target",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        native_voice, "_delegated_status", AsyncMock(return_value=(status, "result"))
+    )
+    await relay._follow_up(
+        "follow",
+        "List the south region with the same filters",
+        operation,
+        relay.generation,
+        relay.accepted,
+    )
+    if starts:
+        relay._start_requested_work.assert_awaited_once_with(
+            "follow",
+            "List the south region with the same filters",
+            "request",
+            only_if_idle=True,
+        )
+    else:
+        relay._start_requested_work.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_queue_rechecks_exact_completion_when_target_finishes_before_commit(
+    monkeypatch,
+):
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        Provider(),
+        scope,
+        check=AsyncMock(return_value=SimpleNamespace(id="thread")),
+    )
+    relay.accepted = native_voice._AcceptedVoiceTurn(
+        "active", "message", "Read the current quarter"
+    )
+    target = SimpleNamespace(fence=SimpleNamespace(work_item_id="active"))
+    monkeypatch.setattr(
+        native_voice_followups,
+        "resolve_voice_follow_up_target",
+        AsyncMock(return_value=target),
+    )
+    monkeypatch.setattr(
+        native_voice_followups,
+        "route_voice_follow_up",
+        AsyncMock(
+            side_effect=ResourceConflictError(
+                message="Target completed", details={"reason": "voice_target_inactive"}
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        native_voice,
+        "_delegated_status",
+        AsyncMock(return_value=("succeeded", "Reported")),
+    )
+    relay._start_requested_work = AsyncMock()
+    await relay._follow_up(
+        "follow", "Read last quarter too", "queue", relay.generation, relay.accepted
+    )
+    relay._start_requested_work.assert_awaited_once_with(
+        "follow", "Read last quarter too", "request", only_if_idle=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_new_lookup_during_active_work_uses_same_fifo(monkeypatch):
+    scope = native_voice.VoiceScope("caller", "workspace", "", "thread")
+    relay = native_voice.VoiceRelay(
+        Browser(),
+        Provider(),
+        scope,
+        check=AsyncMock(return_value=SimpleNamespace(id="thread")),
+    )
+    relay.accepted = native_voice._AcceptedVoiceTurn(
+        "active", "message", "Compare this quarter"
+    )
+    relay.pending = asyncio.create_task(asyncio.Event().wait())
+    relay._follow_up = AsyncMock()
+    relay._work = AsyncMock()
+    monkeypatch.setattr(
+        native_voice, "_delegated_status", AsyncMock(return_value=("running", None))
+    )
+    try:
+        await relay._start_requested_work(
+            "second", "Compare last quarter for the same team", "request"
+        )
+        await relay.follow_up_task
+        relay._follow_up.assert_awaited_once_with(
+            "second",
+            "Compare last quarter for the same team",
+            "queue",
+            relay.generation,
+            relay.accepted,
+        )
+        relay._work.assert_not_awaited()
+        assert not relay.pending.done()
+    finally:
+        relay.pending.cancel()
+        await asyncio.gather(relay.pending, return_exceptions=True)

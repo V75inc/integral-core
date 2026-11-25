@@ -4,6 +4,10 @@
 
 The voice model phrases ordinary answers and tool results for the listener. A directory lookup supplies the names in their authorized order, the current workspace when relevant, and whether more results are available. The caller can refer to a choice by position even when the model reads the names in a sentence. Routine answers lead with the result and skip tool headings and filler. Requested note readbacks preserve the saved wording. Proposed changes retain the exact values and separate human confirmation.
 
+The call already has its authenticated workspace and assistant names. It can answer directly or verify the requested name against the binding without starting resident work.
+
+A separate spoken lookup can join the same chat queue while the first lookup runs. A correction targets the current request. An explicit question about progress reads its status. If a separate follow-up arrives after its preceding voice request has verifiably succeeded, the workspace assistant can submit it to the same conversation. Selected profiles retain their own continuation limits. A second call for the same signed-in user reports that the first call is still open.
+
 ## Qualifying conversational changes
 
 Use a fresh conversation in a disposable workspace. Keep the selected voice, model, device, timezone and permissions constant across a comparison. Capture what Chrome schedules for playback, the time from end of caller speech to first reply audio, and the saved chat or effect receipt. A spoken promise alone cannot establish that work happened.
@@ -15,6 +19,7 @@ Use a fresh conversation in a disposable workspace. Keep the selected voice, mod
 | Ask for the Apps, open the second one, then name a different App | Only the first question reads the directory. Both requested Apps render, the caller hears the result, and the same call stays connected. |
 | Ask which Apps are available, then “can you list it out in the chat?” | One numbered message appears during the call and survives reload. The assistant confirms the post briefly. |
 | Ask to create an item, correct its date, then approve | The readback names the corrected item and date. A separate human confirmation precedes a single applied receipt. |
+| Vary one filter while a lookup is still running, then repeat after completion | Both scoped results appear once. A change phrased as a replacement steers the active lookup. Measure end of speech to first audio, to each useful answer, and for navigation to the browser’s rendered acknowledgment. |
 | Interrupt a readout, cancel queued work, or lose access | The stale readout stops. Receipts and scoped reload agree about which work remains. |
 
 On macOS, run `node scripts/qualify_voice_conversation.mjs` and then repeat with `--variant` for orientation, a directory request and repeat, and note readback. Use `--post-list` to check the follow-up that asks for the directory in chat. It compares the saved names and order exactly, checks visibility during the call and listens for an unwanted spoken repeat. Set `VOICE_QA_APP_NAMES` to a JSON array of the visible first-page names in order for an automated comparison against both recordings. Check transcriptions against the audio when names are unusual. The runner needs Chrome, Playwright (or `PLAYWRIGHT_PACKAGE_PATH`), `say`, `afconvert`, FFmpeg, and the local Whisper CLI. Supply `VOICE_QA_EMAIL`, `VOICE_QA_PASSWORD`, the exact `VOICE_QA_WORKSPACE` name, `VOICE_QA_WHISPER_MODEL` pointing to an installed model, and `VOICE_QA_URL` on IPv4 loopback. `VOICE_QA_LIVE=1` explicitly opts into a paid call. Each invocation creates one synthetic conversation and leaves its recordings in a local temporary directory. Keep credentials in the environment and use synthetic content only.

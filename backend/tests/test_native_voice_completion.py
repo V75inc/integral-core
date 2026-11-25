@@ -444,6 +444,8 @@ async def test_follow_through_can_advance_visible_completed_work(monkeypatch, st
     )
     relay.pending = asyncio.create_task(asyncio.Event().wait())
     previous = relay.pending
+    queue = AsyncMock()
+    monkeypatch.setattr(relay, "_follow_up", queue)
     state = (status, "The plan is ready." if status == "succeeded" else None)
     monkeypatch.setattr(
         native_voice, "_delegated_status", AsyncMock(return_value=state)
@@ -467,7 +469,20 @@ async def test_follow_through_can_advance_visible_completed_work(monkeypatch, st
         else:
             assert relay.pending is previous
             perform.assert_not_awaited()
-            assert "still active" in (await event(provider.outbox))["item"]["output"]
+            if status == "waiting_for_human":
+                assert (
+                    "still active" in (await event(provider.outbox))["item"]["output"]
+                )
+                queue.assert_not_awaited()
+                return
+            await relay.follow_up_task
+            queue.assert_awaited_once_with(
+                "build",
+                "Implement the plan in our chat",
+                "queue",
+                relay.generation,
+                relay.accepted,
+            )
     finally:
         previous.cancel()
         await asyncio.gather(previous, return_exceptions=True)

@@ -163,7 +163,8 @@ async def test_realtime_routes_workspace_request_to_existing_chat_without_author
         authorize_profile.assert_not_awaited()
 
 
-async def test_open_page_submits_a_read_only_native_turn(monkeypatch):
+@pytest.mark.parametrize("kind", [None, "app", "view"])
+async def test_open_page_submits_a_read_only_native_turn(monkeypatch, kind):
     from app.services import chat_page_context, chat_turn_submissions, native_voice
 
     scope = VoiceScope(
@@ -184,10 +185,37 @@ async def test_open_page_submits_a_read_only_native_turn(monkeypatch):
     monkeypatch.setattr(
         native_voice, "_delegated_status", AsyncMock(return_value=("succeeded", "Done"))
     )
-    await native_voice.delegate(scope, "call", "Open my notes app", open_only=True)
+    focus = (
+        native_voice.VoiceDestination(
+            kind, "destination", "User supplied name", "track"
+        )
+        if kind
+        else None
+    )
+    verify = AsyncMock(return_value=True)
+    monkeypatch.setattr(native_voice, "verified_destination", verify)
+    await native_voice.delegate(
+        scope, "call", "Open my notes app", open_only=True, focus=focus
+    )
     ctx = submit.await_args.args[0].execution_context
     assert ctx.no_workspace_writes
-    assert ctx.extra_data == {"voice_delegate": True, "page_context": {"url": "/agent"}}
+    assert ctx.extra_data["voice_delegate"] is True and ctx.extra_data[
+        "page_context"
+    ] == {"url": "/agent"}
+    if focus is None:
+        assert "integral_open_view" not in ctx.system_context
+        verify.assert_not_awaited()
+    else:
+        verify.assert_awaited_once_with(
+            focus, principal="caller", workspace="workspace"
+        )
+        host, data = ctx.system_context.split("<!-- BEGIN_CONTEXT_DATA")
+        assert "integral_open_view" in host and focus.label not in host
+        assert focus.label in data
+        if kind == "view":
+            assert '"target_id": "track"' in host and '"view_id": "destination"' in host
+        else:
+            assert '"target_id": "destination"' in host
 
 
 @pytest.mark.parametrize("deny_workspace", [True, False])

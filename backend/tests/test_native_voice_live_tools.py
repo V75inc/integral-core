@@ -26,10 +26,12 @@ async def _tool(provider, identifier, name, args):
     await provider.inbox.put(frame)
 
 
-def test_new_session_can_answer_its_bound_identity_without_a_tool_round_trip():
+def test_named_session_has_its_identity_and_can_verify_the_requested_detail():
     session = native_voice.session_update("", workspace_label="QA desk")["session"]
     assert '"QA desk"' in session["instructions"]
-    assert native_voice.CALL_CONTEXT not in {tool["name"] for tool in session["tools"]}
+    assert native_voice.CALL_CONTEXT in {tool["name"] for tool in session["tools"]}
+    unnamed = native_voice.session_update("")["session"]
+    assert native_voice.CALL_CONTEXT not in {tool["name"] for tool in unnamed["tools"]}
 
 
 @pytest.mark.asyncio
@@ -64,6 +66,7 @@ async def test_call_identity_uses_admitted_labels_and_never_submits_work(
     relay._speak_result.assert_awaited_once_with(
         relay.generation,
         result=expected,
+        read_back=True,
     )
     work.assert_not_awaited()
 
@@ -247,8 +250,7 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
             {"request": "Then summarize the projects."},
         )
         assert (
-            "queued that as a separate"
-            in (await event(provider.outbox))["item"]["output"]
+            "added that follow-up" in (await event(provider.outbox))["item"]["output"]
         )
         await event(provider.outbox)
         await _tool(
@@ -266,8 +268,7 @@ async def test_named_live_tools_work_without_interrupting_accepted_turn(monkeypa
             {"request": "For the report, only include March."},
         )
         assert (
-            "not confirmed the change was applied"
-            in (await event(provider.outbox))["item"]["output"]
+            "sent your correction" in (await event(provider.outbox))["item"]["output"]
         )
         await event(provider.outbox)
         assert [call.kwargs["operation"] for call in follow_up.call_args_list] == [

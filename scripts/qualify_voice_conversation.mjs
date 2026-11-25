@@ -18,7 +18,7 @@ const dir = await mkdtemp(path.join(tmpdir(), 'integral-voice-journey-'));
 // Supply the authorized first page in UI order to verify what the caller heard.
 const expectedApps = env.VOICE_QA_APP_NAMES ? JSON.parse(env.VOICE_QA_APP_NAMES) : null;
 if (expectedApps !== null) assert.ok(Array.isArray(expectedApps) && expectedApps.every(name => typeof name === 'string' && name.trim()));
-const normalizeSpeech = value => value.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '');
+const normalizeSpeech = value => value.toLowerCase().normalize('NFKC').replaceAll('&', 'and').replace(/[^\p{L}\p{N}]/gu, '');
 const heldOut = process.argv.includes('--variant');
 const note = heldOut ? 'water the green fern' : 'check the blue umbrella';
 const postList = process.argv.includes('--post-list');
@@ -140,11 +140,11 @@ try {
       const capture = await page.evaluate(() => {
         const s = window.voiceJourney;
         s.recording = false;
-        return { chunks: s.chunks, firstPlaybackMs: Math.round(s.first - s.inputEnd) };
+        return { chunks: s.chunks, firstPlaybackMs: Math.round(s.first - s.inputEnd), lastPlaybackMs: Math.round(s.last - s.inputEnd) };
       });
       await writeFile(base + '.pcm', Buffer.concat(capture.chunks.map(chunk => Buffer.from(chunk, 'base64'))));
       execFileSync('ffmpeg', ['-loglevel','error','-f','s16le','-ar','24000','-ac','1','-i',base+'.pcm',base+'.wav']);
-      results.push({ id, firstPlaybackMs: capture.firstPlaybackMs });
+      results.push({ id, firstPlaybackMs: capture.firstPlaybackMs, lastPlaybackMs: capture.lastPlaybackMs });
       if (id === 'post-list') {
         const lastName = page.locator('.aui-md li').filter({hasText: expectedApps.at(-1)}).last();
         visibleDuringCall = await lastName.waitFor({timeout: 10000}).then(() => end.isVisible(), () => false);
@@ -210,7 +210,7 @@ for (const result of results) {
   }
   if (result.id === 'orientation') result.passed &&= /help|work|task|answer|chat/i.test(result.heard);
   if (result.id === 'save-note') result.passed &&= /sav|add|post|wrote|written|left/i.test(result.heard);
-  if (result.id === 'workspace') result.passed &&= env.VOICE_QA_WORKSPACE.toLowerCase().split(' ').every(w => words.includes(w));
+  if (result.id === 'workspace') result.passed &&= normalizeSpeech(result.heard) === normalizeSpeech(env.VOICE_QA_WORKSPACE);
   if (result.id === 'recall') result.passed &&= note.split(' ').every(w => words.includes(w)) && !/pop.?up|can(?:not|'t)|unable|not able|don't have|didn't save|couldn't/i.test(result.heard);
 }
 await writeFile(path.join(dir, 'results.json'), JSON.stringify(results, null, 2));

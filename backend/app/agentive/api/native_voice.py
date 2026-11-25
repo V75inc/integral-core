@@ -58,12 +58,17 @@ async def native_voice(browser: WebSocket):
                 raise ValueError("Invalid request")
             opening = VoiceStart.model_validate_json(payload)
             principal = await redeem_ws_ticket_shared(opening.ticket)
-            if (
-                not principal
-                or await get_user_node(principal) is None
-                or principal in _active_calls
-            ):
+            if not principal or await get_user_node(principal) is None:
                 await browser.close(code=4403)
+                return
+            if principal in _active_calls:
+                await browser.send_json(
+                    {
+                        "type": "error",
+                        "message": "You already have a live voice call. End that call before starting another.",
+                    }
+                )
+                await browser.close(code=4409)
                 return
             _active_calls.add(principal)
             claimed = True

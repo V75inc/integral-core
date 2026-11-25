@@ -253,3 +253,15 @@ async def test_simultaneous_refresh_balances_acquired_provider_markers(
     provider.close.assert_awaited_once()
     assert provider.outbox.empty()
     assert "caller" not in endpoint._active_calls
+
+
+@pytest.mark.asyncio
+async def test_overlapping_call_explains_rejection_without_dialing(monkeypatch):
+    browser, provider = _EndpointBrowser(), Provider()
+    _patch_endpoint(monkeypatch, provider)
+    monkeypatch.setattr(endpoint, "_active_calls", {"caller"})
+    await endpoint.native_voice(browser)
+    failure = await event(browser.outbox)
+    assert failure["type"] == "error" and "End that call" in failure["message"]
+    endpoint.open_upstream.assert_not_awaited()
+    assert endpoint._active_calls == {"caller"}

@@ -78,7 +78,16 @@ async def test_navigation_expired_list_and_scope_revocation(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "case",
-    ["ordinal", "named", "reordered", "revoked", "expired", "unspecified", "no_page"],
+    [
+        "ordinal",
+        "named",
+        "listed_name",
+        "reordered",
+        "revoked",
+        "expired",
+        "unspecified",
+        "no_page",
+    ],
 )
 async def test_open_voice_page_uses_bound_browser_and_last_spoken_choices(
     case, monkeypatch
@@ -102,6 +111,7 @@ async def test_open_voice_page_uses_bound_browser_and_last_spoken_choices(
     spec = catalogue.build_voice_quick_read_catalogue()["integral_list_apps"]
     page = nav.VoicePage(spec, (first, second), ("Field Notes", "Reading Room"))
     relay.navigation.accept_page(page)
+    relay.last_spoken_page = page
     relay.navigation.focus = first
     if case == "expired":
         relay.navigation.expires = 0
@@ -121,19 +131,23 @@ async def test_open_voice_page_uses_bound_browser_and_last_spoken_choices(
     relay._speak_result = AsyncMock()
     relay._work = AsyncMock()
     frame = provider_request("call", "response", "unused")
-    destination = {"named": "Different app", "unspecified": ""}.get(case, 2)
+    destination = {
+        "named": "Different app",
+        "listed_name": "reading room",
+        "unspecified": "",
+    }.get(case, 2)
     frame["response"]["output"][0].update(
         name=native_voice.OPEN_PAGE, arguments=json.dumps({"destination": destination})
     )
     await relay._completed_response(frame)
     await relay.live_read
-    if case in ("ordinal", "named"):
+    if case in ("ordinal", "named", "listed_name"):
         await relay.pending
         assert relay._work.await_args.kwargs["open_only"] is True
         call = relay._work.await_args.args
         assert call[0] == "call"
-        assert ("Reading Room" if case == "ordinal" else "Different app") in call[1]
-        assert call[3] == (second if case == "ordinal" else None)
+        assert ("Reading Room" if case != "named" else "Different app") in call[1]
+        assert call[3] == (second if case != "named" else None)
         assert relay.navigation.focus == first
         relay._speak_result.assert_not_awaited()
     else:

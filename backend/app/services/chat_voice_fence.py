@@ -64,7 +64,10 @@ class VoiceFollowUpFence:
             <= datetime.now(timezone.utc)
             or (fields.get("input_payload") or {}).get("message_role") == "system"
         ):
-            raise ResourceConflictError(message="The voice target is no longer active")
+            raise ResourceConflictError(
+                message="The voice target is no longer active",
+                details={"reason": "voice_target_inactive"},
+            )
 
         # The pinned PostgreSQL transaction uses SELECT FOR UPDATE for this
         # simple equality selector. No write is based on a cached ChatThread,
@@ -75,7 +78,10 @@ class VoiceFollowUpFence:
         if not is_workspace_voice_thread(thread, self.principal_id, self.workspace_id):
             raise InsufficientPermissionsError(message="Conversation unavailable")
         if thread["context"].get("active_work_item_id") != self.work_item_id:
-            raise ResourceConflictError(message="The voice target is no longer active")
+            raise ResourceConflictError(
+                message="The voice target is no longer active",
+                details={"reason": "voice_target_inactive"},
+            )
         await require_voice_workspace_role(self.principal_id, self.workspace_id)
 
         if steering:

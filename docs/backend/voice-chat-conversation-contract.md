@@ -32,7 +32,42 @@ conversational surface, not another worker, database, or source of authority.
   item in chat without claiming approval or execution. Spoken authorization
   must use separate exact confirmation and the existing approval gate.
 
+### When the caller cannot see chat
+
+The browser is the only live call adapter today. For a future voice-only
+connector, the authenticated adapter must declare whether this caller has an
+interactive chat surface. A durable conversation or a connector that also
+supports text messaging does not establish that the caller can see a message or
+act on a card during the call. An unknown surface must assume voice only.
+
+Pass that fact to both the realtime model and the resident handling delegated
+work. Use it when offering tools and when delivering results, errors and review
+receipts. In-app calls can continue to use chat and acknowledged page navigation.
+On a voice-only call, speak the outcome, offer details on request, and carry the
+selected resource forward by voice. Never announce a page opened on an absent
+browser. For an eligible review, read the proposed effect and use the existing
+separate confirmation. If the channel cannot perform the required verification,
+say what remains pending and why. Channel capabilities never grant authority.
+
+Qualify each new adapter with the same scoped lookup, ambiguous selection and
+review as the browser. Exercise a caller with no open browser and no text
+delivery. They must hear the result, distinguish a pending change from an
+applied one, and resume after interruption without consulting a chat card.
+
 ## Realtime routing and interruption
+
+During an active workspace lookup, an independent spoken question can enter the
+durable FIFO behind that exact work item. The relay reads the queue receipt
+aloud. The worker delivers the answer separately. If the original work finishes
+during admission, the relay can submit the additional question once after
+verifying the preceding successful result and idle thread. A correction in that
+state requires a fresh instruction. A pending approval keeps its own controls.
+
+For a numbered choice or unique exact name from the current spoken directory,
+the relay verifies the selection and supplies the existing navigation tool with
+the canonical destination IDs. The resident can request the route directly.
+Resource labels stay in the data portion of the prompt. The browser confirms a
+successful render before voice announces arrival.
 
 Voice accepts a bounded browser page context over the authorized call and
 passes it through native context verification. A successful live delegated
