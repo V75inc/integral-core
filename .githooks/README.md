@@ -16,12 +16,13 @@ See the [contributor guide](../docs/developer/CONTRIBUTING.md) and [invariants](
 
 ## Commit attribution
 
-The `commit-msg` hook rejects new `Co-authored-by` trailers for the Cursor and
-Claude account email identities. It leaves human coauthors and ordinary product
+The `commit-msg` hook enforces I-GIT-ATTRIBUTION-01 for recognized agent
+identities, credit trailers and standard coding-agent footers, including the
+Cursor, Claude and Codex accounts. It leaves human coauthors and ordinary product
 references intact and does not edit messages. It applies to local commits when
 `core.hooksPath` is enabled; GitHub web commits and other clones can bypass local
 hooks. The **Contributor attribution** workflow checks complete reachable commit
-history, raw author/committer identities, and proposed PR title/body trailers.
+history, raw author/committer identities, and proposed PR title/body credit.
 It runs independently of application CI path filters. Configure it as a required
 status check after it lands; a workflow alone does not change branch protection.
 

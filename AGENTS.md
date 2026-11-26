@@ -139,6 +139,16 @@ Bypass with `--no-verify` only for documented exceptions. See `.githooks/README.
 
 These rules bind any AI agent working in this repo. They are not optional.
 
+**I-GIT-ATTRIBUTION-01 — Human contributor attribution.** Never include
+coding-agent author, committer, coauthor or sign-off identities, generated-by
+footers, or similar agent credit in commits, pull request titles, descriptions,
+comments, or merge messages. Use the authorized human contributor's Git
+identity and preserve genuine human contributor credit. Product references,
+licenses and required notices remain intact. Audit the complete proposed history
+and PR text with `scripts/commit_attribution.py` before publishing. Existing
+attributed history requires the reviewed cleanup procedure in
+[Contributor attribution policy](docs/ops/CONTRIBUTOR_ATTRIBUTION.md).
+
 1. **NEVER push without explicit user consent.** Committing is fine at any
    time; `git push` (and opening/updating PRs) requires the user to explicitly
    say to push in this session. Do not push "to be helpful," to back up work,
