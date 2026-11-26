@@ -495,19 +495,19 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       return !(snapshotBound && (type === 'date' || type === 'datetime'));
     }),
   );
-  // While a date is being edited, keep the values its revision token belongs to.
+  const persistedValues = dateDraft.base ?? draftValues;
+  // Shared values inform the form, and live projections are resolved on each read.
   const values: Record<string, unknown> = {
-    ...(dateDraft.base || {
-      ...draftValues,
-      ...shared,
-      ...projected,
-    }),
-    ...(dateDraft.values || {}),
+    ...persistedValues,
+    ...shared,
+    ...dateDraft.values,
+    ...projected,
   };
   const visibilityValues = {
     ...values,
     ...(live?.values || {}),
     ...(dateDraft.values || {}),
+    ...projected,
   };
   const projectedStatus = (!draftBound && targetEntry?.read_time_fields?.status) || {};
   // Locked here too, whether or not the host took the latest record.
@@ -570,10 +570,14 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
                 }
                 // The picker reports the stored value on blur too.
                 if ((next ?? '') === (values[field.key] ?? '')) return;
-                dateDraft.change({
+                // Derive the offset from the record revision used by Save.
+                const changed = {
+                  ...persistedValues,
+                  ...dateDraft.values,
                   [field.key]: next,
-                  ...(deriveAutoOffsetPatch(allFields, { ...values, [field.key]: next }, field.key) || {}),
-                }, values);
+                };
+                const offset = deriveAutoOffsetPatch(allFields, changed, field.key);
+                dateDraft.change({ [field.key]: next, ...offset });
               }}
               entryId={targetEntry?.id || lifecycle?.entryId || undefined}
               relationChoices={relationChoices[field.key]}

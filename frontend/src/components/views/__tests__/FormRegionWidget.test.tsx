@@ -543,6 +543,75 @@ describe('FormRegionWidget saving dates on the reading view', () => {
     }));
   });
 
+  it('derives a date offset from the save revision when the schema arrives after the record', async () => {
+    const offsetType = {
+      ...dateType,
+      form_schema: {
+        ...dateType.form_schema,
+        fields: [
+          dateType.form_schema.fields[0],
+          {
+            ...dateType.form_schema.fields[1],
+            validation: { auto_offset: { from_date: 'start_date', from_terms: 'terms' } },
+          },
+          {
+            key: 'terms', name: 'Terms', type: 'select',
+            validation: { term_days: { seven_days: 7, fourteen_days: 14 } },
+          },
+        ],
+      },
+    };
+    const older = record('entry-a', '2026-03-10', '2026-03-17', 3);
+    const current = record('entry-a', '2026-04-10', '2026-04-24', 4);
+    older.custom_fields = { ...older.custom_fields, terms: 'seven_days' };
+    current.custom_fields = { ...current.custom_fields, terms: 'fourteen_days' };
+    let loadSchema!: (types: (typeof offsetType)[]) => void;
+    mockEntryTypesList.mockReturnValue(new Promise(resolve => { loadSchema = resolve; }));
+    mockGet.mockResolvedValue(current);
+    mockUpdate.mockResolvedValue({
+      ...current,
+      record_revision: 5,
+      custom_fields: { ...current.custom_fields, start_date: '2026-04-22', end_date: '2026-05-06' },
+    });
+    await act(async () => { mount(<Host entry={older} />); });
+    expect(mockGet).toHaveBeenCalledWith('entry-a');
+    await act(async () => { loadSchema([offsetType]); });
+
+    await pickStart(/April 22nd, 2026/);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith('entry-a', {
+      custom_fields: { start_date: '2026-04-22', end_date: '2026-05-06' },
+      expected_record_revision: 4,
+      expected_schema_revision: 2,
+    }));
+  });
+
+  it('masks a projection that becomes unavailable while a date draft is open', async () => {
+    mockEntryTypesList.mockResolvedValue([dateType]);
+    const first: Entry = {
+      ...record('entry-a', '2026-03-10', '2026-03-11', 3),
+      read_time_fields: { values: { end_date: '2026-03-29' }, status: { end_date: 'available' } },
+    };
+    const newer: Entry = {
+      ...record('entry-a', '2026-03-10', '2026-03-11', 4),
+      read_time_fields: { values: { end_date: null }, status: { end_date: 'unavailable' } },
+    };
+    mockGet.mockResolvedValue(first);
+    mount(<Host entry={first} newer={newer} />);
+
+    await screen.findByDisplayValue(shownDate(29));
+    await pickStart(/March 20th, 2026/);
+    mockGet.mockResolvedValue(newer);
+    fireEvent.click(screen.getByRole('button', { name: 'Host refreshed' }));
+
+    await screen.findByText(/could not be checked/);
+    expect(screen.getByDisplayValue(shownDate(20))).toBeInTheDocument();
+    const endDate = screen.getByRole('textbox', { name: 'End date' });
+    expect(endDate).toBeDisabled();
+    expect(endDate).toHaveValue('');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   /** Starts a save of entry A that finishes only when the test says so. */
   async function saveHeld(a: Entry) {
     let finish: (entry: Entry) => void = () => {};

@@ -6,7 +6,7 @@ import type { Entry } from '../../types';
 
 interface DateDraft {
   entryId: string;
-  /** The values on screen when editing began, from the same revision. */
+  /** Persisted field values from the revision that started the draft. */
   base: Record<string, unknown>;
   values: Record<string, unknown>;
   recordRevision: number;
@@ -45,12 +45,12 @@ export function useDetailDateDraft(
   const draft = stored && stored.entryId === entryId ? stored : null;
   const saving = Boolean(entryId && savingIds.includes(entryId));
 
-  function change(patch: Record<string, unknown>, shown: Record<string, unknown>) {
+  function change(patch: Record<string, unknown>) {
     if (saving || !entry?.record_revision || !entry.schema_revision) return;
     setFailure(null);
     setDraft({
       entryId: entry.id,
-      base: draft?.base ?? shown,
+      base: draft?.base ?? { ...entry.custom_fields },
       recordRevision: draft?.recordRevision ?? entry.record_revision,
       schemaRevision: draft?.schemaRevision ?? entry.schema_revision,
       values: { ...draft?.values, ...patch },
