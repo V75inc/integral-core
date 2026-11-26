@@ -550,7 +550,9 @@ describe('FormRegionWidget saving dates on the reading view', () => {
     await pickStart(/March 20th, 2026/);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return async (saved: Entry) => {
-      mockGet.mockImplementation(async () => saved);
+      // Reads fail while the save finishes, so only the save's own response can
+      // change the screen, however late a re-read of the region happens to run.
+      mockGet.mockRejectedValue(new Error('offline'));
       await act(async () => { finish(saved); });
       mockGet.mockResolvedValue(a);
     };
