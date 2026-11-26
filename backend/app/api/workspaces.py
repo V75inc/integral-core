@@ -46,6 +46,7 @@ from app.services.attachment_storage import get_attachment_storage_service
 from app.services.authority_facts import relationship_flag, relationship_literal
 from app.services.avatar_resize import resize_avatar
 from app.services.change_event import emit_change_event
+from app.services.email_identity import roster_account_emails
 from app.services.host_hooks import enrich_workspace_export
 from app.services.permissions import get_user_node
 from app.services.workspace_permissions import (
@@ -735,6 +736,7 @@ async def list_workspace_members(request: Request, workspace_id: str) -> Dict[st
         node=["User"],
         limit=2000,
     )
+    emails = await roster_account_emails(member_nodes)
     for u in member_nodes:
         # Never full-export User in a list every member can read. A raw export
         # carries `preferences` — which holds the email-verification OTP slot
@@ -752,6 +754,10 @@ async def list_workspace_members(request: Request, workspace_id: str) -> Dict[st
         # PUBLIC_USER_FIELDS for every other caller of the view.
         if getattr(u, "user_id", None):
             data["user_id"] = u.user_id
+        # The route is admin-only and the members page identifies people by
+        # email, so it is added here too, never to the shared public view.
+        if u.user_id in emails:
+            data["email"] = emails[u.user_id]
         row = await read_member_facts(u, ws.id)
         if row is None:
             from app.exceptions import AuthorizationUnavailableError

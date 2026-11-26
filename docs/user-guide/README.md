@@ -100,6 +100,12 @@ Use the body for explanatory content and typed fields for values you want to val
 
 When editing, check that the save completes. If another person or process changed the record, a revision conflict may require reloading and reconciling your changes. A stale tab is not authority to overwrite newer work.
 
+In App record views that support date editing, choose a date and select **Save**.
+Any date offset uses the saved field values from the revision you started
+editing. An unavailable live field appears blank, with a notice that its value
+is unknown. If the record could not be read back after saving, select
+**Refresh entry** to load it again.
+
 When a record is opened from a supported list, **Previous** and **Next** move
 through that list's current order and filters. Opening the next page happens
 when you navigate; each destination is checked against your current access.

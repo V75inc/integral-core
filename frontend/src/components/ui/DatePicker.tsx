@@ -139,8 +139,15 @@ export function DatePicker({
     const r = el.getBoundingClientRect();
     const pad = 8;
     const maxWidth = Math.max(0, window.innerWidth - 2 * pad);
+    // Open below the field, above it when only that fits, else keep it on screen.
+    const height = panelRef.current?.offsetHeight ?? 0;
+    let top = r.bottom + 4;
+    if (height && top + height > window.innerHeight - pad) {
+      const above = r.top - 4 - height;
+      top = above >= pad ? above : Math.max(pad, window.innerHeight - pad - height);
+    }
     setCoords({
-      top: r.bottom + 4,
+      top,
       left: Math.max(pad, Math.min(r.left, window.innerWidth - pad - 280)),
       minWidth: Math.max(r.width, 280),
       maxWidth,
@@ -160,6 +167,12 @@ export function DatePicker({
       window.removeEventListener('resize', updateCoords);
     };
   }, [open, updateCoords]);
+
+  // The panel's height is known only once it has rendered.
+  const placed = coords !== null;
+  useLayoutEffect(() => {
+    if (open && placed) updateCoords();
+  }, [open, placed, updateCoords]);
 
   const close = useCallback(() => {
     setOpen(false);

@@ -81,6 +81,7 @@ import {
   resolveEntryContribution,
   type EntryContributionSlotHandle,
 } from './EntryContributionSlot';
+import { useDetailRecordEdit } from './useDetailRecordEdit';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { WatchersControl } from './WatchersControl';
@@ -662,6 +663,9 @@ export function EntryDetail({
     editForm.entryTypeFormSchema || entryTypeFormSchema,
     'entry_detail'
   );
+
+  const detailEdit = useDetailRecordEdit(entry, canEdit, setEntry,
+    saved => onUpdateRef.current?.(saved));
 
   const designerTargetView = useMemo((): SavedView | null => {
     return resolveDesignerTargetView(
@@ -1801,6 +1805,7 @@ export function EntryDetail({
                   entryTypeKey={entry.type}
                   mode="detail"
                   customFields={(entry.custom_fields || {}) as Record<string, unknown>}
+                  detailEdit={detailEdit}
                 />
               </div>
               {!detailOwnsForm ? (
