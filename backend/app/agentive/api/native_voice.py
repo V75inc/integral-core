@@ -5,7 +5,7 @@ import logging
 from contextlib import suppress
 from hmac import compare_digest
 
-from fastapi import (  # deviation: jvspatial @endpoint has no WebSocket primitive; only /ws/native-voice is registered here.
+from fastapi import (  # deviation: jvspatial @endpoint has no WebSocket primitive; only /ws/native-voice and /ws/phone-voice are registered here.
     APIRouter,
     WebSocket,
     WebSocketDisconnect,
@@ -25,6 +25,7 @@ from app.services.native_voice import (
     VoiceRelay,
     VoiceScope,
     authorize,
+    open_phone_relay,
     open_upstream,
     voice_thread_continuity,
 )
@@ -38,6 +39,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 # Per process. Another API worker does not see this set.
 _active_calls: set[str] = set()
+
+
+def principal_has_live_call(principal: str | None) -> bool:
+    """True when this process already holds a relay for the principal."""
+    return bool(principal) and principal in _active_calls
 
 
 # deviation: jvspatial @endpoint does not support WebSocket route registration.
@@ -65,7 +71,7 @@ async def native_voice(browser: WebSocket):
             if caller is None:
                 await browser.close(code=4403)
                 return
-            if principal in _active_calls:
+            if principal_has_live_call(principal):
                 await browser.send_json(
                     {
                         "type": "error",
@@ -199,3 +205,123 @@ async def native_voice(browser: WebSocket):
                         "Native voice transport released; provider_closed=%s",
                         provider_closed,
                     )
+
+
+class _PhoneSocket:
+    """Browser-shaped peer for one handset. Playback bytes return on the socket.
+
+    Navigation is a page move. The handset drops it. This is telephone
+    admission beyond ADR 019's current release.
+    """
+
+    def __init__(self, socket: WebSocket) -> None:
+        self._socket = socket
+
+    async def receive(self):
+        return await self._socket.receive()
+
+    async def send_bytes(self, data: bytes) -> None:
+        await self._socket.send_bytes(data)
+
+    async def send_json(self, message: dict) -> None:
+        if message.get("type") == "navigation":
+            return
+        await self._socket.send_json(message)
+
+
+async def _hang_up_phone_quietly(call_id: str, upstream=None) -> None:
+    """Disconnect one phone call without escaping the socket finally.
+
+    ``hang_up_phone_call`` already closes its stored upstream once. A later
+    close here runs only when that helper raises before the close.
+    """
+    from app.agentive.services.whatsapp_voice_bridge import hang_up_phone_call
+
+    try:
+        await hang_up_phone_call(call_id)
+    except Exception:
+        logger.warning("phone voice hangup failed")
+        close = getattr(upstream, "close", None)
+        if close is not None:
+            with suppress(Exception):
+                await close()
+
+
+# deviation: jvspatial @endpoint has no WebSocket primitive.
+@router.websocket("/ws/phone-voice")
+async def phone_voice(socket: WebSocket):
+    """Relay one phone peer. This is telephone admission beyond ADR 019's current release.
+
+    The phone socket does not check a browser origin and does not redeem a
+    VoiceStart ticket. It admits only the one-call bearer.
+    """
+    from app.agentive.services.whatsapp_voice_bridge import (
+        attach_phone_relay,
+        discard_relay_bearer,
+        relay_bearer_record,
+    )
+
+    presented = socket.headers.get("x-integral-phone-bearer") or ""
+    record = relay_bearer_record(presented)
+    if record is None:
+        await socket.close(code=4403)
+        return
+    await socket.accept()
+    principal = record["principal_id"]
+    claimed = False
+    upstream = None
+    try:
+        if principal_has_live_call(principal):
+            await socket.close(code=4403)
+            return
+        _active_calls.add(principal)
+        claimed = True
+        credential = await resolve_realtime_credential(record["workspace_id"])
+        if credential is None:
+            await socket.close(code=4404)
+            return
+        upstream = await open_upstream(credential)
+        if upstream is None:
+            await socket.close(code=4404)
+            return
+        # Upstream is open and this principal is claimed. Hangup from either
+        # side closes this relay. A missing bearer never reaches here.
+        attach_phone_relay(
+            call_id=record["call_id"],
+            upstream=upstream,
+            bearer=presented,
+        )
+        # An older row without the key is empty, so ``authorize`` refuses the
+        # ``wa:`` thread rather than guessing a channel session.
+        scope = VoiceScope(
+            principal,
+            record["workspace_id"],
+            "",
+            record["thread_id"],
+            channel_session=record.get("channel_session", ""),
+        )
+        relay = open_phone_relay(_PhoneSocket(socket), upstream, scope, check=authorize)
+        try:
+            await relay.run()
+        except WebSocketDisconnect:
+            pass
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            # The bearer was valid, so this WhatsApp leg was accepted. Close
+            # it on every exit: a live principal, a missing credential, an
+            # upstream failure, or the relay ending. One call id disconnects
+            # once. Discard still runs when hangup is stubbed.
+            await _hang_up_phone_quietly(record["call_id"], upstream)
+            discard_relay_bearer(record["call_id"])
+        finally:
+            if claimed:
+                _active_calls.discard(principal)
+            if (
+                socket.client_state
+                == socket.application_state
+                == WebSocketState.CONNECTED
+            ):
+                with suppress(RuntimeError, WebSocketDisconnect):
+                    await socket.close()

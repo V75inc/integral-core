@@ -8,7 +8,7 @@ import logging
 import re
 import secrets
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 from urllib.parse import urlencode
@@ -372,6 +372,19 @@ class VoiceScope:
     page_context: dict | None = field(default=None, repr=False)
     page_revision: int = 0
     actions: VoiceCallActions = BROWSER_CALL_ACTIONS
+    # Explicit phone channel session (``wa:{workspace}:{e164}``). Empty for the
+    # browser; ``session`` stays the relay token, never this id.
+    channel_session: str = ""
+
+
+def _channel_session_allows(thread, scope: VoiceScope) -> bool:
+    """Browser scopes refuse ``wa:`` threads; a phone scope needs its exact id."""
+    session = thread.provider_session_id or ""
+    if not scope.channel_session:
+        return not session.startswith("wa:")
+    return session == scope.channel_session and scope.channel_session.startswith(
+        f"wa:{scope.workspace}:"
+    )
 
 
 async def authorize(scope: VoiceScope):
@@ -398,7 +411,7 @@ async def authorize(scope: VoiceScope):
                 or thread.user_id != scope.principal
                 or thread.workspace_id != scope.workspace
                 or (getattr(thread, "agent_profile_key", "") or "") != scope.profile
-                or (thread.provider_session_id or "").startswith("wa:")
+                or not _channel_session_allows(thread, scope)
             ):
                 raise InsufficientPermissionsError(message="Conversation unavailable")
             return thread
@@ -1066,6 +1079,62 @@ async def open_upstream(credential):
     )
 
 
+class ServerAudioPeer:
+    """In-process stand-in for the browser socket VoiceRelay already reads.
+
+    ``receive`` yields the same frames ``_read_browser`` accepts. Playback
+    leaves through ``send_bytes``. This object does not open a model socket.
+    """
+
+    def __init__(self) -> None:
+        self._inbound: asyncio.Queue = asyncio.Queue()
+        self.playback: list[bytes] = []
+        self.messages: list[dict] = []
+
+    async def push_audio(self, chunk: bytes) -> None:
+        await self._inbound.put({"type": "websocket.receive", "bytes": chunk})
+
+    async def close(self) -> None:
+        await self._inbound.put({"type": "websocket.disconnect"})
+
+    async def receive(self):
+        return await self._inbound.get()
+
+    async def send_bytes(self, data: bytes) -> None:
+        self.playback.append(data)
+
+    async def send_json(self, message: dict) -> None:
+        # Navigation is a browser page move. The handset peer drops it and
+        # does not call integral_open_view.
+        if message.get("type") == "navigation":
+            return
+        self.messages.append(message)
+
+
+def open_phone_relay(browser, upstream, scope: VoiceScope, **kwargs):
+    """Start the handset relay.
+
+    This is telephone admission beyond ADR 019's current release. The phone
+    call is not the browser socket that ADR describes.
+    """
+    kwargs.pop("review_confirmation_supported", None)
+    kwargs.pop("allow_browser_navigation", None)
+    kwargs.pop("review_voice", None)
+    if (
+        scope.actions.open_page
+        or scope.actions.post_note
+        or scope.actions.confirm_review
+    ):
+        scope = replace(scope, actions=VoiceCallActions())
+    return VoiceRelay(
+        browser,
+        upstream,
+        scope,
+        review_confirmation_supported=False,
+        **kwargs,
+    )
+
+
 class VoiceRelay:
     """Translate only audio and completed provider tool calls across the boundary."""
 
@@ -1227,7 +1296,9 @@ class VoiceRelay:
                 if not self.ready:
                     raise ValueError("Invalid voice control frame")
                 if raw_control.startswith('{"type":"page_context",'):
-                    if not self.scope.actions.open_page or len(raw_control) > 4096:
+                    if not self.scope.actions.open_page:
+                        continue
+                    if len(raw_control) > 4096:
                         raise ValueError("Invalid page context")
                     from app.services.chat_page_context import sanitize_page_snapshot
 
@@ -4687,7 +4758,16 @@ class VoiceRelay:
             async with asyncio.timeout(1):
                 # The shared snapshot reader authorizes stored scope itself.
                 # Provider and first-audio egress are independently rechecked.
-                result = await read(*pinned[:3], profile_key=pinned[3], cursor=cursor)
+                # Only a phone scope carries a channel session; browser reads
+                # keep the exact historical call shape.
+                channel = (
+                    {"channel_session": self.scope.channel_session}
+                    if self.scope.channel_session
+                    else {}
+                )
+                result = await read(
+                    *pinned[:3], profile_key=pinned[3], cursor=cursor, **channel
+                )
                 if self.closing or pinned != self._thread_status_scope():
                     return None
                 return result

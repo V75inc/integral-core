@@ -169,6 +169,47 @@ def test_text_message_yields_sender_phone_id_and_text():
 
 @pytest.mark.parametrize(
     "message_type",
+    ["call", "system", "unsupported", "unknown"],
+)
+@pytest.mark.unit
+def test_call_leftover_message_types_are_ignored(message_type: str):
+    """Hangup leftovers in messages are ignore, not the text-only notice."""
+    payload = _envelope(
+        [
+            {
+                "from": "15551212",
+                "id": "wamid.abc",
+                "type": message_type,
+                message_type: {"id": "call-1"},
+            }
+        ]
+    )
+    parsed = parse_whatsapp_envelope(payload)
+    assert parsed.kind == "ignore"
+    assert parsed.message_type == message_type
+    assert parsed.text == ""
+
+
+@pytest.mark.unit
+def test_call_interactive_message_is_ignored():
+    """A call leftover interactive message is ignore, not the text-only notice."""
+    payload = _envelope(
+        [
+            {
+                "from": "15551212",
+                "id": "wamid.abc",
+                "type": "interactive",
+                "interactive": {"type": "call_permission_request"},
+            }
+        ]
+    )
+    parsed = parse_whatsapp_envelope(payload)
+    assert parsed.kind == "ignore"
+    assert parsed.message_type == "interactive"
+
+
+@pytest.mark.parametrize(
+    "message_type",
     ["image", "document", "audio", "video", "sticker", "reaction"],
 )
 @pytest.mark.unit
@@ -638,6 +679,56 @@ async def test_owner_text_shows_typing_before_the_turn(
     assert response.status_code == 200
     assert order == [("typing", "wamid.owner"), ("admit", "wamid.owner", "+15551212")]
     assert sent_texts == []
+
+
+@pytest.mark.asyncio
+async def test_busy_thread_returns_200_and_sends_a_notice(
+    enc_key, test_user, client, sent_texts, monkeypatch
+):
+    """A 409 on the thread still acks Meta and tells the sender to wait."""
+    from app.api.errors import ResourceConflictError
+
+    binding = await _ready_binding(test_user)
+
+    async def resolve(channel, channel_user_id):
+        if channel == "whatsapp" and channel_user_id == "+15551212":
+            return {
+                "user_id": binding.user_id,
+                "channel_user_id": "+15551212",
+            }
+        return None
+
+    async def admit(*args: object, **kwargs: object) -> None:
+        raise ResourceConflictError(
+            message="A turn is already in progress on this thread"
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.channel_identity.resolve_channel_identity",
+        resolve,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_chat_bridge.admit_owner_whatsapp_text",
+        admit,
+    )
+    raw = _raw_payload(
+        _envelope(
+            [_text_message("hello", sender="15551212", message_id="wamid.busy")],
+            phone_number_id=_PHONE,
+        )
+    )
+    response = await _post_webhook(
+        client,
+        raw,
+        _jvconnect_signature(raw, _HOOK_SECRET),
+        header="X-Jvconnect-Signature",
+    )
+
+    assert response.status_code == 200
+    assert [call["body"] for call in sent_texts] == [
+        "Still finishing the previous reply. Try again in a moment."
+    ]
+    assert [call["message_id"] for call in sent_texts.typing] == ["wamid.busy"]
 
 
 @pytest.mark.asyncio

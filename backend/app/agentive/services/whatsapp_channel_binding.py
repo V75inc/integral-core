@@ -18,9 +18,11 @@ from jvspatial.core.context import get_default_context
 from app.agentive.edges import HAS_WHATSAPP_CHANNEL_BINDING, USES_WHATSAPP_LINE
 from app.agentive.nodes import WhatsAppChannelBinding
 from app.api.errors import (
+    BadRequestError,
     InsufficientPermissionsError,
     ResourceConflictError,
     ResourceNotFoundError,
+    ServiceUnavailableError,
 )
 from app.services.app_operations.transaction_scope import (
     graph_transaction_available,
@@ -36,6 +38,9 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 _local_workspace_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+_JVCONNECT_CALLING_MISSING = (
+    "This JV Connect is missing calling settings. Upgrade JV Connect and try again."
+)
 
 
 @asynccontextmanager
@@ -66,6 +71,87 @@ def public_binding_view(binding: WhatsAppChannelBinding) -> dict:
         "api_key_last4": binding.api_key_last4,
         "webhook_registered": bool(binding.webhook_secret_ciphertext),
     }
+
+
+def workspace_calling_view(binding: WhatsAppChannelBinding, grant) -> dict:
+    """Public binding status plus this workspace line's calling flag.
+
+    ``grant`` is the ``UsesWhatsAppLine`` edge. A missing edge reads as off.
+    """
+    view = public_binding_view(binding)
+    view["jvvoice_base_url"] = (getattr(binding, "jvvoice_base_url", "") or "").strip()
+    view["jvvoice_api_key_last4"] = getattr(binding, "jvvoice_api_key_last4", "") or ""
+    view["jvconnect_calling_status"] = ""
+    view["jvconnect_calling_error"] = ""
+    if grant is None:
+        view["calling_enabled"] = False
+        view["calling_grant_id"] = ""
+        view["calling_revision"] = 0
+        return view
+    view["calling_enabled"] = bool(getattr(grant, "calling_enabled", False))
+    view["calling_grant_id"] = grant.id
+    view["calling_revision"] = int(getattr(grant, "revision", 0) or 0)
+    return view
+
+
+async def attach_jvconnect_calling_status(
+    binding: WhatsAppChannelBinding, view: dict, *, http_client=None
+) -> dict:
+    """Best-effort Meta calling status. A failure sets ``jvconnect_calling_error``."""
+    from app.agentive.clients.jvconnect_whatsapp import fetch_calling_settings
+
+    api_key = read_api_key(binding)
+    base_url = (binding.jvconnect_base_url or "").strip()
+    if not api_key or not base_url:
+        return view
+    try:
+        result = await fetch_calling_settings(base_url, api_key, client=http_client)
+    except Exception:
+        return view
+    if result.ok:
+        status = str(result.data.get("status") or "")
+        if status in ("ENABLED", "DISABLED"):
+            view["jvconnect_calling_status"] = status
+        return view
+    if result.status_code == 404:
+        view["jvconnect_calling_error"] = _JVCONNECT_CALLING_MISSING
+        return view
+    error = result.error or "Could not read WhatsApp calling on JV Connect"
+    if api_key in error or error == "invalid JSON response":
+        error = "Could not read WhatsApp calling on JV Connect"
+    view["jvconnect_calling_error"] = error[:300]
+    return view
+
+
+async def _sync_jvconnect_calling(
+    binding: WhatsAppChannelBinding, enabled: bool
+) -> str:
+    """Turn Meta calling on or off. Fail closed so Integral does not drift."""
+    from app.agentive.clients.jvconnect_whatsapp import set_calling_settings
+
+    api_key = read_api_key(binding)
+    if not api_key or not (binding.jvconnect_base_url or "").strip():
+        raise ResourceConflictError("WhatsApp line is not ready")
+    result = await set_calling_settings(binding.jvconnect_base_url, api_key, enabled)
+    if not result.ok:
+        if result.status_code == 404:
+            raise ServiceUnavailableError(message=_JVCONNECT_CALLING_MISSING)
+        error = result.error or "Could not update WhatsApp calling on JV Connect"
+        if api_key in error or error == "invalid JSON response":
+            error = "Could not update WhatsApp calling on JV Connect"
+        raise ServiceUnavailableError(message=error[:300])
+    status = str(result.data.get("status") or "")
+    if status in ("ENABLED", "DISABLED"):
+        return status
+    return "ENABLED" if enabled else "DISABLED"
+
+
+def read_jvvoice_api_key(binding: WhatsAppChannelBinding) -> str:
+    """Decrypt the stored jvvoice API key, or empty when none is saved."""
+    ciphertext = getattr(binding, "jvvoice_api_key_ciphertext", "") or ""
+    if not ciphertext:
+        return ""
+    return decrypt_secret_from_storage(ciphertext, aad=binding.id)
 
 
 def read_api_key(binding: WhatsAppChannelBinding) -> str:
@@ -184,6 +270,96 @@ async def set_workspace_line_enabled(
         grant.enabled = enabled
         grant.revision += 1
         await grant.save()
+
+
+async def set_workspace_line_calling_enabled(
+    user_id: str,
+    workspace_id: str,
+    expected_grant_id: str,
+    expected_revision: int,
+    calling_enabled: bool,
+) -> tuple[WhatsAppChannelBinding, Any, str]:
+    """Set calling on the workspace line. Text enablement stays on the edge."""
+    if not workspace_id:
+        raise BadRequestError(message="A workspace is required")
+    await _require_line_admin(user_id, workspace_id)
+    async with _workspace_line_write(workspace_id):
+        binding = await binding_for_workspace(workspace_id)
+        if binding is None:
+            raise ResourceNotFoundError(message="WhatsApp channel is not configured")
+        grant = await workspace_line_grant(workspace_id, binding.id)
+        revision = None if grant is None else int(getattr(grant, "revision", 0) or 0)
+        if (
+            grant is None
+            or grant.id != expected_grant_id
+            or revision != expected_revision
+        ):
+            raise ResourceConflictError(
+                message="WhatsApp grant changed. Refresh and try again."
+            )
+        status = await _sync_jvconnect_calling(binding, calling_enabled)
+        if bool(getattr(grant, "calling_enabled", False)) != calling_enabled:
+            grant.calling_enabled = calling_enabled
+            grant.revision = int(revision) + 1
+            await grant.save()
+        return binding, grant, status
+
+
+async def set_workspace_line_voice_service(
+    user_id: str,
+    workspace_id: str,
+    jvvoice_base_url: str,
+    api_key: str,
+) -> WhatsAppChannelBinding:
+    """Store the jvvoice URL and key for this line. LiveKit stays on jvvoice."""
+    if not workspace_id:
+        raise BadRequestError(message="A workspace is required")
+    await _require_line_admin(user_id, workspace_id)
+    async with _workspace_line_write(workspace_id):
+        binding = await binding_for_workspace(workspace_id)
+        if binding is None:
+            raise ResourceNotFoundError(message="WhatsApp channel is not configured")
+        url = (jvvoice_base_url or "").strip().rstrip("/")
+        key = (api_key or "").strip()
+        if not url and not key:
+            binding.jvvoice_base_url = ""
+            binding.jvvoice_api_key_ciphertext = ""
+            binding.jvvoice_api_key_last4 = ""
+        else:
+            if url:
+                from app.services.url_safety import validate_outbound_http_url
+
+                await validate_outbound_http_url(url)
+                binding.jvvoice_base_url = url
+            if key:
+                binding.jvvoice_api_key_ciphertext = encrypt_secret_for_storage(
+                    key, aad=binding.id
+                )
+                binding.jvvoice_api_key_last4 = key[-4:] if len(key) >= 4 else key
+            elif not getattr(binding, "jvvoice_api_key_ciphertext", ""):
+                raise BadRequestError(message="Enter the jvvoice API key")
+        binding.updated_at = utc_now_iso()
+        await binding.save()
+        return binding
+
+
+async def reregister_workspace_whatsapp_webhook(
+    user_id: str,
+    workspace_id: str,
+    request_base_url: str,
+) -> WhatsAppChannelBinding:
+    """Point JV Connect at the current public webhook URL again."""
+    if not workspace_id:
+        raise BadRequestError(message="A workspace is required")
+    await _require_line_admin(user_id, workspace_id)
+    binding = await binding_for_workspace(workspace_id)
+    if binding is None:
+        raise ResourceNotFoundError(message="WhatsApp channel is not configured")
+    return await register_saved_whatsapp_channel(
+        binding,
+        workspace_id=workspace_id,
+        request_base_url=request_base_url,
+    )
 
 
 async def _revoke_grant(workspace, binding: WhatsAppChannelBinding) -> None:

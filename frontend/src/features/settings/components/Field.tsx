@@ -71,22 +71,29 @@ export function ToggleRow({
   onChange,
   label,
   hint,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label: ReactNode;
   hint?: ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      onClick={() => {
+        if (disabled) return;
+        onChange(!checked);
+      }}
       className={`
         flex w-full items-center justify-between gap-4
         rounded-[var(--radius-card)] border border-[var(--border-subtle)]
         bg-[var(--panel-2)] px-4 py-3 text-left
         transition hover:border-[var(--panel-border)]
         focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
+        ${disabled ? 'cursor-not-allowed opacity-60 hover:border-[var(--border-subtle)]' : ''}
       `}
       aria-pressed={checked}
     >

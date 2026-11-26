@@ -93,6 +93,14 @@ Installed lines also open that dialog from their row in **Connected**. The catal
 Connections keep their channel binding and identity records. A future direct
 Meta integration can use a separate definition and its own credentials.
 
+The same dialog sets calling on the workspace line (`calling_enabled`). Turning
+it on POSTs `{enabled}` to JV Connect `POST /api/v1/meta/whatsapp/calling/settings`
+so Meta Cloud calling matches the toggle. A JV Connect failure is 503 and the
+Integral edge stays unchanged. The dialog also GETs that route for the
+`ENABLED` / `DISABLED` pill. LiveKit URL and keys stay on the jvvoice host;
+Integral does not collect them. The Voice service panel stores a jvvoice HTTPS
+URL and API key for the line.
+
 The workspace line is a singleton. Add and Configure use the existing binding
 PUT with an explicit expected binding ID. A null ID requires an empty workspace.
 A supplied ID must match the current grant, and a verified number cannot be

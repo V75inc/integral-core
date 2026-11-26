@@ -474,8 +474,10 @@ def _binding_validation_message(exc: Exception) -> str:
 async def get_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, Any]:
     """Return the active workspace's WhatsApp line. Secrets are omitted."""
     from app.agentive.services.whatsapp_channel_binding import (
+        attach_jvconnect_calling_status,
         binding_for_workspace,
-        public_binding_view,
+        workspace_calling_view,
+        workspace_line_grant,
     )
     from app.services.request_scope import resolve_workspace_id_from_request
 
@@ -484,8 +486,14 @@ async def get_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, A
     binding = None if not workspace_id else await binding_for_workspace(workspace_id)
     from app.connectors.package_channels import read_host_grant
 
+    grant_edge = None
+    view = None
+    if binding is not None and workspace_id:
+        grant_edge = await workspace_line_grant(workspace_id, binding.id)
+        view = workspace_calling_view(binding, grant_edge)
+        view = await attach_jvconnect_calling_status(binding, view)
     return {
-        "binding": None if binding is None else public_binding_view(binding),
+        "binding": view,
         "grant": read_host_grant("whatsapp", binding),
     }
 
@@ -554,6 +562,140 @@ async def save_whatsapp_channel_binding_endpoint(request: Request) -> Dict[str, 
         resource_id=binding.id,
         before=before,
         after=view,
+        scope=f"user:{user_id}",
+    )
+    return {"binding": view}
+
+
+@endpoint(
+    "/agentive/channels/whatsapp/binding/calling",
+    methods=["PUT"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def set_whatsapp_calling_endpoint(request: Request) -> Dict[str, Any]:
+    """Turn WhatsApp calling on or off for the active workspace line."""
+    from pydantic import ValidationError
+
+    from app.agentive.services.whatsapp_channel_binding import (
+        set_workspace_line_calling_enabled,
+        workspace_calling_view,
+    )
+    from app.schemas.agentive.whatsapp_channel import SetWhatsAppCallingRequest
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = _require_channel_user(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    try:
+        raw = await request.json()
+    except Exception as exc:
+        raise BadRequestError(message="Request body must be a JSON object") from exc
+    try:
+        body = SetWhatsAppCallingRequest.model_validate(raw or {})
+    except ValidationError as exc:
+        raise BadRequestError(message=_binding_validation_message(exc)) from exc
+    binding, grant, status = await set_workspace_line_calling_enabled(
+        user_id,
+        workspace_id,
+        body.expected_grant_id,
+        body.expected_revision,
+        body.calling_enabled,
+    )
+    view = workspace_calling_view(binding, grant)
+    view["jvconnect_calling_status"] = status
+    if view["calling_revision"] != body.expected_revision:
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="whatsapp_channel_calling.update",
+            resource_type="UsesWhatsAppLine",
+            resource_id=grant.id,
+            before={
+                "calling_enabled": not body.calling_enabled,
+                "revision": body.expected_revision,
+            },
+            after={
+                "calling_enabled": view["calling_enabled"],
+                "revision": view["calling_revision"],
+            },
+            scope=f"user:{user_id}",
+        )
+    return {"binding": view}
+
+
+@endpoint(
+    "/agentive/channels/whatsapp/binding/calling/service",
+    methods=["PUT"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def set_whatsapp_voice_service_endpoint(request: Request) -> Dict[str, Any]:
+    """Save the jvvoice URL and key for this workspace line."""
+    from pydantic import ValidationError
+
+    from app.agentive.services.whatsapp_channel_binding import (
+        attach_jvconnect_calling_status,
+        set_workspace_line_voice_service,
+        workspace_calling_view,
+        workspace_line_grant,
+    )
+    from app.schemas.agentive.whatsapp_channel import SaveWhatsAppVoiceServiceRequest
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = _require_channel_user(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    try:
+        raw = await request.json()
+    except Exception as exc:
+        raise BadRequestError(message="Request body must be a JSON object") from exc
+    try:
+        body = SaveWhatsAppVoiceServiceRequest.model_validate(raw or {})
+    except ValidationError as exc:
+        raise BadRequestError(message=_binding_validation_message(exc)) from exc
+    binding = await set_workspace_line_voice_service(
+        user_id, workspace_id, body.jvvoice_base_url, body.api_key
+    )
+    grant = await workspace_line_grant(workspace_id, binding.id)
+    view = workspace_calling_view(binding, grant)
+    view = await attach_jvconnect_calling_status(binding, view)
+    return {"binding": view}
+
+
+@endpoint(
+    "/agentive/channels/whatsapp/binding/webhook",
+    methods=["POST"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def reregister_whatsapp_webhook_endpoint(request: Request) -> Dict[str, Any]:
+    """Register the current public webhook URL on the bound JV Connect line."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        attach_jvconnect_calling_status,
+        reregister_workspace_whatsapp_webhook,
+        workspace_calling_view,
+        workspace_line_grant,
+    )
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id = _require_channel_user(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    binding = await reregister_workspace_whatsapp_webhook(
+        user_id, workspace_id, str(request.base_url)
+    )
+    grant = await workspace_line_grant(workspace_id, binding.id)
+    view = workspace_calling_view(binding, grant)
+    view = await attach_jvconnect_calling_status(binding, view)
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="whatsapp_channel_webhook.register",
+        resource_type="WhatsAppChannelBinding",
+        resource_id=binding.id,
+        before=None,
+        after={
+            "webhook_registered": view.get("webhook_registered"),
+            "enabled": view.get("enabled"),
+        },
         scope=f"user:{user_id}",
     )
     return {"binding": view}

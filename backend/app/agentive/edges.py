@@ -35,6 +35,7 @@ class UsesWhatsAppLine(Edge):
     attached_by: str = ""
     attached_at: Optional[str] = None
     enabled: bool = True
+    calling_enabled: bool = False
     revision: int = 0
     bidirectional: bool = False
 

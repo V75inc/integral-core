@@ -29,6 +29,11 @@ def _stub_jvconnect_account_failure(monkeypatch) -> None:
     async def register_webhook(*args: object, **kwargs):
         raise AssertionError("register_webhook must not be called")
 
+    async def fetch_calling_settings(*args: object, **kwargs):
+        return JvconnectResult(
+            ok=True, status_code=200, data={"status": "DISABLED"}, error=""
+        )
+
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.fetch_account",
         fetch_account,
@@ -36,6 +41,10 @@ def _stub_jvconnect_account_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.register_webhook",
         register_webhook,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_calling_settings",
+        fetch_calling_settings,
     )
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "")
     monkeypatch.setattr(settings, "DEBUG", False)
@@ -313,6 +322,11 @@ def _stub_jvconnect_registration(
             error="",
         )
 
+    async def fetch_calling_settings(*args: object, **kwargs):
+        return JvconnectResult(
+            ok=True, status_code=200, data={"status": "DISABLED"}, error=""
+        )
+
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.fetch_account",
         fetch_account,
@@ -320,6 +334,10 @@ def _stub_jvconnect_registration(
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.register_webhook",
         register_webhook,
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_calling_settings",
+        fetch_calling_settings,
     )
     return calls
 
@@ -371,6 +389,37 @@ async def test_put_registers_webhook_and_hides_secrets(
 
 
 @pytest.mark.asyncio
+async def test_post_reregisters_the_webhook(enc_key, authenticated_client, monkeypatch):
+    """Admins can point JV Connect at the current public webhook again."""
+    calls = _stub_jvconnect_registration(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
+    saved = await authenticated_client.put(
+        "/api/agentive/channels/whatsapp/binding",
+        json={
+            "jvconnect_base_url": "https://connect.example",
+            "api_key": "jvk_test_secret_value",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert calls["register"] == [
+        "https://integral.example/api/agentive/channels/whatsapp/webhook"
+    ]
+    reregistered = await authenticated_client.post(
+        "/api/agentive/channels/whatsapp/binding/webhook"
+    )
+    assert reregistered.status_code == 200, reregistered.text
+    body = reregistered.json()["binding"]
+    assert body["enabled"] is True
+    assert body["webhook_registered"] is True
+    assert "webhook_secret" not in body
+    assert "jvk_test_secret_value" not in reregistered.text
+    assert calls["register"] == [
+        "https://integral.example/api/agentive/channels/whatsapp/webhook",
+        "https://integral.example/api/agentive/channels/whatsapp/webhook",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_two_adds_cannot_replace_the_workspace_line(
     enc_key, authenticated_client, monkeypatch
 ):
@@ -413,6 +462,7 @@ async def test_two_adds_cannot_replace_the_workspace_line(
 async def test_configure_cannot_replace_verified_line_with_a_different_number(
     enc_key, authenticated_client, monkeypatch
 ):
+    """Configure keeps the verified number when the replacement phone differs."""
     calls = _stub_jvconnect_registration(monkeypatch, phone="fixture-first")
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
     path = "/api/agentive/channels/whatsapp/binding"
@@ -431,18 +481,20 @@ async def test_configure_cannot_replace_verified_line_with_a_different_number(
     assert other.status_code == 409
     assert len(calls["register"]) == 1
     assert other_calls["register"] == []
-    assert (await authenticated_client.get(path)).json()["binding"] == binding
+    stored = (await authenticated_client.get(path)).json()["binding"]
+    assert {key: stored[key] for key in binding} == binding
 
 
 @pytest.mark.asyncio
 async def test_late_registration_cannot_restore_a_disconnected_workspace_line(
     enc_key, authenticated_client, monkeypatch
 ):
+    """A registration that finishes after disconnect does not restore the line."""
     _stub_jvconnect_registration(monkeypatch)
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
     started, complete = asyncio.Event(), asyncio.Event()
 
-    async def register_webhook(*args, **kwargs):
+    async def register_webhook(*args: object, **kwargs: object):
         started.set()
         await complete.wait()
         return JvconnectResult(
@@ -633,11 +685,20 @@ async def test_a_different_phone_stays_a_separate_line(
             error="",
         )
 
+    async def fetch_calling_settings(*args: object, **kwargs):
+        return JvconnectResult(
+            ok=True, status_code=200, data={"status": "DISABLED"}, error=""
+        )
+
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.fetch_account", fetch_account
     )
     monkeypatch.setattr(
         "app.agentive.clients.jvconnect_whatsapp.register_webhook", register_webhook
+    )
+    monkeypatch.setattr(
+        "app.agentive.clients.jvconnect_whatsapp.fetch_calling_settings",
+        fetch_calling_settings,
     )
     monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://integral.example")
     first = await authenticated_client.put(

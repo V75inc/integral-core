@@ -1,15 +1,19 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+const showToast = vi.hoisted(() => vi.fn());
 vi.mock('../../../api/agentive', () => ({
   listChannelIdentities: vi.fn(), unlinkChannelIdentity: vi.fn(),
   initiateWhatsAppVerification: vi.fn(),
   getWhatsAppChannelBinding: vi.fn(), saveWhatsAppChannelBinding: vi.fn(),
   disableWhatsAppChannelBinding: vi.fn(),
+  setWhatsAppCalling: vi.fn(),
+  saveWhatsAppVoiceService: vi.fn(),
+  reregisterWhatsAppWebhook: vi.fn(),
 }));
-vi.mock('../../../context/ToastContext', () => ({ useToast: () => ({ showToast: vi.fn() }) }));
+vi.mock('../../../context/ToastContext', () => ({ useToast: () => ({ showToast }) }));
 vi.mock('../../../context/AgentiveContext', () => ({ useAgentive: () => ({ enabled: true }) }));
-import { listChannelIdentities, unlinkChannelIdentity, initiateWhatsAppVerification, getWhatsAppChannelBinding, saveWhatsAppChannelBinding, disableWhatsAppChannelBinding } from '../../../api/agentive';
+import { listChannelIdentities, unlinkChannelIdentity, initiateWhatsAppVerification, getWhatsAppChannelBinding, saveWhatsAppChannelBinding, disableWhatsAppChannelBinding, setWhatsAppCalling, saveWhatsAppVoiceService, reregisterWhatsAppWebhook } from '../../../api/agentive';
 import { WhatsAppSettings } from '../WhatsAppSettings';
 
 beforeEach(() => {
@@ -139,5 +143,165 @@ describe('WhatsApp notification setup', () => {
     await waitFor(() => expect(disableWhatsAppChannelBinding).toHaveBeenCalledTimes(1));
     expect(disableWhatsAppChannelBinding).toHaveBeenCalledWith('bind-9');
     expect(unlinkChannelIdentity).not.toHaveBeenCalled();
+  });
+
+  it('turns voice calling on and off from the last saved grant', async () => {
+    const off = {
+      id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', enabled: true,
+      calling_enabled: false, calling_grant_id: 'edge-1', calling_revision: 0,
+    };
+    const on = { ...off, calling_enabled: true, calling_revision: 1 };
+    vi.mocked(getWhatsAppChannelBinding)
+      .mockResolvedValueOnce({ binding: off })
+      .mockResolvedValueOnce({ binding: on })
+      .mockResolvedValue({ binding: { ...on, calling_enabled: false, calling_revision: 2 } });
+    vi.mocked(setWhatsAppCalling).mockResolvedValue({ binding: on });
+    render(<WhatsAppSettings />);
+    const box = await screen.findByRole('button', { name: /Voice calling/ });
+    expect(box).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText(/Text messaging stays available when calling is off/)).toBeInTheDocument();
+    fireEvent.click(box);
+    await waitFor(() => expect(setWhatsAppCalling).toHaveBeenCalledTimes(1));
+    expect(setWhatsAppCalling).toHaveBeenCalledWith({
+      calling_enabled: true, expected_grant_id: 'edge-1', expected_revision: 0,
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Voice calling/ })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    );
+    expect(getWhatsAppChannelBinding).toHaveBeenCalledTimes(2);
+    expect(await screen.findByLabelText('jvvoice base URL')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Voice calling/ }));
+    await waitFor(() => expect(setWhatsAppCalling).toHaveBeenCalledTimes(2));
+    expect(setWhatsAppCalling).toHaveBeenLastCalledWith({
+      calling_enabled: false, expected_grant_id: 'edge-1', expected_revision: 1,
+    });
+  });
+
+  it('does not send voice calling for members or view mode', async () => {
+    const binding = {
+      id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', enabled: true,
+      calling_enabled: true, calling_grant_id: 'edge-1', calling_revision: 3,
+    };
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({ binding });
+    const { rerender } = render(<WhatsAppSettings canManageLine={false} />);
+    const memberBox = await screen.findByRole('button', { name: /Voice calling/ });
+    expect(memberBox).toBeDisabled();
+    expect(memberBox).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(memberBox);
+    expect(setWhatsAppCalling).not.toHaveBeenCalled();
+    rerender(<WhatsAppSettings dialog={{ mode: 'View', onClose: vi.fn() }} />);
+    const viewBox = screen.getByRole('button', { name: /Voice calling/ });
+    expect(viewBox).toBeDisabled();
+    fireEvent.click(viewBox);
+    expect(setWhatsAppCalling).not.toHaveBeenCalled();
+  });
+
+  it('hides voice calling when the workspace has no line', async () => {
+    render(<WhatsAppSettings />);
+    expect(await screen.findByRole('button', { name: 'Link WhatsApp number' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Voice calling/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Voice calling')).not.toBeInTheDocument();
+  });
+
+  it('hides the jvvoice service until calling is on, and never collects LiveKit keys', async () => {
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
+      binding: {
+        id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', enabled: true,
+        calling_enabled: false, calling_grant_id: 'edge-1', calling_revision: 0,
+      },
+    });
+    const { unmount } = render(<WhatsAppSettings />);
+    expect(await screen.findByLabelText('jvconnect base URL')).toBeInTheDocument();
+    expect(screen.queryByLabelText('jvvoice base URL')).not.toBeInTheDocument();
+    const html = document.documentElement.innerHTML;
+    for (const secret of ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET']) {
+      expect(html).not.toContain(secret);
+    }
+    unmount();
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
+      binding: {
+        id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', enabled: true,
+        calling_enabled: true, calling_grant_id: 'edge-1', calling_revision: 1,
+        jvvoice_base_url: 'https://voice.example', jvvoice_api_key_last4: 'cret',
+        jvconnect_calling_status: 'ENABLED',
+      },
+    });
+    render(<WhatsAppSettings />);
+    expect(await screen.findByLabelText('jvvoice base URL')).toBeInTheDocument();
+    expect(screen.getByLabelText('jvvoice API key')).toBeInTheDocument();
+    expect(screen.getByText('JV Connect calling on')).toBeInTheDocument();
+    expect(document.documentElement.innerHTML).not.toContain('LIVEKIT_API_SECRET');
+    vi.mocked(saveWhatsAppVoiceService).mockResolvedValue({
+      binding: {
+        id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', enabled: true,
+        calling_enabled: true, calling_grant_id: 'edge-1', calling_revision: 1,
+        jvvoice_base_url: 'https://voice.example', jvvoice_api_key_last4: 'cret',
+        jvconnect_calling_status: 'ENABLED',
+      },
+    });
+    fireEvent.change(screen.getByLabelText('jvvoice API key'), { target: { value: 'voice-secret-key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save voice service' }));
+    await waitFor(() => expect(saveWhatsAppVoiceService).toHaveBeenCalledWith({
+      jvvoice_base_url: 'https://voice.example', api_key: 'voice-secret-key',
+    }));
+  });
+
+  it('reloads voice calling when the server rejects the change', async () => {
+    const binding = {
+      id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', enabled: true,
+      calling_enabled: false, calling_grant_id: 'edge-1', calling_revision: 0,
+    };
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({ binding });
+    vi.mocked(setWhatsAppCalling).mockRejectedValueOnce({
+      response: { status: 409, data: { message: 'WhatsApp grant changed. Refresh and try again.' } },
+    });
+    render(<WhatsAppSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: /Voice calling/ }));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(
+      'WhatsApp grant changed. Refresh and try again.', 'error',
+    ));
+    await waitFor(() => expect(getWhatsAppChannelBinding).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: /Voice calling/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+
+    vi.mocked(setWhatsAppCalling).mockRejectedValueOnce({
+      response: { status: 403, data: { message: 'Only workspace owners and admins can manage WhatsApp' } },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Voice calling/ }));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(
+      'Only workspace owners and admins can manage WhatsApp', 'error',
+    ));
+    await waitFor(() => expect(getWhatsAppChannelBinding).toHaveBeenCalledTimes(3));
+  });
+
+  it('reregisters the webhook from the connected line', async () => {
+    const binding = {
+      id: 'bind-9', jvconnect_base_url: 'https://jvconnect.example', phone_number_id: 'pn-9',
+      display_phone: '+15551234567', enabled: true, last_error: '', api_key_last4: 'wxyz', webhook_registered: true,
+    };
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({ binding });
+    vi.mocked(reregisterWhatsAppWebhook).mockResolvedValue({ binding });
+    render(<WhatsAppSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reregister webhook' }));
+    await waitFor(() => expect(reregisterWhatsAppWebhook).toHaveBeenCalledTimes(1));
+    expect(showToast).toHaveBeenCalledWith('Webhook reregistered', 'success');
+  });
+
+  it('shows when JV Connect calling settings are unavailable', async () => {
+    vi.mocked(getWhatsAppChannelBinding).mockResolvedValue({
+      binding: {
+        id: 'bind-1', jvconnect_base_url: 'https://jvconnect.example', enabled: true,
+        calling_enabled: true, calling_grant_id: 'edge-1', calling_revision: 1,
+        jvconnect_calling_error: 'This JV Connect is missing calling settings. Upgrade JV Connect and try again.',
+      },
+    });
+    render(<WhatsAppSettings />);
+    expect(await screen.findByText('JV Connect calling settings unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/Upgrade JV Connect and try again/)).toBeInTheDocument();
   });
 });
