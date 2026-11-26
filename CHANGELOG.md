@@ -6,6 +6,12 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Local Docker setup provisions the reviewed PostgreSQL index catalog in a
+  separate one-time maintenance container before serving. The API and native
+  launcher disable automatic index creation, verify the catalog and use
+  restricted serving credentials. Existing databases without a catalog
+  require a reviewed upgrade.
+
 - Native chat and browser voice share a per-workspace **Permissions** control.
   **Ask for approval** reviews each change by default. **Approve for me**
   covers simple record edits in owned private lists, **Custom** remembers

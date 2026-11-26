@@ -124,17 +124,71 @@ def test_core_rejects_a_catalog_its_provisioner_does_not_manage(monkeypatch):
         postgres_kwargs()
 
 
-@pytest.mark.parametrize("flag", ["0", "false", "no", "off", "", "garbage"])
-def test_managed_mode_cannot_disable_integrity_verification(monkeypatch, flag):
-    """Every disabled or ambiguous declaration flag fails before serving."""
+@pytest.mark.parametrize("flag", ["0", "false", "no"])
+def test_managed_mode_allows_disabling_automatic_indexes(monkeypatch, flag):
+    """Catalog verification is independent of the automatic index loop."""
+    from app.services.storage_indexes.runtime import postgres_kwargs
+
+    monkeypatch.setenv("JVSPATIAL_POSTGRES_INDEX_CREATION", "managed")
+    monkeypatch.setenv("JVSPATIAL_AUTO_CREATE_INDEXES", flag)
+    monkeypatch.setenv(
+        "JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "integral_index_catalog"
+    )
+    assert postgres_kwargs()["index_creation"] == "managed"
+
+
+def test_managed_default_disables_automatic_indexes(monkeypatch):
+    """Hosted and local managed processes default to verify-only model access."""
+    import os
+
+    from app.services.storage_indexes.runtime import postgres_kwargs
+
+    monkeypatch.setenv("JVSPATIAL_POSTGRES_INDEX_CREATION", "managed")
+    monkeypatch.setenv(
+        "JVSPATIAL_POSTGRES_INDEX_CATALOG_TABLE", "integral_index_catalog"
+    )
+    monkeypatch.setenv("JVSPATIAL_AUTO_CREATE_INDEXES", "true")
+    monkeypatch.delenv("JVSPATIAL_AUTO_CREATE_INDEXES")
+    assert postgres_kwargs()["index_creation"] == "managed"
+    assert os.environ["JVSPATIAL_AUTO_CREATE_INDEXES"] == "false"
+
+
+@pytest.mark.parametrize("flag", ["off", "", "garbage"])
+def test_managed_mode_rejects_ambiguous_index_flag(monkeypatch, flag):
+    """Reject malformed flags instead of relying on divergent boolean parsers."""
     from jvspatial import ManagedSchemaError
 
     from app.services.storage_indexes.runtime import postgres_kwargs
 
     monkeypatch.setenv("JVSPATIAL_POSTGRES_INDEX_CREATION", "managed")
     monkeypatch.setenv("JVSPATIAL_AUTO_CREATE_INDEXES", flag)
-    with pytest.raises(ManagedSchemaError, match="integrity"):
+    with pytest.raises(ManagedSchemaError, match="explicit boolean"):
         postgres_kwargs()
+
+
+@pytest.mark.asyncio
+async def test_managed_catalog_failure_is_not_swallowed_with_automatic_indexes_off(
+    monkeypatch,
+):
+    """The managed startup gate must propagate an integrity failure."""
+    from unittest.mock import AsyncMock
+
+    from jvspatial import ManagedSchemaError
+
+    from app import main
+    from app.services.storage_indexes import runtime
+
+    monkeypatch.setenv("JVSPATIAL_DB_TYPE", "postgres")
+    monkeypatch.setenv("JVSPATIAL_POSTGRES_INDEX_CREATION", "managed")
+    monkeypatch.setenv("JVSPATIAL_AUTO_CREATE_INDEXES", "false")
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setattr(main, "_running_under_pytest", lambda: False)
+    check = AsyncMock(side_effect=ManagedSchemaError("fixture missing catalog"))
+    monkeypatch.setattr(runtime, "verify", check)
+    with pytest.raises(ManagedSchemaError, match="fixture missing catalog"):
+        async with main._storage_lifespan(main.app):
+            pytest.fail("An unverified storage catalog must prevent ASGI startup")
+    check.assert_awaited_once()
 
 
 def test_compiler_preserves_pending_storage_requests():

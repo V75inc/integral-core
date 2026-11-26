@@ -43,6 +43,40 @@ def _read(rel: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("compose", ["docker-compose.yml", "docker-compose.local.yml"])
+def test_local_compose_provisions_before_verify_only_serving(compose):
+    """Maintenance owns catalog DDL and serving uses a distinct restricted role."""
+    import yaml
+
+    services = yaml.safe_load(_read(compose))["services"]
+    init = services["storage-init"]
+    api = services["api"]
+    assert init["command"] == ["python", "-m", "app.services.storage_indexes.provision"]
+    assert "env_file" not in init
+    assert init["environment"]["INTEGRAL_MIGRATION_POSTGRES_DSN"]
+    assert init["environment"]["INTEGRAL_RUNTIME_POSTGRES_USER"] == "integral_runtime"
+    assert (
+        api["depends_on"]["storage-init"]["condition"]
+        == "service_completed_successfully"
+    )
+    assert api["environment"]["JVSPATIAL_POSTGRES_INDEX_CREATION"] == "managed"
+    assert api["environment"]["JVSPATIAL_AUTO_CREATE_INDEXES"] == "false"
+    assert api["environment"]["POSTGRES_USER"] == "integral_runtime"
+    assert "INTEGRAL_MIGRATION_POSTGRES_DSN" not in api["environment"]
+    assert (
+        api["environment"]["POSTGRES_PASSWORD"]
+        == init["environment"]["INTEGRAL_RUNTIME_POSTGRES_PASSWORD"]
+    )
+    assert (
+        _example_value(".env.docker.example", "JVSPATIAL_POSTGRES_INDEX_CREATION")
+        == "managed"
+    )
+    assert (
+        _example_value(".env.docker.example", "JVSPATIAL_AUTO_CREATE_INDEXES")
+        == "false"
+    )
+
+
 def _example_value(rel: str, key: str) -> str | None:
     for line in _read(rel).splitlines():
         stripped = line.strip()
