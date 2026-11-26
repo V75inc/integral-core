@@ -254,6 +254,46 @@ def test_ambiguous_workspace_precedes_missing_workspace():
 
 
 @pytest.mark.unit
+def test_visitor_caller_answers_only_one_ready_workspace():
+    """An unknown caller is a public visitor only for a single ready workspace."""
+    from app.agentive.services.whatsapp_call_admission import (
+        admit_whatsapp_visitor_caller,
+    )
+
+    answered = admit_whatsapp_visitor_caller(
+        "15551212000", line_enabled=True, ready_workspace_ids=("ws-1",)
+    )
+    assert answered.decision == "answer"
+    assert answered.reason == "public_profile"
+    assert answered.workspace_id == "ws-1"
+    assert answered.principal_id == ""
+
+    several = admit_whatsapp_visitor_caller(
+        "15551212000",
+        line_enabled=True,
+        ready_workspace_ids=("ws-secret-a", "ws-secret-b"),
+    )
+    assert several.decision == "refuse"
+    assert several.reason == "ambiguous_public_profile"
+    assert "ws-secret" not in several.reason
+    assert several.workspace_id == ""
+
+    none = admit_whatsapp_visitor_caller(
+        "15551212000", line_enabled=True, ready_workspace_ids=()
+    )
+    assert none.decision == "refuse"
+    assert none.reason == "no_public_profile"
+
+
+@pytest.mark.unit
+def test_member_admission_ignores_a_public_profile_flag():
+    """The owner's verified number still answers when a public profile exists."""
+    result = _admit(_VERIFIED)
+    assert result.decision == "answer"
+    assert result.principal_id == "user-1"
+
+
+@pytest.mark.unit
 def test_module_does_not_import_jvconnect_or_native_voice():
     """Admission stays pure: no jvconnect client and no voice relay."""
     tree = ast.parse(_MODULE.read_text(encoding="utf-8"))
@@ -280,6 +320,7 @@ def test_uses_whatsapp_line_calling_enabled_defaults_false():
     grant = UsesWhatsAppLine()
     assert grant.calling_enabled is False
     assert grant.enabled is True
+    assert grant.public_profile_key == ""
 
     grants = (
         Path(__file__).resolve().parents[1]

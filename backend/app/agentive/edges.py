@@ -37,6 +37,9 @@ class UsesWhatsAppLine(Edge):
     enabled: bool = True
     calling_enabled: bool = False
     revision: int = 0
+    # Empty means unknown senders are not admitted. Members stay on the
+    # verified personal-number path either way.
+    public_profile_key: str = ""
     bidirectional: bool = False
 
 

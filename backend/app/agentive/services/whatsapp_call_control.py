@@ -8,7 +8,10 @@ from typing import Any, Optional
 
 import httpx
 
-from app.agentive.services.whatsapp_call_admission import admit_whatsapp_caller
+from app.agentive.services.whatsapp_call_admission import (
+    admit_whatsapp_caller,
+    admit_whatsapp_visitor_caller,
+)
 from app.config import settings
 from app.exceptions import BadRequestError
 from app.schemas.agentive.whatsapp_call import (
@@ -310,20 +313,26 @@ async def _perform_jvvoice(
 
 
 def _voice_service(binding) -> tuple[str, str]:
-    """Prefer the line's saved jvvoice URL and key, then deployment settings."""
+    """Use the line's jvvoice URL and key.
+
+    A saved URL or ciphertext that cannot both be used fails closed. It does
+    not fall through to the deployment ``JVVOICE_*`` settings.
+    """
     if binding is not None:
         url = (getattr(binding, "jvvoice_base_url", "") or "").strip().rstrip("/")
         ciphertext = getattr(binding, "jvvoice_api_key_ciphertext", "") or ""
-        key = ""
-        if ciphertext:
-            from app.services.credential_crypto import decrypt_secret_from_storage
+        if url or ciphertext:
+            key = ""
+            if ciphertext:
+                from app.services.credential_crypto import decrypt_secret_from_storage
 
-            try:
-                key = decrypt_secret_from_storage(ciphertext, aad=binding.id)
-            except Exception:
-                key = ""
-        if url and key:
-            return url, key
+                try:
+                    key = decrypt_secret_from_storage(ciphertext, aad=binding.id)
+                except Exception:
+                    key = ""
+            if url and key:
+                return url, key
+            return "", ""
     return (
         (settings.JVVOICE_BASE_URL or "").strip().rstrip("/"),
         settings.JVVOICE_API_KEY or "",
@@ -477,6 +486,22 @@ class _GraphCallReceipts:
         )
 
 
+def _visitor_ready_workspaces(grants: list) -> tuple[str, ...]:
+    """Workspaces whose public profile may answer a call. Names stay out."""
+    ready = []
+    for grant in grants:
+        if not getattr(grant, "enabled", False):
+            continue
+        if not getattr(grant, "calling_enabled", False):
+            continue
+        if not getattr(grant, "public_profile_ready", False):
+            continue
+        workspace_id = str(getattr(grant, "workspace_id", "") or "").strip()
+        if workspace_id:
+            ready.append(workspace_id)
+    return tuple(ready)
+
+
 def _admission_inputs(binding, identities: list, grants: list) -> dict:
     """Turn already-loaded identities and grants into pure-function inputs."""
     if len(identities) > 1:
@@ -515,6 +540,25 @@ def _admission_inputs(binding, identities: list, grants: list) -> dict:
         "ambiguous_workspace": ambiguous_workspace,
         "principal_id": principal_id,
     }
+
+
+def _line_answer_still_holds(binding, parsed, identities, grants, admission) -> bool:
+    """True when a fresh read still answers this caller on this line."""
+    if (parsed.phone_number_id or "") != (
+        getattr(binding, "phone_number_id", "") or ""
+    ):
+        return False
+    if not (admission.principal_id or "").strip():
+        return False
+    fresh = admit_whatsapp_caller(
+        parsed.caller, **_admission_inputs(binding, identities, grants)
+    )
+    return (
+        fresh.decision == "answer"
+        and fresh.principal_id == admission.principal_id
+        and fresh.workspace_id == admission.workspace_id
+        and fresh.verified_e164 == admission.verified_e164
+    )
 
 
 async def _record_call(
@@ -561,6 +605,7 @@ async def handle_whatsapp_call(
     http_client: Optional[httpx.AsyncClient] = None,
     receipt_store=None,
     access_token_in_hand: str = "",
+    reload_call_inputs=None,
 ) -> dict:
     """Admit one calls payload, then accept, refuse, or hang up an accepted id."""
     if not parsed.is_calls:
@@ -592,9 +637,46 @@ async def handle_whatsapp_call(
     # pass the empty find and both accept.
     if existing or not _claim_process_call(parsed.call_id):
         return {"ok": True}
+    if (parsed.phone_number_id or "") != (
+        getattr(binding, "phone_number_id", "") or ""
+    ):
+        await _record_call(store, binding, parsed, "refused", "line_mismatch")
+        if access_token_in_hand:
+            await disconnect_jvvoice_call(
+                whatsapp_call_id=parsed.call_id,
+                whatsapp_api_key=access_token_in_hand,
+                client=http_client,
+                binding=binding,
+            )
+        logger.info("whatsapp call refused reason=line_mismatch")
+        return {"ok": True}
     admission = admit_whatsapp_caller(
         parsed.caller, **_admission_inputs(binding, identities, grants)
     )
+    if admission.decision != "answer" and admission.reason in {
+        "caller_mismatch",
+        "no_verified_number",
+    }:
+        visitor = admit_whatsapp_visitor_caller(
+            parsed.caller,
+            line_enabled=bool(getattr(binding, "enabled", False)),
+            ready_workspace_ids=_visitor_ready_workspaces(grants),
+        )
+        if visitor.decision == "answer":
+            # No tool-free speech session exists outside native voice.
+            # Refuse instead of accepting the call into that session.
+            await _record_call(
+                store, binding, parsed, "refused", "visitor_voice_unavailable"
+            )
+            if access_token_in_hand:
+                await disconnect_jvvoice_call(
+                    whatsapp_call_id=parsed.call_id,
+                    whatsapp_api_key=access_token_in_hand,
+                    client=http_client,
+                    binding=binding,
+                )
+            logger.info("whatsapp call refused reason=visitor_voice_unavailable")
+            return {"ok": True}
     if admission.decision != "answer":
         await _record_call(store, binding, parsed, "refused", admission.reason)
         if access_token_in_hand:
@@ -605,6 +687,17 @@ async def handle_whatsapp_call(
                 binding=binding,
             )
         logger.info("whatsapp call refused reason=%s", admission.reason)
+        return {"ok": True}
+    if not (admission.principal_id or "").strip():
+        await _record_call(store, binding, parsed, "refused", "no_principal")
+        if access_token_in_hand:
+            await disconnect_jvvoice_call(
+                whatsapp_call_id=parsed.call_id,
+                whatsapp_api_key=access_token_in_hand,
+                client=http_client,
+                binding=binding,
+            )
+        logger.info("whatsapp call refused reason=no_principal")
         return {"ok": True}
     token = await _calling_token(binding, jvconnect_api_key, http_client)
     if not token:
@@ -632,7 +725,11 @@ async def handle_whatsapp_call(
     # phone socket. A status other than connected discards it. This does not
     # open that socket or wait for a model.
     try:
-        fields = await bind_phone_accept(admission, parsed.call_id)
+        fields = await bind_phone_accept(
+            admission,
+            parsed.call_id,
+            binding_id=getattr(binding, "id", "") or "",
+        )
     except ValueError:
         discard_relay_bearer(parsed.call_id)
         await _record_call(store, binding, parsed, "failed", "thread_mismatch")
@@ -644,6 +741,20 @@ async def handle_whatsapp_call(
         discard_relay_bearer(parsed.call_id)
         await _record_call(store, binding, parsed, "failed", "relay_url_unavailable")
         logger.warning("whatsapp call relay url unavailable")
+        return {"ok": True}
+    if reload_call_inputs is not None:
+        identities, grants = await reload_call_inputs(binding)
+    if not _line_answer_still_holds(binding, parsed, identities, grants, admission):
+        discard_relay_bearer(parsed.call_id)
+        await _record_call(store, binding, parsed, "refused", "admission_changed")
+        if token:
+            await disconnect_jvvoice_call(
+                whatsapp_call_id=parsed.call_id,
+                whatsapp_api_key=token,
+                client=http_client,
+                binding=binding,
+            )
+        logger.info("whatsapp call refused reason=admission_changed")
         return {"ok": True}
     accepted = await accept_jvvoice_call(
         whatsapp_call_id=parsed.call_id,

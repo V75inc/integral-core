@@ -139,6 +139,33 @@ async def _published_persona(assignment: ExternalChatAssignment) -> str:
     return _text(published.get("persona", ""), _MAX_PERSONA, empty_ok=True)
 
 
+def public_text_model_input(
+    persona: str,
+    history: tuple[tuple[str, str], ...],
+    visitor_text: str,
+) -> WebChatModelInput:
+    """Build the tool-free public prompt. It carries no ids, tools, or grants."""
+    if not isinstance(history, tuple) or len(history) > MAX_HISTORY_EXCHANGES:
+        raise ValueError("Invalid public text history")
+    pairs = []
+    total = 0
+    for item in history:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise ValueError("Invalid public text history")
+        visitor = _text(item[0], _MAX_INPUT)
+        assistant = _text(item[1], _MAX_REPLY)
+        total += len(visitor) + len(assistant)
+        if total > MAX_HISTORY_CHARACTERS:
+            raise ValueError("Invalid public text history")
+        pairs.append((visitor, assistant))
+    return WebChatModelInput(
+        _SYSTEM,
+        _text(persona, _MAX_PERSONA, empty_ok=True),
+        tuple(pairs),
+        _text(visitor_text, _MAX_INPUT),
+    )
+
+
 def _readback(turn: PreparedWebChatTurn) -> WebChatTextResult:
     claim = turn.claim
     if claim.state == "replayed" and claim.reply is not None:

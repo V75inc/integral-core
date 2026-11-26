@@ -21,7 +21,6 @@ _TEXT_ONLY_NOTICE = "Text only for now"
 # Missed-call leftovers in ``messages`` are not user media. Do not send the
 # text-only notice for them. Image, audio, and other media stay ``non_text``.
 _CALL_SIGNAL_TYPES = frozenset({"call", "system", "unsupported", "unknown"})
-_LINK_NOTICE = "Link your number in Integral settings"
 _LINKED_NOTICE = "Number linked. Send a message to continue."
 _NO_WORKSPACE_NOTICE = (
     "This number isn't a member of a workspace on this WhatsApp line."
@@ -430,8 +429,16 @@ async def _dispatch_verified(binding, envelope) -> dict:
         return {"ok": True}
     identity = await _verified_sender(envelope.sender_id)
     if identity is None:
+        from app.agentive.services.whatsapp_public_profile import unknown_sender_reply
+
         await _show_typing(binding, envelope.message_id)
-        await _send_notice_and_store(binding, envelope, _LINK_NOTICE, "text")
+        body = await unknown_sender_reply(
+            binding,
+            envelope.sender_id,
+            envelope.text or "",
+            event_id=envelope.message_id,
+        )
+        await _send_notice_and_store(binding, envelope, body, "text")
         return {"ok": True}
     principal = await _sender_principal(identity)
     workspaces = await _accessible_workspaces(binding, principal) if principal else []
@@ -522,11 +529,21 @@ async def _load_call_inputs(binding):
         grant = await workspace_line_grant(workspace.id, binding.id)
         if grant is None or not getattr(grant, "enabled", False):
             continue
+        profile_key = (getattr(grant, "public_profile_key", "") or "").strip()
+        profile_ready = False
+        if profile_key and bool(getattr(grant, "calling_enabled", False)):
+            from app.agentive.services.whatsapp_public_profile import (
+                public_profile_is_live,
+            )
+
+            profile_ready = await public_profile_is_live(workspace.id, profile_key)
         grants.append(
             SimpleNamespace(
                 workspace_id=workspace.id,
                 enabled=True,
                 calling_enabled=bool(getattr(grant, "calling_enabled", False)),
+                public_profile_key=profile_key,
+                public_profile_ready=profile_ready,
             )
         )
     return identities, grants
@@ -570,10 +587,8 @@ async def receive_whatsapp_webhook(
     payload_dict = payload if isinstance(payload, dict) else {}
     parsed_call = parse_whatsapp_call(payload_dict)
     if parsed_call.is_calls:
-        if load_call_inputs is None:
-            identities, grants = await _load_call_inputs(binding)
-        else:
-            identities, grants = await load_call_inputs(binding)
+        loader = load_call_inputs if load_call_inputs is not None else _load_call_inputs
+        identities, grants = await loader(binding)
         store = receipt_store if receipt_store is not None else _GraphCallReceipts()
         return await handle_whatsapp_call(
             binding,
@@ -583,6 +598,7 @@ async def receive_whatsapp_webhook(
             jvconnect_api_key=read_api_key(binding),
             http_client=http_client,
             receipt_store=store,
+            reload_call_inputs=loader,
         )
     envelope = parse_whatsapp_envelope(payload_dict)
     return await _dispatch_verified(binding, envelope)

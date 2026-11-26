@@ -276,6 +276,14 @@ async def phone_voice(socket: WebSocket):
             return
         _active_calls.add(principal)
         claimed = True
+        if record.get("binding_id"):
+            from app.agentive.services.whatsapp_voice_bridge import (
+                confirm_phone_line,
+            )
+
+            if not await confirm_phone_line(record):
+                await socket.close(code=4403)
+                return
         credential = await resolve_realtime_credential(record["workspace_id"])
         if credential is None:
             await socket.close(code=4404)

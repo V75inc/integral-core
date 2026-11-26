@@ -242,7 +242,10 @@ profile. Public projection and inquiry behavior belongs to the owning App.
 
 The existing personal WhatsApp path remains separate and uses verified linked
 identities, current workspace access, native threads and existing approval
-decisions. Public/staff connection provisioning, durable restricted sessions,
+decisions. A sender with no verified identity may use the workspace grant's
+published public profile when that profile is still tool-free and live. That
+visitor session is not a staff identity, does not open native voice, and does
+not apply to a linked member. Public/staff connection provisioning, durable restricted sessions,
 policy enforcement across native deferred execution and operational rollout
 remain later milestones; this service does not silently apply restrictions to
 existing native sessions.

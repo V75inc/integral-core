@@ -145,6 +145,7 @@ def mint_relay_bearer(
     workspace_id: str,
     thread_id: str,
     channel_session: str = "",
+    binding_id: str = "",
 ) -> str:
     """Mint one bearer bound to this call. The token is not written to a record."""
     token = secrets.token_urlsafe(32)
@@ -154,6 +155,7 @@ def mint_relay_bearer(
         "workspace_id": workspace_id,
         "thread_id": thread_id,
         "channel_session": channel_session,
+        "binding_id": binding_id,
     }
     return token
 
@@ -203,7 +205,30 @@ def discard_relay_bearer(call_id: str) -> None:
         _relay_bearers.pop(token, None)
 
 
-async def bind_phone_accept(admission: CallerAdmission, call_id: str) -> dict:
+async def confirm_phone_line(record: dict) -> bool:
+    """Reload the workspace line before the phone socket opens a model upstream."""
+    binding_id = (record.get("binding_id") or "").strip()
+    principal_id = (record.get("principal_id") or "").strip()
+    workspace_id = (record.get("workspace_id") or "").strip()
+    if not binding_id or not principal_id or not workspace_id:
+        return False
+    from app.agentive.nodes import WhatsAppChannelBinding
+    from app.agentive.services.whatsapp_channel_binding import workspace_line_grant
+
+    binding = await WhatsAppChannelBinding.get(binding_id)
+    if binding is None or not getattr(binding, "enabled", False):
+        return False
+    grant = await workspace_line_grant(workspace_id, binding.id)
+    return bool(
+        grant is not None
+        and getattr(grant, "enabled", False)
+        and getattr(grant, "calling_enabled", False)
+    )
+
+
+async def bind_phone_accept(
+    admission: CallerAdmission, call_id: str, *, binding_id: str = ""
+) -> dict:
     """Mint the accept fields for one admitted owner. Does not open a socket."""
     scope = await phone_voice_scope(admission)
     token = mint_relay_bearer(
@@ -212,6 +237,7 @@ async def bind_phone_accept(admission: CallerAdmission, call_id: str) -> dict:
         workspace_id=admission.workspace_id,
         thread_id=scope.thread,
         channel_session=scope.channel_session,
+        binding_id=binding_id,
     )
     return {
         "bridge": "integral_native",

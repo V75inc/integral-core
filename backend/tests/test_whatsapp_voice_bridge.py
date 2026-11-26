@@ -1451,6 +1451,55 @@ async def test_phone_socket_rejects_a_bearer_without_opening_upstream(
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_phone_socket_rechecks_the_line_before_opening_upstream(monkeypatch):
+    """A bearer whose line is no longer calling-enabled does not open upstream."""
+    from fastapi import FastAPI
+    from starlette.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    from app.agentive.api import native_voice
+    from app.agentive.services import whatsapp_voice_bridge as bridge
+
+    _reset_phone_hangups()
+    native_voice._active_calls.clear()
+    token = bridge.mint_relay_bearer(
+        call_id="wacid.1",
+        principal_id="user-1",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        binding_id="binding-1",
+    )
+
+    async def open_fake(_credential):
+        raise AssertionError("upstream opened")
+
+    async def line_disabled(_record):
+        return False
+
+    async def spy_hangup(_call_id, **_kwargs):
+        return None
+
+    monkeypatch.setattr(bridge, "hang_up_phone_call", spy_hangup)
+    monkeypatch.setattr(bridge, "confirm_phone_line", line_disabled)
+    monkeypatch.setattr(native_voice, "open_upstream", open_fake)
+    api = FastAPI()
+    api.include_router(native_voice.router)
+    try:
+        with TestClient(api) as client:
+            with client.websocket_connect(
+                "/ws/phone-voice",
+                headers={"x-integral-phone-bearer": token},
+            ) as socket:
+                with pytest.raises(WebSocketDisconnect):
+                    socket.receive_json()
+        assert native_voice.principal_has_live_call("user-1") is False
+    finally:
+        _reset_phone_hangups()
+        native_voice._active_calls.clear()
+
+
+@pytest.mark.unit
 def test_phone_voice_attaches_the_relay_and_hangs_up_on_close(monkeypatch):
     """A started phone socket registers the call and hangs it up when it closes."""
     import threading

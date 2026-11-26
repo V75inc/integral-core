@@ -79,3 +79,33 @@ def admit_whatsapp_caller(
         workspace_id=workspace,
         principal_id=principal_id or "",
     )
+
+
+def admit_whatsapp_visitor_caller(
+    caller: str,
+    *,
+    line_enabled: bool,
+    ready_workspace_ids: tuple[str, ...] = (),
+) -> CallerAdmission:
+    """Admit an unknown caller to one live public profile. No I/O.
+
+    ``ready_workspace_ids`` are already limited to enabled grants whose
+    calling flag is on and whose public profile is still live. This does
+    not select a member, a staff profile, or a native voice session.
+    """
+    if not (caller or "").strip():
+        return _refuse("empty_caller")
+    if not _comparable_e164(caller):
+        return _refuse("invalid_caller")
+    if not line_enabled:
+        return _refuse("line_disabled")
+    ready = tuple(workspace for workspace in ready_workspace_ids if workspace)
+    if len(ready) > 1:
+        return _refuse("ambiguous_public_profile")
+    if len(ready) != 1:
+        return _refuse("no_public_profile")
+    return CallerAdmission(
+        decision="answer",
+        reason="public_profile",
+        workspace_id=ready[0],
+    )

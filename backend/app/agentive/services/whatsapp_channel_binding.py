@@ -272,6 +272,60 @@ async def set_workspace_line_enabled(
         await grant.save()
 
 
+async def assign_workspace_line_public_profile(
+    user_id: str,
+    workspace_id: str,
+    grant_id: str,
+    route_epoch: str,
+    expected_profile_revision: int,
+    profile_key: str | None,
+) -> None:
+    """Store one public profile on a disabled grant, or clear it.
+
+    Enabling the line is a separate action. An enabled grant cannot change
+    its public profile until the line is disabled.
+    """
+    from app.agentive.services import profile_management
+    from app.agentive.services.public_web_chat import eligible_publication
+
+    await _require_line_admin(user_id, workspace_id)
+    async with _workspace_line_write(workspace_id):
+        binding = await binding_for_workspace(workspace_id)
+        grant = (
+            await workspace_line_grant(workspace_id, binding.id) if binding else None
+        )
+        if (
+            grant is None
+            or grant.id != grant_id
+            or workspace_line_epoch(binding, grant) != route_epoch
+            or (grant.enabled and binding.enabled)
+        ):
+            raise ResourceConflictError(
+                "WhatsApp grant changed. Refresh and try again."
+            )
+        found = await profile_management.record(workspace_id)
+        revision = found.revision if found is not None else 0
+        profiles = found.profiles if found is not None else {}
+        if revision != expected_profile_revision:
+            raise ResourceConflictError(
+                "WhatsApp grant changed. Refresh and try again."
+            )
+        if (
+            profile_key is not None
+            and eligible_publication(profiles, profile_key) is None
+        ):
+            raise ResourceConflictError(
+                "Select a published public profile without tool capabilities"
+            )
+        stored = profile_key or ""
+        current = (getattr(grant, "public_profile_key", "") or "").strip()
+        if current == stored:
+            return
+        grant.public_profile_key = stored
+        grant.revision += 1
+        await grant.save()
+
+
 async def set_workspace_line_calling_enabled(
     user_id: str,
     workspace_id: str,
@@ -305,6 +359,12 @@ async def set_workspace_line_calling_enabled(
         return binding, grant, status
 
 
+def voice_key_last4(key: str) -> str:
+    """Return the last four characters. A shorter key is not shown at all."""
+    text = (key or "").strip()
+    return text[-4:] if len(text) >= 4 else ""
+
+
 async def set_workspace_line_voice_service(
     user_id: str,
     workspace_id: str,
@@ -335,7 +395,7 @@ async def set_workspace_line_voice_service(
                 binding.jvvoice_api_key_ciphertext = encrypt_secret_for_storage(
                     key, aad=binding.id
                 )
-                binding.jvvoice_api_key_last4 = key[-4:] if len(key) >= 4 else key
+                binding.jvvoice_api_key_last4 = voice_key_last4(key)
             elif not getattr(binding, "jvvoice_api_key_ciphertext", ""):
                 raise BadRequestError(message="Enter the jvvoice API key")
         binding.updated_at = utc_now_iso()

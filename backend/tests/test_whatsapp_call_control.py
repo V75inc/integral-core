@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from app.agentive.services.whatsapp_call_control import (
     ParsedWhatsAppCall,
+    _voice_service,
     accept_jvvoice_call,
     disconnect_jvvoice_call,
     handle_whatsapp_call,
@@ -243,6 +244,27 @@ def _reset_process_call_claims():
     clear_process_call_claims()
     endpoint._active_calls.clear()
     endpoint._active_calls.update(saved)
+
+
+@pytest.mark.unit
+def test_incomplete_line_voice_service_does_not_use_deployment_defaults(
+    jvvoice_settings,
+):
+    """A saved URL without a usable key does not call the deployment host."""
+    url_only = SimpleNamespace(
+        id="binding-1",
+        jvvoice_base_url="https://line.example.test",
+        jvvoice_api_key_ciphertext="",
+    )
+    broken = SimpleNamespace(
+        id="binding-1",
+        jvvoice_base_url="https://line.example.test",
+        jvvoice_api_key_ciphertext="v1:not-valid",
+    )
+
+    assert _voice_service(url_only) == ("", "")
+    assert _voice_service(broken) == ("", "")
+    assert _voice_service(None) == (_JVVOICE, _JVVOICE_KEY)
 
 
 @pytest.mark.unit
@@ -783,6 +805,67 @@ async def test_signed_text_still_uses_the_text_dispatcher(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_visitor_call_does_not_enter_native_voice(monkeypatch, jvvoice_settings):
+    """A ready public profile refuses the call instead of opening native voice."""
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("visitor call entered native voice")
+
+    monkeypatch.setattr(
+        "app.agentive.services.whatsapp_voice_bridge.start_phone_relay", boom
+    )
+    monkeypatch.setattr("app.services.native_voice.authorize", boom)
+    monkeypatch.setattr(
+        "app.agentive.services.approval_decisions.decide_staged_write", boom
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"visitor call contacted {request.url}")
+
+    _result, seen, receipts, _binding, dispatched = await _receive(
+        monkeypatch,
+        _calls_payload(_offer_call(**{"from": "19995550000"})),
+        identities=[_owner_identity()],
+        grants=[_enabled_grant(public_profile_ready=True)],
+        handler=handler,
+    )
+
+    assert seen == []
+    assert dispatched["called"] is False
+    assert receipts.rows[0].status == "refused"
+    assert receipts.rows[0].last_error == "visitor_voice_unavailable"
+    assert "ws-" not in receipts.rows[0].last_error
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_owner_call_still_accepts_when_a_public_profile_is_ready(
+    monkeypatch, jvvoice_settings
+):
+    """A matching owner stays on the member relay when a public profile is set."""
+    accepts = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith("/calling/credentials"):
+            return httpx.Response(200, json={"access_token": _META_TOKEN})
+        accepts["n"] += 1
+        return httpx.Response(200, json={"status": "connected"})
+
+    _result, _seen, receipts, _binding, _dispatched = await _receive(
+        monkeypatch,
+        _actionable_call_payload(),
+        identities=[_owner_identity()],
+        grants=[_enabled_grant(public_profile_ready=True)],
+        handler=handler,
+    )
+
+    assert accepts["n"] == 1
+    assert receipts.rows[0].status == "accepted"
+    assert receipts.rows[0].last_error != "visitor_voice_unavailable"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_refused_caller_does_not_accept(monkeypatch, jvvoice_settings):
     """A mismatch records refused and does not fetch or accept."""
 
@@ -823,6 +906,99 @@ async def test_missing_calling_enabled_attribute_refuses(monkeypatch, jvvoice_se
 
     assert seen == []
     assert receipts.rows[0].status == "refused"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_call_for_another_line_is_refused(monkeypatch, jvvoice_settings):
+    """The payload phone number must be the bound line."""
+    binding = _call_binding()
+    binding.phone_number_id = "pn-other"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(request.url)
+
+    _result, seen, receipts, _binding, _dispatched = await _receive(
+        monkeypatch,
+        _actionable_call_payload(),
+        identities=[_owner_identity()],
+        grants=[_enabled_grant()],
+        handler=handler,
+        binding=binding,
+    )
+
+    assert seen == []
+    assert receipts.rows[0].status == "refused"
+    assert receipts.rows[0].last_error == "line_mismatch"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_answer_without_a_principal_is_refused(monkeypatch, jvvoice_settings):
+    """An identity with no user id is not accepted onto the phone relay."""
+    identity = _owner_identity()
+    identity.user_id = ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(request.url)
+
+    _result, seen, receipts, _binding, _dispatched = await _receive(
+        monkeypatch,
+        _actionable_call_payload(),
+        identities=[identity],
+        grants=[_enabled_grant()],
+        handler=handler,
+    )
+
+    assert seen == []
+    assert receipts.rows[0].status == "refused"
+    assert receipts.rows[0].last_error == "no_principal"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_calling_disabled_before_accept_does_not_post(
+    monkeypatch, jvvoice_settings
+):
+    """A grant that turns calling off after admission is not accepted."""
+    reads = {"n": 0}
+
+    async def load_call_inputs(_binding):
+        reads["n"] += 1
+        calling = reads["n"] == 1
+        return [_owner_identity()], [_enabled_grant(calling_enabled=calling)]
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if str(request.url).endswith("/calling/credentials"):
+            return httpx.Response(200, json={"access_token": _META_TOKEN})
+        if str(request.url).endswith("/api/calls/disconnect"):
+            return httpx.Response(200, json={"status": "disconnected"})
+        raise AssertionError(request.url)
+
+    binding = _call_binding()
+    find_bindings, _ignored, _dispatched = _install_webhook_fakes(
+        monkeypatch, binding, [_owner_identity()], [_enabled_grant()]
+    )
+    receipts = _MemoryReceipts()
+    raw = _raw(_actionable_call_payload())
+    async with _jvvoice_client(handler) as client:
+        result = await receive_whatsapp_webhook(
+            raw,
+            _hook_signature(raw),
+            find_bindings=find_bindings,
+            load_call_inputs=load_call_inputs,
+            http_client=client,
+            receipt_store=receipts,
+        )
+
+    assert result == {"ok": True}
+    assert reads["n"] == 2
+    assert receipts.rows[0].status == "refused"
+    assert receipts.rows[0].last_error == "admission_changed"
+    assert not any(url.endswith("/api/calls/accept") for url in seen)
 
 
 @pytest.mark.unit

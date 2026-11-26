@@ -6,8 +6,17 @@ import json
 import pytest
 
 from app.agentive.clients.jvconnect_whatsapp import JvconnectResult
+from app.agentive.services.whatsapp_channel_binding import voice_key_last4
 from app.config import settings
 from app.services.credential_crypto import decrypt_secret_from_storage
+
+
+@pytest.mark.unit
+def test_voice_key_last4_hides_short_keys():
+    """A key shorter than four characters is not returned as the last four."""
+    assert voice_key_last4("abcd") == "abcd"
+    assert voice_key_last4("abc") == ""
+    assert voice_key_last4("  voice-secret-key  ") == "-key"
 
 
 def _user_id(user) -> str:
@@ -907,3 +916,96 @@ async def test_managed_whatsapp_lifecycle_preserves_other_grants(
     assert kept.api_key_ciphertext == connection.api_key_ciphertext
     assert kept.webhook_secret_ciphertext == connection.webhook_secret_ciphertext
     assert len(calls["register"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_public_profile_assigns_only_while_the_line_is_disabled(
+    enc_key, test_user, authenticated_client, monkeypatch
+):
+    """A disabled grant stores one public profile. An enabled line rejects a change."""
+    from app.agentive.services.whatsapp_channel_binding import (
+        assign_workspace_line_public_profile,
+        binding_for_workspace,
+        create_whatsapp_channel_binding,
+        workspace_line_epoch,
+        workspace_line_grant,
+    )
+    from app.api.errors import ResourceConflictError
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    class _Record:
+        def __init__(self, workspace_id: str) -> None:
+            self.revision = 2
+            self.workspace_id = workspace_id
+            self.profiles = {
+                "greeter": {
+                    "published": {
+                        "key": "greeter",
+                        "name": "Greeter",
+                        "version": 1,
+                        "audience": "public",
+                        "tools": [],
+                        "persona": "Be brief.",
+                    }
+                }
+            }
+
+    async def record(workspace_id, *, create=False):
+        return _Record(workspace_id)
+
+    monkeypatch.setattr("app.agentive.services.profile_management.record", record)
+    workspace = await ensure_personal_workspace(test_user)
+    await create_whatsapp_channel_binding(
+        user_id=_user_id(test_user),
+        jvconnect_base_url="https://connect.example",
+        api_key="jvk_test_secret_value",
+        workspace_id=workspace.id,
+    )
+    binding = await binding_for_workspace(workspace.id)
+    grant = await workspace_line_grant(workspace.id, binding.id)
+    epoch = workspace_line_epoch(binding, grant)
+    headers = {"X-Integral-Scope": f"ws:{workspace.id}"}
+    params = {
+        "workspace_id": workspace.id,
+        "provision_id": grant.id,
+        "route_epoch": epoch,
+    }
+    described = await authenticated_client.get(
+        "/api/agentive/managed-channels/whatsapp/configuration",
+        headers=headers,
+        params=params,
+    )
+    assert described.status_code == 200, described.text
+    body = described.json()
+    assert body["profile_key"] is None
+    assert body["editable"] is True
+    assert body["eligible_profiles"] == [{"key": "greeter", "name": "Greeter"}]
+    assert "Be brief." not in described.text
+    assert "persona" not in body
+
+    await assign_workspace_line_public_profile(
+        _user_id(test_user),
+        workspace.id,
+        grant.id,
+        epoch,
+        2,
+        "greeter",
+    )
+    saved = await workspace_line_grant(workspace.id, binding.id)
+    assert saved.public_profile_key == "greeter"
+    assert saved.revision == grant.revision + 1
+
+    binding.enabled = True
+    await binding.save()
+    enabled_epoch = workspace_line_epoch(binding, saved)
+    with pytest.raises(ResourceConflictError):
+        await assign_workspace_line_public_profile(
+            _user_id(test_user),
+            workspace.id,
+            saved.id,
+            enabled_epoch,
+            2,
+            None,
+        )
+    unchanged = await workspace_line_grant(workspace.id, binding.id)
+    assert unchanged.public_profile_key == "greeter"

@@ -86,20 +86,37 @@ qualification. Never use request values or unreviewed modules as approvals.
 
 ## WhatsApp (JV Connect)
 
-**Settings → Connectors → Add Connector → WhatsApp (JV Connect)** opens an
-in-place dialog for the workspace line and personal number settings.
-Installed lines also open that dialog from their row in **Connected**. The catalogue ID is
-`whatsapp_jvconnect`, and `/settings#whatsapp` still opens the same panel.
-Connections keep their channel binding and identity records. A future direct
-Meta integration can use a separate definition and its own credentials.
+**Settings → Connectors** configures the workspace WhatsApp line. The catalogue
+ID is `whatsapp`, and `/settings#whatsapp` links back to Connectors. The line
+keeps its channel binding and identity records. A future direct Meta
+integration can use a separate definition and its own credentials.
 
-The same dialog sets calling on the workspace line (`calling_enabled`). Turning
-it on POSTs `{enabled}` to JV Connect `POST /api/v1/meta/whatsapp/calling/settings`
-so Meta Cloud calling matches the toggle. A JV Connect failure is 503 and the
-Integral edge stays unchanged. The dialog also GETs that route for the
-`ENABLED` / `DISABLED` pill. LiveKit URL and keys stay on the jvvoice host;
-Integral does not collect them. The Voice service panel stores a jvvoice HTTPS
-URL and API key for the line.
+Calling is stored on that workspace line (`calling_enabled`). Turning it on
+POSTs `{enabled}` to JV Connect
+`POST /api/v1/meta/whatsapp/calling/settings` so Meta Cloud calling matches
+the toggle. Integral saves the toggle with
+`PUT /api/agentive/channels/whatsapp/binding/calling`. A JV Connect failure
+is 503 and the Integral edge stays unchanged. The binding view reads that
+route for the `ENABLED` / `DISABLED` status. LiveKit URL and keys stay on
+the jvvoice host. The line's jvvoice HTTPS URL and API key are saved with
+`PUT /api/agentive/channels/whatsapp/binding/calling/service`. The key is
+stored encrypted and the view returns only the last four characters when the
+key is at least four characters. An incomplete URL and key pair does not fall
+back to the deployment `JVVOICE_*` settings. The Connectors package panel
+does not yet render these calling fields; operators set them on those routes
+until the shared settings renderer grows the matching `url` and `secret`
+fields.
+
+Configure can assign one published public profile on the workspace grant. The
+profile must have audience public and no tools. Saving it does not enable the
+line, and the picker stays locked while the line is enabled. Unknown senders
+on that line are answered with the tool-free public persona when exactly one
+enabled grant has a live profile. A verified member keeps the native thread
+and the owner's call. A pairing code still links the number. Several matching
+grants, or a caller who is not a member, do not fall through to the public
+profile. Visitor calls are refused rather than joined to signed-in voice. The
+phone number is not a user, and the line does not publish a website embed or
+full-page link.
 
 The workspace line is a singleton. Add and Configure use the existing binding
 PUT with an explicit expected binding ID. A null ID requires an empty workspace.
